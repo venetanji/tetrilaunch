@@ -42,6 +42,10 @@
  *    under rebar fires early and loses grades it aimed for.
  *  - Its flight estimate is a constant (TIMED_FLIGHT_STEPS), so a lob and a
  *    flat shot are timed the same. A human watching the arc does better.
+ *  - Its HOLD is the outermost wrapper (`strategyPilot`'s composition order),
+ *    so a held tick also holds the Bond Breaker `bondHands` would have fired.
+ *    A real player's thumb is not exclusive like that. Same direction as the
+ *    other two: the arm is handicapped, not helped.
  *
  * So a timed share this tool reports is a FLOOR on what a human reaches, and
  * the gap between the arms is a floor on the gap a human would see.
@@ -79,6 +83,15 @@ const buildName = get("--build") ?? "full";
 const skydeck = argv.includes("--skydeck");
 const jsonOut = argv.includes("--json");
 const mode = (get("--mode") ?? "arms") as "arms" | "burn" | "scrap" | "target";
+/** Which arm the burn table's deltas are measured AGAINST.
+ *
+ *  `timed` by default, and the default is the argument: the opportunity cost of
+ *  spending a bay's bankroll on extra rows is the DISCIPLINED play you gave up,
+ *  not the undisciplined one you were already not making. Measured against
+ *  `sweep` the loop reads "free" almost everywhere, and it is free — relative to
+ *  a pilot who was wasting the money anyway. `--baseline sweep` prints that
+ *  reading for anyone who wants "what does this cost against today's game". */
+const baselineArm = get("--baseline") ?? "timed";
 
 if (!PRIORITY_ORDERS[buildName]) {
   console.error(`Unknown --build "${buildName}" — available: ${Object.keys(PRIORITY_ORDERS).join(", ")}`);
@@ -197,30 +210,35 @@ function armsTable(): Row[] {
  * The owner's third ask, priced: *"there could be strategies where burning
  * money to make more lines gives more scrap"*. The loop only EXISTS as a
  * decision if it costs something, so the number this prints is the exchange
- * rate — funds given up per extra point of scrap — measured against the
- * `sweep` arm on identical seeds rather than against a model.
+ * rate — funds given up per extra point of scrap — measured on identical seeds
+ * against a stated arm (`--baseline`, see its note) rather than against a model.
  *
  * The comparison is paired and the denominator is the DIFFERENCE, which is the
- * whole point: a burn arm that simply cleared more lines for free would show an
- * infinite rate and the table would say so by printing "free", which is a
- * finding rather than a number.
+ * whole point: an arm that simply cleared more lines for free would show an
+ * infinite rate, and the table says so by printing "free" — a finding rather
+ * than a number.
  * ------------------------------------------------------------------------- */
 
 function burnTable(): void {
+  const base0 = ARMS.find((a) => a.name === baselineArm);
+  if (!base0) {
+    console.error(`Unknown --baseline "${baselineArm}" — available: ${ARMS.map((a) => a.name).join(", ")}`);
+    process.exit(1);
+  }
   console.log(
     `\n# Burning funds for scrap — exchange rate\nbuild=${buildName} seeds=${seedCount}`
-    + `${skydeck ? " SKYDECK (rung 11 economy)" : ""}\n`,
+    + ` baseline=${baselineArm}${skydeck ? " SKYDECK (rung 11 economy)" : ""}\n`,
   );
   console.log("| Mark | Bay | Arm | Win | Shots | Lines | Scrap | End$ | Δscrap | Δend$ | $/scrap |");
   console.log("|---|---|---|---|---|---|---|---|---|---|---|");
   for (const mark of marks) {
     for (const bay of bays) {
-      const base = playArm(mark, bay, ARMS[0]);
+      const base = playArm(mark, bay, base0);
       for (const arm of ARMS) {
         const r = playArm(mark, bay, arm);
         const dScrap = (r.scrap - base.scrap) / r.n;
         const dEnd = (r.endScore - base.endScore) / r.n;
-        const rate = arm.name === "sweep"
+        const rate = arm.name === baselineArm
           ? "—"
           : Math.abs(dScrap) < 0.05
             ? "n/a"

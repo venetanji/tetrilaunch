@@ -2858,8 +2858,8 @@ class App {
         telemetry.shot(info); void tapHaptic(); playFx("shoot");
         this.dismissDragHint(); this.dismissKeyHints(); this.coachOnShoot();
       },
-      onLineClear: (n) => {
-        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+      onLineClear: (n, g) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
         void successHaptic(); playLineClear(n); this.flashGoal(); this.coachOnLineClear();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
@@ -3363,8 +3363,8 @@ class App {
         telemetry.shot(info); void tapHaptic(); playFx("shoot");
         this.dismissDragHint(); this.dismissKeyHints();
       },
-      onLineClear: (n) => {
-        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+      onLineClear: (n, g) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
         void successHaptic(); playLineClear(n); this.flashGoal();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },

@@ -122,7 +122,14 @@ export interface ShotInfo {
 }
 
 export interface GameEvents {
-  onLineClear?: (lines: number) => void;
+  onLineClear?: (
+    lines: number,
+    /** THIS crush's timing bands (grades.ts). Passed rather than left to
+     *  be inferred from the bay's running tally, because the one question
+     *  a device pass has to answer — does a human reach the paying bands,
+     *  and when in a bay — is a question about individual clears. */
+    grades: GradeTally,
+  ) => void;
   onShoot?: (info: ShotInfo) => void;
   onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
@@ -1978,8 +1985,15 @@ export class Game {
       // to a player who happened to close their rows on the press and would
       // charge the grade twice.
       let awarded = 0;
+      // THIS clear's own bands, beside the bay's running total. Two tallies
+      // rather than a delta at the call site: the event below reports what one
+      // crush was, and the field reports what the bay has been, and a consumer
+      // that had to subtract one from the other would be re-deriving an event
+      // from a running sum.
+      const crush = newGradeTally();
       for (const row of clear.graded) {
         awarded += Math.round(gradedLinePay(this.level.scorePerLine, row.grade) * bonus);
+        crush[row.grade] += 1;
         this.gradeTally[row.grade] += 1;
       }
       this.score += awarded;
@@ -1991,7 +2005,7 @@ export class Game {
       // funds, VOLUME pays scrap, so a player who burns bankroll to manufacture
       // rows converts one currency into the other at a price the grade sets.
       this.scrapEarned += clear.lines * this.level.scrapPerLine;
-      this.events.onLineClear?.(clear.lines);
+      this.events.onLineClear?.(clear.lines, crush);
       this.spawnClearFx(clear, awarded, headlineGrade(clear.graded), now);
       // A MAXED Demolition Rack returns charges as rows close. Run against the
       // cumulative line count rather than this clear's delta so a four-line

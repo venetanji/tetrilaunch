@@ -439,9 +439,12 @@ nothing to them either, which would be a real finding about something we sell.
 Then: a human's shots-per-line, which sets the whole economy and which every
 balance number derived from the bots inherits the bots' badness at; whether the
 clock binds at all; how close to broke a bay really came, which an
-end-of-bay total hides; the abilities the bots never use; and the compactor
+end-of-bay total hides; the abilities the bots never use; the compactor
 window, which a shot count cannot see because "aim time" is two behaviours —
-aiming, and waiting for the bar — wearing one number.
+aiming, and waiting for the bar — wearing one number; and the **timing-grade
+band mix**, which `timing.ts`'s arms can only put a floor under (17–32% of rows
+in the paying bands). A human well under that floor is a mechanic nobody can
+see; a human well over it is a mechanic that has stopped being a choice.
 
 ## `ratchet-model.ts` — the difficulty model the sweeps share
 
@@ -799,6 +802,61 @@ as two separate measurements instead of one number for two rules.
 
 Flags: `--system`, `--aware`, `--mark`, `--bay`, `--ratchets`, `--seeds`,
 `--tiers`, `--build`, `--json`.
+
+## `timing.ts` — the timing grade, and the economy built on it
+
+`src/game/grades.ts` prices a row by WHEN it closed (excellent / good / swept /
+lucky, measured on the compactor's own two counters). That is only a design if
+two pilots who play differently land in different bands, and only a BALANCE
+claim if the band decides whether the bay clears. This tool answers both, plus
+the two economy questions that ride on them.
+
+**Three arms**, all on one bot and one aim search, so the difference between two
+rows is the policy and literally nothing else:
+
+| arm | is | measures |
+|---|---|---|
+| `sweep` | `naive` | today's pilot — fires the instant cooldown and purse allow |
+| `timed` | `timed` | holds fire until the shipment will land inside an advancing stroke |
+| `burn` | `naive` on the `impatient` preset | maximum volume, no patience |
+
+**Four modes:**
+
+```sh
+npx tsx sim/timing.ts --marks 4,8,10 --bays 1,5,10 --seeds 6
+npx tsx sim/timing.ts --mode target --marks 10 --bays 5,10 --seeds 6
+npx tsx sim/timing.ts --mode burn   --marks 10 --bays 5,10 --seeds 6
+npx tsx sim/timing.ts --mode scrap  --marks 10 --seeds 6 --skydeck
+```
+
+- **`arms`** (default) — the grade census: win rate, lines, shots and the four
+  bands' shares per (mark, bay, arm). Prints `End/Target`, which is **the wrong
+  statistic and is there to say so**: a bay opens its settle window the moment
+  the target is met, so every winning arm lands near 1.0 whatever it banked per
+  shot.
+- **`target`** — the one that chooses a number. Multiplies the bay's own target
+  and nothing else, and reads the win rate per arm at each step. Margin has to
+  be measured by MOVING THE BAR, because of the saturation above.
+- **`burn`** — the funds→scrap exchange rate. Deltas are against `--baseline`
+  (default `timed`): the opportunity cost of manufacturing rows is the
+  disciplined play you gave up, not the undisciplined one you were not making.
+  `--baseline sweep` prints the other reading, in which the loop is free almost
+  everywhere — free relative to a pilot who was wasting the money anyway.
+- **`scrap`** — can the first refit stop sell a tier-3 rung? Reports rungs
+  afforded, which is the number that matters: one is a choice, five is a
+  shopping trip.
+
+Flags: `--marks`, `--bays`, `--seeds`, `--build`, `--skydeck`, `--mode`,
+`--baseline`, `--target-mults`, `--json`.
+
+**Two pessimism items of its own**, on top of `winnability.ts`'s standing
+ledger, and both run the same way: the `timed` arm predicts the bar at its
+NOMINAL speed (so a bay dragging under rebar fires early), and its flight
+estimate is one constant for every arc. Both cost the arm grades it aimed for,
+so a timed share reported here is a FLOOR on a human's.
+
+Results and the tuning argument: `design/balance/timed-clears.md`.
+Pictures of the callout: `sim/uifit/grade-shots.ts`.
 
 ## `perf.ts` — physics step-cost sweep
 

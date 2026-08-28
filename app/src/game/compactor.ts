@@ -262,11 +262,21 @@ export class Compactor {
       this.dir = -1;
     } else if (x <= this.leftX) {
       x = this.leftX;
-      // Guarded the same way the right stop is, and for the same reason: the
-      // bar sits pinned at a stop for one step before reversing, so an
-      // unguarded increment would tick twice on the arrival step and again on
-      // the departure one — and a half-cycle that ticks while the bar has not
-      // reversed is a grade clock that demotes a row nothing happened to.
+      // Guarded the same way the right stop above is, and stated honestly:
+      // BOTH guards are belt-and-braces, and a mutation test proved it. Nothing
+      // in the bar's own travel can re-enter a stop branch it has just left —
+      // one step after the clamp, `x` has moved off the stop by `pace` in the
+      // new direction — so removing either guard changes no behaviour any bay
+      // can produce, and the pin that watches this counter cannot see the
+      // difference (design/balance/timed-clears.md records the 0-failure
+      // result rather than hiding it).
+      //
+      // It stays because `dir` is WRITABLE FROM OUTSIDE — sim/systems.ts's row
+      // builder parks the bar at a stop and sets the direction by hand, which
+      // is precisely a stop entered with a direction the travel did not produce
+      // — and because the two stops are one rule: a clock that ticked on only
+      // one of them, or twice on one, is a different clock, and the grade's
+      // whole EXCELLENT/GOOD split is read off it.
       if (this.dir === -1) this.halfCycles += 1;
       this.dir = 1;
     }

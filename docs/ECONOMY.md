@@ -38,12 +38,21 @@ that bay downward for a new player and upward for a veteran. The ladder's own
 per-bay climb (`TARGET_PER_BAY`) is unchanged and rides on top — the tier sets
 where the climb starts and steepens it slightly.
 
-| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float | Spill fine, bay 1 → bay 10 |
-|---|---|---|---|---|---|---|
-| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 | $1 → $1 |
-| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 | $6 → $10 |
-| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 | $14 → $24 |
-| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 | $25 → $43 |
+| Tier | Target, bay 1 → bay 10 | per bay | premium | Clock | Launch | Float | Spill fine, bay 1 → bay 10 |
+|---|---|---|---|---|---|---|---|
+| 1 | $600 → $1500 | +$100 | — | 180s | $20 | $160 | $1 → $1 |
+| 3 | $640 → $1576 | +$104 | — | 172s | $22 | $176 | $6 → $10 |
+| 6 | $700 → $1690 | +$110 | — | 160s | $26 | $208 | $14 → $24 |
+| 8 | $740 → $1766 | +$114 | — | 152s | $28 | $224 | $20 → $34 |
+| 9 | $798 → $1894 | +$116 | ×1.05 | 148s | $29 | $232 | $22 → $38 |
+| 10 | $858 → $2026 | +$118 | ×1.10 | 144s | $30 | $240 | $25 → $43 |
+
+The **precision premium** is the top of the ladder asking for something the
+middle does not, and it only works because line payouts stopped being one number
+(see *Three currencies* below and `design/balance/timed-clears.md`). It is zero
+at and below tier 8 — every tier a player climbs through on the way up is
+byte-identical to the pre-grade game — and +5% a rung above it, reaching ×1.15
+on the Skydeck's eleventh rung.
 
 ### The spill fine rides the ladder too
 
@@ -120,7 +129,8 @@ Three things the ladder still deliberately does **not** touch:
   the sweep pinned the shot count, not the $200.
 - **`scorePerLine` stays tier-invariant** (100 + 10/bay). A higher tier is *more
   lines*, not richer ones — which is why the leaderboard is per tier now: a
-  shared board would rank the ladder rather than the play.
+  shared board would rank the ladder rather than the play. What a row is worth
+  now varies with the PLAY instead: the timing grade below multiplies it.
 - **Contracts and drills still charge nothing for a spill** (`levelForContract`
   and `levelForDrill` both zero the fine). A Contract has a tier, so the ramp
   *could* reach it — but it has no bankroll, no launch price and no funding
@@ -132,12 +142,21 @@ Three things the ladder still deliberately does **not** touch:
 
 | | Lifetime | Earned by | Spent on |
 |---|---|---|---|
-| **Funds `$`** | one bay | line payouts, bomb salvage | launches. Also the bay's own target. |
-| **Scrap `♻`** | one run | 2/line, 10/bay cleared (HALF of each on the Skydeck) | ship upgrades at refit stops |
+| **Funds `$`** | one bay | line payouts **graded by timing**, bomb salvage | launches. Also the bay's own target. |
+| **Scrap `♻`** | one run | 2/line, 10/bay cleared, UNGRADED (HALF of each on the Skydeck) | ship upgrades at refit stops |
 | **Salvage** | forever | tier milestones — each of the tier's three first-clear Contracts, and its Deep Run win | permanent installs and unlocks in the Workshop |
 
-They are deliberately **not** interchangeable. Funds are operating budget, scrap
-is capital, salvage is R&D. Banking a huge surplus never buys upgrades, and a
+**Skill pays funds, volume pays scrap.** The grade multiplies a row's payout and
+never its scrap, so the two currencies have orthogonal earners: a precise player
+banks money, a player who fires more shots banks capital, and the pilot who
+wants both has to choose which bay to spend which way. That is what makes
+"burn bankroll to manufacture rows for the refit yard" a strategy — measured at
+$6.60 a scrap in the mid ladder and $12.50–$28.60 at Tier 10, where a tier-3
+rung bought that way costs a third to a whole bay's target
+(`design/balance/timed-clears.md` §5).
+
+They are deliberately **not** interchangeable in the other direction. Funds are
+operating budget, scrap is capital, salvage is R&D. Banking a huge surplus never buys upgrades, and a
 rough bay you barely survive still moves the build forward. That separation is
 what keeps the three decisions distinct instead of collapsing into "get more
 money".

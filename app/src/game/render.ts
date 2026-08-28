@@ -2640,7 +2640,11 @@ const PAYOUT_GLOW = 16;
  *  and set above it because the money is the headline — the callout is the
  *  reason, and a bay full of shouted adjectives stops being readable. */
 const CALLOUT_FONT = "700 18px system-ui, sans-serif";
-const CALLOUT_GAP_PX = 22;
+/** Baseline-to-baseline, so the 18px word clears the 30px number's cap height
+ *  with air left over. 22 was drawn first and the shot showed the two rows
+ *  touching (sim/uifit/grade-shots.ts) — legible, but reading as one block
+ *  rather than as a label over a figure. */
+const CALLOUT_GAP_PX = 26;
 
 function drawPayoutFx(
   ctx: CanvasRenderingContext2D,

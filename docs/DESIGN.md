@@ -398,12 +398,21 @@ directions: the bottom of the ladder is a genuinely gentler bay than the game ha
 ever shipped, and the top asks for meaningfully more. The ladder's own per-bay
 climb (`TARGET_PER_BAY`) rides on top and the tier steepens it a little.
 
-| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float |
-|---|---|---|---|---|---|
-| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 |
-| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 |
-| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 |
-| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 |
+| Tier | Target, bay 1 → bay 10 | per bay | premium | Clock | Launch | Float |
+|---|---|---|---|---|---|---|
+| 1 | $600 → $1500 | +$100 | — | 180s | $20 | $160 |
+| 3 | $640 → $1576 | +$104 | — | 172s | $22 | $176 |
+| 6 | $700 → $1690 | +$110 | — | 160s | $26 | $208 |
+| 8 | $740 → $1766 | +$114 | — | 152s | $28 | $224 |
+| 9 | $798 → $1894 | +$116 | ×1.05 | 148s | $29 | $232 |
+| 10 | $858 → $2026 | +$118 | ×1.10 | 144s | $30 | $240 |
+| roof | $920 → $2162 | +$120 | ×1.15 | 144s | $31 | $248 |
+
+The **precision premium** in that column is the top of the ladder asking for
+something the middle does not, and it exists only because line payouts stopped
+being one number — see *Timing a row* below. It is zero at and below tier 8, so
+every tier a player climbs through on the way up is byte-identical to the game
+that shipped before it.
 
 Read it as the tier's *terms*, not its difficulty: the calibration above still
 holds that a bigger bar mostly buys duration, and what makes a bay bite is the
@@ -447,12 +456,51 @@ bar the tier states.
 Two consequences worth stating:
 
 - **`scorePerLine` is deliberately *not* tier-scaled** (it still ramps +$10 a
-  bay). So a higher tier is more lines, not richer lines — which is exactly why
+  bay, and the timing grade multiplies it — see below). So a higher tier is more
+  lines, not richer lines — which is exactly why
   the leaderboard is now **per tier** (`main.ts`'s `boardTier`, posted under the
   run's own Mark): a shared board would have ranked the ladder, not the play.
 - **The notch ladders already slide with the Mark** (`hazards.ts`'s
   `ladderStart`), so the tier states the bar and the ratchet states what
   hardening it costs — two curves that compose rather than one doing both jobs.
+
+### Timing a row — the grade that made the target raise possible
+
+The owner's report on the top of the ladder was that *"the maxed out systems
+carry you over and it's boring"*, and the fix they proposed was to raise the
+target. The calibration above says why that alone does not work: a bigger bar
+buys duration, because once income per line beats spend per line a competent
+player reaches any target given time.
+
+So income per line stopped being one number. Every cleared row is now **graded
+by when it closed**, measured on the compactor's own two counters — never on
+wall time, so `sim/` still reproduces a bay's money bit-for-bit at any frame
+rate (`game/grades.ts`):
+
+| band | the play | pays |
+|---|---|---|
+| **EXCELLENT** | the row closed inside the stroke that was already running when the shipment landed | ×1.5 |
+| **GOOD** | landed on the retreat, sold by the very next press | ×1.2 |
+| **SWEPT** | the press had to grind it flat — *lucky or planned?* | ×1.0 |
+| **LUCKY** | three sweeps or more after the cargo landed | ×0.7 |
+
+**SWEPT pays exactly 1**, and that anchor is what makes the ladder a *spread*
+around the existing economy rather than an inflation of it: a rig clearing
+mostly swept rows meets the money it always met. It is also the neutral band in
+the owner's own words.
+
+The premium and the grade are one change. A target the swept player cannot reach
+in the time available is a target the timed player still can — measured, at Tier
+10 bay 5, the swept arm falls from 100% to 67% across a ×1.10 raise while the
+timed arm holds 100% through ×1.25. The full tables, the flight-time probe, the
+funds→scrap exchange rate and four checked degeneracy cases are in
+`design/balance/timed-clears.md`.
+
+**Scrap is deliberately ungraded.** Skill pays funds, volume pays scrap — the
+two currencies get orthogonal earners, which is what makes "burn bankroll to
+manufacture rows for the refit yard" a real decision rather than a tax on the
+weaker player. It is also what re-opened the Skydeck's first refit stop, which
+was arithmetically dead: 51 scrap against a 55-scrap rung.
 
 ### What actually gets harder
 

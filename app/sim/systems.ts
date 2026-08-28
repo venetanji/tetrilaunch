@@ -58,7 +58,8 @@ import { ADAPTIVE_BOTS, aimBot, aimCandidates } from "./bots";
 import {
   cushionStrategy, incineratorAware, lanceStrategy, linerTriggerSpeed,
   naiveStrategy, slotCenterX, slotIsLined, slotOf, STRATEGIES, strategyHands, strategyPilot,
-  strikeStrategy,
+  strikeStrategy, pressPhaseAfter, shouldHoldForPress,
+  TIMED_FLIGHT_STEPS, TIMED_PRESS_MARGIN_STEPS,
 } from "./aim-strategies";
 import { loadoutFor, loadoutWithoutTrack, PRIORITY_ORDERS } from "./builds";
 import {
@@ -170,7 +171,8 @@ import {
   UI_SCALE_MIN,
 } from "../src/game/layout";
 import {
-  BAY_GLYPH_MATERIALS, glyphInk, MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
+  BAY_GLYPH_MATERIALS, COLORS, glyphInk, GRADE_CALLOUT, GRADE_COLOR,
+  MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
   PIECE_COLORS, PIECE_TYPES, type PieceSize,
 } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
@@ -15914,6 +15916,78 @@ section("Aiming strategies — three holes review found (sim/ — winnability, l
   }
 }
 
+section("Aiming strategies — the timed pilot reads the press (sim/aim-strategies.ts)");
+{
+  /* The `timed` arm is what makes design/balance/timed-clears.md a comparison
+   * rather than an assertion, so its one rule is pinned the way every other
+   * instrument here is. Both halves are exported FOR this — `pressPhaseAfter`
+   * takes a Game, `shouldHoldForPress` takes the phase it returns — so the rule
+   * can be checked against numbers instead of against a flown bay.
+   *
+   * The bar is a triangle wave between two stops at one speed, and the
+   * prediction is closed form rather than a simulated loop. A loop would be a
+   * second copy of `Compactor.update`'s stop-and-flip logic living in the
+   * harness; this checks the closed form against the REAL bar, driven step by
+   * step, which is the only comparison that can catch the copy drifting. */
+  const lvl = makeBaseLevel(0);
+  const phys = createPhysics(lvl);
+  const bar = new Compactor(phys.world, lvl);
+  const fake = { compactor: bar } as unknown as Parameters<typeof pressPhaseAfter>[0];
+
+  check("with no time elapsed the prediction is the bar's own state",
+    pressPhaseAfter(fake, 0)?.advancing === bar.pressing);
+
+  // Walk the bar and ask, at every step, where it will be N steps out — then
+  // walk it N steps and look. Two disagreements are two different bugs and the
+  // detail says which: a phase error shows as `advancing` flipping.
+  let wrong = 0;
+  let sampled = 0;
+  const LOOK = 40;
+  for (let i = 0; i < 900; i++) {
+    const predicted = pressPhaseAfter(fake, LOOK);
+    const probe = new Compactor(createPhysics(lvl).world, lvl);
+    // Put the probe where the real bar is, then let IT do the walking.
+    Matter.Body.setPosition(probe.body, { x: bar.x, y: probe.yCenter });
+    probe.dir = bar.dir;
+    for (let k = 0; k < LOOK; k++) probe.update();
+    if (predicted && predicted.advancing !== probe.pressing) wrong += 1;
+    sampled += 1;
+    bar.update();
+  }
+  check("the closed-form phase agrees with the bar actually walked forward",
+    wrong === 0, `${wrong} of ${sampled} steps disagreed`);
+
+  // THE RULE. Hold unless the shipment lands on an advance with room left.
+  check("a landing into a retreat is held for",
+    shouldHoldForPress({ advancing: false, advanceLeft: 0 }));
+  check("a landing at the very end of an advance is held for — the press cannot crush it",
+    shouldHoldForPress({ advancing: true, advanceLeft: 1 }));
+  check("a landing with a whole margin of advance ahead of it is taken",
+    !shouldHoldForPress({ advancing: true, advanceLeft: TIMED_PRESS_MARGIN_STEPS }));
+  check("...and one step under the margin is not",
+    shouldHoldForPress({ advancing: true, advanceLeft: TIMED_PRESS_MARGIN_STEPS - 1 }));
+  // A timing rule that cannot read the clock must NOT become a rule against
+  // firing — a degenerate bar would otherwise starve the pilot outright.
+  check("an unreadable bar holds nothing", !shouldHoldForPress(null));
+
+  // The flight constant is a MEASUREMENT (see its note: 71/74/75 steps median
+  // at bays 1/5/10). What is pinned is the relationship that makes the rule
+  // mean anything — the estimate has to be shorter than the stroke it is being
+  // timed into, or the pilot can never land inside one.
+  const half = (bar.rightX - bar.leftX) / bar.speed;
+  check("the flight estimate fits inside a stroke, or no shot could ever be EXCELLENT",
+    TIMED_FLIGHT_STEPS + TIMED_PRESS_MARGIN_STEPS < 2 * half,
+    `${TIMED_FLIGHT_STEPS} + ${TIMED_PRESS_MARGIN_STEPS} vs cycle ${(2 * half).toFixed(0)}`);
+  check("...and the arm is a NAMED policy a sweep can ask for by name",
+    STRATEGIES.timed !== undefined && STRATEGIES.timed.build(1).name === "timed");
+  check("...whose only hook is the hold, so it changes WHEN and never WHERE",
+    STRATEGIES.timed.build(1).target === undefined
+    && STRATEGIES.timed.build(1).select === undefined
+    && STRATEGIES.timed.build(1).abilities !== undefined);
+
+  Matter.Engine.clear(phys.engine);
+}
+
 section("Aiming strategies — the missing one is loud (sim/aim-strategies.ts)");
 {
   // The Incinerator is not on staging. A stub that behaved like `naive` would
@@ -16156,26 +16230,35 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
   // material section states: the claim is that the SHIPPED code path prices a
   // row by its landing, and a reimplementation of that path would prove nothing.
   const rowLevel = makeBaseLevel(0);
-  const buildGradedRow = (landedStroke: number, landedHalfCycle: number) => {
+  /** N stacked rows, each with its OWN landing stamp — row 0 is the floor row.
+   *  Multi-row is the case that matters and the single-row case is just N = 1:
+   *  a crush takes several rows at once and each is a separate sale, so a
+   *  builder that could only make one row could never catch a grade computed
+   *  across the whole crush. */
+  const buildGradedRows = (stamps: Array<[number, number]>) => {
     const phys = createPhysics(rowLevel);
     const compactor = new Compactor(phys.world, rowLevel);
     while (compactor.x < compactor.rightX) compactor.update();
     compactor.dir = 1; // the advancing stroke — the only one that clears
     const cubes: Cube[] = [];
-    const rowY = WORLD.height - CELL / 2;
-    for (let k = 0; k < rowLevel.compactorMinLineCells; k++) {
-      const body = Matter.Bodies.rectangle(
-        WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
-      );
-      Matter.Body.setVelocity(body, { x: 0, y: 0 });
-      Matter.Composite.add(phys.world, body);
-      cubes.push({
-        body, type: "O", color: "#fff", blinkStart: null,
-        material: "standard", struck: true, landedStroke, landedHalfCycle,
-      });
-    }
+    stamps.forEach(([landedStroke, landedHalfCycle], r) => {
+      const rowY = WORLD.height - CELL / 2 - r * CELL;
+      for (let k = 0; k < rowLevel.compactorMinLineCells; k++) {
+        const body = Matter.Bodies.rectangle(
+          WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+        );
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Composite.add(phys.world, body);
+        cubes.push({
+          body, type: "O", color: "#fff", blinkStart: null,
+          material: "standard", struck: true, landedStroke, landedHalfCycle,
+        });
+      }
+    });
     return { phys, compactor, cubes };
   };
+  const buildGradedRow = (landedStroke: number, landedHalfCycle: number) =>
+    buildGradedRows([[landedStroke, landedHalfCycle]]);
 
   const clearAt = (landedStroke: number, landedHalfCycle: number, clock: ClearClock) => {
     const r = buildGradedRow(landedStroke, landedHalfCycle);
@@ -16196,6 +16279,36 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
   }
   check("the same row three sweeps stale clears LUCKY",
     clearAt(6, 13, { stroke: 6 + LUCKY_SWEEPS, halfCycle: 30 }).graded[0].grade === "lucky");
+
+  /* A CRUSH IS SEVERAL SALES, and each row is priced on the cargo that filled
+   * ITS OWN slots.
+   *
+   * The pin that had to exist and did not: every check above builds ONE row, so
+   * a grade computed across the whole crush's removal set would pass all of
+   * them — proved by mutation, which came back 0 failures against a
+   * `newestLanding([...toRemove, ...filled])` that let a lower row's fresh
+   * shipment grade the stale rows above it.
+   *
+   * Two stacked rows with landings a run apart, cleared in one call. The floor
+   * row is FRESH (it is scanned first, while the removal set is still empty, so
+   * only the row above it can be corrupted) and the row above it is stale by a
+   * full LUCKY_SWEEPS. If the crush is graded as one thing, the stale row
+   * inherits the fresh one's landing and comes back EXCELLENT. */
+  {
+    const r = buildGradedRows([[9, 19], [2, 5]]);
+    const out = updateLineClear(
+      r.phys.world, r.cubes, r.compactor, rowLevel, [], { stroke: 9, halfCycle: 19 },
+    );
+    Matter.Engine.clear(r.phys.engine);
+    check("one crush takes both rows", out.lines === 2 && out.graded.length === 2,
+      `${out.lines} lines / ${out.graded.length} graded`);
+    check("...the floor row, closed on the press, sells EXCELLENT",
+      out.graded[0].grade === "excellent", out.graded[0].grade);
+    check("...and the stale row above it sells LUCKY, on ITS OWN cargo",
+      out.graded[1].grade === "lucky", out.graded[1].grade);
+    check("...so the two rows in one crush are NOT priced the same",
+      out.graded[0].grade !== out.graded[1].grade);
+  }
 
   // THE DETERMINISM CLAIM, checked the only way that means anything: the same
   // sim state at two different wall clocks must produce the same money. The
@@ -16246,6 +16359,49 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
     check("...by exactly the ladder, not by an approximation of it",
       exc === Math.round(rowLevel.scorePerLine * GRADE_PAY.excellent)
       && lucky === Math.round(rowLevel.scorePerLine * GRADE_PAY.lucky));
+  }
+
+  /* ---- THE FEEDBACK SURFACE ----------------------------------------------
+   *
+   * A grade the player cannot see is a rule they cannot learn, so the two
+   * places it is said out loud are pinned like any other copy here: the bay's
+   * callout and the end card's clause.
+   * --------------------------------------------------------------------- */
+  {
+    // Every band has a word, the words are the GRADE NAMES uppercased, and only
+    // the top one shouts. theme.ts's note argues that at length; this is the
+    // half that fails when someone gives LUCKY an exclamation mark.
+    const missing = GRADES.filter((g) => !GRADE_CALLOUT[g] || !GRADE_COLOR[g]);
+    check("every grade has a callout word and a colour", missing.length === 0, missing.join(","));
+    check("...each one distinct, or two bands read as one",
+      new Set(GRADES.map((g) => GRADE_CALLOUT[g])).size === GRADES.length);
+    check("...the words ARE the grade names, so the bay and the end card teach one vocabulary",
+      GRADES.every((g) => GRADE_CALLOUT[g].startsWith(g.toUpperCase())));
+    check("...and only the best band celebrates",
+      GRADE_CALLOUT.excellent.endsWith("!")
+      && !GRADE_CALLOUT.good.includes("!")
+      && !GRADE_CALLOUT.swept.includes("!")
+      && !GRADE_CALLOUT.lucky.includes("!"),
+      GRADES.map((g) => GRADE_CALLOUT[g]).join(" / "));
+    // The two bands that pay a premium share the payout's own green; the
+    // neutral one takes the aim cyan and the one that pays below takes the dim.
+    // Pinned as a RELATION rather than as three hex literals — the palette is
+    // free to move, the mapping is not.
+    check("the paying bands wear the payout colour and the losing one does not",
+      GRADE_COLOR.excellent === COLORS.trajectory && GRADE_COLOR.good === COLORS.trajectory
+      && GRADE_COLOR.swept !== COLORS.trajectory && GRADE_COLOR.lucky !== COLORS.trajectory);
+
+    // THE END CARD'S CLAUSE. Named bands only, and only when earned.
+    check("the end card names the two bands that paid a premium",
+      S.gradeBreakdownClause({ excellent: 6, good: 4, swept: 9, lucky: 2 })
+        === " · 6 excellent · 4 good",
+      S.gradeBreakdownClause({ excellent: 6, good: 4, swept: 9, lucky: 2 }));
+    check("...and drops a band nobody earned rather than printing a zero",
+      S.gradeBreakdownClause({ excellent: 0, good: 4, swept: 9, lucky: 2 }) === " · 4 good");
+    check("...and says nothing at all to a run that earned neither",
+      S.gradeBreakdownClause({ excellent: 0, good: 0, swept: 9, lucky: 2 }) === "");
+    check("...or to a caller that predates the mechanic",
+      S.gradeBreakdownClause(undefined) === "");
   }
 }
 
