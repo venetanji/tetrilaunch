@@ -27,7 +27,7 @@ import { makeBaseLevel } from "../../src/game/level";
 const BAY_1 = makeBaseLevel(0);
 import { newMeta, SLOT_BASE, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
-import { MARK_COUNT, MAX_TIER, newTiers, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
+import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
@@ -250,20 +250,20 @@ function inspection(selected: string | null): string {
  *  side exactly as main.ts's refitHTML does — the same call Undock makes — so
  *  the harness measures the real number of projection rows an order can grow
  *  rather than a hand-written guess at them. */
-function refit(order: RefitOrder): string {
+function refit(order: RefitOrder, over: { tiers?: UpgradeTiers; ratchets?: Ratchets; mark?: number } = {}): string {
   const run = {
-    ...newRun(20_260_815, [], 400, HUD_BASE.tiers as UpgradeTiers, 6),
+    ...newRun(20_260_815, [], 400, (over.tiers ?? HUD_BASE.tiers) as UpgradeTiers, over.mark ?? 6),
     levelIndex: 6,
     carry: 120,
     scrap: 340,
-    ratchets: HUD_BASE.ratchets,
+    ratchets: over.ratchets ?? HUD_BASE.ratchets,
   };
   return S.refitScreen({
     bayNum: 6,
     nextBayName: "Cryo Vault",
     scrap: run.scrap,
     tiers: run.tiers,
-    mark: 6,
+    mark: over.mark ?? 6,
     order,
     // No banked ratchets — main.ts's refitHTML passes none, and the reason it
     // does is a layout one, so a fixture that passed them would measure a
@@ -971,6 +971,29 @@ export const SCREENS: Record<string, () => string> = {
   // one track it cannot stage is the Demolition Rack, which is not installed,
   // so the fixture also holds the shelf's longest foot copy throughout.
   "refit-staged": () => refit({ bay: 1, launcher: 2, magazine: 1, reactor: 1, bonds: 2 }),
+  // THE STATE NO FIXTURE REACHED: a rig sitting at tier 2 on every track, and a
+  // belt carrying all six materials.
+  //
+  // Tier 2 is the only rung whose button offers the CAPSTONE, and the capstone
+  // is where the tracks' effect copy stopped being a phrase — "+2 charges,
+  // resupply, a wider blast and a better rate" on the Demolition Rack, "a
+  // deeper liner, and no launch sets one off inside it" on the Impact Cushion.
+  // HUD_BASE's rig is at 0, 1, 2 or 3 on each track and never at 2 on any of
+  // the three that carry that copy, so the shelf's widest button was measured
+  // nowhere on nineteen devices — which is how it reached a player's screenshot
+  // bursting out of the card with the description column beside it wrapped to
+  // one word per line. The buttons carry a price now (screens.ts's buy-button
+  // note); this is the fixture that holds them to it.
+  //
+  // Six material axes for the same reason on the panel beside the shelf: the
+  // belt tile's per-material breakdown is as wide as the run has materials, and
+  // HUD_BASE banks two. Mark 10, where all six axes are open, is where a rig
+  // this built actually is.
+  "refit-capstone": () => refit({}, {
+    tiers: Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers,
+    ratchets: { wind: 2, sweeper: 1, slag: 2, cryo: 1, rebar: 1, volatile: 1, tar: 1, magnetic: 1 },
+    mark: 10,
+  }),
 
   draft: () => draft([]),
   // The Skydeck's own draft, both states, for the same reason the ladder's

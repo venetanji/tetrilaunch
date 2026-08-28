@@ -35,11 +35,18 @@ export type IconName =
   // a hole where every other row has its mark.
   | "demo" | "bulk" | "survey" | "scrap-cache" | "micro"
   | "sturdy" | "overclock" | "short-lines" | "bond-breaker" | "auto"
-  // Direction of a value change on the refit buy button. These were the text
-  // glyphs ▲/▼, which sat off-centre against the pixel label beside them for
-  // exactly the reason in the header note: a font glyph carries the font's own
-  // metrics, and those do not line up with a different family at a different
-  // size. An SVG on a known 16x16 box does.
+  // Direction of a value change. These were the text glyphs ▲/▼, which sat
+  // off-centre against the pixel label beside them for exactly the reason in
+  // the header note: a font glyph carries the font's own metrics, and those do
+  // not line up with a different family at a different size. An SVG on a known
+  // 16x16 box does.
+  //
+  // They were drawn for the refit buy button, which no longer states a
+  // direction — it states a price (screens.ts's buy-button note). `up` outlived
+  // that: it marks a notched axis on a draft card and heads the bay-stat rows.
+  // `down` has no caller today and stays for the pair — a set with only half of
+  // an opposed pair is how the next surface that needs "worse" ends up
+  // improvising one.
   | "up" | "down"
   // The control glyphs (canvas B5): the touch rail — the PRIMARY control
   // surface on mobile — ran on ⛶⏸⟲⟳✕⚡💥, i.e. emoji and dingbats the

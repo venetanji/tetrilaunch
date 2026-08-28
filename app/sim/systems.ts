@@ -1173,6 +1173,54 @@ section("Installs — what salvage buys (meta.ts)");
     (staged.match(/refit-card__buy/g) ?? []).length === buyButtons(staged).length);
   check("a track with room left keeps offering the next rung",
     staged.includes(`data-action="stage-upgrade" data-upgrade="reactor"`));
+
+  // THE BUTTON CARRIES THE PRICE, NOT THE CHANGELOG.
+  //
+  // It used to carry both — a direction arrow, the rung's effect prose and the
+  // price — and the prose is unbounded copy on a bounded rail: the Demolition
+  // Rack's capstone reads "+2 charges, resupply, a wider blast and a better
+  // rate", which ellipsised at every width the app ships and still took the
+  // whole price track with it, collapsing the card's description column to one
+  // word per line on a landscape phone. The projection beside the shelf is
+  // where a rung's effect is already stated in the bay's own numbers, so the
+  // button states the one fact the panel cannot: what it costs.
+  //
+  // Asserted on a rig sitting at tier 2 on EVERY track, because that is the
+  // only state that reaches the capstone `step` copy the old button printed —
+  // no fixture and no default loadout ever did, which is why the harness never
+  // saw the overflow.
+  const capstoneTiers = Object.fromEntries(
+    UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers;
+  const buyControls = (html: string): string[] =>
+    html.match(/<button[^>]*refit-card__buy[\s\S]*?<\/button>/g) ?? [];
+  const labelOf = (btn: string): string =>
+    btn.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const capstone = yard({ tiers: capstoneTiers });
+  const stageLabels = buyControls(capstone)
+    .filter((b) => b.includes("stage-upgrade"))
+    .map(labelOf);
+  check("every capstone rung is on offer at tier 2", stageLabels.length === UPGRADES.length,
+    String(stageLabels.length));
+  check("a stage button says its tier and its price and nothing else",
+    stageLabels.every((l) => /^T\d\s*·\s*\d+$/.test(l)),
+    stageLabels.filter((l) => !/^T\d\s*·\s*\d+$/.test(l)).join(" | "));
+  // The undo is the same control in its other state, so it is exempt from the
+  // rule above and only from it: "Undo" is the verb that names the state, not a
+  // description of what the rung does. Its figure is a REFUND, which is why it
+  // keeps a word beside it — a bare "+90" on a shelf of prices reads as a cost.
+  // Ordered to MAX, which is the state that turns the control round: there is
+  // no rung left to stage, so the button becomes the way out.
+  const maxedOrder = yard({ tiers: { ...newTiers(), reactor: MAX_TIER - 1 }, order: { reactor: 1 } });
+  const undoLabel = labelOf(buyControls(maxedOrder).find((b) => b.includes("unstage")) ?? "");
+  check("the undo button names the state and the refund",
+    /^Undo(\s*×\d+)?\s*\+\s*\d+$/.test(undoLabel), undoLabel || "no undo button");
+  // The rung's effect still reaches the player — on the card's own before →
+  // after and in the ladder the card hangs in `title`. The button is the one
+  // place it no longer needs to be.
+  check("the ladder still reaches the card that sells it",
+    UPGRADES.every((u) => capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`)),
+    UPGRADES.filter((u) => !capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`))
+      .map((u) => u.id).join(","));
   check("a staged track shows what the order does to it",
     staged.includes(upgradeById("reactor")!.current(1)) &&
       staged.includes(upgradeById("reactor")!.current(2)));
@@ -1188,6 +1236,56 @@ section("Installs — what salvage buys (meta.ts)");
   for (const id of ["refit-grid", "refit-order", "refit-preview", "refit-foot"]) {
     check(`the yard mounts #${id} for the in-place patch`, oneUp.includes(`id="${id}"`));
   }
+
+  // THE RECAP IS WHERE THE CHANGE IS NOW READ, so what it renders is pinned on
+  // the screen and not only on preview.ts's rows. A bay carrying two materials
+  // and an order that moves numbers: the panel has to name every material the
+  // belt knows, with the glyph the player learns it by, and say how many of its
+  // own numbers the order moved.
+  const mixRun = { ...newRun(11, [], 500, newTiers(), 6), levelIndex: 6, ratchets: { slag: 2, cryo: 1 } as Ratchets };
+  const mixPreview = previewRows(
+    levelForRun(mixRun),
+    levelForRun(buyUpgrades({ ...mixRun, tiers: { ...newTiers(), reactor: 1 } }, { reactor: 1 }, MAX_TIER)
+      ?? mixRun),
+    mixRun.ratchets,
+  );
+  const recap = yard({ preview: mixPreview, order: { reactor: 1 } });
+  check("the recap breaks the belt down into one line per material",
+    (recap.match(/class="preview-mix__m/g) ?? []).length === 2,
+    String((recap.match(/class="preview-mix__m/g) ?? []).length));
+  for (const m of ["Slag", "Cryo"]) {
+    check(`the recap draws ${m} with the glyph the belt teaches`,
+      recap.includes(`aria-label="${m}"`));
+  }
+  check("the material lines ride inside ONE unit, not a tile each",
+    (recap.match(/class="preview-mix"/g) ?? []).length === 1,
+    String((recap.match(/class="preview-mix"/g) ?? []).length));
+  check("the recap counts the numbers the order moved",
+    /class="projection__moved">\d+ moved</.test(recap),
+    (recap.match(/class="projection__moved">[^<]*/) ?? ["absent"])[0]);
+  check("an order that moves nothing gets no moved count",
+    !yard({ preview: previewRows(levelForRun(mixRun), levelForRun(mixRun), mixRun.ratchets) })
+      .includes("projection__moved"));
+  // …AND THE DRAFT DOES NEITHER, which is the split screens.ts's `explains`
+  // states: a ratchet card names its material and spells out its notch, so a
+  // breakdown and a count there restate what the player is already holding,
+  // and both cost height on a screen whose body fits with nothing to spare.
+  // The yard's cards say what a system is and its buttons say what a rung
+  // costs — nothing on it says what the belt is made of.
+  const mixDraft = S.draftScreen({
+    bayNum: 7, tier: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 6, 10, 2, mixRun.ratchets),
+    ratchets: mixRun.ratchets, selected: ["slag"], picksNeeded: 2,
+    preview: previewRows(
+      levelForRun(mixRun),
+      levelForRun({ ...mixRun, ratchets: { ...mixRun.ratchets, slag: 3 } }),
+      mixRun.ratchets,
+    ),
+    scrap: 340, baysToRefit: 1,
+  });
+  check("the draft's own projection leaves the explaining to its cards",
+    !mixDraft.includes("preview-mix") && !mixDraft.includes("projection__moved"),
+    mixDraft.includes("preview-mix") ? "breakdown" : "moved count");
   // The scrap readout counts what is LEFT to stage against, not what the run
   // owns: every button on the shelf prices itself against the queue in front
   // of it, and a total that ignored the order would disable nothing.
@@ -3331,13 +3429,48 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   // ONE belt row, not one per material — the owner's device pass found a Tier
   // 10 material clause moving six tiles at once, two extra rows on the screen
   // that overflows first. The total is the number that prices the bay
-  // (belt.ts's ceiling: notches past it recompose rather than thicken); which
-  // material it is lives on the card being tapped.
+  // (belt.ts's ceiling: notches past it recompose rather than thicken).
   check("the belt row appears only once a content axis is picked",
     row(idle, "belt") === undefined && row(rowsFor(["cryo"]), "belt")!.changed);
   check("a second material moves the same one belt row",
     rowsFor(["cryo", "slag"]).filter((r) => r.id === "belt").length === 1
       && row(rowsFor(["cryo", "slag"]), "belt")!.changed);
+
+  // …AND THE COMPOSITION LIVES INSIDE THAT ONE ROW. Which material the total is
+  // made of used to be readable nowhere on this panel — the argument above only
+  // ever ruled out six more TILES, and the answer to "33% of what?" was the
+  // card the player happened to be holding. The row now carries a part per
+  // material, so the tile count is unchanged and the breakdown is a dense list
+  // inside the one unit that already prices the belt.
+  const mix2 = rowsFor(["cryo", "slag"]);
+  const beltRow = row(mix2, "belt")!;
+  check("the belt row breaks its total down by material",
+    (beltRow.parts ?? []).map((p) => p.id).join(",") === "slag,cryo",
+    (beltRow.parts ?? []).map((p) => p.id).join(","));
+  check("every part quotes a percentage on both sides",
+    (beltRow.parts ?? []).every((p) => /^\d+%$/.test(p.from) && /^\d+%$/.test(p.to)),
+    (beltRow.parts ?? []).map((p) => `${p.from}->${p.to}`).join(","));
+  check("a material the picks moved is flagged, and worse",
+    (beltRow.parts ?? []).every((p) => p.changed && p.tone === "worse"));
+  // A material with BANKED notches is on the list whatever the current
+  // selection does, and it says how many — the notch tally's own grammar
+  // (components.ts's runNotchTallyHTML), on the panel that prices the bay.
+  const bankedMix = { ...drafting, ratchets: { slag: 2 } as Ratchets };
+  const bankedBelt = row(
+    previewRows(levelForRun(bankedMix), levelForRun(bankedMix), bankedMix.ratchets), "belt")!;
+  check("a banked material stays on the belt list with nothing selected",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(",") === "slag",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(","));
+  check("a banked material quotes its notch count",
+    (bankedBelt.parts ?? [])[0]?.notches === 2,
+    String((bankedBelt.parts ?? [])[0]?.notches));
+  check("a material nothing has touched is not on the list",
+    (row(rowsFor(["cryo"]), "belt")!.parts ?? []).every((p) => p.id !== "tar"));
+  // Only the belt row breaks down: every other row is one number, and a `parts`
+  // list on one of them would be a second grammar for the same tile.
+  check("nothing but the belt carries parts",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(",") === "belt",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(","));
 
   // Two notches at Mark 10 project as one bay, not as two separate promises.
   const both = rowsFor(["cost", "time"]);

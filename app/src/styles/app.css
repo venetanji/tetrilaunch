@@ -5665,6 +5665,15 @@ body.crt-off #app::after { display: none; }
   color: var(--text-muted);
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* HOW MANY NUMBERS MOVED (screens.ts's projectionHTML) — inside the note, not
+   beside it, so the header keeps its one line and the count is the last thing
+   the ellipsis reaches. The note's own rule above is what makes that work.
+
+   Accent rather than a tone colour: it counts the moved rows without judging
+   them, and the tiles below are already carrying red and green for that. The
+   weight is the row's, not `b`'s — this header is pixel-face at 8px, where a
+   synthesised bold is mush rather than emphasis. */
+.projection__moved { color: var(--accent); font-weight: inherit; }
 /* What the panel is FOR, said in the space it is waiting to fill. Only the
    yard passes it (screens.ts's projectionHTML): a draft always has rows to
    show, a yard with nothing staged may hold only the bay's priced five. */
@@ -5713,6 +5722,44 @@ body.crt-off #app::after { display: none; }
    which is the whole thing this screen was failing to do. */
 .preview-stat__from { font-size: 12px; font-weight: 600; color: var(--text-muted); text-decoration: line-through; }
 .preview-stat__arrow { font-size: 11px; color: var(--text-dim); }
+
+/* THE BELT'S COMPOSITION, inside the belt tile (screens.ts's previewMixHTML).
+   One grid item still — the materials are a wrapping list of marks inside the
+   tile that already prices the belt, which keeps the six-tiles argument intact
+   (preview.ts's belt note) while answering "33% of WHAT".
+
+   IN the tile rather than spanning the grid, and that is a measurement rather
+   than a preference: `grid-column: 1 / -1` cannot share a grid row, so a
+   spanning belt tile costs a whole row wherever it lands — +78px on the
+   800x600 draft, where the list itself is 17. Wrapped inside its tile it costs
+   the lines it needs and nothing else: one at the two materials a mid run
+   carries, three at all six in the yard's 96px column. */
+.preview-mix {
+  display: flex; flex-wrap: wrap; gap: 0 8px;
+  margin: 1px 0 0; padding: 2px 0 0; list-style: none;
+  border-top: 1px solid var(--line);
+}
+/* The mark, the tally and the share as one object — a material's figure must
+   never wrap away from the glyph that says which material it is. */
+.preview-mix__m {
+  display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted);
+}
+.preview-mix__m .mat-icon { flex: none; }
+/* The plant panel's notch grammar ("×2"), in the pixel face it is written in
+   there — the same bill, on the screen that prices the next bay. */
+.preview-mix__notch {
+  font-family: var(--font-pixel); font-size: 7px; color: var(--warn);
+}
+.preview-mix__pct { display: inline-flex; align-items: baseline; gap: 3px; }
+/* A material line inherits the tile's tones rather than restating them: the
+   struck old value and the new one are the same two spans a tile uses, so the
+   only thing a moved line adds is which way it moved. */
+.preview-mix__m .preview-stat__from { font-size: 10px; }
+.preview-mix__m .preview-stat__arrow { font-size: 9px; }
+.preview-mix__m--worse .preview-stat__to { color: var(--danger); }
+.preview-mix__m--better .preview-stat__to { color: var(--success); }
 /* Compact (landscape phones): the grid keeps the five priced numbers and every
    row the selection MOVED, and drops the axes that are merely in play. Ten
    tiles is four rows against a projection column that has three, and a row of
@@ -6562,14 +6609,42 @@ button.panel { color: var(--text); }
 /* THE CARD. .shop-card carries the frame, the two-track row and the price rail;
    everything below is the parts a refit has and an unlock does not.
 
-   The price track is CAPPED, which the Workshop's is not. An unlock's foot is
-   a price or a short gate line; a refit's is a whole sentence of button ("Take
-   back ×2 · +90"), and against `auto` that nowrap content took the track it
-   needed and left the body's `minmax(0, 1fr)` at 20px on the narrowest device
-   in the matrix — the description track collapsed so the button could stay
-   unabbreviated. The delta already knows how to ellipsise; the sentence does
-   not have anywhere to go. */
-.refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 190px); }
+   THE PRICE TRACK IS 124px, and it was 190. The cap exists because an unlock's
+   foot is a price and a refit's used to be a whole sentence of button — a
+   direction arrow, the rung's effect prose and the price — and against `auto`
+   that content took the track it needed and left the body's `minmax(0, 1fr)` at
+   20px on the narrowest device in the matrix.
+
+   The prose is gone (screens.ts's buy-button note: the projection states what a
+   rung does, the button states what it costs), so the cap can come down to what
+   the widest foot actually measures. Measured at the base density, longest
+   content of each kind:
+
+     stage  "T3 · <scrap> 55"      67px
+     undo   "✕ Undo ×2 · +<scrap> 90"  118px   ← the widest, and the cap
+     MAX    "MAX"                  30px
+
+   fit-content(160px), i.e. `min(max-content, 160px)`: each card's rail is as
+   wide as its own foot needs and no wider, with 160 — the undo's own width — as
+   the ceiling nothing may pass. A flat `minmax(0, 160px)` takes the whole 160
+   on every card whatever it holds, which would have charged a stage card 64px
+   of description for a button that wants 96. The floor at the other end is
+   .shop-card__foot's `min-width: 96px`, so the prices still line up in a rail.
+
+   What actually hands the description its width back is the button itself:
+   154px -> 96px at this density, once the prose came off it.
+
+   .shop-card.refit-card, and the two classes are load-bearing. This rule was
+   `.refit-card` alone, which is (0,1,0) — the same specificity as `.shop-card`'s
+   own `minmax(0, 1fr) auto`, three hundred lines LATER in this file, so source
+   order won and the cap never applied at base density in its life. That is not
+   a tidy-up: `auto` sizes the price track to the button's max-content, which is
+   exactly the mechanism the note above says was fixed, and it is what put a
+   whole sentence of button on the rail with the description wrapped to one word
+   per line beside it. The compact override below is `.modal--refit .refit-card`
+   at (0,2,0) and always did apply, which is why the phone was merely tight
+   while the desktop was broken. */
+.shop-card.refit-card { grid-template-columns: minmax(0, 1fr) fit-content(160px); }
 /* The tier pips ride with the state line rather than the name: on a landscape
    phone a name as long as "Press Hydraulics" pushed them onto a second line of
    the name row, i.e. a line per card of the shelf to say what three dots say. */
@@ -6604,16 +6679,20 @@ button.panel { color: var(--text); }
 .refit-card__foot { align-items: center; }
 .refit-card__undo { color: var(--warn); }
 .refit-card__undo .refit-card__price { color: var(--success); }
-/* Three parts on one row: direction, what changes, what it costs. The delta is
-   the flexible one, so a long effect string ellipsises instead of pushing the
-   price off the button. */
+/* The STAGE button is a price and nothing else, so it centres it; the UNDO
+   button is the same box in its other state and still runs three parts (mark,
+   verb, refund), which is what the flex row and the gap are still here for. */
 .refit-card__buy {
   padding: 8px 10px; font-size: 10px;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   flex: 1 1 auto; min-width: 0;
 }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
-.refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* Undo's word, and only Undo's — the stage button dropped its delta entirely
+   (screens.ts's buy-button note). It still ellipsises rather than wrapping,
+   because "Undo ×2" on two lines would take the button past the tap floor's
+   height on a shelf of seven. */
+.refit-card__delta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
@@ -7266,21 +7345,28 @@ button.panel { color: var(--text); }
      what it is winning against. Left bare, only the font-size ever landed and
      the button stayed 35.5px tall: 12px per card across the whole shelf. */
   .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; gap: 4px; }
-  /* The cap is the button's real width at this density, not a round number:
-     under it the delta starts ellipsising, and "+2 ce…" is not a delta (the
-     .refit-card__price note above is the standing rule — the price gives back
-     its air, the delta never gives up its tail). */
-  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 160px); }
-  /* B6's tier prefix widened the price; on the narrow compact cards the
-     price gives back its air rather than the delta giving up its tail
-     ("+2 ce…" is not a delta). */
+  /* 128px, and it was 160. The old cap was the button's real width when the
+     button carried a delta ("under it the delta starts ellipsising, and '+2 ce…'
+     is not a delta"); with the delta gone the widest foot at this density is
+     undo's "✕ Undo ×2 · +<scrap> 90", and a stage button is a third of that.
+     This selector is (0,2,0) and always outranked `.shop-card`'s `auto`, which
+     is why the phone was merely tight where the base cap was dead outright. */
+  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) fit-content(128px); }
   .modal--refit .refit-card__price { gap: 2px; }
-  /* B6's tier prefix stands down here, and the price note above is what
-     sanctions it: "the price gives back its air rather than the delta giving up
-     its tail". The rung being bought is still on the card — it is what the
-     unlit pip beside the state line means — while the delta is the only thing
-     that says what the rung DOES, and "+2 ce…" says nothing. */
-  .modal--refit .refit-card__tier { display: none; }
+  /* The undo's ✕ stands down at this density and its word does not. "Undo ×2"
+     is 65px of the 128px rail here and the mark is 14px with its gap; without
+     the trade the count ellipsises to "Undo …", and the count is the half that
+     says how much of the order this button takes back. The button is still
+     unmistakable without it — it is the one secondary, amber control on a shelf
+     of cyan prices. */
+  .modal--refit .refit-card__undo .refit-card__arrow { display: none; }
+  /* THE TIER PREFIX STAYS, at every density, and its own class is gone with it
+     (screens.ts writes the rung straight into .refit-card__price). It used to
+     stand down here so the delta could keep its tail — "the price gives back
+     its air rather than the delta giving up its tail" — and with no delta on
+     the button there is nothing left to give the air to. Half of what this
+     button now says is which rung it buys; a bare "55" is a number with no
+     noun. */
   .modal--refit .refit-card__price .ico { width: 9px; height: 9px; }
   .modal--refit .price__sep { margin: 0 1px; }
   /* Undock is the commit and stays the biggest thing on the screen, but at
@@ -8441,7 +8527,7 @@ button.panel { color: var(--text); }
   font-size: var(--fs-h3); line-height: 1.1; color: var(--accent);
 }
 .sbx-brief__sub {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted);
 }
 /* The Final Inspection clause in force, printed in full. The facts grid above
    already HAS the clause in it — levelForRun applied it before the briefing was

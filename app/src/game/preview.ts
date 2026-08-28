@@ -1,7 +1,8 @@
 import { HAZARDS, type HazardId, type Ratchets } from "./hazards";
-import { mixTotal } from "./belt";
+import { mixTotal, MATERIAL_ROLL_ORDER } from "./belt";
 import type { LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
+import { MATERIAL_SPEC, type Material } from "./theme";
 
 /**
  * NEXT-BAY PROJECTION — the numbers the ratchet screen shows changing.
@@ -23,6 +24,39 @@ import { SIZE_SPEC } from "./pieces";
  */
 
 export type PreviewTone = "worse" | "better" | "same";
+
+/**
+ * ONE LINE INSIDE A ROW that is a SUM rather than a measurement.
+ *
+ * The belt is the only such row today: "33% of shipments carry a material" is
+ * the number that prices the bay, and it is also six numbers added together.
+ * Which six was readable nowhere on this panel — the total said how much
+ * special cargo, never which — and the answer a player needs before pricing a
+ * demolition rack against a thaw lance is exactly that split.
+ *
+ * A part is NOT a row. It never becomes a tile of its own: the argument that
+ * kept the belt to one row (a Tier 10 material clause moving six tiles at once
+ * is two extra rows on the screen that overflows first) is about the GRID, and
+ * it still stands. The parts ride inside the one tile that already prices the
+ * belt, as a dense list — the tile count does not change.
+ */
+export interface PreviewPart {
+  /** The material this line is for. A Material id, because the surface drawing
+   *  it uses the belt's own glyph for the mark (ui/components' materialIconHTML)
+   *  — the mark a player learns on the belt is the mark they read here. */
+  id: Exclude<Material, "standard">;
+  label: string;
+  from: string;
+  to: string;
+  changed: boolean;
+  tone: PreviewTone;
+  /** BANKED notches on this material's own ratchet axis — the axis id and the
+   *  material id are the same string (hazards.ts's contentAxis). 0 when the
+   *  caller passed no ratchets, which the refit yard deliberately does not
+   *  (main.ts's refitHTML says why), so the yard's list is percentages and the
+   *  draft's is percentages plus the tally. */
+  notches: number;
+}
 
 export interface PreviewRow {
   id: string;
@@ -55,6 +89,10 @@ export interface PreviewRow {
    *  projection whenever the current pick didn't move press speed, so the
    *  player priced the next bay against numbers that hid its live pressure. */
   active: boolean;
+  /** The row's own breakdown, for a row whose value is a SUM — see PreviewPart.
+   *  Absent on every row that is a single measurement, which is all of them but
+   *  the belt. */
+  parts?: PreviewPart[];
 }
 
 const money = (v: number): string => `$${Math.round(v)}`;
@@ -95,6 +133,9 @@ interface Field {
    *  has banked notches never leaves the projection and is flagged active —
    *  see PreviewRow.active. */
   axis?: HazardId | readonly HazardId[];
+  /** The row's breakdown, for a row that is a SUM of named things — see
+   *  PreviewPart. Only the belt has one. */
+  parts?(base: LevelConfig, next: LevelConfig, banked: Ratchets): PreviewPart[];
 }
 
 const FIELDS: Field[] = [
@@ -381,9 +422,16 @@ const FIELDS: Field[] = [
   // projection prices the BAY, and belt.ts's ceiling made the TOTAL the number
   // that prices it: past the ceiling, notches recompose the belt rather than
   // thicken it, and total density is what waste and congestion actually
-  // charge. WHICH materials make it up is the cards' own copy — the card the
-  // player is holding names its material, and the HUD's belt preview shows
-  // every shipment before it flies.
+  // charge.
+  //
+  // WHICH materials make it up is this row's own `parts` — a line each, inside
+  // the one tile. That used to be the cards' business ("the card the player is
+  // holding names its material"), i.e. it was answered nowhere on the panel,
+  // and it is the half of the belt this row cannot do without: past belt.ts's
+  // ceiling every further notch moves the SPLIT and leaves this total exactly
+  // where it was, so a tile printing only the total goes quiet on the pressure
+  // it exists to price. The six-tiles argument above is untouched — a part is
+  // not a tile, and the grid still gets one item for the belt.
   {
     id: "belt",
     label: "Special cargo on the belt",
@@ -395,6 +443,37 @@ const FIELDS: Field[] = [
     // Live whenever ANY content axis has banked notches — the belt row is
     // every material row's heir, so it inherits all of their axes.
     axis: HAZARDS.filter((h) => h.material).map((h) => h.id),
+    // EVERY MATERIAL THE BAY KNOWS, and only those: a share on either side of
+    // the comparison, or a banked notch on its own axis. A zero line for a
+    // material the run has never met would be five sixths of this list on an
+    // ordinary bay, on the panel that overflows first. MATERIAL_ROLL_ORDER
+    // rather than a fresh order, so the list reads in the belt's own sequence.
+    parts: (base, next, banked) => {
+      const parts: PreviewPart[] = [];
+      for (const id of MATERIAL_ROLL_ORDER) {
+        const a = base.materialMix?.[id] ?? 0;
+        const b = next.materialMix?.[id] ?? 0;
+        const notches = banked[id] ?? 0;
+        if (a <= 0.005 && b <= 0.005 && notches <= 0) continue;
+        const from = rate(a);
+        const to = rate(b);
+        const changed = from !== to;
+        parts.push({
+          id,
+          label: MATERIAL_SPEC[id].name,
+          from,
+          to,
+          changed,
+          // More of a material is worse news, which is the judgement the TOTAL
+          // above already makes for all six of them at once — not a second one
+          // invented here. Magnetic is the material that helps and it is still
+          // a notch the player spent a pick on.
+          tone: !changed ? "same" : b > a ? "worse" : "better",
+          notches,
+        });
+      }
+      return parts;
+    },
   },
 ];
 
@@ -441,6 +520,7 @@ export function previewRows(
           : (b > a) === f.higherIsWorse ? "worse" : "better",
       kind: f.always || active ? "core" : "context",
       active,
+      ...(f.parts ? { parts: f.parts(base, next, banked) } : {}),
     });
   }
   return rows;

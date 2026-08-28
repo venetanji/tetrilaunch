@@ -36,7 +36,7 @@ import {
   ACTION_LABELS, BINDABLE_ACTIONS, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
   type BindableAction, type InputProfile,
 } from "../game/bindings";
-import type { PreviewRow } from "../game/preview";
+import type { PreviewPart, PreviewRow } from "../game/preview";
 
 /* ---------------------------------------------------------------------------
  * TIER PLATE — one component at three sizes (canvas A1/A4/C · A15's note):
@@ -3096,7 +3096,6 @@ export function refitScreen(opts: {
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < owned ? "on" : i < tier ? "queued" : ""}"></i>`,
     ).join("");
-    const step = cost === null ? null : u.step(tier);
     // ONE CONTROL PER CARD, cycling — the draft's own idiom for the same
     // problem (its cards fill the hand while there is room and edit it once it
     // is full). Two controls is what the tap floor cannot afford: at 44px a
@@ -3107,7 +3106,7 @@ export function refitScreen(opts: {
     // once it is ordered to MAX — and it stays live when the order has spent
     // the scrap but this track has rungs queued, because a disabled button on
     // a staged track is an order the player cannot undo.
-    const canStage = cost !== null && step !== null && left >= cost;
+    const canStage = cost !== null && left >= cost;
     const undo = queued > 0 && !canStage;
     const buy =
       owned === 0
@@ -3120,21 +3119,44 @@ export function refitScreen(opts: {
         // and the two verbs name the two fixes.
         ? `<span class="shop-card__locked">Not aboard — buy or mount it in the <b>Workshop</b></span>`
         : undo
+          // The one button on the shelf that keeps a word, and the price rule
+          // below is what sanctions it: "Undo" names the STATE this control is
+          // in, it does not describe what a rung does. The figure beside it is a
+          // REFUND, and a bare "+90" on a shelf of prices reads as a cost.
           ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}">
               <span class="refit-card__arrow">${icon("close", 10)}</span>
               <span class="refit-card__delta">Undo${queued > 1 ? ` ×${queued}` : ""}</span>
               <span class="refit-card__price">+${icon("scrap", 11)}${orderCost(opts.tiers, { [u.id]: queued })}</span>
             </button>`
-          : cost === null || step === null
+          : cost === null
             ? `<span class="refit-card__max">MAX</span>`
+            // THE PRICE, AND NOTHING ELSE. This button used to carry a
+            // direction arrow and the rung's effect prose beside the price, and
+            // the prose is unbounded copy on a bounded rail: the Demolition
+            // Rack's capstone says "+2 charges, resupply, a wider blast and a
+            // better rate", the Impact Cushion's "a deeper liner, and no launch
+            // sets one off inside it". Ellipsised at every width the app ships
+            // — so it taught nothing — and it still took the price track with
+            // it, which is what collapsed the card's description column to one
+            // word per line (app.css's .refit-card note has the widths).
+            //
+            // What the rung DOES is the projection's job, in the bay's own
+            // numbers rather than in a phrase: staging is free and reversible,
+            // so a tap is how you read the effect, and it reads it in the units
+            // the purchase will actually be flown in. The button states the one
+            // fact the panel beside it cannot — the tier it buys and what that
+            // costs — in the Workshop's price grammar exactly ("T2 · <cur> 15",
+            // one glyph apart).
             : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"${canStage ? "" : " disabled"}>
-                <span class="refit-card__arrow">${icon(step.dir, 10)}</span>
-                <span class="refit-card__delta">${step.text}</span>
-                <span class="refit-card__price"><span class="refit-card__tier">T${tier + 1}<span class="price__sep">·</span></span>${icon("scrap", 11)}${cost}</span>
+                <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
               </button>`;
-    // The track's OWN before/after — absolute on both sides, because "+2 cells"
-    // is only legible next to the number it moves. Unstaged, the card states
-    // what the ship carries today and nothing more.
+    // The track's OWN before/after — absolute on both sides, because a delta is
+    // only legible next to the number it moves. It is now the ONE place a
+    // single track's change is stated in that track's own units: the button
+    // above prices the rung and the projection beside the shelf prices the
+    // whole order in the bay's units, and neither answers "what does THIS one
+    // do to THIS system". Unstaged, the card states what the ship carries today
+    // and nothing more.
     const state = queued > 0
       ? `<span class="refit-card__from">${u.current(owned)}</span><span class="refit-card__to-arrow">→</span><span class="refit-card__to">${u.current(tier)}</span>`
       : `<span class="refit-card__now">${u.current(owned)}</span>`;
@@ -3194,6 +3216,11 @@ export function refitScreen(opts: {
           staged > 0 ? `+${staged} staged` : "as it stands",
           opts.preview,
           staged > 0 ? "" : "Stage a refit and this redraws with what it does to the bay.",
+          // THE PANEL EXPLAINS THE PURCHASE HERE, and only here: the belt's
+          // material breakdown and the moved count — see previewGridHTML's
+          // `explains`. This is the screen whose buttons stopped describing
+          // themselves.
+          true,
         )}
       </div>
       <div class="refit__foot" id="refit-foot">
@@ -3205,7 +3232,12 @@ export function refitScreen(opts: {
         <p class="refit__foot-note muted">${
           staged > 0
             ? "Nothing is paid for until you undock — undo the order and the scrap stays banked."
-            : "Tap a system to stage a tier. Nothing is paid for until you undock."
+            // NAMES THE PANEL, now that the buttons no longer describe
+            // themselves: a price says what a rung costs and the projection
+            // says what it does, so the sentence that teaches the screen has to
+            // join the two. Staging is free, which is what makes "tap it and
+            // look" a fair instruction rather than a dare.
+            : "Tap a system to stage a tier — the projection redraws with what it does. Nothing is paid for until you undock."
         }</p>
       </div>
     </div>
@@ -3649,8 +3681,26 @@ export function pauseModal(
  * twice: the two screens deliberately show the SAME projection of the same
  * config pipeline, and a second copy of this markup is how the two would
  * eventually disagree about which rows a phone drops.
+ *
+ * `explains` — this panel is the screen's ONLY account of what the player is
+ * about to buy, which is true of the yard and of nothing else. It turns on the
+ * belt tile's per-material breakdown here and the moved count on the header
+ * below.
+ *
+ * The split is a real one and not a fit budget in disguise. A draft and a Final
+ * Inspection both put the change in words on the card the player is holding —
+ * the material's own name and glyph included — so on those screens a breakdown
+ * and a tally restate what has already been said. The yard's cards say what a
+ * system IS and its buttons say what a rung COSTS; nothing on it says what the
+ * belt is made of, and that is exactly what decides between a Demolition Rack
+ * and a Thaw Lance.
+ *
+ * Neither is free, which is why the screen that does not need them does not pay
+ * for them: the list costs the belt tile a line (34px on the 1269x663 draft,
+ * whose body fits with nothing to spare) and the count wraps this header onto a
+ * second line (8px, everywhere the title is already at its width).
  */
-function previewGridHTML(rows: PreviewRow[]): string {
+function previewGridHTML(rows: PreviewRow[], explains: boolean): string {
   return rows
     .map((r) => {
       const val = r.changed
@@ -3671,12 +3721,49 @@ function previewGridHTML(rows: PreviewRow[]): string {
       const label = r.active
         ? `<span class="preview-stat__labeltxt">${txt}</span><span class="preview-stat__live">ACTIVE</span>`
         : txt;
+      // A row that is a SUM carries its own breakdown (preview.ts's
+      // PreviewPart), as a wrapping list INSIDE its own tile. Deliberately not
+      // a spanning tile: `grid-column: 1 / -1` cannot share a grid row with
+      // anything, so it costs a whole row wherever it lands — measured at +78px
+      // on the 800x600 draft, five times what the list itself is. Wrapped
+      // inside the tile it costs only the lines it needs, on the row the belt
+      // tile already sat in.
+      const parts = explains && r.parts?.length ? previewMixHTML(r.parts) : "";
       return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
         <div class="preview-stat__label">${label}</div>
         <div class="preview-stat__val">${val}</div>
+        ${parts}
       </div>`;
     })
     .join("");
+}
+
+/**
+ * THE BELT'S COMPOSITION, as one dense line per material inside the belt tile.
+ *
+ * GLYPH, NOT NAME. The mark is the material's own belt icon (components.ts's
+ * materialIconHTML, which carries the name as its aria-label), on the
+ * one-vocabulary rule that governs every other surface that names a material:
+ * the mark a player learns watching the belt is the mark they read here. Six
+ * names spelled out would be two more wrapped lines on the panel that overflows
+ * first, and would say nothing the glyph does not.
+ *
+ * A notch tally rides beside the glyph in the plant panel's grammar ("×2" —
+ * components.ts's runNotchTallyHTML) whenever the caller supplied the run's
+ * banked ratchets. The refit yard deliberately does not (main.ts's refitHTML),
+ * so the yard's list is shares and the draft's is shares with the bill beside
+ * them.
+ */
+function previewMixHTML(parts: PreviewPart[]): string {
+  return `<ul class="preview-mix">${parts.map((p) => {
+    const pct = p.changed
+      ? `<span class="preview-stat__from">${p.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${p.to}</span>`
+      : `<span class="preview-stat__to">${p.from}</span>`;
+    return `<li class="preview-mix__m${p.changed ? ` preview-mix__m--${p.tone}` : ""}">
+      ${materialIconHTML(p.id, 13)}${p.notches > 0 ? `<span class="preview-mix__notch">×${p.notches}</span>` : ""}
+      <span class="preview-mix__pct">${pct}</span>
+    </li>`;
+  }).join("")}</ul>`;
 }
 
 /**
@@ -3703,13 +3790,34 @@ function projectionHTML(
    *  and a half-empty box with no explanation reads as a screen that failed to
    *  load rather than one waiting for a tap. */
   idleHint = "",
+  /** This panel is the screen's only account of the change — see
+   *  previewGridHTML's `explains`. The yard passes it; nothing else does. */
+  explains = false,
 ): string {
+  // HOW MANY NUMBERS MOVED, on the header the panel already has.
+  //
+  // The tiles have always coloured the change (app.css's .preview-stat--worse /
+  // --better), but a moved tile is only a highlight once you have found it, and
+  // this grid runs to seventeen rows on a fully staged order. Now that the
+  // yard's buttons carry a price rather than a description, this panel IS the
+  // answer to "what does that buy" — so it says up front that it has one, and
+  // how much of it. Absent when nothing moved: a permanent "0 moved" would be
+  // chrome, and the idle hint below is what an untouched panel says instead.
+  const moved = explains ? rows.filter((r) => r.changed).length : 0;
   return `<div class="projection" id="${id}" aria-live="polite">
     <div class="projection__hd">
       <span>${title}</span>
-      <span class="projection__note">${note}</span>
+      <span class="projection__note">${
+        // INSIDE the note rather than beside it. This header is a flex row in
+        // which only the note carries `min-width: 0`, so a third item makes the
+        // TITLE the one that has to give — and the title has no floor, so it
+        // wraps. Riding in the note the count shares the note's own budget and
+        // is the last thing an ellipsis reaches, which is the right order: the
+        // count is the fact and the note is the caption.
+        moved ? `<b class="projection__moved">${moved} moved</b> · ` : ""
+      }${note}</span>
     </div>
-    <div class="preview-grid">${previewGridHTML(rows)}</div>
+    <div class="preview-grid">${previewGridHTML(rows, explains)}</div>
     ${idleHint ? `<p class="projection__idle muted">${idleHint}</p>` : ""}
   </div>`;
 }
