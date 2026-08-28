@@ -3,7 +3,7 @@ import { MATERIAL_GAP } from "./belt";
 import {
   makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
 } from "./level";
-import { GRADE_PAY, LUCKY_SWEEPS } from "./grades";
+import { EXCELLENT_WINDOW_MS, GRADE_PAY, LUCKY_SWEEPS } from "./grades";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import {
   markUnlocked, SLOT_BASE, SLOT_CAP, SLOT_PRICES, TIER_CONTRACTS_REQUIRED, type MetaState,
@@ -450,13 +450,13 @@ function buildTopics(mark: number): GuideTopic[] {
     // punishes you for not having it is a rule met too late.
     id: "grades", chapter: "economy", tier: 1,
     name: "Timing a row",
-    summary: `A row pays by WHEN it closes: x${GRADE_PAY.excellent} on the press, x${GRADE_PAY.lucky} three sweeps late.`,
-    body: `Every row is graded on the press. Land the shipment that closes it while the bar is`
-      + ` already coming — <b>EXCELLENT</b>, x${GRADE_PAY.excellent}. On the retreat, sold by the`
-      + ` next press — <b>GOOD</b>, x${GRADE_PAY.good}. A row the press had to grind flat is`
-      + ` <b>SWEPT</b> at the plain rate, and one that took ${LUCKY_SWEEPS} sweeps is`
-      + ` <b>LUCKY</b> — x${GRADE_PAY.lucky}, less than the launches cost.`
-      + ` Scrap ignores all of it: skill pays funds, volume pays scrap.`,
+    summary: `A row pays by WHEN it closes: x${GRADE_PAY.excellent} inside ${EXCELLENT_WINDOW_MS}ms, x${GRADE_PAY.lucky} three sweeps late.`,
+    body: `The shipment you just launched must be part of the row — in it, or landed on it.`
+      + ` Close within <b>${EXCELLENT_WINDOW_MS}ms</b> of it settling: <b>EXCELLENT</b>,`
+      + ` x${GRADE_PAY.excellent}. Land while the bar moves right and let that sweep finish it:`
+      + ` <b>GOOD</b>, x${GRADE_PAY.good}. Ground flat is <b>SWEPT</b> at the plain rate;`
+      + ` ${LUCKY_SWEEPS} sweeps is <b>LUCKY</b>, x${GRADE_PAY.lucky}. A congested bay pays no`
+      + ` premium at all.`,
   },
   {
     id: "scrap", chapter: "economy", tier: 1,
@@ -484,12 +484,13 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "congestion", chapter: "economy", tier: 1,
     name: "Congestion",
     summary: `Past ${PILE_TIERS[0].cubes} loose cubes the bay taxes every shot and every payout.`,
-    body: `Firing into a bay that is already full is priced, in three places at once. Past`
+    body: `Firing into a bay that is already full is priced, in four places at once. Past`
       + ` <b>${PILE_TIERS[0].cubes} loose cubes</b> launches cost <b>×${PILE_TIERS[0].costMult}</b>,`
       + ` the reload runs <b>×${PILE_TIERS[0].reloadMult}</b> longer and a cleared row pays only`
       + ` <b>${Math.round(PILE_TIERS[0].payMult * 100)}%</b>; past <b>${PILE_TIERS[1].cubes}</b> it is`
       + ` <b>×${PILE_TIERS[1].costMult}</b>, <b>×${PILE_TIERS[1].reloadMult}</b> and`
       + ` <b>${Math.round(PILE_TIERS[1].payMult * 100)}%</b>.`
+      + ` It also pays <b>no timing premium</b> — SWEPT at best.`
       + ` The bay floor lights up as you cross each rung. <b>Bay Extension</b> is what buys the`
       + ` allowance back.`,
     drill: DRILLS.congestion,

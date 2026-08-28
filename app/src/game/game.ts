@@ -42,10 +42,11 @@ import {
   reliefRealised,
   blastRelief,
   stampLandings,
-  headlineGrade,
+  headlineRow,
+  type GradedRow,
 } from "./lineClear";
 import {
-  gradedLinePay, newGradeTally, type ClearClock, type ClearGrade, type GradeTally,
+  gradedLinePay, newGradeTally, STEP_MS, type ClearClock, type GradeTally,
 } from "./grades";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -54,7 +55,11 @@ import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
 import { MATERIAL_SPEC } from "./theme";
 import type { Material, PieceSize, PieceType } from "./theme";
 
-const DT = 1000 / 60;
+/** The engine's fixed step. Imported rather than restated: grades.ts owns the
+ *  number because the EXCELLENT window is the only place in the game that has
+ *  to convert a real duration into steps, and two spellings of 1000/60 would be
+ *  two numbers free to drift. */
+const DT = STEP_MS;
 
 /**
  * How long an aim has to KEEP feeding the machine before the warning fires.
@@ -474,6 +479,21 @@ export class Game {
   timeLeftMs: number;
   /** Pieces AND bombs fired so far this level — drives nextIsBomb. */
   shotsFired = 0;
+  /**
+   * How many SHIPMENTS this bay has launched — the participation gate's id
+   * (grades.ts's `RowParticipation`). Every cube of the shipment is stamped
+   * with the value this had when it left the muzzle, so "is the latest shipment
+   * in this row" is an integer comparison.
+   *
+   * NOT `shotsFired`, which counts demolition charges too. A bomb is a shot and
+   * is not a shipment: letting one advance this counter would mean firing a
+   * charge instantly disowned the cargo already in the air, and the next row it
+   * closed would lose its premium for a reason no player could see.
+   *
+   * 0 before the first launch, and no cube ever carries 0 — so an opening pile
+   * the player has not yet fired into cannot sell a timed row.
+   */
+  shipmentSeq = 0;
   /** Bond Breaker charges left in the RUN's stock (see useBondBreaker).
    *  Seeded from level.bondBreakerCharges — which main.ts threads bay-to-bay,
    *  so this is the run's remaining magazine, not a per-bay refill. */
@@ -1616,6 +1636,13 @@ export class Game {
         // stock thresholds, and one shape of call is one shape to read.
         { types: this.level.weakBondTypes, mult: this.level.weakBondMult },
       );
+      // THE SHIPMENT'S ID, stamped here because this is the only place that
+      // knows a shipment was launched (pieces.ts's Cube.shipment says why the
+      // constructor deliberately does not). Advanced BEFORE the stamp so the
+      // first shipment of a bay is 1 and never 0 — 0 is the "nothing has been
+      // launched" reading the participation gate leans on.
+      this.shipmentSeq += 1;
+      for (const cube of piece.cubes) cube.shipment = this.shipmentSeq;
       this.cubes.push(...piece.cubes);
       this.constraints.push(...piece.constraints);
       this.cannon.markShot(now);
@@ -1871,7 +1898,15 @@ export class Game {
     // including the one that completes it — shares a single `halfCycle`, which
     // is what makes "the bar has not reversed since the landing" a fact about
     // the stroke rather than about which side of a function call a tick fell.
-    this.stepClock = { stroke: this.compactor.strokes, halfCycle: this.compactor.halfCycles };
+    this.stepClock = {
+      stroke: this.compactor.strokes,
+      halfCycle: this.compactor.halfCycles,
+      // ...and the fixed step, for the EXCELLENT window. `stepCount` was
+      // advanced at the top of this update, so this is THIS step's index and
+      // the difference a grade takes against a landing stamped on an earlier
+      // step is exactly the number of steps between them.
+      step: this.stepCount,
+    };
     stampLandings(this.cubes, this.stepClock);
 
 
@@ -1966,8 +2001,35 @@ export class Game {
     const clear: ClearResult = pressing
       ? updateLineClear(
         this.phys.world, this.cubes, this.compactor, this.level, this.constraints,
-        // THE STEP'S clock, not the bar's live one — see the sample above.
-        this.stepClock,
+        {
+          // THE STEP'S clock, not the bar's live one — see the sample above.
+          clock: this.stepClock,
+          // CONGESTION AT THE MOMENT OF AWARD, read off `stepPileTier` — the
+          // bay as it stood at the TOP of this step, which is the same reading
+          // `payoutMult` is handed four lines below.
+          //
+          // One reading, one moment, both of congestion's payout taxes. The
+          // alternative was to gate on the state when the CARGO LANDED (a flag
+          // stamped beside the landing), and it is the gameable one: the grade
+          // reads only the NEWEST contributing landing, so parking a mess and
+          // dropping the closing cube one step after a collapse dipped the
+          // count under the knee would sell a premium out of a bay that was
+          // still full. Reading it here cannot be dodged that way, because the
+          // only things that lower the cube count are a line clearing (which is
+          // tidying, the behaviour being asked for), cargo lost out of the bay
+          // (paid for with the spill fine) and the chute (a purchased hood).
+          // There is no free way under the knee. It also cannot FLICKER inside
+          // the step that pays: `lastCongestionIdx` is latched once per step,
+          // at the top, before anything moves.
+          //
+          // See design/balance/timed-clears.md §2e.
+          congested: this.stepPileTier !== null,
+          // THE PARTICIPATION GATE's id (grades.ts). The latest shipment, read
+          // live rather than latched, because "just launched" is a fact about
+          // now: a row closing this step is being judged against the cargo the
+          // player most recently put in the air.
+          shipment: this.shipmentSeq,
+        },
       )
       : { lines: 0, cubes: [], rows: [], graded: [] };
     if (clear.lines > 0) {
@@ -2031,7 +2093,9 @@ export class Game {
       // rows converts one currency into the other at a price the grade sets.
       this.scrapEarned += clear.lines * this.level.scrapPerLine;
       this.events.onLineClear?.(clear.lines, crush);
-      this.spawnClearFx(clear, awarded, headlineGrade(clear.graded), now);
+      // The ROW the toast is a verdict on, not just its band: the callout also
+      // has to say when a gate took the band away, and a bare grade cannot.
+      this.spawnClearFx(clear, awarded, headlineRow(clear.graded), now);
       // A MAXED Demolition Rack returns charges as rows close. Run against the
       // cumulative line count rather than this clear's delta so a four-line
       // crush pays everything it earned — see level.ts's bombResupply for why
@@ -2255,14 +2319,14 @@ export class Game {
   get gradeClock(): ClearClock {
     return this.stepClock;
   }
-  private stepClock: ClearClock = { stroke: 0, halfCycle: 0 };
+  private stepClock: ClearClock = { stroke: 0, halfCycle: 0, step: 0 };
 
   /** Push the FX events a clear implies: one shatter per removed cube, one
    *  rowflash per cleared row (spanning the compactor face to the wall), and
    *  a single payout at the cluster's rough centroid/top with the actual
    *  awarded amount (post-combo-bonus) and the clear's headline timing grade. */
   private spawnClearFx(
-    clear: ClearResult, awarded: number, grade: ClearGrade | null, now: number,
+    clear: ClearResult, awarded: number, headline: GradedRow | null, now: number,
   ): void {
     for (const c of clear.cubes) {
       this.effects.push({ kind: "shatter", x: c.x, y: c.y, color: c.color, t0: now });
@@ -2275,7 +2339,14 @@ export class Game {
       const meanX = clear.cubes.reduce((s, c) => s + c.x, 0) / clear.cubes.length;
       const minY = Math.min(...clear.cubes.map((c) => c.y));
       this.effects.push({
-        kind: "payout", x: meanX, y: minY - 30, amount: awarded, grade, t0: now,
+        kind: "payout", x: meanX, y: minY - 30, amount: awarded,
+        grade: headline?.grade ?? null,
+        // Only a CONGESTION cap gets a tag. A row capped for non-participation
+        // is a row the player did not close, and there is nothing to tell them
+        // about it that the band itself does not already say; congestion is a
+        // STATE they can act on, which is the whole reason it gets shouted.
+        congested: (headline?.capped ?? false) && (headline?.congested ?? false),
+        t0: now,
       });
     }
   }

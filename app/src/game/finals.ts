@@ -183,20 +183,30 @@ export interface FinalDef {
  *
  * SIZED, not guessed, and the sizing is the interesting part.
  *
- * Tier 1's bay 10 opens at targetScore $1500, pays scorePerLine $190 and prices
+ * Tier 1's bay 10 opens at targetScore $2700, pays scorePerLine $190 and prices
  * a launch at $20, against a $160 float (eight shots — LAUNCH_BUDGET_SHOTS x
  * launchCostFor) plus at most run.ts's $150 carry. At the measured ~2.9
  * launches per line (contracts.ts's PLANNING_EFFICIENCY) a line grosses $190
  * and costs $58 to make, so it nets $132 and the bay needs
- * (1500 - 310) / 132 = 9.0 lines. Price both clauses in that unit — extra lines
- * the bay demands — across the rigs that actually arrive at bay 10 (the Reactor
- * pays +$60 float and +$15 a line per tier, and a clause's apply runs AFTER the
- * ship's upgrades, so the rate cut bites the boosted rate):
+ * (2700 - 310) / 132 = 18.1 lines. Price both clauses in that unit — extra
+ * lines the bay demands — across the rigs that actually arrive at bay 10 (the
+ * Reactor pays +$60 float and +$15 a line per tier, and a clause's apply runs
+ * AFTER the ship's upgrades, so the rate cut bites the boosted rate):
  *
  *              stock      Reactor 2    Reactor 3
- *   baseline    9.0        6.6          5.7
+ *   baseline   18.1       14.0         12.5
  *   Rush Order +5.7       +4.6         +4.2
- *   Rate Cut   +3.6       +2.5         +2.1
+ *   Rate Cut   +7.3       +5.3         +4.6
+ *
+ * THE BASELINE MOVED AND THE PAIR'S SHAPE DID NOT. level.ts's 2026-08-28
+ * recalibration multiplied every target by 1.8, so the bay demands twice the
+ * lines it did — which leaves Rush Order's flat raise costing exactly what it
+ * cost before (a fixed sum of revenue is a fixed number of lines) while Rate
+ * Cut's percentage, being a share of a now larger bill, costs proportionally
+ * more. The two clauses are still priced within a couple of lines of each other
+ * at every rig, which is the property the pair is built on; what changed is
+ * which one is the cheaper poison at the stock rig, and the crossing is exactly
+ * the decision the Final Inspection exists to pose.
  *
  * The mechanism the pair is built on is unchanged. A flat raise costs a fixed
  * amount of revenue, so its price in lines FALLS as your rate rises; a

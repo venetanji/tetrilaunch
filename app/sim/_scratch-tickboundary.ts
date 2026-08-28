@@ -46,7 +46,7 @@ function row(phys: ReturnType<typeof createPhysics>): Cube[] {
     Matter.Composite.add(phys.world, body);
     cubes.push({
       body, type: "O", color: "#fff", blinkStart: null,
-      material: "standard", struck: true,
+      material: "standard", struck: true, shipment: 1,
     });
   }
   return cubes;
@@ -59,18 +59,21 @@ interface Step { grade: string | null; atStop: boolean }
  *  post-update reading (what shipped). */
 function step(
   bar: Compactor, phys: ReturnType<typeof createPhysics>, cubes: Cube[],
-  sampled: boolean, stampNow: boolean,
+  sampled: boolean, stampNow: boolean, stepNo: number,
 ): Step {
-  const clock: ClearClock = { stroke: bar.strokes, halfCycle: bar.halfCycles };
+  const clock: ClearClock = { stroke: bar.strokes, halfCycle: bar.halfCycles, step: stepNo };
   if (stampNow) stampLandings(cubes, clock);
   const pressing = bar.pressing;
   const before = bar.strokes;
   bar.update();
   const atStop = bar.strokes !== before;
   if (!pressing) return { grade: null, atStop };
-  const live: ClearClock = { stroke: bar.strokes, halfCycle: bar.halfCycles };
+  const live: ClearClock = { stroke: bar.strokes, halfCycle: bar.halfCycles, step: stepNo };
   const out = updateLineClear(
-    phys.world, cubes, bar, level, [], sampled ? clock : live,
+    phys.world, cubes, bar, level, [],
+    // Both gates open: this probe is about the CLOCK's fencepost and nothing
+    // else. The row builder stamps the same shipment.
+    { clock: sampled ? clock : live, congested: false, shipment: 1 },
   );
   return { grade: out.graded[0]?.grade ?? null, atStop };
 }
@@ -82,7 +85,7 @@ function landAndClear(before: number, sampled: boolean): { grade: string | null;
   let grade: string | null = null;
   let onStop = false;
   for (let i = 0; i < 600 && grade === null; i++) {
-    const s = step(bar, phys, cubes, sampled, i === 0);
+    const s = step(bar, phys, cubes, sampled, i === 0, i);
     grade = s.grade;
     if (grade !== null) onStop = s.atStop;
   }
@@ -121,13 +124,13 @@ for (const offset of [-2, -1, 0, 1, 2]) {
   while (bar.x - bar.leftX > bar.speed + 0.001) bar.update();
   const cubes = row(phys);
   // `offset` < 0 lands before the flip tick, > 0 after it.
-  for (let i = 0; i < Math.max(0, offset); i++) step(bar, phys, cubes, true, false);
+  for (let i = 0; i < Math.max(0, offset); i++) step(bar, phys, cubes, true, false, i);
   // Negative offsets need no walk: the bar is already parked one tick short of
   // the flip, and every tick before it is the same retreating stroke.
   const dirAtLanding: string = bar.pressing ? "advancing" : "retreating";
   let grade: string | null = null;
   for (let i = 0; i < 600 && grade === null; i++) {
-    grade = step(bar, phys, cubes, true, i === 0).grade;
+    grade = step(bar, phys, cubes, true, i === 0, Math.max(0, offset) + i).grade;
   }
   console.log(`| flip${offset >= 0 ? "+" : ""}${offset} | ${dirAtLanding} | ${grade ?? "-"} |`);
   Matter.Engine.clear(phys.engine);
@@ -143,10 +146,10 @@ for (const sampled of [false, true]) {
   const stray = cubes[0];
   const home = stray.body.position.x;
   Matter.Body.setPosition(stray.body, { x: home - CELL / 2, y: stray.body.position.y });
-  step(bar, phys, cubes, sampled, true);
+  step(bar, phys, cubes, sampled, true, 0);
   Matter.Body.setPosition(stray.body, { x: home, y: stray.body.position.y });
   let g: string | null = null;
-  for (let i = 0; i < 600 && g === null; i++) g = step(bar, phys, cubes, sampled, false).grade;
+  for (let i = 0; i < 600 && g === null; i++) g = step(bar, phys, cubes, sampled, false, 1 + i).grade;
   console.log(`  ${sampled ? "fixed " : "shipped"}: ${g ?? "-"}`);
   Matter.Engine.clear(phys.engine);
 }

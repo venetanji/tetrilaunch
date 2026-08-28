@@ -442,7 +442,8 @@ const LEVEL_NAMES = [
  * Four knobs state the bay's terms, and all four are a function of the TIER
  * being flown (RunState.mark) rather than constants every tier shares:
  *
- *   targetScore   $600 on Tier 1's first bay, +$20 a tier  -> $780 at Tier 10.
+ *   targetScore   $1080 on Tier 1's first bay, +$36 a tier -> $1404 at Tier 10
+ *                 before the precision premium, $1544 after it.
  *   timeLimitSec  180s at Tier 1, -4s a tier               -> 144s at Tier 10.
  *   launchCost    $20 at Tier 1, straight line to          -> $30 at Tier 10.
  *   spill fine    $1 a cube at Tier 1, straight line to    -> $25+2i at Tier 10.
@@ -478,10 +479,85 @@ const LEVEL_NAMES = [
  *  imports LevelConfig from here); sim/systems.ts asserts the two agree. */
 export const TIER_COUNT = 10;
 
+/* ---------------------------------------------------------------------------
+ * THE TARGET CURVE, RECALIBRATED FOR THE GRADED ECONOMY (2026-08-28)
+ *
+ * The owner, on the game as it plays with graded payouts: *"given this extra
+ * boost of points, levels are feeling very short, I think we need to raise the
+ * base target by like a lot."*
+ *
+ * MEASURED FIRST, because "very short" is a duration and the ladder had never
+ * been calibrated against one. `sim/_scratch-target.ts` multiplies each bay's
+ * own target and nothing else, on that Mark's full build, and reports win rate
+ * AND seconds-to-win against a clock that is 180s at Tier 1 and 144s at Tier 10
+ * (4 seeds, `demo` pilot):
+ *
+ *   Mark Bay Arm     x1.00      x1.40      x1.80      x2.20
+ *   2    1   sweep   75%/26s    75%/30s    75%/38s    75%/40s
+ *   2    1   timed  100%/40s   100%/56s   100%/61s   100%/68s
+ *   5    1   sweep   50%/14s    50%/32s    50%/64s    50%/92s
+ *   5    1   timed  100%/38s   100%/45s   100%/51s   100%/62s
+ *   5    5   sweep  100%/39s    75%/89s   50%/112s   50%/125s
+ *   5    5   timed  100%/50s   100%/56s   100%/61s   100%/79s
+ *   10   1   sweep   50%/56s   50%/108s   25%/148s      0%/—
+ *   10   1   timed  100%/43s   100%/61s   100%/71s   100%/76s
+ *   10   5   sweep  50%/117s    25%/85s   25%/102s   25%/131s
+ *   10   5   timed  100%/55s   100%/61s    75%/68s    75%/73s
+ *
+ * THE x1.00 COLUMN IS THE COMPLAINT, stated as a number: a timed pilot cleared
+ * every bay on the ladder in 38-55 SECONDS of a 144-180 second shift — a bay
+ * ended at barely a quarter of its own clock, and the clock was therefore not a
+ * pressure at all.
+ *
+ * x1.80 IS WHAT THE TABLE CHOOSES, and it is chosen on two conditions at once
+ * rather than on one:
+ *
+ *  - the timed arm still clears comfortably (100% everywhere but Tier 10 bay 5,
+ *    where it is 75%), at 51-71s — under half the shift, so the raise buys
+ *    pressure without turning the bay into a race;
+ *  - the untimed arm stops being carried: 75% at Tier 2, 50% at Tier 5, 25-50%
+ *    at Tier 10. That is the owner's *"push the players in the right
+ *    direction"* showing up as a win rate rather than as an intention.
+ *
+ * x2.20 was refused: it takes the timed arm off 100% at two rows and the
+ * untimed arm to 0% at Tier 10 bay 1, which is a difficulty tax on the ladder's
+ * middle — the one thing the grade brief rules out.
+ *
+ * THE OTHER SUSPECT, MEASURED AND ACQUITTED AS THE MAIN CAUSE. The owner's own
+ * second thought was the Reactor: *"it also may be because my reactor is
+ * upgraded to tier 2 at tier 2."* `sim/_scratch-pacing.ts` isolates it — one
+ * track, three tiers, everything else stock:
+ *
+ *   Mark Bay Reactor  sweep win/secs/End÷Tgt
+ *   2    1   T0       100% / 61s / 1.09
+ *   2    1   T2       100% / 57s / 1.28
+ *   5    1   T0        75% / 59s / 0.84
+ *   5    1   T2       100% / 42s / 1.26
+ *
+ * The Reactor's second tier is worth roughly +20-50% of a bay's end money and
+ * takes about a quarter off the time to clear — real, and NOT the cause: the
+ * bay already ended at 59-61 seconds with the Reactor at STOCK. A gate on the
+ * refit would take back a quarter of one track's contribution while leaving the
+ * bay ending in a third of its clock, so it cannot restore the pacing on its
+ * own and stacking it on top of a raise the table already says is right would
+ * be two punishments for one problem. The target raise carries the load and no
+ * upgrade is gated in this pass; design/balance/timed-clears.md §9 records the
+ * decomposition and flags the general shape (a tier-2 refit reachable at the
+ * Mark where it trivialises pacing is not unique to the Reactor) for a pass
+ * that can measure the whole refit ladder rather than one track.
+ *
+ * EXPRESSED IN THE FOUR CONSTANTS THEMSELVES rather than as a scale factor over
+ * them, because a scale factor is a second curve: every reader of this ladder —
+ * the pins that walk it, the Skydeck's step off the end of it, the draft
+ * projection — would then have to know about two numbers where there is one
+ * decision. Each constant is its old value times 1.8, rounded to the same kind
+ * of round number it already was.
+ * ------------------------------------------------------------------------ */
+
 /** Funding target on the FIRST bay of a Tier 1 run, and what each further tier
- *  adds to it. */
-export const TARGET_BASE = 600;
-export const TARGET_PER_TIER = 20;
+ *  adds to it. 600/20 before the recalibration above. */
+export const TARGET_BASE = 1080;
+export const TARGET_PER_TIER = 36;
 
 /** What each further BAY inside a run adds to the target, and how much that
  *  per-bay step itself grows per tier (Tier 1 climbs $100 a bay, Tier 10 $118).
@@ -500,9 +576,10 @@ export const TARGET_PER_TIER = 20;
  *
  *  The tier steepens it rather than replacing it: what a tier moves outright is
  *  where the run STARTS (TARGET_BASE + TARGET_PER_TIER), so Tier 1 climbs
- *  $600 -> $1500 across its ten bays and Tier 10 climbs $780 -> $1842. */
-export const TARGET_PER_BAY = 100;
-export const TARGET_PER_BAY_PER_TIER = 2;
+ *  $1080 -> $2700 across its ten bays and Tier 10 climbs $1404 -> $3348 before
+ *  the precision premium (100/2 before the recalibration above). */
+export const TARGET_PER_BAY = 180;
+export const TARGET_PER_BAY_PER_TIER = 4;
 
 /** Bay clock at Tier 1, and the seconds each further tier takes off it. */
 export const TIME_BASE = 180;
@@ -883,7 +960,8 @@ export const SCRAP_PER_BAY = 10;
  * the ladder's own — the curves above evaluated at SKYDECK_RUNG rather than a
  * second set of numbers written next to them:
  *
- *   target  $780 -> $1842  becomes  $800 -> $1880   (targetAtRung)
+ *   target  $1404 -> $3348 becomes $1505 -> $3576  (targetAtRung, before
+ *           the precision premium; $1544 -> $3683 and $1656 -> $3933 with it)
  *   launch  $30, float $240 becomes $31, float $248 (launchCostAtRung)
  *
  * WHY ONLY THOSE TWO. They are the two the owner named, and they are also the

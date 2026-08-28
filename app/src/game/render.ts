@@ -5,7 +5,8 @@ import { BASE_BREAK_STRETCH } from "./level";
 import { cushionEdgeX } from "./lineClear";
 import { computeLayout, skyTop } from "./layout";
 import {
-  BAY_GLYPH_MATERIALS, COLORS, glyphInk, GRADE_CALLOUT, GRADE_COLOR,
+  BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
+  glyphInk, GRADE_CALLOUT, GRADE_COLOR,
   MATERIAL_GLYPH, PIECE_COLORS,
   shade, shipmentAura, shipmentColor,
   type Material, type PieceSize, type PieceType,
@@ -2646,6 +2647,16 @@ const CALLOUT_FONT = "700 18px system-ui, sans-serif";
  *  rather than as a label over a figure. */
 const CALLOUT_GAP_PX = 26;
 
+/** The congestion tag rides UNDER the money, where the callout rides over it —
+ *  so the toast reads verdict / price / reason, top to bottom, and the tag can
+ *  never be mistaken for the band. Smaller again than the callout for the same
+ *  reason the callout is smaller than the number: the further from the money,
+ *  the quieter. */
+const TAG_FONT = "700 14px system-ui, sans-serif";
+/** Baseline-to-baseline below the 30px number: enough to clear its descenders
+ *  with the same air CALLOUT_GAP_PX leaves above. */
+const TAG_GAP_PX = 20;
+
 function drawPayoutFx(
   ctx: CanvasRenderingContext2D,
   e: Extract<FxEvent, { kind: "payout" }>,
@@ -2682,6 +2693,12 @@ function drawPayoutFx(
     ctx.shadowColor = GRADE_COLOR[e.grade];
     ctx.font = CALLOUT_FONT;
     ctx.fillText(GRADE_CALLOUT[e.grade], x, y - CALLOUT_GAP_PX);
+  }
+  if (e.congested) {
+    ctx.fillStyle = CONGESTION_TAG_COLOR;
+    ctx.shadowColor = CONGESTION_TAG_COLOR;
+    ctx.font = TAG_FONT;
+    ctx.fillText(CONGESTION_TAG, x, y + TAG_GAP_PX);
   }
   ctx.restore();
 }

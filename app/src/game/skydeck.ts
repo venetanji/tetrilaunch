@@ -21,8 +21,8 @@ import { newRun, REFIT_EVERY, RUN_LEVELS, type RunState } from "./run";
  *    reason the Contract board is seeded that way and stated there: a board
  *    means nothing unless everyone on it flew the same thing.
  *  - **The bays are a step past the ladder.** Mark 10's bays with the target
- *    and launch curves read one rung further along — $800 -> $1880 against $31
- *    a shot, where the capstone asks $780 -> $1842 against $30 (level.ts's
+ *    and launch curves read one rung further along — $1656 -> $3933 against
+ *    $31 a shot, where the capstone asks $1544 -> $3683 against $30 (level.ts's
  *    SKYDECK_RUNG). An owner's playtest is what put it there: the roof was
  *    flying the exact bay the ladder's last rung flies, so the only thing above
  *    Mark 10 was the clauses.

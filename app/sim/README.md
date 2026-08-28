@@ -806,18 +806,19 @@ Flags: `--system`, `--aware`, `--mark`, `--bay`, `--ratchets`, `--seeds`,
 ## `timing.ts` — the timing grade, and the economy built on it
 
 `src/game/grades.ts` prices a row by WHEN it closed (excellent / good / swept /
-lucky, measured on the compactor's own two counters). That is only a design if
-two pilots who play differently land in different bands, and only a BALANCE
-claim if the band decides whether the bay clears. This tool answers both, plus
-the two economy questions that ride on them.
+lucky — a 100ms window at the top, the bar's own direction below it, and two
+gates over both). That is only a design if two pilots who play differently land
+in different bands, and only a BALANCE claim if the band decides whether the bay
+clears. This tool answers both, plus the two economy questions that ride on them.
 
-**Three arms**, all on one bot and one aim search, so the difference between two
+**Four arms**, all on one bot and one aim search, so the difference between two
 rows is the policy and literally nothing else:
 
 | arm | is | measures |
 |---|---|---|
 | `sweep` | `naive` | today's pilot — fires the instant cooldown and purse allow |
 | `timed` | `timed` | holds fire until the shipment will land inside an advancing stroke |
+| `excel` | `excellent` | holds for the CRUSH — the last stretch of the advance |
 | `burn` | `naive` on the `impatient` preset | maximum volume, no patience |
 
 **Four modes:**
@@ -850,13 +851,31 @@ Flags: `--marks`, `--bays`, `--seeds`, `--build`, `--skydeck`, `--mode`,
 `--baseline`, `--target-mults`, `--json`.
 
 **Two pessimism items of its own**, on top of `winnability.ts`'s standing
-ledger, and both run the same way: the `timed` arm predicts the bar at its
-NOMINAL speed (so a bay dragging under rebar fires early), and its flight
-estimate is one constant for every arc. Both cost the arm grades it aimed for,
-so a timed share reported here is a FLOOR on a human's.
+ledger, and both run the same way: the timed arms predict the bar at its
+NOMINAL speed (so a bay dragging under rebar fires early), and their flight
+estimate is one constant for every arc. Both cost the arms grades they aimed
+for, so a timed share reported here is a FLOOR on a human's.
+
+**And one finding that is really a limit of the instrument.** Under the shipped
+100ms EXCELLENT window every arm banks 0-4% of its rows in the top band,
+including the one built to hunt it. These pilots cannot deliberately drop cargo
+into a row that is one cube short at the moment the press arrives — one flight
+constant against a 33-107 step spread, and no read of the pile — and that is the
+only way into the band. Treat EXCELLENT shares from this tool as a floor of
+roughly zero, and read GOOD as the arms' real separator.
 
 Results and the tuning argument: `design/balance/timed-clears.md`.
 Pictures of the callout: `sim/uifit/grade-shots.ts`.
+
+Four throwaway probes live beside it and are named in the findings:
+`_scratch-target.ts` (win rate AND seconds-to-win as a bay's target is
+multiplied — the calibration that chose the recalibrated curve),
+`_scratch-pacing.ts` (one upgrade track at three tiers, everything else stock —
+the decomposition that acquitted the Reactor as the cause of short bays),
+`_scratch-congestion.ts` (the share of cleared lines sold out of a congested
+bay, per arm — the congestion gate's exposure) and `_scratch-excelprobe.ts`
+(three arms, one bay, one seed — the starvation the `excellent` arm's patience
+rule exists to fix).
 
 ## `perf.ts` — physics step-cost sweep
 

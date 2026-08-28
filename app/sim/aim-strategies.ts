@@ -830,6 +830,132 @@ function timedAware(): AimStrategy {
 export const timedStrategy: AimStrategySpec = { name: "timed", build: timedAware };
 
 /* ---------------------------------------------------------------------------
+ * THE EXCELLENT PILOT — the calibration CEILING
+ *
+ * The owner's ask: *"can the aim bot only do excellent launches? I feel this
+ * mechanic is actually good to push the players in the right direction."*
+ *
+ * It is a different rule from `timed`, and the difference is the whole reason
+ * this is a second strategy rather than a tuned constant on the first. Under
+ * the owner's 100ms window (grades.ts's EXCELLENT_WINDOW_MS) the top band is
+ * reachable only by cargo that lands into a row the press can close IMMEDIATELY
+ * — and `updateLineClear` only accepts a row of `compactorMinLineCells` cubes
+ * when the zone has narrowed to that width, i.e. when the bar is at or very
+ * near full advance. So:
+ *
+ *   `timed`      wants the press still COMING — at least
+ *                TIMED_PRESS_MARGIN_STEPS of advance left, so the grind has
+ *                time to square the pile. That produces GOOD.
+ *   `excellent`  wants the press ARRIVING — the landing inside the last few
+ *                steps of the advance, so a completed row sells on the step the
+ *                cargo settles.
+ *
+ * The two rules are therefore in direct opposition on the same axis, which is
+ * the ladder's own tension made into two pilots: you can play for the grind or
+ * play for the crush, and only one of them pays the premium.
+ *
+ * WHAT THIS ARM CAN AND CANNOT SAY. Its flight estimate is the same constant
+ * `timed` uses (TIMED_FLIGHT_STEPS = 75) against a measured spread of 33-107
+ * steps, so it is aiming at a six-step window with a thirty-step error bar. It
+ * is a FLOOR on the band's reachability, and a hard one: a human watching the
+ * arc and the bar does far better than a pilot predicting both open-loop. The
+ * arms table in design/balance/timed-clears.md prints what it actually hits.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * HOW LATE IN THE ADVANCE THE ARM AIMS ITS LANDING — derived, not tuned.
+ *
+ * The first version of this arm used EXCELLENT_WINDOW_STEPS itself (6) and it
+ * measured as a HANDICAP rather than a ceiling: 0% EXCELLENT on every row and a
+ * win rate below the undisciplined control. The reason is the flight estimate —
+ * TIMED_FLIGHT_STEPS is one constant against a measured 33-107 step spread, so
+ * an arm aiming at a six-step window has a thirty-step error bar and mostly
+ * lands outside the advance altogether, which costs it a whole round trip.
+ *
+ * The right window is not the grade's; it is the CLEAR CHECK'S. A row of
+ * `compactorMinLineCells` cubes is only eligible at all while the zone has
+ * narrowed to that width: `zoneGrid` takes `needed = round(zoneW / CELL)`, so
+ * the row is eligible exactly while `zoneW <= (minCells + 0.5) * CELL`, i.e.
+ * while the face is within half a cell of full advance. In steps that is
+ *
+ *     0.5 * CELL / compactorSpeed
+ *
+ * — about 17 at stock Hydraulics, and shorter on a refitted press, which is why
+ * it is computed per bay rather than written down as a number. Landing inside
+ * it is the only way a completed row sells on the step the cargo settles, which
+ * is the only way to reach the owner's 100ms window. Landing before it means
+ * the press has to grind, and grinding blows the window by construction.
+ */
+export function crushWindowSteps(g: Game): number {
+  return (0.5 * CELL) / Math.max(0.01, g.compactor.speed);
+}
+
+/** The rule, callable with numbers so a pin does not need a Game. */
+export function shouldHoldForCrush(
+  phase: { advancing: boolean; advanceLeft: number } | null,
+  window: number,
+): boolean {
+  if (!phase) return false;
+  // `advanceLeft > 0` matters as much as the ceiling: a landing ON the stop tick
+  // has no press behind it at all, and the bar then retreats for a whole
+  // half-cycle before anything can clear.
+  return !(phase.advancing && phase.advanceLeft > 0 && phase.advanceLeft <= window);
+}
+
+/**
+ * How long the arm will hold out for a crush before settling for a grind.
+ *
+ * MEASURED, and the arm does not work without it: holding for the crush window
+ * alone, this pilot took SEVEN shots in a 180-second bay and lost it with zero
+ * lines, where the two control arms took 37 and 15 and both won
+ * (`sim/_scratch-excelprobe.ts`, seed 1000, Mark 1 bay 1). The reason is a
+ * beat rather than a probability — the reload is a fixed 1350ms and the bar's
+ * round trip is a fixed ~222 steps, so a pilot that can only fire in one
+ * seventeen-step slice of each round trip spends most of them ready and
+ * waiting for a slice that has already gone past.
+ *
+ * One full round trip of patience, expressed as one, so the fallback is "you
+ * have watched the press go all the way round and back without a chance —
+ * take the grind" rather than a step count someone would have to decode. After
+ * it, the arm relaxes to `timed`'s rule for that shot: the press still coming,
+ * which pays GOOD. A pilot that loses the bay holding out for the top band is
+ * not a ceiling, it is a cautionary tale.
+ */
+export function excellentPatienceSteps(g: Game): number {
+  const c = g.compactor;
+  return c.speed > 0 ? (2 * (c.rightX - c.leftX)) / c.speed : 0;
+}
+
+function excellentAware(): AimStrategy {
+  /** Ticks since this pilot last actually LAUNCHED. Counted against the shot
+   *  rather than against the hold, and that distinction is the whole of the
+   *  fallback: an earlier draft reset the counter every time the crush window
+   *  opened, which is most of what a starved pilot does — arrive at the window
+   *  with the cannon still cooling, reset, and starve again. Measured, that
+   *  version took the same 7 shots as no fallback at all. `shotsFired` is the
+   *  only honest witness that a shot happened. */
+  let waited = 0;
+  let lastShots = -1;
+  return {
+    name: "excellent",
+    abilities(g) {
+      if (lastShots !== g.shotsFired) { lastShots = g.shotsFired; waited = 0; }
+      waited += 1;
+      if (g.timeLeftMs < TIMED_DUMP_MS) return false;
+      const phase = pressPhaseAfter(g, TIMED_FLIGHT_STEPS);
+      if (!shouldHoldForCrush(phase, crushWindowSteps(g))) return false;
+      // Out of patience: take `timed`'s shot instead of no shot at all.
+      if (waited >= excellentPatienceSteps(g)) return shouldHoldForPress(phase);
+      return true;
+    },
+  };
+}
+
+export const excellentStrategy: AimStrategySpec = {
+  name: "excellent", build: excellentAware,
+};
+
+/* ---------------------------------------------------------------------------
  * THE REGISTRY
  * ------------------------------------------------------------------------- */
 
@@ -842,6 +968,7 @@ export const STRATEGIES: Record<string, AimStrategySpec> = {
   lance: lanceStrategy,
   cushion: cushionStrategy,
   timed: timedStrategy,
+  excellent: excellentStrategy,
 };
 
 /** Pair a draft policy with the strategy that flies it. */

@@ -25,7 +25,14 @@ export type FxEvent =
    *  fixture does. */
   | {
     kind: "payout"; x: number; y: number; amount: number;
-    grade: ClearGrade | null; t0: number;
+    grade: ClearGrade | null;
+    /** The headline row's band was LOWERED because the bay was congested
+     *  (grades.ts's CONGESTION_GRADE_CAP). Drawn as a tag under the money —
+     *  the band shown is the one that was paid, so without this the player
+     *  reads a perfectly threaded row as SWEPT and learns nothing about why.
+     *  False for a row that was already at or under the cap. */
+    congested: boolean;
+    t0: number;
   }
   | { kind: "rowflash"; y: number; x0: number; x1: number; t0: number }
   | { kind: "explosion"; x: number; y: number; r: number; t0: number }

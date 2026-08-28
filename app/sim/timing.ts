@@ -13,7 +13,7 @@
  *
  * `src/game/grades.ts` prices a row by WHEN it closed. That is only a design if
  * two pilots who play differently end up in different bands, and only a
- * BALANCE claim if the band they land in decides whether the bay clears. Three
+ * BALANCE claim if the band they land in decides whether the bay clears. Four
  * arms, all on the identical bot and search (`aim-strategies.ts`'s rule: the
  * difference between two rows must be the strategy and literally nothing else):
  *
@@ -62,7 +62,9 @@ import { REFIT_EVERY } from "../src/game/run";
 import { runBay, type BayOutcome } from "./runner";
 import { ADAPTIVE_BOTS, type Bot } from "./bots";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
-import { naiveStrategy, strategyPilot, timedStrategy } from "./aim-strategies";
+import {
+  excellentStrategy, naiveStrategy, strategyPilot, timedStrategy,
+} from "./aim-strategies";
 
 /* ---------------------------------------------------------------------------
  * CLI
@@ -115,6 +117,11 @@ const ARMS: Arm[] = [
   // row here and a row there are the same bot plus a policy.
   { name: "sweep", pilot: strategyPilot(naiveStrategy, { bot: ADAPTIVE_BOTS.demo }) },
   { name: "timed", pilot: strategyPilot(timedStrategy, { bot: ADAPTIVE_BOTS.demo }) },
+  // THE CEILING ARM (aim-strategies.ts's excellentStrategy): the same pilot
+  // holding out for the CRUSH rather than for the grind. It is what the raised
+  // targets are calibrated against — "what does skilled, timed play earn" —
+  // where `sweep` is the floor, "what does untimed play earn".
+  { name: "excel", pilot: strategyPilot(excellentStrategy, { bot: ADAPTIVE_BOTS.demo }) },
   {
     name: "burn",
     // The impatient preset PLUS demolition, assembled from the table rather
