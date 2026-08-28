@@ -192,8 +192,38 @@ fire on all three viewports.
 and it was expressed in a COMMENT — "past cannon.ts's DRAG_MAX" beside a hard
 240. Exactly the coupling this change rots silently: 240 stays literally past a
 span that just halved while the stick's power ramp collapses into its first half
-deflection, with nothing going red. It is a real dependency now
-(`DRAG_MAX * STICK_OVERSHOOT`), so the pad's curve is unchanged to the bit.
+deflection, with nothing going red.
+
+**The first attempt at that repair was itself wrong, and the correction is the
+more useful finding.** Deriving `STICK_DRAG = DRAG_MAX * 1.09` preserved the
+pad's ENDPOINTS and nothing between them, because `powerRatioForDrag` subtracts
+a FIXED `DRAG_MIN` of 28 world px that does not scale with the span. Rescaling
+the stick's length rescales the ramp but not its foot, so every interior point
+of the curve moved while both ends stayed exactly put — which is why the
+endpoint pins stayed green. Measured across 10,001 deflections:
+
+| deflection | before | first repair | now |
+| --- | --- | --- | --- |
+| 0.22 (the deadzone's edge) | 12.9% | **0.0%** | 12.9% |
+| 0.30 | 22.9% | 9.7% | 22.9% |
+| 0.50 | 47.9% | **39.0%** | 47.9% |
+| 0.70 | 72.9% | 68.2% | 72.9% |
+| 1.00 | 100% | 100% | 100% |
+
+The worst gap sat at deflection 0.2335, 14.6 points down, and the bottom of the
+throw was the real damage: a stick past its own deadzone asking for exactly zero
+power is a stick with two deadzones stacked.
+
+**The lesson generalises past this bug.** Because the mapping's foot does not
+scale, ANY caller that reaches it by rescaling its own input gets a different
+curve rather than a rescaled one. So the pad no longer multiplies a deflection
+by a length at all: `gamepad.ts` owns its curve in DEFLECTION space
+(`stickPowerRatio`, landmarks 28/240 and 220/240), and `cannon.ts` exports
+`dragLenForRatio` — the exact inverse of `powerRatioForDrag` — so a caller that
+knows what ratio it wants can ask for it without knowing the span. `DRAG_MIN`
+and `DRAG_MAX` are both module-private again. Worst |before − now| across 10,001
+deflections is 1.11e-16, one ULP, and the pin is now curve equality across the
+whole throw rather than at its two ends.
 
 **`sim/bots.ts` and `sim/aim-strategies.ts` do NOT go through the drag mapping.**
 They set `g.cannon.angle`/`g.cannon.power` directly in world units; nothing in

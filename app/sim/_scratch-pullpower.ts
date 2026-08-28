@@ -42,7 +42,10 @@ async function geometry(page: Page): Promise<{ scale: number; cannonX: number; c
       scale: vp.scale,
       cannonX: r.left + vp.ox + cannon.CANNON.x * vp.scale,
       cannonY: r.top + vp.oy + cannon.CANNON.y * vp.scale,
-      span: cannon.DRAG_MAX,
+      // The span, asked for as the pull that means full power. DRAG_MAX is
+      // module-private (see dragLenForRatio's note) and should stay that way —
+      // a harness has no more business knowing the mapping than the pad does.
+      span: cannon.dragLenForRatio(1),
     };
   });
 }
