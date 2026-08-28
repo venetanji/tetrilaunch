@@ -98,22 +98,15 @@ export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, bar
  *
  * DRAG_MIN stays 28: it is a property of a THUMB (the travel below which a
  * touch is a graze, not a pull), not of the field, so it does not scale with
- * the span. It is now 25% of the full pull rather than 13%, which is the one
- * number here worth watching if the span ever shrinks again.
+ * the span. It is now 25% of the full pull rather than 13% — and that number is
+ * not decorative. Because the foot does not scale, ANY caller that reaches this
+ * mapping by rescaling its own input gets a different curve, not a rescaled
+ * one: the pad's stick did exactly that and lost 9 points of power at half
+ * deflection plus a fresh dead band at the bottom of its throw. That is what
+ * `dragLenForRatio` below exists to prevent.
  */
 const DRAG_MIN = 28;
-/**
- * EXPORTED for exactly one consumer, and reluctantly: gamepad.ts's STICK_DRAG,
- * whose whole job is the promise "a pinned stick is full power". That promise
- * is a statement ABOUT this span, and it used to be kept by a comment — "past
- * cannon.ts's DRAG_MAX" beside a hard 240 — which is precisely the coupling
- * this change would have rotted silently: 240 stays literally "past" a span
- * that just halved, while the stick's usable throw collapses into its first
- * half and nobody's test goes red. A dependency that real should be a real
- * dependency. Nothing else outside this module has any business knowing the
- * mapping; read `powerRatioForDrag` instead.
- */
-export const DRAG_MAX = CANNON.x - CELL;
+const DRAG_MAX = CANNON.x - CELL;
 
 /**
  * Power ratio a drag has to reach before a release counts as a SHOT rather than
@@ -149,6 +142,31 @@ export const MIN_FIRE_RATIO = 0.3;
  *  whether to fire and the mapping that decides how hard cannot disagree. */
 export function powerRatioForDrag(len: number): number {
   return Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
+}
+
+/**
+ * The exact inverse: the pull-back length, in world px, that asks for ratio `t`.
+ *
+ * EXISTS FOR CALLERS THAT ALREADY KNOW WHAT RATIO THEY WANT — which today means
+ * gamepad.ts's slingshot stick, and should mean nothing else. A thumbstick is
+ * not a finger on glass: its power curve is a function of DEFLECTION, owned by
+ * the pad, and it only reaches the cannon through `aimFromDrag` because that is
+ * where the aim-and-power pair is applied. Handing it a length instead of the
+ * span lets it say what it means without knowing DRAG_MIN or DRAG_MAX, which is
+ * the whole reason both stay module-private.
+ *
+ * The alternative — exporting DRAG_MAX and multiplying a deflection by
+ * something "past" it — is what the first draft of the pull-room fix did, and
+ * it is subtly wrong: `powerRatioForDrag` subtracts a FIXED DRAG_MIN that does
+ * not scale with the span, so rescaling the input rescales the ramp but not its
+ * foot. Halving the span turned a half-deflected stick from 48% into 39% and
+ * pushed the deadzone edge (0.22 deflection) from 13% to exactly zero — a dead
+ * band grown at the bottom of the stick's throw by a change that was supposed
+ * to be about a thumb on a phone. Caught in review, pinned in sim/systems.ts as
+ * curve equality rather than as endpoints.
+ */
+export function dragLenForRatio(t: number): number {
+  return DRAG_MIN + Math.max(0, Math.min(1, t)) * (DRAG_MAX - DRAG_MIN);
 }
 
 /**

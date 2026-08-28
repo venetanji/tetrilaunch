@@ -1,6 +1,6 @@
 import type { Game } from "./game";
 import { actionForPad, padFor, type BindableAction } from "./bindings";
-import { DRAG_MAX, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
+import { dragLenForRatio, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 
 /**
  * GAMEPAD SUPPORT (canvas D1) — the Gamepad API has no events for buttons,
@@ -32,22 +32,50 @@ import { DRAG_MAX, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
  * thresholds happening to agree rather than on one test.
  */
 
-/** Deadzone below which the stick reads as centred — covers worn sticks. */
-const DEADZONE = 0.22;
-/** How far past cannon.ts's full-power span a fully deflected stick reaches.
- *  A stick rarely reports a clean 1.0 — worn returns, a diagonal clipped to
- *  the circle, a pad that reads 0.96 pinned — so the ceiling sits a little
- *  inside full throw and the last ~8% of the deflection is headroom rather
- *  than ramp. 1.09 is the ratio the old pair (240 against a 220 span) held,
- *  kept exactly so the deflection→power curve is the one pad players have. */
-const STICK_OVERSHOOT = 1.09;
-/** Full deflection maps to this drag length (past cannon.ts's DRAG_MAX, so a
- *  pinned stick is full power). DERIVED from that span rather than written as
- *  its own number: the promise is about the span, and when the span moved —
- *  DRAG_MAX shrank from 220 to CANNON.x - CELL so a full pull would fit on the
- *  playfield at all — a literal 240 would have stayed "past DRAG_MAX" while
- *  quietly crushing the stick's whole power ramp into its first half. */
-export const STICK_DRAG = DRAG_MAX * STICK_OVERSHOOT;
+/** Deadzone below which the stick reads as centred — covers worn sticks.
+ *  Exported for the pin that the first deflection PAST it still asks for
+ *  power: the pull-room fix briefly put zero there, and a stick whose first
+ *  live millimetre does nothing is a stick with two deadzones. */
+export const DEADZONE = 0.22;
+/**
+ * THE STICK'S POWER CURVE, IN DEFLECTION — where it belongs, and where it now
+ * lives rather than being borrowed from a length in world px.
+ *
+ * The curve is unchanged from the one pad players have always had. It used to
+ * be spelled `powerRatioForDrag(deflection * 240)` against cannon.ts's old
+ * 28/220 span, which made the pad's feel an accident of a mapping written for a
+ * thumb on glass — and the pull-room fix proved how sharp that accident was.
+ * When DRAG_MAX shrank from 220 to CANNON.x - CELL so a full pull would fit on
+ * the playfield, rescaling the stick's length rescaled the ramp but NOT its
+ * foot (DRAG_MIN is a fixed 28 that does not scale with the span): a
+ * half-deflected stick fell from 48% to 39%, and the deadzone edge went from
+ * 13% to exactly zero, growing a dead band at the bottom of the throw. The
+ * endpoints still agreed, so nothing was red.
+ *
+ * So the two landmarks are stated here, as the fractions of full throw they
+ * always were — the numerators are the px triple the curve was born in, kept
+ * visible so the derivation can be audited rather than trusted:
+ *
+ *   FOOT: below this deflection the stick asks for no power at all (28 / 240).
+ *   FULL: at this deflection it is asking for everything (220 / 240) — a
+ *   little inside 1.0, because a stick rarely reports a clean pin: worn
+ *   returns, a diagonal clipped to the circle, a pad that reads 0.96 hard
+ *   over. The last ~8% of the throw is headroom, not ramp.
+ */
+const STICK_POWER_FOOT = 28 / 240;
+const STICK_POWER_FULL = 220 / 240;
+
+/**
+ * Deflection magnitude (0..1) -> power ratio (0..1), the slingshot stick's own
+ * ramp. Pure and exported so sim/systems.ts can pin it as a CURVE — sampled
+ * across the throw against the mapping as it shipped — rather than at its two
+ * endpoints, which is precisely the pin that would have caught the regression
+ * described above and did not exist.
+ */
+export function stickPowerRatio(deflection: number): number {
+  const t = (deflection - STICK_POWER_FOOT) / (STICK_POWER_FULL - STICK_POWER_FOOT);
+  return Math.max(0, Math.min(1, t));
+}
 /** Assist lerp factor per frame — settles in ~6 frames, ~100ms at 60Hz. */
 const ASSIST_LERP = 0.3;
 /** Stick-as-D-pad thresholds for MENU navigation (see onUiButton): a flick
@@ -371,7 +399,24 @@ export class GamepadPoller {
           this.sx = target.x;
           this.sy = target.y;
         }
-        g.cannon.aimFromDrag(this.sx * STICK_DRAG, this.sy * STICK_DRAG);
+        // THE PAD ASKS FOR A RATIO, NOT FOR A LENGTH. aimFromDrag is the one
+        // place aim and power are applied together, so the stick still speaks
+        // through it — but it hands over the pull length that MEANS the power
+        // the deflection asked for (dragLenForRatio), rather than a deflection
+        // scaled by some number chosen to sit past the touch span. The angle is
+        // untouched by this: aimFromDrag takes it from atan2, which is blind to
+        // the vector's length, so normalising to `len` rotates nothing.
+        //
+        // Multiplying a deflection by a length is what coupled the pad's feel
+        // to the touch mapping's ramp, and the pull-room fix is what showed the
+        // bill: DRAG_MIN does not scale with the span, so halving the span
+        // moved every interior point of this curve while leaving both ends
+        // where they were. See stickPowerRatio.
+        const mag = Math.hypot(this.sx, this.sy);
+        if (mag > 0) {
+          const len = dragLenForRatio(stickPowerRatio(mag));
+          g.cannon.aimFromDrag((this.sx / mag) * len, (this.sy / mag) * len);
+        }
         g.updateTrajectory();
       }
     }

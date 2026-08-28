@@ -62,7 +62,7 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, dragLenForRatio, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
@@ -145,7 +145,7 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller, STICK_DRAG, stickRate } from "../src/game/gamepad";
+import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
@@ -10091,16 +10091,56 @@ section("Misfire prevention");
   check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
   check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
 
-  // --- The pad rides the same span -------------------------------------------
-  // gamepad.ts's STICK_DRAG promises "a pinned stick is full power", and that
-  // promise is a statement about the drag span. It used to be kept by a comment
-  // beside a hard 240 — which would have survived the span halving while
-  // quietly crushing the stick's whole ramp into its first half deflection, with
-  // nothing going red. Both halves of the promise are pinned: a pinned stick
-  // saturates, and a HALF-deflected one does not.
-  check("a pinned stick is full power", powerRatioForDrag(STICK_DRAG) >= 1, String(STICK_DRAG));
-  check("...and a half-deflected one is not", powerRatioForDrag(STICK_DRAG / 2) < 0.9,
-    String(powerRatioForDrag(STICK_DRAG / 2)));
+  // --- The pad's power curve did not move with the span -----------------------
+  // THE PIN THAT WAS MISSING. The stick's ramp used to be spelled
+  // `powerRatioForDrag(deflection * 240)` against a 28/220 span, and shrinking
+  // DRAG_MAX rescaled that ramp WITHOUT rescaling its foot — DRAG_MIN is a
+  // fixed 28 that belongs to a thumb, not to the span. Both endpoints survived
+  // (a pinned stick still saturated, a centred one still read zero) while every
+  // interior point moved: half deflection fell 48% -> 39%, and the first
+  // deflection past the deadzone fell 13% -> 0, growing a second dead band at
+  // the bottom of the throw. Endpoint checks cannot see that. A CURVE check
+  // can, so this samples the whole throw against the mapping as it shipped.
+  {
+    // The reference: deflection * 240 through DRAG_MIN 28 / DRAG_MAX 220, the
+    // triple the pad's feel was born in. Written out rather than imported
+    // because the whole point is that cannon.ts's span is free to move again.
+    const asShipped = (d: number): number =>
+      Math.max(0, Math.min(1, (d * 240 - 28) / (220 - 28)));
+    let worst = 0;
+    let worstAt = 0;
+    for (let i = 0; i <= 2000; i++) {
+      const d = i / 2000;
+      const gap = Math.abs(asShipped(d) - stickPowerRatio(d));
+      if (gap > worst) { worst = gap; worstAt = d; }
+    }
+    // Float precision, not a tolerance: the two forms are the same line written
+    // two ways (a length through a span, versus the two deflections that line
+    // crosses), so they agree to a few ULP and nothing looser is acceptable.
+    check("the stick's power curve is the one pad players have, all the way along",
+      worst < 1e-12, `worst gap ${worst.toExponential(2)} at deflection ${worstAt.toFixed(4)}`);
+    check("a pinned stick is full power", stickPowerRatio(1) === 1);
+    check("a centred stick asks for nothing", stickPowerRatio(0) === 0);
+    check("...and a half-deflected one is neither", stickPowerRatio(0.5) > 0.4 && stickPowerRatio(0.5) < 0.6,
+      String(stickPowerRatio(0.5)));
+    // The bottom of the throw specifically: the first deflection the poller
+    // will even look at must already be asking for power, or the stick has two
+    // deadzones stacked and the first live millimetre does nothing.
+    check("the first deflection past the deadzone still asks for power",
+      stickPowerRatio(DEADZONE) > 0.1, `${(stickPowerRatio(DEADZONE) * 100).toFixed(1)}% at ${DEADZONE}`);
+    // And the whole loop, through the cannon: a deflection put through
+    // dragLenForRatio must come back off the cannon as the ratio it asked for.
+    // This is the seam the fix actually closed — the pad speaks in ratios and
+    // the touch mapping speaks in px, and only one of them may own the ramp.
+    const c = new Cannon(makeBaseLevel(0), 7);
+    let seam = 0;
+    for (const d of [DEADZONE, 0.35, 0.5, 0.7, 0.9, 1]) {
+      c.aimFromDrag(-dragLenForRatio(stickPowerRatio(d)), 0);
+      seam = Math.max(seam, Math.abs(c.powerRatio - asShipped(d)));
+    }
+    check("a deflection lands on the cannon as the power it always meant",
+      seam < 1e-12, `worst ${seam.toExponential(2)}`);
+  }
 
   // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
   // gesture asked for, not what the cannon happens to be holding — a tap
