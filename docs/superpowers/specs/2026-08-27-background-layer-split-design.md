@@ -592,15 +592,53 @@ printed as the noise floor with every row inside it marked as resolution rather
 than result. **A harness that cannot report a zero cannot be trusted to report a
 saving.**
 
-### What this does not establish
+### Confirmed on device: those 21 elements are worth ~15fps of 90
 
-The milliseconds are headless Chromium's on a desktop CPU — the caveat
-`sim/renderperf` and `sim/hudperf` both carry. The ranking and the shares are
-what transfer; the ~0.5ms/frame is not the CPH2573's ~0.5ms/frame. **The
-device-side confirmation has not been taken**, and until it is, "removing the
-sparkle is worth N fps on the phone" is not a claim this document makes. The
-mechanism is measured and the ordering is replicated across four independent
-runs of the harness; the device number is open.
+Taken on a **OnePlus 7T (HD1900)** — deliberately not the phone the hypothesis
+was formed on. Android 11, Snapdragon 855+, a **90Hz** panel rather than 120Hz,
+and **WebView 87.0.4280.141**, a Chrome from late 2020. If the finding were an
+artifact of the CPH2573 or of a modern Blink, this device is where it would fail.
+
+Both leaders stilled together (21 elements), interleaved every 400ms with the
+frame straddling each switch discarded, in a live Tier 1 bay, ~950 frames per
+arm per run:
+
+| run | animations running | stilled | Δfps | Δon-time |
+| --- | --- | --- | --- | --- |
+| 1 | 79.5fps, 58.4% | 88.7fps, 66.4% | **+9.2** | +8.0pp |
+| 2 | 73.9fps, 29.5% | 89.0fps, 72.7% | **+15.1** | +43.2pp |
+| 3 | 73.6fps, 28.7% | 89.2fps, 71.6% | **+15.6** | +42.9pp |
+
+Every window carries its vsync discriminator: minimum rAF gaps of 4.7–7.7ms,
+which can only happen above 60Hz, so none of these is a 60Hz window answering a
+90Hz question.
+
+**The stilled arm is pinned: 88.7, 89.0, 89.2fps on a 90Hz panel, three times
+running.** With the animations on, the same bay gives 73.6–79.5 and misses most
+of its 11.11ms deadlines. The p90 gap moves 17.4ms → 12.7ms. Two decorative
+animations are the difference between this device making its frame and not.
+
+**The A/A control says the probe can report a zero.** The identical probe with a
+stylesheet that stills *nothing* — same toggle, same cadence, same discarded
+transition frames — returned **−0.8 and +1.7fps** (−2.5 and +2.6pp). The noise
+floor is about ±2fps, and the effect clears it by an order of magnitude.
+
+### What this still does not establish
+
+The harness's **milliseconds** remain headless Chromium's on a desktop CPU — the
+caveat `sim/renderperf` and `sim/hudperf` both carry. What the device confirms is
+the *mechanism and the ranking*, not the 0.5ms/frame figure.
+
+**The 120Hz number is not taken.** Every device measurement above is the 7T at
+90Hz; the CPH2573 was unplugged when these ran. A shorter deadline should make
+this worse rather than better, but that is a prediction, not a measurement, and
+the earlier "never halve a 60Hz number into a 120Hz claim" warning cuts in both
+directions.
+
+**And no fix is proposed here.** Stilling an animation to price it is not the
+same as deciding what the resting HUD should look like — the sparkle and the
+belt arrows are deliberate, and the plant crest is a readout that escalates with
+congestion. What this section establishes is the size of the purse.
 
 ## Related
 
