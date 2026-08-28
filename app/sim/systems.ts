@@ -2602,28 +2602,44 @@ section("The payout banner (screens.ts .salvage-row + app.css)");
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
     "utf8",
   );
+  const lines = bannerCss.split("\n");
   const decls = (selector: string): string[] =>
-    bannerCss.split("\n")
+    lines
       .filter((l) => l.trim().startsWith(`${selector} {`))
       .map((l) => l.slice(l.indexOf("{") + 1, l.lastIndexOf("}")));
   /** Every font-size this selector is given, in source order — which is
-   *  cascade order here, so [0] is the roomy setting and the last entry is the
-   *  tightest step. */
+   *  cascade order here, so [0] is the base and the last entry is the tightest
+   *  step. */
   const sizes = (selector: string): string[] =>
     decls(selector).map((d) => d.match(/font-size:\s*([^;]+);/)?.[1].trim() ?? "").filter(Boolean);
   // ONE RANK, MOVING TOGETHER. The banner's sentence, .end__why's paragraph and
   // .end__where are the same thing on the same screen — explanatory copy under
-  // a display heading — so they start from the same token and step to the same
-  // literal. The banner used to do neither: 11px at every viewport, which is
-  // two points under the rank it belongs to and below --fs-xs at that.
+  // a display heading — so the banner reaches the token the paragraph is set
+  // from, and steps to the literal the paragraph steps to. It used to do
+  // neither: 11px at every viewport, below --fs-xs at that.
   const sentence = sizes(".salvage-row__body span");
   const why = sizes(".end__why p");
-  check("the banner's sentence starts from the type scale",
-    sentence[0] === "var(--fs-sm)" && why[0] === "var(--fs-sm)",
-    `${sentence[0] ?? "none"} vs ${why[0] ?? "none"}`);
-  check("...and steps to where the modal's other paragraph steps",
+  check("the banner's sentence reaches the paragraph's token",
+    sentence.includes("var(--fs-sm)") && why[0] === "var(--fs-sm)",
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  check("...and steps to where that paragraph steps",
     sentence.length > 1 && sentence[sentence.length - 1] === why[why.length - 1],
     `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  // THE BIG SETTING IS AN OPT-IN, never a default with small windows cut out of
+  // it. That is the shape of the bug this row shipped once: gated the other way
+  // round, on `@media (min-height: 521px) and (max-height: 620px)`, one pixel of
+  // window height above the ceiling bought ~53px of banner, and the end modal's
+  // panel overflowed from 621px to 633px at 800px wide. A query built only out
+  // of `min-` features cannot do that — every viewport that fails it keeps a
+  // setting that costs nothing, including whatever viewport is invented next.
+  const bigAt = lines.findIndex((l) => /^\s+\.salvage-row__body span \{ font-size: var\(--fs-sm\)/.test(l));
+  let gate = "";
+  for (let i = bigAt; i >= 0 && bigAt > 0; i -= 1) {
+    if (lines[i].startsWith("@media")) { gate = lines[i]; break; }
+  }
+  check("the banner's big setting is gated on minimums only",
+    gate !== "" && !/\bmax-/.test(gate) && /\bmin-/.test(gate),
+    gate || "no @media above the --fs-sm rule");
   // LEADING ON THE HEADING ONLY. An inline <b> inside the sentence (the banked
   // figure, the salvage total) contributes its own line-height to the line box
   // it lands in, so a bare `.salvage-row__body b { line-height: … }` sets ONE
