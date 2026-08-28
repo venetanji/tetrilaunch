@@ -6013,107 +6013,206 @@ section("The menu's demo panel is an equation (app.css --brand-cap)");
 
 // ---------------------------------------------------------------------------
 section("The build rack's plate is ONE shape (app.css --plate-w)");
-// Four passes of shaving took the plate's WIDTH from 40 --fpx to 24 and never
-// touched its HEIGHT, because every constraint that forced a pass was
-// horizontal. The plate is authored 40 by 69.3 — 0.577 — and at regular and
-// roomy density it was rendering 24 by 69.3, which is 0.346. That is the
-// reported "the systems in the HUD are all squashed small" on a desktop
-// window, and the phone never showed it because the compact block states BOTH
-// of its numbers and so kept a shape while the base rule lost one.
+// The plate is authored 40 wide by 69.3 tall — 0.577 — and four passes of
+// shaving took the WIDTH to 24 while the height never moved, because every
+// constraint that forced a pass was horizontal. That drift is what "the
+// systems in the HUD are all squashed small" was, and stating the shape as a
+// RATIO fixed it. Then a SEVEN-slot rig reported the marks going backwards on
+// a phone, which was the other half of the same rule being wrong: the width
+// answered to a flat 40 --fpx cap and a budget measured for ten slots, so
+// every count between four and ten, and every phone with a roomy row, was held
+// to a number some other device needed.
 //
-// sim/uifit cannot see this either, and for the same reason the menu's gap was
-// invisible to it: a plate at the wrong ASPECT overflows nothing, clips
-// nothing and crowds no glyph — the `badge` assertion measures side air, which
-// a narrower box makes MORE of, not less. The shape is a stylesheet fact, so
-// it is pinned as one, and it is pinned as a RATIO so it cannot drift a fifth
-// time.
+// Two caps now, with two different jobs, and both are measured rather than
+// chosen — see the stylesheet for the numbers. Neither this defect nor the
+// first one is visible to sim/uifit: a plate at the wrong aspect overflows
+// nothing, clips nothing and crowds no glyph (the `badge` assertion measures
+// side air, which a NARROWER box makes more of), and a rack that leaves 120px
+// of its row unspent is a rack that fits. They are stylesheet facts, so they
+// are pinned as stylesheet facts.
 {
   const css = fs.readFileSync(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
     "utf8",
   );
-  const plateRule = css.slice(css.indexOf("\n.ship-plate {"));
   // Comments out, for the reason the menu section states at length: the prose
-  // in this rule quotes its own numbers, and a check that reads them out of
+  // in these rules quotes its own numbers, and a check that reads them out of
   // its own justification asserts nothing.
-  const plateBody = plateRule.slice(0, plateRule.indexOf("\n}")).replace(/\/\*[\s\S]*?\*\//g, "");
+  const decomment = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, "");
+  const plateRule = css.slice(css.indexOf("\n.ship-plate {"));
+  const plateBody = decomment(plateRule.slice(0, plateRule.indexOf("\n}")));
+  const compactRule = css.slice(css.indexOf('\n[data-density="compact"] .pl-mods .ship-plate {'));
+  const compactBody = decomment(compactRule.slice(0, compactRule.indexOf("\n}")));
 
-  // The AUTHORED proportion, and the one number the whole rule turns on. 69.3
-  // over 40 is 1.7325, and the compact clamp a few hundred lines up already
-  // quotes the same shape from the other side ("the plate the tablet draws at
-  // 0.58:1") — which is the tell that 0.577 was always the intent.
+  // --- the shape ----------------------------------------------------------
+  // The AUTHORED proportion, still the number the rule turns on: 69.3/40 is
+  // 1.7325, and the compact clamp a few hundred lines up quotes the same shape
+  // from the other side ("the plate the tablet draws at 0.58:1").
   const AUTHORED_W = 40;
   const AUTHORED_H = 69.3;
-  const ratio = plateBody.match(/height:\s*calc\(var\(--plate-w\)\s*\*\s*([\d.]+)\)/);
-  check("the plate's height is its width times the authored 40:69.3",
-    ratio !== null && Math.abs(Number(ratio[1]) - AUTHORED_H / AUTHORED_W) < 0.0005,
-    ratio?.[1] ?? plateBody.match(/height:.*/)?.[0]?.trim() ?? "no height declaration");
-  check("...and the width is the shape token itself, so the two cannot drift apart",
+  const RATIO = AUTHORED_H / AUTHORED_W;
+  const height = plateBody.match(
+    /height:\s*min\(var\(--row-h\),\s*calc\(var\(--plate-w\)\s*\*\s*([\d.]+)\)\)/,
+  );
+  check("the plate's height is its width at the authored 40:69.3...",
+    height !== null && Math.abs(Number(height[1]) - RATIO) < 0.0005,
+    height?.[1] ?? plateBody.match(/height:.*/)?.[0]?.trim() ?? "no height declaration");
+  // ...CLAMPED TO THE ROW, and this is the cap that protects the panel. Left
+  // to follow the width freely the height is what grows the build row, and a
+  // bottom-anchored plant panel grows UPWARD over the play area: measured on
+  // `hud-lance` at 1269x663, four slots uncapped draw a 68.3x118.3 plate,
+  // taking the row from 81px to 135 and the panel from 285 to 315.
+  check("...and never taller than the row it sits in",
+    height !== null, plateBody.match(/height:.*/)?.[0]?.trim() ?? "no height declaration");
+  check("...with the width the shape token itself, so the two cannot drift apart",
     /width:\s*var\(--plate-w\)/.test(plateBody),
     plateBody.match(/width:.*/)?.[0]?.trim() ?? "no width declaration");
   // A second --fpx coefficient on the height is exactly how the shape went
-  // stale the first time. There must not be one.
+  // stale the first time. There must not be one — the row height reaches it
+  // through --row-h, which is the ability chip's own number.
   check("...with no independent height coefficient left to go stale",
     !/height:[^;]*--fpx/.test(plateBody),
     plateBody.match(/height:.*/)?.[0]?.trim() ?? "");
 
-  // THE WIDTH IS A BUDGET DIVIDED BY THE RACK'S OWN SLOT COUNT. 280 --fpx + 9px
-  // is what ten slots and their nine 1px gaps are allowed; 28 is the largest
-  // flat coefficient that leaves the binding window in sim/uifit's matrix —
-  // 800x600, the narrowest row at regular density, --fpx 0.625 — sitting on the
-  // 17.5px floor it already sat on, because 28 x 0.625 is 17.5 exactly.
-  const cap = plateBody.match(/min\(\s*calc\((\d+) \* var\(--fpx\)\)/);
-  const share = plateBody.match(/calc\(\((\d+) \* var\(--fpx\) \+ 10px\) \/ var\(--rack-slots, (\d+)\) - 1px\)/);
-  const floor = plateBody.match(/--plate-w:\s*max\(\s*([\d.]+)px/);
-  check("the plate's cap is the authored width",
-    cap !== null && Number(cap[1]) === AUTHORED_W, cap?.[1] ?? "no cap");
-  check("the budget is what the slot cap and its hairline gaps are allowed",
-    share !== null && Number(share[2]) === SLOT_CAP, share?.[0] ?? "no budget term");
-  const COEFF = Number(share?.[1] ?? 0) / SLOT_CAP;
-  const BINDING_FPX = 0.625;               // 800x600, the narrowest regular row
-  check("...which is 28 --fpx a slot at the cap", COEFF === 28, String(COEFF));
-  check("...and lands the binding window exactly on the floor it already had",
-    floor !== null && Math.abs(COEFF * BINDING_FPX - Number(floor[1])) < 0.001,
-    `${COEFF} x ${BINDING_FPX} = ${COEFF * BINDING_FPX} against a ${floor?.[1] ?? "?"}px floor`);
-  // The rack can never outgrow that budget, whatever the count: at n slots it
-  // measures n x share + (n-1) gaps, which is the budget by construction, and
-  // the cap only ever makes it smaller.
-  const rackWidth = (n: number, fpx: number): number =>
-    n * Math.max(17.5, Math.min(AUTHORED_W * fpx, (COEFF * SLOT_CAP * fpx + 10) / n - 1)) + (n - 1);
-  const budget = (fpx: number): number => COEFF * SLOT_CAP * fpx + 9;
-  for (let n = 1; n <= SLOT_CAP; n++) {
-    check(`a ${n}-slot rack stays inside the ten-slot budget at every density`,
-      [0.625, 0.78, 0.92, 1.15, 1.5].every((f) => rackWidth(n, f) <= budget(f) + 0.001),
-      [0.625, 0.78, 0.92, 1.15, 1.5]
-        .map((f) => `${f}: ${rackWidth(n, f).toFixed(1)} vs ${budget(f).toFixed(1)}`).join(" | "));
-  }
+  // --- the two allowances -------------------------------------------------
+  // WIDTH IS A BUDGET DIVIDED BY THE RACK'S OWN SLOT COUNT, capped at the row's
+  // height. That cap is the SHAPE rule: uncapped, four slots on a Pixel 7 is
+  // 78.5x25.2 and seven is 44.4x25.2 — a row of letterboxes with the mark lost
+  // in the middle. A square is where a cell stops being a cell.
+  const allowance = (body: string, label: string) => {
+    const m = body.match(
+      /--plate-w:\s*max\(\s*([\d.]+)px,\s*min\(\s*var\(--row-h\),\s*calc\(\((\d+) \* var\(--fpx\) \+ 1px\) \/ var\(--rack-slots, (\d+)\) - 1px\)\s*\)\s*\)/,
+    );
+    check(`${label}: the plate is the row's budget over its own count, capped square`,
+      m !== null && Number(m[3]) === SLOT_CAP,
+      m?.[0]?.replace(/\s+/g, " ") ?? body.match(/--plate-w:[\s\S]{0,160}/)?.[0] ?? "no --plate-w");
+    return { floor: Number(m?.[1] ?? 0), budget: Number(m?.[2] ?? 0) };
+  };
+  const reg = allowance(plateBody, "regular/roomy");
+  const compact = allowance(compactBody, "compact");
+  const rowH = (body: string) =>
+    body.match(/--row-h:\s*max\((\d+)px,\s*calc\(([\d.]+) \* var\(--fpx\)\)\)/);
+  const regRow = rowH(plateBody);
+  const compactRow = rowH(compactBody);
 
-  // COMPACT OWNS ALL THREE OF ITS NUMBERS, which is what keeps the phone out of
-  // this change entirely. Width comes from the flat 19px token, height from the
-  // shared chip rule, and the mark from its own restatement — 19/2.18 is 8.72
-  // and would otherwise lift a mark that is on its 8.5px legibility floor on
-  // every phone in the matrix.
-  check("compact pins the shape token flat, so the phone's plate is unchanged",
-    /\[data-density="compact"\]\s*\.pl-mods\s*\.ship-plate\s*\{\s*--plate-w:\s*19px;\s*\}/.test(css),
-    (css.match(/\[data-density="compact"\][^\n]*ship-plate[^\n]*/g) ?? []).join(" | "));
-  check("...and states its own mark rather than deriving one",
-    /\[data-density="compact"\]\s*\.ship-plate__g\s*\{\s*font-size:\s*max\(8\.5px,\s*calc\(11 \* var\(--fpx\)\)\);\s*\}/
-      .test(css),
-    (css.match(/\[data-density="compact"\][^\n]*ship-plate__g[^\n]*/g) ?? []).join(" | "));
-  // The mark at every other density is read OFF the plate, so a rack that
-  // divides its budget cannot leave a big box round a small glyph. 2.18 is the
+  // THE ROW HEIGHT IS THE ABILITY CHIP'S, restated on the plate because a plate
+  // cannot query a sibling. If the two ever disagree the cap is measuring a row
+  // that does not exist, so the chip's own rule is read back here.
+  check("the regular row height the plate caps against is the chip's own",
+    regRow !== null && Number(regRow[1]) === 44 && Number(regRow[2]) === AUTHORED_H,
+    regRow?.[0] ?? "no --row-h on .ship-plate");
+  check("...and the compact one is the compact chip's",
+    compactRow !== null
+      && new RegExp(
+        `\\[data-density="compact"\\] \\.pl-mods \\.mod \\{ height: max\\(${compactRow[1]}px, calc\\(${compactRow[2]} \\* var\\(--fpx\\)\\)\\); \\}`,
+      ).test(css),
+    compactRow?.[0] ?? "no compact --row-h");
+
+  // THE BUDGETS, measured off `hud-lance` across the whole device matrix as
+  // "row width less everything else in the row, over --fpx". The rack owns the
+  // compact row outright (the BUILD tag and the ability chips are display:none
+  // there); at regular and roomy it shares, and 800x600 binds because three
+  // chips on their 44px TAP floor take a proportionally bigger bite of a small
+  // row than 58 --fpx would.
+  const MEASURED_AVAIL = { compact: 554.8, regular: 305.6 };
+  check("the compact budget fits the tightest compact row",
+    compact.budget <= MEASURED_AVAIL.compact,
+    `${compact.budget} against a measured ${MEASURED_AVAIL.compact} --fpx`);
+  check("...and spends nearly all of it — the rack owns that row",
+    compact.budget >= MEASURED_AVAIL.compact - 20,
+    `${compact.budget} of ${MEASURED_AVAIL.compact} --fpx`);
+  check("the regular budget fits the binding window (800x600)",
+    reg.budget <= MEASURED_AVAIL.regular,
+    `${reg.budget} against a measured ${MEASURED_AVAIL.regular} --fpx`);
+  check("...and spends nearly all of it",
+    reg.budget >= MEASURED_AVAIL.regular - 10,
+    `${reg.budget} of ${MEASURED_AVAIL.regular} --fpx`);
+  // Compact is the roomier row of the two by a wide margin, which is the whole
+  // reason a single flat width could not serve both.
+  check("compact really is the roomier allowance", compact.budget > reg.budget,
+    `${compact.budget} vs ${reg.budget}`);
+  check("both densities share one floor, the badge floor",
+    reg.floor === compact.floor && reg.floor === 17.5, `${reg.floor} / ${compact.floor}`);
+
+  // --- the rack always fits ----------------------------------------------
+  // At n slots the rack measures n x share + (n-1) hairline gaps, which is the
+  // budget by construction; both caps only ever make a plate smaller, so no
+  // count can overflow. Proven over every count and a spread of densities
+  // rather than argued.
+  const plateW = (n: number, fpx: number, b: { floor: number; budget: number }, rh: number): number =>
+    Math.max(b.floor, Math.min(rh, (b.budget * fpx + 1) / n - 1));
+  const REG_ROW = (f: number): number => Math.max(44, AUTHORED_H * f);
+  const COMPACT_ROW = (f: number): number => Math.max(25, 44 * f);
+  const rackW = (n: number, f: number, b: { floor: number; budget: number }, rh: (x: number) => number): number =>
+    n * plateW(n, f, b, rh(f)) + (n - 1);
+  const fits = (n: number, f: number, b: { floor: number; budget: number }, rh: (x: number) => number): boolean =>
+    rackW(n, f, b, rh) <= b.budget * f + 0.001
+      // The 17.5px floor is allowed to win on a row too small to pay for it;
+      // that is the same "floored, and the harness measures it" state the
+      // tightest phone has always been in.
+      || plateW(n, f, b, rh(f)) === b.floor;
+  const REG_FPX = [0.625, 0.78, 0.92, 1.15, 1.5];
+  const COMPACT_FPX = [0.376, 0.434, 0.5, 0.572, 0.72];
+  for (let n = 1; n <= SLOT_CAP; n++) {
+    check(`a ${n}-slot rack stays inside its row's budget at every density`,
+      REG_FPX.every((f) => fits(n, f, reg, REG_ROW))
+        && COMPACT_FPX.every((f) => fits(n, f, compact, COMPACT_ROW)),
+      REG_FPX.map((f) => `r${f}: ${rackW(n, f, reg, REG_ROW).toFixed(1)}/${(reg.budget * f).toFixed(1)}`)
+        .concat(COMPACT_FPX.map((f) =>
+          `c${f}: ${rackW(n, f, compact, COMPACT_ROW).toFixed(1)}/${(compact.budget * f).toFixed(1)}`))
+        .join(" | "));
+  }
+  // ...and where neither cap nor floor is binding it spends the WHOLE budget,
+  // which is the property the report asked for: "maximise their size". The
+  // regex above is what makes this model faithful to the stylesheet — it pins
+  // the share term character for character — and this says what that term is
+  // FOR. n = SLOT_CAP at the binding densities is the case where the budget is
+  // the only thing in charge.
+  const spendsAll = (n: number, f: number, b2: { floor: number; budget: number }, rh: (x: number) => number): boolean => {
+    const w = plateW(n, f, b2, rh(f));
+    return w === b2.floor || w === rh(f) || Math.abs(rackW(n, f, b2, rh) - b2.budget * f) < 0.001;
+  };
+  check("a rack that is neither capped nor floored spends its budget to the pixel",
+    REG_FPX.every((f) => [1, 4, 7, SLOT_CAP].every((n) => spendsAll(n, f, reg, REG_ROW)))
+      && COMPACT_FPX.every((f) => [1, 4, 7, SLOT_CAP].every((n) => spendsAll(n, f, compact, COMPACT_ROW))),
+    REG_FPX.map((f) => `r${f}: ${rackW(SLOT_CAP, f, reg, REG_ROW).toFixed(1)}/${(reg.budget * f).toFixed(1)}`)
+      .join(" | "));
+
+  // ...and the reported rig really did get bigger. Seven slots on a Pixel 7
+  // (--fpx 0.572, row height 25.2) drew 19px flat before; the square cap is
+  // what it draws now, and the mark goes with it.
+  const PIXEL7_FPX = 0.572;
+  const reported = plateW(7, PIXEL7_FPX, compact, COMPACT_ROW(PIXEL7_FPX));
+  check("the reported seven-slot phone rack is wider than the flat 19px it replaced",
+    reported > 19 * 1.25, `${reported.toFixed(1)}px`);
+  check("...and its mark grows with it, which is what the report was about",
+    reported / 2.18 > 8.5, `${(reported / 2.18).toFixed(1)}px against the 8.5px floor`);
+
+  // --- everything in the box answers to the box ---------------------------
+  // The mark is read OFF the plate at EVERY density now. It used to be
+  // restated at compact, because compact's width was a flat 19px and deriving
+  // would have lifted a mark off the floor it was on for a reason; with
+  // compact sizing from the same rule, deriving is the point. 2.18 is the
   // 24/11 the tenth slot left behind, kept exactly.
-  check("the mark is a fixed fraction of the slot everywhere else",
-    /font-size:\s*max\(8\.5px,\s*calc\(var\(--plate-w\)\s*\/\s*2\.18\)\)/.test(css),
-    (css.match(/\.ship-plate__g[\s\S]{0,600}?font-size:[^;]*/)?.[0] ?? "").slice(-80));
-  // ...and sim/uifit's badge floor still clears at the tightest slot it can
-  // draw: air is (padding box - mark)/2 against 0.4 of the mark, i.e. the
-  // padding box must be 1.8 marks wide.
+  check("the mark is a fixed fraction of the slot, at every density",
+    /font-size:\s*max\(8\.5px,\s*calc\(var\(--plate-w\)\s*\/\s*2\.18\)\)/.test(css)
+      && !/\[data-density="compact"\][^\n]*\.ship-plate__g/.test(decomment(css)),
+    (decomment(css).match(/\[data-density="compact"\][^\n]*ship-plate__g[^\n]*/g) ?? ["derived"]).join(" | "));
+  // ...and so do the pips, at the 5/40 the plate was authored with. They were
+  // the last thing in the box still sized off --fpx alone, which did not show
+  // while the plate WAS 40 --fpx wide.
+  check("the pips are an eighth of the slot, not a coefficient of their own",
+    /\.ship-plate__pips i \{ width: max\(3px, calc\(var\(--plate-w\) \/ 8\)\)/.test(css)
+      && Math.abs(1 / 8 - 5 / AUTHORED_W) < 1e-9,
+    css.match(/\.ship-plate__pips i \{[^;]*/)?.[0] ?? "no pip rule");
+  // ...and sim/uifit's badge floor still clears at the tightest slot either
+  // density can draw: air is (padding box - mark)/2 against 0.4 of the mark,
+  // i.e. the padding box must be 1.8 marks wide.
   const BORDERS = 2;
-  const tightest = 17.5;
+  const MARK_FLOOR = 8.5;
   check("the tightest slot still clears the badge floor",
-    tightest - BORDERS >= 1.8 * 8.5,
-    `${tightest - BORDERS} against ${1.8 * 8.5}`);
+    reg.floor - BORDERS >= 1.8 * MARK_FLOOR,
+    `${reg.floor - BORDERS} against ${1.8 * MARK_FLOOR}`);
 }
 
 // ---------------------------------------------------------------------------
