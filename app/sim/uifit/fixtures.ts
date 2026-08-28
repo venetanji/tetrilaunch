@@ -1175,6 +1175,40 @@ export const SCREENS: Record<string, () => string> = {
       nextInstall: { name: "Demolition Rack", cost: 40 },
     }),
 
+  // THE STATE MOST CLEARS LAND IN, and until this fixture the only one of the
+  // Contract end's five payout banners that nothing measured. Two of every
+  // three clears in a tier tick the quota rather than complete it, so this is
+  // the row a player reads most and the two fixtures above are the rare ends.
+  //
+  // It is also the banner's WIDEST HEADING: a completion heads it "Tier 10
+  // complete!", a quota tick "Tier 2 · Contracts 0/3" — 22 characters against
+  // 17, in --font-pixel, whose advance is a full em. Measured at the roomy
+  // 11px that heading is ~256px against the 290px column the 1280x720 row
+  // gives it, which is the closest this row's heading comes to wrapping
+  // anywhere in the matrix; a point more and it costs a line of modal height.
+  //
+  // The body is the sentence at its longest reachable shape: an award to
+  // announce, a quota still open, and a target price to walk toward, with the
+  // inline pixel-face emphasis mid-sentence rather than at its end (where the
+  // completion states put it). 0/3 rather than 1/3 because "3 more Contracts"
+  // is the plural, and the Deep Run clause rides along while runDone is false.
+  "contract-end-progress": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "pattern",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: ["I", "O", "T", "L", "J", "S", "Z", "I"] as PieceType[],
+      cubesWasted: 6,
+      award: { firstClear: true, completedTier: null, salvage: 15 },
+      progress: { tier: 2, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+      salvageTotal: 1_700,
+      nextInstall: { name: "Demolition Rack", cost: 40 },
+    }),
+
   // The Tier S variant of the same modal: the award row is replaced and the
   // actions point back at the bench, so it is a different row count and a
   // different widest string.
