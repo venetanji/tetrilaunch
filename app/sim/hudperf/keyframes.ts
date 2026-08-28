@@ -329,8 +329,20 @@ const plan: { k: string; names: string[] }[] = [
   { k: key(allNames), names: allNames },
   ...running.map((r) => ({ k: key([r.name]), names: [r.name] })),
 ];
+/**
+ * THE ORDER ROTATES BETWEEN ROUNDS, it is not merely repeated. A fixed order
+ * would give every arm a fixed position inside the round, and drift that is
+ * monotonic WITHIN a round — JIT tiers kicking in, a thermal ramp, another
+ * process's load — would then land on the same arms every time. Pairing against
+ * a baseline that always ran first cannot cancel that, and a control that
+ * always ran second cannot measure it at the ninth slot. Rotating by one slot
+ * per round walks every arm through different positions, so position effects
+ * land in the paired differences as noise the medians damp — and land in the
+ * control's own zeros, where the noise floor can see them.
+ */
 for (let round = 0; round < REPEATS; round++) {
-  for (const slot of plan) {
+  for (let i = 0; i < plan.length; i++) {
+    const slot = plan[(i + round) % plan.length];
     const ms = await arm(slot.names);
     samples.set(slot.k, [...(samples.get(slot.k) ?? []), ms]);
   }
