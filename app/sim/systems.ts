@@ -191,7 +191,11 @@ import {
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
 import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
-import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
+import {
+  BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForRun, boardDayForView,
+  boardForRun, boardForView, DAY_NONE,
+  fetchLeaderboard, isLadderBoard, submitScore, type BoardView, type ScoreEntry,
+} from "../src/lib/api";
 
 let failures = 0;
 
@@ -2688,6 +2692,132 @@ section("Pattern variants (contracts.ts VARIANTS)");
   // than trailing off. A card that only stops lying is not yet an endgame.
   check("...and names the two things still worth flying for",
     /maxed rig/.test(ceTop) && /every Mark sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
+}
+
+
+// ---------------------------------------------------------------------------
+section("The payout banner (screens.ts .salvage-row + app.css)");
+// ---------------------------------------------------------------------------
+// ONE format, eight callers: the run end's salvage-banked and tier-complete
+// rows and its Tier S replacement (sandboxEndRowHTML), plus the Contract end's
+// five variants (progress, complete, Tier S, Skydeck, replay). The stylesheet
+// sets the banner's type ONCE — one rule for the figure, one for the heading,
+// one for the sentence — which only reaches all eight while all eight keep the
+// same three-part shape. A variant that hand-rolled its own text column would
+// silently opt out of every size in that block, which is how this row ended up
+// being read at 11px/1.35 on a screen whose other explanatory copy is --fs-sm.
+{
+  const bannerOpts = {
+    name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
+    launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
+    cubesWasted: 0, salvageTotal: 66,
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
+  };
+  const runOpts = {
+    won: true, score: 100, lines: 4, baysCleared: 2, funds: 10, best: 0,
+    name: "ACE", rows: "", reason: null, bayNum: 3, bayName: "Bay",
+    boardTier: 1, runComplete: true,
+    progress: tierProgressFor(newMeta()), salvageTotal: 66, scrapEarned: 20,
+    salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+  };
+  /** The eight banners, each labelled by the state it reports. */
+  const banners: Array<[string, string]> = [
+    ["run · salvage banked", S.endModal({ ...runOpts, tierCompleted: null, tierSalvage: 40 })],
+    ["run · tier complete", S.endModal({ ...runOpts, tierCompleted: 3, tierSalvage: 220 })],
+    ["run · Tier S", S.endModal({
+      ...runOpts, tierCompleted: null, tierSalvage: 0,
+      sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+    })],
+    ["contract · tier progress", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 15, firstClear: true, completedTier: null },
+      nextInstall: { name: "Reactor Output", cost: 15 },
+    })],
+    ["contract · tier complete", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: 1 },
+    })],
+    ["contract · Tier S", contractEndModal({ ...bannerOpts, won: true, award: null, sandbox: true })],
+    ["contract · Skydeck", contractEndModal({ ...bannerOpts, won: true, award: null, skydeck: true })],
+    ["contract · replay", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 0, firstClear: false, completedTier: null },
+    })],
+  ];
+  for (const [label, html] of banners) {
+    // The WRAPPER's class, matched to its end: every part of this component is
+    // named off the same stem, so `indexOf("salvage-row")` — or even
+    // `class="salvage-row` — is answered by a variant's own __amt one line
+    // below a wrapper that has been renamed out of the format.
+    const at = html.search(/class="salvage-row[ "]/);
+    const row = at < 0 ? "" : html.slice(at, html.indexOf("</div>", html.indexOf("salvage-row__body", at)));
+    check(`the ${label} banner is drawn as one`, at >= 0);
+    // The figure and the text column, in that order. Both are load-bearing:
+    // the figure is the only element the --amt sizes touch, the body is the
+    // only element the type block touches.
+    check(`...${label}: a figure beside a text column`,
+      row.includes("salvage-row__amt") && row.includes("salvage-row__body")
+        && row.indexOf("salvage-row__amt") < row.indexOf("salvage-row__body"));
+    // A heading FIRST, then the sentence. `.salvage-row__body > b` is the
+    // heading's leading and `.salvage-row__body span` the paragraph's; a
+    // variant that opened with a bare <span> would get the paragraph's
+    // treatment for its heading and no heading-to-body gap at all.
+    const body = row.slice(row.indexOf("salvage-row__body"));
+    const inner = body.slice(body.indexOf(">") + 1).trim();
+    check(`...${label}: a heading above the sentence`,
+      inner.startsWith("<b>") && inner.includes("<span"), inner.slice(0, 40));
+  }
+
+  // --- the stylesheet, read back --------------------------------------------
+  const bannerCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const lines = bannerCss.split("\n");
+  const decls = (selector: string): string[] =>
+    lines
+      .filter((l) => l.trim().startsWith(`${selector} {`))
+      .map((l) => l.slice(l.indexOf("{") + 1, l.lastIndexOf("}")));
+  /** Every font-size this selector is given, in source order — which is
+   *  cascade order here, so [0] is the base and the last entry is the tightest
+   *  step. */
+  const sizes = (selector: string): string[] =>
+    decls(selector).map((d) => d.match(/font-size:\s*([^;]+);/)?.[1].trim() ?? "").filter(Boolean);
+  // ONE RANK, MOVING TOGETHER. The banner's sentence, .end__why's paragraph and
+  // .end__where are the same thing on the same screen — explanatory copy under
+  // a display heading — so the banner reaches the token the paragraph is set
+  // from, and steps to the literal the paragraph steps to. It used to do
+  // neither: 11px at every viewport, below --fs-xs at that.
+  const sentence = sizes(".salvage-row__body span");
+  const why = sizes(".end__why p");
+  check("the banner's sentence reaches the paragraph's token",
+    sentence.includes("var(--fs-sm)") && why[0] === "var(--fs-sm)",
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  check("...and steps to where that paragraph steps",
+    sentence.length > 1 && sentence[sentence.length - 1] === why[why.length - 1],
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  // THE BIG SETTING IS AN OPT-IN, never a default with small windows cut out of
+  // it. That is the shape of the bug this row shipped once: gated the other way
+  // round, on `@media (min-height: 521px) and (max-height: 620px)`, one pixel of
+  // window height above the ceiling bought ~53px of banner, and the end modal's
+  // panel overflowed from 621px to 633px at 800px wide. A query built only out
+  // of `min-` features cannot do that — every viewport that fails it keeps a
+  // setting that costs nothing, including whatever viewport is invented next.
+  const bigAt = lines.findIndex((l) => /^\s+\.salvage-row__body span \{ font-size: var\(--fs-sm\)/.test(l));
+  let gate = "";
+  for (let i = bigAt; i >= 0 && bigAt > 0; i -= 1) {
+    if (lines[i].startsWith("@media")) { gate = lines[i]; break; }
+  }
+  check("the banner's big setting is gated on minimums only",
+    gate !== "" && !/\bmax-/.test(gate) && /\bmin-/.test(gate),
+    gate || "no @media above the --fs-sm rule");
+  // LEADING ON THE HEADING ONLY. An inline <b> inside the sentence (the banked
+  // figure, the salvage total) contributes its own line-height to the line box
+  // it lands in, so a bare `.salvage-row__body b { line-height: … }` sets ONE
+  // line of a three-line wrapped paragraph taller than the two around it.
+  const anyB = decls(".salvage-row__body b");
+  const headB = decls(".salvage-row__body > b");
+  check("the heading's leading cannot reach the inline emphasis",
+    anyB.length > 0 && anyB.every((d) => !/line-height/.test(d))
+      && headB.some((d) => /line-height/.test(d)),
+    `${anyB.length} shared, ${headB.length} heading-only`);
 }
 
 
@@ -10307,6 +10437,325 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       banner.includes('aria-label="Skydeck"') && banner.includes("tier-plate--sky"));
     check("...and its accessible label says Skydeck, not a tier number",
       banner.includes(", Skydeck") && !/tier 1[01]\b/i.test(banner), banner.slice(0, 160));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
+// ---------------------------------------------------------------------------
+{
+  const DAY_A = new Date(Date.UTC(2026, 7, 27, 12, 0, 0));
+  const DAY_B = new Date(Date.UTC(2026, 7, 28, 12, 0, 0));
+  const skyRun = (d = DAY_A): RunState => skydeckRunFor(newTiers(), [], d);
+  const ladderRun = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+
+  // ---- THE ROUTING RULE ---------------------------------------------------
+  // The bug this section exists for: a Skydeck run carries mark = SKYDECK_MARK
+  // (= MARK_COUNT), so every seam that files a score by `run.mark` filed the
+  // day's run — a rung past Mark 10, under three standing clauses — onto the
+  // Tier 10 board. The rule is now one function, and these are its cases.
+  check("the day's run files to the roof's own board",
+    boardForRun(skyRun()) === BOARD_SKYDECK);
+  check("...and not to the board of the Mark it borrows",
+    boardForRun(skyRun()) !== skyRun().mark && skyRun().mark === MARK_COUNT);
+  check("a Mark-10 Deep Run at that same Mark still files to Tier 10",
+    boardForRun(ladderRun(MARK_COUNT)) === MARK_COUNT);
+  check("every other rung files to its own Tier",
+    [1, 2, 5, 9].every((m) => boardForRun(ladderRun(m)) === m));
+  check("Tier S still outranks both — a sandbox run is filed nowhere else",
+    boardForRun({ ...skyRun(), sandbox: true }) === BOARD_SANDBOX);
+
+  // ---- THE ID -------------------------------------------------------------
+  // Negative for the reason Tier S is, and the alternative is worth pinning
+  // because it is the one a reader reaches for first: SKYDECK_TIER is the
+  // tower's floor id (MARK_COUNT + 1), and any server that knows only Marks
+  // clamps it back onto MARK_COUNT — i.e. straight back to the pooling above.
+  check("the roof is not a rung of the ladder", !isLadderBoard(BOARD_SKYDECK));
+  check("the roof's board cannot collide with a Tier",
+    !Array.from({ length: MARK_COUNT }, (_, i) => i + 1).includes(BOARD_SKYDECK));
+  check("...nor with Tier S", BOARD_SKYDECK !== BOARD_SANDBOX);
+  check("...and is not the tower's floor id, which clamps onto Mark 10",
+    BOARD_SKYDECK !== S.SKYDECK_TIER
+      && Math.min(MARK_COUNT, S.SKYDECK_TIER) === MARK_COUNT);
+
+  // ---- THE DAY ------------------------------------------------------------
+  // The board key's second part is a DERIVATION of the daily seed, not a
+  // literal: the run files under the day it was dealt, and that day is the same
+  // key the Contract board rolls on, so the two dailies can never turn over at
+  // different midnights.
+  check("the day a score files under IS the daily seed",
+    [DAY_A, DAY_B, new Date(Date.UTC(2027, 0, 1))].every(
+      (d) => boardDayForRun(skyRun(d)) === dailySeed(d)));
+  check("one UTC day is one board",
+    boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 0, 0, 1))))
+      === boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 23, 59, 59)))));
+  check("the next day is a different board",
+    boardDayForRun(skyRun(DAY_A)) !== boardDayForRun(skyRun(DAY_B)));
+  // The rollover rule the run makes possible: a run is stamped at undock, so
+  // one flown across midnight still ranks against the seed it played rather
+  // than against tomorrow's players.
+  check("a run flown across midnight keeps the day it undocked on",
+    boardDayForRun(skyRun(DAY_A)) === dailySeed(DAY_A)
+      && dailySeed(DAY_A) !== dailySeed(DAY_B));
+  check("an all-time board has no day at all",
+    boardDayForRun(ladderRun(MARK_COUNT)) === DAY_NONE
+      && boardDayForRun({ ...skyRun(), sandbox: true, skydeck: null }) === DAY_NONE);
+
+  // ---- WHICH BOARD A SCREEN SHOWS -----------------------------------------
+  //
+  // `this.run` OUTLIVES the run on screen — main.ts clears it only when a
+  // Contract starts — so "there is a run" and "a run is on screen" are
+  // different questions, and a rule that asks the first one answers for a run
+  // the player has walked away from. Both sides pinned, because a fix to one
+  // that breaks the other is the shape this bug had (codex review, PR #166).
+  {
+    const TODAY = dailySeed(DAY_B);
+    const sky = skyRun(DAY_A);
+    const view = (o: Partial<BoardView>): BoardView =>
+      ({ run: null, inRun: false, skydeckParked: false, mark: MARK_COUNT, ...o });
+
+    check("a Skydeck run ON SCREEN shows the roof's board",
+      boardForView(view({ run: sky, inRun: true })) === BOARD_SKYDECK);
+    check("...and dates it with the day that run was dealt, not today",
+      boardDayForView(view({ run: sky, inRun: true }), TODAY) === dailySeed(DAY_A)
+        && dailySeed(DAY_A) !== TODAY);
+    // The regression itself: the same finished run, still in hand, with the car
+    // parked back on a Mark. The board asked for is the Mark's.
+    check("a finished Skydeck run left in hand does NOT hold the board hostage",
+      boardForView(view({ run: sky, inRun: false, mark: 7 })) === 7);
+    check("...and the roof's board comes back by PARKING there, not by the run",
+      boardForView(view({ run: sky, inRun: false, skydeckParked: true })) === BOARD_SKYDECK);
+    check("...dated TODAY, since no run is on screen to date it",
+      boardDayForView(view({ run: sky, inRun: false, skydeckParked: true }), TODAY) === TODAY);
+    check("a ladder run on screen still shows its own Mark",
+      boardForView(view({ run: ladderRun(4), inRun: true })) === 4);
+    // The inherited asymmetry, pinned so it stays a decision: a parked MARK
+    // still opens the UNLOCKED Tier's board rather than the parked floor's,
+    // exactly as it did before the roof had a board. Only the roof reads the
+    // parking, because nothing else says a Skydeck run is what comes next.
+    check("a parked Mark opens the unlocked Tier's board, as it always has",
+      boardForView(view({ mark: MARK_COUNT, skydeckParked: false })) === MARK_COUNT);
+    // Tier S is deliberately NOT gated on `inRun` — closing the mode mid-run
+    // must not move where that run was filed. Pinned so the asymmetry is a
+    // decision rather than something the next reader tidies away.
+    check("a Tier S run answers whatever the screen, on purpose",
+      boardForView(view({ run: { ...ladderRun(3), sandbox: true }, inRun: false }))
+        === BOARD_SANDBOX);
+  }
+
+  // ---- THE CACHE ----------------------------------------------------------
+  //
+  // Cached rows are drawn IMMEDIATELY and the fetch repaints behind them, so a
+  // cache keyed on the board alone paints yesterday's rows under today's
+  // heading for a session left open across UTC midnight — and leaves them there
+  // if the request is slow or fails. The date on a daily board is a promise
+  // about the rows under it (codex review, PR #166).
+  {
+    const rows = (n: string): ScoreEntry[] =>
+      [{ name: n, score: 1, mark: BOARD_SKYDECK, level: 10, lines: 1, created_at: 0 }];
+    const cache = new BoardCache();
+    const dayN = dailySeed(DAY_A);
+    const dayN1 = dailySeed(DAY_B);
+    cache.set(BOARD_SKYDECK, dayN, rows("YESTERDAY"));
+    check("yesterday's rows are not today's board",
+      cache.get(BOARD_SKYDECK, dayN1).length === 0);
+    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY");
+    cache.set(BOARD_SKYDECK, dayN1, rows("TODAY"));
+    check("...with both days held at once, so neither tab blanks the other",
+      cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY"
+        && cache.get(BOARD_SKYDECK, dayN1)[0]?.name === "TODAY");
+    // The all-time boards go on behaving exactly as they did: one key each.
+    cache.set(MARK_COUNT, DAY_NONE, rows("TIER10"));
+    check("an all-time board is one entry, on the day it does not have",
+      cache.get(MARK_COUNT, DAY_NONE)[0]?.name === "TIER10");
+    check("...and does not collide with another board's",
+      cache.get(BOARD_SANDBOX, DAY_NONE).length === 0);
+  }
+
+  // ---- THE WIRE -----------------------------------------------------------
+  // The compatibility guarantee, asserted where it can actually be observed:
+  // the daily board is asked for on a path of its own, so a Worker that
+  // predates it 404s instead of clamping -2 onto Tier S. Both globals are
+  // stubbed and restored the same way the settings-migration record does it.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const calls: { url: string; body: string }[] = [];
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "tetrilaunch.com" }, configurable: true, writable: true,
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      value: async (url: string, init?: { body?: string }) => {
+        calls.push({ url: String(url), body: String(init?.body ?? "") });
+        return { ok: true, json: async () => ({ scores: [] }) };
+      },
+      configurable: true, writable: true,
+    });
+    try {
+      const day = dailySeed(DAY_A);
+      await fetchLeaderboard(BOARD_SKYDECK, 10, day);
+      await fetchLeaderboard(MARK_COUNT, 10);
+      await submitScore("ACE", 100, BOARD_SKYDECK, 10, 40, day);
+      await submitScore("ACE", 100, MARK_COUNT, 10, 40);
+      const [skyGet, tierGet, skyPost, tierPost] = calls;
+      check("the daily board is asked for on its own path",
+        skyGet.url.includes("/api/daily") && skyGet.url.includes(`day=${day}`)
+          && skyGet.url.includes(`mark=${BOARD_SKYDECK}`), skyGet.url);
+      check("...and a Tier board on the one it always used",
+        tierGet.url.includes("/api/scores") && !tierGet.url.includes("/api/daily")
+          && !tierGet.url.includes("day="), tierGet.url);
+      check("a Skydeck score posts to the daily route, carrying its day",
+        skyPost.url.endsWith("/api/daily")
+          && JSON.parse(skyPost.body).day === day
+          && JSON.parse(skyPost.body).mark === BOARD_SKYDECK, skyPost.body);
+      check("a Tier score posts where it always did, with no day",
+        tierPost.url.endsWith("/api/scores")
+          && JSON.parse(tierPost.body).day === DAY_NONE
+          && JSON.parse(tierPost.body).mark === MARK_COUNT, tierPost.body);
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+  }
+
+  // ---- THE TABLE ----------------------------------------------------------
+  //
+  // Read out of worker/index.ts as SOURCE, and the limitation is worth stating
+  // rather than hiding: the Worker is in neither tsconfig and imports
+  // @cloudflare/workers-types, so it cannot be executed from this process
+  // without pulling a Workers runtime's globals into a DOM-typed program. What
+  // can be asserted is the shape of every statement it sends, which is exactly
+  // where the bug was — the same reason the rAF and pixel-arithmetic sections
+  // above read their files instead of running them.
+  //
+  // THE INVARIANT: an all-time board is `day = 0` and a daily board is
+  // `day > 0`, so the two routes PARTITION the table rather than agreeing to.
+  // Without the predicate the daily rows leak upward twice over: the combined
+  // board (no mark at all — the list a client older than tier boards gets) is
+  // unpartitioned by definition, and a per-Tier board is only safe while no
+  // daily row carries a Tier's mark, which /api/daily's clamp does not forbid.
+  {
+    const workerTs = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "worker", "index.ts"),
+      "utf8",
+    );
+    // Every statement the Worker sends, normalised to one line so a reformat
+    // cannot break a check — and EXPANDED, because two of them are templates.
+    // `${ALL_TIME}` is substituted from its own declaration (so the predicate
+    // keeps one home in the Worker and this still reads what is sent), and a
+    // `${cond ? "a" : "b"}` becomes BOTH statements, since a template that
+    // serves the combined board and a Tier's board sends two queries and each
+    // has to be checked as one.
+    const allTime = /const ALL_TIME = "([^"]+)";/.exec(workerTs)?.[1] ?? "";
+    check("the all-time predicate is a predicate about the day", allTime === "day = 0", allTime);
+    const TERNARY = /\$\{[^}]*\?\s*"([^"]*)"\s*:\s*"([^"]*)"\s*\}/;
+    const expand = (q: string): string[] => {
+      let out = [q.replaceAll("${ALL_TIME}", allTime)];
+      while (out.some((s) => TERNARY.test(s))) {
+        out = out.flatMap((s) => {
+          const m = TERNARY.exec(s);
+          return m ? [s.replace(m[0], m[1]), s.replace(m[0], m[2])] : [s];
+        });
+      }
+      return out.map((s) => s.replace(/\s+/g, " ").trim());
+    };
+    const statements = [...workerTs.matchAll(/`((?:SELECT|INSERT)[\s\S]*?)`/g)]
+      .flatMap((m) => expand(m[1]));
+    const selects = statements.filter((q) => q.startsWith("SELECT"));
+    check("the Worker's queries were found at all", selects.length >= 4, String(selects.length));
+    // A daily query names both halves of the key; an all-time query names the
+    // day it does not have. Between them, no SELECT may be silent about `day`.
+    check("no board query is silent about the day",
+      selects.every((q) => /day = 0/.test(q) || /day = \?/.test(q)),
+      selects.find((q) => !/day = 0|day = \?/.test(q)) ?? "");
+    check("the combined board — the one a legacy client gets — is all-time only",
+      selects.some((q) => /FROM scores WHERE day = 0 ORDER BY/.test(q)),
+      selects.join(" | ").slice(0, 200));
+    check("...and so is the per-Tier board, whatever mark a daily row carries",
+      selects.some((q) => /WHERE day = 0.*mark = \?/.test(q)));
+    check("...and the rank a submission is told, which is a place ON that board",
+      selects.some((q) => /COUNT\(\*\).*WHERE day = 0 AND mark = \? AND score > \?/.test(q)));
+    check("a daily board binds both halves of its key",
+      selects.some((q) => /WHERE mark = \? AND day = \? ORDER BY/.test(q))
+        && selects.some((q) => /COUNT\(\*\).*WHERE mark = \? AND day = \? AND score > \?/.test(q)));
+    // The other half of the partition: the all-time INSERT must not name `day`,
+    // so the column default (0) is what files the row.
+    const inserts = statements.filter((q) => q.startsWith("INSERT"));
+    check("the all-time insert leaves the day to the column default",
+      inserts.some((q) => /INSERT INTO scores \(name, score, mark, level, lines, created_at\)/.test(q)));
+    check("...and only the daily insert writes one",
+      inserts.filter((q) => /created_at, day\)/.test(q)).length === 1);
+    // The floor that makes `day > 0` true of every daily row — without it the
+    // partition has a hole at 0, where every all-time row lives.
+    check("a daily row can never be filed on day 0",
+      /const DAY_MIN = 20_000_101;/.test(workerTs)
+        && /day < DAY_MIN\) return json\(\{ error: "invalid_day" \}, 400\)/.test(workerTs));
+    // And the migration has to be able to serve the predicate the queries now
+    // carry, or a legacy client's board becomes a full scan.
+    const migration = fs.readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..", "..", "migrations", "0003_daily_boards.sql",
+      ),
+      "utf8",
+    );
+    check("the day column defaults to the all-time value, so no row moves",
+      /ADD COLUMN day INTEGER NOT NULL DEFAULT 0/.test(migration));
+    check("both new queries have an index to seek on",
+      /ON scores \(mark, day, score DESC\)/.test(migration)
+        && /ON scores \(day, score DESC\)/.test(migration));
+  }
+
+  // ---- THE SCREEN ---------------------------------------------------------
+  // A board nobody can see is not a board. The tab arrives with the floor
+  // (meta.ts's skydeckOpen) and wears the tower's own identity, and the heading
+  // says WHICH day is on screen — a daily board whose contents change overnight
+  // for no visible reason is the one failure a date on it prevents.
+  const day = dailySeed(DAY_A);
+  const skyScreen = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day,
+  });
+  check("the roof's board is a tab on the leaderboard",
+    skyScreen.includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...wearing the tower's Sky identity, star and all",
+    skyScreen.includes(`${S.tierText(S.SKYDECK_TIER)} ${S.SKY_STAR}`));
+  check("...and never a raw board id",
+    !skyScreen.includes(`Tier ${BOARD_SKYDECK}`) && !S.boardText(BOARD_SKYDECK).includes("-"));
+  check("the heading names the day on screen",
+    skyScreen.includes(S.dayText(day)) && S.dayText(day) === "2026-08-27");
+  // An EMPTY board still has to say what it is. "No scores at this Tier yet" on
+  // a board that is a day is the same leak tierText exists for.
+  check("an empty Sky board is a day with no scores, not a tier with none",
+    !S.emptyBoardText(BOARD_SKYDECK).includes("Tier")
+      && S.emptyBoardText(BOARD_SKYDECK).includes("today"));
+  check("...and every other board keeps the sentence it had",
+    S.emptyBoardText(MARK_COUNT) === S.emptyBoardText(BOARD_SANDBOX)
+      && S.emptyBoardText(MARK_COUNT).includes("this Tier"));
+  check("a save that cannot fly the roof is offered no Sky tab",
+    !S.leaderboardScreen("", { board: MARK_COUNT, tier: MARK_COUNT, sandbox: true })
+      .includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...and one that can still keeps its ladder tab to switch back to",
+    skyScreen.includes(`data-board="${MARK_COUNT}"`));
+  // The run-end modal is where the score is actually filed, so it has to name
+  // the board it went to — the same failure the bay banner's Sky plate fixed,
+  // one screen later.
+  {
+    const skyEnd = S.endModal({
+      won: true, runComplete: true, score: 40_000, lines: 90, baysCleared: 10,
+      funds: 300, best: 50_000, name: "PILOT", rows: "", bayNum: 10,
+      bayName: "Skydeck", tierCompleted: null, tierSalvage: 0,
+      progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+      boardTier: BOARD_SKYDECK,
+      boardDay: day,
+    });
+    check("the end card files the day's run to the roof's board",
+      skyEnd.includes(`${S.boardText(BOARD_SKYDECK)} board`));
+    check("...on the day it was dealt", skyEnd.includes(S.dayText(day)));
+    check("...and never says Tier 10",
+      !skyEnd.includes(`${S.tierText(MARK_COUNT)} board`));
   }
 }
 

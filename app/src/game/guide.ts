@@ -616,8 +616,8 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, run end to end.`
       + ` Each bay has its own funding target and countdown; go broke or run the clock out and the run`
       + ` ends there — there are no lives.`
-      + ` Between bays you ratchet an axis, and three times you refit. It is the only mode that`
-      + ` posts to the leaderboard, and the only one that can raise your tier.`,
+      + ` Between bays you ratchet an axis, and three times you refit. Every Mark keeps its own`
+      + ` leaderboard, and this is the only mode that can raise your tier.`,
   },
   {
     id: "contracts", chapter: "modes", tier: 1,
@@ -659,7 +659,11 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` so everyone flies the same one. <b>No refit stops</b>, and <b>one notch a bay</b>`
       + ` instead of the capstone's two. In their place the day writes`
       + ` <b>${CLAUSE_COUNT} standing clauses</b>,`
-      + ` arming at bays ${CLAUSE_STOPS.map((c) => c.fromBay).join(", ")} and riding every bay after.`,
+      + ` arming at bays ${CLAUSE_STOPS.map((c) => c.fromBay).join(", ")} and riding every bay after.`
+      // The board is a fact about the mode, so it is stated with the rest of
+      // them — one clause, because the pane does not scroll (the copy budget
+      // in sim/systems.ts leaves this topic ~40 characters).
+      + ` Its leaderboard is one <b>day</b> at a time.`,
   },
   {
     id: "tiers", chapter: "modes", tier: 1,

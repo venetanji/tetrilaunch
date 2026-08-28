@@ -7400,19 +7400,147 @@ button.panel { color: var(--text); }
 .draft__bank { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; }
 .draft__bank .bay-stat { flex: 1 1 0; min-width: 0; max-width: 240px; padding: 5px 9px; }
 .draft__bank .bay-stat__val { font-size: 12px; }
+/* THE PAYOUT BANNER — one component, eight callers: the run end's
+   salvage-banked and tier-complete rows and its Tier S replacement
+   (sandboxEndRowHTML), plus the Contract end's five variants (progress,
+   complete, Tier S, Skydeck, replay). Every number below is set once, here, so
+   the format cannot drift per screen; sim/systems.ts pins that all eight keep
+   the three-part shape these rules are addressed to.
+
+   The text column is the part that was wrong. It was set at 11px/1.35 with a
+   1px heading gap, which is smaller than anything else in the modal it lives
+   in: the .end__why paragraph beside it is --fs-sm, .end__where is --fs-sm,
+   and the .stat labels immediately above the row are 9px PIXEL caps, which
+   read a good deal larger than 9px of --font-ui. So the one block on the
+   screen carrying the actual economy — what banked, what the tier still owes,
+   what it buys — was the hardest thing on the screen to read.
+
+   --fs-sm is therefore not a bump, it is the modal's existing measure for
+   explanatory copy, and the row joins it WHERE THERE IS ROOM. 1.5 leading
+   because the sentence WRAPS at every width the row is ever drawn at — 322px
+   in the run end's left column on a 640x360 phone, 576px at the Contract end's
+   full measure on a laptop — and 1.35 on a run that always wraps is the
+   setting that made this block read as noise rather than as three lines.
+
+   THE BASE COSTS NO HEIGHT, and the bigger setting is an exception gated on
+   room. That is the opposite of how this block was first written — roomy by
+   default with a `max-height` band cut out of it for small windows — and the
+   reason is that a max-height band has a CLIFF at its ceiling. Codex found it:
+   one pixel of window height above the ceiling bought ~53px of banner, so a
+   browser window at 800x621 got the roomy setting with 13px less room than it
+   needed. The overflow ran the whole way from 621 to 633 and only closed at
+   634; at 760px wide it did not close until 683. Written this way round there
+   is no cliff to fall off — a viewport that does not clear every floor keeps a
+   setting that costs nothing, and a new device row lands on the safe side.
+
+   So the base keeps the old 11px/1.35 sentence and spends nothing it has not
+   already saved: the heading gap goes 1px -> 3px (the change that made the
+   title and the paragraph read as one block) and the row's vertical padding
+   goes 10px -> 8px to pay for it. Net height across the whole banner is 0, and
+   the grid probe agrees — no viewport in 640-1400 x 560-900 draws this row
+   taller than staging drew it. */
 .salvage-row {
   display: flex; align-items: center; gap: var(--sp-3);
-  padding: 10px 14px;
+  padding: 8px var(--sp-3);
   border-radius: var(--r-md);
   background: rgba(255, 176, 32, 0.08);
   border: var(--bw) solid rgba(255, 176, 32, 0.45);
   text-align: left;
 }
 .salvage-row__amt { font-family: var(--font-mono); font-weight: 800; font-size: 24px; color: var(--warn); flex: none; }
-.salvage-row__body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.salvage-row__body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+/* Both the heading and the inline emphasis inside the sentence, at one size:
+   the pixel face is a display face and two of it on one block is a hierarchy
+   nobody asked for. The pair tracks the sentence because Press Start 2P's caps
+   are 0.875em against Rajdhani's ~0.7em — 11px of pixel and 14px of --font-ui
+   land within 0.3px of the same cap height — so the emphasis sits IN the
+   sentence instead of on top of it, and the heading leads the block on weight
+   and colour rather than on size. */
 .salvage-row__body b { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; }
 .salvage-row__body span { font-size: 11px; line-height: 1.35; }
+/* NO LEADING ON THE HEADING HERE. The base sets none on `b` at all, so there
+   is none to scope, and the pixel face's own `normal` is what this row has
+   always drawn — measured, because on the Tier S banner an explicit 1.3
+   cost 3px against staging and that is a budget this base does not have.
+   Every block that DOES set leading on the heading scopes it to `> b`: an
+   inline <b> inside the sentence contributes its own line-height to the line
+   box it sits in, so a bare `.salvage-row__body b { line-height: … }` sets one
+   line of a three-line wrapped paragraph taller than the two around it. */
+/* The footnote is the third rank in the block — the run's scrap and refit
+   ledger, true but not actionable — so it steps down one notch from the
+   sentence wherever the sentence is big enough for there to be a notch. Two
+   classes deep because the rule above it is `.salvage-row__body span` at
+   (0,1,1) and a bare class would lose to it. */
+.salvage-row__body .salvage-row__foot { font-size: 11px; }
 .salvage-row .btn { flex: none; padding: 8px 14px; font-size: 9px; }
+
+/* THE FULL SETTING, and all three floors are measured rather than chosen.
+
+   The probe walks viewport heights until TWO things stop happening: the end
+   modal's .panel scrolling, and the actions row covering the banner. The
+   second is the one that binds, and it is invisible to the .panel metric —
+   .end__main is the grid's `1fr` track and .end__actions the `auto` one under
+   it, so a main column taller than its track runs beneath the buttons without
+   ever growing the panel's scroll height. A banner sized on the scroll metric
+   alone passes every check and is read with Play Again lying across it.
+
+   The binding screen is the run end's TIER S variant at every width probed: it
+   is the longest body this row carries — two sentences plus the ledger
+   footnote — in the narrower of the run end's two grid columns.
+
+   HEIGHT >= 720px. Clean from 720px at 1280 and wider, 708px at 1000. It is
+   exactly the floor at the reference viewport rather than a step above it,
+   which is deliberate: 1280x720 is the size the whole game is laid out for and
+   is not a viewport this row is allowed to be too big for.
+
+   WIDTH >= 1000px. The floor rises as the window narrows, because the run end
+   keeps its two-column grid and the banner's text column narrows with it —
+   732px at 900 wide, above the height floor, and at 800 the panel itself
+   overflows until 634px while the covering never clears at all. A width floor
+   is the honest way to say the banner needs a COLUMN, which no amount of
+   height buys.
+
+   ASPECT >= 5/4. Under it the layout solver goes "tall" (layout.ts) and
+   magnifies the screen-anchored chrome; the end modal is already over its
+   panel there on staging — 91px at 900x920 with the OLD 11px banner — and the
+   full setting made a handful of those near-square cells worse. Every real
+   window is far outside it: 1280x720 is 1.78, a 1000x760 window 1.32, both
+   iPads 1.33, the Pixel Tablet 1.6.
+
+   What this leaves on the smaller setting, of the 19-row device matrix: the
+   phones, the 800x600 window, and the 1269x663 desktop-shell window — which
+   misses the height floor by 57px and whose Tier S banner is covered from
+   672px whatever this block says.
+
+   Ordering is not load-bearing here: this block cannot collide with the
+   landscape-phone step below it (nothing is both >= 720px and <= 480px tall),
+   and it only ever raises the base. */
+@media (min-width: 1000px) and (min-height: 720px) and (min-aspect-ratio: 5/4) {
+  .salvage-row { padding: 12px var(--sp-4); gap: var(--sp-4); }
+  .salvage-row__body { gap: 5px; }
+  .salvage-row__body b { font-size: 11px; }
+  .salvage-row__body > b { line-height: 1.45; }
+  .salvage-row__body span { font-size: var(--fs-sm); line-height: 1.5; }
+  .salvage-row__body .salvage-row__foot { font-size: var(--fs-xs); }
+}
+
+/* THE LANDSCAPE-PHONE STEP, at .end__why's own breakpoint rather than at the
+   520px one the row's padding and figure use a few blocks down. That is the
+   whole point of it: 11.5px is exactly what .end__why's paragraph steps to,
+   and the modal's explanatory rank moves together or it stops being a rank
+   (sim/systems.ts pins the pair). Sharing the paragraph's SIZE while using a
+   different breakpoint would have been a coincidence rather than a rule.
+
+   480 is also where the phones actually are — the tallest in the device matrix
+   is 440px — and the 41px between 481 and 520 buys the fix its only free
+   lunch. A resizable window at 1280x500 is not a phone, has no phone's padding
+   savings to spend, and measured 5px over staging when this step reached it;
+   held to 480 it keeps the base, which costs nothing. */
+@media (max-height: 480px) {
+  .salvage-row__body > b { line-height: 1.35; }
+  .salvage-row__body span { font-size: 11.5px; line-height: 1.4; }
+  .salvage-row__body .salvage-row__foot { font-size: 10.5px; }
+}
 
 /* Short (landscape-phone) viewports: the refit shelf and the salvage row are the
    two blocks most likely to overflow, so tighten both.
@@ -7543,8 +7671,17 @@ button.panel { color: var(--text); }
      ("Install 3 · 90"). On a 360px-tall phone the sentence under it costs a
      whole row of projection tiles. */
   .refit__foot-note { display: none; }
-  .salvage-row { padding: 4px 10px; gap: var(--sp-2); }
+  /* 3px of block padding, not the 4px this row carried before, and the pixel
+     off each end is spent immediately below. The banner's heading used to sit
+     1px off its own sentence, which is the reason the two read as one block;
+     3px is the smallest gap that separates them. On a viewport this short the
+     row's own padding is the only place that pixel can come from, so the trade
+     is stated where both halves of it are visible: 2px of padding for 2px of
+     gap, and the Tier S banner — the only variant with two gaps — comes out
+     exactly where it came out before. */
+  .salvage-row { padding: 3px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
+  .salvage-row__body { gap: 2px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
 }
 

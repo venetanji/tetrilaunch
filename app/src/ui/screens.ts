@@ -25,7 +25,9 @@ import {
 } from "../game/guide";
 import type { Settings } from "../lib/store";
 import { PAD_BACK, PAD_CONFIRM, PAD_CONTROLS } from "./padnav";
-import { BOARD_SANDBOX, isLadderBoard, type BoardId, type ScoreEntry } from "../lib/api";
+import {
+  BOARD_SANDBOX, BOARD_SKYDECK, isLadderBoard, type BoardId, type ScoreEntry,
+} from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
@@ -61,8 +63,15 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   const sbx = tier === SANDBOX_TIER;
   const label = sky ? "Skydeck" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
   const tint = sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
-  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? "★" : sbx ? "S" : tier}</span></span>`;
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? SKY_STAR : sbx ? "S" : tier}</span></span>`;
 }
+
+/** The Skydeck's mark, in the plate's number slot where every other floor puts
+ *  a digit. Named because it is now worn in three places — the plate, the
+ *  leaderboard's Sky tab and that board's heading (boardText) — and a floor
+ *  whose identity differs between the tower and the board it files to is two
+ *  floors to the player. */
+export const SKY_STAR = "★";
 
 /** The tier as running text — "Tier 7", "Tier S", "Tier SKY" — for the lines
  *  that name a tier mid-sentence (the draft eyebrow, the bay banner's
@@ -75,6 +84,36 @@ export function tierText(tier: number): string {
   if (tier === SKYDECK_TIER) return "Tier SKY";
   if (tier === SANDBOX_TIER) return "Tier S";
   return `Tier ${tier}`;
+}
+
+/**
+ * A BOARD as running text — the leaderboard's tab, its heading and the run-end
+ * modal's "… board" line all read this one function.
+ *
+ * It is tierText's counterpart on the other side of the wire, and it exists
+ * because a BoardId is not a tier: `BOARD_SANDBOX` and `BOARD_SKYDECK` are
+ * negative ids chosen so no Mark can clamp onto them (lib/api.ts), and printing
+ * one raw gives "Tier -2". Each special board is named with the floor's own
+ * spelling — the tower, the plate and the board agree by construction rather
+ * than by three literals that have to be kept in step.
+ */
+export function boardText(board: BoardId): string {
+  if (board === BOARD_SKYDECK) return `${tierText(SKYDECK_TIER)} ${SKY_STAR}`;
+  if (board === BOARD_SANDBOX) return tierText(SANDBOX_TIER);
+  return tierText(board);
+}
+
+/** A day key (lib/api.ts's BoardDay — contracts.ts's dailySeed, YYYYMMDD in
+ *  UTC) as a date. ISO rather than a locale format on purpose: the board is a
+ *  UTC day shared by every player on it, and "28/08" would read as a different
+ *  day either side of the date line. Splits the integer rather than going
+ *  through Date — the key is already a calendar day, and re-parsing it into a
+ *  timestamp is where a timezone gets to move it. */
+export function dayText(day: number): string {
+  const y = Math.floor(day / 10000);
+  const m = Math.floor(day / 100) % 100;
+  const d = day % 100;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1641,9 +1680,25 @@ export function endBoard(entries: ScoreEntry[], name?: string): BoardRow[] {
 
 export const END_BOARD_TOP = 5;
 
-export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): string {
+/** What an EMPTY board says. The roof's is a day rather than a rung, so it
+ *  cannot borrow the ladder's sentence: "no scores at this Tier" on the
+ *  Skydeck's board is the same leak tierText exists for, one screen along. */
+export function emptyBoardText(board: BoardId): string {
+  return board === BOARD_SKYDECK
+    ? "No scores on today's board yet — be the first!"
+    : "No scores at this Tier yet — be the first!";
+}
+
+export function leaderboardRowsHTML(
+  rows: BoardRow[],
+  highlight?: string,
+  /** Which board these rows are from — only read when there are none. Defaults
+   *  to a Tier's wording, which is what every caller that predates the daily
+   *  board meant. */
+  board: BoardId = 1,
+): string {
   if (!rows.length) {
-    return `<div class="muted" style="padding:20px;text-align:center">No scores at this Tier yet — be the first!</div>`;
+    return `<div class="muted" style="padding:20px;text-align:center">${emptyBoardText(board)}</div>`;
   }
   const medals = ["🥇", "🥈", "🥉"];
   return `<div class="lb">${rows
@@ -1663,17 +1718,28 @@ export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): strin
 /**
  * The standalone Leaderboard.
  *
- * TWO BOARDS once Tier S is open, and they are separate for the reason the
- * mode is safe at all: a sandbox run can start on bay 9, at Mark 10, on a
- * maxed rig nobody paid for. Mixing one of those into the Deep Run board would
- * not make it a better board — it would end it, because after the first such
- * entry no honest score could ever place. So they are two boards with one
+ * MORE THAN ONE BOARD, and they are separate for the reason each extra mode is
+ * safe at all. A sandbox run can start on bay 9, at Mark 10, on a maxed rig
+ * nobody paid for; mixing one of those into the Deep Run board would not make
+ * it a better board — it would end it, because after the first such entry no
+ * honest score could ever place. The Skydeck is the opposite failure at the
+ * same seam: it flies Mark 10's bays a rung further along under three standing
+ * clauses (game/skydeck.ts), so filing it on Tier 10 ranked a harder run
+ * against an easier one on the easier one's terms. So they are boards with one
  * shape, and the tab strip is what says so out loud rather than leaving the
  * player to discover it from a score they cannot explain.
  *
- * The strip renders ONLY when the sandbox is open. A player who has never
- * found Tier S has one board, and a tab strip with one tab in it is a
- * question mark, not a control.
+ * A tab renders ONLY for a board that player has: a strip with one tab in it is
+ * a question mark, not a control, and a board for a mode you cannot fly is
+ * worse than none.
+ *
+ * THE SKY TAB IS A DAY, not a list. Its heading carries the date it is showing
+ * because a daily board with no date on it is a board whose contents change for
+ * no visible reason overnight. Only TODAY is browsable — yesterday's rows are
+ * still in the table and reachable by key, but a history control would need a
+ * second axis on this screen (a date picker beside a tab strip on a 360px
+ * phone) to serve a board nobody can still post to. The day's run is a thing
+ * you fly today; the board follows it.
  */
 export function leaderboardScreen(rows: string, opts?: {
   /** Which board's rows are in `rows` (lib/api.ts's BoardId). */
@@ -1686,14 +1752,22 @@ export function leaderboardScreen(rows: string, opts?: {
   tier?: number;
   /** Whether the Tier S board exists for this player. */
   sandbox: boolean;
+  /** Whether the roof's board does (meta.ts's skydeckOpen — the same gate as
+   *  the floor itself, so the board arrives with the mode). */
+  skydeck?: boolean;
+  /** WHICH DAY of the Skydeck board is on screen (lib/api.ts's BoardDay).
+   *  Ignored on every other board, which has no day. */
+  day?: number;
 }): string {
   const board = opts?.board ?? 1;
   const sandbox = board === BOARD_SANDBOX;
+  const sky = board === BOARD_SKYDECK;
   const tier = opts?.tier ?? (isLadderBoard(board) ? board : 1);
-  const tabs = opts?.sandbox
+  const tabs = opts?.sandbox || opts?.skydeck
     ? `<div class="lb-tabs" role="tablist" aria-label="Leaderboard">
-        ${lbTabHTML(tier, `Tier ${tier}`, board)}
-        ${lbTabHTML(BOARD_SANDBOX, "Tier S", board)}
+        ${lbTabHTML(tier, tierText(tier), board)}
+        ${opts?.skydeck ? lbTabHTML(BOARD_SKYDECK, boardText(BOARD_SKYDECK), board) : ""}
+        ${opts?.sandbox ? lbTabHTML(BOARD_SANDBOX, boardText(BOARD_SANDBOX), board) : ""}
       </div>`
     : "";
   return `<div class="screen neon-backdrop center">
@@ -1703,9 +1777,13 @@ export function leaderboardScreen(rows: string, opts?: {
           // #88: under the tier ladder "Deep Run" does not name a board on its
           // own — a Tier 10 run banks more lines against a heavier target than
           // a Tier 1 run can, so each tier keeps its own list and the heading
-          // has to say which one is on screen. Tier S is the one board with a
-          // name instead of a number, because it is not a rung.
-          sandbox ? "Tier S · Sandbox" : `Tier ${board} · Deep Run`
+          // has to say which one is on screen. Tier S and the Skydeck are the
+          // boards with a name instead of a number, because neither is a rung —
+          // and the roof's second half is the DAY rather than the mode, since
+          // that is the half that changes under the player.
+          sky
+            ? `${boardText(board)} · ${dayText(opts?.day ?? 0)}`
+            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · Deep Run`
         }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
@@ -4536,8 +4614,11 @@ export function endModal(opts: {
    *  Mark by the time this renders, and the score belongs to the tier it was
    *  actually flown at. */
   /** The board this run's score lands on (lib/api.ts's BoardId): the run's own
-   *  Tier, or BOARD_SANDBOX for Tier S. */
+   *  Tier, BOARD_SANDBOX for Tier S, or BOARD_SKYDECK for the roof. */
   boardTier: number;
+  /** The day half of that key on the Skydeck's board (lib/api.ts's BoardDay),
+   *  absent on every board that has no day. */
+  boardDay?: number;
   /** TODAY'S CONTRACT BOARD, as the end card needs to know it: how many of the
    *  three are still uncleared, and whether Contracts are the loop's ONE next
    *  step right now (meta.ts's nextStep — the same call the home screen's
@@ -4732,7 +4813,14 @@ export function endModal(opts: {
       }
       </div>
       <div class="end__side">
-        <div class="eyebrow">${opts.boardTier === BOARD_SANDBOX ? "Tier S" : `Tier ${opts.boardTier}`} board</div>
+        <div class="eyebrow">${boardText(opts.boardTier)} board${
+          // The day, on the one board that has one — this modal is where a
+          // Skydeck score is actually filed, and it files under the day the run
+          // was DEALT rather than the day it landed (lib/api.ts's BoardDay).
+          opts.boardTier === BOARD_SKYDECK && opts.boardDay
+            ? ` · ${dayText(opts.boardDay)}`
+            : ""
+        }</div>
         <div class="submit-row" id="submit-row">
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
             value="${opts.name}" autocomplete="off" spellcheck="false" />
