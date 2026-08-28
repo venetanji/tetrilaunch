@@ -5715,8 +5715,14 @@ section("The menu's demo panel is an equation (app.css --brand-cap)");
   check("stripping @supports leaves the rest of the stylesheet intact",
     noSupports.includes(".menu__brand") && noSupports.length > noComments.length * 0.9,
     `${noSupports.length} of ${noComments.length} chars survived`);
+  // No leading \b on the unit: a CSS length is `100cqh`, and a digit and a `c`
+  // are both word characters, so `\bcq` can never match a unit where it is
+  // actually used. Written with \b, this check was green against a solver
+  // moved out of its @supports — proven by the wordmark copy of it below
+  // failing its red-proof — so the boundary is only kept on the trailing edge,
+  // where `cqh` vs `cqhX` is a real distinction.
   check("no --brand-cap outside a feature query uses a container unit",
-    !/--brand-cap\s*:[^;]*\bcq(h|w|i|b|min|max)\b/.test(noSupports),
+    !/--brand-cap\s*:[^;]*cq(h|w|i|b|min|max)\b/.test(noSupports),
     (noSupports.match(/--brand-cap\s*:[^;]*cq[a-z]+[^;]*/g) ?? []).join(" | "));
   // ...and the solver really is behind one, rather than simply absent.
   check("the solved --brand-cap sits inside an @supports for container units",
@@ -5751,6 +5757,75 @@ section("The menu's demo panel is an equation (app.css --brand-cap)");
   check("the stepped fallback's two thresholds do not overlap",
     stepDown !== null && stepUp !== null && Number(stepDown[1]) < Number(stepUp[1]),
     `${stepDown?.[1] ?? "?"} / ${stepUp?.[1] ?? "?"}`);
+
+  // --- the LIVE WORDMARK rides the same two-layer arrangement ---------------
+  // Its plate clamp above is the ENHANCEMENT, and for a while it was the only
+  // sizing the plate had: no fallback at all, so an engine without container
+  // units dropped the declaration whole and the base .menu__title's headline
+  // clamp won — 52.9px inside a box built for ~25 on a OnePlus 7T (WebView 87,
+  // the engine class iOS 15 ships). These three checks are the two --brand-cap
+  // guards above, applied to the wordmark, plus the mirroring claim its
+  // fallback comment makes.
+  // The BASE declaration is asserted with the @media blocks cut out too, not
+  // just @supports. The first draft of this check matched anywhere in
+  // noSupports, and the two min-height step rules satisfied it on their own —
+  // green with the base deleted, which is exactly the viewport that found the
+  // bug: a landscape phone is ~384px tall, below both steps, and gets ONLY the
+  // base. The stripper is stripSupports with the at-keyword parameterised; the
+  // comment stripping it depends on has already happened by this line.
+  const stripAt = (s: string, kw: string): string => {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      const at = s.indexOf(kw, i);
+      if (at < 0) { out += s.slice(i); break; }
+      out += s.slice(i, at);
+      let depth = 0, j = s.indexOf("{", at);
+      for (; j < s.length; j++) {
+        if (s[j] === "{") depth++;
+        else if (s[j] === "}" && --depth === 0) { j++; break; }
+      }
+      i = j;
+    }
+    return out;
+  };
+  check("stripping @supports AND @media still leaves the live wordmark a size of its own",
+    /\.menu__demo\.is-live\s+\.menu__title\s*\{[^}]*font-size:\s*clamp\(8px,\s*6\.8vw,/
+      .test(stripAt(noSupports, "@media")),
+    "no unconditional vw fallback — a short cqw-less viewport gets the headline clamp again");
+  // Outside a feature query, a container-unit font-size is legal in exactly
+  // one shape: the SECOND of two font-size declarations in one block, where
+  // the first is the cq-free fallback the engine keeps when it rejects the cq
+  // one — the base .menu__title is that shape and must stay legal. Anything
+  // looser — a lone cq declaration, or one whose only siblings are also cq —
+  // strands a cqw-less engine on whatever earlier rule happens to match, which
+  // is the 52.9px wordmark this section exists to remember. Blocks are leaf
+  // bodies: @supports is stripped already, and @media interiors surface as
+  // their own leaves.
+  const looseCqFonts: string[] = [];
+  for (const m of noSupports.matchAll(/\{[^{}]*\}/g)) {
+    const decls = [...m[0].matchAll(/font-size\s*:[^;}]*/g)].map((d) => d[0]);
+    for (let i = 0; i < decls.length; i++) {
+      if (!/cq(h|w|i|b|min|max)\b/.test(decls[i])) continue;
+      if (!decls.slice(0, i).some((d) => !/cq(h|w|i|b|min|max)\b/.test(d)))
+        looseCqFonts.push(decls[i]);
+    }
+  }
+  check("every container-unit font-size outside a feature query has a fallback declared before it",
+    looseCqFonts.length === 0, looseCqFonts.join(" | "));
+  // The fallback's steps answer to the PANEL's staircase — a plate 6.8% of a
+  // panel that is 360/440/640 by height has to change caps exactly where the
+  // panel changes width. Read both sets of thresholds back and compare, so
+  // moving the panel staircase without the wordmark fails here rather than as
+  // a plate quietly one band out of step on an engine nobody at the desk runs.
+  const wmSteps = [...noSupports.matchAll(
+    /@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__demo\.is-live\s+\.menu__title\s*\{\s*font-size:\s*clamp\(8px,\s*6\.8vw,/g,
+  )].map((m) => Number(m[1]));
+  check("the wordmark fallback steps exactly where the panel staircase steps",
+    stepDown !== null && stepUp !== null
+      && wmSteps.length === 2
+      && wmSteps[0] === Number(stepDown[1]) + 1
+      && wmSteps[1] === Number(stepUp[1]),
+    `wordmark steps at ${wmSteps.join(", ")} vs panel ${stepDown?.[1]}/${stepUp?.[1]}`);
 }
 
 // ---------------------------------------------------------------------------
