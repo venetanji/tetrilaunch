@@ -120,9 +120,9 @@ import {
 } from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
-  BOARD_SANDBOX, BOARD_SKYDECK, boardDayForRun, boardForRun, DAY_NONE,
+  BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForView, boardForView, DAY_NONE,
   fetchLeaderboard, isLadderBoard, submitScore,
-  type BoardDay, type BoardId, type ScoreEntry,
+  type BoardDay, type BoardId, type BoardView,
 } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
 import {
@@ -613,11 +613,12 @@ class App {
    *  which gates the arrival animation (see syncHud's queue block). */
   private lastNext: string | null = null;
   private lastNextId: string | null = null;
-  /** Last fetched rows PER BOARD (lib/api.ts's BoardId). Two boards means two
-   *  caches: switching tabs on the leaderboard must not blank the rows the
-   *  other tab already had while a fetch is in flight, and the run-end modal
-   *  reads whichever board the run it just ended belongs to. */
-  private boards: Record<BoardId, ScoreEntry[]> = {};
+  /** Last fetched rows PER BOARD AND DAY (lib/api.ts's BoardCache). Several
+   *  boards means several caches: switching tabs on the leaderboard must not
+   *  blank the rows the other tab already had while a fetch is in flight, and
+   *  the run-end modal reads whichever board the run it just ended belongs to.
+   *  The DAY is in the key because it is in the board's key — see BoardCache. */
+  private boards = new BoardCache();
   /** Which board the standalone Leaderboard screen is showing. */
   private lbBoard: BoardId = 1;
   /** …and which DAY of it, on the one board that has days. Always TODAY on the
@@ -1697,25 +1698,27 @@ class App {
     return run && !run.sandbox && RUN_STATES.has(this.state) ? run.mark : markUnlocked(this.meta);
   }
 
+  /**
+   * What the board question is being asked WITH. Asking the STATE rather than
+   * just `this.run` is the load-bearing half: the finished run object outlives
+   * the run on screen (returning to the menu clears `contract`, not `run`), so
+   * a rule that reads the run alone answers for a run the player has left —
+   * it opened the roof's board for someone who had since parked the car back
+   * on a Mark (codex review, PR #166). `skydeckParked` goes through towerState
+   * so a stale or locked pick is clamped first, the same gate runMark() and
+   * contractsTier() use.
+   */
+  private boardView(): BoardView {
+    return {
+      run: this.run,
+      inRun: this.run !== null && RUN_STATES.has(this.state),
+      skydeckParked: this.skydeckParked(),
+      mark: markUnlocked(this.meta),
+    };
+  }
+
   private runBoard(): BoardId {
-    // Tier S and the Skydeck first, and from the RUN: neither files under the
-    // Mark it borrows. A sandbox run flies a Mark it never earned, and a
-    // Skydeck run flies Mark 10's bays one rung further along under three
-    // standing clauses — so `run.mark` is not a claim about the ladder in
-    // either case and must not be filed as one. lib/api.ts's boardForRun is the
-    // whole rule; this method adds only the question below.
-    const run = this.run;
-    if (run && (run.sandbox || run.skydeck)) return boardForRun(run);
-    // Otherwise the board IS the Tier the run was flown at. Asking the STATE
-    // rather than just `this.run` matters: the finished run object outlives the
-    // run on screen (returning to the menu clears `contract`, not `run`), so
-    // reading run.mark from the menu would open board N for a player whose
-    // tower, Deep Run button and next run had all moved on to N+1.
-    if (run && RUN_STATES.has(this.state)) return boardForRun(run);
-    // Outside a run: the board the NEXT run would fly, which on the roof is the
-    // roof's. Read through towerState so a stale or locked pick is clamped
-    // first — the same gate runMark() and contractsTier() go through.
-    return this.skydeckParked() ? BOARD_SKYDECK : markUnlocked(this.meta);
+    return boardForView(this.boardView());
   }
 
   /** The car is parked on the roof AND the roof is open to this save. Two
@@ -1730,16 +1733,14 @@ class App {
    * The DAY half of a board key (lib/api.ts's BoardDay). DAY_NONE on every
    * all-time board, so only the roof ever answers with a date.
    *
-   * A run in hand answers with the day it was DEALT (skydeck.ts's
-   * SkydeckRules.day), never with today's: a run undocked at 23:50Z and landed
-   * at 00:10Z belongs to the seed it flew. Everything else — the standalone
-   * screen, a board opened from the menu — asks the clock, through the same
+   * The run in hand answers with the day it was DEALT (skydeck.ts's
+   * SkydeckRules.day) while that run is on screen: a run undocked at 23:50Z and
+   * landed at 00:10Z belongs to the seed it flew. Off it — the standalone
+   * screen, a board opened from the menu — the day is TODAY'S, from the same
    * dailySeed the run was stamped from, so the two can never drift apart.
    */
-  private boardDayFor(board: BoardId): BoardDay {
-    if (board !== BOARD_SKYDECK) return DAY_NONE;
-    const run = this.run;
-    return run?.skydeck ? boardDayForRun(run) : dailySeed();
+  private boardDay(): BoardDay {
+    return boardDayForView(this.boardView(), dailySeed());
   }
 
   /** One line naming what a Tier S run was set to — for the end modal, which
@@ -2455,7 +2456,9 @@ class App {
         break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
-          S.leaderboardRowsHTML(S.fullBoard(this.boards[this.lbBoard] ?? []), undefined, this.lbBoard),
+          S.leaderboardRowsHTML(
+            S.fullBoard(this.boards.get(this.lbBoard, this.lbDay)), undefined, this.lbBoard,
+          ),
           {
             board: this.lbBoard,
             tier: this.ladderBoard(),
@@ -2583,7 +2586,9 @@ class App {
               best: loadBest(this.runBoard()),
               name: loadName(),
               rows: S.leaderboardRowsHTML(
-                S.endBoard(this.boards[this.runBoard()] ?? [], loadName() || undefined),
+                S.endBoard(
+                  this.boards.get(this.runBoard(), this.boardDay()), loadName() || undefined,
+                ),
                 loadName() || undefined,
                 this.runBoard(),
               ),
@@ -2614,7 +2619,7 @@ class App {
               // Skydeck run's is the roof's, and labelling either with the Mark
               // it borrowed would say the score is on the ladder.
               boardTier: this.runBoard(),
-              boardDay: this.boardDayFor(this.runBoard()),
+              boardDay: this.boardDay(),
               // THE CONTRACTS ROUTE. Both halves come from the same places the
               // home screen asks — today's board and meta.ts's nextStep — so
               // the two surfaces cannot disagree about whether there is
@@ -4525,11 +4530,14 @@ class App {
     // Which board's rows: the screen shows the tab you are on, and every modal
     // shows the board the run it is reporting was flown on (runBoard) — never
     // the tab, which belongs to a screen that is not up.
-    const board = this.state === "leaderboard" ? this.lbBoard : this.runBoard();
-    const cached = this.boards[board] ?? [];
-    const rows = this.state === "leaderboard"
-      ? S.fullBoard(cached)
-      : S.endBoard(cached, highlight);
+    // …and which DAY of it, by the same rule: the screen is on a day (lbDay,
+    // always today), the modal is on the run's. Both parts of the key travel
+    // together, so a cached day can never be drawn under another day's heading.
+    const screen = this.state === "leaderboard";
+    const board = screen ? this.lbBoard : this.runBoard();
+    const day = screen ? this.lbDay : this.boardDay();
+    const cached = this.boards.get(board, day);
+    const rows = screen ? S.fullBoard(cached) : S.endBoard(cached, highlight);
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight, board);
   }
 
@@ -4548,9 +4556,9 @@ class App {
    *  and to that board's own day, which is DAY_NONE anywhere but the roof. */
   private async refreshBoard(
     board: BoardId = this.runBoard(),
-    day: BoardDay = this.boardDayFor(board),
+    day: BoardDay = this.boardDay(),
   ): Promise<void> {
-    this.boards[board] = await fetchLeaderboard(board, 10, day);
+    this.boards.set(board, day, await fetchLeaderboard(board, 10, day));
     // A fetch that landed after the player moved on must not repaint over a
     // screen showing the other board.
     if (this.state === "leaderboard" && board !== this.lbBoard) return;
@@ -6149,7 +6157,7 @@ class App {
     const board = this.runBoard();
     // …and the day, which only the roof has. Off the RUN (its dealt day), so a
     // run that crossed UTC midnight is still filed against the seed it flew.
-    const day = this.boardDayFor(board);
+    const day = this.boardDay();
     // `level` is the bay the run actually reached. Every client sent a literal 1
     // until tier boards landed, which is what made the column look like a free
     // partition key to three separate branches at once.
@@ -6157,7 +6165,7 @@ class App {
     const res = await submitScore(
       name, this.finalScore(g, this.state === "won"), board, bay, lines, day,
     );
-    this.boards[board] = res?.scores ?? (await fetchLeaderboard(board, 10, day));
+    this.boards.set(board, day, res?.scores ?? (await fetchLeaderboard(board, 10, day)));
     this.renderBoardRows(name);
     void successHaptic();
   }

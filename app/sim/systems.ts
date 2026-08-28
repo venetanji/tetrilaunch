@@ -189,8 +189,9 @@ import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
 import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
 import {
-  BOARD_SANDBOX, BOARD_SKYDECK, boardDayForRun, boardForRun, DAY_NONE,
-  fetchLeaderboard, isLadderBoard, submitScore, type ScoreEntry,
+  BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForRun, boardDayForView,
+  boardForRun, boardForView, DAY_NONE,
+  fetchLeaderboard, isLadderBoard, submitScore, type BoardView, type ScoreEntry,
 } from "../src/lib/api";
 
 let failures = 0;
@@ -10371,6 +10372,77 @@ section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
     boardDayForRun(ladderRun(MARK_COUNT)) === DAY_NONE
       && boardDayForRun({ ...skyRun(), sandbox: true, skydeck: null }) === DAY_NONE);
 
+  // ---- WHICH BOARD A SCREEN SHOWS -----------------------------------------
+  //
+  // `this.run` OUTLIVES the run on screen — main.ts clears it only when a
+  // Contract starts — so "there is a run" and "a run is on screen" are
+  // different questions, and a rule that asks the first one answers for a run
+  // the player has walked away from. Both sides pinned, because a fix to one
+  // that breaks the other is the shape this bug had (codex review, PR #166).
+  {
+    const TODAY = dailySeed(DAY_B);
+    const sky = skyRun(DAY_A);
+    const view = (o: Partial<BoardView>): BoardView =>
+      ({ run: null, inRun: false, skydeckParked: false, mark: MARK_COUNT, ...o });
+
+    check("a Skydeck run ON SCREEN shows the roof's board",
+      boardForView(view({ run: sky, inRun: true })) === BOARD_SKYDECK);
+    check("...and dates it with the day that run was dealt, not today",
+      boardDayForView(view({ run: sky, inRun: true }), TODAY) === dailySeed(DAY_A)
+        && dailySeed(DAY_A) !== TODAY);
+    // The regression itself: the same finished run, still in hand, with the car
+    // parked back on a Mark. The board asked for is the Mark's.
+    check("a finished Skydeck run left in hand does NOT hold the board hostage",
+      boardForView(view({ run: sky, inRun: false, mark: 7 })) === 7);
+    check("...and the roof's board comes back by PARKING there, not by the run",
+      boardForView(view({ run: sky, inRun: false, skydeckParked: true })) === BOARD_SKYDECK);
+    check("...dated TODAY, since no run is on screen to date it",
+      boardDayForView(view({ run: sky, inRun: false, skydeckParked: true }), TODAY) === TODAY);
+    check("a ladder run on screen still shows its own Mark",
+      boardForView(view({ run: ladderRun(4), inRun: true })) === 4);
+    // The inherited asymmetry, pinned so it stays a decision: a parked MARK
+    // still opens the UNLOCKED Tier's board rather than the parked floor's,
+    // exactly as it did before the roof had a board. Only the roof reads the
+    // parking, because nothing else says a Skydeck run is what comes next.
+    check("a parked Mark opens the unlocked Tier's board, as it always has",
+      boardForView(view({ mark: MARK_COUNT, skydeckParked: false })) === MARK_COUNT);
+    // Tier S is deliberately NOT gated on `inRun` — closing the mode mid-run
+    // must not move where that run was filed. Pinned so the asymmetry is a
+    // decision rather than something the next reader tidies away.
+    check("a Tier S run answers whatever the screen, on purpose",
+      boardForView(view({ run: { ...ladderRun(3), sandbox: true }, inRun: false }))
+        === BOARD_SANDBOX);
+  }
+
+  // ---- THE CACHE ----------------------------------------------------------
+  //
+  // Cached rows are drawn IMMEDIATELY and the fetch repaints behind them, so a
+  // cache keyed on the board alone paints yesterday's rows under today's
+  // heading for a session left open across UTC midnight — and leaves them there
+  // if the request is slow or fails. The date on a daily board is a promise
+  // about the rows under it (codex review, PR #166).
+  {
+    const rows = (n: string): ScoreEntry[] =>
+      [{ name: n, score: 1, mark: BOARD_SKYDECK, level: 10, lines: 1, created_at: 0 }];
+    const cache = new BoardCache();
+    const dayN = dailySeed(DAY_A);
+    const dayN1 = dailySeed(DAY_B);
+    cache.set(BOARD_SKYDECK, dayN, rows("YESTERDAY"));
+    check("yesterday's rows are not today's board",
+      cache.get(BOARD_SKYDECK, dayN1).length === 0);
+    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY");
+    cache.set(BOARD_SKYDECK, dayN1, rows("TODAY"));
+    check("...with both days held at once, so neither tab blanks the other",
+      cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY"
+        && cache.get(BOARD_SKYDECK, dayN1)[0]?.name === "TODAY");
+    // The all-time boards go on behaving exactly as they did: one key each.
+    cache.set(MARK_COUNT, DAY_NONE, rows("TIER10"));
+    check("an all-time board is one entry, on the day it does not have",
+      cache.get(MARK_COUNT, DAY_NONE)[0]?.name === "TIER10");
+    check("...and does not collide with another board's",
+      cache.get(BOARD_SANDBOX, DAY_NONE).length === 0);
+  }
+
   // ---- THE WIRE -----------------------------------------------------------
   // The compatibility guarantee, asserted where it can actually be observed:
   // the daily board is asked for on a path of its own, so a Worker that
@@ -10417,6 +10489,94 @@ section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
       if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
       else delete (globalThis as unknown as Record<string, unknown>).fetch;
     }
+  }
+
+  // ---- THE TABLE ----------------------------------------------------------
+  //
+  // Read out of worker/index.ts as SOURCE, and the limitation is worth stating
+  // rather than hiding: the Worker is in neither tsconfig and imports
+  // @cloudflare/workers-types, so it cannot be executed from this process
+  // without pulling a Workers runtime's globals into a DOM-typed program. What
+  // can be asserted is the shape of every statement it sends, which is exactly
+  // where the bug was — the same reason the rAF and pixel-arithmetic sections
+  // above read their files instead of running them.
+  //
+  // THE INVARIANT: an all-time board is `day = 0` and a daily board is
+  // `day > 0`, so the two routes PARTITION the table rather than agreeing to.
+  // Without the predicate the daily rows leak upward twice over: the combined
+  // board (no mark at all — the list a client older than tier boards gets) is
+  // unpartitioned by definition, and a per-Tier board is only safe while no
+  // daily row carries a Tier's mark, which /api/daily's clamp does not forbid.
+  {
+    const workerTs = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "worker", "index.ts"),
+      "utf8",
+    );
+    // Every statement the Worker sends, normalised to one line so a reformat
+    // cannot break a check — and EXPANDED, because two of them are templates.
+    // `${ALL_TIME}` is substituted from its own declaration (so the predicate
+    // keeps one home in the Worker and this still reads what is sent), and a
+    // `${cond ? "a" : "b"}` becomes BOTH statements, since a template that
+    // serves the combined board and a Tier's board sends two queries and each
+    // has to be checked as one.
+    const allTime = /const ALL_TIME = "([^"]+)";/.exec(workerTs)?.[1] ?? "";
+    check("the all-time predicate is a predicate about the day", allTime === "day = 0", allTime);
+    const TERNARY = /\$\{[^}]*\?\s*"([^"]*)"\s*:\s*"([^"]*)"\s*\}/;
+    const expand = (q: string): string[] => {
+      let out = [q.replaceAll("${ALL_TIME}", allTime)];
+      while (out.some((s) => TERNARY.test(s))) {
+        out = out.flatMap((s) => {
+          const m = TERNARY.exec(s);
+          return m ? [s.replace(m[0], m[1]), s.replace(m[0], m[2])] : [s];
+        });
+      }
+      return out.map((s) => s.replace(/\s+/g, " ").trim());
+    };
+    const statements = [...workerTs.matchAll(/`((?:SELECT|INSERT)[\s\S]*?)`/g)]
+      .flatMap((m) => expand(m[1]));
+    const selects = statements.filter((q) => q.startsWith("SELECT"));
+    check("the Worker's queries were found at all", selects.length >= 4, String(selects.length));
+    // A daily query names both halves of the key; an all-time query names the
+    // day it does not have. Between them, no SELECT may be silent about `day`.
+    check("no board query is silent about the day",
+      selects.every((q) => /day = 0/.test(q) || /day = \?/.test(q)),
+      selects.find((q) => !/day = 0|day = \?/.test(q)) ?? "");
+    check("the combined board — the one a legacy client gets — is all-time only",
+      selects.some((q) => /FROM scores WHERE day = 0 ORDER BY/.test(q)),
+      selects.join(" | ").slice(0, 200));
+    check("...and so is the per-Tier board, whatever mark a daily row carries",
+      selects.some((q) => /WHERE day = 0.*mark = \?/.test(q)));
+    check("...and the rank a submission is told, which is a place ON that board",
+      selects.some((q) => /COUNT\(\*\).*WHERE day = 0 AND mark = \? AND score > \?/.test(q)));
+    check("a daily board binds both halves of its key",
+      selects.some((q) => /WHERE mark = \? AND day = \? ORDER BY/.test(q))
+        && selects.some((q) => /COUNT\(\*\).*WHERE mark = \? AND day = \? AND score > \?/.test(q)));
+    // The other half of the partition: the all-time INSERT must not name `day`,
+    // so the column default (0) is what files the row.
+    const inserts = statements.filter((q) => q.startsWith("INSERT"));
+    check("the all-time insert leaves the day to the column default",
+      inserts.some((q) => /INSERT INTO scores \(name, score, mark, level, lines, created_at\)/.test(q)));
+    check("...and only the daily insert writes one",
+      inserts.filter((q) => /created_at, day\)/.test(q)).length === 1);
+    // The floor that makes `day > 0` true of every daily row — without it the
+    // partition has a hole at 0, where every all-time row lives.
+    check("a daily row can never be filed on day 0",
+      /const DAY_MIN = 20_000_101;/.test(workerTs)
+        && /day < DAY_MIN\) return json\(\{ error: "invalid_day" \}, 400\)/.test(workerTs));
+    // And the migration has to be able to serve the predicate the queries now
+    // carry, or a legacy client's board becomes a full scan.
+    const migration = fs.readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..", "..", "migrations", "0003_daily_boards.sql",
+      ),
+      "utf8",
+    );
+    check("the day column defaults to the all-time value, so no row moves",
+      /ADD COLUMN day INTEGER NOT NULL DEFAULT 0/.test(migration));
+    check("both new queries have an index to seek on",
+      /ON scores \(mark, day, score DESC\)/.test(migration)
+        && /ON scores \(day, score DESC\)/.test(migration));
   }
 
   // ---- THE SCREEN ---------------------------------------------------------

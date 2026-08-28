@@ -32,6 +32,15 @@
 ALTER TABLE scores ADD COLUMN day INTEGER NOT NULL DEFAULT 0;
 
 -- The daily board query is `WHERE mark = ? AND day = ? ORDER BY score DESC`, so
--- this index is that board. idx_scores_mark_score stays exactly as it is: it is
--- still the whole of the all-time boards, which do not filter on `day` at all.
+-- this index is that board. It serves the all-time per-Tier board too, which
+-- now reads `WHERE day = 0 AND mark = ?` — an all-time board IS `day = 0`, and
+-- the Worker states that on every query it serves rather than trusting that no
+-- daily row will ever carry a Tier's mark. idx_scores_mark_score stays: it is
+-- the index a query that predates this file was planned against.
 CREATE INDEX IF NOT EXISTS idx_scores_mark_day_score ON scores (mark, day, score DESC);
+
+-- …and the COMBINED board, which names no mark at all — the list a client older
+-- than tier boards gets. It is the one all-time query with nothing but `day` to
+-- seek on, and without this index adding that predicate would turn a legacy
+-- client's board into a full scan on every request.
+CREATE INDEX IF NOT EXISTS idx_scores_day_score ON scores (day, score DESC);

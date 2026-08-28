@@ -44,8 +44,10 @@ const MARK_MIN = -1;
  *  /api/daily — /api/scores keeps the domain it shipped with, so nothing this
  *  build adds can widen an existing board's key by one clamp. */
 const MARK_SKYDECK = -2;
-/** Day bounds for /api/daily. The floor rejects 0 (that is an ALL-TIME board's
- *  day and does not belong on this route) and anything that is not a plausible
+/** Day bounds for /api/daily. The floor rejecting 0 is half of the invariant
+ *  ALL_TIME below is the other half of: a daily row always has `day > 0` and an
+ *  all-time row always has `day = 0`, so the two routes partition the table
+ *  rather than agreeing to. It also rejects anything that is not a plausible
  *  YYYYMMDD; the ceiling bounds the column. Deliberately NOT a freshness window
  *  against the Worker's own clock: a run undocks before it lands, a paused tab
  *  can land a day late, and the endpoint has no authentication at all — so a
@@ -77,7 +79,31 @@ function sanitizeName(raw: unknown): string {
 }
 
 /**
- * The top `limit` scores, for one Tier or across all of them.
+ * AN ALL-TIME BOARD IS `day = 0`. One predicate, on every query this route
+ * serves, and it is what makes the two routes actually separate rather than
+ * separate by convention.
+ *
+ * Without it the daily rows leak upward in two ways, and the second is the one
+ * that is easy to miss (codex review, PR #166):
+ *
+ *  - The COMBINED board (`mark === null`) is unpartitioned by definition, so it
+ *    ranked every Skydeck row ever posted against the all-time list a client
+ *    older than tier boards sees. That client cannot ask for a Tier, so it had
+ *    no way not to see them.
+ *  - A per-Tier board is only safe as long as no daily row can carry a Tier's
+ *    mark — and /api/daily's clamp accepts the whole Mark range, so one could.
+ *    Nothing the shipped client does writes such a row, but "the client does
+ *    not do that" is not a schema guarantee, and the query is one word from
+ *    being one.
+ *
+ * Rows written before the day column existed default to 0
+ * (migrations/0003_daily_boards.sql), so every score that was on an all-time
+ * board stays exactly where it was and in the same order.
+ */
+const ALL_TIME = "day = 0";
+
+/**
+ * The top `limit` scores, for one Tier or across all of them — all time.
  *
  * `mark === null` is the COMBINED board, and it is not a debug affordance: it
  * is what a client that predates tier boards gets when it asks with no mark,
@@ -86,7 +112,7 @@ function sanitizeName(raw: unknown): string {
  */
 async function getTop(env: Env, mark: number | null, limit: number): Promise<ScoreRow[]> {
   const sql = `SELECT name, score, mark, level, lines, created_at
-       FROM scores${mark === null ? "" : " WHERE mark = ?"}
+       FROM scores WHERE ${ALL_TIME}${mark === null ? "" : " AND mark = ?"}
        ORDER BY score DESC, created_at ASC
        LIMIT ?`;
   const stmt = env.DB.prepare(sql);
@@ -153,6 +179,9 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     if (score < 0) return json({ error: "invalid_score" }, 400);
 
     const created = Date.now();
+    // `day` is NOT named here, so it takes the column default of 0 — which is
+    // what makes this row an all-time row (see ALL_TIME). Naming it would let a
+    // future edit write a day onto a board that has none.
     const insert = await env.DB.prepare(
       `INSERT INTO scores (name, score, mark, level, lines, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
     )
@@ -161,9 +190,11 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
 
     // Rank WITHIN the Tier just played — the only board this score is on.
     // Strictly-greater is competition ranking: a tie shares the rank, and the
-    // row just inserted does not count itself.
+    // row just inserted does not count itself. ALL_TIME for the same reason the
+    // list above carries it: a rank is a position ON a board, so it has to
+    // count exactly the rows that board shows.
     const rankRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS higher FROM scores WHERE mark = ? AND score > ?`,
+      `SELECT COUNT(*) AS higher FROM scores WHERE ${ALL_TIME} AND mark = ? AND score > ?`,
     )
       .bind(mark, score)
       .first<{ higher: number }>();

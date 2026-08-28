@@ -126,6 +126,64 @@ export function boardDayForRun(run: BoardRun): BoardDay {
   return run.skydeck ? run.skydeck.day : DAY_NONE;
 }
 
+/** What a SCREEN knows when it asks which board to show. */
+export interface BoardView {
+  /** The run object in hand — which OUTLIVES the run on screen: main.ts only
+   *  clears it when a Contract starts, so "there is a run" and "a run is on
+   *  screen" are different questions, and `inRun` is the second one. */
+  run: BoardRun | null;
+  /** Is that run the thing being shown (main.ts's RUN_STATES)? */
+  inRun: boolean;
+  /** Is the tower's car parked on the roof, with the roof open to this save? */
+  skydeckParked: boolean;
+  /** The Mark a Deep Run started right now would fly. */
+  mark: number;
+}
+
+/**
+ * WHICH BOARD A SCREEN SHOWS — boardForRun plus the question of whether the run
+ * is still on screen.
+ *
+ * `run` outliving the run is the whole reason this is not just boardForRun. A
+ * finished Skydeck run is still in hand on the menu, so routing off it alone
+ * sent a player who had since parked the car on Tier 7 to the roof's board:
+ * the run they were looking at the board FOR was not the run they had just
+ * flown (codex review, PR #166).
+ *
+ * TIER S IS THE ONE EXCEPTION and it is deliberately left as it was: a sandbox
+ * run in hand answers this whatever the screen, because closing Tier S in
+ * Settings mid-run must not move where that run was filed. Changing it is a
+ * behaviour change that has nothing to do with the roof, so it is not made
+ * here — but it is stated, because the asymmetry is otherwise a bug waiting to
+ * be "fixed" by someone reading only the line below.
+ */
+export function boardForView(v: BoardView): BoardId {
+  if (v.run?.sandbox) return BOARD_SANDBOX;
+  if (v.run && v.inRun) return boardForRun(v.run);
+  // Outside a run, and the two halves of this line are NOT symmetric — which is
+  // worth saying, because the asymmetry is inherited rather than chosen here.
+  // The roof is read off the PARKING, since parking on it is the only thing
+  // that says the next run is a Skydeck run at all. A Mark is read off the
+  // UNLOCK, not the parked floor, which is what this has always done and what
+  // ladderBoard() still does: parking on an already-beaten Tier to practise it
+  // arguably ought to open that Tier's board, but that is a change to every
+  // ladder player's screen and it belongs to its own change, not to this one.
+  return v.skydeckParked ? BOARD_SKYDECK : v.mark;
+}
+
+/**
+ * …and WHICH DAY of it. `today` is passed rather than read off a clock so this
+ * stays pure and so the pin can say which "today" it means.
+ *
+ * The run's own dealt day only while that run is on screen — the same gate
+ * boardForView uses, and for the same reason: a stale Skydeck run in hand would
+ * otherwise date a board opened from the menu with the day it was flown.
+ */
+export function boardDayForView(v: BoardView, today: BoardDay): BoardDay {
+  if (boardForView(v) !== BOARD_SKYDECK) return DAY_NONE;
+  return v.run?.skydeck && v.inRun ? boardDayForRun(v.run) : today;
+}
+
 export interface ScoreEntry {
   name: string;
   score: number;
@@ -142,6 +200,41 @@ export interface SubmitResult {
   rank: number;
   mark: number;
   scores: ScoreEntry[];
+}
+
+/**
+ * LAST FETCHED ROWS, PER BOARD — and a board's key includes its DAY.
+ *
+ * It lives here, with the key, rather than as a record on the app, because the
+ * bug it prevents is a keying bug and keying is this module's job. The record
+ * was keyed on the BoardId alone, which is right for every all-time board and
+ * wrong for the only board that has two key parts: a session left open across
+ * UTC midnight would paint the previous day's rows under today's heading —
+ * cached rows are drawn immediately and the fetch repaints behind them — and on
+ * a slow or failed request they would stay there, under a date claiming they
+ * were something else (codex review, PR #166). A date on a board is a promise
+ * about the rows under it; a cache that cannot tell two days apart breaks it.
+ *
+ * `day` is REQUIRED on both sides, so the compiler is what keeps a caller from
+ * asking a two-part key with one part.
+ */
+export class BoardCache {
+  private rows: Record<string, ScoreEntry[]> = {};
+
+  /** One entry per (board, day) actually visited. Bounded by the session: one
+   *  key per board, plus one more per board per midnight crossed. */
+  private key(board: BoardId, day: BoardDay): string {
+    return `${board}:${day}`;
+  }
+
+  /** The rows held for exactly this board AND day — never another day's. */
+  get(board: BoardId, day: BoardDay): ScoreEntry[] {
+    return this.rows[this.key(board, day)] ?? [];
+  }
+
+  set(board: BoardId, day: BoardDay, rows: ScoreEntry[]): void {
+    this.rows[this.key(board, day)] = rows;
+  }
 }
 
 /**
