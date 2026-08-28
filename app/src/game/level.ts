@@ -570,6 +570,86 @@ export function targetScoreFor(i: number, mark = 1): number {
   return targetAtRung(tierOf(mark), i);
 }
 
+/* ---------------------------------------------------------------------------
+ * THE PRECISION PREMIUM — what the top of the ladder asks that the middle
+ * does not.
+ *
+ * The owner's report is about one place and says which: *"currently the game is
+ * not challenging at sky levels in the early part of the run, the maxed out
+ * systems carry you over and it's boring […] I'm thinking we can increase the
+ * payout of lines and the targets so we can enforce good/excellent shots by
+ * simply raising the target in later tiers and skybridge."*
+ *
+ * The payout half is grades.ts. This is the target half, and it only exists
+ * because the payout half came first: raising a target against a FLAT line
+ * price is the thing the MARK SCALING note above already measured and rejected
+ * — *"TARGET is a DURATION knob, not a difficulty one […] once income per line
+ * exceeds spend per line, a competent player reaches ANY target given time."*
+ * That finding is untouched and is still the reason nothing here moves the
+ * ladder's own ramp. What has changed is that income per line is no longer one
+ * number: a row closed on the press is worth 1.5x one the press found for you,
+ * so a target the swept player cannot reach in the time available is a target
+ * the timed player still can. The raise has a lever to bite on for the first
+ * time.
+ *
+ * MEASURED, sim/timing.ts --mode target, full build, 6 seeds, win rate per arm
+ * as the bay's own target is multiplied and NOTHING else moves:
+ *
+ *   tier bay  arm     x1.00  x1.05  x1.10  x1.15  x1.20  x1.25
+ *   4    5    sweep    100%   100%   100%   100%    83%    83%
+ *   4    5    timed    100%   100%   100%   100%   100%   100%
+ *   8    5    sweep    100%   100%    83%    83%    67%    67%
+ *   8    5    timed    100%   100%   100%   100%   100%   100%
+ *   10   5    sweep    100%    83%    67%    67%    67%    67%
+ *   10   5    timed    100%   100%   100%   100%   100%   100%
+ *   11   5    sweep     83%    83%    83%    83%    83%    83%   (Skydeck)
+ *   11   5    timed    100%   100%   100%   100%   100%   100%
+ *
+ * Three things that table decides.
+ *
+ *  - WHERE THE PREMIUM STARTS. Tier 4 does not separate until x1.20, and it
+ *    separates by breaking the swept arm rather than by rewarding the timed one
+ *    — which is a difficulty tax on the ladder's middle, i.e. the one thing the
+ *    brief rules out. Tier 8 separates at x1.10 and Tier 10 at x1.05. So the
+ *    premium is ZERO at and below rung 8 and every tier from 1 to 8 is
+ *    byte-identical (sim/systems.ts pins that, tier by tier and bay by bay).
+ *  - HOW STEEP. +5% a rung: Tier 9 x1.05, Tier 10 x1.10, the roof x1.15. Each
+ *    of those is at or one step past the multiplier at which the swept arm
+ *    first drops on that floor, and the timed arm is at 100% through x1.25 at
+ *    every one of them. That is the "meaningful but not brutal" margin the
+ *    brief asks for, measured rather than asserted.
+ *  - WHAT IT DOES NOT FIX. Bay 10 at Tier 10 does not move AT ALL across the
+ *    whole multiplier range (sweep 67%, timed 83%, flat). The capstone is not
+ *    lost on the target — it is lost on the pile and the purse — so the premium
+ *    is honestly a bay-1-to-9 change and the deep-bay difficulty still belongs
+ *    to the ratchet. Stated here rather than left for someone to rediscover.
+ *
+ * A SHARE OF THE RUNG'S OWN TARGET rather than a fourth additive constant, for
+ * the reason every other curve here is written the way it is: the ladder
+ * already states what a rung demands, and a premium in dollars would be a
+ * second statement of that free to drift out of the first. As a share it rides
+ * the target ramp along the bays for free — Tier 10 bay 1 gains $78 and bay 10
+ * gains $184 — which is the right shape, because a later bay is where the swept
+ * player's grades are worst (measured: 30% LUCKY at Tier 10 bay 10 against 0%
+ * at bay 1).
+ * ------------------------------------------------------------------------ */
+
+/** The last rung that pays NO premium — the whole ladder up to and including
+ *  it is byte-identical to the pre-grade game. Eight, because Tier 4 does not
+ *  separate the arms at any multiplier that leaves it approachable and Tier 8
+ *  is the first that separates them at a raise the timed arm shrugs off. */
+export const PRECISION_PREMIUM_FROM_RUNG = 8;
+
+/** What each rung ABOVE that adds, as a share of that rung's own target. */
+export const PRECISION_PREMIUM_PER_RUNG = 0.05;
+
+/** The multiplier the premium puts on `rung`'s targets. Exactly 1 at and below
+ *  PRECISION_PREMIUM_FROM_RUNG, which is what makes "the mid ladder does not
+ *  move" a fact about this function rather than about a sweep. */
+export function precisionPremium(rung: number): number {
+  return 1 + PRECISION_PREMIUM_PER_RUNG * Math.max(0, rung - PRECISION_PREMIUM_FROM_RUNG);
+}
+
 /** The target curve itself, asked of a RUNG instead of a Mark — i.e. with no
  *  clamp on either end.
  *
@@ -577,11 +657,16 @@ export function targetScoreFor(i: number, mark = 1): number {
  *  below, which is the whole discipline of that step: the roof does not get a
  *  curve of its own, it gets THIS curve evaluated one rung further along. Every
  *  caller that holds a Mark still goes through the clamped function above, so
- *  nothing but the roof can reach off the end of the ladder. */
+ *  nothing but the roof can reach off the end of the ladder.
+ *
+ *  The premium multiplies the FINISHED number, so the roof inherits it from the
+ *  same place it inherits everything else — rung 11 is one more step of one
+ *  curve, not a second decision written next to it. Rounded to whole dollars:
+ *  the HUD, the guide and the draft projection all quote the target as money. */
 function targetAtRung(rung: number, i: number): number {
   const first = TARGET_BASE + TARGET_PER_TIER * (rung - 1);
   const perBay = TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (rung - 1);
-  return first + perBay * Math.max(0, i);
+  return Math.round((first + perBay * Math.max(0, i)) * precisionPremium(rung));
 }
 
 /** The bay clock at `mark`, in seconds. Flat across a run — the tier sets the
@@ -903,6 +988,77 @@ export function skydeckStartingFunds(mark = TIER_COUNT): number {
 export const SKYDECK_SCRAP_SHARE = 0.5;
 export const SKYDECK_SCRAP_PER_LINE = Math.round(SCRAP_PER_LINE * SKYDECK_SCRAP_SHARE);
 export const SKYDECK_SCRAP_PER_BAY = Math.round(SCRAP_PER_BAY * SKYDECK_SCRAP_SHARE);
+
+/**
+ * LINES A BAY CLEARS FOR THE PLAYER THIS FLOOR IS FOR — the rate every scrap
+ * claim on the roof is denominated in.
+ *
+ * Twelve. It is not a new number: the SKYDECK_SCRAP_SHARE note directly above
+ * argues its whole table "for the endgame player this floor is for (~12 lines a
+ * bay)", and design/balance/skydeck-yard.md carries the working. It is named
+ * here because the ROOF'S FIRST REFIT STOP now turns on it, and a load-bearing
+ * figure that exists only inside a prose parenthesis is a figure no check can
+ * reach.
+ *
+ * IT IS A MODEL OF A HUMAN, and that is the caveat the pins carry with it. The
+ * harness's pilots clear five to seven rows a bay on the roof
+ * (sim/timing.ts --mode scrap --skydeck), which is the standing pessimism of
+ * every bot in sim/ — no lookahead, one landing target a shot — and not a
+ * refutation of the rate. Anything derived from this is a claim about the
+ * player the note describes; the bots put a FLOOR under it and cannot confirm
+ * it.
+ */
+export const SKYDECK_ENDGAME_LINES_PER_BAY = 12;
+
+/**
+ * WHAT THE ROOF'S FIRST STOP CAN BUY — the arithmetic behind "refit of some
+ * systems's third tier should be possible".
+ *
+ * The state before this change, from the SKYDECK_SCRAP_SHARE note's own table:
+ * a roof run arrives at stop 1 with 51 scrap against a tier-3 rung priced at
+ * TIER_COSTS[2] = 55. The note reads that as "reachable only by an opening that
+ * really dismantled its three bays" — but 51 < 55 is not "reachable", it is a
+ * DEAD STOP: the player docks at the first yard the mode has, is shown a shelf
+ * on which every item costs more than they hold, and undocks. The design missed
+ * its own stated intent by four scrap.
+ *
+ * THE PRECISION PREMIUM IS WHAT CLOSES IT, and closes it without a second dial.
+ * The roof's targets rise 15% (precisionPremium at SKYDECK_RUNG), so a roof bay
+ * has to SELL 15% more rows to open its door; scrap is paid per row and is
+ * deliberately ungraded (grades.ts: skill pays funds, volume pays scrap), so the
+ * income rises with the demand:
+ *
+ *   before   3 x (12.0 lines x 1 + 5) = 51   <  55   nothing on the shelf
+ *   after    3 x (13.8 lines x 1 + 5) = 56   >= 55   exactly ONE rung
+ *
+ * EXACTLY ONE IS THE DESIGN, not a happy accident of the rounding. Every rung
+ * the roof's yard can still sell costs the same TIER_COSTS[2] (the Workshop
+ * stops at UPRATE_MAX_TIER, so tier 3 is all that is left), so "how many rungs
+ * does stop 1 afford" IS "how many systems get chosen". One is a decision the
+ * player has to make and can get wrong; two would be a shopping trip, and the
+ * whole argument of the note above is that this floor exists to tighten an
+ * endgame where the player arrives with too much. sim/systems.ts pins BOTH
+ * halves of the inequality — that stop 1 reaches one rung, and that it does not
+ * reach two.
+ *
+ * The later stops were never the problem and are unchanged in kind: stop 2 and
+ * stop 3 each add another rung's worth, so a roof run that plays well spends
+ * three separate decisions across the ten bays instead of two and a locked door.
+ */
+export function skydeckScrapAtFirstStop(
+  linesPerBay = SKYDECK_ENDGAME_LINES_PER_BAY,
+  /** Bays cleared before the first stop opens — run.ts's REFIT_EVERY, which
+   *  this module cannot import (run.ts imports level.ts, and closing that cycle
+   *  to read one integer would be the worst possible trade). Defaulted to the
+   *  shipped 3 and pinned equal to the real constant in sim/systems.ts, which
+   *  is the same treatment UNBREAKABLE_MARK gets against hazards.ts's
+   *  CAPSTONE_MARK. */
+  baysPerStop = 3,
+  mark = TIER_COUNT,
+): number {
+  const lines = linesPerBay * precisionPremium(skydeckRungFor(mark));
+  return Math.floor(baysPerStop * (lines * SKYDECK_SCRAP_PER_LINE + SKYDECK_SCRAP_PER_BAY));
+}
 
 /**
  * Write the Skydeck's economy onto a bay — the roof's opening terms, in the

@@ -6,6 +6,7 @@ import {
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
+import { addGradeTally } from "./game/grades";
 import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -2554,6 +2555,10 @@ class App {
               sandbox: this.run.sandbox,
               sandboxSetup: this.run.sandbox ? this.sandboxSetupLine() : undefined,
               salvageTotal: this.meta.salvage,
+              // Banked tallies plus the bay still on screen, added here for the
+              // same reason `scrapEarned` and `lines` above are: the current bay
+              // has not been through advanceRun, and on a loss never will be.
+              grades: addGradeTally(this.run.grades, g.gradeTally),
               scrapEarned: this.run.scrapEarned + g.scrapEarned,
               // Banked bays plus the one still on screen. The current bay has
               // not been through advanceRun — and on a loss never will be — so
@@ -3688,6 +3693,11 @@ class App {
       // salvagedFunds and volatileLosses above: the discount was already taken
       // when each cube was billed, so this only ever accumulates a readout.
       g.incineratedFunds,
+      // ...and HOW the bay was played (grades.ts). The last of the tail's
+      // stats, and the only one that is a judgement rather than a sum of money:
+      // the end card is where a run gets told what its rows were actually
+      // worth, and a judgement nobody is shown is one that was never made.
+      g.gradeTally,
     );
     // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1. Still asked of the RUN rather than

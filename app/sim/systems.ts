@@ -30,9 +30,15 @@ import {
   skydeckLaunchCost, skydeckStartingFunds,
   skydeckTargetScoreFor,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
+  precisionPremium, PRECISION_PREMIUM_FROM_RUNG, PRECISION_PREMIUM_PER_RUNG,
+  SKYDECK_ENDGAME_LINES_PER_BAY, skydeckScrapAtFirstStop, SKYDECK_SCRAP_SHARE,
   type LevelConfig, type MaterialMix, type PileTier,
 } from "../src/game/level";
 import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
+import {
+  addGradeTally, GRADE_PAY, gradedLinePay, gradeForRow, GRADES, gradeTallyTotal,
+  LUCKY_SWEEPS, newGradeTally, timedShare, type ClearClock,
+} from "../src/game/grades";
 import { BOTS } from "./bots";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
@@ -79,6 +85,7 @@ import {
   markLostPieces, slagBountyFor, nextColdCryo,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
+  stampLandings, landingOf, newestLanding, headlineGrade, type GradedRow,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -527,34 +534,94 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   check("Tier 1 opens at $600, 180s, $20 a shot",
     t1.targetScore === 600 && t1.timeLimitSec === 180 && t1.launchCost === 20,
     `$${t1.targetScore}/${t1.timeLimitSec}s/$${t1.launchCost}`);
-  check("the top tier opens at $780, 144s, $30 a shot",
-    top.targetScore === 780 && top.timeLimitSec === 144 && top.launchCost === 30,
+  check("the top tier opens at $858, 144s, $30 a shot",
+    top.targetScore === 858 && top.timeLimitSec === 144 && top.launchCost === 30,
     `$${top.targetScore}/${top.timeLimitSec}s/$${top.launchCost}`);
   // Where a run ENDS is the tier's opening plus the ladder's own per-bay climb
   // (TARGET_PER_BAY, steepened a little by the tier) — the two curves compose,
-  // and this is the number that says by how much.
-  check("the last bay of a run climbs from $1500 at Tier 1 to $1842 at the top",
-    makeBaseLevel(9, 1).targetScore === 1500 && makeBaseLevel(9, MARK_COUNT).targetScore === 1842,
+  // and this is the number that says by how much. $1842 at the top became $2026
+  // with the PRECISION PREMIUM (level.ts): Tier 10 sits two rungs above where
+  // the premium starts, so every one of its targets carries x1.10.
+  check("the last bay of a run climbs from $1500 at Tier 1 to $2026 at the top",
+    makeBaseLevel(9, 1).targetScore === 1500 && makeBaseLevel(9, MARK_COUNT).targetScore === 2026,
     `${makeBaseLevel(9, 1).targetScore}/${makeBaseLevel(9, MARK_COUNT).targetScore}`);
 
+  /* THE PRECISION PREMIUM'S BLAST RADIUS — pinned as an ABSENCE first.
+   *
+   * The brief the premium answers is explicit that only the top of the ladder
+   * moves ("the boredom is the maxed-out endgame, not the ladder's middle"),
+   * and level.ts's measured table is what chose rung 8 as the last quiet one.
+   * That claim is worth more than any number in this section, because it is the
+   * one a future retune breaks by accident: widening the premium by one rung
+   * silently re-prices a tier a hundred players are already standing on.
+   *
+   * So it is checked EXHAUSTIVELY — every tier at or below the threshold, every
+   * bay — against the ladder's own linear curve with no premium term in it,
+   * which is exactly the formula that shipped before this change. */
+  {
+    const linear = (rung: number, i: number): number =>
+      (TARGET_BASE + TARGET_PER_TIER * (rung - 1))
+      + (TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (rung - 1)) * i;
+    const moved: string[] = [];
+    for (let m = 1; m <= PRECISION_PREMIUM_FROM_RUNG; m++) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        if (targetScoreFor(i, m) !== linear(m, i)) moved.push(`T${m}b${i + 1}`);
+      }
+    }
+    check(
+      `every tier up to ${PRECISION_PREMIUM_FROM_RUNG} is byte-identical to the pre-premium ladder`,
+      moved.length === 0, moved.slice(0, 6).join(","),
+    );
+    check("...and the premium is exactly 1 there, so the quiet is structural rather than lucky",
+      precisionPremium(PRECISION_PREMIUM_FROM_RUNG) === 1 && precisionPremium(1) === 1);
+    // ...and the tiers ABOVE it do move, or the premium is a dead constant and
+    // the check above passes for the wrong reason.
+    check("the tiers above it DO move, by exactly one premium step each",
+      targetScoreFor(0, PRECISION_PREMIUM_FROM_RUNG + 1)
+        === Math.round(linear(PRECISION_PREMIUM_FROM_RUNG + 1, 0)
+          * (1 + PRECISION_PREMIUM_PER_RUNG))
+      && targetScoreFor(0, MARK_COUNT)
+        === Math.round(linear(MARK_COUNT, 0) * (1 + 2 * PRECISION_PREMIUM_PER_RUNG)),
+      `${targetScoreFor(0, MARK_COUNT)}`);
+    // The premium rides the per-bay ramp, which is the shape the design wants:
+    // a later bay is where the swept player's grades are worst (measured: 30%
+    // LUCKY at Tier 10 bay 10 against 0% at bay 1), so it gains the most.
+    check("...and it is a SHARE, so a late bay gains more of it than an early one",
+      targetScoreFor(9, MARK_COUNT) - linear(MARK_COUNT, 9)
+        > targetScoreFor(0, MARK_COUNT) - linear(MARK_COUNT, 0),
+      `bay10 +$${targetScoreFor(9, MARK_COUNT) - linear(MARK_COUNT, 9)}`
+      + ` vs bay1 +$${targetScoreFor(0, MARK_COUNT) - linear(MARK_COUNT, 0)}`);
+  }
+
   // Every rung has to move, or a tier is a no-op the player still paid for.
+  // The target's step is checked EXACTLY only across the ladder's quiet band,
+  // where the linear curve is the whole story; the premium band has its own
+  // check above, and folding it in here would put two claims on one boolean.
   let barRises = true;
   let stepRises = true;
   for (let m = 2; m <= MARK_COUNT; m++) {
     const lo = makeBaseLevel(0, m - 1);
     const hi = makeBaseLevel(0, m);
-    if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+    if (m <= PRECISION_PREMIUM_FROM_RUNG) {
+      if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+      const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
+      if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
+    } else {
+      // Above the threshold the target still has to RISE, and by strictly MORE
+      // than the quiet band's step — the premium is a raise, not a re-shuffle.
+      if (hi.targetScore - lo.targetScore <= TARGET_PER_TIER) barRises = false;
+      if (makeBaseLevel(1, m).targetScore <= hi.targetScore) stepRises = false;
+    }
     if (hi.timeLimitSec - lo.timeLimitSec !== -TIME_PER_TIER) barRises = false;
     if (hi.launchCost < lo.launchCost) barRises = false;
-    const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
-    if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
   }
   check("each tier raises the target and shortens the clock by exactly one step", barRises);
   check("each tier steepens the per-bay target climb", stepRises);
   check("the tier ladder's endpoints match its named constants",
     t1.targetScore === TARGET_BASE && t1.timeLimitSec === TIME_BASE
       && t1.launchCost === LAUNCH_COST_BASE && top.launchCost === LAUNCH_COST_TOP
-      && top.targetScore === TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1));
+      && top.targetScore === Math.round(
+        (TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1)) * precisionPremium(MARK_COUNT)));
 
   // A hand-edited save (or a sim caller) must never be able to walk the curve
   // off either end — level.ts's tierOf clamps, and nothing else does.
@@ -9555,17 +9622,62 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // stop is earned rather than arrived at, and that the run can shop from the
     // second on — stated at the ~10 lines a bay an endgame pilot actually
     // clears, since income here is a function of lines and nothing else.
+    // The SELLING rate, not the clearing one: a bay's income is lines x the
+    // rate, and the PRECISION PREMIUM raised what a roof bay has to sell before
+    // its door opens (level.ts's skydeckScrapAtFirstStop carries the argument).
+    // Scrap is ungraded by design — skill pays funds, volume pays scrap
+    // (grades.ts) — so the extra rows a raised target demands are extra scrap
+    // at exactly the flat rate, and the yard's arithmetic moves with the bar.
     const banked = (lines: number, bays: number): number =>
-      bays * (lines * skyBay.scrapPerLine + skyBay.scrapPerBay);
-    check("ten lines a bay does not reach a rung by the first stop",
+      Math.floor(bays * (
+        lines * precisionPremium(SKYDECK_RUNG) * skyBay.scrapPerLine + skyBay.scrapPerBay
+      ));
+    /* THE OWNER'S ASK, AS AN INEQUALITY — "refit of some systems's third tier
+     * should be possible".
+     *
+     * Before the premium the roof's first stop was a DEAD STOP: 3 x (12 x 1 + 5)
+     * = 51 against a rung priced at 55, so the pilot docked at the only yard the
+     * mode has, was shown a shelf on which nothing was affordable, and undocked.
+     * level.ts's SKYDECK_SCRAP_SHARE note describes that stop as "reachable only
+     * by an opening that really dismantled its three bays" — which was its
+     * stated intent and was four scrap short of being true.
+     *
+     * BOTH HALVES ARE PINNED, and the second is the one that makes this a design
+     * rather than a giveaway: the stop reaches ONE rung and never two. Every
+     * rung the roof's yard can still sell costs the same TIER_COSTS[2] (the
+     * Workshop stops at UPRATE_MAX_TIER), so "how many rungs" IS "how many
+     * systems get chosen", and one is a decision the pilot can get wrong. */
+    check("an endgame run reaches a tier-3 rung by the roof's FIRST stop",
+      banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY) >= TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...and exactly ONE, so the stop is a choice and not a shopping trip",
+      banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY) < 2 * TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`);
+    check("...and a WEAKER run still does not — the first stop is earned",
       banked(10, REFIT_EVERY) < TIER_COSTS[UPRATE_MAX_TIER],
       `${banked(10, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
-    check("...and does reach one by the second",
+    check("...which is the arithmetic level.ts states, in the module that owns it",
+      skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)
+        === banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY),
+      `${skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`
+      + ` vs ${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`);
+    check("...and level.ts's copy of REFIT_EVERY is run.ts's, since it cannot import it",
+      skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY)
+        === skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY));
+    check("the weaker run does reach a rung by the SECOND stop",
       banked(10, REFIT_EVERY * 2) >= TIER_COSTS[UPRATE_MAX_TIER],
       `${banked(10, REFIT_EVERY * 2)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
     check("...where the LADDER's own payout would have bought one at the first",
       REFIT_EVERY * (10 * ladderBay.scrapPerLine + ladderBay.scrapPerBay)
         >= TIER_COSTS[UPRATE_MAX_TIER]);
+    // The roof's rate is still exactly the SHARE it was — the premium moved the
+    // DEMAND, not the price of a row. Pinned because "raise the target until the
+    // yard works" and "pay more scrap per row" produce the same stop-1 total and
+    // are completely different designs: one makes the pilot play more bay, the
+    // other hands them the rung.
+    check("the roof's scrap RATE is untouched — the premium moved the demand, not the price",
+      skyBay.scrapPerLine === Math.round(ladderBay.scrapPerLine * SKYDECK_SCRAP_SHARE)
+        && skyBay.scrapPerBay === Math.round(ladderBay.scrapPerBay * SKYDECK_SCRAP_SHARE));
     // …and a whole run can never buy out the shelf, which is the difference
     // between tightening the yard and simply reopening the ladder's.
     check("a whole run cannot buy half the shelf",
@@ -9590,15 +9702,31 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
   {
     const sky = skyRun();
     const ladderTop = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    // EXTRAPOLATED FROM THE QUIET BAND, which is what the PRECISION PREMIUM
+    // forced and improved. The ladder's target is now two composed curves — a
+    // linear climb and a multiplicative premium above rung 8 — so a step read
+    // off Marks 9 and 10 would carry the premium in it and comparing it against
+    // a roof that ALSO carries the premium would prove nothing about either.
+    //
+    // Rungs 7 and 8 are premium-free by construction (checked exhaustively in
+    // the tier-ladder section), so the linear curve's per-rung step is exact
+    // integer arithmetic there. The roof then has to be that line carried to
+    // SKYDECK_RUNG and multiplied by the roof's own premium — one more rung of
+    // BOTH curves, which is the whole discipline of the step.
+    const quiet = PRECISION_PREMIUM_FROM_RUNG;
     const offBy: string[] = [];
     for (let i = 0; i < RUN_LEVELS; i++) {
-      const step = targetScoreFor(i, MARK_COUNT) - targetScoreFor(i, MARK_COUNT - 1);
-      if (skydeckTargetScoreFor(i) !== targetScoreFor(i, MARK_COUNT) + step) {
+      const step = targetScoreFor(i, quiet) - targetScoreFor(i, quiet - 1);
+      const line = targetScoreFor(i, quiet) + step * (SKYDECK_RUNG - quiet);
+      if (skydeckTargetScoreFor(i) !== Math.round(line * precisionPremium(SKYDECK_RUNG))) {
         offBy.push(`bay${i + 1}`);
       }
     }
-    check("the roof's target is the ladder's last step taken once more",
+    check("the roof's target is the ladder's line carried one rung on, premium and all",
       offBy.length === 0, offBy.join(","));
+    check("...so the roof pays a premium step the capstone does not",
+      precisionPremium(SKYDECK_RUNG) > precisionPremium(MARK_COUNT),
+      `${precisionPremium(SKYDECK_RUNG)} vs ${precisionPremium(MARK_COUNT)}`);
     check("...and its launch price is that line's next point",
       skydeckLaunchCost() === 2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1),
       `${skydeckLaunchCost()} vs ${2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1)}`);
@@ -14046,6 +14174,40 @@ section("The Incinerator's flue (chute.ts / upgrades.ts / lineClear.ts / game.ts
       advanceRun(after, 900, 600, 4, 10, [], after.bondCharges, 0, 0, after.thawCharges, 23)
         .incineratedFunds === 800);
     check("a fresh run has burned nothing", run.incineratedFunds === 0);
+
+    /* THE TWELFTH ARGUMENT — the bay's TIMING TALLY (grades.ts).
+     *
+     * The tail's newest entry, on the end for the reason run.ts's own note
+     * gives: regrouping the arguments would silently re-point every positional
+     * caller, which for a bare value is a bug no type checker can see.
+     *
+     * Pinned the way the three stats before it are — with values nothing else in
+     * the call could produce, each band DISTINCT from the others, so a
+     * transposition inside the tally is as visible as a transposition of the
+     * tally itself. */
+    const tally = { excellent: 3, good: 5, swept: 7, lucky: 11 };
+    const graded = advanceRun(
+      run, 900, 600, 4, 10, [], run.bondCharges, 111, 222, run.thawCharges, 777, tally,
+    );
+    check("advanceRun takes the bay's grade tally as argument 12",
+      graded.grades.excellent === 3 && graded.grades.good === 5
+      && graded.grades.swept === 7 && graded.grades.lucky === 11,
+      JSON.stringify(graded.grades));
+    check("...without disturbing the three stats in front of it",
+      graded.salvagedFunds === 111 && graded.volatileLosses === 222
+      && graded.incineratedFunds === 777);
+    check("...and it accumulates across bays like the stats it sits with",
+      advanceRun(graded, 900, 600, 4, 10, [], graded.bondCharges, 0, 0, graded.thawCharges, 0,
+        { excellent: 1, good: 0, swept: 2, lucky: 0 }).grades.excellent === 4);
+    check("...defaulting to an empty tally, so a caller that forgets under-reports ONE bay",
+      advanceRun(graded, 900, 600, 4, 10).grades.excellent === 3,
+      String(advanceRun(graded, 900, 600, 4, 10).grades.excellent));
+    check("a fresh run has been judged on nothing",
+      gradeTallyTotal(run.grades) === 0);
+    // The default is a FRESH object every call — a shared one would let a
+    // forgetful caller alias the run's own tally and then mutate it.
+    check("...and that default is not a shared object two runs could both hold",
+      advanceRun(run, 900, 600, 4, 10).grades !== advanceRun(run, 900, 600, 4, 10).grades);
   }
 
   /* -------------------------------------------------------------------------
@@ -15772,6 +15934,319 @@ section("Aiming strategies — the missing one is loud (sim/aim-strategies.ts)")
     "...and says where the follow-up lives",
     threw.includes("incinerator-system"), threw,
   );
+}
+
+// ===========================================================================
+// THE TIMING GRADE — the clock, the ladder, and the money that rides them
+//
+// `src/game/grades.ts` puts a MULTIPLIER on the one number the whole economy is
+// denominated in, so the pins here are not "does the enum exist". Three claims
+// are load-bearing and each is checked against a case that can actually break:
+//
+//  1. THE CLOCK IS THE PRESS. The grade is a function of two integer counters
+//     and of nothing else — not `now`, not `stepCount`, not the frame rate.
+//     Checked by driving one hand-built row through the REAL `updateLineClear`
+//     at explicit clocks and reading the band back, and by re-clearing the same
+//     row at a different wall clock and getting the same money.
+//  2. SWEPT IS THE ANCHOR. A swept row pays byte-identically to what a row paid
+//     before grades existed. This is the promise that keeps the mid-ladder
+//     still, and it is one multiplication away from being silently broken.
+//  3. THE LADDER IS STRICT AND ORDERED, so no play can ever be graded up by
+//     waiting.
+// ===========================================================================
+section("The timing grade — the clock is the press (src/game/grades.ts)");
+{
+  const clock = (stroke: number, halfCycle: number): ClearClock => ({ stroke, halfCycle });
+
+  // ---- 1. The four bands, as derivations rather than as a table ----------
+  //
+  // Each case names the PLAY it is, because that is what the boundary means; a
+  // pin that only said `gradeForRow({2,5},{2,5}) === "excellent"` would pass
+  // just as happily against a ladder read upside down.
+  check(
+    "a row closed with no reversal since the landing is EXCELLENT",
+    gradeForRow({ stroke: 4, halfCycle: 9 }, clock(4, 9)) === "excellent",
+  );
+  check(
+    "...the bar having REVERSED since demotes the same zero-sweep row to GOOD",
+    gradeForRow({ stroke: 4, halfCycle: 8 }, clock(4, 9)) === "good",
+  );
+  check(
+    "one completed sweep since the landing is SWEPT",
+    gradeForRow({ stroke: 4, halfCycle: 8 }, clock(5, 10)) === "swept",
+  );
+  check(
+    `...and so is ${LUCKY_SWEEPS - 1}, the last band before the owner's "definitely lucky"`,
+    gradeForRow({ stroke: 4, halfCycle: 8 }, clock(4 + LUCKY_SWEEPS - 1, 20)) === "swept",
+  );
+  check(
+    `${LUCKY_SWEEPS} sweeps is LUCKY`,
+    gradeForRow({ stroke: 4, halfCycle: 8 }, clock(4 + LUCKY_SWEEPS, 22)) === "lucky",
+  );
+  check(
+    "a row whose cargo has never rested grades LUCKY, never EXCELLENT",
+    gradeForRow(null, clock(0, 0)) === "lucky",
+  );
+  // The ladder can only ever fall as the clock runs on. A grade that could rise
+  // by waiting would make holding fire and doing nothing a strategy.
+  {
+    let monotone = true;
+    let prev = 0;
+    for (let sweeps = 0; sweeps <= 6; sweeps++) {
+      const rank = GRADES.indexOf(
+        gradeForRow({ stroke: 0, halfCycle: 0 }, clock(sweeps, 2 * sweeps + 1)),
+      );
+      if (rank < prev) monotone = false;
+      prev = rank;
+    }
+    check("the ladder never improves with age — waiting cannot upgrade a row", monotone);
+  }
+
+  // ---- 2. The compactor's two counters ------------------------------------
+  //
+  // `halfCycles` is a NEW counter and the grade's whole Excellent/Good split
+  // rests on it ticking at both stops and exactly once per stop. The bar sits
+  // pinned at a stop for one step before reversing, which is precisely where a
+  // naive increment double-counts.
+  {
+    const lvl = makeBaseLevel(0);
+    const phys = createPhysics(lvl);
+    const bar = new Compactor(phys.world, lvl);
+    check("a fresh bar opens at zero on both counters",
+      bar.strokes === 0 && bar.halfCycles === 0);
+    // Drive two whole round trips and watch the pair.
+    const seen: Array<{ s: number; h: number; d: number }> = [];
+    for (let i = 0; i < 4000 && bar.halfCycles < 4; i++) {
+      bar.update();
+      seen.push({ s: bar.strokes, h: bar.halfCycles, d: bar.dir });
+    }
+    check("two round trips are 4 half-cycles and 2 strokes",
+      bar.halfCycles === 4 && bar.strokes === 2, `${bar.halfCycles}/${bar.strokes}`);
+    // Never more than one tick per step, in either counter — the double-count
+    // this guard exists for would show up here as a step that jumped by 2.
+    let jumped = false;
+    for (let i = 1; i < seen.length; i++) {
+      if (seen[i].h - seen[i - 1].h > 1 || seen[i].s - seen[i - 1].s > 1) jumped = true;
+    }
+    check("...and neither counter ever ticks twice in one step", !jumped);
+    // The right stop advances BOTH; the left stop advances only halfCycles.
+    // That is the identity `gradeForRow` leans on when it checks halfCycle
+    // equality first and never special-cases the sweep count.
+    let leftStopsMovedStrokes = false;
+    for (let i = 1; i < seen.length; i++) {
+      const bumpedHalf = seen[i].h > seen[i - 1].h;
+      // dir is +1 AFTER a left-stop flip, -1 after a right-stop flip.
+      if (bumpedHalf && seen[i].d === 1 && seen[i].s !== seen[i - 1].s) {
+        leftStopsMovedStrokes = true;
+      }
+    }
+    check("the OPEN stop advances the half-cycle and never the stroke count",
+      !leftStopsMovedStrokes);
+    check("...so equal half-cycles imply equal strokes, which is why EXCELLENT is checked first",
+      seen.every((p, i) => i === 0 || p.h !== seen[i - 1].h || p.s === seen[i - 1].s));
+    Matter.Engine.clear(phys.engine);
+  }
+
+  // ---- 3. Landings are stamped ONCE, at the row scan's own threshold -------
+  {
+    const lvl = makeBaseLevel(0);
+    const phys = createPhysics(lvl);
+    const body = Matter.Bodies.rectangle(WALL_INNER - CELL / 2, WORLD.height - CELL / 2, CELL, CELL);
+    Matter.Composite.add(phys.world, body);
+    const cube: Cube = {
+      body, type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+    };
+    Matter.Body.setVelocity(body, { x: 20, y: 0 });
+    stampLandings([cube], clock(3, 7));
+    check("a cube still moving is not stamped", landingOf(cube) === null);
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    stampLandings([cube], clock(3, 7));
+    check("...and is stamped the first step it comes to rest",
+      landingOf(cube)?.stroke === 3 && landingOf(cube)?.halfCycle === 7);
+    // THE RULE THE GRADE RESTS ON: knocked loose and re-settled keeps the
+    // ORIGINAL landing, so a stale pile cannot have its clock reset.
+    Matter.Body.setVelocity(body, { x: 30, y: -10 });
+    stampLandings([cube], clock(9, 19));
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    stampLandings([cube], clock(9, 19));
+    check("cargo knocked loose and re-settled keeps its ORIGINAL landing",
+      landingOf(cube)?.stroke === 3 && landingOf(cube)?.halfCycle === 7,
+      `${landingOf(cube)?.stroke}/${landingOf(cube)?.halfCycle}`);
+    Matter.Engine.clear(phys.engine);
+  }
+
+  // ---- 4. A row is graded on its NEWEST cargo, order-independently ---------
+  {
+    const stamp = (s: number, h: number): Cube => ({
+      body: Matter.Bodies.rectangle(0, 0, CELL, CELL),
+      type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+      landedStroke: s, landedHalfCycle: h,
+    });
+    const old = stamp(1, 2);
+    const fresh = stamp(4, 9);
+    check("the newest landing wins whichever order the row is walked",
+      newestLanding([old, fresh])?.halfCycle === 9
+      && newestLanding([fresh, old])?.halfCycle === 9);
+    check("...and a row of cargo that never rested reports no landing at all",
+      newestLanding([
+        { ...stamp(0, 0), landedStroke: undefined, landedHalfCycle: undefined },
+      ]) === null);
+  }
+
+  // ---- 5. The pay ladder is a SPREAD around today's economy ---------------
+  //
+  // The anchor is the whole "mid ladder stays approachable" claim, and it is one
+  // typo away from being an inflation instead.
+  check("SWEPT pays exactly the base rate — the anchor the mid-ladder rests on",
+    GRADE_PAY.swept === 1);
+  {
+    const base = makeBaseLevel(4, 5).scorePerLine;
+    check("...so a swept row is byte-identical to a row before grades existed",
+      gradedLinePay(base, "swept") === base, `${gradedLinePay(base, "swept")} vs ${base}`);
+  }
+  check("the ladder is strictly descending — every band is worth less than the one above",
+    GRADE_PAY.excellent > GRADE_PAY.good
+    && GRADE_PAY.good > GRADE_PAY.swept
+    && GRADE_PAY.swept > GRADE_PAY.lucky);
+  check("LUCKY pays BELOW the base rate, which is what makes volume cost something",
+    GRADE_PAY.lucky < 1);
+  {
+    // The arithmetic the ladder was sized against (grades.ts's table): at the
+    // top of the tier ladder a row takes ~2.9 launches, so a LUCKY row must not
+    // pay for the shots that made it while an EXCELLENT one comfortably does.
+    // Bay 1 is the thin-margin bay the sizing was done on — the scorePerLine
+    // ramp makes later bays kinder, which is a fact about the ramp and is why
+    // the claim is pinned where it is tightest.
+    // level.ts's economy note carries the measurement this quotes: "the
+    // measured ~2.9 launches/line". Restated as a local rather than imported
+    // because it is a MEASUREMENT the note records, not a constant the game
+    // reads — nothing in src/ has an opinion about it, and exporting one would
+    // create a number the ladder could be re-tuned against by accident.
+    const LAUNCHES_PER_LINE = 2.9;
+    const b1 = makeBaseLevel(0, TIER_COUNT);
+    const perRow = LAUNCHES_PER_LINE * b1.launchCost;
+    check("at Tier 10 bay 1 a LUCKY row does not pay for the launches that made it",
+      gradedLinePay(b1.scorePerLine, "lucky") < perRow,
+      `$${gradedLinePay(b1.scorePerLine, "lucky")} vs $${perRow.toFixed(0)} of launches`);
+    check("...and an EXCELLENT one pays for them nearly twice over",
+      gradedLinePay(b1.scorePerLine, "excellent") > 1.7 * perRow,
+      `$${gradedLinePay(b1.scorePerLine, "excellent")} vs $${perRow.toFixed(0)}`);
+  }
+
+  // ---- 6. Tallies ---------------------------------------------------------
+  {
+    const a = { excellent: 2, good: 1, swept: 3, lucky: 0 };
+    const b = { excellent: 0, good: 4, swept: 1, lucky: 2 };
+    const sum = addGradeTally(a, b);
+    check("tallies add field by field without mutating either side",
+      sum.excellent === 2 && sum.good === 5 && sum.swept === 4 && sum.lucky === 2
+      && a.good === 1 && b.good === 4);
+    check("...and the timed share counts the two bands the economy pays a premium for",
+      Math.abs(timedShare(sum) - 7 / 13) < 1e-9, `${timedShare(sum)}`);
+    check("an empty tally reports a 0 share, never a NaN that would print as a measurement",
+      timedShare(newGradeTally()) === 0);
+    check("newGradeTally hands out a FRESH object, so a bay's count cannot leak into a run's",
+      newGradeTally() !== newGradeTally());
+  }
+}
+
+section("The timing grade — through the real clear check (lineClear.ts / game.ts)");
+{
+  // Hand-built rows through the ACTUAL updateLineClear for the reason the
+  // material section states: the claim is that the SHIPPED code path prices a
+  // row by its landing, and a reimplementation of that path would prove nothing.
+  const rowLevel = makeBaseLevel(0);
+  const buildGradedRow = (landedStroke: number, landedHalfCycle: number) => {
+    const phys = createPhysics(rowLevel);
+    const compactor = new Compactor(phys.world, rowLevel);
+    while (compactor.x < compactor.rightX) compactor.update();
+    compactor.dir = 1; // the advancing stroke — the only one that clears
+    const cubes: Cube[] = [];
+    const rowY = WORLD.height - CELL / 2;
+    for (let k = 0; k < rowLevel.compactorMinLineCells; k++) {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(phys.world, body);
+      cubes.push({
+        body, type: "O", color: "#fff", blinkStart: null,
+        material: "standard", struck: true, landedStroke, landedHalfCycle,
+      });
+    }
+    return { phys, compactor, cubes };
+  };
+
+  const clearAt = (landedStroke: number, landedHalfCycle: number, clock: ClearClock) => {
+    const r = buildGradedRow(landedStroke, landedHalfCycle);
+    const out = updateLineClear(r.phys.world, r.cubes, r.compactor, rowLevel, [], clock);
+    Matter.Engine.clear(r.phys.engine);
+    return out;
+  };
+
+  {
+    const out = clearAt(6, 13, { stroke: 6, halfCycle: 13 });
+    check("a row closed inside the running stroke clears EXCELLENT through the real path",
+      out.lines === 1 && out.graded.length === 1 && out.graded[0].grade === "excellent",
+      out.graded.map((g) => g.grade).join(","));
+    check("...and every cleared row has a graded entry beside it, index for index",
+      out.graded.length === out.rows.length && out.graded[0].y === out.rows[0]);
+    check("...carrying the landing it was priced from, so the derivation is inspectable",
+      out.graded[0].landing?.stroke === 6 && out.graded[0].landing?.halfCycle === 13);
+  }
+  check("the same row three sweeps stale clears LUCKY",
+    clearAt(6, 13, { stroke: 6 + LUCKY_SWEEPS, halfCycle: 30 }).graded[0].grade === "lucky");
+
+  // THE DETERMINISM CLAIM, checked the only way that means anything: the same
+  // sim state at two different wall clocks must produce the same money. The
+  // grade takes no `now` and no step count, so this is a pin on the SHAPE of
+  // the dependency rather than on a number.
+  {
+    const a = clearAt(6, 13, { stroke: 7, halfCycle: 15 });
+    const b = clearAt(6, 13, { stroke: 7, halfCycle: 15 });
+    check("two clears of identical sim state grade identically — the money is frame-rate free",
+      a.graded[0].grade === b.graded[0].grade);
+  }
+
+  // ---- The headline grade, which is what the callout says ------------------
+  {
+    const rows: GradedRow[] = [
+      { y: 10, landing: { stroke: 1, halfCycle: 3 }, grade: "lucky" },
+      { y: 50, landing: { stroke: 4, halfCycle: 9 }, grade: "excellent" },
+      { y: 90, landing: { stroke: 2, halfCycle: 5 }, grade: "swept" },
+    ];
+    check("a mixed crush is announced as the row the shot just CLOSED",
+      headlineGrade(rows) === "excellent");
+    check("...which is not simply the best grade present — an older EXCELLENT loses to a newer SWEPT",
+      headlineGrade([
+        { y: 10, landing: { stroke: 1, halfCycle: 3 }, grade: "excellent" },
+        { y: 50, landing: { stroke: 4, halfCycle: 9 }, grade: "swept" },
+      ]) === "swept");
+    check("a clear with nothing in it announces nothing", headlineGrade([]) === null);
+  }
+
+  // ---- The money, end to end, through Game -------------------------------
+  //
+  // The one pin that proves the multiplier is actually APPLIED. Two identical
+  // fields, one row each, cleared at two different clocks: the scores have to
+  // differ by exactly the ladder.
+  {
+    const scoreFor = (landedStroke: number, landedHalfCycle: number, clock: ClearClock) => {
+      const r = buildGradedRow(landedStroke, landedHalfCycle);
+      const out = updateLineClear(r.phys.world, r.cubes, r.compactor, rowLevel, [], clock);
+      Matter.Engine.clear(r.phys.engine);
+      return out.graded.reduce(
+        (sum, row) => sum + gradedLinePay(rowLevel.scorePerLine, row.grade), 0,
+      );
+    };
+    const exc = scoreFor(6, 13, { stroke: 6, halfCycle: 13 });
+    const lucky = scoreFor(6, 13, { stroke: 9, halfCycle: 20 });
+    check("the SAME row is worth more when it was closed on the press",
+      exc > lucky, `$${exc} vs $${lucky}`);
+    check("...by exactly the ladder, not by an approximation of it",
+      exc === Math.round(rowLevel.scorePerLine * GRADE_PAY.excellent)
+      && lucky === Math.round(rowLevel.scorePerLine * GRADE_PAY.lucky));
+  }
 }
 
 // ===========================================================================

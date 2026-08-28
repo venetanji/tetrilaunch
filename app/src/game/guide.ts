@@ -3,6 +3,7 @@ import { MATERIAL_GAP } from "./belt";
 import {
   makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
 } from "./level";
+import { GRADE_PAY, LUCKY_SWEEPS } from "./grades";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import {
   markUnlocked, SLOT_BASE, SLOT_CAP, SLOT_PRICES, TIER_CONTRACTS_REQUIRED, type MetaState,
@@ -436,6 +437,26 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` the exam's, and Contracts deliberately have <b>no clock at all</b>.`
       + ` The habit that buys the most time is lining up the next shot <i>while</i> the cannon reloads.`,
     drill: DRILLS.clock,
+  },
+  {
+    // THE TOPIC THAT HAS TO EXIST, because the grade is the one rule the bay
+    // teaches only in passing: a callout over a payout says a word, and a word
+    // is not a rule. Filed under MONEY rather than under Basics because it IS
+    // the money — a row's price, not a flourish on it.
+    //
+    // Tier 1, and the premium it names is a Tier-9-and-up raise (level.ts's
+    // PRECISION_PREMIUM_FROM_RUNG). Deliberately: the ladder's bottom is where
+    // the habit is cheap to build, and a rule first met at the tier that
+    // punishes you for not having it is a rule met too late.
+    id: "grades", chapter: "economy", tier: 1,
+    name: "Timing a row",
+    summary: `A row pays by WHEN it closes: x${GRADE_PAY.excellent} on the press, x${GRADE_PAY.lucky} three sweeps late.`,
+    body: `Every row is graded on the press. Land the shipment that closes it while the bar is`
+      + ` already coming — <b>EXCELLENT</b>, x${GRADE_PAY.excellent}. On the retreat, sold by the`
+      + ` next press — <b>GOOD</b>, x${GRADE_PAY.good}. A row the press had to grind flat is`
+      + ` <b>SWEPT</b> at the plain rate, and one that took ${LUCKY_SWEEPS} sweeps is`
+      + ` <b>LUCKY</b> — x${GRADE_PAY.lucky}, less than the launches cost.`
+      + ` Scrap ignores all of it: skill pays funds, volume pays scrap.`,
   },
   {
     id: "scrap", chapter: "economy", tier: 1,
