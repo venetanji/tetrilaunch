@@ -1,6 +1,6 @@
 import type { Game } from "./game";
 import { actionForPad, padFor, type BindableAction } from "./bindings";
-import { NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
+import { DRAG_MAX, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 
 /**
  * GAMEPAD SUPPORT (canvas D1) — the Gamepad API has no events for buttons,
@@ -34,9 +34,20 @@ import { NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 
 /** Deadzone below which the stick reads as centred — covers worn sticks. */
 const DEADZONE = 0.22;
-/** Full deflection maps to this drag length (past cannon.ts's DRAG_MAX, so
- *  a pinned stick is full power). */
-const STICK_DRAG = 240;
+/** How far past cannon.ts's full-power span a fully deflected stick reaches.
+ *  A stick rarely reports a clean 1.0 — worn returns, a diagonal clipped to
+ *  the circle, a pad that reads 0.96 pinned — so the ceiling sits a little
+ *  inside full throw and the last ~8% of the deflection is headroom rather
+ *  than ramp. 1.09 is the ratio the old pair (240 against a 220 span) held,
+ *  kept exactly so the deflection→power curve is the one pad players have. */
+const STICK_OVERSHOOT = 1.09;
+/** Full deflection maps to this drag length (past cannon.ts's DRAG_MAX, so a
+ *  pinned stick is full power). DERIVED from that span rather than written as
+ *  its own number: the promise is about the span, and when the span moved —
+ *  DRAG_MAX shrank from 220 to CANNON.x - CELL so a full pull would fit on the
+ *  playfield at all — a literal 240 would have stayed "past DRAG_MAX" while
+ *  quietly crushing the stick's whole power ramp into its first half. */
+export const STICK_DRAG = DRAG_MAX * STICK_OVERSHOOT;
 /** Assist lerp factor per frame — settles in ~6 frames, ~100ms at 60Hz. */
 const ASSIST_LERP = 0.3;
 /** Stick-as-D-pad thresholds for MENU navigation (see onUiButton): a flick

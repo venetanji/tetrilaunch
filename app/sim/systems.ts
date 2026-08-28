@@ -145,7 +145,7 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller, stickRate } from "../src/game/gamepad";
+import { GamepadPoller, STICK_DRAG, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
@@ -10018,20 +10018,89 @@ section("Misfire prevention");
 {
   const DT = 1000 / 60;
 
-  // --- The firing floor -----------------------------------------------------
-  // The threshold in world px, re-derived from the constants rather than
-  // restated: DRAG_MIN + MIN_FIRE_RATIO * (DRAG_MAX - DRAG_MIN). Both drag
-  // bounds are module-private in cannon.ts (nothing outside it has any business
-  // knowing the mapping), so this brackets the crossing through the public
-  // function instead of asserting a number.
-  let floorPx = 0;
-  for (let len = 0; len <= 260; len += 0.5) {
-    if (powerRatioForDrag(len) >= MIN_FIRE_RATIO) { floorPx = len; break; }
+  // --- The shape of the ramp ------------------------------------------------
+  // Three landmarks on the pull-back's power curve, all found by SCANNING the
+  // public function rather than by importing constants: the foot (where the
+  // dead zone ends and power starts rising), the firing floor (where a release
+  // starts counting as a shot), and the ceiling (where the pull is asking for
+  // everything). cannon.ts's DRAG_MIN is module-private on purpose — nothing
+  // outside it has any business knowing the mapping — so every property below
+  // is stated about what a PULL PRODUCES, which is also the only thing the
+  // player can observe.
+  const STEP = 0.05;
+  const scan = (want: (r: number) => boolean): number => {
+    for (let len = 0; len <= 600; len += STEP) if (want(powerRatioForDrag(len))) return len;
+    return NaN;
+  };
+  const footPx = scan((r) => r > 0);
+  const floorPx = scan((r) => r >= MIN_FIRE_RATIO);
+  const fullPx = scan((r) => r >= 1);
+
+  // --- A FULL PULL HAS TO FIT ON THE PLAYFIELD --------------------------------
+  // THE BUG: DRAG_MAX was a flat 220 while the cannon stands CANNON.x = 150
+  // world px from the left wall, so a finger placed on the cannon and pulled
+  // straight back — the gesture the control is named for — was asking to end at
+  // world x = -70. There is no such place. It "worked" only because the canvas
+  // is full-bleed and screenToWorld does not clamp, so the stroke ran out
+  // through the letterbox bars and off the world; on a panel with no bars (an
+  // exact 16:9 viewport) full power from the cannon was unreachable at 63%, and
+  // on a panel whose outer band eats touches (the OnePlus 7T of the spec) the
+  // pull died with a real pointerup partway up the ramp.
+  //
+  // Stated as the DERIVATION, not as a number: whatever the span becomes, a
+  // full pull from the cannon's own x must land on the field with a cube of
+  // clearance from the wall. That is DRAG_MAX = CANNON.x - CELL read backwards
+  // through the only door the mapping opens.
+  check("a full-power pull exists at all", Number.isFinite(fullPx), `${fullPx} world px`);
+  // STEP of slack, and only STEP: the scan can locate the ceiling no more
+  // finely than its own stride, and the rule leaves exactly zero margin by
+  // construction — so this goes red the moment the span outgrows the room.
+  check(
+    "a full pull from the cannon ends a cube clear of the wall",
+    CANNON.x - fullPx >= CELL - STEP,
+    `ends at world x=${(CANNON.x - fullPx).toFixed(1)}, floor ${CELL}`,
+  );
+  // The same property said through the gesture instead of through the geometry:
+  // a horizontal pull-back whose endpoint is still on the field is a 100% shot.
+  {
+    const c = new Cannon(makeBaseLevel(0), 7);
+    const reach = CANNON.x - CELL; // the furthest such pull the rule allows
+    check("...and that pull is a full-power one", c.aimFromDrag(-reach, 0) === 1,
+      String(c.aimFromDrag(-reach, 0)));
+    check("...at the cannon's top speed", Math.abs(c.power - c.speedMax) < 1e-9,
+      `${c.power} vs ${c.speedMax}`);
   }
-  check("the firing floor sits inside a thumb's reach", floorPx > 60 && floorPx < 110, `${floorPx} world px`);
+
+  // --- The firing floor -----------------------------------------------------
+  // MIN_FIRE_RATIO is a FRACTION of the span and has to stay one. That is the
+  // property that let the span itself change without re-tuning the gate: shrink
+  // DRAG_MAX and the misfire threshold shrinks with it, in px, automatically,
+  // because "did they mean it" is about what the pull MEANS and not about how
+  // far a finger moved on a particular screen.
+  check(
+    "the misfire gate is a fixed fraction of the span, not a pixel count",
+    Math.abs((floorPx - footPx) / (fullPx - footPx) - MIN_FIRE_RATIO) < 0.01,
+    `${((floorPx - footPx) / (fullPx - footPx)).toFixed(4)} vs ${MIN_FIRE_RATIO}`,
+  );
+  // Both ends of "inside a thumb's reach", derived rather than banded: further
+  // than a whole cube of travel, so a graze cannot reach it; shorter than the
+  // full pull, so the gate is never the control.
+  check("the firing floor is further than a graze travels", floorPx > CELL, `${floorPx.toFixed(1)} world px`);
+  check("the firing floor is short of a full pull", floorPx < fullPx, `${floorPx.toFixed(1)} of ${fullPx.toFixed(1)}`);
   check("a pull just under the floor is refused", powerRatioForDrag(floorPx - 1) < MIN_FIRE_RATIO);
   check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
   check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
+
+  // --- The pad rides the same span -------------------------------------------
+  // gamepad.ts's STICK_DRAG promises "a pinned stick is full power", and that
+  // promise is a statement about the drag span. It used to be kept by a comment
+  // beside a hard 240 — which would have survived the span halving while
+  // quietly crushing the stick's whole ramp into its first half deflection, with
+  // nothing going red. Both halves of the promise are pinned: a pinned stick
+  // saturates, and a HALF-deflected one does not.
+  check("a pinned stick is full power", powerRatioForDrag(STICK_DRAG) >= 1, String(STICK_DRAG));
+  check("...and a half-deflected one is not", powerRatioForDrag(STICK_DRAG / 2) < 0.9,
+    String(powerRatioForDrag(STICK_DRAG / 2)));
 
   // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
   // gesture asked for, not what the cannon happens to be holding — a tap
