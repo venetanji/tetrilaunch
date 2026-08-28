@@ -537,11 +537,21 @@ animation. The roll call on an idle bay, post-#149:
 | `pulse-danger` | 1 | `opacity` | compositor |
 
 **Six animations across 26 elements, and five of the six are pure
-transform/opacity.** Leave-one-out, paired, five interleaved rounds, against a
-paired prize of 311.7ms: `belt-arrow-pulse` **117.5ms (38%)** and `pixel-sparkle`
-**114.3ms (37%)** are the only two rows that clear the harness's own noise floor
-by a margin worth quoting. Twenty-one of the twenty-six elements, and about
-three-quarters of the bill.
+transform/opacity.** Leave-one-out, paired, five rounds with the arm order
+rotated between rounds (the third rebuild — see below), against a paired prize
+of 300.3ms:
+
+| animation | thread | elements | saved | share |
+| --- | --- | --- | --- | --- |
+| `pixel-sparkle` | compositor | 13 | 79.2ms | **26%** |
+| `belt-tread` | **main** | 1 | 41.7ms | **14%** |
+| `belt-arrow-pulse` | compositor | 8 | 34.9ms | **12%** |
+
+Everything else sits under the harness's measured noise floor (21.5ms; the
+control's five zeros came out 21.5, −21.1, 13.5, −14.2, 5.9ms). The three real
+rows sum to 52% of the prize — the shortfall is elements whose recalculation
+only stops when several animations still together, which is what the
+all-stilled floor measures.
 
 ### What that actually says, which is not what the property column suggests
 
@@ -555,22 +565,26 @@ opacity takes a handful of distinct values across fourteen seconds and is
 *identical* on the overwhelming majority of frames. It costs 37% of the idle
 recalc anyway. **`steps()` saves paint; it does not save recalculation.**
 
-So the lever is the **count of continuously-animated elements**, not their
-choice of property. Moving one of these onto `transform` buys nothing this
-counter can see. Removing it, running it on fewer elements, or stopping it when
-its readout is not escalating, is what would move the number. Both leaders are
-decoration on a resting HUD — thirteen sparkle pixels on the crest and eight
-pulsing belt arrows.
+So there are TWO levers, and the rotation-corrected numbers size them. The
+**count of continuously-animated elements** sets the bill's body — thirteen
+sparkle pixels are the top row, and moving a keyframe onto `transform` buys
+nothing this counter can see; removing it, running it on fewer elements, or
+stopping it when its readout is not escalating is what would. And the one
+animation that is genuinely main-thread — `belt-tread`'s
+`background-position-x` on a *single* element — costs more than the eight belt
+arrows put together: per element it is the most expensive thing on an idle bay,
+and it is also the one row where a property change alone (a `transform` scroll)
+could plausibly move the number.
 
 This also re-answers the crest question #149 opened. Removing the music-driven
 beat was worth 23.6fps and was the right call, but it did not take the crest out
-of the idle frame: `pixel-sparkle` on thirteen `.plant__crest::after` pixels is
-still the joint-largest single animation on an idle bay.
+of the idle frame: `pixel-sparkle` on thirteen crest pixels is still the largest
+single animation on an idle bay.
 
-### The harness had to be rebuilt twice, and both mistakes are this document's
+### The harness had to be rebuilt three times, and all three mistakes are this document's
 
-Recorded because both are the trap this document keeps re-learning, and the
-second one is subtler than anything above.
+Recorded because all three are the trap this document keeps re-learning, and
+each is subtler than the one before it.
 
 **One pass over the arms is a block design.** The first version measured each
 arm once and printed six confidently-ranked rows. Re-running it moved
@@ -586,11 +600,21 @@ window** and *nothing at all* cleared it. The fix is the paired difference —
 `baseline[r] − arm[r]`, per round, then the median of those.
 
 The harness now carries a `(control)` arm that stills nothing, so its paired
-difference from the baseline is the method measuring a known zero. Over five
-rounds those zeros came out `2.6, −6.5, 57.9, −5.0, −25.8ms`, and the largest is
-printed as the noise floor with every row inside it marked as resolution rather
-than result. **A harness that cannot report a zero cannot be trusted to report a
+difference from the baseline is the method measuring a known zero, printed as
+the noise floor with every row inside it marked as resolution rather than
+result. **A harness that cannot report a zero cannot be trusted to report a
 saving.**
+
+**A fixed order inside the round is still a block design at the slot level.**
+The third rebuild came out of review rather than a re-run: every round executed
+baseline, control, all-stilled and the six arms in the same order, so drift
+that is monotonic WITHIN a round landed on the same arms every time — pairing
+against a baseline that always ran first cannot cancel it, and a control that
+always ran second cannot measure it at the ninth slot. Rotating the plan one
+slot per round moved `belt-arrow-pulse` from 38% to 12%, lifted `belt-tread`
+above the floor, and brought the measured noise floor from 57.9ms to 21.5ms.
+The fixed-order table this section carried before the rotation is superseded by
+the one above — which is itself the strongest evidence the review was right.
 
 ### Confirmed on device: those 21 elements are worth ~15fps of 90
 
@@ -599,9 +623,10 @@ was formed on. Android 11, Snapdragon 855+, a **90Hz** panel rather than 120Hz,
 and **WebView 87.0.4280.141**, a Chrome from late 2020. If the finding were an
 artifact of the CPH2573 or of a modern Blink, this device is where it would fail.
 
-Both leaders stilled together (21 elements), interleaved every 400ms with the
-frame straddling each switch discarded, in a live Tier 1 bay, ~950 frames per
-arm per run:
+`pixel-sparkle` and `belt-arrow-pulse` stilled together (21 elements — the
+fixed-order table's two leaders; see the post-script below), interleaved every
+400ms with the frame straddling each switch discarded, in a live Tier 1 bay,
+~950 frames per arm per run:
 
 | run | animations running | stilled | Δfps | Δon-time |
 | --- | --- | --- | --- | --- |
@@ -622,6 +647,21 @@ animations are the difference between this device making its frame and not.
 stylesheet that stills *nothing* — same toggle, same cadence, same discarded
 transition frames — returned **−0.8 and +1.7fps** (−2.5 and +2.6pp). The noise
 floor is about ±2fps, and the effect clears it by an order of magnitude.
+
+**Two post-scripts from review.** The desktop share of that stilled pair is 38%
+after the rotation, not the ~75% the fixed-order table claimed — the Δfps above
+is the device's own measurement and inherits no correction, but
+"three-quarters of the bill" does not survive as a description of what was
+stilled. And the probe now guards its own attribution: it stills only the
+surface each target actually runs on (the element, its `::before`, or its
+`::after`), aborts up front if a stilled surface carries a non-target animation
+— in a congested bay the crest pixels pick up spark and jiggle animations that
+the old whole-element stilling would have billed to the targets — and voids the
+verdict if one arrives mid-run. The recorded runs predate that guard and lean
+on the bay having been calm, which a fresh Tier 1 bay is; the next phone
+session should re-take them behind it. `belt-tread`, which the rotation
+surfaced, was in nobody's stilled set — on the desktop counter it is another
+14% that has never been priced on glass.
 
 ### What this still does not establish
 
