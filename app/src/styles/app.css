@@ -2580,13 +2580,16 @@ body.crt-off #app::after { display: none; }
    caption on the card.
 
    --fs-sm, not --fs-xs: this is the only prose on the card a player is meant to
-   stop and read, and the two lines it sets to are the whole warning. Capped at
-   46ch — measured, that is the wrap that keeps it to two lines inside the
-   modal's min(520px, 92vw) at every width the harness fits, and a three-line
-   version is what pushes the 800x600 window's pause-keys grid off the panel. */
+   stop and read, and three lines of it is the whole warning.
+
+   NO MEASURE CAP. It shipped a first cut at 46ch, which is a sane reading
+   measure in the abstract and the wrong one here: the modal is already
+   min(520px, 92vw), so its content box is ~440px and a ch cap only narrows the
+   note further — measured, that turned three lines into four on the 1280x720
+   laptop and bought nothing on any phone. The modal's own width is the measure
+   this card was designed around, and every other block on it obeys that. */
 .pause__quit-note {
   margin: 0 auto;
-  max-width: 46ch;
   text-align: center;
   font-size: var(--fs-sm);
   line-height: 1.35;

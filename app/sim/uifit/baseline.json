@@ -383,6 +383,10 @@
   "Web · 800x600 window|menu|tap": [
     ".tower__floor 108x42"
   ],
+  "Web · 800x600 window|pause-armed|tap": [
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
+  ],
   "Web · 800x600 window|pause-pad|tap": [
     "#bond-chip 44x43",
     "#demo-chip 44x43"
