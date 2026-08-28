@@ -106,7 +106,8 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, retryBreaksSeal, sealStateFor, thawChargesFor, type SealState,
+  tracksLadder, retryBreaksSeal, sealStateFor, quitLosesProgress, bayRetryable,
+  thawChargesFor, type SealState,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
@@ -12244,6 +12245,241 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // …and the watermark still has its own, smaller job: the LESSON.
     check("the watermark now gates only the explainer",
       sealBreakOwed(newMeta()) && !sealBreakOwed(sealBreakShown(newMeta())));
+  }
+
+  // ---- WHEN QUITTING COSTS SOMETHING (run.ts's quitLosesProgress) ---------
+  // The sibling of the gate above, asked about the OTHER irreversible press on
+  // the pause card. A bay retry hands the run back; Quit throws it away without
+  // settling it — main.ts's finishRun is never reached, so recordRunEnd never
+  // runs and the run banks no score, no bestBay and no place in the lifetime
+  // count. Every other exit from a run files it first.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    // BAY 1 GOES STRAIGHT THROUGH, on exactly the reasoning the block above
+    // states for a free retry: a confirmation on a press that costs nothing
+    // teaches the player to click past the one that costs something. Nothing
+    // has been cleared, so there is no carry, no scrap and no notch to lose,
+    // and the menu's Start Run hands back the same offer.
+    check("quitting bay 1 costs nothing", !quitLosesProgress(ladder));
+    check("...and quitting bay 2 costs the bay behind it",
+      quitLosesProgress({ ...ladder, levelIndex: 1 }));
+    check("...and every bay after that",
+      [2, 3, 4, 5, 6, 7, 8, 9].every((i) => quitLosesProgress({ ...ladder, levelIndex: i })));
+    // TIER S IS A BENCH, NOT A RUN TO PROTECT. It files to its own board and
+    // climbs no ladder — and it STARTS at the bay that was dialled in, so its
+    // levelIndex counts bays skipped rather than bays cleared. A bay-7 bench
+    // run has cleared nothing, which is the case a bare index test gets wrong.
+    check("Tier S has nothing to protect",
+      !quitLosesProgress({ ...ladder, sandbox: true, levelIndex: 6 }));
+    check("...and the bench really does start deep",
+      sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } }).levelIndex === 6);
+    check("...so the shipping bench run is ungated too",
+      !quitLosesProgress(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } })));
+    // THE SKYDECK IS NOT EXCLUDED, and that is the distinction this predicate
+    // exists to keep straight: tracksLadder is about the ladder's BOOKKEEPING,
+    // this is about a player's work, and the roof is ten real bays flown from
+    // a cold start.
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    check("the roof starts cold like any run", roof.levelIndex === 0);
+    check("...so its first bay is free to leave", !quitLosesProgress(roof));
+    check("...and its sixth is not", quitLosesProgress({ ...roof, levelIndex: 5 }));
+    check("the roof is gated even though the ladder ignores it",
+      !tracksLadder(roof) && quitLosesProgress({ ...roof, levelIndex: 5 }));
+    // It reads the RUN and nothing else — no meta, no saved record — which is
+    // what lets the card's face and main.ts's gate ask the identical question.
+    check("the gate takes the run alone", quitLosesProgress.length === 1);
+  }
+
+  // ---- THE ROOF DOES NOT HAND BAYS BACK (run.ts's bayRetryable) -----------
+  // Owner report: the Skydeck's pause menu offered Restart Bay. The mode is
+  // permadeath — the day's seeded single attempt — and the retry it offered was
+  // free in every sense: the roof keeps no seal, so requestBayRetry's
+  // confirmation never fired, and resetBay rebuilds the SAME bay from the same
+  // run seed at the same levelIndex with the score back at zero. Grind bay 6
+  // until it goes perfectly, file the result against everyone who flew it once.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    check("a ladder run may restart its bay", bayRetryable(ladder));
+    check("the roof may not", !bayRetryable(roof));
+    // TIER S KEEPS ITS RETRY, and it is the case that proves this rule cannot
+    // ride on the ladder bookkeeping the roof and the bench share: the bench is
+    // FOR re-flying the same bay, and its run-end card puts the re-fly on the
+    // primary. What separates the two modes is permadeath, not bookkeeping.
+    check("...but the bench does, exactly as it always has",
+      bayRetryable({ ...ladder, sandbox: true })
+        && bayRetryable(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } })));
+    check("...so 'no seal' was never the right question to ask",
+      sealStateFor({ ...ladder, sandbox: true }, []) === null
+        && sealStateFor(roof, []) === null
+        && bayRetryable({ ...ladder, sandbox: true }) !== bayRetryable(roof));
+    // The refusal holds at every bay of the day, not just the first.
+    check("...at every bay of the day",
+      [0, 1, 5, 9].every((i) => !bayRetryable({ ...roof, levelIndex: i })));
+    // WHAT MADE THE HOLE EXPENSIVE: the day's bay is BYTE-IDENTICAL every time
+    // it is built, so the retry was a reroll of the SCORE and nothing else —
+    // the same puzzle, the same rules, as many attempts as you like, filed
+    // against players who took one. Stated against the builder resetBay
+    // actually reaches (main.ts's startLevel → levelForRun), and against a
+    // DIFFERENT day so the equality is the seed's doing and not the check's.
+    const day = (d: number): RunState =>
+      ({ ...skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, d))), levelIndex: 5 });
+    check("the day's roof bay is the same bay however often it is built",
+      JSON.stringify(levelForRun(day(27))) === JSON.stringify(levelForRun(day(27))));
+    check("...and another day's is a different one",
+      JSON.stringify(levelForRun(day(27))) !== JSON.stringify(levelForRun(day(28))));
+    check("the gate takes the run alone", bayRetryable.length === 1);
+  }
+
+  // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
+  // The idiom is arm-then-confirm rather than a second panel: Quit is already
+  // ON a modal, and the seal notice earned its own panel because it interrupts
+  // a press made from the field. Here the player is stopped and reading a card.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const paused = (quit?: { armed: boolean; bayNum: number }): string =>
+      S.pauseModal(true, "keyboard", abilities, undefined, quit);
+    /** Just the Quit button. Resume, Fullscreen and Restart Bay share the row
+     *  and `includes` cannot tell them apart. */
+    const quitBtn = (h: string): string =>
+      /<button[^>]*data-action="quit-run"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const idle = paused({ armed: false, bayNum: 4 });
+    const armed = paused({ armed: true, bayNum: 4 });
+
+    // NO GATE, NO CHANGE. A Contract, a drill, Tier S and bay 1 all pause with
+    // nothing to protect, and the card there is the one-press ghost button it
+    // has always been — wired straight to the menu.
+    check("an ungated pause still leaves on one press",
+      paused().includes('<button class="btn btn--ghost" data-action="menu">Quit</button>'));
+    check("...and mounts no arming machinery at all",
+      !paused().includes("quit-run") && !paused().includes("pause__quit-note"));
+
+    // A GATED QUIT DOES NOT CARRY THE MENU ACTION AT ALL. This is the pin that
+    // says a single activation cannot end a live run: main.ts routes "menu"
+    // straight to the home screen, and the gated button is not that action, so
+    // there is no press on this card that reaches it without going through
+    // requestQuitRun. A flag on "menu" would have been one `if` away from being
+    // walked around by the next back button somebody adds.
+    check("a gated Quit is its own action", idle.includes('data-action="quit-run"'));
+    check("...and cannot reach the menu action in one press",
+      !quitBtn(idle).includes('data-action="menu"')
+        && !quitBtn(armed).includes('data-action="menu"'));
+    check("...and the rest of the card still can (Resume is the way back)",
+      idle.includes('data-action="resume"') && idle.includes('data-action="restart-bay"'));
+    // It is never the primary, so padnav's focusInitial (which lands on
+    // .btn--primary) cannot open this card with the ring on the destructive
+    // control — a stray A press finds Resume.
+    check("the pad does not open the card on Quit",
+      !quitBtn(armed).includes("btn--primary") && idle.includes('class="btn btn--primary"'));
+
+    // THE ARM IS A STATE, AND IT IS THE WORDS THAT CHANGE. Colour alone reaches
+    // neither a red-blind player nor a screen reader.
+    check("an unarmed Quit says so in the markup", quitBtn(idle).includes('data-armed="false"'));
+    check("...and an armed one says so too", quitBtn(armed).includes('data-armed="true"'));
+    // BOTH FACES SHIP IN BOTH STATES — app.css stacks them in one grid cell, so
+    // the button measures the same armed as idle and the four-button row cannot
+    // reflow under the thumb that is about to press again. A face rendered only
+    // in its own state would collapse that reservation.
+    for (const [what, h] of [["idle", idle], ["armed", armed]] as const) {
+      check(`the ${what} button reserves both faces`,
+        quitBtn(h).includes('<span class="btn__quit-face">Quit</span>')
+          && quitBtn(h).includes('class="btn__quit-face btn__quit-face--armed">Quit anyway</span>'));
+    }
+
+    // THE ACCESSIBLE NAMES, WRITTEN OUT WHOLE, one per state — the same
+    // discipline the rail's seal name is held to (codex PR #144: a substring
+    // pin cannot see an ungrammatical name, because the substring is the part
+    // that was fine).
+    const name = (h: string): string => /aria-label="([^"]*)"/.exec(quitBtn(h))?.[1] ?? "";
+    check("the idle name promises the confirmation rather than hiding it",
+      name(idle) === "Quit — ends this run, and asks once more first", name(idle));
+    check("the armed name names the consequence and the bay",
+      name(armed) === "Quit anyway — bay 4 ends here and this run files nothing", name(armed));
+    check("...and follows the bay it was handed",
+      /aria-label="Quit anyway — bay 9 /.test(paused({ armed: true, bayNum: 9 })));
+
+    // THE NOTE. Only under the arm, and it says what a quit costs that a loss
+    // does not — the half a player will otherwise get wrong, exactly as the
+    // seal notice's second paragraph does.
+    check("an unarmed card mounts no warning", !idle.includes("pause__quit-note"));
+    check("an armed card names the loss", armed.includes(S.quitArmNoteHTML(4)));
+    check("...naming the bay and what goes with it",
+      /Quitting drops bay 4 and everything behind it/.test(armed)
+        && /carry, scrap and every notch/.test(armed));
+    check("...and that a run played out banks what a quit does not",
+      /Nothing files/.test(armed) && /even a loss banks the score and the bay record/.test(armed));
+    // Announced on insertion, which is what main.ts's syncQuitArm relies on: it
+    // creates this node rather than filling a hidden region that a screen
+    // reader may never have registered.
+    check("the warning announces itself", /class="pause__quit-note" role="alert"/.test(armed));
+    // ONE RULE, TWO DOORS. The card is rendered here and PATCHED by main.ts's
+    // syncQuitArm (a re-render would replay `.pop` and destroy the button the
+    // pad is focused on, which on a two-press control is the press that
+    // confirms). Both read these two builders, so the rendered card and the
+    // patched one cannot say different things.
+    check("the rendered card is built from the shared face",
+      armed.includes(`aria-label="${S.quitArmLabel(true, 4)}"`)
+        && idle.includes(`aria-label="${S.quitArmLabel(false, 4)}"`));
+    // THE CARD IS A PURE FUNCTION OF THE ARM, which is what makes disarming a
+    // one-line rule in setState: leaving "paused" clears the flag, and the next
+    // render of this card is byte-identical to the one before it was ever
+    // armed. Nothing has to be un-patched.
+    check("disarming restores the card exactly",
+      paused({ armed: false, bayNum: 4 }) === idle);
+    check("...and the arm is the only thing the two cards differ by",
+      armed.replace(S.quitArmNoteHTML(4), "")
+        .replace(`data-armed="true"`, `data-armed="false"`)
+        .replace(`aria-label="${S.quitArmLabel(true, 4)}"`, `aria-label="${S.quitArmLabel(false, 4)}"`)
+        === idle);
+
+    // ---- AND THE ROOF'S CARD OFFERS NO RESTART AT ALL --------------------
+    // REMOVED, not disabled — the idiom the run-end card already set for this
+    // exact refusal (its `retryBay` is undefined on a Skydeck run, not a dead
+    // control) and the one every other mode-shaped absence in this file
+    // follows: Tier S drops the tier row, a drill drops the ship rack.
+    const roofCard = S.pauseModal(true, "keyboard", abilities, undefined, undefined, false);
+    check("the roof's pause card has no Restart Bay",
+      !roofCard.includes('data-action="restart-bay"') && !/Restart Bay/.test(roofCard));
+    check("...and no dead control standing in for it",
+      !roofCard.includes("disabled") && !/aria-disabled/.test(roofCard));
+    // The hint table is the OTHER place the gesture is taught (D2: every
+    // instruction renders from what the game will do). A card that removed the
+    // button and kept the line would be teaching the workaround.
+    check("...and does not teach the hold that would perform it",
+      !/hold pause to restart/.test(roofCard));
+    check("...while a ladder run's card teaches it and offers it",
+      idle.includes('data-action="restart-bay"') && /hold pause to restart/.test(idle));
+    // The way OUT is untouched — this card still resumes and still quits, which
+    // is the whole reason removing the middle button is safe.
+    check("the roof can still resume and still leave",
+      roofCard.includes('data-action="resume"')
+        && (roofCard.includes('data-action="menu"') || roofCard.includes('data-action="quit-run"')));
+    // …and the ⏸ rail button's name loses the gesture with it. This name is the
+    // only description an assistive-technology user of an icon-only control
+    // gets, so a name still offering a hold nothing performs would be the label
+    // being wrong to the one audience that cannot check.
+    const railName = (h: string): string =>
+      /aria-label="([^"]*)"/.exec(
+        /<button[^>]*data-action="pause"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "",
+      )?.[1] ?? "";
+    const hudFor = (restart: boolean): string =>
+      S.hudHTML({
+        beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+        loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+        tier: 2, target: 800, score: 200, launchCost: 25, bayNum: 6, timeLimitSec: 150,
+        timeLeftMs: 150_000, pieceSize: "std",
+        bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+        thawOwned: true, thawCharges: 4,
+        autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+        restart,
+      });
+    check("the roof's ⏸ names no gesture it cannot perform",
+      railName(hudFor(false)) === "Pause", railName(hudFor(false)));
+    check("...and every other run's ⏸ is the name it always had",
+      railName(hudFor(true)) === S.PAUSE_HOLD_NAME, railName(hudFor(true)));
+    check("...and the field strip drops the line too",
+      !/hold pause to restart/.test(hudFor(false))
+        && /hold pause to restart/.test(hudFor(true)));
   }
 
   // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------

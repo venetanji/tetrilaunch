@@ -2532,6 +2532,73 @@ body.crt-off #app::after { display: none; }
 }
 :root[data-profile="gamepad"] .pause-keys { display: block; }
 
+/* ---------------------------------------------------------------------------
+   THE ARMED QUIT (screens.ts's pauseModal, run.ts's quitLosesProgress).
+
+   Quit is the one exit that ends a run without filing it, so on a run with bays
+   behind it the button takes two presses. This block draws the state between
+   them, and its whole job is that the second press lands on a control that has
+   already said what it does.
+
+   BOTH FACES ARE ALWAYS IN THE MARKUP, stacked in ONE grid cell. The cell sizes
+   to the wider of them ("QUIT ANYWAY"), so the button measures the same idle as
+   armed and the four-button row cannot reflow under the thumb that is about to
+   press again — the same rule the draft's pick box follows for the same reason
+   (see .mod-card__box). The idle button is therefore ~34px wider than the bare
+   ghost it replaces; the row wraps at var(--sp-3) and every uifit row absorbs
+   it, which is the price of never moving Restart Bay onto a press aimed here.
+
+   `visibility` rather than `display` for the hidden face: a display:none child
+   contributes no intrinsic width, which would collapse the reservation above
+   back to whichever face is showing.
+
+   NOT COLOUR ALONE. The armed state relabels the button, reddens it, and mounts
+   the note below — three carriers, because the wash is the only one of the
+   three that a red-green-blind player or a screen reader gets nothing from.
+   Nothing here animates, so there is no reduced-motion branch to write: the
+   change is the words, and the words are the teaching. */
+.btn--quit {
+  display: inline-grid;
+  place-items: center;
+}
+.btn__quit-face {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+.btn--quit[data-armed="false"] .btn__quit-face:not(.btn__quit-face--armed),
+.btn--quit[data-armed="true"] .btn__quit-face--armed { visibility: visible; }
+.btn--quit[data-armed="true"] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+/* The hover rule on .btn--ghost pulls every ghost back to --accent; an armed
+   Quit must not go cyan under a mouse that happens to be resting on it. */
+.btn--quit[data-armed="true"]:hover { color: var(--danger); border-color: var(--danger); }
+
+/* The line that names the loss. Sits between the button row and the control
+   reference, so it reads as a consequence of the row above rather than as a
+   caption on the card.
+
+   --fs-sm, not --fs-xs: this is the only prose on the card a player is meant to
+   stop and read, and the two lines it sets to are the whole warning. Capped at
+   46ch — measured, that is the wrap that keeps it to two lines inside the
+   modal's min(520px, 92vw) at every width the harness fits, and a three-line
+   version is what pushes the 800x600 window's pause-keys grid off the panel. */
+.pause__quit-note {
+  margin: 0 auto;
+  max-width: 46ch;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  color: var(--danger);
+}
+@media (max-height: 480px) {
+  /* A landscape phone draws no pause-keys block at all (coarse pointer), so the
+     note is the only thing under the row — it can keep its size. It steps down
+     only where the card is genuinely stacked. */
+  .pause__quit-note { font-size: var(--fs-xs); line-height: 1.3; }
+}
+
 /* Short (landscape-phone) viewports: only the glyph size steps down. The
    stack arithmetic — button size, gap, whether the column fits at all — is
    entirely the solver's (game/layout.ts budgets the buttons the run actually

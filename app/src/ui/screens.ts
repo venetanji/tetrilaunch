@@ -1886,6 +1886,12 @@ export function collapsingDial(
  *  the pulse that runs up the strip toward the cannon. */
 const BELT_ARROWS = Array.from({ length: 8 }, (_, i) => `<i style="--i:${i}"></i>`).join("");
 
+/** The ⏸ rail button's name on a run that MAY restart a bay — the base the
+ *  seal's price is dashed onto (sealNameWith), and the half that disappears on
+ *  a Skydeck run. A constant because the button's name is now built two ways
+ *  and the gesture is named in exactly one of them. */
+export const PAUSE_HOLD_NAME = "Pause — hold to restart the bay";
+
 export function hudHTML(opts: {
   /** What rides the belt: the shot AFTER the muzzle's (see game.ts's
    *  Game.beltPreview). */
@@ -1993,6 +1999,15 @@ export function hudHTML(opts: {
    *  question (a Contract, a drill, Tier S, the Skydeck) and on every caller
    *  that predates it, which renders the name it always had. */
   seal?: { state: SealState; mark: number } | null;
+  /** Whether this run may hand a bay back at all (run.ts's bayRetryable).
+   *
+   *  False ONLY on the Skydeck, which is permadeath: the ⏸ hold then loses the
+   *  half of its accessible name that names the gesture, and the hint strip
+   *  loses the line that teaches it (hintParts). A name that offers a gesture
+   *  main.ts refuses is worse than no name — an assistive-technology user has
+   *  nothing else to read, so it is the ONE description they would get, and it
+   *  would be wrong. */
+  restart?: boolean;
   contract?: {
     name: string;
     kind: "lines" | "pattern";
@@ -2246,10 +2261,19 @@ export function hudHTML(opts: {
            malformed one is not a typo — it is the explanation failing. The
            label carries its own subject now and every door joins it the same
            way (sealNameWith). (Codex review, PR #144.) -->
+      <!-- …and on a run that may not hand a bay back at all (run.ts's
+           bayRetryable — the Skydeck, which is permadeath) the name loses the
+           gesture along with its price, because main.ts refuses the hold there.
+           This name is the ONLY description an assistive-technology user of an
+           icon-only control ever gets, so a name that offers a gesture nothing
+           performs is not a smaller version of this label — it is the label
+           being wrong, to the one audience that cannot check. -->
       <button class="icon-btn" data-action="pause" aria-label="${
-        opts.seal
-          ? sealNameWith("Pause — hold to restart the bay", opts.seal.state, opts.seal.mark)
-          : "Pause — hold to restart the bay"
+        (opts.restart ?? true)
+          ? (opts.seal
+            ? sealNameWith(PAUSE_HOLD_NAME, opts.seal.state, opts.seal.mark)
+            : PAUSE_HOLD_NAME)
+          : "Pause"
       }">${icon("pause", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
@@ -2569,6 +2593,7 @@ export function hudHTML(opts: {
         opts.profile ?? "keyboard",
         { bond: bondBreakerOwned, demo: demoOwned, thaw: thawOwned, auto: autoloaderOwned },
         opts.hintsDismissed ?? false,
+        opts.restart ?? true,
       )}
     </div>
     <!-- Settle banner: shown while the bay's funding target is met and the
@@ -2597,6 +2622,11 @@ function hintParts(
    *  overlap assertion). The strip is a subset of the card, never a
    *  disagreement: shared parts render from the same lines. */
   full = false,
+  /** Whether the run may hand a bay back at all (run.ts's bayRetryable). False
+   *  only on the Skydeck, which is permadeath — the hold-to-restart line below
+   *  is then teaching a gesture main.ts refuses, and D2's whole rule is that a
+   *  hint renders from what the game will actually do. */
+  restart = true,
 ): string[] {
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
   const parts: string[] = [];
@@ -2700,7 +2730,7 @@ function hintParts(
        held pad button to resetBay — a pad player restarts through the pause
        modal's own button, which pad navigation reaches (main.ts's
        onPadUiButton). */
-    part("hold pause to restart");
+    if (restart) part("hold pause to restart");
   }
   return parts;
 }
@@ -2729,8 +2759,10 @@ export function hintStripHTML(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
   dismissed = false,
+  /** run.ts's bayRetryable — see hintParts. */
+  restart = true,
 ): string {
-  const parts = hintParts(profile, owned);
+  const parts = hintParts(profile, owned, false, restart);
   return `<div class="kbd-hint${dismissed ? " kbd-hint--hidden" : ""}" aria-hidden="true">${
     parts.join(`\n        ${HINT_SEP}\n        `)
   }</div>`;
@@ -2752,8 +2784,10 @@ export function hintStripHTML(
 export function pauseKeysHTML(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
+  /** run.ts's bayRetryable — see hintParts. */
+  restart = true,
 ): string {
-  const parts = hintParts(profile, owned, true);
+  const parts = hintParts(profile, owned, true, restart);
   return `<div class="pause-keys" id="pause-keys">
     <div class="pause-keys__grid">${parts.join("\n      ")}</div>
     <p class="pause-keys__note muted">Rebind these under Settings → Controls.</p>
@@ -3676,6 +3710,70 @@ export function sealNameWith(name: string, seal: SealState, mark: number): strin
   return `${name} — ${sealFaceLabel(seal, mark)}`;
 }
 
+/* ---------------------------------------------------------------------------
+ * QUITTING A LIVE RUN — the pause card's one irreversible door.
+ *
+ * Every other exit from a run settles it first: bay 10 wins it, a loss files
+ * it, and both land on the run-end card with the score already banked. Quit
+ * does none of that (main.ts's finishRun is never reached), so the run's score,
+ * its bay record and its place in the lifetime count all go — and until now it
+ * went on ONE tap of a ghost button sitting beside Resume.
+ *
+ * THE IDIOM IS ARM-THEN-CONFIRM, NOT A SECOND MODAL. Quit is already ON a
+ * modal; stacking a panel over the pause card would be a dialog in front of a
+ * dialog, and the seal notice — the app's other confirmation — earned its own
+ * panel precisely because it interrupts a press made from the FIELD. Here the
+ * player is already stopped and reading a card, so the cheaper affordance is
+ * the honest one: the first press makes the button say what it does, the
+ * second press does it.
+ *
+ * WHAT THE ARMED STATE CHANGES IS THE WORDS, not just a colour: the face
+ * relabels, the accessible name gains the consequence, and a line under the row
+ * names what is lost. A ring that only reddened would be unreadable to the
+ * quarter of players who cannot separate #ff2d55 from #7b8290, and invisible to
+ * anyone on a screen reader.
+ *
+ * BOTH FACES SHIP IN THE MARKUP and app.css stacks them in one grid cell, so
+ * the button is as wide armed as idle — the same "a card does not change shape
+ * when it is tapped" rule the draft's pick box follows. A four-button row that
+ * reflowed under the player's thumb would move Restart Bay onto the press that
+ * was aimed at Quit.
+ * ------------------------------------------------------------------------ */
+
+/** The armed face's words, and the idle face's. Two doors draw them —
+ *  pauseModal renders the card, and main.ts patches the MOUNTED card in place
+ *  when the first press arms it (a re-render would replay `.pop` and drop the
+ *  focus a pad is holding on the button being armed) — so they are written once
+ *  here, the same split and the same reason as sealFaceHTML/sealFaceLabel.
+ *
+ *  The idle name says a confirmation is coming, because a screen-reader player
+ *  who presses Quit and hears nothing has been told the button is broken. The
+ *  armed name says the price, as a standalone clause after the dash — the
+ *  composition rule sealNameWith exists to hold. */
+export function quitArmLabel(armed: boolean, bayNum: number): string {
+  return armed
+    ? `Quit anyway — bay ${bayNum} ends here and this run files nothing`
+    : "Quit — ends this run, and asks once more first";
+}
+
+/** The line the armed card puts under the button row.
+ *
+ *  It names the loss in the two currencies the player can check for themselves
+ *  afterwards: the bays behind them, and the record a finished run leaves. The
+ *  second sentence is the half worth printing — the same shape the seal notice
+ *  uses, where the first sentence says what goes and the second says what does
+ *  not. A quit and a loss are NOT the same outcome, and a player who thinks
+ *  they are will quit runs they should have flown into the ground.
+ *
+ *  `role="alert"` rather than a live region that is always mounted: the node is
+ *  inserted at the moment of arming, which is the announcement pattern that
+ *  works without depending on a hidden region having been registered first. */
+export function quitArmNoteHTML(bayNum: number): string {
+  return `<p class="pause__quit-note" role="alert">Quitting drops bay ${bayNum} and everything`
+    + ` behind it — carry, scrap and every notch this run took. Nothing files: play it out and`
+    + ` even a loss banks the score and the bay record.</p>`;
+}
+
 export function pauseModal(
   fullscreen = true,
   profile: InputProfile = "keyboard",
@@ -3689,6 +3787,28 @@ export function pauseModal(
    *  S, the Skydeck, a Contract, a drill, and for every caller that predates
    *  this argument. Restart Bay then renders exactly as it always did. */
   seal?: { state: SealState; mark: number },
+  /** The quit gate (run.ts's quitLosesProgress), and where it currently sits.
+   *
+   *  Absent means "this exit costs nothing", which is the honest answer for
+   *  bay 1, for Tier S, for a Contract, for a drill, and for every caller that
+   *  predates this argument — Quit then renders as the plain one-press ghost
+   *  button it always was, wired straight to the menu. Present means the run
+   *  has bays behind it, and the button takes two presses. */
+  quit?: { armed: boolean; bayNum: number },
+  /** Whether this run may hand a bay back at all (run.ts's bayRetryable).
+   *
+   *  False ONLY on the Skydeck, whose bays are the day's single seeded attempt.
+   *  The button is REMOVED rather than disabled, which is the idiom the run-end
+   *  card already set for this exact refusal (main.ts's `retryBay` is
+   *  `undefined` there, not a dead control) and the one the rest of this file
+   *  follows for a mode that lacks a thing: Tier S drops the tier row, a drill
+   *  drops the ship rack, a Contract drops the launch-cost line. A greyed
+   *  Restart Bay with a tooltip would be four buttons of chrome explaining a
+   *  feature the mode does not have, on the one card a player opens to leave.
+   *
+   *  Defaults true so every caller that predates the argument — and every
+   *  ladder run, Contract, drill and bench run — is unmoved. */
+  restart = true,
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
@@ -3704,12 +3824,30 @@ export function pauseModal(
              rather than two that drift; the label carries the words, because
              the glyph is aria-hidden and a cost only half the audience can read
              is a cost half the audience is not told about. -->
-        <button class="btn btn--secondary" data-action="restart-bay"${
-          seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
-        }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>
-        <button class="btn btn--ghost" data-action="menu">Quit</button>
+        ${
+          restart
+            ? `<button class="btn btn--secondary" data-action="restart-bay"${
+              seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
+            }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>`
+            : ""
+        }
+        ${
+          // A GATED QUIT DOES NOT CARRY THE MENU ACTION AT ALL — it is
+          // `quit-run`, which main.ts routes through the arming check before it
+          // ever reaches the menu. Not a flag on `menu`: eight other buttons in
+          // this file are that action, and a gate that has to ask which screen
+          // it is on is a gate one new back button quietly walks around. The
+          // ungated card keeps the old wiring exactly, so a Contract's pause
+          // still leaves on one press.
+          quit
+            ? `<button class="btn btn--ghost btn--quit" data-action="quit-run"
+          data-armed="${quit.armed}" aria-label="${quitArmLabel(quit.armed, quit.bayNum)}"
+        ><span class="btn__quit-face">Quit</span><span class="btn__quit-face btn__quit-face--armed">Quit anyway</span></button>`
+            : `<button class="btn btn--ghost" data-action="menu">Quit</button>`
+        }
       </div>
-      ${pauseKeysHTML(profile, owned)}
+      ${quit?.armed ? quitArmNoteHTML(quit.bayNum) : ""}
+      ${pauseKeysHTML(profile, owned, restart)}
     </div>
   </div>`;
 }
