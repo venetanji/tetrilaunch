@@ -72,7 +72,8 @@ import {
   markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
-  unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
+  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, SLOT_CAP,
+  type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
@@ -1262,6 +1263,22 @@ class App {
       // the bay on screen is not under.
       final: this.run && this.run.levelIndex === RUN_LEVELS - 1 ? this.run.final : null,
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
+      // THE RACK'S WIDTH (game/meta.ts's slotsFor) — how many boxes the row
+      // draws, mounted systems first and open slots after.
+      //
+      // Read off META rather than off the run, which is worth a line because
+      // every other run-shaped fact in this object is read off the run. The
+      // slot count is not a run-shaped fact: it is a property of the RIG, it
+      // cannot change while a run is in flight (the Workshop is a menu screen
+      // and every door out of a run to the menu ends the run), and it is only
+      // ever a FLOOR on the width — shipPlatesHTML draws every mounted system
+      // whatever this says. So there is nothing for the run to remember, and
+      // no field on RunState to forget to carry through advanceRun.
+      //
+      // Tier S is the exception the sandbox is entitled to: it builds its own
+      // rig from sandbox.ts rather than from the loadout, so its rack is as
+      // wide as the rig it was handed and the slot economy is not in the room.
+      slots: this.run?.sandbox ? SLOT_CAP : slotsFor(this.meta),
       // False in the native shells and on iPhone Safari — no fullscreen
       // button is rendered there at all (see screens.ts / platform.ts).
       fullscreenSupported: fullscreenSupported(),
@@ -3956,6 +3973,42 @@ class App {
     this.renderOverlay();
   }
 
+  /** Workshop: buy one more rack slot (meta.ts's buySlot). Same three lines as
+   *  every other purchase on this screen, and the same silent return on a
+   *  refusal — the button is already disabled when the salvage is short, so
+   *  reaching here with too little means a stale DOM attribute rather than a
+   *  player decision. */
+  private onBuySlot(): void {
+    const next = buySlot(this.meta);
+    if (!next) return;
+    this.meta = next;
+    saveMeta(this.meta);
+    void successHaptic();
+    this.renderOverlay();
+  }
+
+  /** Workshop: move one owned system between the rack and the shed.
+   *
+   *  PERSISTED, unlike the refit yard's staged order, and the difference is
+   *  which side of the run the decision lives on. The yard stages because it is
+   *  spending scrap inside a run and a plan you cannot revise before committing
+   *  is "just a run of irreversible taps" (upgrades.ts's REFIT ORDER note).
+   *  Mounting spends nothing at all and is revised by tapping again, so there
+   *  is no commit to stage toward — the rack simply IS what the next run
+   *  undocks with, and it should still be that after the app is closed.
+   *
+   *  A refusal (unowned id, or a full rack) leaves the save untouched and
+   *  re-renders nothing, which is what the player sees when they tap a shed
+   *  system with every slot taken: they have to stow something first. */
+  private onMount(id: string): void {
+    const next = toggleMount(this.meta, id as UpgradeId);
+    if (!next) return;
+    this.meta = next;
+    saveMeta(this.meta);
+    void tapHaptic();
+    this.renderOverlay();
+  }
+
   /** Workshop: switch shop halves. Anything other than the two known ids is
    *  ignored rather than defaulted, so a stale attribute cannot silently park
    *  the player on Systems forever. */
@@ -5469,6 +5522,8 @@ class App {
       case "refit-done": this.onRefitDone(); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
+      case "buy-slot": this.onBuySlot(); break;
+      case "mount": this.onMount(el.getAttribute("data-mount") ?? ""); break;
       // Tier S, from the tower's basement door, the run-end modal, the
       // leaderboard's own tab, or the sandbox build's menu chip. Gated on the
       // door being open rather than on the build, and re-checked here because

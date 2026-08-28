@@ -4719,7 +4719,7 @@ body.crt-off #app::after { display: none; }
    SVG is sized in px by components.ts and then set to a --fpx-relative box
    here, so a plate on a small phone gets a small mark rather than a full-size
    one crammed into a shrunken slot. `color` still does the lighting — the
-   icons stroke currentColor, so .ship-plate--empty's drained state below keeps
+   icons stroke currentColor, so .ship-plate--open's drained state below keeps
    working untouched. */
 .ship-plate__g {
   display: flex; color: var(--accent);
@@ -4749,19 +4749,34 @@ body.crt-off #app::after { display: none; }
 .ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
 
-/* An UNINSTALLED slot: the same box, drained of the cyan that means "built".
-   It has to stay legible — the glyph is the whole point of an empty slot, it
-   names the system the player has not bought yet — so this dims rather than
-   hides, and the pips stay in their off state instead of disappearing (three
-   dark pips say "three tiers available"; no pips would say "no such thing").
-   Deliberately no dashed border or other "placeholder" idiom: the rack reads
-   as one instrument with some lamps lit, which is what it is. */
-.ship-plate--empty {
+/* AN OPEN SLOT: the same box, drained of the cyan that means "built", and
+   empty.
+
+   It used to be the UNINSTALLED plate — same drained box, but wearing the glyph
+   of the system the player had not bought yet, because the rack was the roster
+   and every slot belonged to a named track. With system slots the rack is the
+   RIG (components.ts's shipPlatesHTML), so an open slot belongs to no system
+   and a mark on it would be naming one arbitrarily. What is left says the one
+   true thing: there is room here.
+
+   No pips, for the reason the old plate kept them: three dark pips said "three
+   tiers available" about a real track, and an open slot has no track to have
+   tiers of. Still deliberately no dashed border or other "placeholder" idiom —
+   the rack reads as one instrument with some lamps lit, which is what it is.
+
+   The centred ring is drawn rather than glyphed so it costs no icon and no
+   font: 0.28 of the plate's own width, which lands between 5px on the tightest
+   compact rack and 7px at roomy density — visible as a socket, too small to be
+   read as a mark. */
+.ship-plate--open {
   background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
   border-top-color: var(--line-strong);
   box-shadow: none;
 }
-.ship-plate--empty .ship-plate__g { color: var(--text-faint); }
+.ship-plate--open::after {
+  content: ""; width: 28%; aspect-ratio: 1; border-radius: 50%;
+  border: 1px solid var(--line-strong);
+}
 
 /* ============================================================================
    CONVEYOR BELT — the NEXT piece rides in from the top-left, angled toward
@@ -6584,6 +6599,88 @@ button.panel { color: var(--text); }
   font-family: var(--font-pixel); font-size: 8px; color: var(--warn);
   letter-spacing: 0.04em; line-height: 1.35; text-align: right; max-width: 172px;
 }
+
+/* ---------------------------------------------------------------------------
+   THE RACK (screens.ts's workshopScreen) — what a run actually carries.
+
+   It is a SHOP CARD'S SIBLING, not a shop card: the same panel treatment and
+   the same rhythm down the shelf, but it sells nothing except the slot button
+   in its header. Everything else in it is a toggle, and toggles have to be
+   distinguishable from prices at a glance or the screen has two kinds of
+   button wearing one costume.
+
+   The row WRAPS. Ten slots at the 44px tap floor is 440px plus gaps, which is
+   wider than a landscape phone's shop column — and the alternative, a
+   horizontal scroller, is the exact failure the HUD's own rack assertion
+   exists to catch ("one of them parked off the right edge is not a readout").
+   Here there is vertical room to spend, because the pane scrolls.
+   ------------------------------------------------------------------------ */
+.rack {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 14px; margin-bottom: 8px;
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard-sm);
+}
+.rack__hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The count takes the free space so the slot button lands on the same right
+   rail the shop cards' prices do — .shop-card__foot's min-width is 96px and
+   this button sits inside it optically even though it is in a different box. */
+.rack__count {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-dim);
+}
+.rack__full {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em;
+  color: var(--success);
+}
+.rack__row, .rack__shed { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rack__shed { padding-top: 8px; border-top: 1px dashed var(--line); }
+.rack__shed-label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  color: var(--text-faint); flex: none; margin-right: 2px;
+}
+.rack__note { font-size: var(--fs-sm); line-height: 1.4; margin: 0; }
+/* 44 square, which is the tap floor and not a coincidence: this control has no
+   text to grow it, so the floor IS the size. sim/uifit's `tap` assertion holds
+   it. Same cyan-topped plate language as the HUD rack, at the size a thumb can
+   actually hit — the HUD's 19px plates are a readout and this is a control,
+   which is exactly the distinction the two sizes are drawing. */
+.rack-slot {
+  flex: none; width: 44px; height: 44px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  box-shadow: var(--shadow-hard-sm);
+  color: var(--accent);
+  cursor: pointer;
+}
+/* In the shed: drained of the cyan that means "aboard", and dimmer still than
+   an open slot — an open slot is room, and this is a system that is not being
+   flown. It keeps its pips, because the tiers are still bought and paid for
+   and that is the whole promise a shed makes. */
+.rack-slot--shed {
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--text-faint);
+}
+/* The same box with nothing in it. A span, not a button: there is no system
+   here to toggle, so a control would be a target that does nothing. */
+.rack-slot--open {
+  background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+}
+.rack-slot--open::after {
+  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  border: 1px solid var(--line-strong);
+}
+.rack-slot__g { display: flex; }
 
 /* Owned unlocks, collapsed to one line. They get no card on purpose — this is a
    shop, so what you own is reference and what you can buy is the merchandise.

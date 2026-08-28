@@ -37,6 +37,7 @@
     "test:uifit:shots": "tsx sim/uifit/run.ts --shots",
     "sim:balance": "tsx sim/sweep.ts",
     "sim:winnability": "tsx sim/winnability.ts",
+    "sim:slots": "tsx sim/slots.ts",
     "sim:strategy": "tsx sim/strategy-arms.ts",
     "sim:pile": "tsx sim/pile.ts",
     "sim:perf": "tsx sim/perf.ts",

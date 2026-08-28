@@ -25,7 +25,7 @@ import { makeBaseLevel } from "../../src/game/level";
  *  ladder means "the bay" is a function of the Mark being flown (level.ts).
  *  Was the BAY_1 alias, which could only ever describe one tier. */
 const BAY_1 = makeBaseLevel(0);
-import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
+import { newMeta, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { MARK_COUNT, MAX_TIER, newTiers, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
@@ -355,6 +355,18 @@ const HUD_BASE = {
     bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0,
     thaw: 0, cushion: 0, incinerator: 0,
   },
+  // THE WIDEST RACK THE GAME CAN PRODUCE, stated explicitly now that it is no
+  // longer implied.
+  //
+  // The rack used to draw one plate per track in UPGRADES, so this fixture
+  // measured a ten-slot row whatever `tiers` said — six lit plates and four
+  // unbought ones. With system slots the row is the RIG (components.ts's
+  // shipPlatesHTML), so the same `tiers` would draw six boxes and the fit
+  // budget the compact clamp was written against would stop being measured by
+  // anything. SLOT_CAP restores it: six mounted plus four OPEN, the same ten
+  // boxes at the same widths, which is the case app.css's "the tenth slot ends
+  // the clamp" arithmetic is about.
+  slots: SLOT_CAP,
 };
 
 const PROGRESS = tierProgressFor(midMeta());
@@ -560,9 +572,10 @@ export const SCREENS: Record<string, () => string> = {
   //                    topic, since that is where the gate actually bites.
   //   guide-art        the widest art strip the screen can produce (seven shape
   //                    tiles) under a body.
-  //   guide-rig        the deepest chapter — ten rows, so the index really
-  //                    scrolls — on a PROGRESSED save, where the tab counts are
-  //                    non-zero and nothing is gated.
+  //   guide-rig        the deepest chapter — fourteen rows since the rack-slot
+  //                    topic landed, so the index really scrolls — on a
+  //                    PROGRESSED save, where the tab counts are non-zero and
+  //                    nothing is gated.
   //   guide-worst      the tallest pane the catalogue can build, computed.
   //   guide-worst-art  the same, among the topics that also carry art.
   guide: () => S.guideScreen({ chapter: "basics", topicId: "tutorial", meta: newMeta() }),

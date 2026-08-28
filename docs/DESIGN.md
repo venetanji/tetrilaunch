@@ -199,6 +199,89 @@ What it buys:
 Stated in the product's own words, and worth saying out loud in the UI: **you
 can pay to progress faster, never to rank higher.**
 
+## System slots — the second axis
+
+> **The build budget says how DEEP a rig may go. Slots say how WIDE.**
+> A rig mounts `SLOT_BASE` of the systems it owns; salvage buys more room, up to
+> the roster. Everything you buy stays bought — a slot rations what you can
+> carry into one run, never what you may own.
+
+The budget above normalizes total power, and it does that job completely: two
+rigs at Mark 5 are worth the same number of ladder points however they spend
+them. What it cannot do is make a rig a SHAPE. Once the roster reached ten
+systems, the arc it promises — "you can afford everything" at Mark 10 — meant
+every endgame rig converged on the same rack, and the counter systems the last
+three PRs added (`design/balance/aim-strategy-findings.md`) all fitted on it at
+once. A counter that is always aboard is a passive.
+
+Slots price the choice the budget cannot. Mounting the Thaw Lance means not
+mounting something else, so a cryo-heavy tier is answered by a decision made
+before undocking rather than by a purchase made three tiers ago.
+
+### Why the loadout and not the purchase
+
+The owner's ask reads two ways. Gating **ownership** — the Workshop refuses an
+eleventh sale — makes every install irreversible and unbuyable-back: a player
+who bought the lance before ever meeting volatile cargo would be locked out of
+the cushion by a decision they could not have priced. That is a trap rather than
+an identity, and it duplicates the budget's job at the one layer this document
+says salvage must never touch. Gating the **loadout** costs nothing already paid
+for, is remade free before every run, and is where "rigs that can have certain
+systems and not others" actually starts.
+
+### Slots cannot outrun the Mark
+
+This is the integrity rule above, re-checked against the new purchase, and it
+holds by construction rather than by tuning. A mounted rig is a SUBSET of the
+owned one, so
+
+    tiersCost(mounted) <= tiersCost(owned) <= budgetForMark(mark)
+
+— a slot can only ever move a rig back up toward the ceiling the Mark already
+granted, never past it. Salvage still buys which systems exist to spend budget
+on; only beating Mark N raises how much may be spent. `sim/systems.ts` pins the
+inequality across the whole ladder rather than at one Mark.
+
+### The ladder, and what it is for
+
+`SLOT_BASE` is 4, `SLOT_CAP` is 10, and the six slots between them cost 50, 70,
+100, 140, 180 and 240 salvage — 780 in total, against 600 for a whole climb of
+the tier ladder. **That is deliberately not affordable inside one climb.** The
+shelf was already 575 against 600 when the Incinerator landed, and `meta.ts`
+recorded that the eleventh system would need "the re-price or the second income
+that note asked for". A finished ladder keeps paying 60 a cycle forever (three
+Contracts and a run win at `MARK_COUNT`, where `advanceTier` saturates), and
+until now that faucet ran into nothing. The back half of the slot ladder is what
+it fills.
+
+The prices escalate because the slots do not pay equally, and that is measured
+rather than assumed: `design/balance/system-slots.md` puts the marginal value of
+a slot at roughly a bay for the fourth, half of one for the fifth, and inside the
+noise from the seventh on. A flat price would make the last slots the obvious
+buy for the least reason.
+
+### The rack is the rig, not the catalogue
+
+The HUD's build rack draws one plate per SLOT. `app.css`'s compact clamp records
+that the tenth system "ends the clamp… there is no growth left in it" and that
+"the eleventh system needs a different rack" — and a rack sized by the rig is
+that rack. The roster can grow past ten without the row growing at all: an
+eleventh system competes for a slot rather than for 19 more pixels on the
+narrowest phone in the matrix.
+
+### Migration: nobody's rig shrinks
+
+A save written before slots existed gets **one slot for every system it already
+owns**, once, on load. Its next run undocks with a rig byte-identical to the one
+it flew yesterday, which `sim/systems.ts` pins as an equality rather than as
+"it still works". The grant is spent at that moment and is not a floor — the
+eighth system a grandfathered six-slot rig buys goes to the shed like anybody
+else's.
+
+Tier S is exempt entirely: the sandbox builds its rig from `sandbox.ts` rather
+than from the loadout, so the slot economy is not in the room. It is the free
+lab, and a lab that made you shop first would not be one.
+
 ### It layers over the existing refit stops
 
 The budget sets your **starting** tiers. In-run scrap still buys tiers at the

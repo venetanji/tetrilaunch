@@ -18,7 +18,7 @@
  * ships (Tier S is a game mode — see lib/devmode.ts); this does not, so this
  * is the code path whose presence in dist/ means the build is not shippable.
  */
-import { newMeta, UNLOCKS, type MetaState } from "../game/meta";
+import { newMeta, SLOT_CAP, UNLOCKS, type MetaState } from "../game/meta";
 import { maxedTiers } from "../game/sandbox";
 
 /** Present in the bundle only when the cheats are compiled in. Grepped by
@@ -52,7 +52,29 @@ export function applyCheat(action: string, meta: MetaState, tier: number): MetaS
     case "sbx-grant-salvage":
       return { ...meta, salvage: meta.salvage + 1000 };
     case "sbx-unlock-all":
-      return { ...meta, unlocks: UNLOCKS.map((u) => u.id), loadout: maxedTiers() };
+      // THE RACK IS PART OF "EVERYTHING", and it is the half this button
+      // silently stopped granting when system slots landed (codex, PR #157).
+      // A maxed loadout on a base rack OWNS ten systems and FLIES four:
+      // meta.ts's safeLoadout masks the rest to tier 0 on the way into a run,
+      // so the developer who tapped this got a Deep Run on the first four
+      // tracks in UPGRADES order and no indication why. The label was true of
+      // the field it wrote and false of the run it produced, which is the one
+      // thing a blunt cheat must never be — the whole contract of this file is
+      // that a developer who taps it "has said exactly what they want to
+      // happen to their own save".
+      //
+      // The shed is CLEARED rather than left alone for the same reason: a
+      // developer who had stowed something before tapping this would otherwise
+      // undock without it, which is the same lie one system smaller. Together
+      // these two make safeLoadout equal maxedTiers() exactly, which is what
+      // sim/systems.ts pins.
+      return {
+        ...meta,
+        unlocks: UNLOCKS.map((u) => u.id),
+        loadout: maxedTiers(),
+        slots: SLOT_CAP,
+        stowed: [],
+      };
     case "sbx-wipe":
       return newMeta();
     default:

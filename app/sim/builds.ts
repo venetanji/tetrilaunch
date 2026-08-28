@@ -91,6 +91,45 @@ export function loadoutFor(
  * re-spending gives the rig a player who was not buying that system would
  * actually build.
  */
+/**
+ * The rig a player with room for exactly `slots` systems would fly, given a
+ * mount order: the first `slots` tracks the Mark lets them own, spent on the
+ * usual breadth-then-depth Workshop walk.
+ *
+ * TRUNCATED AFTER THE MARK FILTER, not before, and the difference is a whole
+ * rung of the answer: `ownableTracks` drops the tracks whose `requiresMark`
+ * has not fallen yet, so slicing the raw order first would spend a slot on a
+ * system the Workshop refuses to sell and hand a Mark-3 rig three systems while
+ * calling it four. A slot is a place to PUT a system, so it is only spent on
+ * one that exists.
+ *
+ * WHAT THIS IS NOT MODELLING, stated because it looks like an omission: the
+ * salvage the player sank into systems they did not mount. It does not need to
+ * be modelled, because it cannot change this rig — `meta.ts`'s UPRATE_MAX_TIER
+ * caps the Workshop at tier 2 whatever else is owned, so the deepest a mounted
+ * track ever gets before a refit stop is tier 2 either way. A player who knows
+ * they will mount four buys four; a player who owns ten and mounts four flies
+ * the same four. Both are this function.
+ */
+export function mountedLoadout(
+  order: UpgradeId[],
+  mark: number,
+  slots: number,
+  budget = budgetForMark(mark),
+): UpgradeTiers {
+  const mounted = ownableTracks(order, mark).slice(0, Math.max(0, Math.floor(slots)));
+  return loadoutFor(mounted, mark, budget);
+}
+
+/** The tracks `mountedLoadout` would actually put in the rack — the same
+ *  truncation, exposed so a harness can print the rig it flew and a refit
+ *  policy can be handed the mounted order rather than the whole roster. */
+export function mountedTracks(
+  order: UpgradeId[], mark: number, slots: number,
+): UpgradeId[] {
+  return ownableTracks(order, mark).slice(0, Math.max(0, Math.floor(slots)));
+}
+
 export function loadoutWithoutTrack(
   order: UpgradeId[],
   mark: number,
@@ -153,4 +192,41 @@ export const PRIORITY_ORDERS: Record<string, UpgradeId[]> = {
   chill: ["thaw", "hydraulics", "bonds", "reactor", "bay", "launcher"],
   // The volatile build: the liner first, then the room to use it.
   liner: ["cushion", "bay", "hydraulics", "reactor", "bonds", "launcher"],
+  /* -------------------------------------------------------------------------
+   * THE FULL-ROSTER MOUNT ORDERS — every track, in the order a rig would give
+   * up its scarce SLOTS to them (`sim/slots.ts`).
+   *
+   * Every order above stops at five to seven tracks, and each one is right to:
+   * it names a shopping list, and a shopping list ends where the budget does.
+   * A slot sweep asks the opposite question — "with room for exactly K systems,
+   * which K" — and an order shorter than the roster cannot answer it, because
+   * `mountedLoadout` takes the first K of the order and any K past its length
+   * is silently the whole thing. Measured on a truncated order, slots 7, 8, 9
+   * and 10 would all fly the same rig and the slot ladder would read as free.
+   *
+   * So these four span all ten, and they differ ONLY in which track takes the
+   * first seat or two. That is what makes the identity claim testable: at K =
+   * 10 all four are the same rig BY CONSTRUCTION, so any gap between them at
+   * K = 4 is the mount decision and nothing else.
+   * ----------------------------------------------------------------------- */
+  // No content knowledge: the numbers first, the answers after.
+  "mount-generic": [
+    "reactor", "hydraulics", "bay", "launcher", "bonds",
+    "demolition", "thaw", "cushion", "incinerator", "magazine",
+  ],
+  // A frozen belt: the lance takes the first seat off the numbers.
+  "mount-cryo": [
+    "thaw", "reactor", "hydraulics", "bay", "launcher",
+    "bonds", "demolition", "cushion", "incinerator", "magazine",
+  ],
+  // A volatile belt: the liner does.
+  "mount-volatile": [
+    "cushion", "reactor", "hydraulics", "bay", "launcher",
+    "bonds", "demolition", "thaw", "incinerator", "magazine",
+  ],
+  // A slagged belt: the rack — slag's only exit — and the emitter behind it.
+  "mount-slag": [
+    "demolition", "bonds", "reactor", "hydraulics", "bay",
+    "launcher", "thaw", "cushion", "incinerator", "magazine",
+  ],
 };
