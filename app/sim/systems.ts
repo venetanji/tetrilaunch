@@ -1221,6 +1221,56 @@ section("Installs — what salvage buys (meta.ts)");
     UPGRADES.every((u) => capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`)),
     UPGRADES.filter((u) => !capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`))
       .map((u) => u.id).join(","));
+
+  // …AND A PRICE IS NOT A NAME. "T3 · 55" is the same eight characters on
+  // every card at that tier and the currency glyph is `aria-hidden`, so a
+  // shelf of price-shaped buttons exposes one accessible name seven times over
+  // and a screen reader's control list cannot say which system it is about to
+  // stage. The visible label is right and stays; the name underneath it has to
+  // carry the card's own system.
+  //
+  // Asserted as a SET rather than per button, because the failure mode is
+  // collision rather than absence: a label that named the tier and the price
+  // in words would pass a "has an aria-label" check and still read as seven
+  // identical controls.
+  const ariaNames = (html: string, action: string): string[] =>
+    (html.match(new RegExp(`<button[^>]*data-action="${action}"[^>]*>`, "g")) ?? [])
+      .map((b) => (b.match(/aria-label="([^"]*)"/) ?? ["", ""])[1]);
+  const stageNames = ariaNames(capstone, "stage-upgrade");
+  check("every stage button carries its own system's name",
+    stageNames.length === UPGRADES.length
+      && UPGRADES.every((u) => stageNames.some((n) => n.includes(u.name))),
+    stageNames.join(" | "));
+  check("no two stage buttons answer to the same name",
+    new Set(stageNames).size === stageNames.length, stageNames.join(" | "));
+  // WCAG 2.5.3: the accessible name has to CONTAIN the visible label, or a
+  // voice-input user cannot say what they can see. The visible label is
+  // "T3 · 55" — quoted into the name verbatim rather than paraphrased as
+  // "tier 3, 55 scrap".
+  check("a stage button's name quotes the label the player can see",
+    stageNames.every((n) => /T\d\s*·\s*\d+/.test(n)), stageNames.join(" | "));
+  const undoNames = ariaNames(maxedOrder, "unstage-upgrade");
+  check("the undo button names the track it takes back",
+    undoNames.length === 1 && undoNames[0].includes(upgradeById("reactor")!.name)
+      && /Undo/.test(undoNames[0]),
+    undoNames.join(" | "));
+
+  // THE WORKSHOP'S SHELF HAS THE SAME IDIOM AND HAD THE SAME HOLE — its buy
+  // buttons have been a bare price since B6, which predates the yard's. One
+  // shop, one grammar, one fix.
+  const ariaShop = freshMeta({ salvage: 5_000, mark: MARK_COUNT });
+  const shopHTML = workshopScreen(ariaShop);
+  for (const action of ["buy-install", "buy-unlock"] as const) {
+    const names = ariaNames(shopHTML, action);
+    check(`every ${action} button carries its own name`,
+      names.length > 1 && names.every((n) => n.length > 0),
+      names.join(" | "));
+    check(`no two ${action} buttons answer to the same name`,
+      new Set(names).size === names.length, names.join(" | "));
+  }
+  check("a Workshop buy button quotes the price the player can see",
+    ariaNames(shopHTML, "buy-install").every((n) => /T\d\s*·\s*\d+/.test(n)),
+    ariaNames(shopHTML, "buy-install").join(" | "));
   check("a staged track shows what the order does to it",
     staged.includes(upgradeById("reactor")!.current(1)) &&
       staged.includes(upgradeById("reactor")!.current(2)));

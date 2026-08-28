@@ -100,6 +100,32 @@ export function scrapHTML(amount: string | number = "", size = 12): string {
   return `<span class="currency">${icon("scrap", size)}${amount}</span>`;
 }
 
+/**
+ * THE ACCESSIBLE NAME FOR A PRICE-SHAPED BUTTON — both shops' one grammar.
+ *
+ * A shop button prints its price and nothing else (the refit card's own
+ * buy-button note argues why, and the Workshop's has since B6). On screen that
+ * is right: the card above the button names the system in a heading, in 13px
+ * display type, with its glyph. In a screen reader it is not, because a control
+ * list is read WITHOUT the card — and "T3 · 55" is the same eight characters on
+ * every card at that tier, with the currency mark `aria-hidden` on top. Seven
+ * tracks, one name. That is the one fact the label has to carry and the only
+ * one the price does not.
+ *
+ * `label` is the VISIBLE string, quoted verbatim rather than spelled out as
+ * "tier 3, 55 scrap": WCAG 2.5.3 asks that an accessible name contain the label
+ * a sighted user can see, because a voice-input user says what is on the
+ * button. The currency word is what the glyph would have said if a glyph could
+ * be read aloud, and it is the one thing on this screen the two shops disagree
+ * about — the yard spends scrap, the Workshop salvage.
+ *
+ * Not needed where the visible label already names its object: the Workshop's
+ * "+1 slot" button is one per screen and says what it buys.
+ */
+function priceAria(system: string, verb: string, label: string, currency: "scrap" | "salvage"): string {
+  return `${system} — ${verb} ${label} ${currency}`;
+}
+
 /** The NEXT STEP badge (canvas A3): ONE surface ever carries it, computed by
  *  meta.ts's nextStep — this is just the chip. */
 export function nextBadgeHTML(label = "Next step"): string {
@@ -3123,7 +3149,18 @@ export function refitScreen(opts: {
           // below is what sanctions it: "Undo" names the STATE this control is
           // in, it does not describe what a rung does. The figure beside it is a
           // REFUND, and a bare "+90" on a shelf of prices reads as a cost.
-          ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}">
+          ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}"
+              aria-label="${
+                // Same rule as the stage button, one word different: this
+                // figure is a refund, so the name says so where the button
+                // only has room for a plus sign.
+                priceAria(
+                  u.name,
+                  `Undo${queued > 1 ? ` ×${queued}` : ""},`,
+                  `refunds +${orderCost(opts.tiers, { [u.id]: queued })}`,
+                  "scrap",
+                )
+              }">
               <span class="refit-card__arrow">${icon("close", 10)}</span>
               <span class="refit-card__delta">Undo${queued > 1 ? ` ×${queued}` : ""}</span>
               <span class="refit-card__price">+${icon("scrap", 11)}${orderCost(opts.tiers, { [u.id]: queued })}</span>
@@ -3147,7 +3184,8 @@ export function refitScreen(opts: {
             // fact the panel beside it cannot — the tier it buys and what that
             // costs — in the Workshop's price grammar exactly ("T2 · <cur> 15",
             // one glyph apart).
-            : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"${canStage ? "" : " disabled"}>
+            : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"
+                aria-label="${priceAria(u.name, "stage", `T${tier + 1} · ${cost}`, "scrap")}"${canStage ? "" : " disabled"}>
                 <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
               </button>`;
     // The track's OWN before/after — absolute on both sides, because a delta is
@@ -3295,7 +3333,8 @@ export function workshopScreen(meta: MetaState): string {
       // B6's grammar without a tier: an option is not a rung on a track, so
       // its price is just the salvage glyph and the number.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"
+            aria-label="${priceAria(u.name, "unlock for", String(u.cost), "salvage")}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       // "Permanent" on every card (playtest feedback): the Workshop and the
       // mid-run Refit both sell upgrades, and nothing on screen said which
@@ -3356,7 +3395,8 @@ export function workshopScreen(meta: MetaState): string {
       // same words the refit yard's buy buttons use, with the one difference
       // that matters: this purchase is salvage, that one scrap.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"
+            aria-label="${priceAria(def.name, owned === 0 ? "install" : "uprate to", `T${next} · ${cost}`, "salvage")}"${affordable ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
       <div class="shop-card__body">
