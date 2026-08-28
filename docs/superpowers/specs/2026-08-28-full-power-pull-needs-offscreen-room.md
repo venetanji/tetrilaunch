@@ -1,7 +1,8 @@
 # A full-power pull does not fit on the screen, and on some panels it does not fit at all
 
-Status: **diagnosis complete, fix not chosen.** Measured 2026-08-28 on a OnePlus
-7T (HD1900) against staging `a677505`. Written for whoever picks up the fix.
+Status: **fixed — PR #163** (option 1, `DRAG_MAX = CANNON.x - CELL`). Diagnosis
+measured 2026-08-28 on a OnePlus 7T (HD1900) against staging `a677505`; the fix
+and its acceptance numbers are in "The fix taken" at the bottom.
 
 ## The report
 
@@ -99,7 +100,7 @@ region working on the reporter's other OnePlus. Either way it is a real class of
 device, landscape edge suppression for grip rejection is common, and the game
 should not be relying on the outermost 8% of the glass.
 
-## The options, none chosen
+## The options as they were costed (1 was taken — see below)
 
 1. **Shrink `DRAG_MAX` below `CANNON.x`.** Smallest change; makes a horizontal
    full pull fit inside the world by definition. Costs throw length per unit of
@@ -124,10 +125,88 @@ bug, 3 answers "the black bars are wasted screen". **1 is the one this document
 would do first**, because it is the only one that makes the control's own
 arithmetic self-consistent, and it fixes every device rather than this one.
 
+## The fix taken
+
+**Option 1, with the constant DERIVED rather than chosen** (PR #163):
+
+```ts
+// cannon.ts
+export const DRAG_MAX = CANNON.x - CELL;   // 110
+```
+
+That is a sentence, not a number: *a full pull that starts at the cannon ends on
+the playfield, a cube's width clear of the wall.* The clearance is a `CELL`
+because a cube is this game's unit of "not touching", and because it is measured
+to be enough — on the 7T's letterbox the field scales by 0.533, so a cube of
+clearance is 21 CSS px while that panel's dead band eats only the outer 17 world
+px (9 CSS px) of the field.
+
+### The measurement that chose it over option 2
+
+Option 2 was costed above as "most robust". Measured, it is **worse at exactly
+the case that motivates it**. Normalising against the room in front of the
+finger puts full power at the LAST PIXEL the gesture can reach: CSS x = 85.7 on
+the 7T — *inside* the 95 px dead band this whole document is about — and CSS
+x = 0.0 on an exact 16:9 panel. It converts an impossible gesture into a merely
+miserable one, and charges for it by making the same finger travel mean
+different power in different places. Option 1 lands the full pull 37–107 CSS px
+clear of every edge on every panel tested.
+
+### Before → after, injected touch swipes reading `#hud-power-val`
+
+Harness: `app/sim/_scratch-pullpower.ts`. The viewport transform and the span
+are imported from the running page rather than re-modelled.
+
+Pull from the cannon on the 854x384 (7T) viewport:
+
+| pull ends at CSS x | before | after |
+| --- | --- | --- |
+| 130 | 20% | 47% |
+| 120 | 30% | 70% |
+| 110 | 40% | 93% |
+| **100** | **50%** | **100%** |
+| 70 | 79% | 100% |
+| 40 | 100% | 100% |
+
+### The feel delta — CSS px of gesture for 100% power
+
+| viewport | scale | before | after | full pull's endpoint, before → after |
+| --- | --- | --- | --- | --- |
+| 854x384 (OnePlus 7T) | 0.533 | 117.3 | **58.7** | CSS x 48.4 → **107.0** (live glass starts at 95) |
+| 1280x720 (exact 16:9) | 0.934 | 205.6 | **102.8** | CSS x −65.4 → **37.4** (off-screen → on the playfield) |
+| 1269x663 (desktop) | 0.921 | 202.6 | **101.3** | CSS x −61.3 → **40.0** |
+
+The honest cost: the ramp is half as fine — **2.3% of power per CSS px on the
+7T, where it used to be 1.0%**. That is the price of the control being possible
+at all, and it is written into the constant's own doc comment.
+
+### What rode the span, and what did not
+
+`MIN_FIRE_RATIO` needed no re-tuning, which is the whole reason it was written
+as a fraction: the misfire floor moved from 85.6 to 52.6 world px on its own —
+28 CSS px on the phone, down from 46, still an order of magnitude past the 1-2
+px a resting thumb wanders. Measured: 8, 16 and 24 CSS px nudges all refuse to
+fire on all three viewports.
+
+`gamepad.ts`'s `STICK_DRAG` was the one other thing expressed against the span,
+and it was expressed in a COMMENT — "past cannon.ts's DRAG_MAX" beside a hard
+240. Exactly the coupling this change rots silently: 240 stays literally past a
+span that just halved while the stick's power ramp collapses into its first half
+deflection, with nothing going red. It is a real dependency now
+(`DRAG_MAX * STICK_OVERSHOOT`), so the pad's curve is unchanged to the bit.
+
+**`sim/bots.ts` and `sim/aim-strategies.ts` do NOT go through the drag mapping.**
+They set `g.cannon.angle`/`g.cannon.power` directly in world units; nothing in
+`sim/` but `systems.ts`'s own pins touches `powerRatioForDrag` or `aimFromDrag`.
+The re-tuning this document listed as an option-2 cost does not exist for either
+option — the balance sims cannot see `DRAG_MAX` at all.
+
+Option 3 remains untaken and independent, exactly as costed above.
+
 ## What is already fixed
 
-Nothing here. The `cqw` fallback landed alongside this diagnosis is a separate
-bug found on the same device — see the menu wordmark note in `app.css`.
+The `cqw` fallback landed alongside this diagnosis is a separate bug found on
+the same device — see the menu wordmark note in `app.css`.
 
 ## Related
 
