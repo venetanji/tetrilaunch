@@ -379,6 +379,76 @@ export function retryBreaksSeal(run: RunState, sealedMarks: readonly number[]): 
   return sealStateFor(run, sealedMarks) === "at-stake";
 }
 
+/**
+ * May this run hand a bay back at all?
+ *
+ * THE SKYDECK IS PERMADEATH. Its bays are the day's seeded, single attempt —
+ * one rules set, one shot, one score on one board — and a bay retry there is
+ * free in every sense that matters: the roof keeps no seal (sealStateFor
+ * returns null), so requestBayRetry's confirmation never fires, and resetBay
+ * rebuilds the SAME bay from the same run seed at the same levelIndex with the
+ * score back at zero. A run could grind bay 6 until it went perfectly and file
+ * the result against everyone who flew it once. That is not a hard mode, it is
+ * a leaderboard nobody can read.
+ *
+ * The run-end card already refused it for exactly this reason (main.ts's
+ * `retryBay` gate: "the Skydeck is the day's single attempt, and a retryable
+ * daily is a leaderboard nobody can read") — but it refused it on
+ * `sealStateFor !== null`, which is a question about the SEAL, and the pause
+ * card and the held ⏸ never asked anything at all. So the rule moves out to be
+ * its own predicate, asked by every door, and stops being a side effect of a
+ * different mode's bookkeeping.
+ *
+ * TIER S KEEPS ITS RETRY. The bench also fails tracksLadder and also keeps no
+ * seal, and it is the case that proves this cannot ride on either of those: it
+ * files to its own board, it is FOR re-flying the same bay, and its run-end
+ * card puts the re-fly on the primary. What separates the two modes is
+ * permadeath, not bookkeeping, so that is what the predicate reads.
+ */
+export function bayRetryable(run: RunState): boolean {
+  return run.skydeck === null;
+}
+
+/**
+ * Would QUITTING to the menu throw away work this run has done?
+ *
+ * The pause card's Quit is the only control in the game that ends a live run
+ * without settling it. Nothing is filed on that path — main.ts's finishRun is
+ * never reached, so meta.ts's recordRunEnd never runs and the run banks no
+ * score, no bestBay, no run count, no tier tick. A run PLAYED OUT banks those
+ * even when it loses, which is why the warning this gate opens is worth
+ * printing at all: the loss is not "the bay", it is everything behind the bay.
+ *
+ * THE STAKES TEST, written the same way requestBayRetry's is and for the same
+ * reason — a confirmation on a press that costs nothing teaches the player to
+ * click past the one that costs something (see retryBreaksSeal above).
+ *
+ *  - **bay 1 goes straight through.** `levelIndex === 0` means no bay has been
+ *    cleared, so there is no carry, no scrap, no notch and no refit to lose —
+ *    and the menu's Start Run hands back the same offer the player is walking
+ *    away from. The in-flight bay's own funds and lines go either way; they are
+ *    not banked until the bay is cleared, and a bay nobody cleared is a bay the
+ *    ladder never hears about. Gating it would put a warning in front of the
+ *    single most common "I opened the wrong thing" exit in the game.
+ *  - **Tier S goes straight through.** The bench is not a run to protect: it
+ *    files to its own board, climbs no ladder (see tracksLadder and finishRun's
+ *    first gate), and starts at whatever bay was dialled in — so `levelIndex`
+ *    there counts bays SKIPPED, not bays cleared. Its whole value is that the
+ *    next configuration is one tap away, which is why even the run-end card
+ *    routes back to the bench rather than the menu.
+ *
+ * The Skydeck is deliberately NOT excluded even though it too fails
+ * tracksLadder. That gate is about the ladder's BOOKKEEPING; this one is about
+ * a player's work, and the roof is ten real bays flown from a cold start.
+ *
+ * A predicate rather than two tests at the call site, for the reason
+ * tracksLadder is one: the gate itself lives in main.ts, which no harness can
+ * call, so what gets pinned is this.
+ */
+export function quitLosesProgress(run: RunState): boolean {
+  return !run.sandbox && run.levelIndex > 0;
+}
+
 /** Every standing clause in force on this run's current bay, in arm order.
  *  Empty for a ladder run, which carries its single clause in `final` instead.
  *

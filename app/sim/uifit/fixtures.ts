@@ -318,6 +318,12 @@ function ownedMeta(): MetaState {
  *  has not sealed — the state the owner's screenshot was taken in. */
 const PAUSE_SEAL = { state: "at-stake" as const, mark: 4 };
 
+/** The quit gate a paused Deep Run past bay 1 is really in (run.ts's
+ *  quitLosesProgress), for the pause fixtures' Quit button. Unarmed, which is
+ *  how the card mounts; `pause-armed` measures the other state. The bay matches
+ *  the seal's story above — one run, one screenshot. */
+const PAUSE_QUIT = { armed: false, bayNum: 4 };
+
 const HUD_BASE = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "cryo" as const },
   // The transport's held slot (canvas A5's two-deep queue) — a bulk-adjacent
@@ -937,9 +943,22 @@ export const SCREENS: Record<string, () => string> = {
   // controls. `at-stake` is the state a fresh run pauses in; all three faces
   // are the same box, so the row's width is the same in each and this measures
   // the widest the row can get either way.
+  //
+  // …AND ITS QUIT CARRIES THE GATE, for the same reason Restart Bay carries its
+  // seal face: a paused Deep Run past bay 1 always has one (run.ts's
+  // quitLosesProgress), so a fixture passing none measured a button the app
+  // does not draw. The gated button is the WIDER of the two — app.css stacks
+  // both faces in one grid cell so the row cannot reflow when it arms, which
+  // means the idle button reserves "QUIT ANYWAY" and is ~34px past the bare
+  // ghost it replaces. That widening lands on the row this fixture exists to
+  // measure, which is why it belongs in the default pause and not only in the
+  // armed one below.
   pause: () =>
     S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
-    S.pauseModal(true, "keyboard", { bond: true, demo: true, thaw: false, auto: true }, PAUSE_SEAL),
+    S.pauseModal(
+      true, "keyboard", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, PAUSE_QUIT,
+    ),
   // The PAD's reference card, which stopped being a shorter version of the
   // keyboard's the moment it took on the menu gestures (screens.ts's hintParts
   // — D-pad, A, B and the Controls button, four hints no keyboard arm has).
@@ -955,7 +974,37 @@ export const SCREENS: Record<string, () => string> = {
   // card itself measures clean on all nineteen rows.
   "pause-pad": () =>
     S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad", seal: PAUSE_SEAL }) +
-    S.pauseModal(true, "gamepad", { bond: true, demo: true, thaw: false, auto: true }, PAUSE_SEAL),
+    S.pauseModal(
+      true, "gamepad", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, PAUSE_QUIT,
+    ),
+  // THE ARMED QUIT (screens.ts's quitArmNoteHTML) — the one state of this card
+  // that adds a row, and therefore the only one worth a fixture of its own.
+  //
+  // The note is two lines of prose between the button row and the control
+  // reference, which makes this the TALLEST the pause card ever gets: the
+  // keyboard arm with the full loadout (the longest hint list the block
+  // renders) plus the warning above it, measured on the fine-pointer rows where
+  // both are visible at once. A landscape phone draws no reference block at all
+  // (coarse pointer), so the note there costs the card nothing it did not
+  // already have room for — the desktop rows are the binding case and the
+  // reason this fixture exists.
+  //
+  // Bay 10 deliberately: the copy interpolates the bay number twice (the button
+  // name and the note), and two digits is the widest either can get.
+  //
+  // NO SKYDECK FIXTURE. The roof's card is a strict SUBSET of `pause` — the
+  // same panel with Restart Bay and one hint line removed (run.ts's
+  // bayRetryable) — so it cannot overflow anything `pause` does not, and a
+  // fixture for it would buy the matrix nothing but two more inherited HUD
+  // entries. What it removes is pinned in sim/systems.ts, where the question is
+  // whether the control is there rather than whether it fits.
+  "pause-armed": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
+    S.pauseModal(
+      true, "keyboard", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, { armed: true, bayNum: RUN_LEVELS },
+    ),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
@@ -1377,6 +1426,10 @@ export function railLoadoutFor(
   if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
+    // …and "pause-armed", which is `pause` with one more row on the card and
+    // the SAME HUD behind it. It reproduced the identical eleven `offscreen`
+    // findings the two entries below record, from the identical cause.
+    || id === "pause-armed"
     // "bayclear-clause" is the same card over the same HUD, so it needs the
     // same rail: without it the harness sizes the rail for a bare loadout
     // while the markup still renders three ability buttons, and they overflow

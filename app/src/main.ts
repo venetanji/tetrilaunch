@@ -4,6 +4,7 @@ import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
+  quitLosesProgress, bayRetryable,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
 import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
@@ -116,7 +117,8 @@ import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import {
-  focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV,
+  armActivate, armRelease, DISARMED, focusInitial, moveFocus,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, type ArmState,
 } from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
@@ -394,6 +396,16 @@ class App {
    *  runs `sealBreakOwed` is already false and asking it again would draw the
    *  short panel on the one occasion the long one is owed. */
   private sealBreakExplain = false;
+  /** The pause card's Quit, mid-arming (ui/padnav.ts's arm machine): whether
+   *  the first activation has landed, and whether it has been released yet.
+   *  A second, DISTINCT press is what ends the run — see requestQuitRun.
+   *
+   *  Reset on the way out of "paused" (setState), which is what keeps the arm
+   *  and the warning that explains it on screen together. */
+  private quitArm: ArmState = DISARMED;
+  /** Removes the one-shot release listeners armQuitRelease installed, or null
+   *  when none are pending. Held so a re-arm cannot leave a second set behind. */
+  private quitReleaseOff: (() => void) | null = null;
   /** Consecutive taps on the tower's headhouse beacon — the Tier S gesture
    *  (lib/devmode.ts). Held on the app rather than in the DOM because the
    *  menu's markup is rewritten wholesale by renderOverlay, and a counter
@@ -949,6 +961,17 @@ class App {
     // below can arm a fresh one, so a pending modal can never land on top of
     // whatever screen replaced the one it was meant for.
     this.clearEndScrimHold();
+    // AN ARMED QUIT DIES WITH THE CARD THAT ARMED IT. The arm is a fact about
+    // one visit to the pause modal: it is only ever legible while the note
+    // under the row is on screen, so carrying it out of the state would leave a
+    // later Quit press ending the run with no warning at all — which is exactly
+    // the press this feature exists to stop. Resume, Restart Bay and the seal
+    // notice all leave "paused" and so all disarm here. Fullscreen deliberately
+    // does not: it keeps the player on the card, with the warning still up and
+    // still true. No timeout, either — the bay is frozen and the card has no
+    // clock, so an arm that expired under a reader's eyes would only make the
+    // visible warning a lie about what the next press does.
+    if (s !== "paused") this.disarmQuit();
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -1103,11 +1126,13 @@ class App {
     const strip = this.overlay.querySelector(".kbd-hint");
     // The fade state rides across the swap: a profile flip mid-bay re-labels
     // the hints, it does not re-earn them screen time.
-    if (strip) strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed);
+    if (strip) {
+      strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed, this.bayRetryOffered());
+    }
     // The pause modal's reference block re-labels the same way — a pad picked
     // up while paused should read pad hints before play resumes.
     const pauseKeys = this.overlay.querySelector("#pause-keys");
-    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned);
+    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned, this.bayRetryOffered());
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
@@ -1182,6 +1207,43 @@ class App {
     if (!this.run) return undefined;
     const state = sealStateFor(this.run, this.meta.sealedMarks);
     return state ? { state, mark: this.run.mark } : undefined;
+  }
+
+  /**
+   * The Quit gate the pause card wears, or undefined where quitting costs
+   * nothing — bay 1, Tier S (run.ts's quitLosesProgress), and every screen with
+   * no run behind it at all (a Contract, whose failure is free and whose retry
+   * is free; a drill, which is a lesson).
+   *
+   * ONE READ FOR ONE DOOR, written as a getter for the reason sealFace above
+   * is: the button's face and the gate that decides whether a press is
+   * swallowed (requestQuitRun) have to answer the same question, and a second
+   * copy of the test is how a card ends up armed against a press nothing stops.
+   */
+  private quitFace(): { armed: boolean; bayNum: number } | undefined {
+    const run = this.run;
+    if (!run || !quitLosesProgress(run)) return undefined;
+    return { armed: this.quitArm.armed, bayNum: run.levelIndex + 1 };
+  }
+
+  /**
+   * Whether a bay retry is offered on this screen at all (run.ts's
+   * bayRetryable) — false only on the Skydeck, which is permadeath.
+   *
+   * ONE READ FOR EVERY DOOR, the same discipline sealFace keeps for the price.
+   * Three surfaces show the gesture (the pause card's Restart Bay, the ⏸ hold's
+   * accessible name, the hint strip's "hold pause to restart") and two perform
+   * it (startPauseHold, restartBay), and all five read this. A control that
+   * advertises a retry requestBayRetry will refuse is the same class of bug as
+   * a control that advertises a price the gate will not charge — and that one
+   * has already been shipped here once (codex PR #135).
+   *
+   * TRUE WITH NO RUN. A Contract and a drill both re-deal from their own seed
+   * (resetBay's branches) and neither is permadeath, so absence of a run is not
+   * absence of a retry.
+   */
+  private bayRetryOffered(): boolean {
+    return !this.run || bayRetryable(this.run);
   }
 
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
@@ -1313,6 +1375,9 @@ class App {
       // same read (sealFace). Null on a Contract or a drill, where this.run is
       // null and no seal is in play.
       seal: this.sealFace(),
+      // …and on a run that may not restart a bay at all, the gesture goes out
+      // of the name and out of the hint strip with it. See bayRetryOffered.
+      restart: this.bayRetryOffered(),
       contract: this.drill
         ? // A LINES-shaped drill fills the Contract block, because it is that
           // bay: a line goal and a launch budget, read out of exactly the same
@@ -2494,7 +2559,7 @@ class App {
               demo: g.level.bombCharges > 0,
               thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
-            }, this.sealFace());
+            }, this.sealFace(), this.quitFace(), this.bayRetryOffered());
         }
         break;
       case "bayclear":
@@ -4447,6 +4512,20 @@ class App {
    */
   private requestBayRetry(): void {
     const run = this.run;
+    // PERMADEATH IS REFUSED AT THE DOOR, not hidden behind one (run.ts's
+    // bayRetryable). The Skydeck's bays are the day's seeded single attempt,
+    // and a retry there was free in every sense: no seal to charge, so the
+    // panel below never fired, and resetBay rebuilds the SAME bay from the same
+    // run seed with the score back at zero — a run could grind bay 6 until it
+    // went perfectly and file the result against everyone who flew it once.
+    //
+    // The run-end card had already refused it (renderOverlay's `retryBay`), but
+    // on `sealStateFor !== null`, which is a question about the seal that
+    // happens to answer this one — and the pause card and the ⏸ hold asked
+    // nothing at all. The refusal belongs here, under every door, so removing
+    // the three affordances above is a matter of not showing a dead control
+    // rather than the only thing standing between the mode and a retry.
+    if (run && !bayRetryable(run)) return;
     // A RETRY THAT BREAKS NOTHING GOES STRAIGHT THROUGH, and that is the half
     // of this rule that protects the other half. Confirming a free action would
     // train the player to click past the panel, and the one press it has to
@@ -4509,6 +4588,134 @@ class App {
     // hold for a card nobody is going to see, which is a whole second of
     // ceremony for a frame.
     this.resetBay();
+  }
+
+  /** Back to the home screen, with the mode state the trip invalidates cleared.
+   *  Every back/close/Menu button in the app is this call; the pause card's
+   *  Quit reaches it through requestQuitRun's gate. */
+  private toMenu(): void {
+    this.contract = null; this.contractMusic = null; this.drill = null;
+    this.setState("menu");
+  }
+
+  /**
+   * THE ONE DOOR THAT ABANDONS A LIVE RUN, and the arming that stands in it.
+   *
+   * A run leaves through here without being settled: finishRun is never
+   * reached, so recordRunEnd never runs and the run banks no score, no bay
+   * record and no place in the lifetime count. Every OTHER exit from a run
+   * files it first — bay 10 wins it, a loss files it, and a bay retry hands
+   * the same run back. This is the only press in the game that throws the work
+   * away, and it used to be one tap on a ghost button beside Resume.
+   *
+   * So the FIRST press arms and the second press quits. The gate is
+   * quitLosesProgress (bay 1 and Tier S go straight through, on the same
+   * reasoning requestBayRetry lets a free retry through: a confirmation on a
+   * press that costs nothing teaches the player to click past the one that
+   * does), and it is asked here as well as at render time because a stale card
+   * must not be able to talk this method into skipping it.
+   *
+   * …AND THE SECOND PRESS HAS TO BE A SECOND PRESS. Two ACTIVATIONS is not the
+   * promise this control makes: with the button keyboard-focused, a held Enter
+   * makes Chromium dispatch a native click per keydown repeat, so one physical
+   * press armed and then immediately confirmed — the warning flashing under the
+   * player's own finger, which is worse than no warning. The arm machine
+   * (ui/padnav.ts) therefore refuses every activation until the one that armed
+   * has been RELEASED; armQuitRelease below is what tells it. Found in review
+   * (codex, PR #167) and reproduced on a real run, Enter and Space both.
+   *
+   * ARMING PATCHES THE MOUNTED CARD rather than re-rendering it. renderOverlay
+   * would rebuild `.panel.modal.pop` and replay the card's entrance for a state
+   * change that is not an entrance — and it would destroy the button the pad
+   * or the keyboard is focused on, which on a two-press control means the
+   * second press has nothing to land on. Same reason renderBoardRows patches.
+   */
+  private requestQuitRun(): void {
+    if (this.state !== "paused") return;
+    const run = this.run;
+    if (!run || !quitLosesProgress(run)) {
+      this.toMenu();
+      return;
+    }
+    const was = this.quitArm;
+    const step = armActivate(was);
+    this.quitArm = step.state;
+    if (step.confirmed) {
+      this.toMenu();
+      return;
+    }
+    // A refused repeat leaves the card exactly as it is — no re-patch, no
+    // sound of its own, nothing that would read as "something happened". The
+    // player is holding a key down; the honest answer is that the button is
+    // already saying what the next real press will do.
+    if (was.armed) return;
+    this.armQuitRelease();
+    this.syncQuitArm();
+  }
+
+  /** Waits for the arming activation to END, and tells the machine when it has.
+   *
+   *  One-shot and capture-phase, on the window rather than the button, because
+   *  the release that matters may not be delivered to the button at all — a
+   *  keyup after focus has moved, a pointer that drifted off before lifting.
+   *  `pointercancel` counts as a release for the same reason it does for the
+   *  Bond hold: a gesture the browser takes over has ended as far as the player
+   *  is concerned.
+   *
+   *  A POINTER HAS ALREADY RELEASED by the time its click runs, so this looks
+   *  like it would strand a mouse or a thumb — it does not. These listeners are
+   *  installed DURING that click, and the next tap's pointerup arrives before
+   *  the next click, so two distinct taps pass however fast they are. What a
+   *  pointer cannot do is repeat, which is the whole reason the gate exists.
+   *
+   *  THE PAD RELEASES ELSEWHERE (onPadUiButton): it emits no release event at
+   *  all, so a pad player would sit armed forever waiting for one. */
+  private armQuitRelease(): void {
+    this.quitReleaseOff?.();
+    const release = (): void => {
+      this.quitArm = armRelease(this.quitArm);
+      this.quitReleaseOff?.();
+    };
+    const off = (): void => {
+      window.removeEventListener("keyup", release, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      this.quitReleaseOff = null;
+    };
+    window.addEventListener("keyup", release, true);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    this.quitReleaseOff = off;
+  }
+
+  /** Back to a card whose Quit takes two presses again, with no listener left
+   *  waiting on a release nobody is going to care about. */
+  private disarmQuit(): void {
+    this.quitArm = DISARMED;
+    this.quitReleaseOff?.();
+  }
+
+  /** Writes the arm onto the mounted pause card: the button's face and
+   *  accessible name (screens.ts's quitArmLabel), and the note that names the
+   *  loss (quitArmNoteHTML), inserted after the button row.
+   *
+   *  The note is created and removed as a whole node rather than being mounted
+   *  empty and filled: `role="alert"` announces on INSERTION, which is the
+   *  behaviour that does not depend on a hidden live region having been
+   *  registered with the screen reader first.
+   *
+   *  Both strings come from screens.ts so the patched card and the rendered one
+   *  say the same thing — the split the seal face already makes for its three
+   *  doors, made here for two. */
+  private syncQuitArm(): void {
+    const btn = this.overlay.querySelector<HTMLElement>('[data-action="quit-run"]');
+    const face = this.quitFace();
+    if (!btn || !face) return;
+    btn.dataset.armed = String(face.armed);
+    btn.setAttribute("aria-label", S.quitArmLabel(face.armed, face.bayNum));
+    const row = btn.parentElement;
+    row?.parentElement?.querySelector(".pause__quit-note")?.remove();
+    if (face.armed && row) row.insertAdjacentHTML("afterend", S.quitArmNoteHTML(face.bayNum));
   }
 
   /** Patches the currently-mounted #lb-body in place (no full overlay
@@ -5270,6 +5477,15 @@ class App {
    *  every screen — including the draft's focus-restoring re-render, which is
    *  what lets pad selection survive a card toggle. */
   private onPadUiButton(button: number): boolean {
+    // A PAD PRESS EDGE IS A RELEASE, for the arm machine's purposes. The pad
+    // emits no release event of its own (the Gamepad API is a state snapshot),
+    // so an armed Quit would sit waiting for a keyup or a pointerup that a pad
+    // player is never going to produce. What it does emit is EDGES, and only
+    // edges: game/gamepad.ts arms autorepeat for directions and nothing else,
+    // precisely so a held confirm cannot fire its screen twice. So every press
+    // that reaches here is already a distinct one, which is the fact the
+    // machine is trying to establish — see ui/padnav.ts's armRelease.
+    this.quitArm = armRelease(this.quitArm);
     // The press that flipped the profile to gamepad already did its job —
     // landing focus (see setProfile, which stamped padWokeAt in this same
     // poll tick). Consuming it here is what keeps "wake the pad" and "press
@@ -5545,10 +5761,12 @@ class App {
         if (this.nextContract) this.startContract(this.nextContract);
         else this.setState("contracts");
         break;
-      case "menu":
-        this.contract = null; this.contractMusic = null; this.drill = null;
-        this.setState("menu");
-        break;
+      case "menu": this.toMenu(); break;
+      // The pause card's Quit on a run with bays behind it — its own action
+      // rather than a branch on "menu", so the eight other back buttons that
+      // carry that action cannot accidentally inherit (or route around) the
+      // gate. See screens.ts's pauseModal.
+      case "quit-run": this.requestQuitRun(); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
@@ -5887,6 +6105,11 @@ class App {
     // press produces no click, so it can start no gesture either — and this
     // gesture throws the bay away.
     if (e.button !== 0 || this.state !== "playing") return false;
+    // …and never on a run that may not hand a bay back (run.ts's bayRetryable —
+    // the Skydeck). requestBayRetry would refuse the hold anyway, but a meter
+    // that fills and then does nothing is a worse answer than a tap: the whole
+    // affordance of this gesture is the countdown promising something.
+    if (!this.bayRetryOffered()) return false;
     const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="pause"]');
     if (!btn) return false;
     // A new press means any earlier hold's pending click is water under the
