@@ -327,6 +327,11 @@
     "#bond-chip 44x43",
     "#demo-chip 44x43"
   ],
+  "Web · 800x600 window|hud-rig4|tap": [
+    "#bond-chip 44x43",
+    "#demo-chip 44x43",
+    "#thaw-chip 44x43"
+  ],
   "Web · 800x600 window|hud|tap": [
     "#bond-chip 44x43",
     "#demo-chip 44x43"

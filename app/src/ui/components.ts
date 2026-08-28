@@ -545,5 +545,15 @@ export function shipPlatesHTML(tiers: UpgradeTiers, slots = 0): string {
   // arbitrarily; the box itself is the whole message.
   const open = `<div class="ship-plate ship-plate--open" title="Open slot — nothing mounted"></div>`
     .repeat(Math.max(0, width - aboard.length));
-  return `<div class="ship-rack">${plates}${open}</div>`;
+  // THE COUNT REACHES THE STYLESHEET, because the plate's width is the rack's
+  // row budget divided by it (app.css's --plate-w). Nothing in CSS can count
+  // its own children, and the alternative — one flat coefficient measured for
+  // the ten-slot cap — is what made a four-slot rig draw at 60% of the width
+  // the row was already holding for it on a desktop window.
+  //
+  // Floored at 1 so the divisor can never be zero: a Deep Run always has slots,
+  // but shipPlatesHTML is a pure function and a caller passing none would
+  // otherwise poison the whole declaration (an invalid calc at computed-value
+  // time takes `width` to `auto`, not to a fallback).
+  return `<div class="ship-rack" style="--rack-slots:${Math.max(1, width)}">${plates}${open}</div>`;
 }
