@@ -107,10 +107,18 @@ policy (`sim/timing.ts --mode arms`, full build, 4 seeds).
 | 4 | 1 | timed | 100% | 5.0 | 17.0 | 1.23 | 25% | 10% | 55% | 10% |
 | 4 | 10 | sweep | 100% | 13.0 | 39.0 | 1.12 | 12% | 19% | 46% | 23% |
 | 4 | 10 | timed | 100% | 5.5 | 13.5 | 1.26 | 32% | 5% | 50% | 14% |
-| 10 | 1 | sweep | 50% | 4.0 | 18.5 | 0.59 | 25% | 38% | 38% | 0% |
-| 10 | 1 | timed | 100% | 7.0 | 19.8 | 1.39 | 18% | 7% | 68% | 7% |
-| 10 | 10 | sweep | 75% | 23.5 | 66.5 | 1.01 | 7% | 10% | 53% | 30% |
-| 10 | 10 | timed | 100% | 7.0 | 21.0 | 1.11 | 21% | 11% | 50% | 18% |
+| 10 | 1 | sweep | 50% | 4.0 | 18.5 | 0.54 | 25% | 38% | 38% | 0% |
+| 10 | 1 | timed | 100% | 7.0 | 19.8 | 1.27 | 18% | 7% | 68% | 7% |
+| 10 | 10 | sweep | 75% | 24.8 | 69.0 | 1.05 | 9% | 11% | 51% | 29% |
+| 10 | 10 | timed | 100% | 10.3 | 28.8 | 1.06 | 17% | 10% | 49% | 24% |
+
+Re-measured on the SHIPPED numbers after the premium and the clock fix landed.
+The Tier 4 rows are byte-identical to the first run — that tier carries no
+premium and the clock fix does not touch these two arms — and the Tier 10 rows
+moved exactly the way a raised target predicts and nothing else does: more lines
+and more shots to reach a bar that is 10% higher (sweep 23.5 → 24.8 lines, timed
+7.0 → 10.3), with `End/Target` compressed toward 1. That is the premium showing
+up in the census as arithmetic rather than as a surprise.
 
 Four readings.
 
@@ -129,6 +137,76 @@ Four readings.
 4. **EXCELLENT does not dominate even for the pilot aiming at it.** The timed
    arm lands 18-32% of its rows in the top band. The mechanic does not collapse
    into one line of play.
+
+### 2c. The tick boundaries — one fencepost, found in review
+
+`compactor.update()` advances the grade's counters partway through a step, and
+the step read them on BOTH sides of that call: once to stamp landings, once to
+grade the clears. Two reads of a moving clock are two clocks, and they disagree
+on exactly one tick — the one the press completes. Found by codex on PR #168.
+
+Reproduced deterministically (`sim/_scratch-tickboundary.ts`), replaying the real
+step order with the real functions and driving the bar to each boundary rather
+than placing it:
+
+| landing, N steps short of full advance | cleared ON the stop tick? | live clock | step clock |
+|---:|---|---|---|
+| 0 (bar already turned) | no | good | good |
+| **1** | **yes** | **swept** | **excellent** |
+| 2 | no | excellent | excellent |
+| 5 | no | excellent | excellent |
+
+**A row closed on the tick the press completes was charged a sweep it had not
+survived** — the top band failing on the tick that earns it most literally.
+
+**The pre-update sample is the right one, and it is not a coin flip.** `pressing`
+is captured before the same call for the same reason, and the game already
+treats that tick as part of the advancing stroke — it is why the clear runs on it
+at all. Sampling post-update fixes the row above and breaks its neighbour: a
+landing one step earlier, clearing on the stop tick, would then be charged the
+sweep instead.
+
+**The other boundary, audited rather than assumed.** The open stop has no
+clear-side exposure at all — no clear is ever evaluated during a retreat — but it
+has a stamp-side one, and it is the EXCELLENT/GOOD split:
+
+| landed | bar was | grade |
+|---|---|---|
+| flip−2, −1, +0 | retreating | good |
+| flip+1, +2 | advancing | excellent |
+
+The band changes exactly at the flip with no tick in between, and both stops now
+obey one rule: **a tick belongs to the direction the bar had at the start of it.**
+That is precisely what a single pre-update sample encodes, which is why the fix
+is one sampled value rather than a special case at each stop.
+
+`updateLineClear`'s clock is now a REQUIRED argument. It used to default to the
+bar's live reading, and that default was the trap: there is no honest value to
+default to, because "the bar right now" is the wrong answer inside a step that
+has already moved it.
+
+### 2d. Did the fix move the tables? Paired A/B, measured
+
+The only difference between the two runs is which clock the clear is graded
+against — same seeds, same bays, same everything:
+
+| row | metric | live clock | step clock |
+|---|---|---|---|
+| T4 b10 `burn` | Exc / Lucky / End÷Tgt | 10% / 5% / 1.19 | 12% / 2% / 1.21 |
+| T10 b1 `burn` | Exc / Swept / Timed% | 22% / 52% / 43% | 24% / 50% / 45% |
+| **every other row** | **all columns** | — | **identical** |
+
+**Two rows of twelve move, both `burn`, by at most 2 percentage points.** Win
+rate, lines, shots and scrap are unchanged in every row including those two.
+
+Only `burn` moves because it fires every cooldown and therefore has the most
+landings, so it gets the most chances at a coincidence that needs a cube's
+first-rest tick to fall exactly on the step that completes a stroke — about one
+tick in 133 at bay 1's trim, and only for rows that complete right then.
+
+**So the premium's table cannot have moved**, and did not: it is a table of win
+rates, and no win rate changes between the two clocks. The choice of rung 8 and
++5% stands on the same measurement it was made on.
 
 ---
 
@@ -154,6 +232,23 @@ Four readings.
 | 11 | 5 | timed (Skydeck) | 100% | 100% | 100% | 100% | 100% | 100% |
 | 11 | 10 | sweep (Skydeck) | 67% | 67% | 67% | 67% | 67% | 67% |
 | 11 | 10 | timed (Skydeck) | 83% | 83% | 83% | 83% | 67% | 67% |
+
+**Read the ×1.00 column as the PRE-premium bay** — this is the table the premium
+was chosen from, so its baseline is the ladder as it stood before. Re-run against
+the SHIPPED bays (premium already in the ×1.00 column, so every step is a raise
+on top of a raise), the same sweep confirms the choice landed where it was aimed:
+
+| Tier | Bay | Arm | shipped (×1.00) |
+|---:|---:|---|---:|
+| 4 | 5 | sweep / timed | 100% / 100% |
+| 8 | 5 | sweep / timed | 100% / 100% |
+| 8 | 10 | sweep / timed | 83% / 100% |
+| 10 | 5 | sweep / timed | **67% / 100%** |
+| 10 | 10 | sweep / timed | 67% / 83% |
+
+Tier 10 bay 5 at the shipped numbers is the design goal met exactly: the
+sweep-reliant arm misses a third of its runs where the timed arm clears every
+one. The mid ladder is untouched, and bay 10 is still flat — see below.
 
 **What this chose.** Tier 4 does not separate until x1.20, and it separates by
 breaking the swept arm rather than by rewarding the timed one — a difficulty tax
@@ -396,7 +491,38 @@ because the "every tier up to 8 is byte-identical" pin walks every tier and
 every bay against the ladder's own pre-premium formula. The last is the
 positional-tail hazard `run.ts` warns about in prose, made a failing test.
 
-**33 mutants across the three passes, every one of them accounted for.**
+### Pass 4 — the tick-boundary fix, and the lesson that cost the most
+
+The pins written for §2c's fencepost all passed. Then the mutants ran, and **all
+three game.ts mutants came back 0** — putting the bug back changed nothing any of
+them could see.
+
+**A pin that replays the step order is a pin on the RULE, not on the WIRING.**
+Those checks built their own sample/stamp/update/clear helper out of the real
+functions, which is a faithful model of game.ts's sequence and therefore
+completely blind to whether game.ts still follows it. The bug did not live in
+`gradeForRow`, `stampLandings` or `updateLineClear` — every one of them was
+correct throughout. It lived in the ORDER two of them were called in, and the
+order is the one thing a replay cannot test.
+
+So there is now a check that drives the **real `Game.update`** through the exact
+tick: the bar walked to one step short of full advance, a complete unstamped row
+injected, one `update()` call, and assertions on the payout FX's grade and on the
+money that actually moved. With the fencepost restored:
+
+| mutation | fails (replay pins only) | fails (with the live-Game pin) |
+|---|---:|---:|
+| the clear reads the clock AFTER the bar moved | 0 | 2 |
+| the step clock is sampled after the bar moved | 0 | 3 |
+| `gradeClock` is a live read, not the step's sample | 0 | 1 |
+
+One further mutant from that pass is recorded as **inert rather than caught**:
+moving the open stop's half-cycle tick across the `dir` flip. That branch is only
+reachable with `dir === -1` (pass 1 established the guard is unreachable), so the
+two orderings are the same program. An inert mutant is not evidence either way,
+and it is dropped rather than counted.
+
+**37 mutants across the four passes, every one of them accounted for.**
 
 ### The three genuine findings
 

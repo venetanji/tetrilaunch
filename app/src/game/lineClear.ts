@@ -961,13 +961,18 @@ export function updateLineClear(
   compactor: Compactor,
   level: LevelConfig,
   constraints: Matter.Constraint[],
-  /** The compactor's counters on THIS step, for the timing grade. Defaults to
-   *  the bar's own live reading, which is what every in-game caller wants and
-   *  is also the only honest default: a clock a caller forgot to pass would
-   *  otherwise read as bay-open and grade every row EXCELLENT, i.e. the failure
-   *  would pay out rather than show up. Passed explicitly by tests that build a
-   *  row by hand and need to state which stroke it is being cleared on. */
-  clock: ClearClock = { stroke: compactor.strokes, halfCycle: compactor.halfCycles },
+  /** The counters of the STEP this clear is being evaluated on, for the timing
+   *  grade — game.ts's `stepClock`, sampled once before the bar moved.
+   *
+   *  REQUIRED, and it used to default to the bar's own live reading. That
+   *  default was the trap that produced PR #168's fencepost: `update()` advances
+   *  the counters partway through the step, so the default read a DIFFERENT
+   *  clock from the one the landing stamp had used moments earlier, and a row
+   *  closed on the tick the press completed was charged a sweep it had not
+   *  survived. A caller that has to name the clock cannot make that mistake by
+   *  omission, and there is no honest value to default to — "the bar right now"
+   *  is precisely the wrong answer inside a step that has already moved it. */
+  clock: ClearClock,
 ): ClearResult {
   // Zone narrower than the minimum-line stop shouldn't happen (the compactor's
   // own right stop is clamped there), but zoneGrid guards against it

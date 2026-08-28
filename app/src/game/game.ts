@@ -1839,19 +1839,40 @@ export class Game {
     this.stepAutoLaunch(now);
     stepPhysics(this.phys);
     this.applyWind();
-    // THE LANDING HALF OF THE TIMING GRADE (grades.ts), stamped before anything
-    // this step can move the bar or clear a row.
+    // THE TIMING GRADE'S CLOCK FOR THIS STEP (grades.ts), sampled ONCE, here,
+    // and handed to BOTH of the step's readers — the landing stamp below and
+    // the clear check further down. It is not read off the bar again anywhere
+    // in this step.
     //
-    // Its position is load-bearing in both directions. AFTER the physics step
-    // and the wind, so a cube that arrived on this step is already carrying the
-    // velocity the settle test will read — stamping before them would date every
-    // landing one step early and, worse, would test last step's velocity.
-    // BEFORE `compactor.update()`, so a shipment that comes to rest on the very
-    // step the bar reaches its stop is stamped on the stroke it LANDED in
-    // rather than on the one that started a moment later. That single step is
-    // the whole EXCELLENT/GOOD boundary for a shot threaded into a closing
-    // press, which is the shot the grade exists to reward.
-    stampLandings(this.cubes, this.gradeClock);
+    // ONE SAMPLE, because two reads either side of `compactor.update()` are two
+    // different clocks, and that was a real bug (codex, PR #168). The bar's
+    // counters advance inside that call, so a shipment that came to rest on the
+    // very step the press completes was stamped on stroke S and then graded
+    // against stroke S+1 — one completed sweep charged to a row that closed
+    // inside the stroke already running. Measured on a constructed case
+    // (sim/_scratch-tickboundary.ts): a landing one step short of the stop whose
+    // row cleared ON the stop tick graded SWEPT where it had earned EXCELLENT,
+    // which is the top band failing on the tick that earns it most literally.
+    //
+    // THE PRE-UPDATE SAMPLE IS THE RIGHT ONE, and it is not a coin flip between
+    // the two. `pressing` below is captured before the same call for exactly the
+    // same reason, and its comment already states the rule: the tick the bar
+    // reaches full advance is a tick of the ADVANCING stroke, which is why the
+    // clear is evaluated on it at all. A clock that had already rolled over
+    // would price that tick as belonging to the next stroke while the game
+    // plays it as belonging to this one. Sampling post-update fixes the case
+    // above and breaks its neighbour instead — a landing one step earlier,
+    // clearing on the stop tick, would then be charged the sweep.
+    //
+    // The sample's POSITION is load-bearing in both directions, as before.
+    // AFTER the physics step and the wind, so a cube that arrived on this step
+    // is already carrying the velocity the settle test will read. BEFORE
+    // `compactor.update()`, so the whole of one stroke — every tick of it,
+    // including the one that completes it — shares a single `halfCycle`, which
+    // is what makes "the bar has not reversed since the landing" a fact about
+    // the stroke rather than about which side of a function call a tick fell.
+    this.stepClock = { stroke: this.compactor.strokes, halfCycle: this.compactor.halfCycles };
+    stampLandings(this.cubes, this.stepClock);
 
 
     // Fuse: a bomb that never collides with anything still has to go off.
@@ -1943,7 +1964,11 @@ export class Game {
     // Cubes are ONLY removed when a full row is crushed against the wall on the
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
     const clear: ClearResult = pressing
-      ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level, this.constraints)
+      ? updateLineClear(
+        this.phys.world, this.cubes, this.compactor, this.level, this.constraints,
+        // THE STEP'S clock, not the bar's live one — see the sample above.
+        this.stepClock,
+      )
       : { lines: 0, cubes: [], rows: [], graded: [] };
     if (clear.lines > 0) {
       // A clear is progress, and progress earns more strokes: reopen the
@@ -2217,15 +2242,20 @@ export class Game {
     }
   }
 
-  /** The compactor's counters as the TIMING GRADE reads them (grades.ts).
+  /** THIS STEP's timing clock (grades.ts) — the compactor's counters as they
+   *  stood before the bar moved, sampled once in `update` and read by both the
+   *  landing stamp and the row scan.
    *
-   *  One accessor rather than two reads at each of the two call sites — the
-   *  landing stamp and the row scan — because the pair has to be sampled at the
-   *  same instant to mean anything, and two sites each picking their own fields
-   *  off the bar is how they end up sampling different steps. */
+   *  A FIELD rather than the accessor this used to be, and that is the whole
+   *  fix for PR #168's fencepost: an accessor is a fresh read every time it is
+   *  touched, so the two readers sat either side of `compactor.update()` and saw
+   *  different strokes. A value sampled once cannot do that. Exposed read-only
+   *  so sim/systems.ts can assert that the clear really is graded against the
+   *  step's sample and not against the bar. */
   get gradeClock(): ClearClock {
-    return { stroke: this.compactor.strokes, halfCycle: this.compactor.halfCycles };
+    return this.stepClock;
   }
+  private stepClock: ClearClock = { stroke: 0, halfCycle: 0 };
 
   /** Push the FX events a clear implies: one shatter per removed cube, one
    *  rowflash per cleared row (spanning the compactor face to the wall), and

@@ -7944,13 +7944,19 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     return { phys, compactor, cubes };
   };
 
+  /* These material pins ask whether a row CLEARS, never what it is worth, so
+   * the timing clock is incidental to every one of them — but updateLineClear
+   * requires it (lineClear.ts says why: a defaulted clock is what produced
+   * PR #168's fencepost). MATERIAL_CLOCK names that indifference once, so an
+   * argument that means nothing here does not read as a number to decode. */
+  const MATERIAL_CLOCK: ClearClock = { stroke: 0, halfCycle: 0 };
   const need = rowLevel.compactorMinLineCells;
   const allStd: Material[] = Array.from({ length: need }, () => "standard" as Material);
 
   const good = buildRow(allStd);
   check(
     "a full row of standard shipments still clears (the baseline is intact)",
-    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
+    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   // ---- The penalty path reports WHERE the cargo was lost ------------------
@@ -8135,19 +8141,19 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   alignMagnetic(magnets.cubes, WORLD.height - CELL / 2);
   check(
     "a magnetic row survives the align pass and still clears",
-    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, []).lines === 1,
+    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   const withSlag = buildRow(allStd.map((m, i) => (i === 3 ? "slag" : m)));
   check(
     "one slag cube denies the whole row",
-    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, []).lines === 0,
+    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 0,
   );
 
   const withCold = buildRow(allStd.map((m, i) => (i === 5 ? "cryo" : m)));
   check(
     "one COLD cryo cube denies the row",
-    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, []).lines === 0,
+    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 0,
   );
 
   // ...and the same row clears once it has been struck. This is the pair that
@@ -8156,7 +8162,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   for (const c of thawed.cubes) if (c.material === "cryo") c.struck = true;
   check(
     "striking the cryo cube makes the identical row clear",
-    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, []).lines === 1,
+    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   // ---- Striking ------------------------------------------------------------
@@ -17378,6 +17384,201 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
       out.graded[1].grade === "lucky", out.graded[1].grade);
     check("...so the two rows in one crush are NOT priced the same",
       out.graded[0].grade !== out.graded[1].grade);
+  }
+
+  /* ---- THE TICK BOUNDARIES (codex, PR #168) ------------------------------
+   *
+   * The grade's clock advances INSIDE `compactor.update()`, and the step reads
+   * it on both sides of that call — once to stamp landings, once to grade the
+   * clears. Reading it twice is reading two different clocks, and the tick the
+   * press completes is where they disagree: a row closed on that tick was
+   * stamped on stroke S and graded against S+1, i.e. charged a completed sweep
+   * it had not survived. EXCELLENT failing on the tick that earns it most
+   * literally.
+   *
+   * These replay game.ts's real order — sample, stamp, update, clear — with the
+   * REAL functions, because the bug lived in the order rather than in any one
+   * of them. `sim/_scratch-tickboundary.ts` is the same walk with a printed
+   * table, and design/balance/timed-clears.md §2c carries it.
+   *
+   * The bar is DRIVEN to each boundary, never teleported: `Compactor.update` is
+   * what decides where a stop is, and a hand-placed bar would be a test of the
+   * placement. */
+  {
+    /** One step of game.ts's order. `late` reads the clock AFTER the bar moved,
+     *  which is the bug; the shipped path samples once, before. */
+    const oneStep = (
+      bar: Compactor, phys: ReturnType<typeof createPhysics>, cubes: Cube[],
+      late: boolean, stampNow: boolean,
+    ): { grade: string | null; completedStroke: boolean } => {
+      const clock: ClearClock = { stroke: bar.strokes, halfCycle: bar.halfCycles };
+      if (stampNow) stampLandings(cubes, clock);
+      const pressing = bar.pressing;
+      const before = bar.strokes;
+      bar.update();
+      const completedStroke = bar.strokes !== before;
+      if (!pressing) return { grade: null, completedStroke };
+      const live: ClearClock = { stroke: bar.strokes, halfCycle: bar.halfCycles };
+      const out = updateLineClear(
+        phys.world, cubes, bar, rowLevel, [], late ? live : clock,
+      );
+      return { grade: out.graded[0]?.grade ?? null, completedStroke };
+    };
+
+    /** A bay whose bar is ADVANCING and exactly `stepsBefore` steps short of
+     *  full advance, with a complete unstamped row on the floor. */
+    const approaching = (stepsBefore: number) => {
+      const phys = createPhysics(rowLevel);
+      const bar = new Compactor(phys.world, rowLevel);
+      // Two round trips first, so `strokes` is past zero and a sweep count of 1
+      // is distinguishable from "the bay just opened".
+      while (bar.halfCycles < 4) bar.update();
+      while (bar.dir !== 1) bar.update();
+      while (bar.rightX - bar.x > stepsBefore * bar.speed + 0.001) bar.update();
+      const r = buildGradedRows([[0, 0]]);
+      // The row builder stamps; this walk needs cubes that have never rested.
+      for (const c of r.cubes) { c.landedStroke = undefined; c.landedHalfCycle = undefined; }
+      // Re-home the row into THIS bay's world.
+      for (const c of r.cubes) Matter.Composite.add(phys.world, c.body);
+      Matter.Engine.clear(r.phys.engine);
+      return { phys, bar, cubes: r.cubes };
+    };
+
+    /** Land the row `before` steps short of the stop, then run until it clears. */
+    const landAndClear = (before: number, late: boolean) => {
+      const { phys, bar, cubes } = approaching(before);
+      let grade: string | null = null;
+      let onStopTick = false;
+      for (let i = 0; i < 600 && grade === null; i++) {
+        const s = oneStep(bar, phys, cubes, late, i === 0);
+        grade = s.grade;
+        if (grade !== null) onStopTick = s.completedStroke;
+      }
+      Matter.Engine.clear(phys.engine);
+      return { grade, onStopTick };
+    };
+
+    // THE FENCEPOST ITSELF. One step short of the stop: the landing and the
+    // clear both fall on the stroke that is still running, and the clear lands
+    // on the very tick that completes it.
+    const stopTick = landAndClear(1, false);
+    check("a row closed on the tick the press COMPLETES clears on that tick",
+      stopTick.onStopTick, "the case did not reach the stop tick");
+    check("...and grades EXCELLENT — it closed inside the stroke already running",
+      stopTick.grade === "excellent", String(stopTick.grade));
+    // ...and the same walk against the LATE clock is the bug, which is what
+    // makes the pin above a pin rather than a restatement.
+    check("...where reading the clock after the bar moved charges it a sweep",
+      landAndClear(1, true).grade === "swept", String(landAndClear(1, true).grade));
+
+    // THE NEIGHBOURS, so the fix is not a one-tick patch that breaks the ticks
+    // either side of it. Post-update sampling would fix the row above and break
+    // these instead.
+    check("a landing two steps short of the stop still grades EXCELLENT",
+      landAndClear(2, false).grade === "excellent", String(landAndClear(2, false).grade));
+    check("...and five steps short, well inside the stroke, likewise",
+      landAndClear(5, false).grade === "excellent", String(landAndClear(5, false).grade));
+    // A landing on the tick the bar has ALREADY reversed on is a retreat
+    // landing, and the next press sells it — GOOD, never EXCELLENT.
+    check("a landing after the bar has turned is GOOD, sold by the next press",
+      landAndClear(0, false).grade === "good", String(landAndClear(0, false).grade));
+
+    // THE REVERSAL TICK at the OPEN stop — the other boundary the bands depend
+    // on. No clear is ever evaluated during a retreat (`pressing` is false), so
+    // that stop has no clear-side exposure at all; what it has is a STAMP-side
+    // one, and it decides EXCELLENT against GOOD.
+    const acrossFlip = (ticksAfterFlip: number): string | null => {
+      const phys = createPhysics(rowLevel);
+      const bar = new Compactor(phys.world, rowLevel);
+      while (bar.halfCycles < 4) bar.update();
+      while (bar.dir !== -1) bar.update();
+      while (bar.x - bar.leftX > bar.speed + 0.001) bar.update();
+      const r = buildGradedRows([[0, 0]]);
+      for (const c of r.cubes) { c.landedStroke = undefined; c.landedHalfCycle = undefined; }
+      for (const c of r.cubes) Matter.Composite.add(phys.world, c.body);
+      Matter.Engine.clear(r.phys.engine);
+      for (let i = 0; i < ticksAfterFlip; i++) oneStep(bar, phys, r.cubes, false, false);
+      let grade: string | null = null;
+      for (let i = 0; i < 600 && grade === null; i++) {
+        grade = oneStep(bar, phys, r.cubes, false, i === 0).grade;
+      }
+      Matter.Engine.clear(phys.engine);
+      return grade;
+    };
+    check("cargo that landed while the bar was still RETREATING grades GOOD",
+      acrossFlip(0) === "good", String(acrossFlip(0)));
+    check("...and cargo that landed one tick later, on the advance, grades EXCELLENT",
+      acrossFlip(1) === "excellent", String(acrossFlip(1)));
+    check("...so the band changes exactly at the flip, with no tick in between",
+      acrossFlip(0) !== acrossFlip(1));
+  }
+
+  /* ---- ...AND THE WIRING, through the REAL Game ---------------------------
+   *
+   * Everything above pins the RULE and none of it pins the WIRING, which a
+   * mutation pass proved rather than suspected: putting the fencepost back into
+   * game.ts — grading the clear against the bar's live post-update reading —
+   * left every check above green, because they replay the step order inside the
+   * test with their own helper instead of exercising game.ts's.
+   *
+   * A rule nothing connects to the game is a rule the game does not have. So
+   * this drives the REAL `Game.update` through the exact tick, and it is the
+   * check that actually fails when the fencepost comes back.
+   *
+   * The bar is walked to one step short of full advance and the row is injected
+   * unstamped, so the single `update()` below does the whole sequence the bug
+   * lived in: sample, stamp, move the bar onto its stop, clear. */
+  {
+    const cfg = makeBaseLevel(0);
+    const g = new Game(cfg, {}, 11);
+    // Two round trips first, so a sweep count of 1 is distinguishable from
+    // "the bay just opened" — the same reason the walks above take them.
+    while (g.compactor.halfCycles < 4) g.compactor.update();
+    while (g.compactor.dir !== 1) g.compactor.update();
+    while (g.compactor.rightX - g.compactor.x > g.compactor.speed + 0.001) {
+      g.compactor.update();
+    }
+    const preStroke = g.compactor.strokes;
+    const preHalf = g.compactor.halfCycles;
+
+    // A complete row on the floor, settled and never yet stamped.
+    for (const c of g.cubes.splice(0)) Matter.Composite.remove(g.phys.world, c.body);
+    const rowY = WORLD.height - CELL / 2;
+    for (let k = 0; k < cfg.compactorMinLineCells; k++) {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(g.phys.world, body);
+      g.cubes.push({
+        body, type: "O", color: "#fff", blinkStart: null,
+        material: "standard", struck: true,
+      });
+    }
+
+    const scoreBefore = g.score;
+    g.effects.length = 0;
+    g.update(1000);
+
+    check("the real Game completes a stroke on this step",
+      g.compactor.strokes === preStroke + 1,
+      `${preStroke} -> ${g.compactor.strokes}`);
+    check("...and the step's clock is the one sampled BEFORE the bar moved",
+      g.gradeClock.stroke === preStroke && g.gradeClock.halfCycle === preHalf,
+      `${g.gradeClock.stroke}/${g.gradeClock.halfCycle} vs ${preStroke}/${preHalf}`);
+    const payout = g.effects.find((e) => e.kind === "payout");
+    check("...the row cleared on that very tick",
+      payout !== undefined && g.cubes.length === 0, `${g.cubes.length} cubes left`);
+    // THE ONE THAT CATCHES THE FENCEPOST. Grading against the live clock makes
+    // this SWEPT; sampling the step clock late makes it GOOD.
+    check("...and the REAL game grades it EXCELLENT, not SWEPT",
+      payout !== undefined && payout.kind === "payout" && payout.grade === "excellent",
+      payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+    // ...and the money followed the grade, not just the callout.
+    check("...and paid the EXCELLENT rate, so the callout and the ledger agree",
+      g.score - scoreBefore === gradedLinePay(cfg.scorePerLine, "excellent"),
+      `${g.score - scoreBefore} vs ${gradedLinePay(cfg.scorePerLine, "excellent")}`);
+    g.destroy();
   }
 
   // THE DETERMINISM CLAIM, checked the only way that means anything: the same
