@@ -733,9 +733,42 @@ body.crt-off #app::after { display: none; }
      panel, and every viewport the 31 was reachable on capped the panel at 440
      or less. What it buys is the range BETWEEN, which is precisely the
      windowed-desktop band that had no step of its own. */
-  font-size: clamp(8px, 6.8cqw, 42px);
+  /* THE BASE IS THE FALLBACK, and the container-unit version is layered over it
+     in the @supports below — the same shape, and for the same reason, as
+     --brand-w's block further up this file. It is NOT written as two
+     declarations of font-size the way plain .menu__title's is.
+
+     Two declarations would work; what would not is leaving the cqw one alone.
+     This rule had no fallback at all, so on an engine without container units
+     the whole declaration was dropped and the BASE .menu__title's
+     `clamp(30px, 6.2vw, 66px)` won instead — a rule sized for the headline, not
+     for a plate 47% of a panel wide. Measured on a OnePlus 7T (WebView 87, the
+     engine iOS 15's WKWebView is contemporary with): 52.9px inside a box built
+     for ~25, so the wordmark rendered at twice its plate and clipped to "TET"
+     over "LA". The @supports form is preferred over two declarations because it
+     also lets the steps below carry the height keying, which a single
+     declaration cannot express.
+
+     The steps mirror --brand-w's own: the plate is 6.8% of the PANEL, and the
+     panel is 360/440/640 by viewport HEIGHT, which no vw can see. So each band
+     caps at 6.8% of its panel and the vw term only does the narrow-column case
+     — a 360px-wide phone, where 100% wins over the cap and the panel really is
+     narrower than the step says. */
+  font-size: clamp(8px, 6.8vw, 24px);
   line-height: 0.95;
   pointer-events: none;
+}
+@media (min-height: 621px) {
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8vw, 30px); }
+}
+@media (min-height: 700px) {
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8vw, 42px); }
+}
+/* ...and the enhancement, for engines that can measure the panel. Last, so it
+   wins over every step above regardless of their source order — the thing the
+   two-declaration pattern could not have done. */
+@supports (font-size: 1cqw) {
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8cqw, 42px); }
 }
 /* Stacked only while the demo is live. Without this the two halves sit inline
    with no whitespace between them and render as the single word TETRILAUNCH,
