@@ -180,7 +180,9 @@ import {
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
-  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, type NavRect,
+  armActivate, armRelease, DISARMED,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext,
+  type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import * as S from "../src/ui/screens";
 import {
@@ -12426,6 +12428,69 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // armed. Nothing has to be un-patched.
     check("disarming restores the card exactly",
       paused({ armed: false, bayNum: 4 }) === idle);
+    // ---- …AND THE SECOND PRESS HAS TO BE A SECOND PRESS -------------------
+    // Found in review (codex, PR #167) and reproduced on a real run: with the
+    // button keyboard-focused, HOLDING Enter makes Chromium dispatch a native
+    // click per keydown REPEAT. The first repeat armed and the next confirmed,
+    // so one physical press ended a run — the warning flashing on screen under
+    // the player's own finger, which is worse than no warning because it is the
+    // pattern appearing to work. Space did it too.
+    //
+    // The plumbing is main.ts's, which no harness can drive, so what gets
+    // pinned is the machine it runs on (ui/padnav.ts).
+    {
+      /** Run one stream of events through the machine and report whether it
+       *  ever confirmed. "a" is an activation, "r" a release — a held key is
+       *  "aaa" (repeats with no release between), two real presses are "ara". */
+      const run = (stream: string): { confirms: number; end: ArmState } => {
+        let s = DISARMED;
+        let confirms = 0;
+        for (const e of stream) {
+          if (e === "r") { s = armRelease(s); continue; }
+          const step = armActivate(s);
+          s = step.state;
+          if (step.confirmed) confirms += 1;
+        }
+        return { confirms, end: s };
+      };
+
+      check("one activation arms and does not confirm",
+        run("a").confirms === 0 && run("a").end.armed && run("a").end.held);
+      // THE BUG, stated as the stream that produced it.
+      check("a held key's repeats never confirm, however long it is held",
+        run("aa").confirms === 0
+          && run("aaa").confirms === 0
+          && run("aaaaaaaaaa").confirms === 0);
+      check("...and leave the control armed and still warning",
+        run("aaaaa").end.armed);
+      // THE CONTROL: a real second press still ends it, and does so exactly
+      // once. This is the half the fix must not break.
+      check("a release and a second press confirms", run("ara").confirms === 1);
+      check("...and spends the arm rather than staying armed",
+        JSON.stringify(run("ara").end) === JSON.stringify(DISARMED));
+      // The fast double-tap this control is meant to accept: two taps ARE two
+      // releases (a click is dispatched after its own pointerup), so no amount
+      // of speed can make them look like one press.
+      check("two distinct presses confirm however fast they arrive",
+        run("arar").confirms === 1 && run("rara").confirms === 1);
+      // …and a release is genuinely the ONLY thing that opens the confirm. A
+      // stream with no 'r' in it cannot confirm at any length.
+      check("nothing confirms without a release",
+        Array.from({ length: 12 }, (_, i) => "a".repeat(i + 1))
+          .every((s) => run(s).confirms === 0));
+      // Releases are idempotent and harmless out of order — several paths can
+      // deliver one for the same press (a mouse whose pointerup and a keyup
+      // both land), and the pad delivers one on every press edge.
+      check("a release before anything is armed changes nothing",
+        JSON.stringify(armRelease(DISARMED)) === JSON.stringify(DISARMED));
+      check("...and a second release cannot re-open a spent arm",
+        run("arra").confirms === 1 && run("arrra").confirms === 1);
+      check("...and cannot confirm on its own", run("arr").confirms === 0);
+      // A release does NOT disarm: the warning stays up between the two
+      // presses, which is the entire point of the state.
+      check("releasing keeps the warning up", run("ar").end.armed && !run("ar").end.held);
+    }
+
     check("...and the arm is the only thing the two cards differ by",
       armed.replace(S.quitArmNoteHTML(4), "")
         .replace(`data-armed="true"`, `data-armed="false"`)

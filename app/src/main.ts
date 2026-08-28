@@ -117,7 +117,8 @@ import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import {
-  focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV,
+  armActivate, armRelease, DISARMED, focusInitial, moveFocus,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, type ArmState,
 } from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
@@ -394,11 +395,16 @@ class App {
    *  runs `sealBreakOwed` is already false and asking it again would draw the
    *  short panel on the one occasion the long one is owed. */
   private sealBreakExplain = false;
-  /** The pause card's Quit has been pressed once and is now armed — the next
-   *  press ends the run (requestQuitRun). Cleared on the way out of "paused"
-   *  (setState), which is what keeps the arm and the warning that explains it
-   *  on screen together. */
-  private quitArmed = false;
+  /** The pause card's Quit, mid-arming (ui/padnav.ts's arm machine): whether
+   *  the first activation has landed, and whether it has been released yet.
+   *  A second, DISTINCT press is what ends the run — see requestQuitRun.
+   *
+   *  Reset on the way out of "paused" (setState), which is what keeps the arm
+   *  and the warning that explains it on screen together. */
+  private quitArm: ArmState = DISARMED;
+  /** Removes the one-shot release listeners armQuitRelease installed, or null
+   *  when none are pending. Held so a re-arm cannot leave a second set behind. */
+  private quitReleaseOff: (() => void) | null = null;
   /** Consecutive taps on the tower's headhouse beacon — the Tier S gesture
    *  (lib/devmode.ts). Held on the app rather than in the DOM because the
    *  menu's markup is rewritten wholesale by renderOverlay, and a counter
@@ -958,7 +964,7 @@ class App {
     // still true. No timeout, either — the bay is frozen and the card has no
     // clock, so an arm that expired under a reader's eyes would only make the
     // visible warning a lie about what the next press does.
-    if (s !== "paused") this.quitArmed = false;
+    if (s !== "paused") this.disarmQuit();
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -1210,7 +1216,7 @@ class App {
   private quitFace(): { armed: boolean; bayNum: number } | undefined {
     const run = this.run;
     if (!run || !quitLosesProgress(run)) return undefined;
-    return { armed: this.quitArmed, bayNum: run.levelIndex + 1 };
+    return { armed: this.quitArm.armed, bayNum: run.levelIndex + 1 };
   }
 
   /**
@@ -4552,6 +4558,15 @@ class App {
    * does), and it is asked here as well as at render time because a stale card
    * must not be able to talk this method into skipping it.
    *
+   * …AND THE SECOND PRESS HAS TO BE A SECOND PRESS. Two ACTIVATIONS is not the
+   * promise this control makes: with the button keyboard-focused, a held Enter
+   * makes Chromium dispatch a native click per keydown repeat, so one physical
+   * press armed and then immediately confirmed — the warning flashing under the
+   * player's own finger, which is worse than no warning. The arm machine
+   * (ui/padnav.ts) therefore refuses every activation until the one that armed
+   * has been RELEASED; armQuitRelease below is what tells it. Found in review
+   * (codex, PR #167) and reproduced on a real run, Enter and Space both.
+   *
    * ARMING PATCHES THE MOUNTED CARD rather than re-rendering it. renderOverlay
    * would rebuild `.panel.modal.pop` and replay the card's entrance for a state
    * change that is not an entrance — and it would destroy the button the pad
@@ -4565,12 +4580,62 @@ class App {
       this.toMenu();
       return;
     }
-    if (!this.quitArmed) {
-      this.quitArmed = true;
-      this.syncQuitArm();
+    const was = this.quitArm;
+    const step = armActivate(was);
+    this.quitArm = step.state;
+    if (step.confirmed) {
+      this.toMenu();
       return;
     }
-    this.toMenu();
+    // A refused repeat leaves the card exactly as it is — no re-patch, no
+    // sound of its own, nothing that would read as "something happened". The
+    // player is holding a key down; the honest answer is that the button is
+    // already saying what the next real press will do.
+    if (was.armed) return;
+    this.armQuitRelease();
+    this.syncQuitArm();
+  }
+
+  /** Waits for the arming activation to END, and tells the machine when it has.
+   *
+   *  One-shot and capture-phase, on the window rather than the button, because
+   *  the release that matters may not be delivered to the button at all — a
+   *  keyup after focus has moved, a pointer that drifted off before lifting.
+   *  `pointercancel` counts as a release for the same reason it does for the
+   *  Bond hold: a gesture the browser takes over has ended as far as the player
+   *  is concerned.
+   *
+   *  A POINTER HAS ALREADY RELEASED by the time its click runs, so this looks
+   *  like it would strand a mouse or a thumb — it does not. These listeners are
+   *  installed DURING that click, and the next tap's pointerup arrives before
+   *  the next click, so two distinct taps pass however fast they are. What a
+   *  pointer cannot do is repeat, which is the whole reason the gate exists.
+   *
+   *  THE PAD RELEASES ELSEWHERE (onPadUiButton): it emits no release event at
+   *  all, so a pad player would sit armed forever waiting for one. */
+  private armQuitRelease(): void {
+    this.quitReleaseOff?.();
+    const release = (): void => {
+      this.quitArm = armRelease(this.quitArm);
+      this.quitReleaseOff?.();
+    };
+    const off = (): void => {
+      window.removeEventListener("keyup", release, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      this.quitReleaseOff = null;
+    };
+    window.addEventListener("keyup", release, true);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    this.quitReleaseOff = off;
+  }
+
+  /** Back to a card whose Quit takes two presses again, with no listener left
+   *  waiting on a release nobody is going to care about. */
+  private disarmQuit(): void {
+    this.quitArm = DISARMED;
+    this.quitReleaseOff?.();
   }
 
   /** Writes the arm onto the mounted pause card: the button's face and
@@ -5338,6 +5403,15 @@ class App {
    *  every screen — including the draft's focus-restoring re-render, which is
    *  what lets pad selection survive a card toggle. */
   private onPadUiButton(button: number): boolean {
+    // A PAD PRESS EDGE IS A RELEASE, for the arm machine's purposes. The pad
+    // emits no release event of its own (the Gamepad API is a state snapshot),
+    // so an armed Quit would sit waiting for a keyup or a pointerup that a pad
+    // player is never going to produce. What it does emit is EDGES, and only
+    // edges: game/gamepad.ts arms autorepeat for directions and nothing else,
+    // precisely so a held confirm cannot fire its screen twice. So every press
+    // that reaches here is already a distinct one, which is the fact the
+    // machine is trying to establish — see ui/padnav.ts's armRelease.
+    this.quitArm = armRelease(this.quitArm);
     // The press that flipped the profile to gamepad already did its job —
     // landing focus (see setProfile, which stamped padWokeAt in this same
     // poll tick). Consuming it here is what keeps "wake the pad" and "press

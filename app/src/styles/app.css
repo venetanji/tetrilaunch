@@ -2541,12 +2541,24 @@ body.crt-off #app::after { display: none; }
    already said what it does.
 
    BOTH FACES ARE ALWAYS IN THE MARKUP, stacked in ONE grid cell. The cell sizes
-   to the wider of them ("QUIT ANYWAY"), so the button measures the same idle as
-   armed and the four-button row cannot reflow under the thumb that is about to
-   press again — the same rule the draft's pick box follows for the same reason
-   (see .mod-card__box). The idle button is therefore ~34px wider than the bare
-   ghost it replaces; the row wraps at var(--sp-3) and every uifit row absorbs
-   it, which is the price of never moving Restart Bay onto a press aimed here.
+   to the wider of them ("QUIT ANYWAY"), so the button is the same WIDTH idle as
+   armed. That axis is the one that matters, and it is not symmetry for its own
+   sake: this is a wrapping row, so a button that grew sideways would slide its
+   neighbours along it and put RESTART BAY under a press aimed at Quit. The idle
+   button is therefore ~34px wider than the bare ghost it replaces; the row wraps
+   at var(--sp-3) and every uifit row absorbs it.
+
+   THE OTHER AXIS IS NOT RESERVED, deliberately. The note adds a row and the
+   modal is centred, so arming lifts the button 19.6px on a 915x412 phone and
+   36.3px at 1280x720 (measured, live). Reserving that too would mean a permanent
+   dead band on the most-visited modal in the game to serve a state most players
+   never see. It is also the wrong instinct here: this is not the draft's pick
+   box (.mod-card__box), which is a toggle a player taps repeatedly and must find
+   in the same place. It is a destructive confirm, and its failure mode is a
+   blind second tap at the first tap's coordinates — which now lands on the
+   warning text rather than on the button, and on no other control either way,
+   because the whole row moves together. Verified: a same-point double tap does
+   not confirm; two taps that actually aim at the armed button do.
 
    `visibility` rather than `display` for the hidden face: a display:none child
    contributes no intrinsic width, which would collapse the reservation above
