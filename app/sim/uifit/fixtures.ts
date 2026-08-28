@@ -16,7 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
-import { BOARD_SANDBOX, type ScoreEntry } from "../../src/lib/api";
+import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
 import { makeBaseLevel } from "../../src/game/level";
@@ -32,7 +32,7 @@ import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
 import { CLAUSE_STOPS, skydeckRunFor } from "../../src/game/skydeck";
-import { dailyContracts } from "../../src/game/contracts";
+import { dailyContracts, dailySeed } from "../../src/game/contracts";
 import { DRILLS } from "../../src/game/drills";
 import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
 
@@ -651,14 +651,25 @@ export const SCREENS: Record<string, () => string> = {
       rebinding: null,
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
-  // The two-board state: the tab strip only exists once Tier S is open, and it
-  // takes a row off the board's own height, so both boards get a fixture.
+  // The multi-board states: the tab strip only exists once a second board does,
+  // and it takes a row off the board's own height, so each board gets a fixture.
   "leaderboard-tabs": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: 7, tier: 7, sandbox: true }),
   "leaderboard-sandbox": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: BOARD_SANDBOX, sandbox: true }),
+  // THE WIDEST STRIP the screen can render: a save with the roof open AND Tier
+  // S found carries three tabs, which is the state to measure — the Skydeck's
+  // own tab is the longest of the three, and the heading it sits under is the
+  // only one that carries a date. A Mark-10 ladder tab beside it, since the
+  // roof opens only on a beaten ladder.
+  "leaderboard-skydeck": () =>
+    S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
+      {
+        board: BOARD_SKYDECK, tier: 10, sandbox: true, skydeck: true,
+        day: dailySeed(new Date(Date.UTC(2026, 7, 27))),
+      }),
 
   // TWO fixtures, because the screen has two shapes and only one of them was
   // ever measured. `workshop` is the early save: nothing owned, so there are no
