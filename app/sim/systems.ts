@@ -1439,6 +1439,24 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
     plateCount(shipPlatesHTML(fourAboard, 999)) === UPGRADES.length);
   check("an open slot carries no system's mark",
     !shipPlatesHTML(newTiers(), SLOT_BASE).includes("<svg"));
+  // THE COUNT REACHES THE STYLESHEET, because the plate's width is the rack's
+  // row budget divided by it (app.css's --plate-w) and nothing in CSS can
+  // count its own children. It is the DRAWN count, not the argument: the
+  // rig-carrying floor above means a four-slot rack holding six systems draws
+  // six boxes, and dividing the budget by four there would overflow the row.
+  const slotsAttr = (html: string): string | null =>
+    html.match(/--rack-slots:\s*(\d+)/)?.[1] ?? null;
+  check("the rack tells the stylesheet how many slots it drew",
+    slotsAttr(shipPlatesHTML(fourAboard, 6)) === "6");
+  check("...the count it DREW, not the one it was told",
+    slotsAttr(shipPlatesHTML(
+      safeLoadout({ ...owning(UPGRADES.length), slots: SLOT_CAP }), 1,
+    )) === String(SLOT_CAP));
+  // A divisor of zero takes the whole declaration invalid-at-computed-value
+  // time, which lands `width` on `auto` rather than on a fallback — so an
+  // empty rack floors at one rather than dividing by nothing.
+  check("...and never hands it a zero to divide by",
+    slotsAttr(shipPlatesHTML(newTiers(), 0)) === "1");
 
   // --- the sandbox is the free lab ----------------------------------------
   // Tier S builds its rig from sandbox.ts rather than from the loadout, so the
@@ -5298,7 +5316,7 @@ section("The odometer (app.css .roll — the lift's readouts)");
 }
 
 // ---------------------------------------------------------------------------
-section("The menu's demo panel is an equation (app.css --brand-w)");
+section("The menu's demo panel is an equation (app.css --brand-cap)");
 // The home screen's attract panel is 16:9 and shares its column with a shelf
 // that has a hard floor, so its width is not a taste decision — it is the
 // solution of a budget. It used to be a STAIRCASE of height media queries
@@ -5340,12 +5358,62 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
     /container-type:\s*size/.test(menuRule),
     menuRule.slice(0, 200).trim());
 
+  // THE TRACK HAS TO BE THE COLUMN'S OWN WIDTH, not the row's leftover, and
+  // this is the second half of the same defect the equation fixed. The
+  // equation caps the stack off the column's HEIGHT; a `1fr` brand track knows
+  // nothing about that cap, so on any window where it bites the track was
+  // wider than everything in it and the difference was drawn as backdrop
+  // between the brand stack and the tower — the reported "gap left of the
+  // elevator", 86.5px at 1269x663 and 24.5px on a Pixel 7.
+  //
+  // Nothing in sim/uifit can see it: a hole inside a grid area overflows
+  // nothing, clips nothing, scrolls nothing and overlaps nothing. It is a
+  // stylesheet fact, so it is pinned as one.
+  //
+  // COMMENTS OUT FIRST. The prose beside these two declarations quotes both of
+  // them by name — a check that read the raw slice would pass on its own
+  // justification, which is the most convincing way there is to assert nothing
+  // at all (proven: deleting the rule left the check green until this line
+  // existed).
+  const menuBody = menuRule.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("the brand track is sized to the column's cap, not to the row's leftover",
+    /--split-cols:\s*minmax\(0,\s*max-content\)\s*var\(--tower-w\)\s*var\(--rail-w\)/.test(menuBody),
+    (menuBody.match(/--split-cols:.*/) ?? ["--split-cols is not declared on .menu"])[0].trim());
+  // ...and what the track no longer takes is spent as OUTER margin rather than
+  // left in the row, which is the same trick the max-width beside it plays and
+  // the reason the three columns stay adjacent at every size.
+  check("...and the surplus goes outside the row, not between its columns",
+    /justify-content:\s*center/.test(menuBody),
+    menuBody.trim().slice(0, 300));
+
   const brandRule = css.slice(css.indexOf("\n.menu__brand {"));
   const brandBody = brandRule.slice(brandRule.indexOf("{") + 1, brandRule.indexOf("\n}"));
-  check("--brand-w is solved from the column's own height somewhere in the sheet",
-    /--brand-w:\s*min\(100%,\s*calc\(\(100cqh\s*-\s*var\(--brand-reserve\)\)\s*\*\s*16\s*\/\s*9\)\)/
+  check("--brand-cap is solved from the column's own height somewhere in the sheet",
+    /--brand-cap:\s*calc\(\(100cqh\s*-\s*var\(--brand-reserve\)\)\s*\*\s*16\s*\/\s*9\)/
       .test(css),
-    (css.match(/--brand-w:.*/g) ?? ["--brand-w is not declared"]).join(" | "));
+    (css.match(/--brand-cap:.*/g) ?? ["--brand-cap is not declared"]).join(" | "));
+  // ...and --brand-w is that cap clamped to the column it landed in, one clamp
+  // and no steps of its own. The split is not cosmetic: .menu sizes the brand
+  // TRACK off the cap, and a `min(100%, …)` in a `max-content` track is a
+  // percentage against an indefinite box — Chromium answers zero and the whole
+  // column collapses (measured: every row in the device matrix came out 0px
+  // wide). The percentage belongs one level in, where the box is definite.
+  // Comments out first: the prose in this stylesheet names both tokens
+  // constantly, and one paragraph ends a sentence on "--brand-w:".
+  const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("--brand-w is one clamp over the cap, and never steps",
+    (cssBare.match(/--brand-w\s*:/g) ?? []).length === 1
+      && /--brand-w:\s*min\(100%,\s*var\(--brand-cap\)\)/.test(cssBare),
+    (cssBare.match(/--brand-w:.*/g) ?? ["--brand-w is not declared"]).join(" | "));
+  // The item side of the track rule. A `max-content` track measures the item's
+  // own width declaration, so the column has to STATE the cap; `max-width:
+  // 100%` is what keeps a narrow window honest, and it can only be a
+  // percentage — inert while the track is being sized, clamping once it is
+  // definite. Drop either half and the gap comes back (without the width) or
+  // the column overflows a phone (without the max-width).
+  check("the brand column states its cap so the track can measure it",
+    /width:\s*var\(--brand-cap\);/.test(brandBody) && /max-width:\s*100%/.test(brandBody),
+    brandBody.replace(/\/\*[\s\S]*?\*\//g, "").trim().slice(0, 200));
 
   // The solver is kept off the STACKED branch, where the equation's premise
   // fails: `100cqh` is the whole .menu row, and the row is this column only
@@ -5353,7 +5421,7 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   // an override would have to sit after the @supports block to win, which is
   // the arrangement that made the first attempt at this fragile.
   check("the solver is scoped away from the one-column branch",
-    /@media\s+not\s+all\s+and\s*\(max-aspect-ratio:\s*1\s*\/\s*1\)\s*\{[\s\S]{0,400}?--brand-w:[^;]*100cqh/
+    /@media\s+not\s+all\s+and\s*\(max-aspect-ratio:\s*1\s*\/\s*1\)\s*\{[\s\S]{0,400}?--brand-cap:[^;]*100cqh/
       .test(css),
     "the 100cqh declaration is not inside a `not all and (max-aspect-ratio: 1/1)` guard");
 
@@ -5453,9 +5521,9 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   // .screen's `overflow: hidden`, worse than the band the change set out to
   // fix. So: exactly one --brand-w in .menu__brand's own block.
   const ownBlock = brandBody.replace(/\/\*[\s\S]*?\*\//g, "");
-  check("the brand rule declares --brand-w once, not as a two-declaration fallback",
-    (ownBlock.match(/--brand-w\s*:/g) ?? []).length === 1,
-    String((ownBlock.match(/--brand-w\s*:/g) ?? []).length));
+  check("the brand rule declares --brand-cap once, not as a two-declaration fallback",
+    (ownBlock.match(/--brand-cap\s*:/g) ?? []).length === 1,
+    String((ownBlock.match(/--brand-cap\s*:/g) ?? []).length));
 
   // Every container-unit use of --brand-w lives inside a feature query. Cut the
   // @supports blocks out and no `cq*` unit may be left setting this token.
@@ -5486,13 +5554,13 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   check("stripping @supports leaves the rest of the stylesheet intact",
     noSupports.includes(".menu__brand") && noSupports.length > noComments.length * 0.9,
     `${noSupports.length} of ${noComments.length} chars survived`);
-  check("no --brand-w outside a feature query uses a container unit",
-    !/--brand-w\s*:[^;]*\bcq(h|w|i|b|min|max)\b/.test(noSupports),
-    (noSupports.match(/--brand-w\s*:[^;]*cq[a-z]+[^;]*/g) ?? []).join(" | "));
+  check("no --brand-cap outside a feature query uses a container unit",
+    !/--brand-cap\s*:[^;]*\bcq(h|w|i|b|min|max)\b/.test(noSupports),
+    (noSupports.match(/--brand-cap\s*:[^;]*cq[a-z]+[^;]*/g) ?? []).join(" | "));
   // ...and the solver really is behind one, rather than simply absent.
-  check("the solved --brand-w sits inside an @supports for container units",
+  check("the solved --brand-cap sits inside an @supports for container units",
     /@supports\s*\(\s*width:\s*1cq[a-z]+\s*\)/.test(css)
-      && /--brand-w\s*:[^;]*100cqh/.test(css),
+      && /--brand-cap\s*:[^;]*100cqh/.test(css),
     "no @supports (width: 1cq*) guarding the solver");
 
   // STRIP THE ENHANCEMENT AND THE OLD SCREEN HAS TO BE UNDERNEATH IT. These are
@@ -5502,11 +5570,11 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   // deleting a step "because the equation covers it" fails here rather than on
   // a device nobody in this repo owns.
   for (const [label, re] of [
-    ["440px default", /\.menu__brand\s*\{[^}]*--brand-w:\s*min\(100%,\s*440px\)/],
+    ["440px default", /\.menu__brand\s*\{[^}]*--brand-cap:\s*440px/],
     ["360px step under a 620px-tall viewport",
-      /@media\s*\(max-height:\s*620px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w:\s*min\(100%,\s*360px\)/],
+      /@media\s*\(max-height:\s*620px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap:\s*360px/],
     ["640px step at 700px and over",
-      /@media\s*\(min-height:\s*700px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w:\s*min\(100%,\s*640px\)/],
+      /@media\s*\(min-height:\s*700px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap:\s*640px/],
   ] as [string, RegExp][]) {
     check(`the pre-container-query base still carries its ${label}`, re.test(noSupports),
       "missing from the stylesheet with @supports stripped");
@@ -5517,11 +5585,116 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   // rule happened to be later in the file. The band they leave between them is
   // deliberate — it is where the 440px default lives, and on a modern engine it
   // is exactly where the equation takes over.
-  const stepDown = noSupports.match(/@media\s*\(max-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w/);
-  const stepUp = noSupports.match(/@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w/);
+  const stepDown = noSupports.match(/@media\s*\(max-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap/);
+  const stepUp = noSupports.match(/@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap/);
   check("the stepped fallback's two thresholds do not overlap",
     stepDown !== null && stepUp !== null && Number(stepDown[1]) < Number(stepUp[1]),
     `${stepDown?.[1] ?? "?"} / ${stepUp?.[1] ?? "?"}`);
+}
+
+// ---------------------------------------------------------------------------
+section("The build rack's plate is ONE shape (app.css --plate-w)");
+// Four passes of shaving took the plate's WIDTH from 40 --fpx to 24 and never
+// touched its HEIGHT, because every constraint that forced a pass was
+// horizontal. The plate is authored 40 by 69.3 — 0.577 — and at regular and
+// roomy density it was rendering 24 by 69.3, which is 0.346. That is the
+// reported "the systems in the HUD are all squashed small" on a desktop
+// window, and the phone never showed it because the compact block states BOTH
+// of its numbers and so kept a shape while the base rule lost one.
+//
+// sim/uifit cannot see this either, and for the same reason the menu's gap was
+// invisible to it: a plate at the wrong ASPECT overflows nothing, clips
+// nothing and crowds no glyph — the `badge` assertion measures side air, which
+// a narrower box makes MORE of, not less. The shape is a stylesheet fact, so
+// it is pinned as one, and it is pinned as a RATIO so it cannot drift a fifth
+// time.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const plateRule = css.slice(css.indexOf("\n.ship-plate {"));
+  // Comments out, for the reason the menu section states at length: the prose
+  // in this rule quotes its own numbers, and a check that reads them out of
+  // its own justification asserts nothing.
+  const plateBody = plateRule.slice(0, plateRule.indexOf("\n}")).replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // The AUTHORED proportion, and the one number the whole rule turns on. 69.3
+  // over 40 is 1.7325, and the compact clamp a few hundred lines up already
+  // quotes the same shape from the other side ("the plate the tablet draws at
+  // 0.58:1") — which is the tell that 0.577 was always the intent.
+  const AUTHORED_W = 40;
+  const AUTHORED_H = 69.3;
+  const ratio = plateBody.match(/height:\s*calc\(var\(--plate-w\)\s*\*\s*([\d.]+)\)/);
+  check("the plate's height is its width times the authored 40:69.3",
+    ratio !== null && Math.abs(Number(ratio[1]) - AUTHORED_H / AUTHORED_W) < 0.0005,
+    ratio?.[1] ?? plateBody.match(/height:.*/)?.[0]?.trim() ?? "no height declaration");
+  check("...and the width is the shape token itself, so the two cannot drift apart",
+    /width:\s*var\(--plate-w\)/.test(plateBody),
+    plateBody.match(/width:.*/)?.[0]?.trim() ?? "no width declaration");
+  // A second --fpx coefficient on the height is exactly how the shape went
+  // stale the first time. There must not be one.
+  check("...with no independent height coefficient left to go stale",
+    !/height:[^;]*--fpx/.test(plateBody),
+    plateBody.match(/height:.*/)?.[0]?.trim() ?? "");
+
+  // THE WIDTH IS A BUDGET DIVIDED BY THE RACK'S OWN SLOT COUNT. 280 --fpx + 9px
+  // is what ten slots and their nine 1px gaps are allowed; 28 is the largest
+  // flat coefficient that leaves the binding window in sim/uifit's matrix —
+  // 800x600, the narrowest row at regular density, --fpx 0.625 — sitting on the
+  // 17.5px floor it already sat on, because 28 x 0.625 is 17.5 exactly.
+  const cap = plateBody.match(/min\(\s*calc\((\d+) \* var\(--fpx\)\)/);
+  const share = plateBody.match(/calc\(\((\d+) \* var\(--fpx\) \+ 10px\) \/ var\(--rack-slots, (\d+)\) - 1px\)/);
+  const floor = plateBody.match(/--plate-w:\s*max\(\s*([\d.]+)px/);
+  check("the plate's cap is the authored width",
+    cap !== null && Number(cap[1]) === AUTHORED_W, cap?.[1] ?? "no cap");
+  check("the budget is what the slot cap and its hairline gaps are allowed",
+    share !== null && Number(share[2]) === SLOT_CAP, share?.[0] ?? "no budget term");
+  const COEFF = Number(share?.[1] ?? 0) / SLOT_CAP;
+  const BINDING_FPX = 0.625;               // 800x600, the narrowest regular row
+  check("...which is 28 --fpx a slot at the cap", COEFF === 28, String(COEFF));
+  check("...and lands the binding window exactly on the floor it already had",
+    floor !== null && Math.abs(COEFF * BINDING_FPX - Number(floor[1])) < 0.001,
+    `${COEFF} x ${BINDING_FPX} = ${COEFF * BINDING_FPX} against a ${floor?.[1] ?? "?"}px floor`);
+  // The rack can never outgrow that budget, whatever the count: at n slots it
+  // measures n x share + (n-1) gaps, which is the budget by construction, and
+  // the cap only ever makes it smaller.
+  const rackWidth = (n: number, fpx: number): number =>
+    n * Math.max(17.5, Math.min(AUTHORED_W * fpx, (COEFF * SLOT_CAP * fpx + 10) / n - 1)) + (n - 1);
+  const budget = (fpx: number): number => COEFF * SLOT_CAP * fpx + 9;
+  for (let n = 1; n <= SLOT_CAP; n++) {
+    check(`a ${n}-slot rack stays inside the ten-slot budget at every density`,
+      [0.625, 0.78, 0.92, 1.15, 1.5].every((f) => rackWidth(n, f) <= budget(f) + 0.001),
+      [0.625, 0.78, 0.92, 1.15, 1.5]
+        .map((f) => `${f}: ${rackWidth(n, f).toFixed(1)} vs ${budget(f).toFixed(1)}`).join(" | "));
+  }
+
+  // COMPACT OWNS ALL THREE OF ITS NUMBERS, which is what keeps the phone out of
+  // this change entirely. Width comes from the flat 19px token, height from the
+  // shared chip rule, and the mark from its own restatement — 19/2.18 is 8.72
+  // and would otherwise lift a mark that is on its 8.5px legibility floor on
+  // every phone in the matrix.
+  check("compact pins the shape token flat, so the phone's plate is unchanged",
+    /\[data-density="compact"\]\s*\.pl-mods\s*\.ship-plate\s*\{\s*--plate-w:\s*19px;\s*\}/.test(css),
+    (css.match(/\[data-density="compact"\][^\n]*ship-plate[^\n]*/g) ?? []).join(" | "));
+  check("...and states its own mark rather than deriving one",
+    /\[data-density="compact"\]\s*\.ship-plate__g\s*\{\s*font-size:\s*max\(8\.5px,\s*calc\(11 \* var\(--fpx\)\)\);\s*\}/
+      .test(css),
+    (css.match(/\[data-density="compact"\][^\n]*ship-plate__g[^\n]*/g) ?? []).join(" | "));
+  // The mark at every other density is read OFF the plate, so a rack that
+  // divides its budget cannot leave a big box round a small glyph. 2.18 is the
+  // 24/11 the tenth slot left behind, kept exactly.
+  check("the mark is a fixed fraction of the slot everywhere else",
+    /font-size:\s*max\(8\.5px,\s*calc\(var\(--plate-w\)\s*\/\s*2\.18\)\)/.test(css),
+    (css.match(/\.ship-plate__g[\s\S]{0,600}?font-size:[^;]*/)?.[0] ?? "").slice(-80));
+  // ...and sim/uifit's badge floor still clears at the tightest slot it can
+  // draw: air is (padding box - mark)/2 against 0.4 of the mark, i.e. the
+  // padding box must be 1.8 marks wide.
+  const BORDERS = 2;
+  const tightest = 17.5;
+  check("the tightest slot still clears the badge floor",
+    tightest - BORDERS >= 1.8 * 8.5,
+    `${tightest - BORDERS} against ${1.8 * 8.5}`);
 }
 
 // ---------------------------------------------------------------------------
