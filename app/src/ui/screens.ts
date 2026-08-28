@@ -1654,9 +1654,25 @@ export function endBoard(entries: ScoreEntry[], name?: string): BoardRow[] {
 
 export const END_BOARD_TOP = 5;
 
-export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): string {
+/** What an EMPTY board says. The roof's is a day rather than a rung, so it
+ *  cannot borrow the ladder's sentence: "no scores at this Tier" on the
+ *  Skydeck's board is the same leak tierText exists for, one screen along. */
+export function emptyBoardText(board: BoardId): string {
+  return board === BOARD_SKYDECK
+    ? "No scores on today's board yet — be the first!"
+    : "No scores at this Tier yet — be the first!";
+}
+
+export function leaderboardRowsHTML(
+  rows: BoardRow[],
+  highlight?: string,
+  /** Which board these rows are from — only read when there are none. Defaults
+   *  to a Tier's wording, which is what every caller that predates the daily
+   *  board meant. */
+  board: BoardId = 1,
+): string {
   if (!rows.length) {
-    return `<div class="muted" style="padding:20px;text-align:center">No scores at this Tier yet — be the first!</div>`;
+    return `<div class="muted" style="padding:20px;text-align:center">${emptyBoardText(board)}</div>`;
   }
   const medals = ["🥇", "🥈", "🥉"];
   return `<div class="lb">${rows

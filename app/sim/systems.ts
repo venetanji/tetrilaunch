@@ -10225,6 +10225,14 @@ section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
     !skyScreen.includes(`Tier ${BOARD_SKYDECK}`) && !S.boardText(BOARD_SKYDECK).includes("-"));
   check("the heading names the day on screen",
     skyScreen.includes(S.dayText(day)) && S.dayText(day) === "2026-08-27");
+  // An EMPTY board still has to say what it is. "No scores at this Tier yet" on
+  // a board that is a day is the same leak tierText exists for.
+  check("an empty Sky board is a day with no scores, not a tier with none",
+    !S.emptyBoardText(BOARD_SKYDECK).includes("Tier")
+      && S.emptyBoardText(BOARD_SKYDECK).includes("today"));
+  check("...and every other board keeps the sentence it had",
+    S.emptyBoardText(MARK_COUNT) === S.emptyBoardText(BOARD_SANDBOX)
+      && S.emptyBoardText(MARK_COUNT).includes("this Tier"));
   check("a save that cannot fly the roof is offered no Sky tab",
     !S.leaderboardScreen("", { board: MARK_COUNT, tier: MARK_COUNT, sandbox: true })
       .includes(`data-board="${BOARD_SKYDECK}"`));

@@ -2455,7 +2455,7 @@ class App {
         break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
-          S.leaderboardRowsHTML(S.fullBoard(this.boards[this.lbBoard] ?? [])),
+          S.leaderboardRowsHTML(S.fullBoard(this.boards[this.lbBoard] ?? []), undefined, this.lbBoard),
           {
             board: this.lbBoard,
             tier: this.ladderBoard(),
@@ -2585,6 +2585,7 @@ class App {
               rows: S.leaderboardRowsHTML(
                 S.endBoard(this.boards[this.runBoard()] ?? [], loadName() || undefined),
                 loadName() || undefined,
+                this.runBoard(),
               ),
               reason: g.lossReason,
               bayNum: this.run.levelIndex + 1,
@@ -4523,7 +4524,7 @@ class App {
     const rows = this.state === "leaderboard"
       ? S.fullBoard(cached)
       : S.endBoard(cached, highlight);
-    body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
+    body.innerHTML = S.leaderboardRowsHTML(rows, highlight, board);
   }
 
   /** Point the standalone screen at a board and start its fetch. The DAY is set
