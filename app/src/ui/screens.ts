@@ -3729,7 +3729,7 @@ function previewGridHTML(rows: PreviewRow[], explains: boolean): string {
       // inside the tile it costs only the lines it needs, on the row the belt
       // tile already sat in.
       const parts = explains && r.parts?.length ? previewMixHTML(r.parts) : "";
-      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
+      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}${parts ? " preview-stat--mix" : ""}">
         <div class="preview-stat__label">${label}</div>
         <div class="preview-stat__val">${val}</div>
         ${parts}

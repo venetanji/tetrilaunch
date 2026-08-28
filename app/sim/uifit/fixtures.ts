@@ -267,8 +267,10 @@ function refit(order: RefitOrder, over: { tiers?: UpgradeTiers; ratchets?: Ratch
     order,
     // No banked ratchets — main.ts's refitHTML passes none, and the reason it
     // does is a layout one, so a fixture that passed them would measure a
-    // screen the app never renders.
-    preview: previewRows(levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run)),
+    // screen the app never renders. The run's notches travel as the `tally`
+    // the belt breakdown quotes, exactly as they do there.
+    preview: previewRows(
+      levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run), {}, run.ratchets),
   });
 }
 

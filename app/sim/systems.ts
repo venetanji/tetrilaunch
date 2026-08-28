@@ -1243,10 +1243,13 @@ section("Installs — what salvage buys (meta.ts)");
   // belt knows, with the glyph the player learns it by, and say how many of its
   // own numbers the order moved.
   const mixRun = { ...newRun(11, [], 500, newTiers(), 6), levelIndex: 6, ratchets: { slag: 2, cryo: 1 } as Ratchets };
+  // The yard's own call, verbatim from main.ts's refitHTML: no bank, the run's
+  // notches as the tally.
   const mixPreview = previewRows(
     levelForRun(mixRun),
     levelForRun(buyUpgrades({ ...mixRun, tiers: { ...newTiers(), reactor: 1 } }, { reactor: 1 }, MAX_TIER)
       ?? mixRun),
+    {},
     mixRun.ratchets,
   );
   const recap = yard({ preview: mixPreview, order: { reactor: 1 } });
@@ -1257,6 +1260,16 @@ section("Installs — what salvage buys (meta.ts)");
     check(`the recap draws ${m} with the glyph the belt teaches`,
       recap.includes(`aria-label="${m}"`));
   }
+  // Slag was notched twice on this run and cryo once, so both lines carry the
+  // count as well as the share — the plant panel's "×N" grammar on the panel
+  // that prices the bay. ×1 is written out rather than implied here, unlike in
+  // the tally: presence on this list means the material is ON THE BELT, which
+  // a Contract or a Final clause can arrange with no notches at all, so an
+  // absent count has to mean zero.
+  check("each material's line quotes the notches behind its share",
+    (recap.match(/preview-mix__notch">×2</g) ?? []).length === 1
+      && (recap.match(/preview-mix__notch">×1</g) ?? []).length === 1,
+    (recap.match(/preview-mix__notch">[^<]*/g) ?? ["none"]).join(","));
   check("the material lines ride inside ONE unit, not a tile each",
     (recap.match(/class="preview-mix"/g) ?? []).length === 1,
     String((recap.match(/class="preview-mix"/g) ?? []).length));
@@ -3464,6 +3477,21 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   check("a banked material quotes its notch count",
     (bankedBelt.parts ?? [])[0]?.notches === 2,
     String((bankedBelt.parts ?? [])[0]?.notches));
+  // THE TALLY IS NOT THE BANK, and the yard is why the two are separate
+  // arguments. `banked` promotes an axis's rows to core and active, which is
+  // right on a draft and wrong in the yard (main.ts's refitHTML: four unmoved
+  // pressure tiles push the rows the ORDER moved off a landscape phone). The
+  // yard passes an empty bank and the run's notches as the tally, so its belt
+  // breakdown can say "slag, taken twice, 12% of the belt" without a single
+  // row changing kind.
+  const quoted = previewRows(
+    levelForRun(bankedMix), levelForRun(bankedMix), {}, bankedMix.ratchets);
+  check("a quoted tally puts the notch count on the breakdown",
+    (row(quoted, "belt")!.parts ?? [])[0]?.notches === 2,
+    String((row(quoted, "belt")!.parts ?? [])[0]?.notches));
+  check("…and promotes nothing while it does it",
+    quoted.every((r) => !r.active) && row(quoted, "belt")!.kind === "context",
+    quoted.filter((r) => r.active).map((r) => r.id).join(","));
   check("a material nothing has touched is not on the list",
     (row(rowsFor(["cryo"]), "belt")!.parts ?? []).every((p) => p.id !== "tar"));
   // Only the belt row breaks down: every other row is one number, and a `parts`

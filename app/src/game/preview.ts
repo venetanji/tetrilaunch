@@ -51,10 +51,9 @@ export interface PreviewPart {
   changed: boolean;
   tone: PreviewTone;
   /** BANKED notches on this material's own ratchet axis — the axis id and the
-   *  material id are the same string (hazards.ts's contentAxis). 0 when the
-   *  caller passed no ratchets, which the refit yard deliberately does not
-   *  (main.ts's refitHTML says why), so the yard's list is percentages and the
-   *  draft's is percentages plus the tally. */
+   *  material id are the same string (hazards.ts's contentAxis). Read from
+   *  previewRows' `tally`, not from `banked`, so a caller can quote the bill
+   *  without pinning rows ACTIVE; 0 when neither was passed. */
   notches: number;
 }
 
@@ -135,7 +134,7 @@ interface Field {
   axis?: HazardId | readonly HazardId[];
   /** The row's breakdown, for a row that is a SUM of named things — see
    *  PreviewPart. Only the belt has one. */
-  parts?(base: LevelConfig, next: LevelConfig, banked: Ratchets): PreviewPart[];
+  parts?(base: LevelConfig, next: LevelConfig, tally: Ratchets): PreviewPart[];
 }
 
 const FIELDS: Field[] = [
@@ -448,12 +447,12 @@ const FIELDS: Field[] = [
     // material the run has never met would be five sixths of this list on an
     // ordinary bay, on the panel that overflows first. MATERIAL_ROLL_ORDER
     // rather than a fresh order, so the list reads in the belt's own sequence.
-    parts: (base, next, banked) => {
+    parts: (base, next, tally) => {
       const parts: PreviewPart[] = [];
       for (const id of MATERIAL_ROLL_ORDER) {
         const a = base.materialMix?.[id] ?? 0;
         const b = next.materialMix?.[id] ?? 0;
-        const notches = banked[id] ?? 0;
+        const notches = tally[id] ?? 0;
         if (a <= 0.005 && b <= 0.005 && notches <= 0) continue;
         const from = rate(a);
         const to = rate(b);
@@ -489,11 +488,24 @@ const FIELDS: Field[] = [
  * active and promoted to core (the frame, not droppable context). Defaults to
  * none so callers without a run — the same config twice, a bare comparison —
  * keep the old behaviour exactly.
+ *
+ * `tally` is the run's notches FOR QUOTING, and it is a second parameter rather
+ * than a second use of `banked` because the two do different things. `banked`
+ * PROMOTES: an axis with notches pins its rows core and active, beyond the
+ * compact grid's reach. That is right on a draft, where the decision is the
+ * pressure, and wrong in the yard, where four unmoved pressure tiles push the
+ * rows the ORDER moved off the bottom of a landscape phone (main.ts's refitHTML
+ * has the measurement). The yard still wants the COUNTS — a belt breakdown that
+ * says a bay is 12% slag without saying the player took slag twice is half a
+ * sentence — so it passes them here and leaves `banked` empty. Defaults to
+ * `banked`, so a caller that wants both gets both from one argument and nothing
+ * that exists today changes.
  */
 export function previewRows(
   base: LevelConfig,
   next: LevelConfig,
   banked: Ratchets = {},
+  tally: Ratchets = banked,
 ): PreviewRow[] {
   const rows: PreviewRow[] = [];
   for (const f of FIELDS) {
@@ -520,7 +532,7 @@ export function previewRows(
           : (b > a) === f.higherIsWorse ? "worse" : "better",
       kind: f.always || active ? "core" : "context",
       active,
-      ...(f.parts ? { parts: f.parts(base, next, banked) } : {}),
+      ...(f.parts ? { parts: f.parts(base, next, tally) } : {}),
     });
   }
   return rows;

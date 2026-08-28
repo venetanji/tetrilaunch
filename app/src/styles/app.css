@@ -5752,7 +5752,11 @@ body.crt-off #app::after { display: none; }
 .preview-mix__notch {
   font-family: var(--font-pixel); font-size: 7px; color: var(--warn);
 }
+/* The SHARE is the figure and the ×N beside it is the bill, so the share gets
+   the row's brightest ink — the line's own colour is muted, which would
+   otherwise leave the loudest thing on it the amber tally. */
 .preview-mix__pct { display: inline-flex; align-items: baseline; gap: 3px; }
+.preview-mix__pct .preview-stat__to { color: var(--text); }
 /* A material line inherits the tile's tones rather than restating them: the
    struck old value and the new one are the same two spans a tile uses, so the
    only thing a moved line adds is which way it moved. */
@@ -5764,8 +5768,17 @@ body.crt-off #app::after { display: none; }
    row the selection MOVED, and drops the axes that are merely in play. Ten
    tiles is four rows against a projection column that has three, and a row of
    context is what a player can reconstruct by tapping the card anyway — the
-   moment a pick touches crosswind, its tile comes back as a changed one. */
-[data-density="compact"] .preview-stat--context { display: none; }
+   moment a pick touches crosswind, its tile comes back as a changed one.
+
+   NOT the tile carrying the belt's breakdown, and the exemption is narrow on
+   purpose: it only ever exists in the yard (screens.ts's `explains`), where the
+   argument for dropping context does not hold. A crosswind tile can be
+   reconstructed by tapping a card; what the belt is MADE OF cannot be
+   reconstructed from anything on that screen, and it is the fact that decides
+   between a Demolition Rack and a Thaw Lance. Measured: it costs the yard's
+   compact projection one row, on the phone where that projection has been
+   running four tiles and half a column of air. */
+[data-density="compact"] .preview-stat--context:not(.preview-stat--mix) { display: none; }
 .preview-stat--worse { border-color: rgba(255,45,85,0.55); background: rgba(255,45,85,0.10); }
 .preview-stat--worse .preview-stat__to { color: var(--danger); }
 .preview-stat--better { border-color: rgba(0,255,156,0.5); background: rgba(0,255,156,0.10); }
@@ -6712,6 +6725,13 @@ button.panel { color: var(--text); }
 .modal--refit .preview-stat__label { font-size: 9px; }
 .modal--refit .preview-stat__val { font-size: 14px; }
 .modal--refit .preview-stat__from { font-size: 11px; }
+/* …and the belt's breakdown with them. This is the one tile whose height is a
+   function of how many materials the run carries — six lines' worth of marks in
+   a 90px column is three wrapped lines — so on the densest projection in the
+   app it gives up the same point of type the labels around it do. */
+.modal--refit .preview-mix { gap: 0 6px; padding-top: 1px; }
+.modal--refit .preview-mix__m { font-size: 9px; line-height: 1.3; gap: 2px; }
+.modal--refit .preview-mix__m .preview-stat__from { font-size: 9px; }
 /* The display face at --fs-h1 costs an iPad 70px of header on the densest
    modal in the app. The yard states its own name once and spends the rest of
    its height on the shelf and the numbers. */
@@ -7387,6 +7407,18 @@ button.panel { color: var(--text); }
   .modal--refit .preview-stat__label { font-size: 7.5px; }
   .modal--refit .preview-stat__val { font-size: 11px; gap: 3px; line-height: 1.2; }
   .modal--refit .preview-stat__from { font-size: 9px; }
+  /* The belt's marks again, and here it is WIDTH rather than height: the
+     compact yard packs five tiles across a 291px column, so a material line
+     has ~42px to hold a mark, a notch count and a share on one unbreakable
+     row. Measured at 46px before this block, which spilled 4px out of the
+     narrowest phone's tile. Nothing here may wrap — a share on its own line
+     under someone else's mark is worse than no breakdown at all. */
+  .modal--refit .preview-mix { gap: 0 4px; }
+  .modal--refit .preview-mix__m { font-size: 8px; gap: 1px; }
+  .modal--refit .preview-mix__m .mat-icon { width: 10px; height: 10px; }
+  .modal--refit .preview-mix__m .preview-stat__from { font-size: 8px; }
+  .modal--refit .preview-mix__notch { font-size: 6px; }
+  .modal--refit .preview-mix__pct { gap: 2px; }
   .modal--refit .projection { gap: 2px; padding: 3px 5px; }
   /* Even shares here, against 1.15/0.85 where there is width. The shelf
      scrolls, so width it gives up costs a few wrapped words; the projection
