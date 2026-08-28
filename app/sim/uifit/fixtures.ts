@@ -25,7 +25,7 @@ import { makeBaseLevel } from "../../src/game/level";
  *  ladder means "the bay" is a function of the Mark being flown (level.ts).
  *  Was the BAY_1 alias, which could only ever describe one tier. */
 const BAY_1 = makeBaseLevel(0);
-import { newMeta, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
+import { newMeta, SLOT_BASE, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { MARK_COUNT, MAX_TIER, newTiers, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
@@ -731,6 +731,37 @@ export const SCREENS: Record<string, () => string> = {
       thawCharges: 12,
       tiers: { ...HUD_BASE.tiers, thaw: 2 },
     }),
+  // THE RIG AS IT UNDOCKS: four slots, which is meta.ts's SLOT_BASE and the
+  // rack every run starts and most runs finish with. `hud-lance` above is the
+  // ten-slot CAP, and it stayed the only rack this harness measured while the
+  // plate was one flat width — a coefficient measured for ten is a coefficient
+  // measured for every count.
+  //
+  // It stopped being one: app.css's --plate-w divides the rack's row budget by
+  // its own slot count, so the common rack is now a DIFFERENT width from the
+  // worst-case one and the widest plate in the app is the one this fixture
+  // draws, not the one above. Same three abilities, same row, so the only thing
+  // that moves between the two is the count — which is exactly the variable
+  // under test.
+  //
+  // The TIERS have to come down with the slot count, not just `slots`:
+  // shipPlatesHTML treats the count as a floor rather than a truncation (a
+  // system aboard always gets a plate), so HUD_BASE's six mounted tracks would
+  // draw a six-slot rack whatever this said. Four mounted, four slots, no open
+  // boxes — the rig at the top of the ladder.
+  "hud-rig4": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      autoloaderOwned: false,
+      thawOwned: true,
+      thawCharges: 12,
+      tiers: {
+        bay: 2, launcher: 1, hydraulics: 3, magazine: 0, reactor: 0, bonds: 1,
+        demolition: 0, thaw: 0, cushion: 0, incinerator: 0,
+      },
+      slots: SLOT_BASE,
+    }),
   // The HUD as every bay PAST the first shot mounts it (main.ts's
   // armKeyHints): the hint strip faded, the bay floor clear. The strip's
   // shown-state geometry is measured by every other HUD fixture; this one
@@ -1296,17 +1327,18 @@ const HUD_LOADOUT = {
   thaw: HUD_BASE.thawOwned,
   auto: HUD_BASE.autoloaderOwned,
 };
-/** The rail `hud-lance` renders: the REACHABLE three-ability worst case, where
- *  HUD_LOADOUT above is the legacy one. Same slot count (7 with a fullscreen
- *  toggle), different third button — see the fixture, and HUD_BASE's
- *  `thawOwned` note for why the two are separate objects rather than one
- *  object carrying four abilities at once. */
+/** The rail `hud-lance` and `hud-rig4` render: the REACHABLE three-ability
+ *  worst case, where HUD_LOADOUT above is the legacy one. Same slot count (7
+ *  with a fullscreen toggle), different third button — see the fixture, and
+ *  HUD_BASE's `thawOwned` note for why the two are separate objects rather than
+ *  one object carrying four abilities at once. The two screens differ in their
+ *  RACK, not in their rail, so they share this. */
 const LANCE_RAIL = { bond: true, demo: true, thaw: true, auto: false };
 const NO_RAIL = { bond: false, demo: false, thaw: false, auto: false };
 export function railLoadoutFor(
   id: string,
 ): { bond: boolean; demo: boolean; thaw: boolean; auto: boolean } {
-  if (id === "hud-lance") return LANCE_RAIL;
+  if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
     // "bayclear-clause" is the same card over the same HUD, so it needs the

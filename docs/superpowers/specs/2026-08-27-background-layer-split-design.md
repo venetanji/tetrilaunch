@@ -515,8 +515,175 @@ zero. Only sums accumulated over many frames, or spans above ~1ms, carry meaning
 The 3.05ms, 0.414ms and the fps tables above are all accumulations or spans well
 above that floor.
 
+## The idle keyframe recalc, censused (2026-08-28)
+
+`sim/hudperf/run.ts`'s third arm had already named the category: on an idle bay —
+a loaded cannon, nothing in flight, nobody touching the glass — RecalcStyle over
+600 frames is **289.9ms with the animations running and 0.6ms with them stilled**,
+so **99.8% of an idle bay's style recalculation is running keyframes rather than
+DOM writes**. That is ~0.48–0.52ms/frame, and it is charged on a frame where by
+construction nothing has changed.
+
+`sim/hudperf/keyframes.ts` (`npm run sim:keyframes`) splits that number by
+animation. The roll call on an idle bay, post-#149:
+
+| animation | elements | properties | thread |
+| --- | --- | --- | --- |
+| `pixel-sparkle` | 13 | `opacity` | compositor |
+| `belt-arrow-pulse` | 8 | `opacity` | compositor |
+| `belt-roll` | 2 | `transform` | compositor |
+| `belt-arrows` | 1 | `transform` | compositor |
+| `belt-tread` | 1 | `background-position-x` | main |
+| `pulse-danger` | 1 | `opacity` | compositor |
+
+**Six animations across 26 elements, and five of the six are pure
+transform/opacity.** Leave-one-out, paired, five rounds with the arm order
+rotated between rounds (the third rebuild — see below), against a paired prize
+of 300.3ms:
+
+| animation | thread | elements | saved | share |
+| --- | --- | --- | --- | --- |
+| `pixel-sparkle` | compositor | 13 | 79.2ms | **26%** |
+| `belt-tread` | **main** | 1 | 41.7ms | **14%** |
+| `belt-arrow-pulse` | compositor | 8 | 34.9ms | **12%** |
+
+Everything else sits under the harness's measured noise floor (21.5ms; the
+control's five zeros came out 21.5, −21.1, 13.5, −14.2, 5.9ms). The three real
+rows sum to 52% of the prize — the shortfall is elements whose recalculation
+only stops when several animations still together, which is what the
+all-stilled floor measures.
+
+### What that actually says, which is not what the property column suggests
+
+**"Composited" describes the PAINT, not the recalculation.** Blink still ticks a
+running animation and recalculates its element's style on the main thread every
+frame, whatever property the keyframes land on. Every top row here is
+`opacity` or `transform`.
+
+The sharp case is `pixel-sparkle`: `14s steps(2, jump-none)`, so its computed
+opacity takes a handful of distinct values across fourteen seconds and is
+*identical* on the overwhelming majority of frames. It costs 37% of the idle
+recalc anyway. **`steps()` saves paint; it does not save recalculation.**
+
+So there are TWO levers, and the rotation-corrected numbers size them. The
+**count of continuously-animated elements** sets the bill's body — thirteen
+sparkle pixels are the top row, and moving a keyframe onto `transform` buys
+nothing this counter can see; removing it, running it on fewer elements, or
+stopping it when its readout is not escalating is what would. And the one
+animation that is genuinely main-thread — `belt-tread`'s
+`background-position-x` on a *single* element — costs more than the eight belt
+arrows put together: per element it is the most expensive thing on an idle bay,
+and it is also the one row where a property change alone (a `transform` scroll)
+could plausibly move the number.
+
+This also re-answers the crest question #149 opened. Removing the music-driven
+beat was worth 23.6fps and was the right call, but it did not take the crest out
+of the idle frame: `pixel-sparkle` on thirteen crest pixels is still the largest
+single animation on an idle bay.
+
+### The harness had to be rebuilt three times, and all three mistakes are this document's
+
+Recorded because all three are the trap this document keeps re-learning, and
+each is subtler than the one before it.
+
+**One pass over the arms is a block design.** The first version measured each
+arm once and printed six confidently-ranked rows. Re-running it moved
+`belt-arrow-pulse` from 25% to 14% and sent `pulse-danger` from +18.0ms to
+**−14.5ms** — the fourth-biggest "win" in the table came back negative. Only the
+top row survived.
+
+**Interleaving only pays if the arithmetic uses the pairs.** The second version
+interleaved the arms correctly and then compared `median(baseline)` against
+`median(arm)`, which throws the pairing away and leaves the drift in the answer.
+Measured that way the baseline arm's own spread was **106.7ms on a 289ms
+window** and *nothing at all* cleared it. The fix is the paired difference —
+`baseline[r] − arm[r]`, per round, then the median of those.
+
+The harness now carries a `(control)` arm that stills nothing, so its paired
+difference from the baseline is the method measuring a known zero, printed as
+the noise floor with every row inside it marked as resolution rather than
+result. **A harness that cannot report a zero cannot be trusted to report a
+saving.**
+
+**A fixed order inside the round is still a block design at the slot level.**
+The third rebuild came out of review rather than a re-run: every round executed
+baseline, control, all-stilled and the six arms in the same order, so drift
+that is monotonic WITHIN a round landed on the same arms every time — pairing
+against a baseline that always ran first cannot cancel it, and a control that
+always ran second cannot measure it at the ninth slot. Rotating the plan one
+slot per round moved `belt-arrow-pulse` from 38% to 12%, lifted `belt-tread`
+above the floor, and brought the measured noise floor from 57.9ms to 21.5ms.
+The fixed-order table this section carried before the rotation is superseded by
+the one above — which is itself the strongest evidence the review was right.
+
+### Confirmed on device: those 21 elements are worth ~15fps of 90
+
+Taken on a **OnePlus 7T (HD1900)** — deliberately not the phone the hypothesis
+was formed on. Android 11, Snapdragon 855+, a **90Hz** panel rather than 120Hz,
+and **WebView 87.0.4280.141**, a Chrome from late 2020. If the finding were an
+artifact of the CPH2573 or of a modern Blink, this device is where it would fail.
+
+`pixel-sparkle` and `belt-arrow-pulse` stilled together (21 elements — the
+fixed-order table's two leaders; see the post-script below), interleaved every
+400ms with the frame straddling each switch discarded, in a live Tier 1 bay,
+~950 frames per arm per run:
+
+| run | animations running | stilled | Δfps | Δon-time |
+| --- | --- | --- | --- | --- |
+| 1 | 79.5fps, 58.4% | 88.7fps, 66.4% | **+9.2** | +8.0pp |
+| 2 | 73.9fps, 29.5% | 89.0fps, 72.7% | **+15.1** | +43.2pp |
+| 3 | 73.6fps, 28.7% | 89.2fps, 71.6% | **+15.6** | +42.9pp |
+
+Every window carries its vsync discriminator: minimum rAF gaps of 4.7–7.7ms,
+which can only happen above 60Hz, so none of these is a 60Hz window answering a
+90Hz question.
+
+**The stilled arm is pinned: 88.7, 89.0, 89.2fps on a 90Hz panel, three times
+running.** With the animations on, the same bay gives 73.6–79.5 and misses most
+of its 11.11ms deadlines. The p90 gap moves 17.4ms → 12.7ms. Two decorative
+animations are the difference between this device making its frame and not.
+
+**The A/A control says the probe can report a zero.** The identical probe with a
+stylesheet that stills *nothing* — same toggle, same cadence, same discarded
+transition frames — returned **−0.8 and +1.7fps** (−2.5 and +2.6pp). The noise
+floor is about ±2fps, and the effect clears it by an order of magnitude.
+
+**Two post-scripts from review.** The desktop share of that stilled pair is 38%
+after the rotation, not the ~75% the fixed-order table claimed — the Δfps above
+is the device's own measurement and inherits no correction, but
+"three-quarters of the bill" does not survive as a description of what was
+stilled. And the probe now guards its own attribution: it stills only the
+surface each target actually runs on (the element, its `::before`, or its
+`::after`), aborts up front if a stilled surface carries a non-target animation
+— in a congested bay the crest pixels pick up spark and jiggle animations that
+the old whole-element stilling would have billed to the targets — and voids the
+verdict if one arrives mid-run. The recorded runs predate that guard and lean
+on the bay having been calm, which a fresh Tier 1 bay is; the next phone
+session should re-take them behind it. `belt-tread`, which the rotation
+surfaced, was in nobody's stilled set — on the desktop counter it is another
+14% that has never been priced on glass.
+
+### What this still does not establish
+
+The harness's **milliseconds** remain headless Chromium's on a desktop CPU — the
+caveat `sim/renderperf` and `sim/hudperf` both carry. What the device confirms is
+the *mechanism and the ranking*, not the 0.5ms/frame figure.
+
+**The 120Hz number is not taken.** Every device measurement above is the 7T at
+90Hz; the CPH2573 was unplugged when these ran. A shorter deadline should make
+this worse rather than better, but that is a prediction, not a measurement, and
+the earlier "never halve a 60Hz number into a 120Hz claim" warning cuts in both
+directions.
+
+**And no fix is proposed here.** Stilling an animation to price it is not the
+same as deciding what the resting HUD should look like — the sparkle and the
+belt arrows are deliberate, and the plant crest is a readout that escalates with
+congestion. What this section establishes is the size of the purse.
+
 ## Related
 
 - `app/native/android/MainActivity.java` — `requestHighestRefreshRate()`, the
   fix that made 120Hz vsync reachable and these numbers measurable.
 - `app/sim/renderperf` — the existing render cost harness.
+- `app/sim/hudperf/run.ts` — the DOM-write census, whose stilled arm names the
+  keyframe category; `app/sim/hudperf/keyframes.ts` splits it by animation.
