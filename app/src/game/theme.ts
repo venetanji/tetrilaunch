@@ -1,4 +1,5 @@
 // Canvas-side palette. Mirrors src/styles/tokens.css (design-system single source).
+import type { ClearGrade } from "./grades";
 
 export type PieceType = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
 
@@ -394,6 +395,73 @@ export const COLORS = {
   text: "#eaeaff",
   textDim: "#8080ac",
 };
+
+/**
+ * THE TIMING CALLOUT — what the bay shouts over a row that just sold
+ * (grades.ts, render.ts's drawPayoutFx).
+ *
+ * The word is the GRADE'S OWN NAME, uppercased, and only the best band takes
+ * punctuation. The owner's brief wrote the ladder in four asides — *"clear
+ * lines immediately after they land (excellent!), shortly after (Good), after a
+ * compactor sweep (lucky or planned?), after 3 sweeps (definitely lucky)"* —
+ * and the temptation was to make each callout the aside instead of the name
+ * ("PLANNED?" for a swept row). It was refused for a reason the end card
+ * settles: the same four words appear in the bay's tally and in the guide, and
+ * a mechanic whose in-play voice and whose scoreboard use different vocabulary
+ * takes twice as long to learn. So the aside survives as the TONE — one
+ * exclamation mark at the top, nothing at all lower down, because a bay that
+ * congratulates you for a lucky collapse is teaching the wrong thing.
+ *
+ * COLOURS: FOUR BANDS, FOUR COLOURS. The owner's note — *"we need to
+ * differentiate the colors for each timing level"* — and the first version had
+ * only three, with EXCELLENT and GOOD sharing the payout green. That reads as
+ * "paid / neutral / lost", which is the ECONOMY's three-way split rather than
+ * the ladder's four-way one, and the two bands a player is actually trying to
+ * tell apart were the two that looked identical.
+ *
+ * Still no fifth hex: every one is an existing palette member, ordered so the
+ * ladder is legible as brightness and saturation before it is legible as a
+ * word.
+ *
+ *   EXCELLENT  payout green   the money verb — this row paid above the rate
+ *   GOOD       aim cyan       the aiming verb — you placed it, one beat late
+ *   SWEPT      readout white  the neutral readout — list price, no verdict
+ *   LUCKY      dim text       the colour of a number that is not good news
+ *
+ * The two hot colours are the two that pay a premium and the two cool ones are
+ * not; within each pair the brighter is the better band. Checked against the
+ * bay's own backdrop (COLORS.bg, #07070f) rather than against a page: all four
+ * are drawn with their own shadow glow at the same radius the money uses, and
+ * the dim end is the same value LUCKY already shipped with.
+ *
+ * The CONGESTION TAG is deliberately NOT a fifth band. A capped row still shows
+ * the band it was PAID at — the toast may never shout a grade the ledger did
+ * not settle — and the tag underneath says why the band is lower than the play
+ * was. It borrows the bar's own alarm red, which is the colour the congestion
+ * floor rows and the plant crest already use for the same state.
+ */
+export const GRADE_CALLOUT: Record<ClearGrade, string> = {
+  excellent: "EXCELLENT!",
+  good: "GOOD",
+  swept: "SWEPT",
+  lucky: "LUCKY",
+};
+
+export const GRADE_COLOR: Record<ClearGrade, string> = {
+  excellent: COLORS.trajectory,
+  good: COLORS.aim,
+  swept: COLORS.text,
+  lucky: COLORS.textDim,
+};
+
+/** What a congestion-capped clear says under its money (render.ts's
+ *  drawPayoutFx). One word, the same one the guide and the HUD use for the
+ *  state, so the tag and the rule share a vocabulary. */
+export const CONGESTION_TAG = "CONGESTED";
+
+/** ...in the bay's alarm colour. Not a GRADE_COLOR entry: it is a note about
+ *  the BAY, not a fifth rung of the ladder. */
+export const CONGESTION_TAG_COLOR = COLORS.compactor;
 
 /** Shade helpers (port of the original dark/light pattern shading). */
 export function shade(hex: string, amt: number): string {
