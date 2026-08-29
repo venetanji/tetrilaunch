@@ -2053,16 +2053,16 @@ export function hudHTML(opts: {
   /** The run's tier, for the bay banner's plate (canvas A4). Null in
    *  Contract mode, whose banner names the Contract instead. */
   tier?: number | null;
-  /** The active input family (D2): the hint strip renders its bindings from
-   *  this. main.ts re-patches the strip when the profile flips mid-bay. */
+  /** The active input family (D2). The HUD renders no hint text of its own any
+   *  more — see the .hud__bottom removal below — so nothing in here reads it
+   *  today; it stays on the options because the field IS the profile the HUD
+   *  was rendered for, and every surface that grew a hint has needed to know
+   *  that. Kept optional and unread rather than deleted and re-added.
+   *
+   *  There is no `hintsDismissed` beside it any longer: it existed to mount the
+   *  key-hint strip already faded across a modal round-trip, and there is no
+   *  strip to fade. */
   profile?: InputProfile;
-  /** Mount the hint strip already faded (kbd-hint--hidden). The strip is
-   *  transient (see hintStripHTML), and the HUD is re-rendered wholesale on
-   *  every state change — pause and back, a draft and back — so the strip's
-   *  visibility has to be part of the render or every modal round-trip would
-   *  resurrect a hint the player already dismissed. main.ts's
-   *  armKeyHints/dismissKeyHints own the value. */
-  hintsDismissed?: boolean;
   /** What the cannon is HOLDING — the transport's first queue slot (canvas
    *  A5's two-deep read: loaded full-size, next behind it). The canvas draws
    *  the same piece at the muzzle; the housing is where it reads as a queue. */
@@ -2695,14 +2695,16 @@ export function hudHTML(opts: {
       </div>
     </div>
 
-    <div class="hud__bottom">
-      ${hintStripHTML(
-        opts.profile ?? "keyboard",
-        { bond: bondBreakerOwned, demo: demoOwned, thaw: thawOwned, auto: autoloaderOwned },
-        opts.hintsDismissed ?? false,
-        opts.restart ?? true,
-      )}
-    </div>
+    <!-- NO HINT LAYER. .hud__bottom was a full-bleed layer holding one thing:
+         the key-hint strip along the foot of the field, which named the
+         keyboard's controls to a desktop player. The rail carries the controls
+         AND their keycaps now, and the owner's read of what was left is the one
+         that settles it — the HUD is not where shortcuts belong. The complete
+         scheme, both input families, including the parts no button anywhere
+         carries (the aim keys, the stick, the mouse's wheel and buttons, the
+         hold that restarts the bay), is on the pause card: one keypress away,
+         at rest, with room to be read, instead of painted across a live bay
+         (pauseKeysHTML). -->
     <!-- Settle banner: shown while the bay's funding target is met and the
          field is still coming to rest (game.ts's Game.settling). Reassures the
          player that the frozen-looking cannon is intentional and their last
@@ -2723,28 +2725,6 @@ export function hudHTML(opts: {
 function hintParts(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
-  /** The pause card asks for the FULL scheme; the field strip carries only what
-   *  the RAIL CANNOT SAY.
-   *
-   *  That division is the whole shape of this function now, and it is the same
-   *  argument the rail legends were built on. Every rail button wears its own
-   *  keycap and pad mark (components.ts's railLegendHTML), so a strip hint for
-   *  rotate, an ability or pause would state one binding twice on one screen,
-   *  in two vocabularies, in two places — which is exactly what the move onto
-   *  the buttons was for. What is left has no button on any platform: the shot
-   *  is aimed by pointing (or by the angle/power keys, or by a stick) and fired
-   *  by a key, a release or a pad button, and none of those is a control the
-   *  rail draws on a phone or on a desktop.
-   *
-   *  It also answers, from the other end, the width problem the strip has
-   *  always had. It was a lean set because it had to be — two extra mouse lines
-   *  once wrapped it onto a second row on a 1280x720 laptop, straight into the
-   *  plant panel, and uifit's overlap assertion caught it. Now it is short
-   *  because there is genuinely less for it to say.
-   *
-   *  The strip is still a subset of the card, never a disagreement: shared
-   *  parts render from the same lines. */
-  full = false,
   /** Whether the run may hand a bay back at all (run.ts's bayRetryable). False
    *  only on the Skydeck, which is permadeath — the hold-to-restart line below
    *  is then teaching a gesture main.ts refuses, and D2's whole rule is that a
@@ -2754,79 +2734,64 @@ function hintParts(
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
   const parts: string[] = [];
   /* Each hint is wrapped as ONE element below, which is layout, not markup
-     tidiness: .kbd-hint is a flex container, so every loose text node between
-     two chips ("/" , " rotate") was its own anonymous flex item and got the
-     container's gap injected around it. That both spelled the hints wrong
-     ("Q / E rotate") and padded a full loadout's strip out to 951px, wider
-     than a 900px window. Grouped, a wrap can only break BETWEEN hints. */
+     tidiness: .pause-keys__grid is a flex container, so every loose text node
+     between two chips ("/" , " rotate") would be its own anonymous flex item
+     and take the container's gap around it — which both spells the hints wrong
+     ("Q / E rotate") and pads the block out by width it does not need. Grouped,
+     a wrap can only break BETWEEN hints. The class name still says `kbd-hint__`
+     because the parts are the same parts; only the surface that lays them out
+     went away. */
   const part = (inner: string) => parts.push(`<span class="kbd-hint__part">${inner}</span>`);
   if (profile === "gamepad") {
-    // CARD ONLY, all four of these: every button below is drawn on the rail
-    // wearing this exact pad mark (bindings.ts's padChip), so on the field the
-    // strip would be reading the rail back to the player.
-    if (full) part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
+    part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
     // The rate-dial default (gamepad.ts): vertical trims the angle,
     // horizontal the power, centred holds. The slingshot opt-in changes what
     // the stick MEANS but not that it aims, so the hint stays true either way.
-    // A STICK HAS NO BUTTON, which is why this one stays on the field.
+    // A STICK HAS NO BUTTON, so this line is the only place in the game the
+    // pad's aim scheme is written down at all.
     part(`${kbd("Stick")} ↕ angle · ↔ power`);
     part(`${kbd(padLabel(padFor("fire")))} fire`);
-    if (full) {
-      if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
-      if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
-      if (owned.thaw) part(`${kbd(padLabel(padFor("thaw")))} thaw`);
-      if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
-      part(`${kbd(padLabel(padFor("pause")))} pause`);
-    }
+    if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
+    if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
+    if (owned.thaw) part(`${kbd(padLabel(padFor("thaw")))} thaw`);
+    if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
+    part(`${kbd(padLabel(padFor("pause")))} pause`);
     /* THE MENU GESTURES (ui/padnav.ts): the D-pad moves focus, A activates,
        B backs out, and Back opens Controls from any menu. Named here because
        a pad player's whole route through the game runs on them and nothing
        else on screen says so — the pause modal a player is reading this card
        on is itself being driven by them.
 
-       PAUSE-CARD ONLY (`full`), for the reason the mouse's two extra lines
-       are: the field strip is width-budgeted onboarding for the BAY, and four
-       more hints wrapped it onto a second row straight into the plant panel
-       (uifit's overlap assertion). The card is the scheme's reference, and it
-       is also the one hint surface that appears on a MENU, which is where
-       these gestures apply — the strip is drawn on a live field, where the
-       D-pad is nudging aim and A is the trigger.
+       THE CARD IS ALSO THE ONE HINT SURFACE THAT APPEARS ON A MENU, which is
+       where these gestures apply. They used to be guarded off the field strip
+       for that reason (and because four more hints wrapped it into the plant
+       panel); with the strip gone the guard has nothing left to exclude.
 
        THE CHIPS ARE FIXED INDICES, not bindings.ts lookups — the one place
        this table's "every chip is a live binding" rule is deliberately
        relaxed, because these buttons are the opposite of live: they are the
        conventions no rebind may touch, and padLabel names the physical
        button. A chip here cannot go stale, which is what the rule protects. */
-    if (full) {
-      part(`${kbd("D-pad")} move`);
-      part(`${kbd(padLabel(PAD_CONFIRM))} select`);
-      part(`${kbd(padLabel(PAD_BACK))} back`);
-      part(`${kbd(padLabel(PAD_CONTROLS))} opens Controls`);
-    }
+    part(`${kbd("D-pad")} move`);
+    part(`${kbd(padLabel(PAD_CONFIRM))} select`);
+    part(`${kbd(padLabel(PAD_BACK))} back`);
+    part(`${kbd(padLabel(PAD_CONTROLS))} opens Controls`);
   } else {
-    // CARD ONLY: the rotate pair is two buttons on the rail with Q and E
-    // printed on them.
-    if (full) part(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
-    // The three that stay. Aim, power and fire are the SHOT, and the shot has
-    // no button in this game on any device — a finger pulls the field back, a
-    // mouse points at a spot, and these keys are the third way to say the same
-    // thing. Nothing on the rail can carry them.
+    part(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
+    // Aim, power and fire are the SHOT, and the shot has no button in this game
+    // on any device — a finger pulls the field back, a mouse points at a spot,
+    // and these keys are the third way to say the same thing. Nothing on the
+    // rail can carry them, so this card is where they live.
     part(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);
     part(`${kbd(keyLabel(keyFor("powerDown")))}/${kbd(keyLabel(keyFor("powerUp")))} power`);
     part(`${kbd(keyLabel(keyFor("fire")))} fire`);
-    // CARD ONLY, all four: each of these is a rail button wearing this exact
-    // keycap, and a drafted ability's chip in the plant panel wears it a third
-    // time. Three statements of one binding on one screen was the state of
-    // things; one of them is the control itself, so the other two go.
-    if (full) {
-      if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
-      if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
-      // ONE WORD, and the shortest true one on the card's ability run. "thaw"
-      // is what the verb is; which cube it takes is on the button's own
-      // accessible name and in the guide, where a sentence fits.
-      if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
-      if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
-    }
+    if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
+    if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+    // ONE WORD, and the shortest true one on the card's ability run. "thaw" is
+    // what the verb is; which cube it takes is on the button's own accessible
+    // name and in the guide, where a sentence fits.
+    if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
+    if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
     /* "click to aim", not "drag to aim", and this strip is the one place the
        change is safe to state flatly. It renders only under `pointer: fine`
        (see the block below), where the pointer IS a mouse — and the mouse is
@@ -2835,14 +2800,10 @@ function hintParts(
        finger never sees this strip. */
     part("click to aim");
     /* The rest of the mouse scheme (game/input.ts), plain for the same
-       no-keycap reason as "click to aim": the wheel and the mouse buttons
-       are not rebindable keys, and a chip around them would claim they are.
-       Pause-card only (see `full`) — the wheel is the control nothing else
-       on screen teaches, and the card is the scheme's permanent reference. */
-    if (full) {
-      part("scroll for arc height");
-      part("right ⟳ · wheel-press ⟲");
-    }
+       no-keycap reason as "click to aim": the wheel and the mouse buttons are
+       not rebindable keys, and a chip around them would claim they are. */
+    part("scroll for arc height");
+    part("right ⟳ · wheel-press ⟲");
     /* HOLD THE PAUSE BUTTON TO RESTART THE BAY (main.ts's startHold on
        [data-action="pause"]). A gesture nobody is told about is a gesture
        nobody uses.
@@ -2874,51 +2835,36 @@ function hintParts(
   return parts;
 }
 
-const HINT_SEP = `<span class="kbd-hint__sep">·</span>`;
-
-/**
- * The HUD's input-hint strip (D2): the hintParts table above, joined as one
- * sentence on the field's foot. The gamepad family gets its own strip (CSS
- * shows it whenever the profile is gamepad, whatever the pointer type); touch
- * renders the keyboard strip's content — the strip itself is hidden on coarse
- * pointers, where the rail is the control surface.
+/* NO hintStripHTML, AND NO `full` FLAG ON hintParts.
  *
- * TRANSIENT, not resident. The strip is onboarding, and its retirement rule
- * is the drag hint's (D3, main.ts's armKeyHints/dismissKeyHints): shown in
- * full until the family's first shot proves the controls, re-shown once per
- * session if a bay sits 15s with no shot, and otherwise faded out — the bay
- * floor belongs to the bay. `dismissed` is the mount-time state, because the
- * HUD is re-rendered wholesale on every state change and a class main.ts
- * toggled on the old node would not survive the trip; main.ts still toggles
- * `kbd-hint--hidden` live between renders. The reference copy of these hints
- * lives on the pause modal (pauseKeysHTML), which is where a player who wants
- * them re-reads them — and which points at the Controls screen for rebinds.
+ * There were two renderers of that table and they wanted different subsets, so
+ * hintParts took a flag: the pause card asked for everything, the HUD's strip
+ * for a lean set that would fit the foot of a live field. The strip is gone —
+ * the rail carries every control it can, on the control itself, and the owner's
+ * verdict on the remainder is that the HUD is not where shortcuts belong — so
+ * there is one caller, it always wants everything, and a parameter with one
+ * value at every call site is a parameter that only makes the table look
+ * conditional. HINT_SEP went with it: the card lays its parts out in a grid and
+ * never needed the strip's interpuncts.
+ *
+ * The consequence worth stating plainly, because it is the point rather than a
+ * side effect: EVERY control instruction in this game is now either printed on
+ * the control (the rail's legends, components.ts's railLegendHTML) or on the
+ * pause card. There is no third place, so there is no third place to go stale.
  */
-export function hintStripHTML(
-  profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
-  dismissed = false,
-  /** run.ts's bayRetryable — see hintParts. */
-  restart = true,
-): string {
-  const parts = hintParts(profile, owned, false, restart);
-  return `<div class="kbd-hint${dismissed ? " kbd-hint--hidden" : ""}" aria-hidden="true">${
-    parts.join(`\n        ${HINT_SEP}\n        `)
-  }</div>`;
-}
 
 /**
- * The pause modal's control reference — the permanent home of the hints the
- * transient strip retires from. Same hintParts table, same live bindings, so
- * the strip a first-timer saw and the card a veteran pauses into can never
- * disagree; the note under it is where "the rest" lives, pointing at the
- * Controls screen the way the design asks (rebinds, the stick settings).
+ * The pause modal's control reference — the one home of the input scheme.
+ * Renders from hintParts, so it cannot disagree with the rail's legends about a
+ * binding: both read game/bindings.ts. The note under it is where "the rest"
+ * lives, pointing at the Controls screen the way the design asks (rebinds, the
+ * stick settings).
  *
- * Rendered for every profile and CSS-gated exactly like the strip (fine
- * pointer, or the gamepad profile on any pointer): the pause modal is one
- * innerHTML render, and gating in markup would leave a stale block behind
- * when the profile flips mid-pause — main.ts's setProfile re-patches this
- * node by id instead, the same treatment the strip gets.
+ * Rendered for every profile and CSS-gated on the pointer (fine, or the gamepad
+ * profile on any pointer — touch pauses into the same modal and its controls
+ * are the rail): the pause modal is one innerHTML render, and gating in markup
+ * would leave a stale block behind when the profile flips mid-pause, so
+ * main.ts's setProfile re-patches this node by id instead.
  */
 export function pauseKeysHTML(
   profile: InputProfile,
@@ -2926,7 +2872,7 @@ export function pauseKeysHTML(
   /** run.ts's bayRetryable — see hintParts. */
   restart = true,
 ): string {
-  const parts = hintParts(profile, owned, true, restart);
+  const parts = hintParts(profile, owned, restart);
   return `<div class="pause-keys" id="pause-keys">
     <div class="pause-keys__grid">${parts.join("\n      ")}</div>
     <p class="pause-keys__note muted">Rebind these under Settings → Controls.</p>

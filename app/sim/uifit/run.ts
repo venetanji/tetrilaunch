@@ -200,13 +200,13 @@ const NO_OVERLAP: [string, string][] = [
   // scrim), so covering the readout is what it is for. It is the teaching
   // steps, which sit in the panel's own column, that must not.
   [".coach:not(.coach--fail) .coach__card", ".plant__body"],
-  // The key-hint strip against the plant panel. The `kbdhint` assertion below
-  // measures the strip's ANCHOR — centred on the field, attached to an edge of
-  // it, inside it, clear of the rail — and every one of those passed while the
-  // strip was being painted underneath a z-index 6 panel, because none of them
-  // is a question about stacking. This pair is: it fails the moment the strip's
-  // box and the panel's box share pixels, whoever wins the paint.
-  [".kbd-hint", ".plant"],
+  /* The key-hint strip used to be paired against the plant panel here, because
+     its anchor assertions all passed while it was painted underneath a z-index
+     6 panel — none of them was a question about stacking, and this pair was.
+     Both are gone with the strip: the rail carries the controls and their
+     keycaps, and the scheme's prose lives on the pause card. What the removal
+     buys is not just two fewer checks — it is that the 20px lane at the foot of
+     the field, which those checks existed to police, has nothing in it. */
   // The run-end card's exits against the column that explains the run. These
   // are two rows of ONE grid (app.css: "main side" / "actions actions"), so
   // "laid out beside each other" here means one directly under the other, and
@@ -265,7 +265,6 @@ const ASSERTIONS = [
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
   { id: "inkline", desc: "a label and the value beside it share one optical line" },
-  { id: "kbdhint", desc: "the key-hint strip is centred on the field, clear of the chrome, and fades when dismissed" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -293,7 +292,7 @@ function measure(cfg: {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
     plant: [], crest: [], rail: [], twocol: [], oneline: [], rack: [], badge: [],
-    inkline: [], kbdhint: [], warn: [],
+    inkline: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -1108,89 +1107,6 @@ function measure(cfg: {
     const pb = plantEl.getBoundingClientRect();
     const dips = hb.top + reach - pb.top;
     if (dips > 1) out.draghint.push(`gesture reaches ${Math.round(dips)}px under .plant`);
-  }
-
-  // --- kbdhint: the key-hint strip belongs to the FIELD ---------------------
-  // It is chrome of the MACHINE, not of the window, and every number below is
-  // measured against the solved field rather than the viewport — which is the
-  // entire point. It was written as `left: 50%` + `bottom: 2px`, and those
-  // coincide with the field's centre and foot only in "wide", where the
-  // letterbox gutters are symmetric and the world reaches the bottom of the
-  // screen. In "snug" — every ordinary 16:9/16:10 laptop window, because the
-  // solver reserves an 84px right band there — the strip sat 42px right of the
-  // machine and floated up to 69px below it.
-  //
-  // WHAT THE STRIP STILL CARRIES, which is much less than it did. It used to be
-  // the desktop control scheme entire: a fine pointer shed every game button off
-  // the rail and read its controls off this line instead. The rail is the action
-  // surface on every pointer now and each button wears its own keycap and pad
-  // mark, so the strip kept only what no button on it can say — how the shot is
-  // aimed and fired (screens.ts's hintParts). It is shorter than these numbers
-  // were ever measured against, which makes every bound below slacker rather
-  // than tighter; the `hud-pad` fixture is the new worst case for it, since a
-  // pad's stick line is the longest single hint the strip has.
-  //
-  // Skipped unless the strip is actually rendered: it is display:none on a
-  // coarse pointer without a gamepad, which is most of this matrix.
-  const kb = document.querySelector(".kbd-hint");
-  if (kb && getComputedStyle(kb).display !== "none") {
-    const fx = cssPx("--field-x");
-    const fy = cssPx("--field-y");
-    const fw = cssPx("--field-w");
-    const fh = cssPx("--field-h");
-    const k = kb.getBoundingClientRect();
-    // Centred on the field. 1px of tolerance for sub-pixel rounding; anything
-    // beyond that is an anchor pointed at the wrong box, not a rounding error.
-    const dx = (k.left + k.width / 2) - (fx + fw / 2);
-    if (Math.abs(dx) > 1) {
-      out.kbdhint.push(`strip is ${Math.round(dx)}px off the field's centre`);
-    }
-    // Attached to an edge of the field. Which edge depends on the mode — the
-    // "tall" layout lifts the strip above the field because the rail owns the
-    // bottom band there — so assert the DISTANCE to the nearer edge rather than
-    // restating the stylesheet's choice, and let either be correct.
-    const gapBelow = k.top - (fy + fh);
-    const gapAbove = fy - k.bottom;
-    const gap = Math.max(gapBelow, gapAbove);
-    if (gap > 8) {
-      out.kbdhint.push(`strip floats ${Math.round(gap)}px clear of the field`);
-    }
-    // Inside the field horizontally. The reserved band is rail, not strip, and
-    // a strip wider than the window is silently clipped at both ends.
-    if (k.left < fx - 1 || k.right > fx + fw + 1) {
-      out.kbdhint.push(
-        `strip spans ${Math.round(k.left)}..${Math.round(k.right)} outside the field ${Math.round(fx)}..${Math.round(fx + fw)}`,
-      );
-    }
-    // …and not under the rail, which is the one piece of chrome it shares a
-    // lane with once it is bottom-anchored.
-    const railEl = document.querySelector(".side-rail");
-    if (railEl) {
-      const r = railEl.getBoundingClientRect();
-      const ox = Math.min(r.right, k.right) - Math.max(r.left, k.left);
-      const oy = Math.min(r.bottom, k.bottom) - Math.max(r.top, k.top);
-      if (ox > 1 && oy > 1) {
-        out.kbdhint.push(`strip overlaps the rail by ${Math.round(ox)}x${Math.round(oy)}px`);
-      }
-    }
-    // The strip is TRANSIENT now (main.ts's armKeyHints/dismissKeyHints): a
-    // bay's first shot retires it to the pause modal's reference block, via
-    // the kbd-hint--hidden class. The geometry above is measured in the SHOWN
-    // state the fixtures mount; this pins the other half of the contract —
-    // that the dismissed class actually removes the strip from view. Opacity,
-    // not display, is the mechanism (app.css keeps the box in layout so the
-    // retirement is a visible fade), so opacity is what is asserted; the
-    // harness zeroes transition durations, which is what makes the class flip
-    // measurable in the same frame.
-    const wasHidden = kb.classList.contains("kbd-hint--hidden");
-    kb.classList.add("kbd-hint--hidden");
-    const faded = parseFloat(getComputedStyle(kb).opacity);
-    // Restore the fixture's own state — the screenshot pass reads the DOM
-    // after this measure, and a check must not repaint what it measured.
-    if (!wasHidden) kb.classList.remove("kbd-hint--hidden");
-    if (faded > 0.01) {
-      out.kbdhint.push(`kbd-hint--hidden leaves the strip at opacity ${faded}`);
-    }
   }
 
   // --- rail: the control rail must never sit over the play field ------------

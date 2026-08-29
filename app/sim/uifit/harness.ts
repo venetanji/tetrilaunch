@@ -144,8 +144,15 @@ const api: UiFitApi = {
     // document that renders every fixture in turn.
     const hooks = rootHooksFor(id);
     const root = document.documentElement;
-    if (hooks.profile) root.dataset.profile = hooks.profile;
-    else delete root.dataset.profile;
+    // The PROFILE hook, defaulted exactly as main.ts boots it — `setProfile(
+    // finePointer() ? "keyboard" : "touch")`. It is no longer optional
+    // decoration: the rail's legends draw the ACTIVE input's chip and nothing
+    // else (app.css's rail-legend block), so a matrix that left the attribute
+    // off would measure every desktop row with no keycaps at all — the exact
+    // blind spot the fine-pointer device rows were added to close, one
+    // attribute further in. A fixture may override it (see rootHooksFor).
+    const fine = window.matchMedia?.("(pointer: fine)").matches ?? false;
+    root.dataset.profile = hooks.profile ?? (fine ? "keyboard" : "touch");
     if (hooks.pad) root.dataset.pad = hooks.pad;
     else delete root.dataset.pad;
     // BOTH HALVES of the pad hand-off, not just the CSS one. main.ts's

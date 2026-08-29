@@ -5151,7 +5151,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // D1: the Controls screen renders every binding as a rebindable row, says
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
-    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
     systemCursor: false,
   };
@@ -13404,9 +13404,10 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       railName(hudFor(false)) === "Pause", railName(hudFor(false)));
     check("...and every other run's ⏸ is the name it always had",
       railName(hudFor(true)) === S.PAUSE_HOLD_NAME, railName(hudFor(true)));
-    check("...and the field strip drops the line too",
-      !/hold pause to restart/.test(hudFor(false))
-        && /hold pause to restart/.test(hudFor(true)));
+    /* The HUD used to carry the same line in its hint strip and had to drop it
+       here too; there is no strip, so the accessible name above is the whole of
+       what the FIELD says about the gesture. The card's half is asserted at the
+       top of this block (roofCard / idle). */
   }
 
   // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------
@@ -13875,134 +13876,111 @@ section("Rail legends: the keycap and the pad mark on the button (D2)");
   check("legends are decoration to a screen reader",
     /class="rail-legend" aria-hidden="true"/.test(railOf(railHud())));
 
-  // --- and the FIELD STRIP gives up what the rail took on -------------------
+  // --- and the HUD keeps no prose at all ------------------------------------
   // The other half of the move, and the half that makes it a move rather than
-  // an addition. The strip used to name rotate, every drafted ability and pause
-  // — all six of which are buttons on the rail wearing those exact chips now —
-  // so leaving it alone would have put one binding on screen twice, in two
-  // places, in two vocabularies. What it keeps is the SHOT: aim, power, fire
-  // and the pointer gesture, none of which is a button on any platform.
+  // an addition. There used to be a strip of hints along the foot of the field
+  // naming rotate, every drafted ability and pause — all six of which are
+  // buttons on the rail wearing those exact chips now — and after the first
+  // trim it still named the shot. The owner's verdict retired the rest of it:
+  // a live bay is not where shortcuts belong.
   //
-  // The pause CARD is the reference and keeps everything; these two must never
-  // drift into disagreement, which is why both render from one hintParts.
+  // So there are exactly TWO places a control instruction can live now, and
+  // this is the pin that says so: printed on the control itself, or on the
+  // pause card. A third would be a third thing to go stale, which is the whole
+  // reason D2's table exists.
   {
     resetKeyBindings();
     resetPadBindings();
     const owned = { bond: true, demo: true, thaw: true, auto: true };
-    const strip = S.hintStripHTML("keyboard", owned);
+    const hud = railHud();
+    // Nothing in the HUD names a key except the rail's own legends and the
+    // plant panel's ability chips — both of which are ON the control they
+    // describe. `.kbd` is the keycap class every prose surface uses; the rail
+    // legend's keycap carries `rail-legend__key` alongside it, so a bare one
+    // anywhere in this markup would be a hint that had grown back.
+    const bareKbd = (hud.match(/<span class="kbd">/g) ?? []).length;
+    check("the HUD carries no loose keycaps — every legend is on its control",
+      bareKbd === 0, String(bareKbd));
+    // The ELEMENTS, not the words — this file's own comments name both, and so
+    // does the marker comment hudHTML leaves where the layer used to be.
+    check("...and no hint strip element survives in it",
+      !hud.includes('class="kbd-hint') && !hud.includes('class="hud__bottom'));
+    // The pause card is where the scheme went, and it has to carry ALL of it —
+    // including the parts no button anywhere can: the aim keys, the mouse
+    // wheel, and (on a pad) the stick.
     const card = S.pauseModal(true, "keyboard", owned);
-    check("the strip no longer names the controls the rail draws",
-      !/rotate/.test(strip) && !/break bonds/.test(strip)
-      && !/arm charge/.test(strip) && !/autofire/.test(strip));
-    check("...and the card still names every one of them",
+    check("the card carries the controls the rail draws",
       /rotate/.test(card) && /break bonds/.test(card)
       && /arm charge/.test(card) && /autofire/.test(card));
-    // The shot has no button in this game — a finger pulls the field back, a
-    // mouse points at a spot — so these are the strip's whole reason to exist
-    // and dropping them with the rest would leave a first-time desktop player
-    // nothing on the field at all.
-    check("the strip keeps the shot, which no button carries",
-      /aim/.test(strip) && /power/.test(strip)
-      && strip.includes(`${keyLabel(keyFor("fire"))}</span> fire`)
-      && /click to aim/.test(strip));
-    const padStrip = S.hintStripHTML("gamepad", owned);
-    check("the pad strip keeps the stick and the trigger, and drops the rest",
-      padStrip.includes("Stick") && /fire/.test(padStrip)
-      && !/rotate/.test(padStrip) && !/break bonds/.test(padStrip)
-      && !/pause/.test(padStrip));
-    // A stick is the one control in either scheme that CANNOT become a rail
-    // button, so this is the line that guarantees the strip still has a job.
-    check("the pad card still carries the full scheme",
-      /rotate/.test(S.pauseModal(true, "gamepad", owned)));
+    check("...and the ones no button anywhere carries",
+      /aim/.test(card) && /power/.test(card) && /click to aim/.test(card)
+      && /scroll for arc height/.test(card)
+      && card.includes(`${keyLabel(keyFor("fire"))}</span> fire`));
+    check("the pad card names the stick, which can never become a button",
+      S.pauseModal(true, "gamepad", owned).includes("Stick"));
   }
 }
 
 // ---------------------------------------------------------------------------
-section("The hint strip names the hold-to-restart gesture (screens.ts)");
+section("The pause card is the whole input scheme (screens.ts)");
 // ---------------------------------------------------------------------------
-{
-  // BARE LOADOUT deliberately: with the Autoloader owned the strip already
-  // says "hold to autofire", and /hold.*restart/ would then match across two
-  // separate hints and pass for the wrong reason.
-  const bare = { bond: false, demo: false, thaw: false, auto: false };
-  // Keyboard and touch share one arm, and the strip is drawn on the
-  // fine-pointer path — where a MOUSE performs the same pointerdown hold. So
-  // the keyboard strip is the one that has to name it.
-  check(
-    "the strip names the hold-to-restart gesture",
-    /hold.*restart/i.test(S.hintStripHTML("keyboard", bare)),
-  );
-  check(
-    "touch renders the same strip content",
-    /hold.*restart/i.test(S.hintStripHTML("touch", bare)),
-  );
-  // GUARD, not a regression check — green before this hint existed and green
-  // after. The pad's Start button is a press, not a pointer hold: nothing binds
-  // a held pad button to resetBay, so the gamepad strip must not claim it.
-  check(
-    "the gamepad strip does not name a gesture the pad cannot make",
-    !/hold.*restart/i.test(S.hintStripHTML("gamepad", bare)),
-  );
-  // GUARD, same reason. Every .kbd chip in this strip is a LIVE BINDING
-  // (game/bindings.ts). A keycap around "Hold" would be the strip telling the
-  // player to press a key that does not exist — the exact class of bug the one
-  // hint table exists to make impossible.
-  check(
-    "the hold is not dressed as a keycap",
-    !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
-  );
-}
-
-// ---------------------------------------------------------------------------
-section("The hint strip is transient; the pause modal is its reference (screens.ts)");
-// ---------------------------------------------------------------------------
+// These checks used to be split between the field strip and this card, because
+// the two rendered different subsets of one table. There is no strip; the card
+// is the only prose surface the scheme has, so every property that mattered
+// about either now has to hold here.
 {
   const bare = { bond: false, demo: false, thaw: false, auto: false };
   const full = { bond: true, demo: true, thaw: true, auto: true };
-  // The strip mounts in whichever fade state main.ts hands it — the HUD is
-  // re-rendered wholesale on every state change, so a pause round-trip on a
-  // dismissed strip must come back dismissed (see hudHTML's hintsDismissed).
-  check("the strip mounts shown by default",
-    !S.hintStripHTML("keyboard", bare).includes("kbd-hint--hidden"));
-  check("the strip can mount already dismissed",
-    S.hintStripHTML("keyboard", bare, true).includes("kbd-hint--hidden"));
-  // The pause modal carries the same hint table (one source: hintParts), so
-  // the strip a first-timer saw and the card a veteran pauses into can never
-  // disagree — including about a rebind, which is the LIVE-BINDING half.
-  const paused = S.pauseModal(true, "keyboard", full);
-  check("the pause modal carries the control reference", paused.includes('id="pause-keys"'));
+  resetKeyBindings();
+  resetPadBindings();
+
+  // BARE LOADOUT deliberately: with the Autoloader owned the card already says
+  // "hold to autofire", and /hold.*restart/ would then match across two
+  // separate hints and pass for the wrong reason.
+  const paused = S.pauseModal(true, "keyboard", bare);
+  // TAP pauses, HOLD restarts the bay (main.ts's startHold). A mouse makes that
+  // pointerdown hold as readily as a thumb, and the rail button's legend says
+  // which key reaches it, not what holding it does — so the card is the only
+  // surface that can teach the gesture to someone who can perform it.
+  check("the card names the hold-to-restart gesture",
+    /hold.*restart/i.test(paused));
+  // GUARD, not a regression check. The pad's Start button is a press, not a
+  // pointer hold: nothing binds a held pad button to resetBay, so the pad arm
+  // must not claim it.
+  check("the pad arm does not name a gesture the pad cannot make",
+    !/hold.*restart/i.test(S.pauseModal(true, "gamepad", bare)));
+  // GUARD, same reason. Every .kbd chip here is a LIVE BINDING
+  // (game/bindings.ts). A keycap around "Hold" would be the card telling the
+  // player to press a key that does not exist — the exact class of bug the one
+  // hint table exists to make impossible.
+  check("the hold is not dressed as a keycap",
+    !/<span class="kbd">Hold<\/span>/i.test(paused));
+
+  const full_kb = S.pauseModal(true, "keyboard", full);
+  check("the pause modal carries the control reference", full_kb.includes('id="pause-keys"'));
   check("the reference renders the live fire binding",
-    paused.includes(`<span class="kbd">${keyLabel(keyFor("fire"))}</span>`));
+    full_kb.includes(`<span class="kbd">${keyLabel(keyFor("fire"))}</span>`));
   check("the reference carries the full loadout's ability hints",
-    /break bonds/.test(paused) && /arm charge/.test(paused) && /autofire/.test(paused));
+    /break bonds/.test(full_kb) && /arm charge/.test(full_kb) && /autofire/.test(full_kb));
   check("the reference points at the Controls screen for the rest",
-    /Settings → Controls/.test(paused));
-  // The gamepad arm re-labels the whole table, exactly as the strip does —
-  // main.ts patches #pause-keys on a profile flip mid-pause.
+    /Settings → Controls/.test(full_kb));
+  // The gamepad arm re-labels the whole table — main.ts patches #pause-keys on
+  // a profile flip mid-pause, and on a pad-family change under an unchanged
+  // profile (relabelHintSurfaces).
   const padPaused = S.pauseModal(true, "gamepad", bare);
   check("the gamepad reference speaks pad, not keys",
     padPaused.includes(`<span class="kbd">${padLabel(padFor("fire"))}</span>`) &&
       padPaused.includes("Stick"));
-  // …and never names the pointer hold the pad cannot make (the pad restarts
-  // through this very modal's button, which pad navigation reaches).
-  check("the gamepad reference does not claim the hold gesture",
-    !/hold.*restart/i.test(padPaused));
   // THE MENU GESTURES (ui/padnav.ts). The pad's route through every screen in
-  // the game runs on four buttons that appear in no binding row and on no
-  // other surface, and the card a pad player is reading is itself being driven
-  // by them — so this is where they are written down.
+  // the game runs on four buttons that appear in no binding row and on no other
+  // surface, and the card a pad player is reading is itself being driven by
+  // them — so this is where they are written down.
   check("the gamepad reference names the menu gestures",
     /D-pad<\/span> move/.test(padPaused) &&
       padPaused.includes(`<span class="kbd">${padLabel(PAD_CONFIRM)}</span> select`) &&
       padPaused.includes(`<span class="kbd">${padLabel(PAD_BACK)}</span> back`));
   check("the gamepad reference names the way into Controls",
     padPaused.includes(`<span class="kbd">${padLabel(PAD_CONTROLS)}</span> opens Controls`));
-  // …and the FIELD strip does not. It is width-budgeted onboarding for the bay
-  // (four more hints wrapped it into the plant panel), and on a live field the
-  // D-pad is nudging aim while A is the trigger — naming menu gestures there
-  // would be naming controls the player does not have at that moment.
-  check("the field strip stays the bay's own scheme",
-    !/D-pad<\/span> move/.test(S.hintStripHTML("gamepad", full)));
 }
 
 // ---------------------------------------------------------------------------
@@ -14855,10 +14833,11 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
   check("the touch hint still teaches the pull-back",
     /pull back/i.test(hintAim("touch")) && !/click/i.test(hintAim("touch")),
     hintAim("touch"));
-  // The fine-pointer strip renders on the same surface and has to agree with it.
-  check("the fine-pointer strip names the click too",
+  // The pause card is the surface a mouse player reads it off, and it has to
+  // agree with the table above.
+  check("the card names the click too",
     /click to aim/i.test(
-      S.hintStripHTML("keyboard", { bond: false, demo: false, thaw: false, auto: false }),
+      S.pauseModal(true, "keyboard", { bond: false, demo: false, thaw: false, auto: false }),
     ));
 }
 

@@ -2022,15 +2022,13 @@ body.crt-off #app::after { display: none; }
   font-weight: 700;
 }
 
-/* ---------- HUD bottom strip ----------
-   Holds only the desktop keyboard-hint strip now — there is no FIRE button:
-   releasing the slingshot drag fires (see input.ts's onUp), and Space fires
-   on desktop. */
-.hud__bottom { position: absolute; inset: 0; }
-/* Reclaim pointer-events from the `.hud > *` rule above: nothing in this
-   (full-bleed) layer should intercept clicks — the drag-anywhere aim
-   gesture needs the whole center. */
-.hud .hud__bottom { pointer-events: none; }
+/* NO HUD BOTTOM STRIP. `.hud__bottom` was a full-bleed layer over the field
+   holding one thing — the desktop keyboard-hint strip — and both are gone. The
+   rail carries the controls and their keycaps, and the full scheme (both input
+   families, including the parts no button carries: the aim keys, the stick, the
+   wheel, the hold that restarts a bay) is on the pause card, at rest, where it
+   can be read rather than glanced past. There is no FIRE button and never was:
+   a release fires on touch and a click fires on a mouse. */
 
 /* ---------- Button rail ----------
    EVERY HUD button in one same-width group. WHERE that group sits is solved in
@@ -2051,8 +2049,10 @@ body.crt-off #app::after { display: none; }
 
    The default rules below are the vertical form (wide + snug are identical once
    --gutter-r is correct, which is the point of solving it in JS); the tall
-   override follows. Desktop hides the game buttons and uses Q/E + B/X instead
-   (see the `@media (pointer: fine)` rule below), matching the kbd-hint strip. */
+   override follows. EVERY POINTER GETS THE SAME COLUMN — desktop used to shed
+   the game buttons here and teach its controls in a text strip instead; the
+   buttons are back and each carries its own keycap or pad mark (the rail-legend
+   block below). */
 .side-rail {
   position: absolute;
   /* Inset TOKENS, not raw env() — see tokens.css's --inset-* note: raw env()
@@ -2125,20 +2125,6 @@ body.crt-off #app::after { display: none; }
     calc((var(--gutter-b) - var(--rail-btn)) / 2)
   );
 }
-/* In the tall layout the kbd-hint would collide with the rail strip; the rail
-   is the control surface there, so the hint moves above the field instead.
-   ABOVE THE FIELD, not at the top of the window: `top: 2px` put it against the
-   viewport edge, which on a 1100x900 window is 138px clear of the field it
-   labels (and on a 1024x768 iPad with a pad connected, 84px). Anchoring by
-   `bottom` rather than `top` is deliberate — the strip may take a second row on
-   a narrow window, and it has to grow UP into the empty band, not down over the
-   field. --gutter-b + --field-h is the distance from the viewport's bottom edge
-   to the field's TOP edge, so this reads "2px above the field". */
-:root[data-layout="tall"] .kbd-hint {
-  top: auto;
-  bottom: calc(var(--gutter-b, 0px) + var(--field-h, 0px) + 2px);
-}
-
 /* Left-handed mirror (Controls → touch): the CSS half of layout.ts's
    setRailSide — the column centres in the LEFT gutter off the same solved
    numbers. Scoped away from "tall", whose horizontal strip spans the full
@@ -2240,15 +2226,32 @@ body.crt-off #app::after { display: none; }
    It fits the floor, so no size of window has to choose between the legend and
    the tap target.
 
-   BOTH PAD FAMILIES ARE IN THE MARKUP AND CSS PICKS ONE. <html data-pad> is
-   written by main.ts's syncPadFamily from the connected pad's own id, and with
-   no pad connected the attribute is absent and neither mark draws — the
-   reference is for the controller in the player's hands, not a catalogue. That
-   also means a pad announcing itself mid-bay re-letters the rail without
-   re-rendering the HUD, which is load-bearing: a rebuilt element restarts its
-   animation, and these buttons sit next to instruments that are mid-flight. */
+   ONE CHIP AT A TIME: THE ACTIVE INPUT'S. Every button's markup carries three
+   chips — the keycap, the Xbox mark and the PlayStation mark — and exactly one
+   of them is ever drawn, chosen by <html data-profile> (the input family, which
+   follows the LAST input seen: main.ts's setProfile) crossed with <html
+   data-pad> (which controller is attached: main.ts's onPadIdentified). A
+   keyboard player sees "Q". The moment they press a button on a DualSense, the
+   same rail says "L1". Put the pad down and touch the mouse, and it says "Q"
+   again.
+
+   That is the owner's read and it is the right one: a rail showing both at once
+   is a rail asking the player to find their own row in a table. It is also two
+   chips of clutter on a 60px control for information that, whichever way it is
+   answered, is only ever half relevant.
+
+   ALL THREE STAY IN THE MARKUP AND CSS PICKS. That is the load-bearing half:
+   switching input, or swapping a pad for one of the other family, must re-letter
+   the whole rail with NO re-render — these buttons sit beside instruments that
+   animate, and a rebuilt element restarts its animation from frame one. Two root
+   attributes and a stylesheet do it for nothing; screens.ts is not involved.
+
+   NO PAD, NO PAD MARK: `data-pad` is absent when nothing is connected, so the
+   reference is always for the controller in the player's hands rather than a
+   catalogue of controllers they might own. And on TOUCH the profile is "touch"
+   and nothing draws at all, which is what keeps a phone's rail the button it has
+   always been. */
 .rail-legend {
-  display: none;
   align-items: center;
   gap: 3px;
   /* The legend describes the button; it must never eat a press aimed at it. */
@@ -2261,19 +2264,33 @@ body.crt-off #app::after { display: none; }
    and a phone with the legends hidden renders the identical button it always
    did. Cheaper than `:has()` and it works on every WebView this ships in. */
 .side-rail .icon-btn { flex-direction: column; gap: 3px; }
-/* A keyboard exists here, so the keycap does. The pad marks are gated on the
-   PAD instead of on the pointer — a Deck, a TV, or a phone with a controller
-   clipped to it is a coarse pointer that still wants the reference — so the row
-   itself opens for either reason. Both halves default to hidden and are opened
-   by their own condition, which is why the `display: none` pair is stated
-   BEFORE the queries: these selectors all weigh the same, so source order is
-   the whole cascade here. */
+/* THE PROFILE, NOT THE POINTER, is what opens the row — and that is a change
+   from the first cut, which used `@media (pointer: fine)` for the keycap. A
+   media query answers "could this device have a keyboard", and the question the
+   legend is answering is "what is this player using right now", which only the
+   profile knows. It also makes the two halves mutually exclusive by
+   construction rather than by coincidence: a desktop with a pad connected
+   matches BOTH `pointer: fine` and `[data-pad]`, so under the old pair it drew
+   the keycap and the pad mark together, which is exactly what the owner asked
+   to stop.
+
+   `[data-profile="gamepad"][data-pad]` needs both, and the second is not
+   belt-and-braces: the profile flips to gamepad from the poller's activity hook,
+   and while onPad now runs first by construction (gamepad.ts), a rule that draws
+   a "pad mark" with no pad attached would be a wrong answer rather than a
+   missing one. */
+/* BOTH DEFAULT TO HIDDEN, and the keycap needs its own `none` rather than
+   relying on the row's: the row opens for the GAMEPAD profile too, and a keycap
+   that inherited "visible" from a shown row would then draw beside the pad mark
+   — which is the two-chips-at-once state this block exists to end. Left out by
+   accident once; uifit's `spill` assertion found it in a minute, because
+   "Esc" + the Options mark is 46px of legend in the 40px content box of a
+   44px rail button on a 640x360 phone. */
+.rail-legend { display: none; }
 .rail-legend__key { display: none; }
-:root[data-pad] .rail-legend { display: inline-flex; }
-@media (pointer: fine) {
-  .rail-legend { display: inline-flex; }
-  .rail-legend__key { display: inline-block; }
-}
+:root[data-profile="keyboard"] .rail-legend,
+:root[data-profile="gamepad"][data-pad] .rail-legend { display: inline-flex; }
+:root[data-profile="keyboard"] .rail-legend__key { display: inline-block; }
 /* Shrunk from the prose keycap (.kbd, 12px with a 2px border and 2px of
    vertical padding — 23px tall, half the button). Same vocabulary, chip-sized:
    one keycap idiom across the guide, the pause card and the rail. */
@@ -2326,8 +2343,8 @@ body.crt-off #app::after { display: none; }
 .pad-chip--b { color: var(--danger); border-color: var(--danger); }
 .pad-chip--x { color: var(--piece-j); border-color: var(--piece-j); }
 .pad-chip--y { color: var(--piece-o); border-color: var(--piece-o); }
-:root[data-pad="xbox"] .pad-chip[data-pad-family="xbox"],
-:root[data-pad="playstation"] .pad-chip[data-pad-family="playstation"] { display: inline-flex; }
+:root[data-profile="gamepad"][data-pad="xbox"] .pad-chip[data-pad-family="xbox"],
+:root[data-profile="gamepad"][data-pad="playstation"] .pad-chip[data-pad-family="playstation"] { display: inline-flex; }
 
 .bond-btn:hover { border-color: #ffd23f; color: #fff0b8; }
 .bond-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
@@ -2495,149 +2512,36 @@ body.crt-off #app::after { display: none; }
   text-align: center;
 }
 
-/* Desktop keyboard-hint strip — replaces the touch rail entirely on
-   fine-pointer devices (mouse/trackpad). The keys shown are never hardcoded:
-   screens.ts's hintStripHTML renders them from game/bindings.ts's LIVE
-   table, so a rebind on the Controls screen re-labels the strip too. */
-.kbd-hint {
-  display: none;
-  position: absolute;
-  /* Centred on the FIELD, not the viewport. These are two different points:
-     in "snug" the solver RESERVES a right band and refits the world into what
-     is left, so the field starts at --field-x and is --field-w wide while the
-     viewport is --gutter-r wider. `left: 50%` therefore sat the strip half the
-     reserved band to the RIGHT of the machine it labels — a constant 42px at
-     every 16:9/16:10 desktop window (measured: 1280x720, 1366x768, 1440x900,
-     1512x945, 1920x1080 all solve to snug with an 84px band). It looked
-     correct on ultrawide only because "wide" has equal gutters, which is
-     exactly what made the error hard to pin down. Anchor to the field and the
-     strip is centred in every mode by construction. */
-  left: calc(var(--field-x, 0px) + var(--field-w, 100vw) / 2);
-  /* Field-relative for EVERY pointer type, not just fine. The gamepad rule
-     below shows this strip on a COARSE pointer — a phone with a controller
-     clipped to it, a Deck, a TV — where the `@media (pointer: fine)` block
-     never matches, and --safe-b is a viewport measurement: on a 1280x800 TV
-     (snug, --gutter-b 63.6) it left the strip 31.6px adrift below the field,
-     and on a Pixel 7 it put it inside the plant panel's band. --gutter-b is
-     the space below the field, published by main.ts's onResize off the same
-     solved layout, and the solver has already fitted the world inside the
-     safe-area box (layout.ts), so no inset term belongs here. */
-  bottom: calc(var(--gutter-b, 0px) + 2px);
-  transform: translateX(-50%);
-  /* One rung above .plant (z-index: 6). .hud__bottom opens no stacking
-     context, so an auto z-index here puts the strip UNDER a panel that is
-     95% opaque and whose crest skirt fills the very lane the strip sits in —
-     which is what happened the moment the chips became inline-block and the
-     strip grew from 16px to 24px: it began overlapping the panel's bottom
-     edge by up to 8px and simply painted underneath it. Geometry assertions
-     cannot see this (the boxes may not even overlap), so it is written down
-     here and pinned by the `kbdhint` / NO_OVERLAP pair in sim/uifit/run.ts.
-     pointer-events: none throughout, so stacking above costs nothing. */
-  z-index: 7;
-  align-items: center; gap: var(--sp-2);
-  font-size: var(--fs-xs); letter-spacing: var(--tracking-wide); color: var(--text-muted);
-  pointer-events: none;
-  /* The strip is as long as the loadout makes it — a run holding Bond Breaker,
-     Demolition and the Autoloader shows eight hints — and it used to be
-     `white-space: nowrap` on an unbounded box, so on a narrow window it simply
-     ran off BOTH edges (measured 951px of strip in a 900px window: 25px lost
-     off the left, 25px off the right, with no scrollbar and nothing to say
-     content was missing). Bounded by the FIELD, so it also never reaches under
-     the reserved rail band, and allowed to take a second row rather than be
-     clipped. nowrap moves DOWN to the part, so a break can only ever fall
-     between two hints, never inside "Q/E rotate". */
-  flex-wrap: wrap; justify-content: center;
-  row-gap: var(--sp-1);
-  /* max-content, or the box shrink-to-fits into `containing block - left` and
-     wraps early: absolutely positioned with `left` set and `right: auto`, the
-     available width is only what lies to the RIGHT of the anchor, which at
-     1280x720 is 682px of a 1196px field. The translateX(-50%) that re-centres
-     it is a transform and buys the layout nothing. `nowrap` used to hide this
-     by overflowing instead; now that a wrap is allowed, the intrinsic width has
-     to be asked for explicitly and clamped afterwards. */
-  width: max-content;
-  max-width: calc(var(--field-w, 100vw) - var(--sp-4));
-}
-/* One hint = one flex item. Without this every text node between the chips was
-   its own anonymous flex item, so the container's gap was injected around the
-   "/" too ("Q / E rotate" instead of "Q/E rotate") and padded the strip out by
-   ~180px it did not need. Inline inside, so the chips and their connecting
-   text lay out as the sentence they are. */
-.kbd-hint__part { white-space: nowrap; }
-/* The strip has to FIT THE LANE it claims. The plant panel stops at 97% of the
-   field's height, so the clear lane at the foot of the field is 3% of it — 20px
-   on a 1280x720 window. A 12px chip with 2px padding and a 2px border on each
-   side is 24px, which is 4px taller than the lane, and the harness measured
-   exactly that: `.kbd-hint covers .plant by 2..6px` on 26 device/screen pairs.
-   Tightening the line box and the chip's own padding inside this strip (and
-   only inside it — .kbd is used in prose on the guide screen, where it should
-   keep its air) brings it to 18px and the claim becomes true. */
-.kbd-hint { line-height: 1; }
-.kbd-hint .kbd { padding: 1px 6px; }
+/* WHERE THE KEY-HINT STRIP WENT, and it is worth a marker rather than a silent
+   deletion, because roughly a hundred lines of hard-won measurement used to live
+   here: the strip was centred on the FIELD rather than the viewport (a constant
+   42px error on every 16:9 laptop, invisible on ultrawide), its line box and
+   chip padding were tightened to 18px so it fitted the 20px lane at the foot of
+   the field, it was allowed to wrap so a full loadout did not run off both edges
+   of a 900px window, and it sat one z-index rung above the plant panel so it was
+   not painted underneath it.
 
-/* The chips have vertical padding, and vertical padding on an INLINE box does
-   not grow the line it sits on — it just draws outside it. Inline is what the
-   chips became the moment each hint got its own wrapper (before that they were
-   flex items in their own right, block-ified, and their padding counted), so
-   the strip measured 16px tall while its chips drew 24px, spilling 4px above
-   and below. In "wide", where the strip sits 2px off the foot of a field that
-   reaches the bottom of the window, those 4px were 2px under the window edge
-   and clipped. inline-block makes the padding part of the line again; the
-   `vertical-align` keeps the chip on the text's optical centre rather than its
-   baseline, which is what stops "Q/E rotate" from stepping up and down. */
-.kbd-hint .kbd { display: inline-block; vertical-align: middle; }
-.kbd-hint__sep { opacity: 0.4; }
-/* TRANSIENT (main.ts's armKeyHints/dismissKeyHints): the strip teaches until
-   the family's first shot proves the controls, then fades and leaves the bay
-   floor to the bay — the drag hint's own lifecycle, on the drag hint's own
-   class idiom. Opacity rather than display, so the retirement is a fade the
-   player can see rather than chrome blinking out of existence; the box stays
-   in layout, which costs nothing (it was pointer-events: none all along) and
-   keeps the geometry the kbdhint assertion pins measurable in either state. */
-.kbd-hint { transition: opacity var(--dur-slow) var(--ease); }
-.kbd-hint--hidden { opacity: 0; }
-/* A gamepad player sees the strip whatever the pointer type (D2): the pad's aim
-   is a STICK, and no button on the rail can carry a stick. */
-:root[data-profile="gamepad"] .kbd-hint { display: flex; }
+   All of that was in service of putting keyboard shortcuts on a live bay, and
+   the owner's verdict is that a bay is not where shortcuts belong. The rail
+   carries every control it can with its own keycap or pad mark ON the control
+   (components.ts's railLegendHTML), and the whole scheme — both families,
+   including the aim keys, the stick, the wheel and the hold that restarts a bay,
+   none of which is a button anywhere — is on the pause card, one press away and
+   at rest.
 
-/* WHAT THIS BLOCK NO LONGER DOES, which is most of what it used to do. It sat
-   beside a rule hiding every game button on the rail, and the pair was the whole
-   desktop control scheme: no buttons, one line of text along the foot of the
-   field naming the keys instead. The owner's objection is the one that settles
-   it — the field's foot is not an action surface. A player reading "Q/E rotate"
-   there reads it in a place nothing can be pressed, several hundred pixels from
-   the machine's own controls, while the phone build has a column of real buttons
-   doing that job.
+   What that buys back, since the numbers above were the cost of not having it:
+   the 20px lane at the foot of the field is clear, the panel has no strip to be
+   painted under, `.hud__bottom`'s full-bleed layer is gone, and the tall
+   layout's "lift the strip above the field" override is gone with it. */
 
-   The buttons are back on every pointer and the keycaps moved ONTO them
-   (components.ts's railLegendHTML). So the strip lost every hint that names a
-   control the rail carries — rotate, the abilities, pause — and keeps only what
-   the rail CANNOT say: how the shot itself is aimed and fired, which is a
-   pointer gesture and three keys with no button anywhere, on any platform (see
-   screens.ts's hintParts). That is not the strip being tolerated alongside the
-   rail; it is the two surfaces dividing the scheme with nothing said twice.
-
-   The cancel ✕ is the ONE rail control a fine pointer still does not get, and
-   that needs no rule of its own: .cancel-aim-btn is `display: none` by default
-   and only the `@media (pointer: coarse)` block above lights it up mid-drag. It
-   exists to be hit by a SECOND finger while the first holds a slingshot drag
-   (input.ts's cancelAim), and a mouse has neither a second contact nor, since
-   the aim rework, a drag to abort — it clicks a spot and the cannon solves the
-   arc onto it. */
-@media (pointer: fine) {
-  /* Only the display switch: the field-relative anchor lives on the base rule,
-     because the gamepad profile needs it on coarse pointers too. */
-  .kbd-hint { display: flex; }
-}
-
-/* The pause modal's control reference (screens.ts's pauseKeysHTML) — the
-   permanent home the transient strip retires to. Gated exactly as the strip
-   is (fine pointer, or the gamepad profile on any pointer): touch pauses into
-   the same modal and its controls are the rail, so the block would only be
-   telling a thumb about keys. The chips are the prose-sized .kbd — this is a
-   card being read at rest, not a strip squeezed into the field's foot lane,
-   so they keep their air (see the .kbd-hint padding note above for the
-   distinction). */
+/* The pause modal's control reference (screens.ts's pauseKeysHTML) — now the
+   ONLY place the input scheme is written out in prose, and the reason the HUD
+   can afford to carry none. Gated on the pointer (fine, or the gamepad profile
+   on any pointer): touch pauses into this same modal and its controls are the
+   rail, so the block would only be telling a thumb about keys. The chips are
+   the prose-sized .kbd and keep their air — this is a card read at rest, which
+   is exactly the argument for moving the scheme here rather than squeezing it
+   into a lane at the foot of a live field. */
 .pause-keys {
   display: none;
   margin-top: var(--sp-3);
@@ -2761,8 +2665,9 @@ body.crt-off #app::after { display: none; }
    `drag-hint--hidden` class (shown once on a player's first-ever bay, or
    once per session if a bay opens and 15s pass with no shot; dismissed for
    good the moment a shot fires). Pure CSS: transform/opacity keyframes
-   driven by the --hint-* tokens in tokens.css. Touch-only — desktop already
-   spells the gesture out in the .kbd-hint strip above. */
+   driven by the --hint-* tokens in tokens.css. Touch-only: the gesture it
+   teaches is the slingshot pull, and a mouse does not make it — a fine pointer
+   clicks the spot and the cannon solves the arc onto it (input.ts). */
 /* REGISTERED, so it computes to a length instead of substituting as a token
    stream. sim/uifit's `draghint` assertion reads this property back with
    parseFloat(getComputedStyle(...).getPropertyValue(...)) — the stylesheet
@@ -2963,8 +2868,8 @@ body.crt-off #app::after { display: none; }
   }
 }
 @media (pointer: fine) {
-  /* The ONBOARDING role is hidden on a mouse: it teaches a touch gesture the
-     .kbd-hint strip already spells out in keys.
+  /* The ONBOARDING role is hidden on a mouse: it teaches the slingshot pull,
+     and a mouse aims by clicking the spot instead (input.ts).
      The CORRECTION role is not, and the difference matters. `pointer: fine`
      describes the device's PRIMARY pointer, while input.ts gates per EVENT on
      `e.pointerType !== "mouse"` — so on a touchscreen laptop, a Surface, or a
