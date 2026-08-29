@@ -16,7 +16,7 @@ import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
 import { blinkVisible } from "./lineClear";
 import type { LevelConfig } from "./level";
-import { FX_TTL, type FxEvent, PENALTY_SINK_PX } from "./fx";
+import { BLAST_AMBER, FX_TTL, type FxEvent, PENALTY_SINK_PX } from "./fx";
 
 export interface Viewport {
   scale: number;
@@ -473,6 +473,13 @@ export function render(
   // very cubes it joins, so drawing it underneath draws nothing.
   drawJointSeams(ctx, scene.constraints, alpha);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb, alpha);
+  // THE BLAST SPRAY GOES HERE AND NOWHERE LATER. Over the cargo it came out of
+  // — debris behind the pile is debris nobody sees — and UNDER everything the
+  // player aims with: the cushion edge, the incinerator plane, the arc and the
+  // cannon all draw after it. At the frame cap this layer puts 240 lit squares
+  // on the field, and the one thing they must never cover is the dotted line
+  // the next shot is being lined up against.
+  drawExplosionDebris(ctx, scene.effects, scene.now);
   // Over the cargo, with the trajectory: this is the line the player aims
   // against, and the bedding it belongs to is already buried under the pile.
   drawCushionEdge(ctx, scene.level);
@@ -2848,7 +2855,18 @@ function drawRowFlashFx(
 }
 
 /** Explosion (600ms): expanding ring + brief white flash + orbiting sparks. */
-const EXPLOSION_RING_COLOR = "#ffb347";
+const EXPLOSION_RING_COLOR = BLAST_AMBER;
+/**
+ * The SHOCKWAVE's own clock, in ms.
+ *
+ * FX_TTL.explosion is 900 and this is 600, and the gap is deliberate: the
+ * event now outlives its bang so drawExplosionDebris can keep throwing
+ * wreckage after the ring has finished. Reading the ring's progress off the
+ * TTL instead would have stretched a 600ms shockwave to 900 as a side effect
+ * of a change that is about debris — the same reason drawShardBurst runs its
+ * core flash on a fixed millisecond clock rather than a fraction of a TTL.
+ */
+const EXPLOSION_RING_MS = 600;
 const EXPLOSION_RADIUS_BASE_FRAC = 0.25;
 const EXPLOSION_RADIUS_GROWTH_FRAC = 0.95;
 const EXPLOSION_LINEWIDTH_MAX = 10;
@@ -2864,14 +2882,19 @@ function drawExplosionFx(
   e: Extract<FxEvent, { kind: "explosion" }>,
   now: number,
 ): void {
-  const t = clamp01((now - e.t0) / FX_TTL.explosion);
+  const t = clamp01((now - e.t0) / EXPLOSION_RING_MS);
   if (t >= 1) return;
 
+  // The ring burns in what went off, where the event says so. A volatile pop's
+  // shockwave in hazard yellow-green and a demolition charge's in fire amber
+  // is the same read the debris carries, and the two halves of one blast
+  // disagreeing about its colour would be worse than either choice alone.
+  const ringColor = e.color ? blastHue(e.color) : EXPLOSION_RING_COLOR;
   const radius = e.r * (EXPLOSION_RADIUS_BASE_FRAC + EXPLOSION_RADIUS_GROWTH_FRAC * easeOutCubic(t));
 
   ctx.save();
   ctx.globalAlpha = 1 - t;
-  ctx.strokeStyle = EXPLOSION_RING_COLOR;
+  ctx.strokeStyle = ringColor;
   // Halo as a wide translucent under-stroke — the ring's radius grows every
   // frame, so like the reload ring this can't bake, and shadowBlur 28 on a
   // field-sized arc was the single widest live blur in the game.
@@ -2902,10 +2925,10 @@ function drawExplosionFx(
   // Baked glowing disc, one per (fixed) spark color — same trade as shards.
   const sparkPad = EXPLOSION_SPARK_RADIUS + EXPLOSION_SPARK_GLOW;
   const sparkSide = EXPLOSION_SPARK_RADIUS * 2 + sparkPad * 2;
-  const spark = getSprite("spark", sparkSide, sparkSide, (c) => {
-    c.shadowColor = EXPLOSION_RING_COLOR;
+  const spark = getSprite(`spark|${ringColor}`, sparkSide, sparkSide, (c) => {
+    c.shadowColor = ringColor;
     c.shadowBlur = EXPLOSION_SPARK_GLOW;
-    c.fillStyle = EXPLOSION_RING_COLOR;
+    c.fillStyle = ringColor;
     c.beginPath();
     c.arc(sparkSide / 2, sparkSide / 2, EXPLOSION_SPARK_RADIUS, 0, Math.PI * 2);
     c.fill();
@@ -2916,6 +2939,388 @@ function drawExplosionFx(
     const sx = e.x + Math.cos(angle) * radius;
     const sy = e.y + Math.sin(angle) * radius;
     ctx.drawImage(spark, sx - sparkDraw / 2, sy - sparkDraw / 2, sparkDraw, sparkDraw);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// PIXEL DEBRIS — the wreckage a detonation throws.
+//
+// WHAT IT IS. Every blast that names a colour (fx.ts's explosion.color: a
+// volatile pop, a demolition charge, cargo the intake ate) sprays chunky
+// axis-aligned squares out of its centre in three bands — sparks, shrapnel,
+// embers — each with its own speed, size, gravity and life. Squares on a fixed
+// world-pixel lattice rather than sprites, because the game's language is
+// pixel/CRT neon and a square that is honestly two world px wide, drawn on the
+// same lattice as its neighbours, is the only thing that reads as a PIXEL
+// rather than as a small picture of one.
+//
+// WHY THERE IS NO PARTICLE POOL. The obvious build is an array of particle
+// objects integrated once per frame and recycled through a free list. This
+// file does not do that, and the reason is the sentence at the top of
+// drawEffects: the FX layer is a pure function of (effects, now). Every
+// particle's position here is a CLOSED FORM of (event seed, index, elapsed) —
+// p = p0 + v·ease(t) + g·t² — so:
+//
+//   • there is nothing to allocate, not even a pool. A pool has zero churn
+//     once warm; this has zero churn including the first frame, and no live
+//     array to keep in sync with an event list that Game prunes underneath it.
+//   • frame-rate independence is not a property that had to be arranged. A
+//     particle at elapsed=300ms is in the same place whether the renderer got
+//     there in 18 frames at 60Hz, 36 at 120Hz, or one frame after a stall.
+//     An integrator would have had to be fed a dt and would have drifted
+//     between the two.
+//   • it settles by construction. The event dies at FX_TTL.explosion and the
+//     debris dies with it — there is no state left holding anything alive.
+//   • idle cost is one array-length test. No live blasts, no work at all.
+//
+// WHAT IT COSTS, AND THE TWO THINGS THAT BOUND IT. Per band the drawer issues
+// ONE beginPath, N rect()s and ONE fill — so a 60-particle blast is 3 fills,
+// not 60 fillRects, and the rasteriser gets three batches instead of sixty
+// draws. Above that sits DEBRIS_FRAME_CAP, a ceiling on particles across ALL
+// live blasts in a frame; over it, every blast in the frame is scaled by one
+// shared factor rather than the late ones being dropped, so a chain detonation
+// thins evenly instead of some pops spraying and others not.
+// ---------------------------------------------------------------------------
+
+/** World px the debris lattice snaps to. Every particle's centre is rounded to
+ *  a multiple of this before it is drawn, so a spray reads as one grid of lit
+ *  cells rather than as N independently-positioned squares — which is the
+ *  difference between "pixels" and "small rectangles". 2 rather than 1 because
+ *  at the viewport scales the layout solver produces (~0.6-1.6 world px per CSS
+ *  px) a 1px lattice is finer than the display can resolve and the effect
+ *  degrades into the smooth motion it is trying not to be. */
+const DEBRIS_PIXEL = 2;
+
+/**
+ * Particles per world px of blast radius.
+ *
+ * Radius is the right dial because it is already the honest picture of what a
+ * blast destroyed (game.ts's detonate sizes it off the kill radius, and the
+ * shove ring rides on the same number). At 2.0 the two blasts the player meets
+ * most often spend a full allowance — a demolition charge (r = CELL * 2.4 =
+ * 96) wants 192 and takes the 180 the per-blast cap allows, a volatile pop
+ * (r = 89.6) throws 179 — while the intake's much smaller per-cube blast
+ * (r = 34) throws 68, so a four-cube shipment clipping the plant's roof spends
+ * 272 rather than four full sprays' worth.
+ *
+ * 2.0 rather than the 1.05 this was first drawn at, and the first cut is worth
+ * recording because the brief was "lots": at ~94 particles a volatile pop was a
+ * scatter of squares you could count, which reads as a glitch rather than as a
+ * detonation. Doubling it is what turned the same geometry into a spray, and it
+ * cost 0.8ms on the worst frame the game can build (sim/renderperf --boom).
+ */
+const DEBRIS_PER_RADIUS_PX = 2.0;
+/** Floor, so the smallest blast still reads as a burst and not as a handful of
+ *  stray dots. */
+const DEBRIS_MIN = 26;
+/** Ceiling per blast. */
+const DEBRIS_MAX = 180;
+/**
+ * Ceiling on particles across every live blast in ONE frame.
+ *
+ * The stress case is a chain detonation on a volatile-heavy belt: one pop razes
+ * its neighbours, they land hard, and four or five blasts are live in the same
+ * frame with a full pile under them. Four volatile pops and a charge want 896,
+ * which is well over this, and that is the point — 560 is a hard number rather
+ * than a hopeful one. Over it, `squeeze` scales every blast in the frame down
+ * TOGETHER (see drawExplosionDebris) so a chain thins evenly instead of the
+ * first pops spraying and the last ones arriving empty.
+ *
+ * MEASURED, not guessed. sim/renderperf --probe --boom counts the frame that
+ * chain actually issues: 392 rect()s in 11 fills (a band that has expired
+ * issues neither), on top of the 82 drawImages a 150-cube bay was already
+ * paying. --breakdown puts the whole effects layer at 1.700ms with the debris
+ * and 0.900ms with it removed by prefers-reduced-motion, so the ceiling above
+ * is worth ~0.8ms of a 16.67ms frame at its most expensive.
+ */
+export const DEBRIS_FRAME_CAP = 560;
+
+/** One band of a spray: a population of particles that behave alike, and are
+ *  therefore drawable in one path. The three of them ARE the design — a blast
+ *  reads as an explosion rather than as a starburst because the fast bright
+ *  bit, the thrown bit and the falling bit have different physics. */
+interface DebrisBand {
+  /** Share of the blast's particle count. The last band takes the remainder,
+   *  so the shares never have to sum to exactly 1 in floating point. */
+  share: number;
+  /** How long the band lives, in ms. Never more than FX_TTL.explosion, which
+   *  is when Game prunes the event out from under it. */
+  ms: number;
+  /**
+   * How long the OUTWARD throw takes, in ms — and the single most important
+   * number in this table.
+   *
+   * It is much shorter than `ms` on purpose. Debris leaves a blast fast and
+   * then hangs and falls; spreading the travel across the band's whole life
+   * instead (which the first cut of this did, by easing on the band's own
+   * progress) drew shrapnel that was still crawling outward past the shockwave
+   * ring at 110ms, so the ring overtook its own wreckage and the blast read as
+   * a ring with a smudge in the middle. Throwing in ~240ms and then coasting
+   * is what puts the material OUTSIDE the ring, which is the picture.
+   */
+  flingMs: number;
+  /** Reach at the end of the throw, as a multiple of the blast radius. */
+  speed: number;
+  /** How much of `speed` the per-particle hash may take away. Without it the
+   *  even angular fan draws a perfect expanding ring — a diagram, not a burst. */
+  spread: number;
+  /** World px of sag at the band's own end, applied as t² so the arc reads as
+   *  a throw that is now falling. */
+  gravity: number;
+  /** Square edge in world px. Even, so a centred square lands on the lattice. */
+  px: number;
+  /** Index into the blast's colour ramp. */
+  stop: 0 | 1 | 2;
+  /** Drawn with "lighter", for the band that is meant to bloom. */
+  additive: boolean;
+  /** Flickers on its own millisecond clock — the cooling read. */
+  flicker: boolean;
+}
+
+/**
+ * The three bands, fastest first.
+ *
+ * SPARKS are the muzzle-flash instant: smallest, thrown furthest, gone inside
+ * a quarter second, additive so they bloom white-hot over whatever they cross,
+ * and weightless — nothing that dies this fast has time to fall. They carry
+ * the BANG, and they are the band that reaches past the shockwave ring.
+ *
+ * SHRAPNEL is the body of the spray and the only band drawn large: 6px squares
+ * are 15% of a cube's edge, chunky enough to read as thrown material at the
+ * scale a 40px cube establishes. Thrown just inside the sparks, then coasting
+ * and sagging for another third of a second.
+ *
+ * EMBERS are what is left: thrown least, bent hardest by gravity, alive for the
+ * whole event, guttering as they fall. They are the reason FX_TTL.explosion is
+ * 900 and not 600 — the ring is long gone while these are still coming down.
+ */
+const DEBRIS_BANDS: readonly DebrisBand[] = [
+  { share: 0.36, ms: 260, flingMs: 240, speed: 2.30, spread: 0.50, gravity: 0, px: 3, stop: 0, additive: true, flicker: false },
+  { share: 0.40, ms: 620, flingMs: 250, speed: 1.70, spread: 0.55, gravity: 46, px: 6, stop: 1, additive: false, flicker: false },
+  { share: 0.24, ms: 900, flingMs: 320, speed: 1.05, spread: 0.60, gravity: 150, px: 4, stop: 2, additive: false, flicker: true },
+];
+
+/** Ember flicker, in radians of phase per ms — about 5.7 cycles a second, fast
+ *  enough to read as guttering and slow enough not to strobe. A function of
+ *  `elapsed`, so like everything else here it is identical at 60 and 120Hz. */
+const EMBER_FLICKER_RAD_PER_MS = 0.036;
+const EMBER_FLICKER_DEPTH = 0.28;
+
+/** Blend two #rrggbb values, `k` of the way from `hex` toward `to`. */
+function mixHex(hex: string, to: number, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  let out = "#";
+  for (let sh = 16; sh >= 0; sh -= 8) {
+    const a = (n >> sh) & 255;
+    const b = (to >> sh) & 255;
+    out += Math.round(a + (b - a) * k).toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
+/** Peak channel a blast colour is lifted to before anything is drawn in it.
+ *  Tar's authored hue is #241f2e — "an absence", which is exactly right for a
+ *  cube sitting in the pile and exactly wrong for wreckage in flight, where it
+ *  is a black square on a near-black field. Same argument and the same floor as
+ *  theme.ts's shipmentAura, applied to a raw hex because a blast knows its
+ *  colour and not the (type, material) pair it came from. */
+const BLAST_HUE_FLOOR = 0.55;
+
+/** Per-colour caches. Keyed by the event's own colour string, which comes from
+ *  a fixed palette (seven shipment hues, six materials, the demolition amber),
+ *  so these are bounded by the palette and not by play. Resolution-independent
+ *  — unlike the sprite caches they survive a re-bake, because a colour is not
+ *  a rasterisation. */
+const blastHues = new Map<string, string>();
+const debrisRamps = new Map<string, readonly [string, string, string]>();
+
+function blastHue(color: string): string {
+  const hit = blastHues.get(color);
+  if (hit !== undefined) return hit;
+  let out = color;
+  if (color.length === 7 && color.charCodeAt(0) === 35) {
+    const n = parseInt(color.slice(1), 16);
+    const peak = Math.max((n >> 16) & 255, (n >> 8) & 255, n & 255) / 255;
+    if (peak > 0 && peak < BLAST_HUE_FLOOR) out = mixHex(color, 0xffffff, 1 - peak / BLAST_HUE_FLOOR);
+  }
+  blastHues.set(color, out);
+  return out;
+}
+
+/**
+ * The three fills one blast's spray is drawn in: hot, body, cooling.
+ *
+ * Built once per colour and held, because a `#rrggbb` string built inside the
+ * draw loop is exactly the per-frame allocation this layer is otherwise
+ * careful not to make — three strings × every live blast × 60Hz.
+ */
+function debrisRamp(color: string): readonly [string, string, string] {
+  const hit = debrisRamps.get(color);
+  if (hit) return hit;
+  const hue = blastHue(color);
+  const ramp = [
+    // Nearly white but still tinted, so a volatile spark and a demolition
+    // spark are told apart at the instant they are brightest.
+    mixHex(hue, 0xffffff, 0.72),
+    // The material itself, lifted just enough to survive being drawn over a
+    // glowing pile.
+    mixHex(hue, 0xffffff, 0.16),
+    // Cooled toward a warm coal rather than toward black: an ember is a dying
+    // fire, and mixing to #000 turns the last third of every spray into
+    // silhouettes.
+    mixHex(hue, 0x2a1206, 0.40),
+  ] as const;
+  debrisRamps.set(color, ramp);
+  return ramp;
+}
+
+/** 32-bit integer mix (Math.imul keeps every step exact at 32 bits, which a
+ *  plain `*` does not). The per-particle source of variation — no Math.random,
+ *  because a frame drawn twice with the same `now` must be the same frame:
+ *  sim/renderperf --snapshot diffs exactly that, and drawEffects' purity
+ *  contract promises it. */
+function hash2(a: number, b: number): number {
+  let h = Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1);
+  h = Math.imul(h ^ (h >>> 15), 0x2545f491);
+  return (h ^ (h >>> 13)) >>> 0;
+}
+
+/** Particles one blast of radius `r` wants, before the frame cap has its say.
+ *  Exported for sim/systems.ts, which pins the cap arithmetic in node. */
+export function debrisCount(r: number): number {
+  return Math.max(DEBRIS_MIN, Math.min(DEBRIS_MAX, Math.round(r * DEBRIS_PER_RADIUS_PX)));
+}
+
+const TAU = Math.PI * 2;
+
+/** One blast's spray. `n` is what the frame cap ALLOWED, which may be less
+ *  than debrisCount(r) asked for. */
+function drawDebrisBurst(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  elapsed: number,
+  n: number,
+): void {
+  if (n <= 0) return;
+  const ramp = debrisRamp(color);
+  // Seeded off the blast's own position, exactly as seedAngle is, so two pops
+  // in the same frame throw differently and one pop looks the same every time
+  // it is drawn.
+  const seed = hash2(Math.round(x), Math.round(y));
+
+  let from = 0;
+  for (let b = 0; b < DEBRIS_BANDS.length; b++) {
+    const band = DEBRIS_BANDS[b];
+    const count = b === DEBRIS_BANDS.length - 1
+      ? n - from
+      : Math.round(n * band.share);
+    const start = from;
+    from += count;
+    if (count <= 0) continue;
+    const bt = elapsed / band.ms;
+    // A dead band is skipped, not drawn at zero alpha: the sparks are gone for
+    // three quarters of every blast, and that is three quarters of a
+    // beginPath/fill pair and `count` rect calls not issued.
+    if (bt >= 1) continue;
+
+    let alpha = 1 - bt * bt;
+    if (band.flicker) {
+      alpha *= 1 - EMBER_FLICKER_DEPTH
+        + EMBER_FLICKER_DEPTH * Math.sin(elapsed * EMBER_FLICKER_RAD_PER_MS);
+    }
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = band.additive ? "lighter" : "source-over";
+    ctx.fillStyle = ramp[band.stop];
+
+    // Two clocks, and the split is the whole reason this reads as a throw: the
+    // travel runs out on `flingMs` and then stops, while the sag keeps
+    // accumulating on the band's full life. Debris that is done flying is not
+    // done falling.
+    const reach = r * band.speed * easeOutCubic(clamp01(elapsed / band.flingMs));
+    const sag = band.gravity * bt * bt;
+    // An EVEN fan plus a bounded jitter, rather than free random angles: a
+    // uniform draw clumps at these counts and leaves holes the eye reads as a
+    // direction the blast did not have. The jitter is half a slot either way,
+    // which is as much scatter as an even fan can take without re-clumping.
+    const slot = TAU / count;
+    ctx.beginPath();
+    for (let i = 0; i < count; i++) {
+      const h = hash2(seed, start + i);
+      const angle = i * slot + (((h & 1023) / 1024) - 0.5) * slot;
+      const speed = 1 - band.spread * (((h >>> 10) & 255) / 255);
+      // Per-particle fall rate, so the band's embers do not descend as a sheet.
+      const fall = 0.55 + (((h >>> 18) & 127) / 127) * 0.9;
+      // Two sizes inside one band, one lattice step apart. Free — a path can
+      // hold rects of different sizes, and only the FILL is per-band — and it
+      // is what stops a spray reading as one stencil stamped N times.
+      const side = band.px + ((h >>> 25) & 1) * DEBRIS_PIXEL;
+      const px = x + Math.cos(angle) * reach * speed;
+      const py = y + Math.sin(angle) * reach * speed + sag * fall;
+      // The CORNER is snapped, not the centre: that keeps odd-sided squares on
+      // the same lattice as even-sided ones, so the two sizes in a band read as
+      // pixels of one grid rather than as two grids half a step apart.
+      ctx.rect(
+        Math.round((px - side / 2) / DEBRIS_PIXEL) * DEBRIS_PIXEL,
+        Math.round((py - side / 2) / DEBRIS_PIXEL) * DEBRIS_PIXEL,
+        side, side,
+      );
+    }
+    ctx.fill();
+  }
+}
+
+/**
+ * Every live blast's debris, in one pass.
+ *
+ * Called from render() BETWEEN the pile and the aim furniture — over the cargo
+ * (debris in front of what it came out of) and under the cushion edge, the
+ * incinerator plane, the trajectory dots and the cannon. That position is the
+ * readability constraint made structural: the player is aiming THROUGH this,
+ * and a spray of 240 squares drawn last would put pixels over the one line on
+ * the field that the next shot depends on.
+ *
+ * REDUCED MOTION removes the layer outright rather than thinning it. Everything
+ * this function adds is motion — flung squares, falling embers, a flicker — so
+ * "fewer of them" is a smaller dose of the exact thing the preference asks not
+ * to be shown. What remains is the shockwave (ring, flash, orbiting sparks),
+ * which is what a blast looked like before this layer existed and still says
+ * everything the player needs to know about it.
+ */
+function drawExplosionDebris(
+  ctx: CanvasRenderingContext2D,
+  effects: FxEvent[],
+  now: number,
+): void {
+  if (effects.length === 0) return;
+  if (prefersReducedMotion()) return;
+
+  // Pass one: what the frame WANTS. Cheap — a walk of an array that holds a
+  // handful of events at its busiest — and it is what lets the cap scale every
+  // blast by one shared factor instead of starving whichever ones happen to
+  // sort last.
+  let want = 0;
+  for (const e of effects) {
+    if (e.kind !== "explosion" || !e.color) continue;
+    const elapsed = now - e.t0;
+    if (elapsed < 0 || elapsed >= FX_TTL.explosion) continue;
+    want += debrisCount(e.r);
+  }
+  if (want === 0) return;
+  const squeeze = want > DEBRIS_FRAME_CAP ? DEBRIS_FRAME_CAP / want : 1;
+
+  ctx.save();
+  for (const e of effects) {
+    if (e.kind !== "explosion" || !e.color) continue;
+    const elapsed = now - e.t0;
+    if (elapsed < 0 || elapsed >= FX_TTL.explosion) continue;
+    drawDebrisBurst(
+      ctx, e.x, e.y, e.r, e.color, elapsed,
+      Math.floor(debrisCount(e.r) * squeeze),
+    );
   }
   ctx.restore();
 }

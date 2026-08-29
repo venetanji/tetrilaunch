@@ -51,7 +51,7 @@ import {
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
-import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
+import { BLAST_AMBER, FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
 import { MATERIAL_SPEC } from "./theme";
 import type { Material, PieceSize, PieceType } from "./theme";
 
@@ -1150,7 +1150,12 @@ export class Game {
       cx += px;
       this.throwChunks(cube, now);
       this.effects.push({
-        kind: "explosion", x: px, y: CHUTE_LIP_Y - CHUTE_BLAST_R * 0.3, r: CHUTE_BLAST_R, t0: now,
+        kind: "explosion", x: px, y: CHUTE_LIP_Y - CHUTE_BLAST_R * 0.3, r: CHUTE_BLAST_R,
+        // The CUBE'S OWN colour, so the spray over the lip is made of the
+        // cargo the intake just took — the same argument throwChunks makes one
+        // line up, one layer down. This is the cue the player reads to know
+        // WHICH shipment they lost when a piece clips the plant's roof.
+        color: cube.color, t0: now,
       });
     }
     cx /= shredded.length;
@@ -2571,7 +2576,14 @@ export class Game {
     if (n) {
       this.effects.push({
         kind: "explosion", x: cx / n, y: cy / n,
-        r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: now,
+        r: VOLATILE_BLAST_CELLS * CELL * 1.4,
+        // VOLATILE'S OWN HAZARD YELLOW-GREEN, not the demolition amber. The
+        // material's colour is a warning label (theme.ts: "the only colour the
+        // palette otherwise refuses"), and a pop that throws it back is the
+        // player being told which of the two things that go bang in this game
+        // just went bang — a charge they placed, or cargo they landed.
+        color: MATERIAL_SPEC.volatile.color ?? BLAST_AMBER,
+        t0: now,
       });
       this.events.onExplosion?.("volatile");
       // ONE SETTLEMENT — the dead cargo's payout and the live cargo's charge
@@ -2737,7 +2749,10 @@ export class Game {
     for (const g of gone) wakeNear(this.cubes, g.x, g.y);
 
     Matter.Composite.remove(this.phys.world, bombBody);
-    this.effects.push({ kind: "explosion", x: cx, y: cy, r: blastR, t0: now });
+    // The charge's fire, and the widest spray in the game — a demolition
+    // charge is the one blast the player PAID for and aimed, so it is the one
+    // that owes them the biggest picture of what it did.
+    this.effects.push({ kind: "explosion", x: cx, y: cy, r: blastR, color: BLAST_AMBER, t0: now });
     this.events.onExplosion?.("bomb");
 
     if (vaporized > 0) {

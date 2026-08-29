@@ -217,7 +217,8 @@ top it. `level` is the bay the run ended on; it is carried for display and is *n
 the board's key (every client hardcoded it to `1` until tier boards landed).
 
 D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
-`migrations/` — `0001_init.sql`, then `0002_tier_boards.sql`.
+`migrations/` — `0001_init.sql`, then `0002_tier_boards.sql`, then `0003_daily_boards.sql`
+(the Skydeck daily boards; production needs it applied before Sky runs can post scores).
 
 ### Deploy strategy
 
