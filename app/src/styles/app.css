@@ -1,7 +1,17 @@
 @import "./tokens.css";
-/* The two pixel-art cursors, baked from scripts/make-cursors.mjs. An @import
+/* The four pixel-art cursors, baked from scripts/make-cursors.mjs. An @import
    rather than a paste because the file is generated: it has to be safe to
-   overwrite wholesale, and nothing hand-written may live in it. */
+   overwrite wholesale, and nothing hand-written may live in it.
+
+   IT COMES FIRST AND STILL WINS, which is worth knowing before editing any
+   `cursor:` line below. @import is only legal at the top of a stylesheet, so
+   every rule in this file is later in source order than every rule in that
+   one; the generated clickable/blocked rules are scoped to `#app` for exactly
+   that reason, and one id outranks any stack of classes here. The `cursor:
+   pointer` / `default` / `not-allowed` declarations scattered through this
+   file are therefore the FALLBACK layer now — what a coarse pointer, a
+   forced-colors run, or a browser that refused the bitmap lands on. Keep them
+   truthful; do not expect them to be what a mouse sees. */
 @import "./cursors.css";
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1781,8 +1791,17 @@ body.crt-off #app::after { display: none; }
   0%, 100% { box-shadow: var(--shadow-hard-sm); }
   50% { box-shadow: var(--shadow-hard-sm), 0 0 12px rgba(255, 176, 32, 0.5); }
 }
-/* Bought. Same face, no pulse, no pointer — a state, not an offer. */
-.menu__entitlement { cursor: default; }
+/* Bought. Same face, no pulse, no pointer — a state, not an offer.
+
+   `inherit`, NOT `default`. This is a <div class="btn" role="status">
+   (screens.ts) — it looks like a control and is not one, so it has to shed the
+   .btn rule's `pointer`, and it is invisible to cursors.css's clickable
+   selector precisely because that selector is keyed on behaviour rather than
+   on the .btn class. What it must land on is the CHROME cursor the rest of the
+   panel around it is wearing, which is the one thing `default` (the OS arrow)
+   is not. Inheriting takes it from body and it goes on matching whatever the
+   generator bakes there. */
+.menu__entitlement { cursor: inherit; }
 @media (prefers-reduced-motion: reduce) { .menu__unlock { animation: none; } }
 .menu__demo { position: relative; }
 
@@ -6237,8 +6256,19 @@ body.crt-off #app::after { display: none; }
 .setting__label b { font-weight: 600; }
 .setting__label span { font-size: var(--fs-sm); color: var(--text-muted); }
 /* Square-ish, chunky-bordered slider — a small block thumb instead of a
-   circle, in keeping with the retro pass's steppy geometry. */
-.toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); cursor: pointer; transition: all var(--dur) var(--ease); flex: none; }
+   circle, in keeping with the retro pass's steppy geometry.
+
+   NO `cursor` OF ITS OWN, deliberately. The pill is a picture of the switch,
+   not the switch: .setting above carries role="switch", the tabindex and the
+   data-toggle, and components.ts's toggleHTML says why (the row is what a
+   thumb aims at). It used to restate `cursor: pointer` anyway, which was
+   harmless while every control wore the system hand and became a hole the
+   moment they stopped — a declaration at class weight beats an inherited
+   value however specific the rule that produced it, so the row wore the
+   game's hand and the pill inside it went back to the OS's. Inheriting is
+   both simpler and always right: it tracks whatever the row is wearing, on a
+   mouse, on a phone, and under forced-colors alike. */
+.toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); transition: all var(--dur) var(--ease); flex: none; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--text-muted); transition: all var(--dur) var(--ease); }
 .setting[aria-checked="true"] .toggle { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
 .setting[aria-checked="true"] .toggle::after { left: 31px; background: var(--accent-ink); }
@@ -6374,9 +6404,15 @@ body.crt-off #app::after { display: none; }
   box-shadow: var(--shadow-hard-sm); color: var(--text);
 }
 .guide__drill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Locked, and rendered as a <div> rather than a disabled <button> (screens.ts)
+   — there is nothing to press, so there is no control here to disable. That is
+   also why it takes `inherit` rather than cursors.css's barred disc: the disc
+   is the answer to "this control is refusing you", and this card is not
+   refusing anything, it is a card. `default` would have been the OS arrow in
+   the middle of a pane wearing the game's own; inherit is the pane's. */
 .guide__drill--locked {
   border-color: var(--line); background: rgba(255, 255, 255, 0.02);
-  box-shadow: none; cursor: default; color: var(--text-muted);
+  box-shadow: none; cursor: inherit; color: var(--text-muted);
 }
 .guide__drill-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .guide__drill-kind { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; color: var(--accent); }
