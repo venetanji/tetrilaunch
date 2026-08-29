@@ -1,0 +1,46 @@
+-- Daily boards: the board key grows a SECOND part, and exactly one board uses
+-- it.
+--
+-- The Skydeck (game/skydeck.ts) is the day's run — its seed, its standing
+-- clauses and its weather are all `contracts.ts`'s dailySeed, so every player
+-- who undocks on the same UTC day flies the same thing. That is the property a
+-- board is made of, and until now it had nowhere to go: a Skydeck run filed to
+-- the Mark-10 board (main.ts's runBoard read `run.mark`, which the roof borrows
+-- from the top of the ladder), where a run flown under three standing clauses
+-- one rung past Mark 10 was ranked against ordinary Mark-10 Deep Runs. The
+-- direction was safe — the harder run can only under-rank itself — but the
+-- board was answering the wrong question, and docs/DESIGN.md recorded the
+-- schema column it needed as the reason it had not been done. This is that
+-- column.
+--
+-- ADDITIVE and DEFAULT 0, exactly as `mark` was in 0002. Every row that exists
+-- becomes an all-time row, which is what it already was:
+--   0                 an ALL-TIME board — every Tier, Tier S, and the untiered
+--                     row. `WHERE mark = ?` on /api/scores is unchanged and
+--                     never mentions this column, so no existing board moves.
+--   YYYYMMDD (UTC)    one day of the Skydeck board (mark = -2), stamped from
+--                     the run's own dealt day (skydeck.ts's SkydeckRules.day)
+--                     so a run undocked before midnight and landed after it
+--                     ranks against the seed it actually flew.
+--
+-- The Skydeck scores ALREADY POOLED onto the Tier 10 board are deliberately
+-- left where they are. Nothing distinguishes them: a Skydeck row carries
+-- mark 10, the bay it reached and its lines, which is precisely the shape of an
+-- honest Mark-10 Deep Run row. There is no marker to filter on, so any cleanup
+-- would be a guess applied to other people's scores — the pollution is stopped
+-- going forward instead, and the history is left honest about what it is.
+ALTER TABLE scores ADD COLUMN day INTEGER NOT NULL DEFAULT 0;
+
+-- The daily board query is `WHERE mark = ? AND day = ? ORDER BY score DESC`, so
+-- this index is that board. It serves the all-time per-Tier board too, which
+-- now reads `WHERE day = 0 AND mark = ?` — an all-time board IS `day = 0`, and
+-- the Worker states that on every query it serves rather than trusting that no
+-- daily row will ever carry a Tier's mark. idx_scores_mark_score stays: it is
+-- the index a query that predates this file was planned against.
+CREATE INDEX IF NOT EXISTS idx_scores_mark_day_score ON scores (mark, day, score DESC);
+
+-- …and the COMBINED board, which names no mark at all — the list a client older
+-- than tier boards gets. It is the one all-time query with nothing but `day` to
+-- seek on, and without this index adding that predicate would turn a legacy
+-- client's board into a full scan on every request.
+CREATE INDEX IF NOT EXISTS idx_scores_day_score ON scores (day, score DESC);

@@ -24,6 +24,7 @@
  * different consent requirements — do not quietly promote this one.
  */
 import type { ShotInfo } from "../game/game";
+import type { GradeTally } from "../game/grades";
 import type { RunState } from "../game/run";
 import type { UpgradeTiers } from "../game/upgrades";
 
@@ -44,9 +45,10 @@ export interface BayRecord {
    *
    *  "skydeck" is a THIRD value rather than a flag beside "run", and it earns
    *  the split the same way "contract" did: that bay was flown on a fixed daily
-   *  seed, with no refit stop behind it and one or more standing Final clauses
-   *  on it (game/skydeck.ts), so its clock slack and its low-water mark are
-   *  answers to a different question from a Mark-10 Deep Run bay's. Pooled,
+   *  seed, a rung above the ladder's last on money (level.ts's
+   *  applySkydeckEconomy), and with one or more standing Final clauses on it
+   *  (game/skydeck.ts), so its clock slack and its low-water mark are answers
+   *  to a different question from a Mark-10 Deep Run bay's. Pooled,
    *  they would move the medians the ladder is tuned against — which is exactly
    *  the corruption this field was added to prevent, one mode later.
    *
@@ -78,8 +80,18 @@ export interface BayRecord {
   /** Sampled every SAMPLE_MS so a bay's funds curve can be plotted — "how close
    *  to broke did this get, and when" is invisible in an end-of-bay total. */
   funds: { t: number; v: number }[];
-  lineClears: { t: number; lines: number }[];
-  abilities: { t: number; kind: "bond" | "bomb-arm" }[];
+  /** Each crush, with the TIMING BANDS it sold at (game/grades.ts).
+   *
+   *  `grades` is absent in every session recorded before the mechanic existed,
+   *  and the analyser skips those rather than guessing — the same stance the
+   *  compactor-geometry fields above take. It is here because the two tuning
+   *  questions this feature could not settle in sim are both about a human:
+   *  whether holding fire for the press reads as skill or as dead air, and
+   *  whether the premium is legible when the bay stops the moment it is paid
+   *  for. Neither is answerable from a win rate; both are answerable from a
+   *  band mix over a real session. */
+  lineClears: { t: number; lines: number; grades?: GradeTally }[];
+  abilities: { t: number; kind: "bond" | "bomb-arm" | "thaw" }[];
   result: "won" | "lost" | null;
   reason: string | null;
   secs: number;
@@ -124,6 +136,27 @@ const SAMPLE_MS = 1000;
 
 let session: Session | null = null;
 let run: RunRecord | null = null;
+/**
+ * The record endRun just closed, held in case that run turns out not to have
+ * ended — the game-over card's Retry Bay hands the same RunState back
+ * (main.ts's resetBay), so the run keeps flying after it was filed.
+ *
+ * A RUN THAT RESUMES MUST RESUME INTO ITS OWN RECORD, not into a second one.
+ * `run` is what startBay writes into and endRun nulls, so without this the
+ * retried bay and every bay after it were dropped on the floor — startBay's
+ * `!run` guard silently discarded them, and the second endRun no-oped, leaving
+ * the analyser a run that ended at the bay it lost with nothing after it. That
+ * is also exactly the double-count the other direction would have caused: a
+ * fresh startRun would have filed the continuation as a SECOND run, disagreeing
+ * with meta.ts's own count (recordRunEnd's `refiled`, which exists to keep the
+ * lifetime total a count of runs rather than of endings). One record, one run,
+ * on both sides of the save.
+ *
+ * Held as the exact record rather than "the last one in the session" so it can
+ * only ever re-open the run that was just closed, and only once — resumeRun
+ * clears it, and startRun clears it too.
+ */
+let closed: RunRecord | null = null;
 let bay: BayRecord | null = null;
 let lastSample = 0;
 
@@ -178,6 +211,9 @@ function persist(): void {
 export function startRun(mark: number, loadout: UpgradeTiers, unlocks: string[]): void {
   if (!recording()) return;
   const s = load();
+  // A genuinely new run supersedes any record still waiting to be resumed: the
+  // player left the loss card by the other door, and that run is over.
+  closed = null;
   run = {
     startedAt: Date.now(),
     mark,
@@ -237,12 +273,12 @@ export function shot(info: ShotInfo): void {
   bay.shots.push({ ...info, t: Math.round(info.t) });
 }
 
-export function lineClear(lines: number, t: number): void {
+export function lineClear(lines: number, t: number, grades?: GradeTally): void {
   if (!bay) return;
-  bay.lineClears.push({ t: Math.round(t), lines });
+  bay.lineClears.push({ t: Math.round(t), lines, ...(grades ? { grades } : {}) });
 }
 
-export function ability(kind: "bond" | "bomb-arm", t: number): void {
+export function ability(kind: "bond" | "bomb-arm" | "thaw", t: number): void {
   if (!bay) return;
   bay.abilities.push({ t: Math.round(t), kind });
 }
@@ -277,8 +313,37 @@ export function endRun(won: boolean, salvage: number): void {
   if (!run) return;
   run.won = won;
   run.salvage = salvage;
+  closed = run;
   run = null;
   bay = null;
+  persist();
+}
+
+/**
+ * Re-open the run endRun just closed, because it is still being flown.
+ *
+ * The one caller is main.ts's resetBay, on the retry that comes back from the
+ * game-over card. Everything the resumed run does from here — its bays, its
+ * refits, its outcome — lands in the record it was already writing, which is
+ * what keeps the analyser's run count agreeing with the save's (see `closed`).
+ *
+ * `won` GOES BACK TO NULL, and that is the whole of what re-opening changes.
+ * The loss that closed the record has been reversed by the player continuing;
+ * leaving it set would have the export report a run that both lost and, a few
+ * bays later, won. `salvage` is deliberately left alone: a losing filing banks
+ * nothing (meta.ts's recordRunEnd pays only on a false→true tier edge), so the
+ * value sitting there is 0 and the next endRun overwrites it with the real one.
+ *
+ * Idempotent, and narrow. A run already open is left alone — a resumed run that
+ * later restarts a bay from the PAUSE modal comes through resetBay again, and
+ * that one has nothing to re-open. With recording off it does nothing at all,
+ * like everything else here.
+ */
+export function resumeRun(): void {
+  if (!recording() || run || !closed) return;
+  run = closed;
+  closed = null;
+  run.won = null;
   persist();
 }
 

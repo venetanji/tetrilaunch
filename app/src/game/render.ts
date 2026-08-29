@@ -1,10 +1,13 @@
 import Matter from "matter-js";
-import { CELL, WORLD } from "./engine";
-import { CHUTE, chuteMouth, chuteRightEdge } from "./chute";
+import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
+import { CHUTE, chuteMouth, chuteRightEdge, INCINERATOR_Y } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
-import { computeLayout } from "./layout";
+import { cushionEdgeX } from "./lineClear";
+import { computeLayout, skyTop } from "./layout";
 import {
-  BAY_GLYPH_MATERIALS, COLORS, glyphInk, MATERIAL_GLYPH, PIECE_COLORS,
+  BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
+  glyphInk, GRADE_CALLOUT, GRADE_COLOR,
+  MATERIAL_GLYPH, PIECE_COLORS,
   shade, shipmentAura, shipmentColor,
   type Material, type PieceSize, type PieceType,
 } from "./theme";
@@ -108,6 +111,21 @@ export interface Scene {
    *  sits over the field. A DOM cue would be hidden by the thing it is warning
    *  about. */
   strandWarning: boolean;
+  /**
+   * HOW FAR INTO THE STEP NOW IN PROGRESS this frame sits, 0..1 — main.ts's
+   * leftover accumulator over one STEP. Every physics body is drawn between
+   * where it stood at the end of the last step and where it stands now, so a
+   * panel refreshing faster than the 60Hz simulation gets a fresh position per
+   * frame instead of the same one twice. See engine.ts's markPrevStep for the
+   * whole argument, including what it costs.
+   *
+   * OPTIONAL, DEFAULTING TO 1 — "draw the world exactly as it is right now",
+   * which is what the renderer did before interpolation existed and what every
+   * caller that does not run an accumulator wants. sim/renderperf and
+   * sim/uifit both step and draw in lockstep, so 1 is the honest answer there
+   * and their pixels are unchanged by any of this.
+   */
+  alpha?: number;
 }
 
 /**
@@ -165,35 +183,98 @@ function seamStrength(breakStretch: number | undefined): number {
   return Math.max(0, Math.min(1, (breakStretch - SEAM_MIN_STRETCH) / span));
 }
 
-/** Graphite -> amber -> red by strain. */
-function seamColor(strain: number, alpha: number): string {
+/**
+ * Graphite -> amber -> red by strain, packed 0xRRGGBB.
+ *
+ * Packed rather than formatted because the seam loop needs to ASK whether this
+ * seam's colour is the one already set before it pays to build a string and
+ * hand it to the CSS colour parser — see drawJointSeams. An integer compare
+ * answers that; a string compare would first have to build the string, which is
+ * the allocation the question exists to avoid.
+ */
+function seamRgb(strain: number): number {
   const seg = strain < 0.5 ? 0 : 1;
   const k = strain < 0.5 ? strain / 0.5 : (strain - 0.5) / 0.5;
   const a = seg === 0 ? SEAM_REST : SEAM_WARM;
   const b = seg === 0 ? SEAM_WARM : SEAM_HOT;
   const ch = (i: number): number => Math.round(a[i] + (b[i] - a[i]) * k);
-  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${alpha.toFixed(3)})`;
+  return (ch(0) << 16) | (ch(1) << 8) | ch(2);
 }
 
-function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] | undefined): void {
+/** The strokeStyle a packed seam colour and an opacity spell — character for
+ *  character what this function has always produced. */
+function seamColor(rgb: number, opacity: number): string {
+  return `rgba(${(rgb >> 16) & 255}, ${(rgb >> 8) & 255}, ${rgb & 255}, ${opacity.toFixed(3)})`;
+}
+
+/**
+ * WHY THIS LOOP KEEPS A COPY OF THE STYLE IT LAST WROTE.
+ *
+ * A bay's seams are overwhelmingly the SAME seam. `lineWidth` and the opacity
+ * both come from `seamStrength(breakStretch)`, which is a per-BAY constant, and
+ * the colour only moves when a joint is actually under strain — which, in a
+ * settled pile, is none of them. sim/renderperf --probe counted the consequence
+ * at 146 cubes: 114 `lineWidth` assignments per frame of which **108 wrote the
+ * value canvas already held**, and 112 `strokeStyle` assignments, each of which
+ * built a fresh string for the CSS colour parser to re-parse into the colour it
+ * was already using.
+ *
+ * So the loop remembers the two numbers that determine the style and writes
+ * nothing when they have not moved. A strained joint still gets its own colour
+ * and width the moment it earns them; a hundred identical seams cost one write.
+ * Nothing about the drawing changes, so the digests cannot move and do not.
+ *
+ * WHAT WAS TRIED AND ROLLED BACK, so nobody spends the afternoon twice.
+ * Accumulating same-styled seams as subpaths of ONE path and stroking once
+ * removes ~330 further calls a frame, and it is only equivalent if no two seams
+ * OVERLAP: these strokes are translucent, so a shared pixel blends twice as
+ * separate strokes and once as a batch. The construction argues they cannot
+ * overlap — each bar spans the shared edge of an ADJACENT pair, shorter than
+ * the edge, and `rest > CELL * 1.35` drops every diagonal. The pixels disagree.
+ * Batched, `cliques` at 300 moved 0.15% of channel samples by up to 20/255
+ * (`loose`, which carries no joints at all, was untouched, which is what
+ * identifies the cause as the seams themselves). A compressed pile evidently
+ * squeezes some jointed pair close enough for its diagonal to clear the 1.35
+ * test and cross its neighbours. 20/255 on a visible line is not a rounding
+ * artefact, and the layer it would buy is 0.8ms of an 18.2ms frame, so the
+ * batch is not taken and the identity is kept.
+ */
+function drawJointSeams(
+  ctx: CanvasRenderingContext2D,
+  cs: Matter.Constraint[] | undefined,
+  alpha: number,
+): void {
   if (!cs?.length) return;
   ctx.save();
   ctx.lineCap = "butt";
+  // The style the context is currently carrying, as the two numbers that
+  // determine it. -1 is "nothing written yet", which no real colour or strength
+  // can collide with.
+  let setRgb = -1;
+  let setT = -1;
   for (const c of cs) {
     const a = c.bodyA;
     const b = c.bodyB;
     if (!a || !b) continue;
+    // Both ends read at the frame's own point in the step, like the cubes they
+    // join (drawCube). Reading them live while the cubes interpolate would peel
+    // every seam off its own weld for the frames between steps — the one place
+    // in the scene where a mismatch is unmissable, because a seam is drawn
+    // exactly on the join it describes.
+    const ax = lerpX(a, alpha);
+    const ay = lerpY(a, alpha);
+    const bx = lerpX(b, alpha);
+    const by = lerpY(b, alpha);
     const meta = c as unknown as { restLength?: number; breakStretch?: number };
-    const rest = meta.restLength
-      ?? Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y);
+    const rest = meta.restLength ?? Math.hypot(ax - bx, ay - by);
     // CELL, not a measurement off the body's vertices: pieces.ts builds cubes
     // with `chamfer: { radius: 3 }`, so a cube has EIGHT vertices and v[0]->v[1]
     // is a 3px chamfer chord rather than its side. Reading it that way makes
     // every rest length look like a diagonal and draws no seams at all.
     if (rest > CELL * 1.35) continue;
     const t = seamStrength(meta.breakStretch);
-    const dx = b.position.x - a.position.x;
-    const dy = b.position.y - a.position.y;
+    const dx = bx - ax;
+    const dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
     // How far this joint is toward its OWN breaking point right now. Referenced
     // against min(breakStretch, 3) so rebar — Infinity — still shows strain
@@ -205,10 +286,22 @@ function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] |
     const px = -dy / len;
     const py = dx / len;
     const half = CELL * (0.2 + 0.16 * t);
-    const mx = (a.position.x + b.position.x) / 2;
-    const my = (a.position.y + b.position.y) / 2;
-    ctx.strokeStyle = seamColor(strain, 0.55 + 0.35 * t);
-    ctx.lineWidth = 1.4 + 3.6 * t;
+    const mx = (ax + bx) / 2;
+    const my = (ay + by) / 2;
+    // `t` alone decides both the width and the opacity, so comparing it is
+    // exactly as strict as comparing the two values it produces — and strict is
+    // the requirement, since a run that batches two seams whose style differs
+    // would draw one of them wrong.
+    const rgb = seamRgb(strain);
+    if (rgb !== setRgb || t !== setT) {
+      // Width is the one that can survive a colour change untouched — a joint
+      // reddening under strain keeps its bay's strength. The colour string is
+      // rebuilt whenever EITHER moves, because `t` carries the opacity inside it.
+      if (t !== setT) ctx.lineWidth = 1.4 + 3.6 * t;
+      ctx.strokeStyle = seamColor(rgb, 0.55 + 0.35 * t);
+      setRgb = rgb;
+      setT = t;
+    }
     ctx.beginPath();
     ctx.moveTo(mx - px * half, my - py * half);
     ctx.lineTo(mx + px * half, my + py * half);
@@ -329,6 +422,7 @@ export function render(
   viewport?: Viewport,
 ): void {
   const vp = viewport ?? computeViewport(cssW, cssH);
+  const alpha = scene.alpha ?? 1;
   syncSpriteScale(vp.scale * dpr);
 
   // Backdrop, field gradient, grid, wall glow AND the congestion floor are
@@ -339,23 +433,55 @@ export function render(
   ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
-  // Clip to the world rect
+  // Clip to the world rect, OPENED UPWARD to the top of the canvas (layout.ts's
+  // skyTop). The world is authored 720 tall but its ceiling is not a wall —
+  // engine.ts leaves the top boundary open so a lofted shot can apex ~250 world
+  // px above y=0 and fall back in. Clipping at y=0 made those frames a lie:
+  // the piece the player just launched vanished at the field's top edge, waited
+  // out its arc in a black band, and reappeared. The sides and floor are not
+  // opened with it — those are real walls, and cargo that reaches them stops.
+  const sky = skyTop(vp.scale, vp.oy);
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, 0, WORLD.width, WORLD.height);
+  ctx.rect(0, sky, WORLD.width, WORLD.height - sky);
   ctx.clip();
 
   // The plant's intake, under everything: cargo falling in has to draw OVER
   // the mouth it is falling into, and the arc has to draw over both.
   drawChute(ctx, scene.strandWarning, scene.now, chuteRightEdge(scene.compactor.strandCutoffX));
+  // Under the cargo and under the bar, because it is floor: a liner the pile
+  // sits ON has to be behind whatever is sitting on it. Its EDGE is drawn with
+  // the trajectory instead — see drawCushionEdge.
+  drawCushionBed(ctx, scene.level);
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
-  drawCompactor(ctx, scene.compactor);
-  drawPistons(ctx, scene.compactor);
-  for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
+  drawCompactor(ctx, scene.compactor, alpha);
+  drawPistons(ctx, scene.compactor, alpha);
+  // The world transform's three numbers, handed to the cube loop so each stamp
+  // can REPLACE the transform outright instead of saving, translating and
+  // restoring around it — see drawCube. Nothing else in the frame wants them,
+  // which is why they are not on Scene.
+  const wsc = vp.scale * dpr;
+  const wtx = vp.ox * dpr;
+  const wty = vp.oy * dpr;
+  for (const cube of scene.cubes) drawCube(ctx, cube, scene.now, alpha, wsc, wtx, wty);
+  // Put the world transform back for everything after the pile. The cube loop
+  // leaves the CTM wherever the last cube stood; the clip is untouched by any
+  // of this (a clip is fixed in device space the moment it is set), so this one
+  // call is the whole restoration.
+  ctx.setTransform(wsc, 0, 0, wsc, wtx, wty);
   // Over the cubes, not under: a seam between adjacent cubes is covered by the
   // very cubes it joins, so drawing it underneath draws nothing.
-  drawJointSeams(ctx, scene.constraints);
-  for (const bomb of scene.bombs) drawBomb(ctx, bomb);
+  drawJointSeams(ctx, scene.constraints, alpha);
+  for (const bomb of scene.bombs) drawBomb(ctx, bomb, alpha);
+  // Over the cargo, with the trajectory: this is the line the player aims
+  // against, and the bedding it belongs to is already buried under the pile.
+  drawCushionEdge(ctx, scene.level);
+  // The Incinerator's flue plane, for the same reason and in the same layer as
+  // the liner's edge: it is a boundary the player aims relative to, and a
+  // boundary buried under the pile has stopped being one. Unlike the liner it
+  // never has cargo resting ON it, so it needs no bedding half — this one draw
+  // is the whole system's picture.
+  drawIncineratorLine(ctx, scene.level);
   drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now, scene.strandWarning);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
@@ -527,6 +653,7 @@ interface CubeSprite {
 }
 
 const cubeSprites = new Map<string, CubeSprite>();
+
 /** Everything ELSE baked at the live scale — compactor bar, piston parts,
  *  cannon, FX shards/sparks, ghost cells — one map, keys prefixed by kind.
  *  These exist for the same reason cubeSprites does: shadowBlur is a full
@@ -771,7 +898,12 @@ let bgLayerKey = "";
 /** Letterbox backdrop + field gradient + grid + glowing walls, composited
  *  once per viewport into an opaque device-resolution layer. Re-baked only
  *  when the canvas size or world placement changes (resize, rotation, dpr
- *  change); every frame in between is a single full-canvas drawImage. */
+ *  change); every frame in between is a single full-canvas drawImage.
+ *
+ *  The sky (see layout.ts's skyTop) needs no new cache key: it is a pure
+ *  function of vp.scale and vp.oy, both of which are already in the key
+ *  below, so any viewport that changes how far up the sky reaches changes the
+ *  key that reaches it. */
 function getBackgroundLayer(
   cssW: number,
   cssH: number,
@@ -794,12 +926,13 @@ function getBackgroundLayer(
   bctx.fillStyle = COLORS.bg;
   bctx.fillRect(0, 0, w, h);
   bctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
+  const sky = skyTop(vp.scale, vp.oy);
   bctx.save();
   bctx.beginPath();
-  bctx.rect(0, 0, WORLD.width, WORLD.height);
+  bctx.rect(0, sky, WORLD.width, WORLD.height - sky);
   bctx.clip();
-  drawBackground(bctx);
-  drawWalls(bctx);
+  drawBackground(bctx, sky);
+  drawWalls(bctx, sky);
   // Over the walls' glow and under everything else, which is exactly where
   // this used to run when it ran live — see the note above drawCongestionRows.
   if (rows) drawCongestionRows(bctx, rows);
@@ -808,7 +941,23 @@ function getBackgroundLayer(
   return bgLayer;
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D): void {
+/**
+ * `top` is the world-y the sky reaches (layout.ts's skyTop, <= 0) — the field
+ * gradient and the grid are painted from there rather than from 0.
+ *
+ * The gradient's bright core was ALREADY authored above the field: its inner
+ * circle is centred at y=-80, eighty world px over the world's own top edge.
+ * Painting only from y=0 meant the field was lit by the outskirts of a glow
+ * whose middle nobody ever saw, and the letterbox band above it was flat
+ * backdrop — so the brightest part of the scene was the sliver just under the
+ * hard edge of a black bar. Filling from `top` puts the core back on screen and
+ * the atmosphere reads as depth above the shaft instead of a lid over it.
+ *
+ * The grid starts at the first CELL multiple at or above `top`, which keeps
+ * every line on the same lattice y=0 always sat on — the sky's rows line up
+ * with the field's rows, because they are the same rows.
+ */
+function drawBackground(ctx: CanvasRenderingContext2D, top: number): void {
   const g = ctx.createRadialGradient(
     WORLD.width * 0.5, -80, 80,
     WORLD.width * 0.5, WORLD.height * 0.4, WORLD.width * 0.8,
@@ -816,35 +965,52 @@ function drawBackground(ctx: CanvasRenderingContext2D): void {
   g.addColorStop(0, "#161636");
   g.addColorStop(1, "#07070f");
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, WORLD.width, WORLD.height);
+  ctx.fillRect(0, top, WORLD.width, WORLD.height - top);
 
   ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = 0; x <= WORLD.width; x += CELL) {
-    ctx.moveTo(x, 0);
+    ctx.moveTo(x, top);
     ctx.lineTo(x, WORLD.height);
   }
-  for (let y = 0; y <= WORLD.height; y += CELL) {
+  for (let y = Math.ceil(top / CELL) * CELL; y <= WORLD.height; y += CELL) {
     ctx.moveTo(0, y);
     ctx.lineTo(WORLD.width, y);
   }
   ctx.stroke();
 }
 
-/** Left/bottom/right glow only — the top is physically open (pieces can fly
- *  above the frame and fall back in), so the visuals leave the sky open too. */
-function drawWalls(ctx: CanvasRenderingContext2D): void {
+/**
+ * Left/bottom/right glow only — the top is physically open (pieces fly above
+ * the frame and fall back in), so the visuals leave the sky open too.
+ *
+ * What the side rails now do is FOLLOW that sky up. They used to stop at y=2,
+ * which is where the drawn field stopped, not where the wall is: engine.ts
+ * builds the left and right bodies spanning y=-SKY..H precisely so a lofted
+ * shot cannot drift sideways out of the shaft while it is off the top of the
+ * field. Ending the neon at the field's top edge drew a shaft that visibly
+ * opened out into nothing, while the collider that piece would bounce off ran
+ * on for another 600 world px. Clamped to -SKY for the same reason: past there
+ * the walls genuinely are absent, and drawing them would be the opposite lie.
+ */
+function drawWalls(ctx: CanvasRenderingContext2D, top: number): void {
+  // No sky: the authored 2px inset, unchanged. Sky: the sky's OWN top edge,
+  // not `top + 2`. The stroke is butt-capped, so starting it two world px down
+  // would leave a couple of device px of unlit sky above each rail — a
+  // hairline gap at the exact edge of the screen, which is the smallest
+  // possible version of the lid this change removes.
+  const y0 = top < 0 ? Math.max(top, -SKY) : 2;
   ctx.save();
   ctx.strokeStyle = COLORS.aim;
   ctx.shadowColor = COLORS.wallGlow;
   ctx.shadowBlur = 18;
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(2, 2);
+  ctx.moveTo(2, y0);
   ctx.lineTo(2, WORLD.height - 2);
   ctx.lineTo(WORLD.width - 2, WORLD.height - 2);
-  ctx.lineTo(WORLD.width - 2, 2);
+  ctx.lineTo(WORLD.width - 2, y0);
   ctx.stroke();
   ctx.restore();
 }
@@ -877,6 +1043,140 @@ function lerpHex(a: string, b: string, t: number): string {
 const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
 const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
 const WIND_HUD_HEAD = 15;
+
+/**
+ * THE IMPACT CUSHION'S LINER, drawn on the floor it lines.
+ *
+ * The system has a hard edge — a volatile cube that lands one cell short of
+ * `cushionCells` gets no softening at all (lineClear.ts's volatileBlast) — and
+ * a hard edge the player cannot see is not a rule they can play against, it is
+ * a rule that happens to them. That is the whole reason this function exists;
+ * the liner is the one ship system whose effect is a PLACE, and every other
+ * one reads off a number in the HUD.
+ *
+ * So the drawing's job is to answer exactly one question at a glance — "is that
+ * slot lined?" — which is why the near edge is the loudest thing in it. The
+ * bedding itself is deliberately quiet: it sits under the pile for the whole
+ * bay and a floor treatment that competes with cargo would cost more than it
+ * teaches. Same stance as the congestion rows, which are floor light rather
+ * than a HUD overlay.
+ *
+ * Tier-independent styling. Depth is the readout — a deeper tier draws a wider
+ * band, which is the thing that changed — and a second visual channel for the
+ * softening would be a number nobody can read off a colour.
+ */
+function drawCushionBed(ctx: CanvasRenderingContext2D, level: LevelConfig): void {
+  if (level.cushionCells <= 0) return;
+  // THE SAME x the collision side tests against, from the same function —
+  // see lineClear.ts's cushionEdgeX for why that is not a tidiness point.
+  const x = cushionEdgeX(level.cushionCells);
+  const w = WALL_INNER - x;
+  // A third of a cell: thick enough to read as bedding the pile rests on, thin
+  // enough that a cube sitting on it still reads as sitting on the floor.
+  const h = CELL / 3;
+  const y = WORLD.height - h;
+
+  ctx.save();
+  const grad = ctx.createLinearGradient(0, y, 0, WORLD.height);
+  grad.addColorStop(0, "rgba(0,240,255,0.06)");
+  grad.addColorStop(1, "rgba(0,240,255,0.22)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  // The chevrons the shop card's icon uses, so the mark on the plate and the
+  // thing on the floor are recognisably the same object.
+  ctx.strokeStyle = "rgba(0,240,255,0.22)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let cx = x + CELL / 2; cx < WALL_INNER; cx += CELL) {
+    ctx.moveTo(cx - CELL / 3, WORLD.height - 2);
+    ctx.lineTo(cx, y + 2);
+    ctx.lineTo(cx + CELL / 3, WORLD.height - 2);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The liner's near edge — the boundary, drawn OVER the cargo.
+ *
+ * Split from the bedding above because the two are different kinds of thing and
+ * want opposite layering. The bed is floor: cargo lands on it and covers it,
+ * exactly as it should. The edge is a REFERENCE — the line the player aims
+ * against — and a reference buried under the first row that lands on it has
+ * stopped being one. Measured on a real Tier-7 bay at 1100 steps: the bed is
+ * gone behind cargo and the post was invisible with it.
+ *
+ * So this draws with the trajectory and the aim ring rather than with the
+ * floor, and it is deliberately the only part of the system that does. Two
+ * cells of post, faded upward so it reads as a marker standing on the floor
+ * rather than as a wall cargo ought to stack against.
+ */
+function drawCushionEdge(ctx: CanvasRenderingContext2D, level: LevelConfig): void {
+  if (level.cushionCells <= 0) return;
+  const x = cushionEdgeX(level.cushionCells);
+  ctx.save();
+  const post = ctx.createLinearGradient(0, WORLD.height, 0, WORLD.height - 2 * CELL);
+  post.addColorStop(0, "rgba(0,240,255,0.85)");
+  post.addColorStop(1, "rgba(0,240,255,0)");
+  ctx.strokeStyle = post;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x, WORLD.height);
+  ctx.lineTo(x, WORLD.height - 2 * CELL);
+  ctx.stroke();
+  // A solid foot, so the boundary has a definite position even where the post
+  // has faded into whatever is stacked in front of it.
+  ctx.fillStyle = COLORS.aim;
+  ctx.fillRect(x - 2, WORLD.height - 6, 4, 6);
+  ctx.restore();
+}
+
+/**
+ * THE FLUE, drawn as the one line the system is.
+ *
+ * Same argument drawCushionEdge makes and the same failure it exists to avoid:
+ * the Incinerator has a hard edge (chute.ts's inIncinerator — a cube destroyed
+ * a pixel below the plane pays full price), and a hard edge the player cannot
+ * see is not a rule they can play against, it is a rule that happens to them.
+ *
+ * AND IT HAS TO STAY QUIET, which is the constraint the liner did not have. The
+ * plane runs the full width of the bay across open air, and the airspace above
+ * it is the sky PR #128 opened — a band that reads as a lid is precisely the
+ * defect that change was made to remove. So this is a hairline with a short
+ * gradient fading UPWARD off it, not a filled band and not a ruled line across
+ * the shaft: enough to answer "is that above the hood" at a glance, not enough
+ * to put a ceiling back over a field whose whole point is that it has none.
+ *
+ * Amber rather than the liner's cyan, because the two are the only positional
+ * systems on the shelf and a player who owns both has to tell their marks apart
+ * without reading either — and amber is already what this game means by heat
+ * (the crest's ramp, the congestion rows).
+ */
+function drawIncineratorLine(ctx: CanvasRenderingContext2D, level: LevelConfig): void {
+  if (level.incineratorRelief <= 0) return;
+  const y = INCINERATOR_Y;
+  ctx.save();
+  // The glow first, fading upward INTO the flue — the side the discount is on,
+  // so the shading says which half of the line is the burner rather than just
+  // where the line is.
+  const glow = ctx.createLinearGradient(0, y - CELL, 0, y);
+  glow.addColorStop(0, "rgba(255,150,40,0)");
+  glow.addColorStop(1, "rgba(255,150,40,0.10)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, y - CELL, WORLD.width, CELL);
+  // The plane itself: a hairline, dashed so it reads as a threshold rather than
+  // as a surface cargo could rest on — nothing in this game rests on a dashed
+  // line, and the walls and floor are the only solid rules drawn in the field.
+  ctx.strokeStyle = "rgba(255,150,40,0.38)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([CELL / 2, CELL / 2]);
+  ctx.beginPath();
+  ctx.moveTo(0, y);
+  ctx.lineTo(WORLD.width, y);
+  ctx.stroke();
+  ctx.restore();
+}
 
 function drawWindIndicator(
   ctx: CanvasRenderingContext2D,
@@ -1099,11 +1399,11 @@ function getBarSprite(w: number, h: number): HTMLCanvasElement {
   });
 }
 
-function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
+function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor, alpha: number): void {
   const sprite = getBarSprite(c.width, c.height);
   ctx.drawImage(
     sprite,
-    c.x - c.width / 2 - BAR_PAD,
+    lerpX(c.body, alpha) - c.width / 2 - BAR_PAD,
     c.top - BAR_PAD,
     c.width + BAR_PAD * 2,
     c.height + BAR_PAD * 2,
@@ -1313,7 +1613,7 @@ const PISTON_HEAD_W = 17;
 const PISTON_HEAD_H = 51;
 const PISTON_Y_FRACS = [0.27, 0.73]; // fraction down the compactor's [top, top+height] band — mockup's two mounts
 
-function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
+function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor, alpha: number): void {
   // Mount the rig at the mockup's 616 when the bay allows, but slide it left
   // for wide bays: the barrel tip must stay clear of the bar's LEFTMOST face
   // (c.leftX is the open stop) plus the head's width, or the head would
@@ -1328,7 +1628,11 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
     const y = c.top + c.height * frac;
     const barrelX0 = mountX;
     const barrelX1 = barrelX0 + PISTON_BARREL_LEN;
-    const headX = c.x - c.width / 2; // the bar's left face — where the piston pushes it
+    // The bar's left face — where the piston pushes it. Interpolated on the
+    // same terms as the bar itself (drawCompactor), because a rod that tracked
+    // the live position while the bar it drives tracked the drawn one would
+    // visibly detach from its own head at every step boundary.
+    const headX = lerpX(c.body, alpha) - c.width / 2;
     const rodX0 = barrelX1;
     const rodX1 = Math.max(rodX0, headX - PISTON_HEAD_W / 2);
 
@@ -1435,7 +1739,55 @@ function getPistonHeadSprite(): HTMLCanvasElement {
   });
 }
 
-function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void {
+/**
+ * ONE CUBE, STAMPED — and the cheapest sequence of canvas calls that does it.
+ *
+ * The pile is the frame. sim/renderperf --breakdown puts the cube layer at
+ * 13.5ms of an 18.2ms frame at 146 cubes (844x390 dpr 3, headless), and the
+ * refuted background-split spec's device work named the shape of that cost
+ * exactly: "many small draws, not one big one". So the count of calls per cube
+ * is a number worth spending care on — 146 cubes times one avoidable call is
+ * 146 avoidable calls every frame, and unlike a millisecond measured on a
+ * desktop rasteriser, a call not issued here is a call not issued on the phone.
+ *
+ * WHAT CHANGED AND WHY IT IS THE SAME PIXELS. This used to be
+ * `save / translate / rotate / drawImage / restore`. The save/restore pair
+ * existed only to undo the translate and rotate, and re-stating the world
+ * transform undoes both by overwriting them — so the sequence is now
+ * `setTransform / translate / rotate / drawImage`, and render() puts the world
+ * transform back once after the whole loop rather than the loop putting it back
+ * 146 times. The trade is one cheap matrix write for canvas's two most
+ * expensive state calls: `save` copies the whole 2D state (styles, shadow,
+ * filter, line dash, the clip stack) and `restore` pops it, where
+ * `setTransform` writes six numbers.
+ *
+ * The translate and the rotate are left to canvas ON PURPOSE, and the first
+ * attempt at this proves why. Folding the translate into setTransform's own
+ * arguments — `setTransform(s, 0, 0, s, tx + s*x, ty + s*y)`, algebraically the
+ * same matrix — moved the digest at every pile size in
+ * sim/renderperf --snapshot, with cargo coverage unchanged to within one pixel:
+ * the offset composed in JS doubles and then narrowed once rounds differently
+ * in the last place than the same offset accumulated inside the rasteriser's
+ * own float matrix, and every cube in the frame landed a fraction of a
+ * subpixel off. One call per cube is not worth paying for that, so the
+ * arithmetic stays where it always was and only the save/restore goes.
+ *
+ * The clip is not affected. A canvas clip is resolved into device space when it
+ * is set, so replacing the CTM afterwards moves what is drawn and not what is
+ * allowed to be drawn — the sky-opened world rect render() clips to still holds
+ * over every cube.
+ */
+function drawCube(
+  ctx: CanvasRenderingContext2D,
+  cube: Cube,
+  now: number,
+  alpha: number,
+  /** The world transform: uniform scale `wsc`, offset (`wtx`, `wty`), all in
+   *  device px, exactly as render() set it before the loop. */
+  wsc: number,
+  wtx: number,
+  wty: number,
+): void {
   if (!blinkVisible(cube, now)) return;
   const blinking = cube.blinkStart !== null;
   const color = blinking ? "#ff6464" : cube.color;
@@ -1461,11 +1813,10 @@ function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void 
   // face back only as much world as its glow reached, so stamping them all at
   // one size would scale most of them.
   const half = sprite.half;
-  ctx.save();
-  ctx.translate(b.position.x, b.position.y);
-  ctx.rotate(b.angle);
+  ctx.setTransform(wsc, 0, 0, wsc, wtx, wty);
+  ctx.translate(lerpX(b, alpha), lerpY(b, alpha));
+  ctx.rotate(lerpAngle(b, alpha));
   ctx.drawImage(sprite.canvas, -half, -half, half * 2, half * 2);
-  ctx.restore();
 }
 
 /** Slag's interior: coarse diagonal rubble, deliberately irregular and matte.
@@ -1513,11 +1864,11 @@ function drawFrost(ctx: CanvasRenderingContext2D, o: number, size: number): void
 
 /** A live flying/rolling bomb — dark sphere with a subtle red glow and a
  *  small fuse-spark highlight, so it reads as distinct from a cube in flight. */
-function drawBomb(ctx: CanvasRenderingContext2D, body: Matter.Body): void {
+function drawBomb(ctx: CanvasRenderingContext2D, body: Matter.Body, alpha: number): void {
   const r = CELL * 0.45;
   ctx.save();
-  ctx.translate(body.position.x, body.position.y);
-  ctx.rotate(body.angle);
+  ctx.translate(lerpX(body, alpha), lerpY(body, alpha));
+  ctx.rotate(lerpAngle(body, alpha));
   ctx.shadowColor = "#ff2d55";
   ctx.shadowBlur = 14;
   const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
@@ -2278,6 +2629,34 @@ const PAYOUT_CLAMP_MARGIN = 80;
 const PAYOUT_FONT = "700 30px system-ui, sans-serif";
 const PAYOUT_GLOW = 16;
 
+/** The TIMING CALLOUT rides the same toast as the money it explains: same
+ *  motion, same fade, one line above the "+$" (theme.ts's GRADE_CALLOUT owns
+ *  the words and the colours).
+ *
+ *  A rider rather than its own FxEvent, which is the whole of the UI budget
+ *  this feature spends. Two floaters spawned on the same step at the same spot
+ *  would race each other up the field and the eye would read them as two
+ *  clears; one toast that says what was earned and how it was earned is the
+ *  idiom the payout/penalty pair already established. Smaller than the number
+ *  and set above it because the money is the headline — the callout is the
+ *  reason, and a bay full of shouted adjectives stops being readable. */
+const CALLOUT_FONT = "700 18px system-ui, sans-serif";
+/** Baseline-to-baseline, so the 18px word clears the 30px number's cap height
+ *  with air left over. 22 was drawn first and the shot showed the two rows
+ *  touching (sim/uifit/grade-shots.ts) — legible, but reading as one block
+ *  rather than as a label over a figure. */
+const CALLOUT_GAP_PX = 26;
+
+/** The congestion tag rides UNDER the money, where the callout rides over it —
+ *  so the toast reads verdict / price / reason, top to bottom, and the tag can
+ *  never be mistaken for the band. Smaller again than the callout for the same
+ *  reason the callout is smaller than the number: the further from the money,
+ *  the quieter. */
+const TAG_FONT = "700 14px system-ui, sans-serif";
+/** Baseline-to-baseline below the 30px number: enough to clear its descenders
+ *  with the same air CALLOUT_GAP_PX leaves above. */
+const TAG_GAP_PX = 20;
+
 function drawPayoutFx(
   ctx: CanvasRenderingContext2D,
   e: Extract<FxEvent, { kind: "payout" }>,
@@ -2309,6 +2688,18 @@ function drawPayoutFx(
   ctx.font = PAYOUT_FONT;
   ctx.textAlign = "center";
   ctx.fillText(`+$${e.amount}`, x, y);
+  if (e.grade) {
+    ctx.fillStyle = GRADE_COLOR[e.grade];
+    ctx.shadowColor = GRADE_COLOR[e.grade];
+    ctx.font = CALLOUT_FONT;
+    ctx.fillText(GRADE_CALLOUT[e.grade], x, y - CALLOUT_GAP_PX);
+  }
+  if (e.congested) {
+    ctx.fillStyle = CONGESTION_TAG_COLOR;
+    ctx.shadowColor = CONGESTION_TAG_COLOR;
+    ctx.font = TAG_FONT;
+    ctx.fillText(CONGESTION_TAG, x, y + TAG_GAP_PX);
+  }
   ctx.restore();
 }
 

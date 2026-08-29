@@ -38,12 +38,21 @@ that bay downward for a new player and upward for a veteran. The ladder's own
 per-bay climb (`TARGET_PER_BAY`) is unchanged and rides on top — the tier sets
 where the climb starts and steepens it slightly.
 
-| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float | Spill fine, bay 1 → bay 10 |
-|---|---|---|---|---|---|---|
-| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 | $1 → $1 |
-| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 | $6 → $10 |
-| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 | $14 → $24 |
-| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 | $25 → $43 |
+| Tier | Target, bay 1 → bay 10 | per bay | premium | Clock | Launch | Float | Spill fine, bay 1 → bay 10 |
+|---|---|---|---|---|---|---|---|
+| 1 | $600 → $1500 | +$100 | — | 180s | $20 | $160 | $1 → $1 |
+| 3 | $640 → $1576 | +$104 | — | 172s | $22 | $176 | $6 → $10 |
+| 6 | $700 → $1690 | +$110 | — | 160s | $26 | $208 | $14 → $24 |
+| 8 | $740 → $1766 | +$114 | — | 152s | $28 | $224 | $20 → $34 |
+| 9 | $798 → $1894 | +$116 | ×1.05 | 148s | $29 | $232 | $22 → $38 |
+| 10 | $858 → $2026 | +$118 | ×1.10 | 144s | $30 | $240 | $25 → $43 |
+
+The **precision premium** is the top of the ladder asking for something the
+middle does not, and it only works because line payouts stopped being one number
+(see *Three currencies* below and `design/balance/timed-clears.md`). It is zero
+at and below tier 8 — every tier a player climbs through on the way up is
+byte-identical to the pre-grade game — and +5% a rung above it, reaching ×1.15
+on the Skydeck's eleventh rung.
 
 ### The spill fine rides the ladder too
 
@@ -120,7 +129,8 @@ Three things the ladder still deliberately does **not** touch:
   the sweep pinned the shot count, not the $200.
 - **`scorePerLine` stays tier-invariant** (100 + 10/bay). A higher tier is *more
   lines*, not richer ones — which is why the leaderboard is per tier now: a
-  shared board would rank the ladder rather than the play.
+  shared board would rank the ladder rather than the play. What a row is worth
+  now varies with the PLAY instead: the timing grade below multiplies it.
 - **Contracts and drills still charge nothing for a spill** (`levelForContract`
   and `levelForDrill` both zero the fine). A Contract has a tier, so the ramp
   *could* reach it — but it has no bankroll, no launch price and no funding
@@ -132,12 +142,21 @@ Three things the ladder still deliberately does **not** touch:
 
 | | Lifetime | Earned by | Spent on |
 |---|---|---|---|
-| **Funds `$`** | one bay | line payouts, bomb salvage | launches. Also the bay's own target. |
-| **Scrap `♻`** | one run | 2/line, 10/bay cleared | ship upgrades at refit stops |
+| **Funds `$`** | one bay | line payouts **graded by timing**, bomb salvage | launches. Also the bay's own target. |
+| **Scrap `♻`** | one run | 2/line, 10/bay cleared, UNGRADED (HALF of each on the Skydeck) | ship upgrades at refit stops |
 | **Salvage** | forever | tier milestones — each of the tier's three first-clear Contracts, and its Deep Run win | permanent installs and unlocks in the Workshop |
 
-They are deliberately **not** interchangeable. Funds are operating budget, scrap
-is capital, salvage is R&D. Banking a huge surplus never buys upgrades, and a
+**Skill pays funds, volume pays scrap.** The grade multiplies a row's payout and
+never its scrap, so the two currencies have orthogonal earners: a precise player
+banks money, a player who fires more shots banks capital, and the pilot who
+wants both has to choose which bay to spend which way. That is what makes
+"burn bankroll to manufacture rows for the refit yard" a strategy — measured at
+$6.60 a scrap in the mid ladder and $12.50–$28.60 at Tier 10, where a tier-3
+rung bought that way costs a third to a whole bay's target
+(`design/balance/timed-clears.md` §5).
+
+They are deliberately **not** interchangeable in the other direction. Funds are
+operating budget, scrap is capital, salvage is R&D. Banking a huge surplus never buys upgrades, and a
 rough bay you barely survive still moves the build forward. That separation is
 what keeps the three decisions distinct instead of collapsing into "get more
 money".
@@ -145,8 +164,16 @@ money".
 ## The ship (FTL layer)
 
 The compactor rig **is** the ship: fixed stock size, refitted with scrap at
-**refit stops after bays 3, 6 and 9**. Seven systems, three tiers each, one
+**refit stops after bays 3, 6 and 9**. Ten systems, three tiers each, one
 shared price ladder of **20 / 35 / 55** scrap (110 for a full track).
+
+The Skydeck docks at the same three stops and pays **half** the scrap for the
+bays that reach them, and the price ladder is the reason it is the payout that
+moves rather than the price: the Workshop sells to tier 2, so every rung the
+yard can still sell a finished endgame rig is a **tier-3 rung at 55**, and with
+one flat price "charge more" and "pay less" are the same arithmetic — one of
+them keeps a single price table. See
+[`design/balance/skydeck-yard.md`](../design/balance/skydeck-yard.md).
 
 | Track | Tiers | What it's for |
 |---|---|---|
@@ -157,6 +184,9 @@ shared price ladder of **20 / 35 / 55** scrap (110 for a full track).
 | **REACTOR** | +$60/120/180 float · +$15/30/45 per line | The economy track. |
 | **BONDS** | +1/2/3 Bond Breaker charges **per run** · T2/T3 stamp S/Z bonds 30/50% weaker | Compaction for builds whose pieces don't flatten their own pile. The magazine belongs to the run, not the bay (`run.ts` overwrites the per-config grant with what's actually left), and the Seam Splitter passive is what the higher tiers newly pay for. |
 | **DEMOLITION** | +2/4/6 charges per bay · T3 also returns +1 charge every 4 lines | Slag's only clean answer, and the salvage tool that gives a dead pile a price. |
+| **THAW** | +3/6/9 Thaw Lance charges per bay | **Cryo's only bought answer.** A charge thaws the frozen cube the press is about to reach — `strikeCryo`'s sequencing cost paid out of a charge instead of out of a launch. It does not touch `shatterColdCryo`: a cube you ignore still breaks and still knocks its row off the grid, which is what keeps cryo about sequencing rather than about owning a system. **On the Skydeck the rack does not renew** — the charges are a run-long magazine there and a per-bay one on the ladder. The roof's yard reopened without changing that: a stop there sells a BIGGER rack (the difference a rung adds, on top of what is left), never a refill. |
+| **CUSHION** | a shock liner 4/6/8 cells deep at the wall, softening arrivals ×1.15/1.30/1.40 | **Volatile's only bought answer**, and the only track whose effect is POSITIONAL — cargo landing in the lined slots takes a much harder shot before it goes off, and cargo landing short of them is untouched. The depths are sized from where detonations actually happen (41,393 measured first-contacts; a liner 8 cells deep covers 98% of them) and the top rung is `compactorMinLineCells` — the liner covers the slots a line is made in. It buys back the ARRIVAL and nothing else: a cube still goes off when something lands hard on top of it, still goes off outside the liner, and still bills the bay for every live cube it takes. So a rung buys a DEFERRAL rather than a deletion — every shipment it saves is a cube left lying in the line zone with a stock trigger on it, and the play the system asks for is to close that row before something lands on it (measured: `winnability-sweep-findings.md` §5b-ter). Passive, so it has no charges and the Skydeck's no-resupply rule does not reach it. |
+| **INCINERATOR** | a flare hood over the plant: **25 / 50 / 75% off** every loss charged inside the flue | **The write-off's answer**, and the second POSITIONAL track. The flue is everything at or above the plant's roofline — the world-y the HUD's power bar sits on — plus the machine's own intake, so it covers the open bay above the works and the sky above the field together. It discounts BOTH loss bills, the spill fine and volatile's live-cargo charge, per cube and from where each cube was at the moment it was destroyed. It has **no passive floor**, and that is the design rather than a shortfall: a pilot that keeps aiming at the pile saves nothing, because nothing dies high (measured — `winnability-sweep-findings.md` §5c: at Tier 7 bay 10 under a volatile cap, 0% of charged cubes died in the upper half of the bay, and a maxed hood on an un-dumping pilot is worth $6 a bay and zero wins). What it buys is the DISCARD — firing an unusable shipment into the intake instead of landing it — which the fine had made unaffordable: at Tier 10 bay 10 with three notches of slag, 4/48 bare, 18/48 discarding, **38/48** discarding with a maxed hood, against a 48/48 clean control. Never free at the capstone: a quarter of the fine is still charged, so a dump stays a decision. Inert on a bay with nothing to write off, and **not** a second volatile counter — detonations happen at the pile, below the flue, and the hood is worth one dollar across 48 bays at the volatile cap. |
 
 **The stop is a plan, not a checkout.** Tapping a track *stages* a tier into an
 order; nothing is paid for until **Undock**, which installs the lot in one
@@ -329,6 +359,19 @@ global level value, because sizes coexist on the field: a micro run that later
 drafts Bulk still has old dominoes lying around and they must keep the fragility
 they were launched with.
 
+**The density asymmetry is measurable, and it turns up in the one place that has
+to price a size in dollars.** A Contract's launch budget is derived from the
+share of fired cubes that reach a completed line (`contracts.ts`'s
+`PLANNING_EFFICIENCY`), and `SIZE_EFFICIENCY` is the per-size factor on it,
+measured rather than assumed: bulk delivers 0.841 of std's ratio to the *aiming*
+bot and 1.101 to the fixed-arc one — worse where a shape can be placed, better
+where the extra weight is doing the placing. It is set to **0.85**, the worse of
+the two, on the same asymmetry that sets `PLANNING_EFFICIENCY` below its own
+measurement: a low number is a slightly dull Contract, a high one an unwinnable
+one. `tiny` and `std` are both **1**, which is what makes the whole table a
+provable no-op for every board that existed before the Skydeck's (see
+docs/DESIGN.md).
+
 ## The Autoloader (micro endgame)
 
 **Status: built, but currently UNREACHABLE in a shipped run.** The only thing
@@ -369,11 +412,39 @@ once-ever first clear, only at the current tier, and only for the first three,
 so replaying can't farm the currency. (An earlier per-run formula —
 `3 + 5×bays + …` — is long gone; this section used to quote it.)
 
+### And what it buys once the shelf is finished: rack slots
+
+The shelf runs out. It was 575 salvage against 600 of ladder income when the
+Incinerator landed, and `meta.ts` recorded that the next system would need "the
+re-price or the second income that note asked for" — while a finished ladder
+keeps paying **60 a cycle forever** (three Contracts and a run win at
+`MARK_COUNT`, where `advanceTier` saturates and resets its own counters). That
+faucet ran into nothing.
+
+**System slots** are where it runs now. A rig mounts `SLOT_BASE` = **4** of the
+systems it owns; the six slots up to the roster cost **50 / 70 / 100 / 140 / 180
+/ 240**, i.e. 780 against a 600-salvage climb. Deliberately more than one climb:
+the first two slots land inside the ladder and the rest are the endgame's, which
+is exactly what an endgame sink is for.
+
+The prices escalate because the slots do not pay equally — measured, in
+[`design/balance/system-slots.md`](../design/balance/system-slots.md), at
+roughly a bay for the fourth slot, half a bay for the fifth, and inside the
+noise from the seventh on. A flat ladder would price the least valuable slots
+the same as the most.
+
+**It buys room, never power.** A mounted rig is a subset of the owned one, so
+its ladder cost is bounded by the owned loadout's, which is bounded by
+`budgetForMark`: a slot can only move a rig back toward a ceiling the Mark has
+already granted. Every system stays owned and every tier stays bought — what
+sits in the shed simply does not undock, and a refit stop cannot sell it scrap
+rungs (it reads as tier 0, which `run.ts`'s `buyUpgrade` has always refused).
+
 Unlocks add **options**, never flat stat bumps: the bay's wind gets surveyed
 before you launch, the first refit stop opens with 30 scrap already banked.
 (Those two are the whole live shelf. The other eight entries in `meta.ts`'s
 `UNLOCKS` sold a card into the retired modifier draft and are refunded on load.
-Demolition and the Bond Emitter are ship systems bought through `INSTALLS`; the
+Demolition, the Bond Emitter, the Thaw Lance and the Impact Cushion are ship systems bought through `INSTALLS`; the
 bulk and micro shipment sizes are Deep Run finals clauses now.) That constraint
 keeps a veteran's run harder-won rather than merely bigger-numbered.
 

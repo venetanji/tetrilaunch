@@ -1,4 +1,18 @@
 @import "./tokens.css";
+/* The four pixel-art cursors, baked from scripts/make-cursors.mjs. An @import
+   rather than a paste because the file is generated: it has to be safe to
+   overwrite wholesale, and nothing hand-written may live in it.
+
+   IT COMES FIRST AND STILL WINS, which is worth knowing before editing any
+   `cursor:` line below. @import is only legal at the top of a stylesheet, so
+   every rule in this file is later in source order than every rule in that
+   one; the generated clickable/blocked rules are scoped to `#app` for exactly
+   that reason, and one id outranks any stack of classes here. The `cursor:
+   pointer` / `default` / `not-allowed` declarations scattered through this
+   file are therefore the FALLBACK layer now — what a coarse pointer, a
+   forced-colors run, or a browser that refused the bitmap lands on. Keep them
+   truthful; do not expect them to be what a mouse sees. */
+@import "./cursors.css";
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
@@ -284,6 +298,127 @@ body.crt-off #app::after { display: none; }
 .modal-scrim, .modal, .draft__body { overscroll-behavior: contain; }
 .pl-mods, .guide__tabs { overscroll-behavior-x: contain; }
 
+/* ---------- The scrollbar, on the engines that draw one ----------
+   Reported from a windowed desktop build: the refit stop's shelf wearing the
+   stock Chromium scrollbar — a 15px light-grey track, a bevelled thumb and an
+   arrow button at each end, straight through a panel whose every other edge is
+   a 1px neon line. It is the one piece of chrome in the app that was still the
+   platform's rather than the game's, and it shows up on every scroller the
+   game has, not just that one: the refit shelf, the workshop shelf, the
+   leaderboard body, the controls grid, the guide list, the sandbox columns and
+   the draft body's backstop.
+
+   WHY THIS IS BEHIND `pointer: fine`, which is the load-bearing decision here.
+   A touch engine gives these panes an OVERLAY scrollbar: it floats over the
+   content, fades out, and costs the layout nothing. Authoring any
+   `::-webkit-scrollbar` rule with a width opts that scroller OUT of overlay
+   and into a classic one that takes real inline space. Measured in Chromium at
+   both pointer types: a coarse-pointer scroller is 0px of gutter unstyled and
+   10px styled; gated like this it stays 0. Ten pixels off the inline size of
+   every allowlisted pane on a 360px-tall phone is a real cost for chrome that
+   phone never shows, so the phones and both WebViews keep exactly what they
+   have and only the pointer that can actually hover a thumb gets one.
+
+   Nothing in sim/uifit would have caught that: Playwright launches headless
+   Chromium with `--hide-scrollbars`, so the harness measures every device row
+   as if no scrollbar existed — which is also why this whole area went unstyled
+   for so long, and why the numbers above were taken by hand with that flag
+   turned back off.
+
+   WEBKIT PSEUDO-ELEMENTS, NOT `scrollbar-color`, and the two cannot be mixed:
+   Chromium gives `scrollbar-color` precedence and DISCARDS the pseudo-element
+   rules when both are set, so declaring the standards pair "as a fallback"
+   here would silently throw away everything below it on the exact engine the
+   report came from. The pseudo-elements are also the only half that can do the
+   two things the report actually asks for — square corners and no arrow
+   buttons. Chromium and WebKit cover every shell this game ships in (Electron,
+   Android WebView, iOS WKWebView, Chrome, Edge, Safari), so the standards pair
+   is scoped to the engines with no pseudo-element at all — Firefox on the web
+   build — where `thin` is the same 10px Chromium resolves and the colours are
+   the closest two the property can carry. */
+@media (pointer: fine) {
+  /* 10px because that is what Chromium's own `scrollbar-width: thin` resolves
+     to, so the Firefox branch below lands on the same measurement rather than
+     a near-miss. `height` as well as `width`: the same channel has to serve a
+     horizontal scroller, and the four strips that deliberately hide theirs
+     (.pl-queue b, .pl-notch b, .pl-mods, .guide__tabs) all say `display: none`
+     from a class selector, which outranks this and keeps them hidden. */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  /* The track is a channel CUT INTO the panel, so it goes darker than any
+     surface token rather than lighter — the opposite of the platform's
+     light-grey trough, which is what made it read as a foreign control. */
+  *::-webkit-scrollbar-track { background: var(--bg-deep); }
+  /* Muted accent at rest, and it climbs on hover rather than changing hue: the
+     thumb is chrome until you reach for it. --r-sm is 2px, which on a 10px bar
+     is a corner rather than a pill — the rounded default was the other half of
+     why the stock bar looked borrowed, in a design system whose largest radius
+     anywhere is 3px. The transparent border plus padding-box clip insets the
+     thumb to 6px inside its 10px channel, so the track reads as a rail the
+     thumb rides in and not as a second, wider thumb.
+
+     THE RESTING ALPHA IS AN ACCESSIBILITY FLOOR, not a taste setting, and it
+     is the number this ramp is built downwards from. WCAG 2.2 SC 1.4.11 asks
+     3:1 of a non-text UI component against what it sits on, and the thumb sits
+     on its own track. Composited over --bg-deep, 22% cyan is rgb(3, 56, 64) —
+     1.60:1, less than half the floor. A brighter hover does not rescue it: a
+     thumb has to be FOUND before it can be hovered, so the resting state is
+     the one doing the work of saying "there is a control here".
+
+     45% is the answer and it is not a nudge — it is the colour this rule
+     already called `:hover`, promoted. rgb(2, 110, 120), 3.41:1, which clears
+     the floor with room rather than sitting on it (the arithmetic minimum is
+     40.9%, and a value that close to a threshold is one antialiased edge away
+     from failing it). The ramp is then rebuilt ABOVE the new rest so the climb
+     survives: 70% for hover and full accent while dragging.
+
+     Every number measured, none eyeballed, all composited over --bg-deep:
+
+         state    alpha   composited        vs track   step from previous
+         rest      45%    rgb(2, 110, 120)    3.41:1   —
+         hover     70%    rgb(1, 169, 182)    7.16:1   2.10:1
+         active   100%    rgb(0, 240, 255)   14.52:1   2.03:1
+
+     The two steps are nearly even, where the old ramp's were 2.13 and 4.25 —
+     so the thumb reads as three deliberate states rather than one dim one and
+     two bright ones. sim/systems recomputes this table from the stylesheet and
+     tokens.css and fails if any of it drifts. */
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 240, 255, 0.45);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--r-sm);
+  }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, 0.7); background-clip: padding-box; }
+  *::-webkit-scrollbar-thumb:active { background: var(--accent); background-clip: padding-box; }
+  /* The arrow buttons the report names. They are a scroll affordance from an
+     era of 1px-precision mice, they are under the 44px tap floor this app
+     holds everywhere else, and every pane here is also reachable by wheel,
+     drag and keyboard. */
+  *::-webkit-scrollbar-button { display: none; }
+  /* Where a vertical and a horizontal bar meet, the default corner is another
+     patch of platform grey. */
+  *::-webkit-scrollbar-corner { background: var(--bg-deep); }
+
+  /* Firefox, which has no ::-webkit-scrollbar at all. Kept in its own feature
+     query rather than declared alongside: set unconditionally, `scrollbar-color`
+     wins over the pseudo-elements in Chromium and undoes the block above. */
+  @supports not selector(::-webkit-scrollbar) {
+    /* 45%, the same resting alpha as the pseudo-element thumb above, and it has
+       to clear 3:1 on its OWN — `scrollbar-color` names one thumb colour and
+       gives the page no hover or active selector to ramp from, so this single
+       value is the whole control's contrast for its whole life. The 35% it used
+       to carry composited to rgb(3, 87, 96) — 2.47:1, under the floor and with
+       nothing above it to make up the difference. Matching the Chromium rest
+       exactly also keeps the two engines drawing the same bar, which is the
+       same reason `thin` is used above: one measurement, not a near-miss. */
+    * { scrollbar-width: thin; scrollbar-color: rgba(0, 240, 255, 0.45) var(--bg-deep); }
+    /* ...and the four strips that hide their bar keep hiding it, since the
+       `display: none` they rely on is a pseudo-element rule this engine also
+       cannot see. */
+    .pl-queue b, .pl-notch b, .pl-mods, .guide__tabs { scrollbar-width: none; }
+  }
+}
+
 /* ---------- .split — the landscape two-column block ----------
    The one layout that reliably fits a landscape phone. The viewport this game
    actually runs in is about 792x360 CSS px (measured, OnePlus 12 at dpr 3):
@@ -323,9 +458,36 @@ body.crt-off #app::after { display: none; }
   padding: clamp(20px, 4vw, 60px);
   --tower-w: 118px;
   --rail-w: 300px;
-  --split-cols: minmax(0, 1fr) var(--tower-w) var(--rail-w);
+  /* THE BRAND TRACK IS THE BRAND COLUMN'S OWN WIDTH, not the leftover.
+     `1fr` before, and that is the reported "gap left of the elevator".
+
+     The column's contents are width-capped by an equation on the column's
+     HEIGHT (--brand-cap below: a 16:9 panel with the shelf's floor taken off
+     first), and a `1fr` track has no way to know that. On any window where the
+     cap bites, the track was wider than everything in it and the difference
+     was drawn as a band of backdrop between the brand stack and the tower:
+     86.5px at 1269x663 — the desktop shell's default window, which is the size
+     the report came in at — and 24.5px on a Pixel 7.
+
+     `max-content` reads the cap off the item instead, so the track and the
+     stack in it are the same box at every size, and `justify-content: center`
+     spends what is left as OUTER margin, which is the same trick the
+     max-width below already plays with the row's own surplus. `minmax(0, …)`
+     because the grid must still be free to hand the column less than the cap
+     on a narrow window — `.split > *`'s `min-width: 0` alone does not do it
+     once the max track function stops being flexible.
+
+     This is why --brand-cap exists as a token of its own. A `max-content`
+     track measures the item's width declaration, and `min(100%, …)` in that
+     position is a percentage against an indefinite box: Chromium resolves it
+     to zero and the whole column collapses (measured — every row in the
+     matrix came out 0px wide). The cap has to reach the track WITHOUT the
+     percentage, and the percentage clamp stays where it always was, one level
+     in, on the children. */
+  --split-cols: minmax(0, max-content) var(--tower-w) var(--rail-w);
   --split-gap: var(--sp-4);
   --split-align: stretch;
+  justify-content: center;
   /* Two of the three columns are fixed, so every pixel a window has beyond
      the row's natural width lands in the brand column — and the brand column
      has a fixed-width panel in it. On an ultrawide that was 480px of hole
@@ -343,10 +505,29 @@ body.crt-off #app::after { display: none; }
 
      Width past this point buys the panel nothing anyway: the panel is 16:9
      and the column's HEIGHT is what caps it (see the min-height step), so a
-     wider row would only stretch the gap between the columns. */
+     wider row would only stretch the gap between the columns.
+
+     It is the belt to the track rule's braces now rather than the whole
+     answer. 1210 is the row at the panel's FULL 640, so it could only ever
+     bind on a window whose height affords that — every SHORTER window kept a
+     1210px row around a narrower stack, which is precisely the hole the
+     `max-content` track above closes. Kept because it still stops the padding
+     clamp from drifting away from the row on an ultrawide, and because at the
+     one window where both apply (2560x1080, where the tracks come to exactly
+     1090 inside a 1210px row) the two agree to the pixel. */
   max-width: 1210px;
   margin-inline: auto;
   width: 100%;
+  /* The row is a SIZE container so the brand column can size its 16:9 panel
+     off the height it actually has (see --brand-cap below). Both of this box's
+     own dimensions are already definite and content-independent — `height:
+     100%` of the .screen flex line, `width: 100%` capped by the max-width
+     above — so `contain: size` takes nothing away that was ever being used,
+     and the layout containment it comes with is inert here: every absolutely
+     positioned thing inside the menu (the demo's hit layer and badge, the
+     tower's rail and car) already resolves against a `position: relative`
+     ancestor of its own, well inside this box. */
+  container-type: size;
 }
 /* Two fixed columns and one flexible one means the brand column pays for both
    of them, and on the narrowest landscape phone in the fleet (640x360) it
@@ -385,10 +566,126 @@ body.crt-off #app::after { display: none; }
    Declaring it once here means the two can never drift apart again; the media
    queries below step this token instead of stepping each child. `100%`
    resolves against .menu__brand's content box for both, so they always agree. */
+/* WHAT THE SHELF UNDER THE PANEL CANNOT GO WITHOUT, in the panel's own budget.
+   Three rows is the shelf at its tallest (an entitlement entry above
+   Leaderboard and Settings), 44px is the tap floor the whole screen is built
+   to, two --sp-3 gaps sit between them: 3x44 + 2x12 = 156. The 12 on top is
+   the margin for a face whose rows measure taller than Chromium's — WebKit's
+   do — and the --sp-4 is .menu__brand's own gap, which is spent whether the
+   shelf is at its floor or not. */
 .menu__brand {
   display: flex; flex-direction: column; gap: var(--sp-4);
   container-type: inline-size;
-  --brand-w: min(100%, 440px);
+  --shelf-floor: calc(3 * 44px + 2 * var(--sp-3));
+  --brand-reserve: calc(var(--shelf-floor) + 12px + var(--sp-4));
+  /* THE PANEL IS AS BIG AS THE COLUMN'S HEIGHT ALLOWS, which is one equation
+     and not a staircase.
+
+     It used to be a staircase: 360px under a 620px-tall box, 640px at 700 and
+     over, and this 440px default in between. Read as a function of height that
+     middle step is only reachable in a 79px band — box heights 621 to 699 —
+     and no device in sim/uifit/devices.ts has one. A WINDOW does: a 1280x720
+     desktop shell window minus its titlebar is ~1269x663, which is the size
+     the report came in at. There the brand column is 658px wide and the panel
+     drew itself 440, leaving a THIRD of the column empty beside it, and the
+     shelf below hit its 96px per-row cap and printed the rest as a hole. The
+     three columns stopped agreeing about vertical rhythm because one of them
+     had stopped answering to its own height.
+
+     The equation is the one the old 640px step's comment already derived, just
+     solved for every box instead of one: the panel is 16:9, so the height it
+     costs is 9/16 of the width it takes, and what is left has to cover the
+     shelf. Give the shelf its floor first and the panel gets the rest —
+
+         width = (column height - shelf reserve) * 16/9, capped by the column
+
+     — which reproduces the authored numbers exactly rather than replacing
+     them. At the 544px the brand column gets in the authored 1280x720 box
+     that is (544 - 184) * 16/9 = 640, and the column there is 640 wide, so
+     the magnified rows (every tablet, 1512x945, 1920x1080, 2560x1080) land on
+     the same 640 they landed on before. At 1269x663 it is 572, and the shelf
+     gets 168 instead of a hole.
+
+     `100cqh` is the .menu row's content box (the rule above makes it a size
+     container), which IS this column's height: the grid has one row and
+     stretches it. Container units are used rather than `vh` because above the
+     reference box the chrome is magnified with `zoom`, and `vh` would measure
+     the viewport while everything here is laid out in the divided box.
+
+     WHICH IS WHY THE STAIRCASE IS STILL HERE, one step per rule below, and why
+     the equation sits behind an @supports instead of on top of it. This app's
+     iOS deployment target is 15.0 (ios/App/App.xcodeproj), and container
+     queries did not reach WKWebView until 16. So a supported device runs this
+     stylesheet with no container units at all, and it needs the steps.
+
+     It cannot get them from the cascade. Writing the fallback as two
+     declarations of the same custom property — the shape .menu__title's `vw`
+     line uses one rule down — DOES NOT WORK, and fails in the worst direction.
+     A custom property's value is parsed as an untyped token stream, so an
+     engine that has never heard of `cqh` still accepts the declaration and
+     still lets it win on source order. The unit is only rejected later, when
+     `width: var(--brand-cap)` is substituted, and an invalid-at-computed-value
+     -time `width` does not fall back to the earlier declaration — it falls back
+     to the property's initial value, `auto`. Measured in a browser with the
+     unit stubbed out: `font-size` keeps its 20px fallback, while the same
+     two-declaration pattern on a custom property leaves the box at `auto` and
+     it stretches to the full column. iOS 15 would not have got the old 440px
+     panel; it would have got no width at all.
+
+     @supports is the only construct that asks the question before the value is
+     committed, so the steps below are the real base and the equation is an
+     enhancement layered over them. Strip the @supports block and this screen is
+     byte-for-byte what it was before the equation existed — which is exactly
+     what sim/systems asserts, so the fallback cannot rot.
+
+     TWO TOKENS, NOT ONE, and the split is what closes the gap beside the
+     tower. --brand-cap is the answer to "how wide may this stack be", which is
+     a pure function of the column's height and carries no percentage;
+     --brand-w is that capped by the column it landed in. The cap has to be
+     readable WITHOUT a containing block because .menu sizes the brand track
+     off it (`minmax(0, max-content)` up in .menu), and a percentage there
+     resolves against an indefinite box — Chromium answers zero and the column
+     vanishes. Everything the staircase and the @supports argument above say
+     is said about --brand-cap now; --brand-w is one clamp over it and never
+     steps. */
+  --brand-cap: 440px;
+  --brand-w: min(100%, var(--brand-cap));
+  /* The column IS its cap, so the track can measure it (see .menu). The
+     `max-width` is what keeps a narrow window honest: a percentage is inert
+     while the track is being sized and clamps once it is definite, which is
+     the same two-pass reading --brand-w relies on one level in. */
+  width: var(--brand-cap);
+  max-width: 100%;
+  /* Inert in the landscape row — the track is the stack's own width, so there
+     is nothing to centre in — and load-bearing in the stacked branch below,
+     where the column is full-width and the stack is not. */
+  margin-inline: auto;
+}
+/* The two steps the equation replaces on modern engines and restores on old
+   ones. 360 under a 620px-tall viewport, 640 at 700 and over, 440 in the band
+   between; keyed on VIEWPORT height, which above the authored box is not the
+   same as the layout box (chromeZoom divides it) — the imprecision the
+   equation exists to remove, and the exact behaviour iOS 15 had. */
+@media (max-height: 620px) { .menu__brand { --brand-cap: 360px; } }
+@media (min-height: 700px) { .menu__brand { --brand-cap: 640px; } }
+/* ...and the enhancement, for engines that can measure the column. Scoped away
+   from the stacked branch because `100cqh` is the whole .menu row, and the row
+   is the brand column ONLY while the grid has one row — which is the landscape
+   three-column case. Stacked, the column is one of three auto rows sharing that
+   height and the equation would size the panel off roughly three times the
+   height it has. `not all and (...)` rather than a min-aspect-ratio twin so the
+   two branches cannot both match on an exactly square window. */
+@supports (width: 1cqh) {
+  @media not all and (max-aspect-ratio: 1/1) {
+    .menu__brand { --brand-cap: calc((100cqh - var(--brand-reserve)) * 16 / 9); }
+    /* The phone tier's pin, argued in full down beside the compact block. Short
+       version: down here the shelf already sits exactly on its 44px floor, so
+       the 12px of headroom --brand-reserve keeps for taller faces would come
+       out of the PANEL rather than out of slack the row does not have. 360 is
+       what the phones already draw, and it is what the base step above gives
+       them too — so this pin only has to exist inside the enhancement. */
+    @media (max-height: 460px) { .menu__brand { --brand-cap: 360px; } }
+  }
 }
 .menu__title {
   font-size: clamp(30px, 6.2vw, 66px);
@@ -492,10 +789,54 @@ body.crt-off #app::after { display: none; }
      ~12%, which is both a visible inset and the margin the fallback face needs
      to not blow straight through the border while a slow webfont loads (the
      base .menu__title rule's overflow-wrap is the backstop if it still does —
-     same treatment, and same reasoning, as the headline title it came from). */
-  font-size: clamp(8px, 6.8cqw, 31px);
+     same treatment, and same reasoning, as the headline title it came from).
+
+     ONE cap, where there used to be a second one of 42px keyed to a 700px-tall
+     viewport. The pair was a staircase mirroring the panel's, and the panel is
+     an equation now (see --brand-cap), so the wordmark cannot go on stepping
+     where the thing it is measured against has stopped. 42 keeps the same ~12%
+     margin at the top of the range — Orbitron sets LAUNCH at ~4.97x the font
+     size, i.e. 209px inside the plate's 259px of inner width — and it changes
+     nothing anywhere the old 31 applied: 6.8cqw only reaches 31px on a 456px
+     panel, and every viewport the 31 was reachable on capped the panel at 440
+     or less. What it buys is the range BETWEEN, which is precisely the
+     windowed-desktop band that had no step of its own. */
+  /* THE BASE IS THE FALLBACK, and the container-unit version is layered over it
+     in the @supports below — the same shape, and for the same reason, as
+     --brand-w's block further up this file. It is NOT written as two
+     declarations of font-size the way plain .menu__title's is.
+
+     Two declarations would work; what would not is leaving the cqw one alone.
+     This rule had no fallback at all, so on an engine without container units
+     the whole declaration was dropped and the BASE .menu__title's
+     `clamp(30px, 6.2vw, 66px)` won instead — a rule sized for the headline, not
+     for a plate 47% of a panel wide. Measured on a OnePlus 7T (WebView 87, the
+     engine iOS 15's WKWebView is contemporary with): 52.9px inside a box built
+     for ~25, so the wordmark rendered at twice its plate and clipped to "TET"
+     over "LA". The @supports form is preferred over two declarations because it
+     also lets the steps below carry the height keying, which a single
+     declaration cannot express.
+
+     The steps mirror --brand-w's own: the plate is 6.8% of the PANEL, and the
+     panel is 360/440/640 by viewport HEIGHT, which no vw can see. So each band
+     caps at 6.8% of its panel and the vw term only does the narrow-column case
+     — a 360px-wide phone, where 100% wins over the cap and the panel really is
+     narrower than the step says. */
+  font-size: clamp(8px, 6.8vw, 24px);
   line-height: 0.95;
   pointer-events: none;
+}
+@media (min-height: 621px) {
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8vw, 30px); }
+}
+@media (min-height: 700px) {
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8vw, 42px); }
+}
+/* ...and the enhancement, for engines that can measure the panel. Last, so it
+   wins over every step above regardless of their source order — the thing the
+   two-declaration pattern could not have done. */
+@supports (font-size: 1cqw) {
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8cqw, 42px); }
 }
 /* Stacked only while the demo is live. Without this the two halves sit inline
    with no whitespace between them and render as the single word TETRILAUNCH,
@@ -585,6 +926,62 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ==========================================================================
+   THE ODOMETER — one roll, every readout the lift changes.
+   ==========================================================================
+   Riding the tower changes the tier plate's number AND all four of this
+   panel's readouts, and until now only the plate said so: the number rolled
+   for the length of the trip while Target, Launch, Clock and Bonds sat still
+   and then swapped instantly when the car docked. One panel, two different
+   opinions about whether anything had happened.
+
+   So the mechanism the plate already had is shared rather than copied. A
+   window of exactly one line, a track of two cells stacked in it, and a
+   transform from one to the other in the direction the car is travelling —
+   which is the whole trick, and it is worth stating that it is a TRANSFORM:
+   nothing here changes a box, so five of these running at once cost one
+   composited layer each and no layout at all.
+
+   THE CELL HEIGHT IS A VARIABLE because its two users disagree about it, and
+   silently. The plate's number sets `line-height: 1`, so one line is exactly
+   1em and the default below is right. `.bay-stat__val` inherits `normal`,
+   which Chromium resolves to 13px at this rule's 11px and 11px at the
+   compact tier's 10px — so a hard-coded 1em would crop the readout by 2px and
+   drag the panel's whole grid up with it while the roll ran. main.ts measures
+   the resting box and passes it in, which is correct on any face and at any
+   step of the type scale rather than at the two we happen to ship.
+
+   `overflow: hidden` and the fixed height are applied only WHILE rolling: at
+   rest they would crop the plate's slightly tall Skydeck star, and would pin a
+   readout's height to whatever it measured on the frame the ride began. */
+.is-rolling { overflow: hidden; height: var(--roll-h, 1em); }
+.roll { display: flex; flex-direction: column; }
+/* A cell inherits everything about how its host draws text. No `line-height`,
+   so the glyphs sit exactly where they sat before the roll started; and
+   `white-space`/`text-overflow` because the host's TRUNCATION has to come with
+   them — `.bay-stat__val` ellipsizes ("2:24 · 10 bays" is over budget on the
+   narrowest phones, and sim/uifit warns about exactly that), and that
+   behaviour lives on the element whose contents the roll replaces, so without
+   it the longest readout would grow its cell and push the track out of its own
+   window mid-ride. */
+.roll > b {
+  display: block; height: var(--roll-h, 1em); font-weight: inherit;
+  white-space: inherit; overflow: hidden; text-overflow: inherit;
+}
+.is-rolling .roll {
+  transform: translateY(var(--roll-from));
+  transition: transform var(--roll-dur, 355ms) var(--roll-ease);
+}
+.is-rolling.is-rolled .roll { transform: translateY(var(--roll-to)); }
+/* The theatre goes, the teaching stays: with no transition the track is laid
+   out at its END offset on the first frame, so the new value is simply THERE
+   for the length of the ride instead of sliding in. Same treatment the plate
+   has always had, and the reason this rule is one line rather than a second
+   set of keyframes. */
+@media (prefers-reduced-motion: reduce) {
+  .is-rolling .roll { transition: none; }
+}
 /* NOT KNOWN YET — the Tier S panel (screens.ts's unknownBayPanelHTML).
 
    A static "?" in a readout that normally holds a number reads as a value that
@@ -650,35 +1047,12 @@ body.crt-off #app::after { display: none; }
 .base-bay__extras { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
 .base-bay__extras:empty { display: none; }
 
-/* TODAY'S SKYDECK CLAUSES (screens.ts's skydeckRulesHTML) — the one thing about
-   the roof that the panel's four stat cells and its belt cannot say.
-
-   It takes a whole row of the extras strip rather than sitting beside the dev
-   door, because it is a LIST and the strip's other tenant is a button: a
-   three-row list sharing a flex line with a control would compress whichever
-   of them the viewport disliked more.
-
-   Sized down hard on purpose. This is reference material the player reads once
-   before launching, not a readout they track, and the column it lives in is
-   the menu's tightest — the same argument the belt ladder above it settles the
-   same way. */
-.sky-rules {
-  flex: 1 1 100%; min-width: 0;
-  display: flex; flex-direction: column; gap: 2px;
-  padding-top: 3px; border-top: var(--bw) solid var(--line);
-}
-.sky-rules__row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.sky-rules__bay {
-  flex: none;
-  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
-  color: var(--warn);
-}
-/* The clause NAME is the shrinkable half — a bay number that ellipsizes is
-   worthless, where a truncated card name still points at the card. */
-.sky-rules__name {
-  min-width: 0; font-size: 11px; color: var(--text-dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+/* The .sky-rules block that used to sit here — the roof's three-row clause
+   list, one row per stop, naming each clause and the bay it armed on — is gone
+   with the markup that carried it (screens.ts, above baseBayPanelHTML). The
+   day's clauses are discovered at the stops now, on the bay-clear card, so the
+   menu has nothing to style: the extras strip is back to the dev door alone,
+   and `:empty` collapses it in every shippable build. */
 .base-bay__extras .btn {
   flex: 1 1 0; min-width: 0;
   flex-direction: row; align-items: center; justify-content: center;
@@ -918,7 +1292,7 @@ body.crt-off #app::after { display: none; }
      the lift is taken out of service (.tower--off) — the building powering off
      is a state change worth the same 355ms the car's own moves get. */
   transition:
-    top var(--tower-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1),
+    top var(--tower-dur, 355ms) var(--roll-ease),
     opacity var(--tower-dur, 355ms) var(--ease);
 }
 .tower__car span {
@@ -1032,6 +1406,31 @@ body.crt-off #app::after { display: none; }
     70% 100%, 30% 100%, 0% 70%, 0% 30%
   );
 }
+/* THE EMPTY SOCKET — a floor that still owes a seal (screens.ts's floorHTML).
+
+   The identical box, the identical clip-path, at the window-socket's own
+   opacity: an OFF window is `currentColor` at 0.14 and this is the same idea
+   in the same vocabulary, so a building with nothing pressed into it reads as
+   unlit rather than as decorated. It costs the plate no width — the stamp is
+   position: absolute (see above), which is also why sim/uifit measures the
+   tower identically with the socket on and off.
+
+   0.16 rather than the windows' 0.14 because the shape is smaller in ink than
+   a filled square of the same box: the octagon's four notches take roughly a
+   sixth of the area, and matching the NUMBER would have left the socket
+   reading fainter than the sockets beside it. */
+.tower__seal--owed { opacity: 0.16; }
+/* …and the refusal points at them. A tap on the locked roof shakes it
+   (.is-denied) and flares every floor still owing a seal, so "all seals" is
+   answered as WHICH seals, in the tower rather than in a toast over it. Two
+   pulses on the same 300ms beat as the shake, so the two read as one event. */
+.tower__floor.is-owed .tower__seal--owed {
+  animation: tower-owed 300ms ease 2;
+}
+@keyframes tower-owed {
+  0%, 100% { opacity: 0.16; }
+  50% { opacity: 1; background: var(--danger); }
+}
 .tower__floor.is-selected {
   border-color: var(--accent); color: var(--accent);
   background: rgba(0, 240, 255, 0.12);
@@ -1078,6 +1477,12 @@ body.crt-off #app::after { display: none; }
   .tower__car { transition: none; }
   .tower__head b, .tower__car span { animation: none; }
   .tower__floor.is-denied { animation: none; }
+  /* The owed sockets still ANSWER the refusal — which seals are missing is the
+     information the tap asked for, not decoration — they just hold the answer
+     instead of pulsing it. main.ts drops the class on the same timer either
+     way (the shake's animationend never fires here, which is why it is a
+     timer). */
+  .tower__floor.is-owed .tower__seal--owed { animation: none; opacity: 0.85; }
   /* The beacon's swell STAYS — it is the gesture's only feedback, and a
      progress indicator that does not move is not one. Only its transition
      goes, so it steps rather than eases. */
@@ -1386,8 +1791,17 @@ body.crt-off #app::after { display: none; }
   0%, 100% { box-shadow: var(--shadow-hard-sm); }
   50% { box-shadow: var(--shadow-hard-sm), 0 0 12px rgba(255, 176, 32, 0.5); }
 }
-/* Bought. Same face, no pulse, no pointer — a state, not an offer. */
-.menu__entitlement { cursor: default; }
+/* Bought. Same face, no pulse, no pointer — a state, not an offer.
+
+   `inherit`, NOT `default`. This is a <div class="btn" role="status">
+   (screens.ts) — it looks like a control and is not one, so it has to shed the
+   .btn rule's `pointer`, and it is invisible to cursors.css's clickable
+   selector precisely because that selector is keyed on behaviour rather than
+   on the .btn class. What it must land on is the CHROME cursor the rest of the
+   panel around it is wearing, which is the one thing `default` (the OS arrow)
+   is not. Inheriting takes it from body and it goes on matching whatever the
+   generator bakes there. */
+.menu__entitlement { cursor: inherit; }
 @media (prefers-reduced-motion: reduce) { .menu__unlock { animation: none; } }
 .menu__demo { position: relative; }
 
@@ -1951,6 +2365,35 @@ body.crt-off #app::after { display: none; }
   .demo-trigger.armed { animation: none; outline: 2px solid #fff; }
 }
 
+/* Thaw Lance (see screens.ts's hudHTML / game.ts's useThawLance) — the same
+   icon-button treatment in CRYO's own colour (theme.ts's MATERIAL_SPEC reads
+   #9fe8ff for the material), because the one thing a player has to know about
+   this trigger is which cargo it acts on. It is the third accent on the rail
+   and the three must not be confusable: bond is amber, demolition is hazard
+   red, this is ice blue.
+
+   NO .armed STATE, and the absence is the design. A demolition charge rides
+   the NEXT launch, so its trigger has to say "your next shot is a bomb"; the
+   lance fires on the tap and is finished before the finger lifts, so there is
+   nothing between press and effect for an armed state to describe. */
+.thaw-btn {
+  position: relative;
+  color: #9fe8ff;
+  border-color: rgba(159, 232, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(159, 232, 255, 0.24), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(159, 232, 255, 0.3), var(--shadow-hard-sm);
+}
+.thaw-btn:hover { border-color: #9fe8ff; color: #dff5ff; }
+.thaw-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
+.thaw-btn__count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 9px;
+  background: #9fe8ff; color: #04222b;
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
+  text-align: center;
+}
+
 /* Desktop keyboard-hint strip — replaces the touch rail entirely on
    fine-pointer devices (mouse/trackpad). The keys shown are never hardcoded:
    screens.ts's hintStripHTML renders them from game/bindings.ts's LIVE
@@ -2057,13 +2500,15 @@ body.crt-off #app::after { display: none; }
 :root[data-profile="gamepad"] .kbd-hint { display: flex; }
 
 @media (pointer: fine) {
-  /* Keyboard covers rotate/bond/demo/cancel; only fullscreen + pause remain.
+  /* Keyboard covers rotate/bond/demo/thaw/cancel; only fullscreen + pause
+     remain.
      They sit at their conventional top-right anchor for free — the rail is
      top-anchored for everyone now (see .side-rail), which this rule used to
      ask for on its own. */
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
   .side-rail .demo-btn,
+  .side-rail .thaw-btn,
   .side-rail .auto-btn,
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
@@ -2105,6 +2550,88 @@ body.crt-off #app::after { display: none; }
   .pause-keys { display: block; }
 }
 :root[data-profile="gamepad"] .pause-keys { display: block; }
+
+/* ---------------------------------------------------------------------------
+   THE ARMED QUIT (screens.ts's pauseModal, run.ts's quitLosesProgress).
+
+   Quit is the one exit that ends a run without filing it, so on a run with bays
+   behind it the button takes two presses. This block draws the state between
+   them, and its whole job is that the second press lands on a control that has
+   already said what it does.
+
+   BOTH FACES ARE ALWAYS IN THE MARKUP, stacked in ONE grid cell. The cell sizes
+   to the wider of them ("QUIT ANYWAY"), so the button is the same WIDTH idle as
+   armed. That axis is the one that matters, and it is not symmetry for its own
+   sake: this is a wrapping row, so a button that grew sideways would slide its
+   neighbours along it and put RESTART BAY under a press aimed at Quit. The idle
+   button is therefore ~34px wider than the bare ghost it replaces; the row wraps
+   at var(--sp-3) and every uifit row absorbs it.
+
+   THE OTHER AXIS IS NOT RESERVED, deliberately. The note adds a row and the
+   modal is centred, so arming lifts the button 19.6px on a 915x412 phone and
+   36.3px at 1280x720 (measured, live). Reserving that too would mean a permanent
+   dead band on the most-visited modal in the game to serve a state most players
+   never see. It is also the wrong instinct here: this is not the draft's pick
+   box (.mod-card__box), which is a toggle a player taps repeatedly and must find
+   in the same place. It is a destructive confirm, and its failure mode is a
+   blind second tap at the first tap's coordinates — which now lands on the
+   warning text rather than on the button, and on no other control either way,
+   because the whole row moves together. Verified: a same-point double tap does
+   not confirm; two taps that actually aim at the armed button do.
+
+   `visibility` rather than `display` for the hidden face: a display:none child
+   contributes no intrinsic width, which would collapse the reservation above
+   back to whichever face is showing.
+
+   NOT COLOUR ALONE. The armed state relabels the button, reddens it, and mounts
+   the note below — three carriers, because the wash is the only one of the
+   three that a red-green-blind player or a screen reader gets nothing from.
+   Nothing here animates, so there is no reduced-motion branch to write: the
+   change is the words, and the words are the teaching. */
+.btn--quit {
+  display: inline-grid;
+  place-items: center;
+}
+.btn__quit-face {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+.btn--quit[data-armed="false"] .btn__quit-face:not(.btn__quit-face--armed),
+.btn--quit[data-armed="true"] .btn__quit-face--armed { visibility: visible; }
+.btn--quit[data-armed="true"] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+/* The hover rule on .btn--ghost pulls every ghost back to --accent; an armed
+   Quit must not go cyan under a mouse that happens to be resting on it. */
+.btn--quit[data-armed="true"]:hover { color: var(--danger); border-color: var(--danger); }
+
+/* The line that names the loss. Sits between the button row and the control
+   reference, so it reads as a consequence of the row above rather than as a
+   caption on the card.
+
+   --fs-sm, not --fs-xs: this is the only prose on the card a player is meant to
+   stop and read, and three lines of it is the whole warning.
+
+   NO MEASURE CAP. It shipped a first cut at 46ch, which is a sane reading
+   measure in the abstract and the wrong one here: the modal is already
+   min(520px, 92vw), so its content box is ~440px and a ch cap only narrows the
+   note further — measured, that turned three lines into four on the 1280x720
+   laptop and bought nothing on any phone. The modal's own width is the measure
+   this card was designed around, and every other block on it obeys that. */
+.pause__quit-note {
+  margin: 0 auto;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  color: var(--danger);
+}
+@media (max-height: 480px) {
+  /* A landscape phone draws no pause-keys block at all (coarse pointer), so the
+     note is the only thing under the row — it can keep its size. It steps down
+     only where the card is genuinely stacked. */
+  .pause__quit-note { font-size: var(--fs-xs); line-height: 1.3; }
+}
 
 /* Short (landscape-phone) viewports: only the glyph size steps down. The
    stack arithmetic — button size, gap, whether the column fits at all — is
@@ -2415,9 +2942,18 @@ body.crt-off #app::after { display: none; }
 }
 .pl-pwr .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted); flex: none; }
 .pl-pwr__track { flex: 1; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-.pl-pwr__fill { display: block; height: 100%; width: 0%; border-radius: var(--r-pill);
+/* scaleX, not width — see "THE THREE BAR FILLS" over .pl-goal i. The ramp
+   still compresses into the filled length, because a scaled element's
+   background scales with it. */
+.pl-pwr__fill { display: block; height: 100%; width: 100%; border-radius: var(--r-pill);
+  transform: scaleX(0); transform-origin: left center;
   background: linear-gradient(90deg, var(--success), var(--warn) 62%, var(--danger));
-  box-shadow: 0 0 8px rgba(255,176,32,.55); transition: width 80ms linear; }
+  box-shadow: 0 0 8px rgba(255,176,32,.55); }
+/* Promoted only WHILE A DRAG IS LIVE. The meter is written every frame of an
+   aim and is perfectly still the rest of the time, and .hud--aiming (main.ts's
+   syncHud) already draws exactly that line — the same class the rail's aim ✕
+   and the tutorial's aim-through fade hang off. */
+.hud--aiming .pl-pwr__fill { will-change: transform; }
 /* THE FIRING FLOOR — a notch on the track at cannon.ts's MIN_FIRE_RATIO (0.3).
    Left of it a release is discarded as an accidental touch, so the meter owes
    the player a mark for where "this will actually launch" begins; without one,
@@ -3312,7 +3848,46 @@ body.crt-off #app::after { display: none; }
    nearly double thickness so distance-to-goal is legible at a glance mid-aim. */
 .pl-funds .v .tgt { color: var(--piece-o); font-size: 0.62em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
-.pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
+/* ---------- THE THREE BAR FILLS (goal, reload, PWR) ----------
+   Every one of them is a FULL-WIDTH element scaled about its left edge, and
+   main.ts's syncHud drives them by writing `transform: scaleX(r)`. They used
+   to be `width: r%`, which is the obvious spelling and the expensive one.
+
+   WHY IT MATTERS, MEASURED. The device evidence in
+   docs/superpowers/specs/2026-08-27-background-layer-split-design.md put ~33fps
+   of a 120Hz CPH2573 frame in the HUD's per-frame repaint, and named the shape
+   of the fix: the things that move every frame move through transform/opacity,
+   which the compositor applies to an already-rastered layer, and everything
+   else writes only when it changes. The reload fill is the readout that moves
+   every frame — sim/hudperf measured its inline style being rewritten on 563
+   of 600 frames of live play — so a `width` there is a layout re-solve of the
+   plant panel a hundred and twenty times a second. Over a ten-second live bay
+   Chromium's own Layout counter fell from 152.4ms to 16.3ms when these three
+   stopped being widths; over an idle bay, from 132.3ms to 3.3ms.
+
+   THE PAINT IS UNCHANGED, which is why this is a spelling change rather than a
+   redesign: a scaled element's background scales with it, so the goal bar's
+   cyan gradient and the PWR meter's green-amber-red ramp still compress into
+   the filled length exactly as they did when that length was a width. The
+   tracks own the pill radius and clip their fill (`overflow: hidden`), so the
+   only thing the scale distorts is the horizontal reach of each fill's glow,
+   which is a few pixels of bleed past a tip inside a 7-8px tall track.
+
+   TRANSITIONS: the goal bar keeps its one, because it is written on a payout
+   and the slide IS the payout. The other two lost theirs. Both are rewritten
+   every frame from a continuous source — the reload ratio, and a drag or a
+   held key, since input.ts routes a held W/D through the same per-frame nudge
+   the stick uses — and a transition chasing a source like that is not a
+   smoothing. It is 60-80ms of lag, retargeted before it can ever finish, and
+   retargeting it is main-thread work on the frame we are trying to give back.
+   The one input that IS discrete, a pad D-pad tap, moves the PWR meter by
+   cannon.ts's 0.4 out of a 19-unit speed range — 2% of the track, under 4px,
+   which is not a jump anyone was being spared.
+
+   PROMOTION is scoped rather than blanket (see below): a permanently promoted
+   layer is memory a phone does not have spare, so each fill is promoted only
+   while it is the thing that is moving. */
+.pl-goal i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: transform var(--dur) var(--ease); }
 
 /* Tier-2 stat columns — launches (or, on a pattern Contract, shipments)
    always, paired with a second column that depends on the mode: time on a
@@ -3432,11 +4007,18 @@ body.crt-off #app::after { display: none; }
    flickers and drains as one thing without this rule owning a second copy of
    the colour ramp. */
 .dial-collapse .v .tgt { color: inherit; text-shadow: inherit; }
-/* The goal bar dies with the number it belongs to: whatever width syncHud last
-   wrote stays exactly where it is (a width change here would be a layout
-   change AND a lie about the final score), but the fill goes danger red and
-   loses its glow. Only ever reached on a `broke` loss — `.pl-time` has no bar
-   — which is the loss where the bar is the picture of what went wrong. */
+/* The goal bar dies with the number it belongs to: whatever scale syncHud last
+   wrote stays exactly where it is (moving the fill here would be a lie about
+   the final score, and when the fill was a width it would have been a layout
+   change too), but it goes danger red and loses its glow. Only ever reached on
+   a `broke` loss — `.pl-time` has no bar — which is the loss where the bar is
+   the picture of what went wrong.
+
+   NOTHING HERE TOUCHES `transform`, deliberately: the fill's own scaleX is
+   inline, the collapse's squash-and-tilt is on the COLUMN above it, and the
+   two compose the way they always did — the bar is carried by the parent's
+   crush at whatever length it died at. A transform in this rule would fight
+   the inline one and snap the bar to full on the frame the bay is lost. */
 .pl-funds.dial-collapse .pl-goal i {
   background: var(--danger);
   box-shadow: none;
@@ -3488,7 +4070,17 @@ body.crt-off #app::after { display: none; }
 .pl-load { display: flex; align-items: center; gap: max(5px, calc(10 * var(--fpx))); }
 .pl-load .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); flex: none; }
 .pl-load__track { flex: 1; height: max(4px, calc(7 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-.pl-load__track i { display: block; height: 100%; width: 0%; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); transition: width 60ms linear; }
+/* scaleX, not width — see "THE THREE BAR FILLS" over .pl-goal i. This is the
+   one that earned the rule: it is the only readout on the panel whose value is
+   different on every single frame. */
+.pl-load__track i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); }
+/* Promoted only while it is RELOADING. `.ready` is on the row for as long as
+   the cannon is loaded and waiting, which — per the aim-time telemetry note in
+   cannon.ts — is most of a bay, and a layer held through all of it would be
+   memory spent on a bar that is standing still. The class flips once per
+   reload cycle, so the layer is created and dropped on the order of once a
+   second rather than once a frame. */
+.pl-load:not(.ready) .pl-load__track i { will-change: transform; }
 .pl-load.ready .lbl { color: var(--accent); }
 .pl-load.ready .pl-load__track i { background: var(--accent); box-shadow: var(--glow-accent); }
 
@@ -3849,7 +4441,14 @@ body.crt-off #app::after { display: none; }
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
 .pl-mods {
-  display: flex; align-items: center; gap: max(5px, calc(10.7 * var(--fpx)));
+  /* GAP 10.7 -> 8.4. The row now carries eleven items where it carried ten —
+     eight rack slots and three ability chips — so it pays its gap eleven times,
+     and at the narrowest ROOMY window in the matrix (800x600, where the plates
+     and the chips are both already sitting on their own floors) that eleventh
+     gap is the difference between the last rack slot being on screen and 18px
+     off it. Taking 2.7 units off each gap gives back more than a slot's width
+     and costs the row nothing a reader can name. */
+  display: flex; align-items: center; gap: max(4px, calc(8 * var(--fpx)));
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   /* headroom so the xN badge (top:-7px) and the B-key tag (bottom:-8px)
      survive this row's own scroll clipping */
@@ -3916,9 +4515,15 @@ body.crt-off #app::after { display: none; }
    gaps against a 209px row is. */
 [data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; gap: max(4px, calc(10.7 * var(--fpx))); }
 [data-density="compact"] .mod--bb,
-[data-density="compact"] .mod--demo { display: none; }
-[data-density="compact"] .pl-mods .mod,
-[data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
+[data-density="compact"] .mod--demo,
+[data-density="compact"] .mod--thaw { display: none; }
+/* The plate USED to share this declaration, and it cannot any more: its height
+   is `min(row height, 1.7325 x width)` now, so the number below reaches it as
+   the compact `--row-h` instead (see the plate's own compact rule) and it can
+   still come in under that when the row is too tight to pay for a square. The
+   value is unchanged — the row's height budget is the same argument it always
+   was, and this is still the one line that states it. */
+[data-density="compact"] .pl-mods .mod { height: max(25px, calc(44 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod .nm { display: none; }
 /* SLOT WIDTH AT COMPACT — where the plate's two floors stopped agreeing.
@@ -3970,7 +4575,73 @@ body.crt-off #app::after { display: none; }
 
    sim/uifit's `rack` assertion holds the fit; its `badge` assertion holds the
    air inside the box, which is the half that was silent. */
-[data-density="compact"] .pl-mods .ship-plate { width: clamp(26px, calc(65 * var(--fpx)), 30px); }
+/* …and the compact clamp comes down with it. The paragraph above is the
+   arithmetic for SEVEN 3-character codes; eight marks re-run it. The tightest
+   row in the matrix is the iPhone 13 mini's 209px: 8 slots + 7 gaps at the
+   row's 4.03px gap is 8w + 28.2, so w = 22.6 — hence the 22px floor, which the
+   mark can pay for where a 3-character code could not (there is no letter
+   spacing to run out of, only a box). The growth term and cap fall in the same
+   proportion, 65 -> 55 and 30 -> 26, so the shape of the slot is unchanged and
+   only its count moved. */
+/* …and it comes down again for the NINTH. Same arithmetic, two terms changed.
+   The tightest row is still the iPhone 13 mini's 209px, but the gaps between
+   plates are no longer the row's — the rack is one block at a 2px hairline
+   (.ship-rack below) — so it is 9w + 8x2 <= 209, i.e. w = 21.4 and hence the
+   21px floor. Verified against the two panels that actually overflowed: at
+   209px the row now measures 205, and at 241px it measures 208.
+   The growth term and the cap come down in the same 8/9 proportion the eighth
+   slot used, 55 -> 49 and 26 -> 23, so the shape of the slot is unchanged and
+   only its count moved. */
+/* …and the TENTH (the Incinerator) ends the clamp, which is the honest reading
+   of what has been happening to this line. The tightest row is still the
+   iPhone 13 mini's 209px and the rack's gap is now 1px (.ship-rack below), so
+   ten slots need 10w + 9 <= 209, i.e. w <= 20. The clamp's own three terms had
+   converged to within 2px of each other over the last two systems; a flat 19
+   is what they were describing, and it says the thing a clamp had stopped
+   saying — at compact density the rack is at its floor, and there is no
+   growth left in it. 199 against 209 leaves the row 10px, which is the first
+   slack this line has had since the eighth slot.
+
+   The badge floor still clears with room: sim/uifit measures air as
+   (clientWidth - mark)/2 against 0.4 of the mark, i.e. a slot's PADDING box
+   must be 1.8 marks wide. 19 less the 1px borders is 17, against a mark on its
+   own 8.5px floor at every compact density — 2.0 marks.
+
+   …and the last paragraph of that argument was the mistake. It said the count
+   "is irrelevant because the ability chips are hidden and ten slots already fit
+   the tightest row with 10px to spare" — which is true of the TIGHTEST row and
+   of TEN slots, and of nothing else. A flat 19 held every phone to what the
+   iPhone 13 mini can pay at the cap while a Pixel 7 had 120px of row going
+   spare, and it held a seven-slot rig to the ten-slot width on all of them.
+   Reported from a Skydeck run on a phone: seven marks, all of them smaller
+   than they had to be.
+
+   So compact states the two numbers that are ITS OWN — the row height its
+   panel budget affords (44 --fpx floored at 25, half the regular row's, see
+   the height note above) and the width allowance the rack has when the tag and
+   the chips are hidden (540 --fpx, measured; the derivation is beside the base
+   rule) — and the shape rule above does the rest. Everything else falls out:
+   the square cap lands at 25px, so every phone whose row can pay for it draws
+   a 25x25 plate with an 11.5px mark where it drew 19x25.2 with an 8.5px one,
+   and the two tightest rows fall back to the budget at nine and ten slots
+   exactly as they always did.
+
+   The badge floor still clears with room: sim/uifit measures air as
+   (clientWidth - mark)/2 against 0.4 of the mark, i.e. a slot's PADDING box
+   must be 1.8 marks wide. The mark is --plate-w/2.18 with an 8.5px floor, so
+   the ratio is fixed at 2.18 everywhere the floor is not binding and the
+   narrowest box the budget can produce is the shared 17.5px floor — 15.5px of
+   padding box against 1.8 x 8.5 = 15.3. */
+[data-density="compact"] .pl-mods .ship-plate {
+  --row-h: max(25px, calc(44 * var(--fpx)));
+  --plate-w: max(
+    17.5px,
+    min(
+      var(--row-h),
+      calc((540 * var(--fpx) + 1px) / var(--rack-slots, 10) - 1px)
+    )
+  );
+}
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -4109,12 +4780,27 @@ body.crt-off #app::after { display: none; }
 .mod.k-bane { border-top-color: var(--danger); }
 
 /* Bond Breaker's plant-panel chip — glowing purple, tappable (reuses the
-   bond-breaker action; see the .bond-trigger note near .bond-btn above). */
+   bond-breaker action; see the .bond-trigger note near .bond-btn above).
+
+   74.7 -> 58 ON ALL THREE ABILITY CHIPS, and the number is the third chip's
+   fault rather than a tidy-up. The build row is BUILD tag + chips + the whole
+   ship rack, and it held two chips beside eight plates and not three: the Thaw
+   Lance's arrival pushed the last two rack slots past the row's visible edge on
+   every roomy device in the matrix (sim/uifit's `rack`, 15-92px over depending
+   on --fpx — it scales, because everything in the row does).
+
+   The width was set by ONE label, "BOND BRK", the longest string any chip
+   carries; `.mod .nm` already wraps at line-height 1.3 inside a 69.3-tall box,
+   so at 58 that label takes two lines and the other two ("DEMO", "THAW") still
+   take one. 58 x 3 gives back 50 --fpx-units against the ~60 the third chip
+   cost, and the plates gave the rest (40 -> 34, components.ts's header).
+
+   The 44px floor is untouched: it is the tap floor, and these are buttons. */
 .mod--bb {
   appearance: none; -webkit-appearance: none;
   font: inherit; color: inherit; margin: 0; padding: 0;
   cursor: pointer;
-  width: max(44px, calc(74.7 * var(--fpx)));
+  width: max(44px, calc(58 * var(--fpx)));
   background: linear-gradient(180deg, rgba(122,92,255,.34), rgba(122,92,255,.10));
   border-color: var(--accent-2);
   border-top-color: var(--accent-2);
@@ -4133,7 +4819,7 @@ body.crt-off #app::after { display: none; }
   appearance: none; -webkit-appearance: none;
   font: inherit; color: inherit; margin: 0; padding: 0;
   cursor: pointer;
-  width: max(44px, calc(74.7 * var(--fpx)));
+  width: max(44px, calc(58 * var(--fpx)));
   background: linear-gradient(180deg, rgba(255,45,85,.32), rgba(255,45,85,.10));
   border-color: var(--danger);
   border-top-color: var(--danger);
@@ -4147,9 +4833,37 @@ body.crt-off #app::after { display: none; }
 }
 .mod--demo:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 
-/* No keyboard on touch — the chips' "B"/"X" key tags only make sense with one. */
+/* The lance's plant-panel chip — the same treatment in cryo's ice blue, for
+   the reason .thaw-btn states: the accent names the cargo. */
+.mod--thaw {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; color: inherit; margin: 0; padding: 0;
+  cursor: pointer;
+  width: max(44px, calc(58 * var(--fpx)));
+  /* A DEEPER blue than the ink. #9fe8ff at 30% over the panel reads as grey
+     rather than as ice — the material's colour is a highlight, and a highlight
+     is the wrong thing to wash a whole box in. The wash is the same hue two
+     stops down so the chip sits beside the emitter's purple and the rack's red
+     as a third COLOUR, while the glyph, the badge and the border stay the exact
+     #9fe8ff theme.ts gives the cargo. */
+  background: linear-gradient(180deg, rgba(56,178,232,.34), rgba(56,178,232,.10));
+  border-color: #9fe8ff;
+  border-top-color: #9fe8ff;
+}
+.mod--thaw .g { color: #dff5ff; font-size: max(13px, calc(23 * var(--fpx))); text-shadow: 0 0 9px rgba(159,232,255,.75); }
+.mod--thaw .stk { background: #9fe8ff; color: #04222b; }
+.mod--thaw .key {
+  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: max(6px, calc(9.3 * var(--fpx))); background: var(--surface-3);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; color: var(--text-dim);
+}
+.mod--thaw:hover:not(:disabled) { border-color: #dff5ff; }
+.mod--thaw:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* No keyboard on touch — the chips' "B"/"X"/"C" key tags only make sense with
+   one. */
 @media (pointer: coarse) {
-  .mod--bb .key, .mod--demo .key { display: none; }
+  .mod--bb .key, .mod--demo .key, .mod--thaw .key { display: none; }
 }
 
 /* Ship plates — one per system, ALL SEVEN, tier shown as pips (see
@@ -4171,34 +4885,279 @@ body.crt-off #app::after { display: none; }
    The 40:9 ratio between this width and the glyph's font-size below is the
    plate's design proportion and the thing the override is written to keep:
    4.44 glyph-ems of box around 3.06 of text. */
+/* THE RACK AS ONE OBJECT in the build row (components.ts's shipPlatesHTML).
+   `flex: none` because it is a fixed readout in a scroller: without it the
+   block is an ordinary flex item, shrinks below its plates on every narrow
+   panel, and takes the whole plant panel with it (measured: 980px against a
+   366px design box before this line existed).
+
+   The gap is deliberately far tighter than .pl-mods's own. These are cells of
+   a single readout; the row's gap is what holds that readout apart from the
+   ability chips, which are controls. Nine slots is what forced the two apart
+   — see the compact clamp above for the arithmetic.
+
+   ONE PIXEL since the tenth, and it is the cheapest 9px on the row: every
+   plate carries its own 1px border, so adjacent slots are still two drawn
+   lines apart at a 1px gap and the rack reads as the same run of cells. The
+   alternative was another proportional shave off the plate, and the plate is
+   what carries the mark. */
+.ship-rack { flex: none; display: flex; align-items: center; gap: 1px; }
+
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  width: max(25px, calc(40 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  /* 40 -> 30 with the code swapped for the mark (components.ts's header). The
+     old width was 4.44 glyph-ems around a 3-character code; the mark is one
+     square box, so the plate keeps the same air around a narrower thing —
+     which is what buys the eighth slot its place in the row. 31 rather than the
+     8/7 of 40 the count alone would ask for (35): the row also has to hold a
+     THIRD ability chip now, and the three levers split the bill — the chips
+     gave 50 --fpx-units (74.7 -> 58), the row's gap gave 2.7 x 11 (10.7 -> 8),
+     and the plates gave the rest. The mark still sits in ~0.53em of side air at
+     this width, comfortably over sim/uifit's 0.4em badge floor. */
+  /* FLOOR 18, and it is a different number from the compact clamp's 22 below
+     on purpose: this one is the narrowest ROOMY window (800x600), where the
+     rack shares the row with three ability chips, and that one is the narrowest
+     PHONE, where the chips are hidden and the slots have the row to themselves.
+     18px still leaves the mark 0.45em of side air against sim/uifit's 0.4em
+     badge floor — a mark can be given a tighter box than a three-letter code
+     could, because there is no letter-spacing in it to run out of. */
+  /* 30 -> 24 for the TENTH slot, and the floor 18 -> 17.5 with it, MEASURED at
+     the one window that actually overflowed rather than derived from the count:
+     the 800x600 roomy box on the `hud-lance` fixture, where the rack shares the
+     row with a fourth ability chip. Ten plates at 30 ran 15px past it; at 27
+     they still ran 8; 24 clears it with room.
+
+     THE FLOOR HAD TO MOVE TOO, which the last two systems did not have to do,
+     and that is the sign this row is near the end of what proportional shaving
+     can buy. At this window --fpx is ~0.74, so the plate sits on its FLOOR
+     rather than on the coefficient — dropping only the coefficient bought
+     nothing there. 17.5 is the smallest floor sim/uifit's badge assertion
+     admits: the padding box must be 1.8 marks wide (see .ship-plate__g), which
+     is 15.3px against the mark's own 8.5px floor, and 17.5 less the 1px borders
+     is 15.5.
+
+     The mark comes down in the same proportion (13.5 -> 11, floor 9 -> 8.5), so
+     the plate's shape — the ratio of box to mark — is unchanged at every
+     density and only its size moved. */
+  /* ...and here is what four passes of that shaving did to the plate, which is
+     the reported "systems in the HUD are all squashed small" on a desktop
+     window. WIDTH went 40 -> 31 -> 30 -> 24 because every constraint that
+     forced a pass was HORIZONTAL. Height never moved. The plate is authored
+     40 wide by 69.3 tall — 0.577 — and at regular and roomy density it was
+     rendering 24 by 69.3, which is 0.346: a sliver. The phone never showed it
+     because the compact block above states BOTH of its numbers (19 by 44
+     --fpx, 0.76) and so kept a shape while this rule lost one; measured on the
+     `hud-lance` fixture, 19x25.2 on a Pixel 7 against 22.1x63.8 on the 1269x663
+     desktop window the report came from.
+
+     So the shape is stated ONCE now, as a ratio off the width, and it cannot
+     go stale again the way three separate coefficients did. 1.7325 is 69.3/40,
+     the authored proportion — the same 0.58:1 the compact clamp above already
+     quotes as "the plate the tablet draws", which is the tell that 0.577 was
+     always the intent and 0.346 was drift.
+
+     THE WIDTH IS THE RACK'S BUDGET DIVIDED BY THE RACK'S OWN SLOT COUNT, not a
+     flat coefficient, and that is the other half of "squashed small". Since
+     the rack became the RIG rather than the roster (components.ts's
+     shipPlatesHTML) its width is the slot count, which is FOUR on an undocked
+     rig and ten only at the cap — but 24 was measured for ten and spent on
+     four, so the common rack drew at 60% of the width its row was holding for
+     it.
+
+       budget  = 280 --fpx + 9px, which is exactly what ten slots and their
+                 nine 1px gaps are allowed. 28 rather than 24 because 28 is the
+                 largest flat coefficient that leaves the binding window in the
+                 matrix — 800x600, the narrowest row at regular density, where
+                 --fpx is 0.625 — on the 17.5px floor it already sits on:
+                 28 x 0.625 = 17.5 exactly, so that row is untouched. The
+                 headroom above it is real and measured: at --fpx 0.78 and up
+                 the row can pay 33.4 units a slot before the last one leaves
+                 the panel (row width is 560 --fpx, less the BUILD tag's 9.4,
+                 three ability chips at 58 and four gaps at 8), so 28 spends
+                 five sixths of the slack and leaves 54 --fpx of air.
+       share   = (budget - (n-1) gaps) / n, written as (280 --fpx + 10px) / n
+                 - 1px so the gap arithmetic folds into one term.
+       cap     = 40 --fpx, the authored width. A four-slot rig asks for 70
+                 --fpx a slot and is held to 40; the rack then measures
+                 160 --fpx + 3px, comfortably inside the ten-slot budget, which
+                 is why no window can overflow at any count.
+
+     FLOOR 17.5 unchanged, and it is now the only floor the plate has: the old
+     `max(40px, …)` on the height is gone because the height is no longer an
+     independent number. 17.5 x 1.7325 = 30.3, which is what the tightest
+     regular row draws, and it still clears the mark's 8.5px floor plus its
+     pips with room. */
+  /* …and the two numbers above are what a SEVEN-slot rig then reported: the
+     marks had gone backwards, on a phone. Both had the same cause — a cap and
+     a budget that were smaller than the row could actually pay for.
+
+     THE BUDGET WAS THE NARROW HALF. 280 --fpx was measured against the row's
+     content, not against the row: the rack's real allowance is what is left
+     after the BUILD tag, the ability chips and the gaps, and measured across
+     the whole device matrix on `hud-lance` that is
+
+       compact          554.8 - 558.5 --fpx   the rack owns the row outright
+                                              (the tag and the chips are
+                                              display:none at this density)
+       regular/roomy    343.5 - 346.9 --fpx   everywhere except 800x600
+       800x600           305.6 --fpx          the binding window: three chips
+                                              on their 44px TAP floor eat a
+                                              proportionally bigger bite of a
+                                              small row than 58 --fpx would
+
+     so 300 --fpx at regular and roomy (3.5px of air at the binding window) and
+     540 --fpx at compact (5.6px at the tightest phone, the iPhone 13 mini's
+     209px row). One constant per density rather than the exact expression,
+     which would have to restate the chip's 58, the tag's 9.4 and the row's 8
+     here and go stale the first time any of the three moved. The price is the
+     ~13% of row the wider regular windows leave unspent at 8, 9 and 10 slots;
+     at 7 and below the CAP binds there anyway, so it costs the reported rig
+     nothing.
+
+     THE CAPS ARE TWO RULES WITH TWO REASONS, and 40 --fpx was doing the job of
+     both badly. The plate now answers to the row's own content height — the
+     ability chip's, which is what sets it — in both directions:
+
+       height  min(row height, 1.7325 x width). This is the one that protects
+               the panel, and it is measured: with the height left to follow
+               the width freely, a four-slot rig at 1269x663 draws a 68x118
+               plate, which takes the build row from 81px to 135 and the
+               bottom-anchored plant panel from 285 to 315 — the plate becomes
+               the thing that sets the row height and the panel grows upward
+               over the play area.
+       width   <= the row height. This one protects the SHAPE: uncapped, four
+               slots on a Pixel 7 is 78.5 x 25.2, and seven is 44.4 x 25.2 —
+               aspect 1.76, a row of letterboxes with the mark lost in the
+               middle. A square is where a cell stops being a cell.
+
+     Between the two the plate keeps the authored 0.577 wherever the row is
+     tight enough to squeeze it (ten slots at 1269x663 is 26.7 x 46.3) and
+     opens out to square where the row is not (four slots there is 63.8 x
+     63.8, and every phone is square at every count its row can pay for).
+     COMPACT FALLS OUT OF THE SAME RULE rather than being stated separately:
+     its row height is halved for the panel's height budget, so the square cap
+     lands at 25px and the phone gets a 25x25 plate where it drew 19x25.2 —
+     which is the reported defect, in the reported place. */
+  --row-h: max(44px, calc(69.3 * var(--fpx)));
+  --plate-w: max(
+    17.5px,
+    min(
+      var(--row-h),
+      calc((300 * var(--fpx) + 1px) / var(--rack-slots, 10) - 1px)
+    )
+  );
+  width: var(--plate-w); height: min(var(--row-h), calc(var(--plate-w) * 1.7325));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
   border: 1px solid var(--line);
   border-top: 2px solid var(--accent);
   box-shadow: var(--shadow-hard-sm);
 }
-.ship-plate__g { font-family: var(--font-pixel); font-size: max(6px, calc(9 * var(--fpx))); color: var(--accent); letter-spacing: 0.02em; }
+/* The mark scales with the plate the way the code used to scale with it: the
+   SVG is sized in px by components.ts and then set to a --fpx-relative box
+   here, so a plate on a small phone gets a small mark rather than a full-size
+   one crammed into a shrunken slot. `color` still does the lighting — the
+   icons stroke currentColor, so .ship-plate--open's drained state below keeps
+   working untouched. */
+.ship-plate__g {
+  display: flex; color: var(--accent);
+  /* The MARK'S OWN scale, carried as a font-size even though nothing here sets
+     type: sim/uifit's `badge` assertion measures the plate's side air in ems of
+     "the glyph's OWN font size", and with the pixel-font size gone this element
+     would otherwise inherit the body's 16px and read every slot as crowded. So
+     the box is declared once here and the svg takes it in ems. */
+  /* 13.5, which is also components.ts's PLATE_MARK_PX at --fpx 1, so the size
+     the SVG is authored at and the box it lands in agree. The ratio to the
+     slot is what sim/uifit's `badge` floor actually constrains: air is
+     (slot - mark) / 2 and the floor is 0.4 of the mark, so a slot has to be at
+     least 1.8 marks wide. At 30 and 13.5 it is 2.2, which leaves the same room
+     the three-letter code had at regular density and more than it had on a
+     phone.
+
+     13.5 -> 11 (floor 9 -> 8.5) with the plate, for the TENTH slot. The ratio
+     is what this constant is for and it is preserved exactly: 24/11 is 2.18
+     against the old 30/13.5's 2.22, so the mark sits in the same proportion of
+     air it always has and only the whole plate got smaller. components.ts's
+     PLATE_MARK_PX is the SVG's authored size and moves with it, so the size the
+     mark is drawn at and the box it lands in still agree.
+
+     …and now it is READ OFF THE PLATE rather than restated beside it, because
+     the plate's width stopped being a single coefficient (see --plate-w). 2.18
+     is that same 24/11, so at ten slots this is the number it always was; at
+     four it grows with the slot instead of leaving a big box round a small
+     mark, which is what a divided budget would otherwise produce. The 8.5px
+     floor stays a floor of its own — legibility does not scale with the row.  */
+  font-size: max(8.5px, calc(var(--plate-w) / 2.18));
+}
+/* COMPACT USED TO STATE THE MARK ITSELF, and the line has GONE rather than
+   moved. It existed because --plate-w was pinned flat at 19px down there, so
+   deriving would have raised a mark that was on its legibility floor for a
+   reason. Now that compact sizes its plate from the same budget-and-cap rule
+   as everything else, deriving is the whole point: a phone's plate grew from
+   19 to 25px and its mark goes 8.5 -> 11.5 with it, which is the half of the
+   report that was actually about the icons. The 8.5px floor above still holds
+   the two tightest rows, where nine and ten slots come in under the cap. */
+.ship-plate__g svg { width: 1em; height: auto; }
 .ship-plate__pips { display: flex; gap: 2px; }
-.ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+/* The pips ride the plate too, at the 5/40 the plate was authored with — an
+   eighth of the slot. They were the last thing in here still sized off --fpx
+   alone, which was invisible while the plate WAS 40 --fpx wide and is not now:
+   at a square 99px plate on a 1920 desktop a 7px pip is a speck, and at a 25px
+   one on a phone the same coefficient never left its 3px floor. Same floor,
+   same ratio, and now the three things inside the box all answer to the box.
+
+   AN EIGHTH OF THE SLOT, AND THIS CLASS IS BORROWED BY A SECOND SLOT. The
+   Workshop's rack buttons (screens.ts's slotBtn) render .ship-plate__pips
+   without being inside a .ship-plate — the tier readout is the same readout, so
+   reusing it is right — and they are the only surface that does; the other
+   three pip rows in this sheet (.refit-card__pips, .bay-banner__pips,
+   .sbx-chip__pips) are their own classes with their own rules, and
+   .ship-plate__g is never rendered outside a plate.
+
+   That reuse is why --plate-w carries a FALLBACK. An undefined custom property
+   takes the whole `width` invalid at computed-value time, which lands it on
+   `auto` — and these <i> are empty, so `auto` is ZERO. The failure renders as
+   silence: every pip on every aboard and shed slot in the Workshop simply
+   stops existing, with nothing overflowing, clipping or scrolling for
+   sim/uifit to catch. 40px is the authored plate width, so the fallback is the
+   size this rule was written to give and no surface has to rely on it — the
+   rack button states its own slot below, and the pin in sim/systems holds both
+   halves. A future borrower gets a visibly wrong pip rather than none.
+
+   The ratio itself is stated ONCE, here. A surface that borrows the pips says
+   how wide its slot is; it does not restate what a pip is. */
+.ship-plate__pips i { width: max(3px, calc(var(--plate-w, 40px) / 8)); height: max(3px, calc(var(--plate-w, 40px) / 8)); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
 
-/* An UNINSTALLED slot: the same box, drained of the cyan that means "built".
-   It has to stay legible — the glyph is the whole point of an empty slot, it
-   names the system the player has not bought yet — so this dims rather than
-   hides, and the pips stay in their off state instead of disappearing (three
-   dark pips say "three tiers available"; no pips would say "no such thing").
-   Deliberately no dashed border or other "placeholder" idiom: the rack reads
-   as one instrument with some lamps lit, which is what it is. */
-.ship-plate--empty {
+/* AN OPEN SLOT: the same box, drained of the cyan that means "built", and
+   empty.
+
+   It used to be the UNINSTALLED plate — same drained box, but wearing the glyph
+   of the system the player had not bought yet, because the rack was the roster
+   and every slot belonged to a named track. With system slots the rack is the
+   RIG (components.ts's shipPlatesHTML), so an open slot belongs to no system
+   and a mark on it would be naming one arbitrarily. What is left says the one
+   true thing: there is room here.
+
+   No pips, for the reason the old plate kept them: three dark pips said "three
+   tiers available" about a real track, and an open slot has no track to have
+   tiers of. Still deliberately no dashed border or other "placeholder" idiom —
+   the rack reads as one instrument with some lamps lit, which is what it is.
+
+   The centred ring is drawn rather than glyphed so it costs no icon and no
+   font: 0.28 of the plate's own width, which lands between 5px on the tightest
+   compact rack and 7px at roomy density — visible as a socket, too small to be
+   read as a mark. */
+.ship-plate--open {
   background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
   border-top-color: var(--line-strong);
   box-shadow: none;
 }
-.ship-plate--empty .ship-plate__g { color: var(--text-faint); }
+.ship-plate--open::after {
+  content: ""; width: 28%; aspect-ratio: 1; border-radius: 50%;
+  border: 1px solid var(--line-strong);
+}
 
 /* ============================================================================
    CONVEYOR BELT — the NEXT piece rides in from the top-left, angled toward
@@ -4622,7 +5581,39 @@ body.crt-off #app::after { display: none; }
    — the flex item is refusing the bounded height the modal is offering it.
    .end itself needs the same treatment as the grid between them. */
 .end { min-height: 0; }
-.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; min-height: 0; }
+.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* …AND THE HEIGHT HALF BELONGS TO THE SIDE COLUMN ONLY. It was on both, and
+   that is the whole of the Tier S banner bug: the two columns are not
+   symmetric. `.end__side` has somewhere to put a squeeze — #lb-body is on the
+   scroll allowlist, so shrinking the column below its content turns rows into
+   scrolled rows, which is the trade this rule was written to make.
+   `.end__main` has NO scroller in it and never will (the no-scroll product
+   rule owns that column), so `min-height: 0` there bought nothing and cost the
+   only thing keeping the layout honest: with its automatic minimum disabled,
+   the `1fr` track is free to resolve SHORTER than the column's content, and a
+   flex column with `overflow: visible` answers that by simply drawing past its
+   own bottom edge — over `.end__actions`, which is the `auto` track directly
+   beneath it.
+   Measured on the OnePlus 12 row (792x360, the device the report came in
+   from): the main column asked for 218px, the track gave it 186px, and the
+   last 32px of it — the Tier S banner's closing line and its bottom border —
+   were painted under FLY IT AGAIN and TIER S. It was never one device. With
+   the column made to report its real height, the same Tier S card overflowed
+   its track by 32px on the iPhone 13 mini, 57px on the iPhone SE 3, 58px on
+   the Galaxy S8+, 102px in an 800x600 window, 142px on the 640x360 budget
+   Android — and 16px at 1280x720, the size the whole game is laid out for.
+   Invisible to every assertion the harness had: `.end` measured exactly at its
+   cap because the 1fr track had absorbed the difference (`fit` green), nothing
+   scrolled (`scrollers` green), nothing left the viewport (`offscreen` green),
+   and the buttons kept their 44px (`tap` green). The overflow only existed
+   between two boxes. run.ts now asks the column the same question `fit` asks a
+   screen, and pairs it with `.end__actions` in NO_OVERLAP.
+   With the automatic minimum back, the track cannot resolve below the
+   column's content: the banner takes its natural height whatever the
+   description wraps to, the actions row starts under it, and if the two
+   together genuinely do not fit the panel then `.end` overflows and `fit`
+   says so — a failure that can be seen instead of one that is painted over. */
+.end__side { min-height: 0; }
 /* Tall viewports keep the original single-column reading order (outcome,
    submit, board, actions) purely from DOM order — no grid areas needed. */
 
@@ -4642,16 +5633,32 @@ body.crt-off #app::after { display: none; }
        width to the side that does not need it. */
     grid-template-columns: 1.15fr 0.85fr;
     grid-template-rows: 1fr auto;
-    grid-template-areas: "main side" "actions side";
+    grid-template-areas: "main side" "actions actions";
     column-gap: var(--sp-4);
     width: min(920px, 94vw);
     text-align: left;
   }
   .end__main { grid-area: main; }
   .end__side { grid-area: side; }
-  /* Bottom-left rather than spanning the panel: a full-width action row costs
+  /* SPANS THE PANEL. It used to be bottom-left — "a full-width action row costs
      its 39px out of BOTH columns' budget, which pushes the board back into
-     scrolling. It also lands at the end of the natural reading order. */
+     scrolling" — and that arithmetic was right about a THIRTY-NINE PIXEL row.
+     The row is not 39px any more. Four exits and a seal line have been added to
+     it since, and confined to the 1.15fr column it wraps: measured on the
+     OnePlus 12 (792x360) the sandbox card's four buttons want 450px of a 404px
+     column, so they take two 44px lines and the row bills the outcome column
+     106px. The lost-run card, which also carries the seal sentence, bills 145px
+     — and at 640x360 it bills 201.
+     Across the full panel the same four buttons are one line: 106px -> 50px on
+     the OnePlus row, and the 56px that buys is exactly what the Tier S banner
+     needed (the column wanted 218px of a 186px track). Spending it out of BOTH
+     columns is the right trade now precisely because of what the old note said
+     — the side column's overflow is #lb-body, which is on the scroll allowlist
+     and was designed to give, while the outcome column has no scroller in it
+     and can only overflow.
+     It still lands at the end of the natural reading order, and it still reads
+     as the row you leave by; what changes is that the room it takes comes off
+     the board's rows instead of off the banner that explains the run. */
   .end__actions { grid-area: actions; align-self: end; }
   .end .stat-row { justify-content: flex-start; gap: var(--sp-5); }
   .end .end__actions { justify-content: flex-start; }
@@ -4671,6 +5678,38 @@ body.crt-off #app::after { display: none; }
   .end .lb__row { padding: 5px 12px; grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 6px; }
   .end .lb__score { font-size: 15px; }
   .end .lb__gap { font-size: 10px; padding: 0; }
+  /* THE SPLIT MOVES ONE MORE NOTCH ON A NARROW PANEL, for the reason the
+     1.15/0.85 note gives and then stops short of following: width bought at
+     the banner's expense is bought in HEIGHT, and the banner is the only block
+     on the card that pays for narrowness by growing.
+     760px is the LAST row that needs it, and the threshold is written that way
+     round on purpose. The panel is 94vw here, so at 1.15/0.85 the outcome
+     column runs 322px at 640, 336px at 667, 376px at 740 — and 404px at 792,
+     which is where the card starts closing its panel on its own. Those first
+     three are exactly the three device rows still over after the action row
+     moved to the panel's full width, so the notch is spent on them and on
+     nobody else. At 640 the Tier S sentence was being set in the 130px left
+     beside a 134px button and took six lines; 1.3/0.7 gives the column 364px,
+     the sentence 172px and four lines, and the whole card lands inside its
+     panel on the budget Android for the first time. The iPhone SE 3 and the
+     Galaxy S8+ close the same way.
+     Stopping at 760 rather than reaching further up is the same measurement
+     read from the other side: at 780 and 792 the split costs the board ~50px
+     of column and starts ellipsising a twelve-character name for a banner that
+     already fits. What the three rows below 760 give up instead is ~34px of a
+     column whose rows are one line each — and one of those tracks pays for it
+     rather than the name. At 196px the row's four tracks want 30 (rank) + 18
+     (three gaps) + ~65 (the lines count) + ~60 (score), which is 173 of the
+     196 and leaves 23px of name: every board entry ellipsised to "P…". Drop
+     the lines count and the name has ~88px, which sets PILOT1 and LONGESTNAME
+     in full. It is the right track to lose, too: this board is answering
+     "where did that score land", and the rank, the name and the score are the
+     whole of that answer — the lines a rival cleared is trivia, and it is
+     still on the standalone Leaderboard, which has a full screen for it. */
+  @media (max-width: 760px) {
+    .end { grid-template-columns: 1.3fr 0.7fr; }
+    .end .lb__lines { display: none; }
+  }
 }
 
 /* ---------- Draft modal (mod cards) ---------- */
@@ -4950,6 +5989,15 @@ body.crt-off #app::after { display: none; }
   color: var(--text-muted);
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* HOW MANY NUMBERS MOVED (screens.ts's projectionHTML) — inside the note, not
+   beside it, so the header keeps its one line and the count is the last thing
+   the ellipsis reaches. The note's own rule above is what makes that work.
+
+   Accent rather than a tone colour: it counts the moved rows without judging
+   them, and the tiles below are already carrying red and green for that. The
+   weight is the row's, not `b`'s — this header is pixel-face at 8px, where a
+   synthesised bold is mush rather than emphasis. */
+.projection__moved { color: var(--accent); font-weight: inherit; }
 /* What the panel is FOR, said in the space it is waiting to fill. Only the
    yard passes it (screens.ts's projectionHTML): a draft always has rows to
    show, a yard with nothing staged may hold only the bay's priced five. */
@@ -4998,12 +6046,63 @@ body.crt-off #app::after { display: none; }
    which is the whole thing this screen was failing to do. */
 .preview-stat__from { font-size: 12px; font-weight: 600; color: var(--text-muted); text-decoration: line-through; }
 .preview-stat__arrow { font-size: 11px; color: var(--text-dim); }
+
+/* THE BELT'S COMPOSITION, inside the belt tile (screens.ts's previewMixHTML).
+   One grid item still — the materials are a wrapping list of marks inside the
+   tile that already prices the belt, which keeps the six-tiles argument intact
+   (preview.ts's belt note) while answering "33% of WHAT".
+
+   IN the tile rather than spanning the grid, and that is a measurement rather
+   than a preference: `grid-column: 1 / -1` cannot share a grid row, so a
+   spanning belt tile costs a whole row wherever it lands — +78px on the
+   800x600 draft, where the list itself is 17. Wrapped inside its tile it costs
+   the lines it needs and nothing else: one at the two materials a mid run
+   carries, three at all six in the yard's 96px column. */
+.preview-mix {
+  display: flex; flex-wrap: wrap; gap: 0 8px;
+  margin: 1px 0 0; padding: 2px 0 0; list-style: none;
+  border-top: 1px solid var(--line);
+}
+/* The mark, the tally and the share as one object — a material's figure must
+   never wrap away from the glyph that says which material it is. */
+.preview-mix__m {
+  display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted);
+}
+.preview-mix__m .mat-icon { flex: none; }
+/* The plant panel's notch grammar ("×2"), in the pixel face it is written in
+   there — the same bill, on the screen that prices the next bay. */
+.preview-mix__notch {
+  font-family: var(--font-pixel); font-size: 7px; color: var(--warn);
+}
+/* The SHARE is the figure and the ×N beside it is the bill, so the share gets
+   the row's brightest ink — the line's own colour is muted, which would
+   otherwise leave the loudest thing on it the amber tally. */
+.preview-mix__pct { display: inline-flex; align-items: baseline; gap: 3px; }
+.preview-mix__pct .preview-stat__to { color: var(--text); }
+/* A material line inherits the tile's tones rather than restating them: the
+   struck old value and the new one are the same two spans a tile uses, so the
+   only thing a moved line adds is which way it moved. */
+.preview-mix__m .preview-stat__from { font-size: 10px; }
+.preview-mix__m .preview-stat__arrow { font-size: 9px; }
+.preview-mix__m--worse .preview-stat__to { color: var(--danger); }
+.preview-mix__m--better .preview-stat__to { color: var(--success); }
 /* Compact (landscape phones): the grid keeps the five priced numbers and every
    row the selection MOVED, and drops the axes that are merely in play. Ten
    tiles is four rows against a projection column that has three, and a row of
    context is what a player can reconstruct by tapping the card anyway — the
-   moment a pick touches crosswind, its tile comes back as a changed one. */
-[data-density="compact"] .preview-stat--context { display: none; }
+   moment a pick touches crosswind, its tile comes back as a changed one.
+
+   NOT the tile carrying the belt's breakdown, and the exemption is narrow on
+   purpose: it only ever exists in the yard (screens.ts's `explains`), where the
+   argument for dropping context does not hold. A crosswind tile can be
+   reconstructed by tapping a card; what the belt is MADE OF cannot be
+   reconstructed from anything on that screen, and it is the fact that decides
+   between a Demolition Rack and a Thaw Lance. Measured: it costs the yard's
+   compact projection one row, on the phone where that projection has been
+   running four tiles and half a column of air. */
+[data-density="compact"] .preview-stat--context:not(.preview-stat--mix) { display: none; }
 .preview-stat--worse { border-color: rgba(255,45,85,0.55); background: rgba(255,45,85,0.10); }
 .preview-stat--worse .preview-stat__to { color: var(--danger); }
 .preview-stat--better { border-color: rgba(0,255,156,0.5); background: rgba(0,255,156,0.10); }
@@ -5208,6 +6307,25 @@ body.crt-off #app::after { display: none; }
 }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* A SCRIM REPLACING ANOTHER SCRIM MUST NOT FADE IN.
+
+   renderOverlay rewrites overlay.innerHTML wholesale, so every move between
+   two dimmed screens -- paused -> seal-break, the game-over card ->
+   seal-break -- destroys the dimmed scrim and mounts a fresh one, which
+   restarts `fade` from opacity 0. The player sees the live field snap back to
+   full brightness and dim again, between two screens that were both already
+   dim. Reported from playtest as a flash of the game screen behind the retry
+   warning, and measured on a CPH2573 through the WebView: every mount reports
+   opacity 0 at insert and then sits at a FLAT 0 for four to five frames before
+   the ramp even begins, because the new backdrop-filter layer costs several
+   frames to composite. So it is longer than the 0.22s ease suggests.
+
+   Fading up from bright is right only when the thing behind really was bright,
+   which is the live field: playing -> paused keeps its fade. main.ts decides
+   by asking whether the OUTGOING overlay carried a scrim, so this can never
+   fall out of step with a list of states. */
+.modal-scrim--continued { animation: none; }
 @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(0.98);} to { opacity: 1; transform: none;} }
 .pop { animation: pop var(--dur) var(--ease); }
 
@@ -5218,8 +6336,19 @@ body.crt-off #app::after { display: none; }
 .setting__label b { font-weight: 600; }
 .setting__label span { font-size: var(--fs-sm); color: var(--text-muted); }
 /* Square-ish, chunky-bordered slider — a small block thumb instead of a
-   circle, in keeping with the retro pass's steppy geometry. */
-.toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); cursor: pointer; transition: all var(--dur) var(--ease); flex: none; }
+   circle, in keeping with the retro pass's steppy geometry.
+
+   NO `cursor` OF ITS OWN, deliberately. The pill is a picture of the switch,
+   not the switch: .setting above carries role="switch", the tabindex and the
+   data-toggle, and components.ts's toggleHTML says why (the row is what a
+   thumb aims at). It used to restate `cursor: pointer` anyway, which was
+   harmless while every control wore the system hand and became a hole the
+   moment they stopped — a declaration at class weight beats an inherited
+   value however specific the rule that produced it, so the row wore the
+   game's hand and the pill inside it went back to the OS's. Inheriting is
+   both simpler and always right: it tracks whatever the row is wearing, on a
+   mouse, on a phone, and under forced-colors alike. */
+.toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); transition: all var(--dur) var(--ease); flex: none; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--text-muted); transition: all var(--dur) var(--ease); }
 .setting[aria-checked="true"] .toggle { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
 .setting[aria-checked="true"] .toggle::after { left: 31px; background: var(--accent-ink); }
@@ -5355,9 +6484,15 @@ body.crt-off #app::after { display: none; }
   box-shadow: var(--shadow-hard-sm); color: var(--text);
 }
 .guide__drill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Locked, and rendered as a <div> rather than a disabled <button> (screens.ts)
+   — there is nothing to press, so there is no control here to disable. That is
+   also why it takes `inherit` rather than cursors.css's barred disc: the disc
+   is the answer to "this control is refusing you", and this card is not
+   refusing anything, it is a card. `default` would have been the OS arrow in
+   the middle of a pane wearing the game's own; inherit is the pane's. */
 .guide__drill--locked {
   border-color: var(--line); background: rgba(255, 255, 255, 0.02);
-  box-shadow: none; cursor: default; color: var(--text-muted);
+  box-shadow: none; cursor: inherit; color: var(--text-muted);
 }
 .guide__drill-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .guide__drill-kind { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; color: var(--accent); }
@@ -5497,84 +6632,48 @@ button.panel { color: var(--text); }
   /* Centered layout: the demo centres with everything else. Left-aligned (the
      two-column default) it stays flush with the title above it. */
   .menu__demo.is-live { margin-inline: auto; }
+  /* No --brand-cap here. The equation does not hold in this branch — see the
+     `not all and (max-aspect-ratio: 1/1)` guard on the @supports block up at
+     .menu__brand — so this branch is simply never handed it, and the stepped
+     base applies exactly as it did before the equation existed. Overriding the
+     token here instead would have had to sit AFTER the @supports block to win,
+     and a rule that has to be downstream of an enhancement to undo it is the
+     fragile half of the same idea. */
 }
 
-/* The demo is the one block on the menu whose height is a fixed fraction of
-   its width, so on a short viewport it is the first thing to push the chips
-   off the bottom — the very clipping the rule above was written to fix.
-   Capping its WIDTH is what shrinks it: a max-height would fight the
-   aspect-ratio and just letterbox the world inside a box still taking the
-   same room.
+/* The panel's two width STEPS used to live here — 360px under a 620px-tall
+   viewport, 640px at 700 and over, with the 440px default filling the band
+   between. They have MOVED, not gone: they sit beside .menu__brand now, where
+   the equation that supersedes them on modern engines can be layered over them
+   in an @supports block instead of racing them down the file. Both step values
+   fall straight out of that equation on the viewports that used to be keyed to
+   them, so on an engine with container units the steps decide nothing — and on
+   iOS 15, which this app still deploys to and which has no container units,
+   they decide everything.
 
-   These steps have room they did not before: the eyebrow and the headline
-   title above the panel are both gone (the wordmark moved inside it), giving
-   the brand column back ~90px of height on a desktop and ~60px on a landscape
-   phone. So the demo still steps down here, just less steeply than when it was
-   competing with a headline — and it can't shrink far now that it carries the
-   wordmark, which has to stay legible. */
-@media (max-height: 620px) {
-  /* ONE width now, where the status strip needed two. The strip's extra store
-     row (the ★ Unlock upsell before purchase, the ★ UNLIMITED badge after) was
-     ~52px taken straight out of the demo panel's height budget, so the column
-     had to narrow the panel by 80px whenever the row existed just to stay
-     inside a 360px-tall viewport. Those entries now ride the base-bay panel's
-     last row, and that panel is `flex: 1 1 0` — it absorbs the row out of its
-     OWN box instead of pushing the column taller, so the entitlement state no
-     longer changes the demo's size at all. */
-  .menu__brand { --brand-w: min(100%, 360px); }
-}
-/* ...and the step UP, which is the same rule read from the other end. 440px
-   is the width the panel was drawn at in a 720px-tall box, and on anything
-   taller the brand column's height went to the empty band between the panel
-   and the shelf hanging off the bottom of it: 114px of nothing on a 1080p
-   browser, with the hero element of the screen sitting at 37% of the column
-   width it had available.
+   What is left here is the one case the equation cannot cover — the phone
+   tier, pinned inside the @supports block and in the max-height:460px block
+   below, and worth stating at length where the steps used to be.
 
-   Sized against the column's HEIGHT, which is the axis that actually binds:
-   the panel is 16:9, so every pixel of width it gains costs 0.5625 of the
-   height the shelf under it needs. At the 544px the brand column gets in the
-   authored box, 640 puts the panel at 360 and leaves 168 for the shelf — 12
-   more than the three 44px rows and two sp-3 gaps that a full shelf cannot go
-   under. The shelf's own `flex-grow` (see .menu__nav above) spends whatever
-   is left over on the rows, so the column is exactly full at any width up to
-   this one and the panel is simply as big as the height allows.
+   On a landscape phone the shelf is not merely NEAR its floor, it is ON it:
+   measured at 792x360, 851x393 and 852x393 the three rows come out 44.0px
+   each, exactly the tap minimum, and the panel fills the column's width. That
+   is the same equation this rule solves, with one difference — a phone has no
+   margin above the floor at all, so the 12px of WebKit headroom the equation
+   reserves would be taken out of the panel instead of out of the slack, and
+   the panel would lose 35px of width to buy headroom the row never had. The
+   phones are pinned to the number they already draw, and the equation governs
+   everything above them.
 
-   Not larger: 660 would put the panel at 371 and leave the shelf 157, inside
-   its 156px floor by a pixel. The 12px here is the margin for a face whose
-   rows measure taller than Chromium's — WebKit's do — before the floor starts
-   pushing the column past its own box.
+   Keying that pin on max-height:460px is exact rather than approximate: the
+   solver's chromeZoom is max(1, min(uh/720, uw/1000)), so a viewport 460px
+   tall or shorter can never magnify (uh/720 <= 0.64), which makes the box the
+   chrome is laid out in the viewport itself. Viewport height and box height
+   are the same number down there, so a viewport query is a box query.
 
-   WHY min-height, on a screen where every other step is keyed the other way:
-   the query has to test the height of the box the CHROME is laid out in, and
-   above the reference that box is the viewport DIVIDED by --chrome-zoom. The
-   two agree here — zoom is never below 1, so box height <= viewport height,
-   and the solver's own `min` of the two axis ratios makes the converse hold
-   as well (sim/systems asserts both bounds). A viewport at least 700px tall
-   therefore has a box at least 700px tall, which is the thing this is asking
-   about. Mutually exclusive with the 620px step-down above, so the two can
-   never both apply. */
-@media (min-height: 700px) {
-  .menu__brand { --brand-w: min(100%, 640px); }
-  /* The wordmark is sized off the PLATE it sits in (6.8cqw of the panel), and
-     that clamp topped out at 31px — the exact fit for the 440px panel and
-     nothing wider. Left there, a 600px panel would have carried the same 31px
-     wordmark at 78% of the size its own plate was drawn for, which reads as
-     the one element on the screen that did not get the memo. 42px keeps the
-     ~12% side margin the 31px cap was chosen for: Orbitron sets LAUNCH at
-     ~4.97x the font size, i.e. 209px inside the plate's 259px of inner
-     width. */
-  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8cqw, 42px); }
-}
-/* No second step at 460px. The old one took the panel to 280px in a 386px
-   column, leaving 106px — 27% of the column — empty to its right while the
-   status strip below still spanned the full width, so the column read as
-   ragged rather than as one stack. It also cost the brand column the height
-   that made the two columns line up: measured on a OnePlus at 792x360, the
-   360px panel puts the brand column at 310.2px against the action rail's
-   311.1px, which aligns their top AND bottom edges to within half a pixel.
-   The 280px step put it 45.9px short, and `align-items: center` split that
-   into ~23px of mismatch at each end. Keeping the 620px step all the way down
-   spends the room on a bigger, more legible demo and squares the columns. */
+   The wordmark's own step went the same way — see the clamp on
+   .menu__demo.is-live .menu__title, which is one number now for the same
+   reason the panel is. */
 
 /* Short viewports: the menu's binding constraint is HEIGHT, and nothing keyed
    off it. A 1080p phone at dpr 3 is 792x360 CSS px — too wide to trip the
@@ -5593,6 +6692,14 @@ button.panel { color: var(--text); }
      `align-items: center` can actually centre it — 24.4px above, 24.4px below.
      The inline value is untouched; width was never the constraint here. */
   .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
+  /* The gap only. The phone tier's --brand-cap pin lives inside the @supports
+     block beside .menu__brand, not here, and it has to: this query is far
+     downstream of that block, so a --brand-cap set here would win over the
+     equation on EVERY engine — including the landscape-phone case the
+     equation is deliberately kept away from and the desktop case it exists
+     for. Its 360 is also what the stepped base already hands a viewport this
+     short (max-height:620px covers max-height:460px), so there is nothing for
+     the old engines to miss either. */
   .menu__brand { gap: var(--sp-2); }
   /* The base-bay panel's budget on a 360px phone is what the 16:9 demo above
      it leaves — 146px at 792x360 — against 149px of content at the desktop
@@ -5856,14 +6963,42 @@ button.panel { color: var(--text); }
 /* THE CARD. .shop-card carries the frame, the two-track row and the price rail;
    everything below is the parts a refit has and an unlock does not.
 
-   The price track is CAPPED, which the Workshop's is not. An unlock's foot is
-   a price or a short gate line; a refit's is a whole sentence of button ("Take
-   back ×2 · +90"), and against `auto` that nowrap content took the track it
-   needed and left the body's `minmax(0, 1fr)` at 20px on the narrowest device
-   in the matrix — the description track collapsed so the button could stay
-   unabbreviated. The delta already knows how to ellipsise; the sentence does
-   not have anywhere to go. */
-.refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 190px); }
+   THE PRICE TRACK IS 124px, and it was 190. The cap exists because an unlock's
+   foot is a price and a refit's used to be a whole sentence of button — a
+   direction arrow, the rung's effect prose and the price — and against `auto`
+   that content took the track it needed and left the body's `minmax(0, 1fr)` at
+   20px on the narrowest device in the matrix.
+
+   The prose is gone (screens.ts's buy-button note: the projection states what a
+   rung does, the button states what it costs), so the cap can come down to what
+   the widest foot actually measures. Measured at the base density, longest
+   content of each kind:
+
+     stage  "T3 · <scrap> 55"      67px
+     undo   "✕ Undo ×2 · +<scrap> 90"  118px   ← the widest, and the cap
+     MAX    "MAX"                  30px
+
+   fit-content(160px), i.e. `min(max-content, 160px)`: each card's rail is as
+   wide as its own foot needs and no wider, with 160 — the undo's own width — as
+   the ceiling nothing may pass. A flat `minmax(0, 160px)` takes the whole 160
+   on every card whatever it holds, which would have charged a stage card 64px
+   of description for a button that wants 96. The floor at the other end is
+   .shop-card__foot's `min-width: 96px`, so the prices still line up in a rail.
+
+   What actually hands the description its width back is the button itself:
+   154px -> 96px at this density, once the prose came off it.
+
+   .shop-card.refit-card, and the two classes are load-bearing. This rule was
+   `.refit-card` alone, which is (0,1,0) — the same specificity as `.shop-card`'s
+   own `minmax(0, 1fr) auto`, three hundred lines LATER in this file, so source
+   order won and the cap never applied at base density in its life. That is not
+   a tidy-up: `auto` sizes the price track to the button's max-content, which is
+   exactly the mechanism the note above says was fixed, and it is what put a
+   whole sentence of button on the rail with the description wrapped to one word
+   per line beside it. The compact override below is `.modal--refit .refit-card`
+   at (0,2,0) and always did apply, which is why the phone was merely tight
+   while the desktop was broken. */
+.shop-card.refit-card { grid-template-columns: minmax(0, 1fr) fit-content(160px); }
 /* The tier pips ride with the state line rather than the name: on a landscape
    phone a name as long as "Press Hydraulics" pushed them onto a second line of
    the name row, i.e. a line per card of the shelf to say what three dots say. */
@@ -5898,16 +7033,20 @@ button.panel { color: var(--text); }
 .refit-card__foot { align-items: center; }
 .refit-card__undo { color: var(--warn); }
 .refit-card__undo .refit-card__price { color: var(--success); }
-/* Three parts on one row: direction, what changes, what it costs. The delta is
-   the flexible one, so a long effect string ellipsises instead of pushing the
-   price off the button. */
+/* The STAGE button is a price and nothing else, so it centres it; the UNDO
+   button is the same box in its other state and still runs three parts (mark,
+   verb, refund), which is what the flex row and the gap are still here for. */
 .refit-card__buy {
   padding: 8px 10px; font-size: 10px;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   flex: 1 1 auto; min-width: 0;
 }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
-.refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* Undo's word, and only Undo's — the stage button dropped its delta entirely
+   (screens.ts's buy-button note). It still ellipsises rather than wrapping,
+   because "Undo ×2" on two lines would take the button past the tap floor's
+   height on a shelf of seven. */
+.refit-card__delta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
@@ -5927,6 +7066,13 @@ button.panel { color: var(--text); }
 .modal--refit .preview-stat__label { font-size: 9px; }
 .modal--refit .preview-stat__val { font-size: 14px; }
 .modal--refit .preview-stat__from { font-size: 11px; }
+/* …and the belt's breakdown with them. This is the one tile whose height is a
+   function of how many materials the run carries — six lines' worth of marks in
+   a 90px column is three wrapped lines — so on the densest projection in the
+   app it gives up the same point of type the labels around it do. */
+.modal--refit .preview-mix { gap: 0 6px; padding-top: 1px; }
+.modal--refit .preview-mix__m { font-size: 9px; line-height: 1.3; gap: 2px; }
+.modal--refit .preview-mix__m .preview-stat__from { font-size: 9px; }
 /* The display face at --fs-h1 costs an iPad 70px of header on the densest
    modal in the app. The yard states its own name once and spends the rest of
    its height on the shelf and the numbers. */
@@ -6031,6 +7177,101 @@ button.panel { color: var(--text); }
   letter-spacing: 0.04em; line-height: 1.35; text-align: right; max-width: 172px;
 }
 
+/* ---------------------------------------------------------------------------
+   THE RACK (screens.ts's workshopScreen) — what a run actually carries.
+
+   It is a SHOP CARD'S SIBLING, not a shop card: the same panel treatment and
+   the same rhythm down the shelf, but it sells nothing except the slot button
+   in its header. Everything else in it is a toggle, and toggles have to be
+   distinguishable from prices at a glance or the screen has two kinds of
+   button wearing one costume.
+
+   The row WRAPS. Ten slots at the 44px tap floor is 440px plus gaps, which is
+   wider than a landscape phone's shop column — and the alternative, a
+   horizontal scroller, is the exact failure the HUD's own rack assertion
+   exists to catch ("one of them parked off the right edge is not a readout").
+   Here there is vertical room to spend, because the pane scrolls.
+   ------------------------------------------------------------------------ */
+.rack {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 14px; margin-bottom: 8px;
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard-sm);
+}
+.rack__hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The count takes the free space so the slot button lands on the same right
+   rail the shop cards' prices do — .shop-card__foot's min-width is 96px and
+   this button sits inside it optically even though it is in a different box. */
+.rack__count {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-dim);
+}
+.rack__full {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em;
+  color: var(--success);
+}
+.rack__row, .rack__shed { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.rack__shed { padding-top: 8px; border-top: 1px dashed var(--line); }
+.rack__shed-label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  color: var(--text-faint); flex: none; margin-right: 2px;
+}
+.rack__note { font-size: var(--fs-sm); line-height: 1.4; margin: 0; }
+/* 44 square, which is the tap floor and not a coincidence: this control has no
+   text to grow it, so the floor IS the size. sim/uifit's `tap` assertion holds
+   it. Same cyan-topped plate language as the HUD rack, at the size a thumb can
+   actually hit — the HUD's 19px plates are a readout and this is a control,
+   which is exactly the distinction the two sizes are drawing. */
+.rack-slot {
+  /* THE SLOT, stated once, and the shared pip rule (.ship-plate__pips i) reads
+     it: these buttons borrow the HUD plate's tier readout without being inside
+     a plate, so without this the pips fall back to a size that has nothing to
+     do with the box they sit in.
+
+     44 is the tap floor, which is what this control has always been and is the
+     whole reason it is a fixed box rather than an --fpx-scaled one. That makes
+     the pips a flat 5.5px here at every viewport — where they used to be
+     `max(3px, 5 --fpx)`, i.e. 3px on a phone and 7.2px on a 1920 desktop,
+     scaling with the GAME FIELD inside a button that never scales. Nothing was
+     reading the field on this screen; the coefficient was just the plate's,
+     inherited by a class rather than by an argument. */
+  --plate-w: 44px;
+  flex: none; width: var(--plate-w); height: var(--plate-w);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  box-shadow: var(--shadow-hard-sm);
+  color: var(--accent);
+  cursor: pointer;
+}
+/* In the shed: drained of the cyan that means "aboard", and dimmer still than
+   an open slot — an open slot is room, and this is a system that is not being
+   flown. It keeps its pips, because the tiers are still bought and paid for
+   and that is the whole promise a shed makes. */
+.rack-slot--shed {
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--text-faint);
+}
+/* The same box with nothing in it. A span, not a button: there is no system
+   here to toggle, so a control would be a target that does nothing. */
+.rack-slot--open {
+  background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+}
+.rack-slot--open::after {
+  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  border: 1px solid var(--line-strong);
+}
+.rack-slot__g { display: flex; }
+
 /* Owned unlocks, collapsed to one line. They get no card on purpose — this is a
    shop, so what you own is reference and what you can buy is the merchandise.
    It also means the screen gets SHORTER as you progress rather than longer. */
@@ -6073,6 +7314,15 @@ button.panel { color: var(--text); }
   display: flex; flex-direction: column; gap: var(--sp-2);
   min-width: 0; min-height: 0;
   align-content: start;
+}
+/* THE FOOT — two doors out of the shop, centred as one block. This was a lone
+   `align-self:center` on the Start Run button; a row of two needs a row, and
+   the row keeps the pair centred so the screen's exit stays where the eye has
+   always found it rather than sliding left as the second button appears.
+   flex: none so it cannot be squeezed by the scroller above it. */
+.workshop__go {
+  display: flex; flex: none; gap: var(--sp-3);
+  justify-content: center; align-items: center; flex-wrap: wrap;
 }
 .workshop__aside-label {
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
@@ -6389,19 +7639,147 @@ button.panel { color: var(--text); }
 .draft__bank { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; }
 .draft__bank .bay-stat { flex: 1 1 0; min-width: 0; max-width: 240px; padding: 5px 9px; }
 .draft__bank .bay-stat__val { font-size: 12px; }
+/* THE PAYOUT BANNER — one component, eight callers: the run end's
+   salvage-banked and tier-complete rows and its Tier S replacement
+   (sandboxEndRowHTML), plus the Contract end's five variants (progress,
+   complete, Tier S, Skydeck, replay). Every number below is set once, here, so
+   the format cannot drift per screen; sim/systems.ts pins that all eight keep
+   the three-part shape these rules are addressed to.
+
+   The text column is the part that was wrong. It was set at 11px/1.35 with a
+   1px heading gap, which is smaller than anything else in the modal it lives
+   in: the .end__why paragraph beside it is --fs-sm, .end__where is --fs-sm,
+   and the .stat labels immediately above the row are 9px PIXEL caps, which
+   read a good deal larger than 9px of --font-ui. So the one block on the
+   screen carrying the actual economy — what banked, what the tier still owes,
+   what it buys — was the hardest thing on the screen to read.
+
+   --fs-sm is therefore not a bump, it is the modal's existing measure for
+   explanatory copy, and the row joins it WHERE THERE IS ROOM. 1.5 leading
+   because the sentence WRAPS at every width the row is ever drawn at — 322px
+   in the run end's left column on a 640x360 phone, 576px at the Contract end's
+   full measure on a laptop — and 1.35 on a run that always wraps is the
+   setting that made this block read as noise rather than as three lines.
+
+   THE BASE COSTS NO HEIGHT, and the bigger setting is an exception gated on
+   room. That is the opposite of how this block was first written — roomy by
+   default with a `max-height` band cut out of it for small windows — and the
+   reason is that a max-height band has a CLIFF at its ceiling. Codex found it:
+   one pixel of window height above the ceiling bought ~53px of banner, so a
+   browser window at 800x621 got the roomy setting with 13px less room than it
+   needed. The overflow ran the whole way from 621 to 633 and only closed at
+   634; at 760px wide it did not close until 683. Written this way round there
+   is no cliff to fall off — a viewport that does not clear every floor keeps a
+   setting that costs nothing, and a new device row lands on the safe side.
+
+   So the base keeps the old 11px/1.35 sentence and spends nothing it has not
+   already saved: the heading gap goes 1px -> 3px (the change that made the
+   title and the paragraph read as one block) and the row's vertical padding
+   goes 10px -> 8px to pay for it. Net height across the whole banner is 0, and
+   the grid probe agrees — no viewport in 640-1400 x 560-900 draws this row
+   taller than staging drew it. */
 .salvage-row {
   display: flex; align-items: center; gap: var(--sp-3);
-  padding: 10px 14px;
+  padding: 8px var(--sp-3);
   border-radius: var(--r-md);
   background: rgba(255, 176, 32, 0.08);
   border: var(--bw) solid rgba(255, 176, 32, 0.45);
   text-align: left;
 }
 .salvage-row__amt { font-family: var(--font-mono); font-weight: 800; font-size: 24px; color: var(--warn); flex: none; }
-.salvage-row__body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.salvage-row__body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+/* Both the heading and the inline emphasis inside the sentence, at one size:
+   the pixel face is a display face and two of it on one block is a hierarchy
+   nobody asked for. The pair tracks the sentence because Press Start 2P's caps
+   are 0.875em against Rajdhani's ~0.7em — 11px of pixel and 14px of --font-ui
+   land within 0.3px of the same cap height — so the emphasis sits IN the
+   sentence instead of on top of it, and the heading leads the block on weight
+   and colour rather than on size. */
 .salvage-row__body b { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; }
 .salvage-row__body span { font-size: 11px; line-height: 1.35; }
+/* NO LEADING ON THE HEADING HERE. The base sets none on `b` at all, so there
+   is none to scope, and the pixel face's own `normal` is what this row has
+   always drawn — measured, because on the Tier S banner an explicit 1.3
+   cost 3px against staging and that is a budget this base does not have.
+   Every block that DOES set leading on the heading scopes it to `> b`: an
+   inline <b> inside the sentence contributes its own line-height to the line
+   box it sits in, so a bare `.salvage-row__body b { line-height: … }` sets one
+   line of a three-line wrapped paragraph taller than the two around it. */
+/* The footnote is the third rank in the block — the run's scrap and refit
+   ledger, true but not actionable — so it steps down one notch from the
+   sentence wherever the sentence is big enough for there to be a notch. Two
+   classes deep because the rule above it is `.salvage-row__body span` at
+   (0,1,1) and a bare class would lose to it. */
+.salvage-row__body .salvage-row__foot { font-size: 11px; }
 .salvage-row .btn { flex: none; padding: 8px 14px; font-size: 9px; }
+
+/* THE FULL SETTING, and all three floors are measured rather than chosen.
+
+   The probe walks viewport heights until TWO things stop happening: the end
+   modal's .panel scrolling, and the actions row covering the banner. The
+   second is the one that binds, and it is invisible to the .panel metric —
+   .end__main is the grid's `1fr` track and .end__actions the `auto` one under
+   it, so a main column taller than its track runs beneath the buttons without
+   ever growing the panel's scroll height. A banner sized on the scroll metric
+   alone passes every check and is read with Play Again lying across it.
+
+   The binding screen is the run end's TIER S variant at every width probed: it
+   is the longest body this row carries — two sentences plus the ledger
+   footnote — in the narrower of the run end's two grid columns.
+
+   HEIGHT >= 720px. Clean from 720px at 1280 and wider, 708px at 1000. It is
+   exactly the floor at the reference viewport rather than a step above it,
+   which is deliberate: 1280x720 is the size the whole game is laid out for and
+   is not a viewport this row is allowed to be too big for.
+
+   WIDTH >= 1000px. The floor rises as the window narrows, because the run end
+   keeps its two-column grid and the banner's text column narrows with it —
+   732px at 900 wide, above the height floor, and at 800 the panel itself
+   overflows until 634px while the covering never clears at all. A width floor
+   is the honest way to say the banner needs a COLUMN, which no amount of
+   height buys.
+
+   ASPECT >= 5/4. Under it the layout solver goes "tall" (layout.ts) and
+   magnifies the screen-anchored chrome; the end modal is already over its
+   panel there on staging — 91px at 900x920 with the OLD 11px banner — and the
+   full setting made a handful of those near-square cells worse. Every real
+   window is far outside it: 1280x720 is 1.78, a 1000x760 window 1.32, both
+   iPads 1.33, the Pixel Tablet 1.6.
+
+   What this leaves on the smaller setting, of the 19-row device matrix: the
+   phones, the 800x600 window, and the 1269x663 desktop-shell window — which
+   misses the height floor by 57px and whose Tier S banner is covered from
+   672px whatever this block says.
+
+   Ordering is not load-bearing here: this block cannot collide with the
+   landscape-phone step below it (nothing is both >= 720px and <= 480px tall),
+   and it only ever raises the base. */
+@media (min-width: 1000px) and (min-height: 720px) and (min-aspect-ratio: 5/4) {
+  .salvage-row { padding: 12px var(--sp-4); gap: var(--sp-4); }
+  .salvage-row__body { gap: 5px; }
+  .salvage-row__body b { font-size: 11px; }
+  .salvage-row__body > b { line-height: 1.45; }
+  .salvage-row__body span { font-size: var(--fs-sm); line-height: 1.5; }
+  .salvage-row__body .salvage-row__foot { font-size: var(--fs-xs); }
+}
+
+/* THE LANDSCAPE-PHONE STEP, at .end__why's own breakpoint rather than at the
+   520px one the row's padding and figure use a few blocks down. That is the
+   whole point of it: 11.5px is exactly what .end__why's paragraph steps to,
+   and the modal's explanatory rank moves together or it stops being a rank
+   (sim/systems.ts pins the pair). Sharing the paragraph's SIZE while using a
+   different breakpoint would have been a coincidence rather than a rule.
+
+   480 is also where the phones actually are — the tallest in the device matrix
+   is 440px — and the 41px between 481 and 520 buys the fix its only free
+   lunch. A resizable window at 1280x500 is not a phone, has no phone's padding
+   savings to spend, and measured 5px over staging when this step reached it;
+   held to 480 it keeps the base, which costs nothing. */
+@media (max-height: 480px) {
+  .salvage-row__body > b { line-height: 1.35; }
+  .salvage-row__body span { font-size: 11.5px; line-height: 1.4; }
+  .salvage-row__body .salvage-row__foot { font-size: 10.5px; }
+}
 
 /* Short (landscape-phone) viewports: the refit shelf and the salvage row are the
    two blocks most likely to overflow, so tighten both.
@@ -6469,21 +7847,28 @@ button.panel { color: var(--text); }
      what it is winning against. Left bare, only the font-size ever landed and
      the button stayed 35.5px tall: 12px per card across the whole shelf. */
   .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; gap: 4px; }
-  /* The cap is the button's real width at this density, not a round number:
-     under it the delta starts ellipsising, and "+2 ce…" is not a delta (the
-     .refit-card__price note above is the standing rule — the price gives back
-     its air, the delta never gives up its tail). */
-  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 160px); }
-  /* B6's tier prefix widened the price; on the narrow compact cards the
-     price gives back its air rather than the delta giving up its tail
-     ("+2 ce…" is not a delta). */
+  /* 128px, and it was 160. The old cap was the button's real width when the
+     button carried a delta ("under it the delta starts ellipsising, and '+2 ce…'
+     is not a delta"); with the delta gone the widest foot at this density is
+     undo's "✕ Undo ×2 · +<scrap> 90", and a stage button is a third of that.
+     This selector is (0,2,0) and always outranked `.shop-card`'s `auto`, which
+     is why the phone was merely tight where the base cap was dead outright. */
+  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) fit-content(128px); }
   .modal--refit .refit-card__price { gap: 2px; }
-  /* B6's tier prefix stands down here, and the price note above is what
-     sanctions it: "the price gives back its air rather than the delta giving up
-     its tail". The rung being bought is still on the card — it is what the
-     unlit pip beside the state line means — while the delta is the only thing
-     that says what the rung DOES, and "+2 ce…" says nothing. */
-  .modal--refit .refit-card__tier { display: none; }
+  /* The undo's ✕ stands down at this density and its word does not. "Undo ×2"
+     is 65px of the 128px rail here and the mark is 14px with its gap; without
+     the trade the count ellipsises to "Undo …", and the count is the half that
+     says how much of the order this button takes back. The button is still
+     unmistakable without it — it is the one secondary, amber control on a shelf
+     of cyan prices. */
+  .modal--refit .refit-card__undo .refit-card__arrow { display: none; }
+  /* THE TIER PREFIX STAYS, at every density, and its own class is gone with it
+     (screens.ts writes the rung straight into .refit-card__price). It used to
+     stand down here so the delta could keep its tail — "the price gives back
+     its air rather than the delta giving up its tail" — and with no delta on
+     the button there is nothing left to give the air to. Half of what this
+     button now says is which rung it buys; a bare "55" is a number with no
+     noun. */
   .modal--refit .refit-card__price .ico { width: 9px; height: 9px; }
   .modal--refit .price__sep { margin: 0 1px; }
   /* Undock is the commit and stays the biggest thing on the screen, but at
@@ -6504,6 +7889,18 @@ button.panel { color: var(--text); }
   .modal--refit .preview-stat__label { font-size: 7.5px; }
   .modal--refit .preview-stat__val { font-size: 11px; gap: 3px; line-height: 1.2; }
   .modal--refit .preview-stat__from { font-size: 9px; }
+  /* The belt's marks again, and here it is WIDTH rather than height: the
+     compact yard packs five tiles across a 291px column, so a material line
+     has ~42px to hold a mark, a notch count and a share on one unbreakable
+     row. Measured at 46px before this block, which spilled 4px out of the
+     narrowest phone's tile. Nothing here may wrap — a share on its own line
+     under someone else's mark is worse than no breakdown at all. */
+  .modal--refit .preview-mix { gap: 0 4px; }
+  .modal--refit .preview-mix__m { font-size: 8px; gap: 1px; }
+  .modal--refit .preview-mix__m .mat-icon { width: 10px; height: 10px; }
+  .modal--refit .preview-mix__m .preview-stat__from { font-size: 8px; }
+  .modal--refit .preview-mix__notch { font-size: 6px; }
+  .modal--refit .preview-mix__pct { gap: 2px; }
   .modal--refit .projection { gap: 2px; padding: 3px 5px; }
   /* Even shares here, against 1.15/0.85 where there is width. The shelf
      scrolls, so width it gives up costs a few wrapped words; the projection
@@ -6513,8 +7910,17 @@ button.panel { color: var(--text); }
      ("Install 3 · 90"). On a 360px-tall phone the sentence under it costs a
      whole row of projection tiles. */
   .refit__foot-note { display: none; }
-  .salvage-row { padding: 4px 10px; gap: var(--sp-2); }
+  /* 3px of block padding, not the 4px this row carried before, and the pixel
+     off each end is spent immediately below. The banner's heading used to sit
+     1px off its own sentence, which is the reason the two read as one block;
+     3px is the smallest gap that separates them. On a viewport this short the
+     row's own padding is the only place that pixel can come from, so the trade
+     is stated where both halves of it are visible: 2px of padding for 2px of
+     gap, and the Tier S banner — the only variant with two gaps — comes out
+     exactly where it came out before. */
+  .salvage-row { padding: 3px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
+  .salvage-row__body { gap: 2px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
 }
 
@@ -6557,28 +7963,10 @@ button.panel { color: var(--text); }
   letter-spacing: 0;
   min-width: 2ch; text-align: center;
 }
-/* THE ODOMETER. While the car is between floors the plate rolls the old
-   number out and the new one in, in the direction the car is travelling —
-   rather than blanking to a placeholder, which is what was resizing it. The
-   track is two cells of exactly 1em, the same height the number's own
-   `line-height: 1` box already was, so the roll costs the plate no height and
-   the digits never leave their slot.
-
-   `overflow: hidden` is applied only while rolling: at rest it would crop the
-   descender-free but slightly tall Skydeck star for no reason. */
-.tier-plate__n.is-rolling { overflow: hidden; height: 1em; }
-.tier-plate__roll { display: flex; flex-direction: column; }
-.tier-plate__roll > b {
-  display: block; height: 1em; line-height: 1; font-weight: inherit;
-}
-.tier-plate__n.is-rolling .tier-plate__roll {
-  transform: translateY(var(--roll-from));
-  transition: transform var(--roll-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1);
-}
-.tier-plate__n.is-rolling.is-rolled .tier-plate__roll { transform: translateY(var(--roll-to)); }
-@media (prefers-reduced-motion: reduce) {
-  .tier-plate__n.is-rolling .tier-plate__roll { transition: none; }
-}
+/* The plate's number is one of the things the odometer rolls — see the shared
+   mechanism below .base-bay, which the tier plate and the destination panel's
+   four readouts both use. The plate takes the default `--roll-h` of 1em,
+   because its `line-height: 1` box already is exactly that. */
 /* The Skydeck's plate wears the tower's own warn tint rather than the
    ladder's cyan — it is the one floor that is not a Mark, and the plate is the
    only place that fact travels to outside the shaft. Background only: the
@@ -6775,10 +8163,15 @@ button.panel { color: var(--text); }
    cannot happen either: two lines is the ceiling, the third is still an
    ellipsis. Same device the guide's drill brief uses for the same reason.
 
-   Keyed on min-height for the reason the demo panel's step is: above the
-   authored box the chrome is laid out in viewport/--chrome-zoom, and zoom is
-   never below 1, so a viewport at least 700px tall has a box at least 700px
-   tall. */
+   Keyed on min-height, and this is now the last rule on this screen that is:
+   the demo panel's matching step is gone, solved from the row's own height
+   instead (see --brand-cap). The premise both were written on still holds and is
+   what makes the query safe — above the authored box the chrome is laid out in
+   viewport/--chrome-zoom, and zoom is never below 1, so a viewport at least
+   700px tall has a box at least 700px tall. The difference is that a wrapped
+   subtitle is a THRESHOLD (there is either room for a second line or there is
+   not) where the panel's width was a continuum, and a threshold is the one
+   thing a step is the right shape for. */
 @media (min-height: 700px) {
   .btn__sub {
     white-space: normal;
@@ -6858,9 +8251,37 @@ button.panel { color: var(--text); }
    upward into empty sky rather than clipping the card's buttons. */
 .coach {
   pointer-events: none;
-  flex: none;
   margin: calc(10 * var(--fpx)) calc(10 * var(--fpx)) 0;
+  /* ---------- THE CARD'S GIVE-WAY, and why it is unconditional ----------
+     A card that is handed less room than its content wants must lose the tail
+     of its BODY — the one block in it that can scroll — rather than push the
+     readout it is stacked on. That chain is three links: the box shrinks
+     (`flex: 0 1 auto`), it lays its card out as a flex ITEM (`display: flex`,
+     so `min-height: 0` can reach it at all), and the body is what finally
+     gives (`overflow-y: auto`, below).
+
+     All three used to be scoped to `.hud[data-coach]`, i.e. to the reveal
+     attribute main.ts stamps on the HUD alongside — but separately from —
+     mounting the card. That made the card's own geometry conditional on
+     something outside the card: with the attribute absent the box became
+     `flex: none` over a plain block child, which is the rigid shape that once
+     walked straight through the readout (249x53px of overlap on the budget
+     phone — the history is on the panel's cap rule further down). A tip that
+     renders one way beside a tutorial HUD and another way beside a full one
+     is a tip with two layouts, and only one of them was ever measured.
+
+     So the give-way belongs to the card. Every value here is the one the
+     `[data-coach]` rules already computed, so nothing about the tutorial's
+     rendering changes; what changes is that no other element's state can
+     take the chain away. The failure card (`.coach--fail`, a modal over a
+     dead bay) picks it up too, which is what its own short-viewport block
+     asks for out loud: reach the retry button without scrolling the card. */
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
+.coach__card { min-height: 0; }
 /* While the card is in the panel the readout stacks UNDER it from the top
    rather than being spread down the panel's full height — space-between with
    half the blocks hidden would strand the survivors at the two extremes. */
@@ -6925,29 +8346,71 @@ button.panel { color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .plant, .plant__body, .pl-pwr, .coach, .belt, .bay-banner { transition: none; }
 }
+/* ---------- The card's type is field px, like its box ----------
+   `--coach-px` is one WORLD pixel at the current field scale, floored at a CSS
+   pixel, and every length in the card is written as a multiple of it. --fpx is
+   exactly 1px on the 1280-wide field app.css is authored against, so each
+   `calc(N * var(--coach-px))` below is N px there and on every viewport under
+   it — which is every phone in the matrix — and N magnified above it.
+
+   Why it has to scale at all. The card's BOX is field px already and always
+   was: it is a child of `.plant`, whose width is `0.4708 * var(--field-w)`,
+   the mockup's fraction. Its TYPE was fixed px. The two therefore diverge
+   exactly as the window grows past the authored box — at 1920x1080 the panel
+   is 904px wide and the body copy was still 14px, so the economy card rendered
+   as one short line adrift in a 900px box with its step dots and its GOT IT
+   button 700px apart at the two ends of a `space-between` row. Nothing
+   overflowed, nothing overlapped, and every assertion in sim/uifit was green:
+   the card was simply drawn at phone scale inside desktop furniture, which is
+   the defect --chrome-zoom answers for the screen-anchored scaffolds and which
+   no rule reached inside the HUD.
+
+   The FLOOR is the safety argument. `max(1px, ...)` leaves growth as the only
+   direction this can move, so a phone renders exactly as it did before and the
+   short-viewport block below keeps its tightened values — that block is only
+   ever active where --fpx is under 1px anyway, since a viewport 480px tall can
+   fit a field no wider than 853px. */
+.coach { --coach-px: max(1px, var(--fpx)); }
 .coach__card {
   background: rgba(8, 8, 18, 0.92);
   border: var(--bw) solid var(--accent);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-hard), 0 0 18px rgba(0, 240, 255, 0.22);
-  padding: 12px 16px;
-  display: flex; flex-direction: column; gap: 6px;
+  padding: calc(12 * var(--coach-px)) calc(16 * var(--coach-px));
+  display: flex; flex-direction: column; gap: calc(6 * var(--coach-px));
   animation: pop 300ms var(--ease);
 }
 .coach__eyebrow {
   font-family: var(--font-pixel);
-  font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-size: calc(8 * var(--coach-px)); letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--accent);
 }
-.coach__title { font-family: var(--font-pixel); font-size: 13px; color: var(--text); }
-.coach__body { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.45; }
+.coach__title { font-family: var(--font-pixel); font-size: calc(13 * var(--coach-px)); color: var(--text); }
+.coach__body { margin: 0; font-size: calc(14 * var(--coach-px)); color: var(--text-dim); line-height: 1.45; }
 .coach__body b { color: var(--text); }
-.coach__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
-.coach__dots { display: flex; gap: 4px; }
-.coach__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); display: block; }
+.coach__foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: calc(10 * var(--coach-px)); margin-top: calc(2 * var(--coach-px));
+}
+.coach__dots { display: flex; gap: calc(4 * var(--coach-px)); }
+.coach__dots i {
+  width: calc(8 * var(--coach-px)); height: calc(8 * var(--coach-px));
+  border-radius: 50%; background: var(--surface-3); display: block;
+}
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
-.coach__btn { pointer-events: auto; }
+/* The one `.btn` that lives inside the HUD rather than on a screen scaffold —
+   so it is the one that misses `--chrome-zoom` (app.css's zoom rule covers
+   .screen/.modal-scrim/.bayclear/.rotate-guard, none of which the HUD is) and
+   has to take the field's scale directly, on the same floored idiom as the
+   type above it. .btn's authored 11px/14px/26px, magnified with the card so a
+   904px-wide card is not carrying a phone-sized button. The 44px tap floor
+   .btn sets is a MINIMUM, so scaling up never crosses it. */
+.coach__btn {
+  pointer-events: auto;
+  font-size: calc(11 * var(--coach-px));
+  padding: calc(14 * var(--coach-px)) calc(26 * var(--coach-px));
+}
 /* The pad-route chip on the coach's button (screens.ts's padKey): the same
    keycap the hint strip speaks in, sized down to ride inside a button label
    without growing its line. */
@@ -6976,6 +8439,14 @@ button.panel { color: var(--text); }
   margin: auto;
   width: min(430px, calc(100% - 2 * var(--sp-3)));
   max-height: 100%;
+  /* ...and a fourth: the card's field-scale multiplier is reset to a flat CSS
+     pixel here. The teaching steps take --fpx because they sit INSIDE the HUD,
+     which no zoom rule reaches; this card sits in a `.modal-scrim`, which
+     app.css already magnifies by --chrome-zoom. Leaving --coach-px alone would
+     multiply the two — 14px of body copy through --fpx 1.5 and then zoom 1.5
+     is 31.5px on a 1920x1080 window — so the scrim's magnification is the one
+     that applies, exactly as it does for every other modal in the app. */
+  --coach-px: 1px;
 }
 .coach--fail .coach__card { gap: 10px; padding: 16px 18px; }
 .coach--fail .coach__title { font-size: 15px; color: var(--danger); }
@@ -7042,32 +8513,27 @@ button.panel { color: var(--text); }
    panel eating the cannon — min-height:0 is what lets a flex child shrink. */
 .hud[data-coach] .plant { max-height: calc(0.52 * var(--field-h)); }
 /* The card is the child that gives way at the cap, because its body is the one
-   block in the panel that can scroll. `flex: none` (the base .coach rule) pins
-   flex-shrink at 0, which quietly defeated the min-height chain below: at the
-   cap the panel could not shrink the card, so the overflow went to the READOUT
-   instead — Launches and Reload spilled below the panel's bottom edge, off the
-   bottom of a 360px viewport, on exactly the step that had just revealed them
-   (caught by the coach-final fixture on five of twelve devices). */
-.hud[data-coach] .coach {
-  flex: 0 1 auto;
-  /* ...and a flex COLUMN, which is the link that chain was still missing.
-     `.coach` did shrink — 101px against the 165px it wanted at 640x360 — but
-     the scrollable body belongs to the CARD inside it, and a block child of a
-     block box takes its own content height and spills out of a parent that
-     shrank underneath it. So the cap stopped the box while the card walked
-     straight through the readout below: 249x53px of overlap on the budget
-     phone, 314x15 on a Pixel 5, 267x39 on an iPhone 13 mini — 7 of the 13
-     devices — with Launches and Reload sitting UNDER the card's dots and its
-     GOT IT button, on the step that had just revealed them. That is what the
-     sibling placement was chosen to make impossible.
-     A flex container makes `.coach__card` a flex ITEM, which is the only thing
-     that lets the `min-height: 0` below reach it and hand the give-way to
-     `.coach__body` the way the cap above always assumed it did. */
-  display: flex;
-  flex-direction: column;
-}
-.hud[data-coach] .coach,
-.hud[data-coach] .coach__card { min-height: 0; }
+   block in the panel that can scroll — see the give-way chain on the base
+   `.coach` rule, which is where those three links now live and why they are no
+   longer written against `[data-coach]`. The history the chain answers belongs
+   here, with the cap that provokes it:
+
+   `flex: none` used to pin the card's flex-shrink at 0, so at the cap the panel
+   could not shrink it and the overflow went to the READOUT instead — Launches
+   and Reload spilled below the panel's bottom edge, off the bottom of a 360px
+   viewport, on exactly the step that had just revealed them (caught by the
+   coach-final fixture on five of twelve devices). Releasing the shrink alone
+   was not enough either: `.coach` did shrink — 101px against the 165px it
+   wanted at 640x360 — but the scrollable body belongs to the CARD inside it,
+   and a block child of a block box takes its own content height and spills out
+   of a parent that shrank underneath it. So the cap stopped the box while the
+   card walked straight through the readout below: 249x53px of overlap on the
+   budget phone, 314x15 on a Pixel 5, 267x39 on an iPhone 13 mini — 7 of the 13
+   devices — with Launches and Reload sitting UNDER the card's dots and its GOT
+   IT button. That is what the sibling placement was chosen to make impossible,
+   and it is why the card is a flex COLUMN: it makes `.coach__card` a flex ITEM,
+   which is the only thing that lets `min-height: 0` reach it and hand the
+   give-way to `.coach__body`. */
 /* ---------- The card's height budget, while it has the panel ----------
    Two gutters sized for the panel's OTHER job, cut back for the job it is
    doing here. `.plant__body`'s vertical padding is set for the full readout
@@ -7089,7 +8555,13 @@ button.panel { color: var(--text); }
    so the full readout keeps its own spacing. */
 .hud[data-coach] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
 .hud[data-coach] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
-.hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The valve itself — unconditional, for the reason the base `.coach` rule
+   gives: it is the last link of the card's own give-way, not a property of the
+   HUD state the card happens to be sitting beside. Needing it is still the
+   defect (`.coach__body` is deliberately NOT on sim/uifit's ALLOWED_SCROLLERS
+   list, so a card whose copy outgrows its box fails CI); this is the backstop
+   that keeps a card readable instead of shoving the readout while it does. */
+.coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---------- Rotate-step spotlight (tutorial only) ----------
    While the rotate card is up (data-coach="1"), the two ⟲/⟳ rail buttons
@@ -7204,6 +8676,83 @@ button.panel { color: var(--text); }
 }
 .end__why p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
 
+/* ---------- The seal-break notice (screens.ts's sealBreakModal) ----------
+   Two short paragraphs and a two-button row, once ever. Narrower than the
+   default .modal because it is prose and prose has a measure: 460px at this
+   size is ~62 characters a line, which is inside the band a paragraph is
+   comfortable in — and this is the one panel in the game a player is expected
+   to read every word of. */
+.seal-note { width: min(460px, 92vw); text-align: left; }
+.seal-note__body { margin: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-dim); }
+.seal-note .row { justify-content: flex-end; }
+@media (max-height: 480px) {
+  .seal-note__body { font-size: 12px; line-height: 1.35; }
+}
+
+/* ---------- The bay retry's price ----------
+   One line above the action row, saying what the seal glyph on Retry Bay
+   cannot: the seal breaks, the tier does not (screens.ts's endModal).
+   Deliberately NOT a boxed callout like .end__why above — that box is the
+   loss's own diagnosis and there must be exactly one of those on the card. */
+.end__seal {
+  /* A full-width flex item at the head of the action row, so it reads above
+     the buttons and pushes them onto their own line — see the note at its call
+     site for why it is inside the row rather than a sibling of it. */
+  flex: 1 0 100%; margin: 0; font-size: 12px; line-height: 1.35;
+}
+@media (max-height: 480px) {
+  .end .end__seal { font-size: 10.5px; line-height: 1.3; }
+}
+/* THE SEAL, ON A BUTTON — the tower's octagonal stamp (.tower__seal) at button
+   scale, in the two states the run can be in. The glyph means here exactly what
+   it means on the tower, which is the whole reason it is the same shape: a
+   stamp is a seal you hold, a struck stamp is one that is gone.
+
+   In flow rather than absolute, unlike the tower's: a button lays its own
+   contents out and has the width, which is the whole difference between here
+   and a 72px floor plate.
+
+   INTACT is the DANGER wash rather than currentColor, because on this button
+   an intact seal is not a possession being displayed — it is a thing about to
+   be spent by the control it is sitting on. The tower shows the same stamp in
+   the floor's own colour for the opposite reason: there it is a record, and
+   nothing on that screen can take it. */
+.btn__seal {
+  width: 11px; height: 11px; flex: none; margin-right: 2px;
+  background: var(--danger);
+  opacity: 0.85;
+  clip-path: polygon(
+    30% 0%, 70% 0%, 100% 30%, 100% 70%,
+    70% 100%, 30% 100%, 0% 70%, 0% 30%
+  );
+}
+/* HELD: the same solid stamp, with the alarm taken off it. This Mark's stamp is
+   already on the tower (run.ts's sealStateFor "held"), so nothing this screen
+   can do will take it — SOLID because the seal is not gone, MUTED because
+   nothing is at risk. It is the two axes of this glyph pulled apart: the shape
+   says whether you hold a stamp, the wash says whether it is in danger.
+
+   currentColor rather than --danger, which is the only declaration that
+   changes; the box and the clip are the base rule's, so nothing here moves a
+   pixel of layout. */
+.btn__seal--held { background: currentColor; opacity: 0.4; }
+/* BROKEN: struck through and muted. Muted rather than danger-tinted because
+   nothing is at risk any more — this is a readout of a price already paid, and
+   painting it in the alarm colour would keep asking for attention the state no
+   longer deserves.
+
+   The bar is a linear-gradient over the fill rather than a pseudo-element,
+   because the clip has to cut BOTH — an ::after over a clipped box paints
+   outside the octagon and reads as a tick rather than a strike. */
+.btn__seal--broken {
+  background:
+    linear-gradient(45deg,
+      transparent calc(50% - 1px), var(--bg-deep) calc(50% - 1px),
+      var(--bg-deep) calc(50% + 1px), transparent calc(50% + 1px)),
+    currentColor;
+  opacity: 0.4;
+}
+
 /* Short (landscape-phone) viewports. This block shipped without the
    short-viewport variant that every other region of the end modal carries,
    and it is the largest thing in .end__main: at 792x360 it measured 97.6px,
@@ -7213,7 +8762,45 @@ button.panel { color: var(--text); }
    side. The two lines still both appear in full; only the box around them
    gives up its slack, which is enough (58px of overflow against ~44px
    reclaimed here plus the tighter leading). */
-@media (max-height: 480px) {
+/* SHORT **OR NARROW**, and the second half is the same wrong-axis correction
+   the `.end` grid above already had to make once. Every rule in this block is
+   a height budget for the outcome column, and the thing that actually spends
+   that column's height is its WIDTH: the salvage banner "nearly doubles in
+   height as it narrows" (the grid's own note), because the sentence beside a
+   fixed 134px button rewraps. An 800x600 desktop window is 120px too tall for
+   `max-height: 480px` and still lays the banner out in a 384px column — the
+   narrowest this card ever gets on a row that gets none of these savings, and
+   it measured 102px over its panel with the Tier S banner in it.
+   999px, because that is where the panel stops growing: `.end` is
+   `min(920px, 94vw)`, so at 979px and up the outcome column is a flat ~471px
+   and this card demonstrably fits (1280x720, 1024x768, 1000x760 all measure 0
+   over). It is also the threshold `.salvage-row`'s full typography step
+   already uses, so the card has ONE width at which it stops being tight rather
+   than two.
+   AND THE WIDTH ARM CARRIES `min-aspect-ratio: 1/1`, which is not belt and
+   braces — it is the whole premise of the arm. Narrow costs the outcome column
+   height only while that column is HALF the panel, and the card is two columns
+   under exactly this query (see `.end`'s grid above; the condition is copied
+   from it verbatim so the two cannot drift). Below 1/1 the grid has already
+   collapsed to one 560px column with the full window's height under it, which
+   is a different card with a different budget — and this arm was never
+   measured against it. Ungated it reached in and changed it: a 900x1000 window
+   is single-column with 829px of panel holding 795px of card, and the arm was
+   hiding the payout footnote that the note below promises back on a taller
+   viewport, while its 1000x1000 neighbour showed that footnote in a panel of
+   551px. Widening a window by 100px must not restore a line that twice the
+   height could not. (Found by review on the PR that added the arm.)
+   With the gate the tall single-column shape measures exactly as it did before
+   this whole change — 0 over at 950x1100, 11px at 900x1000, 94px at 800x900,
+   footnote drawn in all three, identical to staging. That last number is a
+   real single-column overflow and it is NOT this arm's to fix: it predates
+   this work, `.end__main` sits inside its track there (mainOver 0, so it is
+   not the bug this file's `.end__main` note is about), and buying it back by
+   dropping the run's payout line on a window with 861px of panel is not a
+   trade anyone made deliberately. Left as it was found, visible.
+   The height arm stays unqualified: a genuinely short window is short whatever
+   shape it is. */
+@media (max-height: 480px), (max-width: 999px) and (min-aspect-ratio: 1/1) {
   /* The box becomes a rule. A tinted panel costs 12px of padding and 2px of
      border to group two sentences that a left accent groups just as well. */
   .end__why {
@@ -7244,6 +8831,21 @@ button.panel { color: var(--text); }
      the award — so on a narrow landscape phone the footnote goes and Play
      Again stays on screen. It returns in full on any taller viewport. */
   .end .salvage-row__foot { display: none; }
+  /* THE EXITS STAY ON ONE LINE, and they buy that with padding rather than
+     with a smaller target. A wrapped action row bills the card a whole extra
+     44px line, and it bills it out of the same column the banner is trying to
+     fit in — which is how the Tier S banner came to be drawn underneath it.
+     The arithmetic, measured on the two rows that were still wrapping after
+     the row moved to the panel's full width: the Tier S card's four exits want
+     168+106+236+85 = 595px plus three 12px gaps = 631px, and the 640x360
+     budget Android hands the row 576px. Ten a side instead of twenty takes the
+     buttons to 515px and the eight-pixel gap takes the row to 539px — 37px of
+     margin — and the lost-run card, whose Retry Bay and Contracts exits are
+     the widest set the screen ever draws, lands at 560px with 16px to spare.
+     Nothing here touches the 44px floor: the shortest button on the row is
+     MENU, and at 10px a side it is still 65px wide and its full height. */
+  .end .end__actions { column-gap: var(--sp-2); }
+  .end .end__actions .btn { padding-left: 10px; padding-right: 10px; }
   /* BACKSTOP, inert unless the panel actually overflows. Every rule above is a
      height budget, and a budget can be blown by something none of them
      anticipated — a longer bay name, a four-digit bankroll, a translation, or
@@ -7501,7 +9103,7 @@ button.panel { color: var(--text); }
   font-size: var(--fs-h3); line-height: 1.1; color: var(--accent);
 }
 .sbx-brief__sub {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted);
 }
 /* The Final Inspection clause in force, printed in full. The facts grid above
    already HAS the clause in it — levelForRun applied it before the briefing was

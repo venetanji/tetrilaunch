@@ -24,34 +24,74 @@ import {
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
-  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
+  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES, SCRAP_PER_BAY,
+  VOLATILE_LOSS_SHARE, LAUNCH_BUDGET_SHOTS, launchCostFor, targetScoreFor,
+  SKYDECK_RUNG, SKYDECK_SCRAP_PER_BAY, SKYDECK_SCRAP_PER_LINE,
+  skydeckLaunchCost, skydeckStartingFunds,
+  skydeckTargetScoreFor,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
-  type LevelConfig, type PileTier,
+  precisionPremium, PRECISION_PREMIUM_FROM_RUNG, PRECISION_PREMIUM_PER_RUNG,
+  SKYDECK_ENDGAME_LINES_PER_BAY, skydeckScrapAtFirstStop, SKYDECK_SCRAP_SHARE,
+  type LevelConfig, type MaterialMix, type PileTier,
 } from "../src/game/level";
 import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
+import {
+  addGradeTally, awardedGrade, CONGESTION_GRADE_CAP, GRADE_PAY, gradedLinePay,
+  gradeForRow, GRADES, gradeTallyTotal,
+  EXCELLENT_WINDOW_MS, EXCELLENT_WINDOW_STEPS, STEP_MS,
+  LUCKY_SWEEPS, newGradeTally, timedShare, type ClearClock, type ClearContext,
+  type ClearGrade, type LandingStamp, type RowParticipation,
+} from "../src/game/grades";
 import { BOTS } from "./bots";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, MIX_TOTAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
-  type HazardId, type Ratchets,
+  type HazardDef, type HazardId, type Ratchets,
 } from "../src/game/hazards";
+// The winnability harness (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts,
+// sim/builds.ts) — its section is at the bottom of this file.
+import {
+  comboKey, dodgePolicy, enumerateSpace, legalHands, randomSpec, rungFor, spreadPolicy,
+} from "./draft-space";
+import { greedyRefit, runDeepRun } from "./deeprun";
+import { runBay, type BayOutcome } from "./runner";
+import { ADAPTIVE_BOTS, aimBot, aimCandidates } from "./bots";
+import {
+  cushionStrategy, incineratorAware, lanceStrategy, linerTriggerSpeed,
+  naiveStrategy, slotCenterX, slotIsLined, slotOf, STRATEGIES, strategyHands, strategyPilot,
+  strikeStrategy, pressPhaseAfter, shouldHoldForPress,
+  TIMED_FLIGHT_STEPS, TIMED_PRESS_MARGIN_STEPS,
+} from "./aim-strategies";
+import { loadoutFor, loadoutWithoutTrack, PRIORITY_ORDERS } from "./builds";
+import {
+  BOND_MIN_CUBES, bondHands, cushionKit, thawHands, thawKit,
+  dumpHands,
+} from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, dragLenForRatio, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
+  INCINERATOR_Y, inIncinerator,
 } from "../src/game/chute";
-import { Compactor } from "../src/game/compactor";
-import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
+import { render, screenToWorld } from "../src/game/render";
+import { Compactor, rigidPressDrag, RIGID_PRESS_DRAG_CAP } from "../src/game/compactor";
+import { createPhysics, SKY, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
-  markLostPieces, slagBountyFor,
+  volatileLossFor, settleBlast, chargeAfterRelief, reliefRealised, blastRelief,
+  markLostPieces, slagBountyFor, nextColdCryo,
+  cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
+  settleZoneCubes, RIGID_SETTLE_ASSIST,
+  stampLandings, landingOf, newestLanding, headlineGrade, headlineRow,
+  rowParticipation, IMPACT_ASSIST_X_TOL, IMPACT_ASSIST_Y_MAX, IMPACT_ASSIST_Y_MIN,
+  type GradedRow,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -60,6 +100,8 @@ import {
   clearTrack, orderCost, orderRungs, orderSize, orderedTier, orderedTiers, stageTier,
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
+  THAW_CHARGES_PER_TIER, CUSHION_TIERS, cushionThreshold, type UpgradeId,
+  INCINERATOR_TIERS, incineratorRelief,
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
@@ -68,12 +110,18 @@ import {
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
+  pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
+  skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
+  SLOT_BASE, SLOT_CAP, SLOT_PRICES, buySlot, isMounted, mountedIds, slotPrice, slotsFor,
+  stowedIds, toggleMount,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
+  tracksLadder, retryBreaksSeal, sealStateFor, quitLosesProgress, bayRetryable, retryIsWholeRun,
+  thawChargesFor, type SealState,
+  CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
 // in this module records — which is exactly what makes runMode safe to import:
@@ -94,6 +142,7 @@ import {
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
+  SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
   type ContractVariant,
 } from "../src/game/contracts";
 import {
@@ -110,9 +159,9 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller, stickRate } from "../src/game/gamepad";
-import { loadSettings } from "../src/lib/store";
-import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
+import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
+import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
+import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
   computeLayout,
@@ -124,17 +173,20 @@ import {
   railSlotsFor,
   setRailSlots,
   setSafeAreaInsets,
+  skyTop,
   UI_SCALE_MIN,
 } from "../src/game/layout";
 import {
-  BAY_GLYPH_MATERIALS, glyphInk, MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
+  BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
+  glyphInk, GRADE_CALLOUT, GRADE_COLOR,
+  MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
   PIECE_COLORS, PIECE_TYPES, type PieceSize,
 } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
-  menuScreen, salvageHTML,
+  menuScreen, menuPlaySub, salvageHTML,
   collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
 } from "../src/ui/screens";
 import {
@@ -143,7 +195,9 @@ import {
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
-  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, type NavRect,
+  armActivate, armRelease, DISARMED,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext,
+  type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import * as S from "../src/ui/screens";
 import {
@@ -151,8 +205,12 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
-import { runNotchTallyHTML } from "../src/ui/components";
-import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
+import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
+import {
+  BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForRun, boardDayForView,
+  boardForRun, boardForView, DAY_NONE,
+  fetchLeaderboard, isLadderBoard, submitScore, type BoardView, type ScoreEntry,
+} from "../src/lib/api";
 
 let failures = 0;
 
@@ -314,7 +372,7 @@ section("Ship upgrades (upgrades.ts)");
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
-  check("a full rig now costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+  check("a full rig now costs 1100", FULL_BUILD_COST === 1100, String(FULL_BUILD_COST));
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +440,26 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     FULL_BUILD_COST === tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never),
     String(FULL_BUILD_COST),
   );
-  check("a full rig costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+  // 770 until the Thaw Lance made it eight tracks, 880 until the Impact
+  // Cushion made it nine, 990 until the Incinerator made it ten. The literal is
+  // kept beside the derivation above rather than deleted as redundant: the
+  // derived check proves FULL_BUILD_COST agrees with TIER_COSTS, and only a
+  // typed-out number catches a roster or a price moving by accident. Every one
+  // of those moves was on purpose.
+  check("a full rig costs 1100", FULL_BUILD_COST === 1100, String(FULL_BUILD_COST));
+  // The Workshop's own ceiling — every track at UPRATE_MAX_TIER — lands exactly
+  // on budgetForMark(5), which is what makes the build budget a real gate for
+  // Marks 1-5 (meta.ts's installAvailable). It is not a coincidence and it does
+  // not need re-deriving per roster size: the ceiling is TRACKS x (20+35) and
+  // the budget is TRACKS x 110 x M/10, so they meet at M = 5 for ANY number of
+  // tracks. Pinned as the RELATIONSHIP, so an eighth track (this one), a ninth,
+  // or a re-priced ladder is checked rather than a number that happens to hold.
+  check(
+    "the Workshop ceiling is exactly the Mark-5 budget, at any roster size",
+    tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, UPRATE_MAX_TIER])) as never)
+      === budgetForMark(5),
+    String(tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, UPRATE_MAX_TIER])) as never)),
+  );
 
   // Monotone, and the ladder spans "one system" to "everything".
   let monotone = true;
@@ -403,7 +480,19 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // one track as long as it fits.
   const oneTrackMaxed = { ...newTiers(), hydraulics: MAX_TIER };
   check("a single maxed track is legal once affordable", loadoutLegal(oneTrackMaxed, MARK_COUNT));
-  check("...and illegal at Mark 1", !loadoutLegal(oneTrackMaxed, 1));
+  // ONE FULL TRACK IS EXACTLY MARK 1'S MONEY, and that is budgetForMark's own
+  // definition rather than a coincidence to be pinned around: "one system's
+  // money at Mark 1, a fully-kitted rig at Mark 10". The budget is
+  // FULL_BUILD_COST x M/10 and FULL_BUILD_COST is TRACKS x 110, so Mark 1 buys
+  // TRACKS/10 of a track — one exactly at a ten-track roster, and 0.9 of one at
+  // nine, i.e. the doc was true of the intent and false of the arithmetic until
+  // the tenth track landed. This check used to read "...and illegal at Mark 1"
+  // on that off-by-a-tenth. Pinned as the RELATIONSHIP, so an eleventh track
+  // moves it correctly instead of failing.
+  check("...and it is exactly what Mark 1 can afford, no more",
+    loadoutLegal(oneTrackMaxed, 1) === (tiersCost(oneTrackMaxed) <= budgetForMark(1))
+      && !loadoutLegal({ ...oneTrackMaxed, reactor: 1 }, 1),
+    `${budgetForMark(1)} vs ${tiersCost(oneTrackMaxed)}`);
   check("an empty loadout is always legal", loadoutLegal(newTiers(), 1));
   check(
     "a full rig is illegal below the top Mark",
@@ -421,10 +510,17 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   check("buyLoadoutTier raises the tier", one!.bay === 1);
   check("buyLoadoutTier does not mutate the input", start.bay === 0);
   check("buyLoadoutTier refuses a maxed track", buyLoadoutTier({ ...newTiers(), bay: MAX_TIER }, "bay", MARK_COUNT) === null);
-  // Mark 1's budget (66) buys 20+35 = 55 but not the 55-point third tier.
+  // Mark 1's budget is one whole track (see the note above), so it buys all
+  // three rungs of ONE and cannot open a second — which is the shape "one
+  // system's money" is supposed to have. Both halves are checked, because only
+  // the second one is a cap.
   const twoTiers = buyLoadoutTier(buyLoadoutTier(newTiers(), "bay", 1)!, "bay", 1);
   check("Mark 1 affords two tiers of a track", twoTiers !== null && twoTiers.bay === 2);
-  check("Mark 1 cannot afford the third", buyLoadoutTier(twoTiers!, "bay", 1) === null);
+  const threeTiers = buyLoadoutTier(twoTiers!, "bay", 1);
+  check("Mark 1 affords the third, which is one whole system",
+    threeTiers !== null && threeTiers.bay === MAX_TIER);
+  check("Mark 1 cannot open a SECOND system",
+    buyLoadoutTier(threeTiers!, "reactor", 1) === null);
 
   // safeLoadout is the gate that stops a hand-edited save flying an illegal rig.
   const cheat = { ...newMeta(), mark: 0, loadout: { ...newTiers(), reactor: MAX_TIER, bay: MAX_TIER } };
@@ -450,37 +546,100 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // formula at all.
   const t1 = tierDemands(1);
   const top = tierDemands(MARK_COUNT);
-  check("Tier 1 opens at $600, 180s, $20 a shot",
-    t1.targetScore === 600 && t1.timeLimitSec === 180 && t1.launchCost === 20,
+  check("Tier 1 opens at $1080, 180s, $20 a shot",
+    t1.targetScore === 1080 && t1.timeLimitSec === 180 && t1.launchCost === 20,
     `$${t1.targetScore}/${t1.timeLimitSec}s/$${t1.launchCost}`);
-  check("the top tier opens at $780, 144s, $30 a shot",
-    top.targetScore === 780 && top.timeLimitSec === 144 && top.launchCost === 30,
+  check("the top tier opens at $1544, 144s, $30 a shot",
+    top.targetScore === 1544 && top.timeLimitSec === 144 && top.launchCost === 30,
     `$${top.targetScore}/${top.timeLimitSec}s/$${top.launchCost}`);
   // Where a run ENDS is the tier's opening plus the ladder's own per-bay climb
   // (TARGET_PER_BAY, steepened a little by the tier) — the two curves compose,
-  // and this is the number that says by how much.
-  check("the last bay of a run climbs from $1500 at Tier 1 to $1842 at the top",
-    makeBaseLevel(9, 1).targetScore === 1500 && makeBaseLevel(9, MARK_COUNT).targetScore === 1842,
+  // and this is the number that says by how much. $3348 at the top becomes
+  // $3683 with the PRECISION PREMIUM (level.ts): Tier 10 sits two rungs above
+  // where the premium starts, so every one of its targets carries x1.10. Both
+  // figures are the RECALIBRATED curve (level.ts's 2026-08-28 note) — 1.8x the
+  // ladder that shipped before graded payouts made a bay end in a quarter of
+  // its own clock.
+  check("the last bay of a run climbs from $2700 at Tier 1 to $3683 at the top",
+    makeBaseLevel(9, 1).targetScore === 2700 && makeBaseLevel(9, MARK_COUNT).targetScore === 3683,
     `${makeBaseLevel(9, 1).targetScore}/${makeBaseLevel(9, MARK_COUNT).targetScore}`);
 
+  /* THE PRECISION PREMIUM'S BLAST RADIUS — pinned as an ABSENCE first.
+   *
+   * The brief the premium answers is explicit that only the top of the ladder
+   * moves ("the boredom is the maxed-out endgame, not the ladder's middle"),
+   * and level.ts's measured table is what chose rung 8 as the last quiet one.
+   * That claim is worth more than any number in this section, because it is the
+   * one a future retune breaks by accident: widening the premium by one rung
+   * silently re-prices a tier a hundred players are already standing on.
+   *
+   * So it is checked EXHAUSTIVELY — every tier at or below the threshold, every
+   * bay — against the ladder's own linear curve with no premium term in it,
+   * which is exactly the formula that shipped before this change. */
+  {
+    const linear = (rung: number, i: number): number =>
+      (TARGET_BASE + TARGET_PER_TIER * (rung - 1))
+      + (TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (rung - 1)) * i;
+    const moved: string[] = [];
+    for (let m = 1; m <= PRECISION_PREMIUM_FROM_RUNG; m++) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        if (targetScoreFor(i, m) !== linear(m, i)) moved.push(`T${m}b${i + 1}`);
+      }
+    }
+    check(
+      `every tier up to ${PRECISION_PREMIUM_FROM_RUNG} is byte-identical to the pre-premium ladder`,
+      moved.length === 0, moved.slice(0, 6).join(","),
+    );
+    check("...and the premium is exactly 1 there, so the quiet is structural rather than lucky",
+      precisionPremium(PRECISION_PREMIUM_FROM_RUNG) === 1 && precisionPremium(1) === 1);
+    // ...and the tiers ABOVE it do move, or the premium is a dead constant and
+    // the check above passes for the wrong reason.
+    check("the tiers above it DO move, by exactly one premium step each",
+      targetScoreFor(0, PRECISION_PREMIUM_FROM_RUNG + 1)
+        === Math.round(linear(PRECISION_PREMIUM_FROM_RUNG + 1, 0)
+          * (1 + PRECISION_PREMIUM_PER_RUNG))
+      && targetScoreFor(0, MARK_COUNT)
+        === Math.round(linear(MARK_COUNT, 0) * (1 + 2 * PRECISION_PREMIUM_PER_RUNG)),
+      `${targetScoreFor(0, MARK_COUNT)}`);
+    // The premium rides the per-bay ramp, which is the shape the design wants:
+    // a later bay is where the swept player's grades are worst (measured: 30%
+    // LUCKY at Tier 10 bay 10 against 0% at bay 1), so it gains the most.
+    check("...and it is a SHARE, so a late bay gains more of it than an early one",
+      targetScoreFor(9, MARK_COUNT) - linear(MARK_COUNT, 9)
+        > targetScoreFor(0, MARK_COUNT) - linear(MARK_COUNT, 0),
+      `bay10 +$${targetScoreFor(9, MARK_COUNT) - linear(MARK_COUNT, 9)}`
+      + ` vs bay1 +$${targetScoreFor(0, MARK_COUNT) - linear(MARK_COUNT, 0)}`);
+  }
+
   // Every rung has to move, or a tier is a no-op the player still paid for.
+  // The target's step is checked EXACTLY only across the ladder's quiet band,
+  // where the linear curve is the whole story; the premium band has its own
+  // check above, and folding it in here would put two claims on one boolean.
   let barRises = true;
   let stepRises = true;
   for (let m = 2; m <= MARK_COUNT; m++) {
     const lo = makeBaseLevel(0, m - 1);
     const hi = makeBaseLevel(0, m);
-    if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+    if (m <= PRECISION_PREMIUM_FROM_RUNG) {
+      if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+      const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
+      if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
+    } else {
+      // Above the threshold the target still has to RISE, and by strictly MORE
+      // than the quiet band's step — the premium is a raise, not a re-shuffle.
+      if (hi.targetScore - lo.targetScore <= TARGET_PER_TIER) barRises = false;
+      if (makeBaseLevel(1, m).targetScore <= hi.targetScore) stepRises = false;
+    }
     if (hi.timeLimitSec - lo.timeLimitSec !== -TIME_PER_TIER) barRises = false;
     if (hi.launchCost < lo.launchCost) barRises = false;
-    const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
-    if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
   }
   check("each tier raises the target and shortens the clock by exactly one step", barRises);
   check("each tier steepens the per-bay target climb", stepRises);
   check("the tier ladder's endpoints match its named constants",
     t1.targetScore === TARGET_BASE && t1.timeLimitSec === TIME_BASE
       && t1.launchCost === LAUNCH_COST_BASE && top.launchCost === LAUNCH_COST_TOP
-      && top.targetScore === TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1));
+      && top.targetScore === Math.round(
+        (TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1)) * precisionPremium(MARK_COUNT)));
 
   // A hand-edited save (or a sim caller) must never be able to walk the curve
   // off either end — level.ts's tierOf clamps, and nothing else does.
@@ -602,7 +761,10 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // ramp in makeBaseLevel) instead of off the mark. Only these may differ
   // between the bottom and the top of the ladder — the three the tier states
   // (target, clock, launch cost), the spill fine the tier now ramps
-  // (penaltyPerLostPieceFor), the float derived from the launch cost
+  // (penaltyPerLostPieceFor), the volatile charge DERIVED from that same fine
+  // (VOLATILE_LOSS_SHARE — it rides the spill fine precisely so it ramps with
+  // the tier instead of being right at one of them, so it moving here is the
+  // intent rather than a leak), the float derived from the launch cost
   // (LAUNCH_BUDGET_SHOTS), the bond ramp a Mark is allowed to move
   // (BOND_MARK_STEP) and the recorded mark itself.
   const lowBay = makeBaseLevel(5, 1) as unknown as Record<string, unknown>;
@@ -613,7 +775,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     .join(",");
   check("a tier moves exactly the demand knobs and nothing else",
     moved === "jointBreakStretch,launchCost,mark,penaltyPerLostPiece,startingFunds,"
-      + "targetScore,timeLimitSec",
+      + "targetScore,timeLimitSec,volatileLoss",
     moved || "(nothing moved)");
 
   // BONDS are the one ladder number a Mark still moves (level.ts's
@@ -849,6 +1011,56 @@ section("Installs — what salvage buys (meta.ts)");
       tierContracts: 3, salvage: 0,
       loadout: { ...newTiers(), reactor: 1, launcher: 1, magazine: 1 },
     })) === "run");
+
+  // THE LADDER ENDS, AND THE LOOP HAS TO KNOW IT.
+  //
+  // Below the top, "Contracts still owed at this tier" is always a live
+  // objective, because completing the tier moves the tier and deals a new
+  // board. At MARK_COUNT it is neither: markUnlocked saturates onto the tier
+  // just finished and advanceTier has already cleared the counters, so the
+  // rule read "0 of 3 Contracts owed at Tier 10" forever and pointed a player
+  // who had beaten the whole ladder back at the board every single session.
+  // (Diagnosed from a live save: mark 10, five tier-10 Contracts claimed, the
+  // counter sitting at 2 on its second lap.)
+  //
+  // What is actually left up there is the SEALS — a Mark beaten with no bay
+  // retried, and the Skydeck's key (meta.ts's skydeckOpen) — so that is what
+  // the rule names. It is the same rule shape as ever: one objective, stated
+  // once, so the menu and the Workshop cannot point at different doors.
+  const allSealed = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
+  check("a finished ladder with Marks unsealed points at sealing",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0 })) === "seal");
+  check("...and never back at a board that can no longer move anything",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0, tierContracts: 0 })) !== "contracts");
+  check("...and once every Mark is sealed, the run is what is left to fly",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0, sealedMarks: allSealed })) === "run");
+  // The control: one rung below the top the old rule is untouched, so the
+  // branch above is measuring saturation and not something else.
+  check("...while an unfinished ladder still earns before it flies",
+    nextStep(freshMeta({ mark: MARK_COUNT - 1, salvage: 0 })) === "contracts");
+  // AND THE FAUCET HAS A DOOR NOW. A player who owns the whole shelf still
+  // earns 60 a cycle up here, and until rack slots existed the rule had nothing
+  // to point that salvage at — every install is bought, so `cheapestInstall` is
+  // null and the branch fell straight through to the seal. The three cases are
+  // pinned together because the ORDER is the claim: a slot beats the seal, an
+  // install beats a slot, and salvage that covers neither still points at the
+  // objective rather than at a shop with nothing to sell.
+  const everything = Object.fromEntries(
+    UPGRADES.map((u) => [u.id, UPRATE_MAX_TIER]),
+  ) as UpgradeTiers;
+  check("a finished shelf with salvage for a slot points at the Workshop",
+    nextStep(freshMeta({
+      mark: MARK_COUNT, salvage: SLOT_PRICES[0], loadout: everything,
+    })) === "workshop");
+  check("...and one salvage short of a slot goes back to the objective",
+    nextStep(freshMeta({
+      mark: MARK_COUNT, salvage: SLOT_PRICES[0] - 1, loadout: everything,
+    })) === "seal");
+  check("...and a full rack stops pointing at the shop however much is banked",
+    nextStep(freshMeta({
+      mark: MARK_COUNT, salvage: 10_000, loadout: everything, slots: SLOT_CAP,
+    })) === "seal");
+
   // …and the menu renders exactly the one badge the rule picked (A3), the
   // tier plate in the Deep Run button (A1), and — on first launch only — the
   // Guided Tutorial in How to Play's slot, with its own START HERE marker
@@ -864,6 +1076,92 @@ section("Installs — what salvage buys (meta.ts)");
     menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
   check("once seen, How to Play returns and the tutorial entry goes",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
+
+  // THE SEAL STEP ON THE MENU. A next step nobody can read is not a next step:
+  // the badge has to land on the action that actually does the sealing (the
+  // run — sealing is flown, never bought), and the button has to say how many
+  // Marks are still owed, because the count lives nowhere else on this screen
+  // except as sockets a sighted player has to add up floor by floor.
+  const sealTower = (selected: number, sealed: number[]): S.TowerState =>
+    ({ unlocked: MARK_COUNT, selected, skydeck: false, sealed });
+  const sealMenu = (selected: number, sealed: number[]): string =>
+    menuScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
+      { step: "seal", install: null, firstLaunch: false }, sealTower(selected, sealed));
+  const playButton = (html: string): string =>
+    /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+  // The car parked on Mark 10, which still owes its seal.
+  const menuSeal = sealMenu(MARK_COUNT, [1, 2, 3]);
+  check("the seal step still badges exactly one action",
+    (menuSeal.match(/next-badge/g) ?? []).length === 1);
+  check("...and it is the run, because a seal is flown and not bought",
+    playButton(menuSeal).includes("next-badge"));
+  check("...and the button says how many Marks are left to seal",
+    menuSeal.includes(`${MARK_COUNT - 3} Marks left to seal`), "no seal count on the primary");
+
+  // A BADGE IS A CLAIM ABOUT THE BUTTON UNDER IT, and at the finished ladder
+  // that button flies ONE floor: the one the car is parked on (screens.ts —
+  // "the floor you park on is what the primary action does"). A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the parked
+  // floor becomes sealed — and the primary went on wearing NEXT STEP and
+  // promising Marks were left to seal over a run that could not seal
+  // anything, because that floor already holds its stamp. (Codex P2, #140.)
+  //
+  // The claim goes, not the parking: the tower is the chooser here, it
+  // already draws an empty socket on every floor that owes one, and the
+  // subtitle points at it. Redirecting the car instead would move a player
+  // off a floor they deliberately picked — which is the re-fly-for-the-board
+  // flow — and could not be expressed in the pick's own staleness rule
+  // anyway, since that is keyed to meta.mark and meta.mark never moves again
+  // up here.
+  const menuSealed = sealMenu(3, [3, 4]);
+  check("a parked floor that is already sealed wears no seal badge",
+    !playButton(menuSealed).includes("next-badge"),
+    "the primary claims a seal it cannot earn");
+  check("...and claims no seal the run cannot land",
+    !menuSealed.includes("left to seal"));
+  // NOT A REFUSAL. Re-flying a sealed Mark for the board is a real thing to
+  // want, and the button still does it — what changed is only what it says.
+  check("...but still flies the floor, for the board",
+    playButton(menuSealed).includes('data-action="play"'));
+  // …and it still answers the question the badge stopped answering: how many
+  // are owed, and where to pick one.
+  check("...while naming the count and pointing at the tower",
+    menuSealed.includes(`${MARK_COUNT - 2} Marks still owed`)
+      && /pick one on the tower/.test(menuSealed));
+
+  // ONE SUBTITLE RULE. main.ts patches this line by id while the elevator
+  // travels (it must not re-render the menu mid-ride — that tears down the
+  // attract demo), so the rule has to be a function both callers ask rather
+  // than a ternary each of them keeps a copy of. The pin is that the menu's
+  // markup and the in-flight rewrite produce the same string for the same
+  // state — the drift the seal step would otherwise have introduced.
+  check("the menu's subtitle and the ride's rewrite are one rule",
+    menuSeal.includes(menuPlaySub(MARK_COUNT, 0, { owed: MARK_COUNT - 3, sealed: false })));
+  check("...on the sealed floor as well as the unsealed one",
+    menuSealed.includes(menuPlaySub(3, 0, { owed: MARK_COUNT - 2, sealed: true })));
+  // AND THE BADGE IS ONE RULE TOO, for the same reason: the ride patches this
+  // button by id, so a badge that only the markup knew how to compute would
+  // stop being true the moment the player tapped a floor — which at the seal
+  // step is the gesture that CHANGES the answer.
+  check("the badge is the same rule on both sides of a ride",
+    S.menuPlayBadged("seal", 4, false) && !S.menuPlayBadged("seal", 4, true));
+  check("...Tier S is never the next step", !S.menuPlayBadged("run", S.SANDBOX_TIER, false));
+  check("...and every other step still badges the floor the car is on",
+    S.menuPlayBadged("run", 4, true) && !S.menuPlayBadged("contracts", 4, false));
+  check("...and a ladder floor with nothing owed still counts bays",
+    menuPlaySub(4, 0, null) === `Clear ${RUN_LEVELS} bays in one run`);
+  check("...and the roof still trades in clauses",
+    menuPlaySub(S.SKYDECK_TIER, 5, { owed: 3, sealed: false }).includes("5 standing clauses"));
+  // ...and no longer sells the one thing it stopped doing. "No refits" was the
+  // middle term of this line until the yard came back (run.ts's refitAfterBay);
+  // what replaced it is the term that actually separates the floor now, and the
+  // panel beside the button quotes it in dollars.
+  check("...and the roof's subtitle does not promise a shut yard",
+    !/no refits?/i.test(menuPlaySub(S.SKYDECK_TIER, 3, null)),
+    menuPlaySub(S.SKYDECK_TIER, 3, null));
+  check("...it names the step above the ladder instead",
+    menuPlaySub(S.SKYDECK_TIER, 3, null).includes(`step above Mark ${MARK_COUNT}`),
+    menuPlaySub(S.SKYDECK_TIER, 3, null));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
@@ -932,9 +1230,15 @@ section("Installs — what salvage buys (meta.ts)");
   // that tapped to nothing once run.ts stopped letting scrap install.
   // Mark 2 here so the full seven-card menu renders — Mark 1's focused stop is
   // pinned separately below.
+  //
+  // The copy says "Not aboard" rather than "Not installed" since system slots
+  // gave tier 0 a SECOND meaning: a stowed system is installed and paid for and
+  // simply not in the rack this run (meta.ts's safeLoadout masks it to 0, which
+  // is exactly what this card reads). The yard cannot tell the two apart from
+  // the tiers alone, so the sentence has to be true of both.
   const stockRefit = yard({ tiers: newTiers() });
-  check("an uninstalled track shows no refit button",
-    stockRefit.includes("Not installed") && !stockRefit.includes(`data-upgrade="reactor"`));
+  check("a track that is not aboard shows no refit button",
+    stockRefit.includes("Not aboard") && !stockRefit.includes(`data-upgrade="reactor"`));
   check("an installed track shows its next tier", oneUp.includes(`data-upgrade="reactor"`));
 
   // STAGING, not buying. Every button on this shelf queues a tier into an
@@ -954,6 +1258,104 @@ section("Installs — what salvage buys (meta.ts)");
     (staged.match(/refit-card__buy/g) ?? []).length === buyButtons(staged).length);
   check("a track with room left keeps offering the next rung",
     staged.includes(`data-action="stage-upgrade" data-upgrade="reactor"`));
+
+  // THE BUTTON CARRIES THE PRICE, NOT THE CHANGELOG.
+  //
+  // It used to carry both — a direction arrow, the rung's effect prose and the
+  // price — and the prose is unbounded copy on a bounded rail: the Demolition
+  // Rack's capstone reads "+2 charges, resupply, a wider blast and a better
+  // rate", which ellipsised at every width the app ships and still took the
+  // whole price track with it, collapsing the card's description column to one
+  // word per line on a landscape phone. The projection beside the shelf is
+  // where a rung's effect is already stated in the bay's own numbers, so the
+  // button states the one fact the panel cannot: what it costs.
+  //
+  // Asserted on a rig sitting at tier 2 on EVERY track, because that is the
+  // only state that reaches the capstone `step` copy the old button printed —
+  // no fixture and no default loadout ever did, which is why the harness never
+  // saw the overflow.
+  const capstoneTiers = Object.fromEntries(
+    UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers;
+  const buyControls = (html: string): string[] =>
+    html.match(/<button[^>]*refit-card__buy[\s\S]*?<\/button>/g) ?? [];
+  const labelOf = (btn: string): string =>
+    btn.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const capstone = yard({ tiers: capstoneTiers });
+  const stageLabels = buyControls(capstone)
+    .filter((b) => b.includes("stage-upgrade"))
+    .map(labelOf);
+  check("every capstone rung is on offer at tier 2", stageLabels.length === UPGRADES.length,
+    String(stageLabels.length));
+  check("a stage button says its tier and its price and nothing else",
+    stageLabels.every((l) => /^T\d\s*·\s*\d+$/.test(l)),
+    stageLabels.filter((l) => !/^T\d\s*·\s*\d+$/.test(l)).join(" | "));
+  // The undo is the same control in its other state, so it is exempt from the
+  // rule above and only from it: "Undo" is the verb that names the state, not a
+  // description of what the rung does. Its figure is a REFUND, which is why it
+  // keeps a word beside it — a bare "+90" on a shelf of prices reads as a cost.
+  // Ordered to MAX, which is the state that turns the control round: there is
+  // no rung left to stage, so the button becomes the way out.
+  const maxedOrder = yard({ tiers: { ...newTiers(), reactor: MAX_TIER - 1 }, order: { reactor: 1 } });
+  const undoLabel = labelOf(buyControls(maxedOrder).find((b) => b.includes("unstage")) ?? "");
+  check("the undo button names the state and the refund",
+    /^Undo(\s*×\d+)?\s*\+\s*\d+$/.test(undoLabel), undoLabel || "no undo button");
+  // The rung's effect still reaches the player — on the card's own before →
+  // after and in the ladder the card hangs in `title`. The button is the one
+  // place it no longer needs to be.
+  check("the ladder still reaches the card that sells it",
+    UPGRADES.every((u) => capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`)),
+    UPGRADES.filter((u) => !capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`))
+      .map((u) => u.id).join(","));
+
+  // …AND A PRICE IS NOT A NAME. "T3 · 55" is the same eight characters on
+  // every card at that tier and the currency glyph is `aria-hidden`, so a
+  // shelf of price-shaped buttons exposes one accessible name seven times over
+  // and a screen reader's control list cannot say which system it is about to
+  // stage. The visible label is right and stays; the name underneath it has to
+  // carry the card's own system.
+  //
+  // Asserted as a SET rather than per button, because the failure mode is
+  // collision rather than absence: a label that named the tier and the price
+  // in words would pass a "has an aria-label" check and still read as seven
+  // identical controls.
+  const ariaNames = (html: string, action: string): string[] =>
+    (html.match(new RegExp(`<button[^>]*data-action="${action}"[^>]*>`, "g")) ?? [])
+      .map((b) => (b.match(/aria-label="([^"]*)"/) ?? ["", ""])[1]);
+  const stageNames = ariaNames(capstone, "stage-upgrade");
+  check("every stage button carries its own system's name",
+    stageNames.length === UPGRADES.length
+      && UPGRADES.every((u) => stageNames.some((n) => n.includes(u.name))),
+    stageNames.join(" | "));
+  check("no two stage buttons answer to the same name",
+    new Set(stageNames).size === stageNames.length, stageNames.join(" | "));
+  // WCAG 2.5.3: the accessible name has to CONTAIN the visible label, or a
+  // voice-input user cannot say what they can see. The visible label is
+  // "T3 · 55" — quoted into the name verbatim rather than paraphrased as
+  // "tier 3, 55 scrap".
+  check("a stage button's name quotes the label the player can see",
+    stageNames.every((n) => /T\d\s*·\s*\d+/.test(n)), stageNames.join(" | "));
+  const undoNames = ariaNames(maxedOrder, "unstage-upgrade");
+  check("the undo button names the track it takes back",
+    undoNames.length === 1 && undoNames[0].includes(upgradeById("reactor")!.name)
+      && /Undo/.test(undoNames[0]),
+    undoNames.join(" | "));
+
+  // THE WORKSHOP'S SHELF HAS THE SAME IDIOM AND HAD THE SAME HOLE — its buy
+  // buttons have been a bare price since B6, which predates the yard's. One
+  // shop, one grammar, one fix.
+  const ariaShop = freshMeta({ salvage: 5_000, mark: MARK_COUNT });
+  const shopHTML = workshopScreen(ariaShop);
+  for (const action of ["buy-install", "buy-unlock"] as const) {
+    const names = ariaNames(shopHTML, action);
+    check(`every ${action} button carries its own name`,
+      names.length > 1 && names.every((n) => n.length > 0),
+      names.join(" | "));
+    check(`no two ${action} buttons answer to the same name`,
+      new Set(names).size === names.length, names.join(" | "));
+  }
+  check("a Workshop buy button quotes the price the player can see",
+    ariaNames(shopHTML, "buy-install").every((n) => /T\d\s*·\s*\d+/.test(n)),
+    ariaNames(shopHTML, "buy-install").join(" | "));
   check("a staged track shows what the order does to it",
     staged.includes(upgradeById("reactor")!.current(1)) &&
       staged.includes(upgradeById("reactor")!.current(2)));
@@ -969,6 +1371,69 @@ section("Installs — what salvage buys (meta.ts)");
   for (const id of ["refit-grid", "refit-order", "refit-preview", "refit-foot"]) {
     check(`the yard mounts #${id} for the in-place patch`, oneUp.includes(`id="${id}"`));
   }
+
+  // THE RECAP IS WHERE THE CHANGE IS NOW READ, so what it renders is pinned on
+  // the screen and not only on preview.ts's rows. A bay carrying two materials
+  // and an order that moves numbers: the panel has to name every material the
+  // belt knows, with the glyph the player learns it by, and say how many of its
+  // own numbers the order moved.
+  const mixRun = { ...newRun(11, [], 500, newTiers(), 6), levelIndex: 6, ratchets: { slag: 2, cryo: 1 } as Ratchets };
+  // The yard's own call, verbatim from main.ts's refitHTML: no bank, the run's
+  // notches as the tally.
+  const mixPreview = previewRows(
+    levelForRun(mixRun),
+    levelForRun(buyUpgrades({ ...mixRun, tiers: { ...newTiers(), reactor: 1 } }, { reactor: 1 }, MAX_TIER)
+      ?? mixRun),
+    {},
+    mixRun.ratchets,
+  );
+  const recap = yard({ preview: mixPreview, order: { reactor: 1 } });
+  check("the recap breaks the belt down into one line per material",
+    (recap.match(/class="preview-mix__m/g) ?? []).length === 2,
+    String((recap.match(/class="preview-mix__m/g) ?? []).length));
+  for (const m of ["Slag", "Cryo"]) {
+    check(`the recap draws ${m} with the glyph the belt teaches`,
+      recap.includes(`aria-label="${m}"`));
+  }
+  // Slag was notched twice on this run and cryo once, so both lines carry the
+  // count as well as the share — the plant panel's "×N" grammar on the panel
+  // that prices the bay. ×1 is written out rather than implied here, unlike in
+  // the tally: presence on this list means the material is ON THE BELT, which
+  // a Contract or a Final clause can arrange with no notches at all, so an
+  // absent count has to mean zero.
+  check("each material's line quotes the notches behind its share",
+    (recap.match(/preview-mix__notch">×2</g) ?? []).length === 1
+      && (recap.match(/preview-mix__notch">×1</g) ?? []).length === 1,
+    (recap.match(/preview-mix__notch">[^<]*/g) ?? ["none"]).join(","));
+  check("the material lines ride inside ONE unit, not a tile each",
+    (recap.match(/class="preview-mix"/g) ?? []).length === 1,
+    String((recap.match(/class="preview-mix"/g) ?? []).length));
+  check("the recap counts the numbers the order moved",
+    /class="projection__moved">\d+ moved</.test(recap),
+    (recap.match(/class="projection__moved">[^<]*/) ?? ["absent"])[0]);
+  check("an order that moves nothing gets no moved count",
+    !yard({ preview: previewRows(levelForRun(mixRun), levelForRun(mixRun), mixRun.ratchets) })
+      .includes("projection__moved"));
+  // …AND THE DRAFT DOES NEITHER, which is the split screens.ts's `explains`
+  // states: a ratchet card names its material and spells out its notch, so a
+  // breakdown and a count there restate what the player is already holding,
+  // and both cost height on a screen whose body fits with nothing to spare.
+  // The yard's cards say what a system is and its buttons say what a rung
+  // costs — nothing on it says what the belt is made of.
+  const mixDraft = S.draftScreen({
+    bayNum: 7, tier: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 6, 10, 2, mixRun.ratchets),
+    ratchets: mixRun.ratchets, selected: ["slag"], picksNeeded: 2,
+    preview: previewRows(
+      levelForRun(mixRun),
+      levelForRun({ ...mixRun, ratchets: { ...mixRun.ratchets, slag: 3 } }),
+      mixRun.ratchets,
+    ),
+    scrap: 340, baysToRefit: 1,
+  });
+  check("the draft's own projection leaves the explaining to its cards",
+    !mixDraft.includes("preview-mix") && !mixDraft.includes("projection__moved"),
+    mixDraft.includes("preview-mix") ? "breakdown" : "moved count");
   // The scrap readout counts what is LEFT to stage against, not what the run
   // owns: every button on the shelf prices itself against the queue in front
   // of it, and a total that ignored the order would disable nothing.
@@ -1006,6 +1471,252 @@ section("Installs — what salvage buys (meta.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("System slots — the rack (meta.ts, store.ts, components.ts)");
+// ---------------------------------------------------------------------------
+// Salvage now buys HOW MANY of the systems you own can be aboard at once. The
+// design's three load-bearing claims are all here as INVARIANTS rather than as
+// numbers, because a play pass will edit the numbers first:
+//
+//   1. a slot can never buy power the Mark has not already paid for
+//   2. a stowed system is tier 0 everywhere, so a refit stop cannot sell it
+//   3. nobody's existing rig shrinks on the first launch after this build
+{
+  const withLoadout = (tiers: Partial<UpgradeTiers>, extra: Partial<MetaState> = {}): MetaState =>
+    ({ ...newMeta(), mark: MARK_COUNT - 1, loadout: { ...newTiers(), ...tiers }, ...extra });
+  /** A rig carrying `n` systems at tier 1, in UPGRADES order. */
+  const owning = (n: number, extra: Partial<MetaState> = {}): MetaState =>
+    withLoadout(
+      Object.fromEntries(UPGRADES.slice(0, n).map((u) => [u.id, 1])) as Partial<UpgradeTiers>,
+      extra,
+    );
+
+  // --- the ladder ---------------------------------------------------------
+  // Pinned as RELATIONSHIPS, not as the six numbers: the prices are the first
+  // thing a play pass will move, and a pin that only restated them would fail
+  // for the wrong reason on every edit.
+  check("the base rack is narrower than the roster",
+    SLOT_BASE >= 1 && SLOT_BASE < UPGRADES.length, `${SLOT_BASE} of ${UPGRADES.length}`);
+  check("the cap never sells a slot with nothing to put in it",
+    SLOT_CAP <= UPGRADES.length, `${SLOT_CAP} vs ${UPGRADES.length}`);
+  check("there is exactly one price per slot above the base",
+    SLOT_PRICES.length === SLOT_CAP - SLOT_BASE,
+    `${SLOT_PRICES.length} prices for ${SLOT_CAP - SLOT_BASE} slots`);
+  // Each slot is worth less than the one before it (the measured saturation
+  // curve — design/balance/system-slots.md), so a flat ladder would be a better
+  // deal every rung and the last slots would be the obvious buy.
+  check("the ladder never gets cheaper",
+    SLOT_PRICES.every((p, i) => i === 0 || p >= SLOT_PRICES[i - 1]), SLOT_PRICES.join(","));
+  check("slotPrice indexes off the base, not off zero",
+    slotPrice(SLOT_BASE) === SLOT_PRICES[0] && slotPrice(SLOT_BASE + 1) === SLOT_PRICES[1]);
+  check("a full rack has nothing left to sell", slotPrice(SLOT_CAP) === null);
+  // The whole ladder against one climb of the tier ladder. NOT affordable
+  // inside it, deliberately — this is what the endgame faucet buys (meta.ts's
+  // SLOT_PRICES note), and the day it becomes affordable in one climb it has
+  // stopped being an endgame sink.
+  check("a full rack outlasts one climb of the ladder",
+    SLOT_PRICES.reduce((a, b) => a + b, 0) > TIER_SALVAGE_BASE * MARK_COUNT,
+    `${SLOT_PRICES.reduce((a, b) => a + b, 0)} vs ${TIER_SALVAGE_BASE * MARK_COUNT}`);
+
+  // --- buying one ---------------------------------------------------------
+  const poor = { ...newMeta(), salvage: (slotPrice(SLOT_BASE) ?? 0) - 1 };
+  check("a slot is refused when the salvage is short", buySlot(poor) === null);
+  const rich = { ...newMeta(), salvage: 10_000 };
+  const bought = buySlot(rich);
+  check("buying a slot widens the rack by one",
+    bought !== null && slotsFor(bought) === SLOT_BASE + 1);
+  check("...and charges exactly the ladder's price",
+    bought !== null && rich.salvage - bought.salvage === slotPrice(SLOT_BASE));
+  check("...and does not mutate the meta it was given", slotsFor(rich) === SLOT_BASE);
+  check("a full rack refuses to widen",
+    buySlot({ ...newMeta(), salvage: 10_000, slots: SLOT_CAP }) === null);
+  check("slotsFor clamps a hand-edited rack",
+    slotsFor({ ...newMeta(), slots: -4 }) === SLOT_BASE
+      && slotsFor({ ...newMeta(), slots: 99 }) === SLOT_CAP);
+
+  // --- what is aboard -----------------------------------------------------
+  const six = owning(6);
+  check("an empty shed still cannot fly more than the rack holds",
+    mountedIds(six).length === SLOT_BASE, `${mountedIds(six).length} of 6 owned`);
+  check("...and the ones that fly are the first in RACK order",
+    mountedIds(six).join() === UPGRADES.slice(0, SLOT_BASE).map((u) => u.id).join());
+  check("the overflow reads as stowed on every surface",
+    stowedIds(six).length === 6 - SLOT_BASE);
+  const stowFirst = toggleMount(six, UPGRADES[0].id);
+  check("stowing a mounted system takes it off the rack",
+    stowFirst !== null && !isMounted(stowFirst, UPGRADES[0].id));
+  check("...and the slot it frees goes to the next system in rack order",
+    stowFirst !== null && mountedIds(stowFirst).length === SLOT_BASE
+      && mountedIds(stowFirst).includes(UPGRADES[SLOT_BASE].id));
+  check("a full rack refuses a new mount rather than evicting one to make room",
+    toggleMount(stowFirst!, UPGRADES[0].id) === null);
+  check("an unowned system cannot be mounted",
+    toggleMount(owning(2), UPGRADES[9].id) === null);
+  const three = owning(3);
+  check("a rig narrower than its rack flies everything it owns",
+    mountedIds(three).length === 3 && stowedIds(three).length === 0);
+
+  // --- claim 1: a slot cannot outrun the Mark -----------------------------
+  // The subset argument stated as arithmetic, and checked across the WHOLE
+  // ladder rather than at one Mark: this is the claim that makes slots safe to
+  // sell for a grindable currency, and a single sample would not be the claim.
+  let neverOverBudget = true;
+  for (let m = 0; m < MARK_COUNT; m++) {
+    const wide = { ...owning(UPGRADES.length, { mark: m }), slots: SLOT_CAP };
+    const narrow = { ...wide, slots: SLOT_BASE };
+    if (tiersCost(safeLoadout(narrow)) > tiersCost(safeLoadout(wide))) neverOverBudget = false;
+    if (tiersCost(safeLoadout(wide)) > budgetForMark(markUnlocked(wide))) neverOverBudget = false;
+  }
+  check("a wider rack never flies a rig the Mark has not paid for", neverOverBudget);
+  check("a hand-edited over-budget save cannot duck under the cap by stowing itself",
+    tiersCost(safeLoadout({
+      ...withLoadout({ reactor: MAX_TIER, bay: MAX_TIER }, { mark: 0 }),
+      stowed: ["bay"],
+    })) === 0);
+
+  // --- claim 2: a stowed system is tier 0 everywhere ----------------------
+  // THE ONE THE REFIT STOP TURNS ON. Scrap rungs on a system that is not
+  // aboard must not be sellable — and nothing in run.ts was taught about slots.
+  // The mask makes a stowed track tier 0, which buyUpgrade already refuses.
+  const stowedMeta = { ...owning(5), stowed: [UPGRADES[1].id] };
+  const flown = safeLoadout(stowedMeta);
+  check("a stowed system is masked to tier 0 on the way into a run",
+    flown[UPGRADES[1].id] === 0 && stowedMeta.loadout[UPGRADES[1].id] === 1);
+  check("...and the slot it freed goes to the next system in rack order",
+    flown[UPGRADES[SLOT_BASE].id] === 1);
+  const stowedRun = newRun(1, [], 200, flown, MARK_COUNT);
+  check("a refit stop cannot sell scrap rungs on a system that is not aboard",
+    buyUpgrade(stowedRun, UPGRADES[1].id, TIER_COSTS[0], MAX_TIER) === null);
+  check("...while it can still raise one that is",
+    buyUpgrade(stowedRun, UPGRADES[0].id, TIER_COSTS[0], MAX_TIER) !== null);
+  check("safeLoadout still copies rather than aliasing", flown !== stowedMeta.loadout);
+
+  // --- buying past a full rack --------------------------------------------
+  // A slot is not an ownership gate: the sale goes through and the system lands
+  // in the shed, where the player can see it and swap it in. The alternative —
+  // mountedIds's slice quietly dropping the thing just bought — is the surprise
+  // this is here to prevent.
+  const fullRack = { ...owning(SLOT_BASE, { mark: MARK_COUNT - 1 }), salvage: 10_000 };
+  const fifth = buyInstall(fullRack, UPGRADES[SLOT_BASE].id);
+  check("a full rack does not refuse the sale",
+    fifth !== null && (fifth.loadout[UPGRADES[SLOT_BASE].id] ?? 0) === 1);
+  check("...and the new system waits in the shed rather than pushing one out",
+    fifth !== null && (fifth.stowed ?? []).includes(UPGRADES[SLOT_BASE].id)
+      && mountedIds(fifth).join() === mountedIds(fullRack).join());
+  const uprated = buyInstall(fullRack, UPGRADES[0].id);
+  check("an UPRATE of something already aboard is never stowed",
+    uprated !== null && !(uprated.stowed ?? []).includes(UPGRADES[0].id)
+      && (uprated.loadout[UPGRADES[0].id] ?? 0) === 2);
+
+  // --- claim 3: nobody's rig shrinks --------------------------------------
+  // Through the REAL loadMeta, against a save written by a build that had never
+  // heard of slots. The property is an EQUALITY against the pre-slot rig — not
+  // "it still works" but "it is the same rig" — because that is the promise,
+  // and anything weaker would pass while quietly confiscating a system.
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+    });
+    try {
+      // Seven systems, no `slots` key and no `stowed` key — exactly the shape a
+      // save written before this build has.
+      const legacyLoadout = { ...newTiers() };
+      for (const u of UPGRADES.slice(0, 7)) legacyLoadout[u.id] = 1;
+      const legacy = {
+        salvage: 12, unlocks: [], runs: 40, bestBay: 9, mark: MARK_COUNT - 1,
+        tierRunDone: false, tierContracts: 1, loadout: legacyLoadout,
+        claimedContracts: [], sealedMarks: [], celebratedMark: MARK_COUNT - 1,
+        sealBreakSeen: true, skydeckCelebrated: false,
+      };
+      localStorage.setItem("tetrilaunch.meta", JSON.stringify(legacy));
+      const loaded = loadMeta();
+      check("a save that predates slots gets one for every system it owns",
+        slotsFor(loaded) === 7, `${slotsFor(loaded)} slots for 7 systems`);
+      check("...so its rig is the one it undocked with yesterday, exactly",
+        JSON.stringify(safeLoadout(loaded)) === JSON.stringify(legacyLoadout));
+      check("...and nothing is in the shed", stowedIds(loaded).length === 0);
+      // A ONE-TIME migration, not a floor: the value is written back, so the
+      // eighth system does not quietly arrive with an eighth slot.
+      saveMeta({ ...loaded, loadout: { ...loaded.loadout, [UPGRADES[7].id]: 1 } });
+      check("the grandfather is spent once, not re-granted on the next system",
+        slotsFor(loadMeta()) === 7 && stowedIds(loadMeta()).length === 1);
+      // A save written by THIS build round-trips its rack and its shed.
+      saveMeta({ ...loaded, slots: SLOT_BASE, stowed: [UPGRADES[0].id] });
+      const round = loadMeta();
+      check("a rack and a shed survive a save/load round trip",
+        slotsFor(round) === SLOT_BASE && !isMounted(round, UPGRADES[0].id));
+      // A fresh save is the base rack, never a grandfathered one.
+      localStorage.removeItem("tetrilaunch.meta");
+      check("a brand new save starts on the base rack", slotsFor(loadMeta()) === SLOT_BASE);
+    } finally {
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+    }
+  }
+
+  // --- the rack the player sees -------------------------------------------
+  // The HUD row is the RIG now, not the catalogue (components.ts's header), so
+  // its width is the slot count and its contents are what is aboard. The FLOOR
+  // property is the one pinned hardest: the rack can never hide a system the
+  // rig is carrying, whatever width it is told.
+  // The class boundary is load-bearing: `.ship-plate__g` and `.ship-plate__pips`
+  // live INSIDE every plate, so a prefix match counts three per box and every
+  // number below would be triple.
+  const plateCount = (html: string): number =>
+    (html.match(/class="ship-plate[ "]/g) ?? []).length;
+  const fourAboard = safeLoadout(owning(4));
+  check("the rack draws one plate per slot", plateCount(shipPlatesHTML(fourAboard, 6)) === 6);
+  check("...filled with what is aboard and then with open ones",
+    (shipPlatesHTML(fourAboard, 6).match(/ship-plate--open/g) ?? []).length === 2);
+  check("a rack told nothing draws exactly the rig",
+    plateCount(shipPlatesHTML(fourAboard)) === 4
+      && !shipPlatesHTML(fourAboard).includes("ship-plate--open"));
+  check("the rack NEVER hides a system the rig is carrying",
+    plateCount(shipPlatesHTML(
+      safeLoadout({ ...owning(UPGRADES.length), slots: SLOT_CAP }), 1,
+    )) === SLOT_CAP);
+  check("...and never draws more boxes than the roster has systems",
+    plateCount(shipPlatesHTML(fourAboard, 999)) === UPGRADES.length);
+  check("an open slot carries no system's mark",
+    !shipPlatesHTML(newTiers(), SLOT_BASE).includes("<svg"));
+  // THE COUNT REACHES THE STYLESHEET, because the plate's width is the rack's
+  // row budget divided by it (app.css's --plate-w) and nothing in CSS can
+  // count its own children. It is the DRAWN count, not the argument: the
+  // rig-carrying floor above means a four-slot rack holding six systems draws
+  // six boxes, and dividing the budget by four there would overflow the row.
+  const slotsAttr = (html: string): string | null =>
+    html.match(/--rack-slots:\s*(\d+)/)?.[1] ?? null;
+  check("the rack tells the stylesheet how many slots it drew",
+    slotsAttr(shipPlatesHTML(fourAboard, 6)) === "6");
+  check("...the count it DREW, not the one it was told",
+    slotsAttr(shipPlatesHTML(
+      safeLoadout({ ...owning(UPGRADES.length), slots: SLOT_CAP }), 1,
+    )) === String(SLOT_CAP));
+  // A divisor of zero takes the whole declaration invalid-at-computed-value
+  // time, which lands `width` on `auto` rather than on a fallback — so an
+  // empty rack floors at one rather than dividing by nothing.
+  check("...and never hands it a zero to divide by",
+    slotsAttr(shipPlatesHTML(newTiers(), 0)) === "1");
+
+  // --- the sandbox is the free lab ----------------------------------------
+  // Tier S builds its rig from sandbox.ts rather than from the loadout, so the
+  // slot economy is not in the room. Pinned because it is a claim about a path
+  // that does NOT go through safeLoadout, and the only way to be sure of that
+  // is to fly it.
+  const labTiers = { ...newTiers() };
+  for (const u of UPGRADES) labTiers[u.id] = 2;
+  const lab = sandboxRunFor({ ...newSandbox(), tiers: labTiers });
+  check("Tier S flies every system regardless of the rack",
+    UPGRADES.every((u) => lab.tiers[u.id] === 2));
+}
+
+// ---------------------------------------------------------------------------
 section("Contracts (contracts.ts)");
 // ---------------------------------------------------------------------------
 {
@@ -1037,20 +1748,31 @@ section("Contracts (contracts.ts)");
   let windiestTierOne = 0;
   let windiestEver = 0;
   let worstRatio = Infinity;
-  // The pentomino Contract is gone by design (playtest, 2026-08-09): bulk
-  // pieces pack visibly worse than tetrominoes, so those Contracts read as
-  // dice rolls rather than puzzles. Its slot went to materials, which the
-  // budget model can actually price — so the sweep also proves no bulk
-  // Contract, no slag, no material below its hazard rung, and a rate the
-  // model priced for.
-  let everBulk = false;
+  // The pentomino Contract is gone FROM THE LADDER by design (playtest,
+  // 2026-08-09): bulk pieces pack visibly worse than tetrominoes, so those
+  // Contracts read as dice rolls rather than puzzles. Its slot went to
+  // materials, which the budget model can actually price — so the sweep also
+  // proves no bulk Contract below the roof, no slag, no material below its
+  // hazard rung, and a rate the model priced for.
+  //
+  // "Below the roof" is the whole of what changed when Wide Gauge arrived.
+  // SKYDECK_CONTRACT_TIER is not a Mark and cannot be reached by markUnlocked,
+  // and the removal's argument is an on-ramp argument that does not apply on a
+  // floor gated behind ten sealed Marks (contracts.ts). Everything from tier 1
+  // to MARK_COUNT is held to the original rule, and the sweep still walks past
+  // the top of the ladder so a tier that should have no bulk and grows some is
+  // still caught.
+  let ladderBulk = 0;
+  let skydeckBulk = 0;
   let everSlagOrUnpriced = false;
   let everEarlyMaterial = false;
-  let everMaterialOffStd = false;
+  let everMaterialUnderStd = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
-        if (c.pieceSize === "bulk") everBulk = true;
+        if (c.pieceSize === "bulk") {
+          if (isSkydeckBoard(tier)) skydeckBulk += 1; else ladderBulk += 1;
+        }
         // Pattern Contracts are bounded by their queue, not a launch budget,
         // and their feasibility is exact rather than statistical — they get
         // their own block below.
@@ -1058,8 +1780,15 @@ section("Contracts (contracts.ts)");
         // The material-aware efficiency IS the feasibility model now: a
         // material Contract budgeted at plain PLANNING_EFFICIENCY would be
         // exactly the silently-tighter Contract this sweep exists to forbid.
-        const supply =
-          c.launches * SIZE_SPEC[c.pieceSize].cubes * contractEfficiency(c.material, c.materialRate);
+        //
+        // The SIZE is part of that model now (SIZE_EFFICIENCY), and passing it
+        // is load-bearing rather than tidy: a pentomino Contract budgeted at
+        // std efficiency would read as having 18% more supply than the
+        // generator actually gave it, so this line would bless exactly the
+        // silently-tighter Contract it exists to forbid — the same failure the
+        // material factor was added to close.
+        const supply = c.launches * SIZE_SPEC[c.pieceSize].cubes
+          * contractEfficiency(c.material, c.materialRate, c.pieceSize);
         const demand = c.goal * CUBES_PER_LINE;
         worstRatio = Math.min(worstRatio, supply / demand);
         if (supply < demand) everImpossible = true;
@@ -1078,8 +1807,13 @@ section("Contracts (contracts.ts)");
           // in a Contract before the Mark whose Deep Run deals it.
           if (contractMaterialTier(c.material) > tier) everEarlyMaterial = true;
           // The budget prices waste per STD shipment, and the cannon's
-          // size-normalized roll would double a domino belt's rate.
-          if (c.pieceSize !== "std") everMaterialOffStd = true;
+          // size-normalized roll would double a domino belt's rate. Both halves
+          // of that are DOMINO arguments — halved cubes a shipment, doubled
+          // shipments a mix — so what is forbidden is a payload SMALLER than
+          // standard, not one that merely differs from it. A pentomino moves
+          // both the other way and MATERIAL_WASTE is a fraction of a shipment's
+          // cubes, so the closed form prices it correctly.
+          if (SIZE_SPEC[c.pieceSize].cubes < SIZE_SPEC.std.cubes) everMaterialUnderStd = true;
         }
       }
     }
@@ -1090,10 +1824,15 @@ section("Contracts (contracts.ts)");
   // is SLACK_TIGHT (1.02 since the 2026-08 balance pass tightened it from
   // 1.05) — ceil rounding can only add headroom above it, never take it away.
   check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.02);
-  check("no contract ships bulk pentominoes", !everBulk);
+  check("no LADDER contract ships bulk pentominoes", ladderBulk === 0,
+    `${ladderBulk} bulk Contracts at tiers 1-${MARK_COUNT}`);
+  // ...and the other half of that sentence, which is what stops the check above
+  // from passing because the roof's board silently stopped existing. A pin that
+  // only forbids is a pin a deletion satisfies.
+  check(`the Skydeck board DOES ship them (${skydeckBulk} sampled)`, skydeckBulk > 0);
   check("contract materials are always countable and priced", !everSlagOrUnpriced);
   check("no material appears before its hazard rung", !everEarlyMaterial);
-  check("material contracts ship std payloads", !everMaterialOffStd);
+  check("no material contract ships a payload smaller than std", !everMaterialUnderStd);
 
   // The 2026-08 balance pass tightened SLACK 1.25 -> 1.15 (~8% fewer launches
   // on every lines Contract). Two seams have to hold through that. The
@@ -1578,7 +2317,15 @@ section("Pattern variants (contracts.ts VARIANTS)");
   const wallRng = (() => { let z = 0x51ed270; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
 
   for (const v of VARIANTS) {
-    for (let tier = 1; tier <= 10; tier++) {
+    // Up to the ROOF, not up to the ladder. This loop stopped at MARK_COUNT
+    // while every rung was a Mark, and the day Wide Gauge landed on
+    // SKYDECK_CONTRACT_TIER that bound made the whole block silently skip it:
+    // `v.tier > tier` held at every iteration, so the new variant was never
+    // sampled and "every variant produces a range of inventories" passed on
+    // zero inventories. It failed loudly instead, which is the only reason this
+    // line is right — the sweep's range has to reach the top rung that exists,
+    // not the top rung that existed when it was written.
+    for (let tier = 1; tier <= SKYDECK_CONTRACT_TIER; tier++) {
       // A variant must never be generated below its rung, and forcing one is
       // the sandbox's job, not the board's — so the ladder is checked here
       // against what variantsFor offers rather than against a forced roll.
@@ -1646,6 +2393,23 @@ section("Pattern variants (contracts.ts VARIANTS)");
   check("Guided really ships magnetic", at("guided", 9).materialMix.magnetic === 1);
   check("Blackout really hides the preview", at("blind", 7).hideNextPreview);
   check("Part Load really opens on a wall", at("salvage", 6).standingWall.some((h) => h > 0));
+  {
+    const wide = at("wide", SKYDECK_CONTRACT_TIER);
+    // The bay is built to the width the inventory was sized to — the tiling
+    // bug's own defect class. That the width is the RIGHT one is a separate
+    // question with a separate pin (see the Skydeck board section); this half
+    // would stay green at any width, which is why the other half exists.
+    check("Wide Gauge really widens the line",
+      wide.compactorMinLineCells === PENTOMINO_LINE_CELLS
+        && wide.compactorMinLineCells > CUBES_PER_LINE, `${wide.compactorMinLineCells}`);
+    // A press with no travel stops moving entirely — the floor levelForContract
+    // enforces, and the reason a width cannot simply be raised to the bay's
+    // open stop. Ten leaves two cells against the stock open of 12.
+    check("...and the press still has room to move",
+      wide.compactorOpenCells > wide.compactorMinLineCells,
+      `${wide.compactorMinLineCells} -> ${wide.compactorOpenCells}`);
+    check("Wide Gauge really ships pentominoes", wide.pieceSize === "bulk");
+  }
   check(
     "Single Stock really ships one shape",
     new Set(generateContract(20260101, 5, PATTERN_SLOT, "single").queue).size === 1,
@@ -1670,7 +2434,6 @@ section("Pattern variants (contracts.ts VARIANTS)");
     if (shapes < (v.oneShape ? 2 : 4)) stuck += `${v.id}:${shapes} `;
   }
   check("every variant produces a range of inventories", stuck === "", stuck);
-
   // ---- A card may not advertise a wall the bay does not have ---------------
   //
   // salvageProfile guarantees ARITHMETIC (the empty area divides by the payload)
@@ -1961,6 +2724,476 @@ section("Pattern variants (contracts.ts VARIANTS)");
   check("the salvage row states the target price",
     ceTarget.includes(`Reactor Output costs ${salvageHTML(15)} in the Workshop`));
   check("no target price is invented without one", !ceWin.includes("in the Workshop"));
+
+  // ---- THE AWARD CARD AT SATURATION --------------------------------------
+  // A tier completion names the floor it opened. That sentence is true nine
+  // times and false on the tenth: `progress.tier` is markUnlocked read AFTER
+  // the update, and at MARK_COUNT markUnlocked saturates — so completing the
+  // last tier printed "Tier 10 is open" about the floor the player had just
+  // spent the tier flying. An owner hit exactly this ("all completed but not
+  // unlocked"): the card announced an unlock, nothing on the menu changed,
+  // and the real remaining objective (the seals) was named nowhere.
+  //
+  // It is the THIRD instance of one question — #134 fixed the same saturation
+  // in tierOpenableBy (the seal-break notice promising "Tier 10 still opens")
+  // and in pendingLadderRide (a ceremony riding to the floor the car was
+  // parked on). So the question is answered ONCE now, by a function of the
+  // completed tier alone, and every card asks it rather than re-deriving a
+  // floor number from a progress snapshot that has already saturated.
+  check("a completion below the top opens the next floor",
+    tierOpenedByCompleting(3) === 4);
+  check("...and the last rung opens no floor at all",
+    tierOpenedByCompleting(MARK_COUNT) === null);
+  check("...for every rung in between",
+    Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
+      .every((t) => tierOpenedByCompleting(t) === (t < MARK_COUNT ? t + 1 : null)));
+  const ceMid = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: 3 },
+    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+  });
+  check("the award card names the floor the completion opened",
+    ceMid.includes("Tier 4 is open"));
+  const ceTop = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: MARK_COUNT },
+    progress: {
+      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+    },
+  });
+  check("...and announces no unlock when the ladder simply ended",
+    !ceTop.includes("is open"), "the top-of-ladder card still names a floor");
+  check("...saying what did happen instead", ceTop.includes("ladder is finished"));
+  // AND WHAT IS STILL OPEN. The tier-10 Contract loop keeps paying (the owner's
+  // ruling: keep the faucet, the endgame is maxing the systems out), and the
+  // seals are what the roof is waiting for — so the card names both rather
+  // than trailing off. A card that only stops lying is not yet an endgame.
+  check("...and names the two things still worth flying for",
+    /maxed rig/.test(ceTop) && /every Mark sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
+}
+
+
+// ---------------------------------------------------------------------------
+section("The payout banner (screens.ts .salvage-row + app.css)");
+// ---------------------------------------------------------------------------
+// ONE format, eight callers: the run end's salvage-banked and tier-complete
+// rows and its Tier S replacement (sandboxEndRowHTML), plus the Contract end's
+// five variants (progress, complete, Tier S, Skydeck, replay). The stylesheet
+// sets the banner's type ONCE — one rule for the figure, one for the heading,
+// one for the sentence — which only reaches all eight while all eight keep the
+// same three-part shape. A variant that hand-rolled its own text column would
+// silently opt out of every size in that block, which is how this row ended up
+// being read at 11px/1.35 on a screen whose other explanatory copy is --fs-sm.
+{
+  const bannerOpts = {
+    name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
+    launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
+    cubesWasted: 0, salvageTotal: 66,
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
+  };
+  const runOpts = {
+    won: true, score: 100, lines: 4, baysCleared: 2, funds: 10, best: 0,
+    name: "ACE", rows: "", reason: null, bayNum: 3, bayName: "Bay",
+    boardTier: 1, runComplete: true,
+    progress: tierProgressFor(newMeta()), salvageTotal: 66, scrapEarned: 20,
+    salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+  };
+  /** The eight banners, each labelled by the state it reports. */
+  const banners: Array<[string, string]> = [
+    ["run · salvage banked", S.endModal({ ...runOpts, tierCompleted: null, tierSalvage: 40 })],
+    ["run · tier complete", S.endModal({ ...runOpts, tierCompleted: 3, tierSalvage: 220 })],
+    ["run · Tier S", S.endModal({
+      ...runOpts, tierCompleted: null, tierSalvage: 0,
+      sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+    })],
+    ["contract · tier progress", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 15, firstClear: true, completedTier: null },
+      nextInstall: { name: "Reactor Output", cost: 15 },
+    })],
+    ["contract · tier complete", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: 1 },
+    })],
+    ["contract · Tier S", contractEndModal({ ...bannerOpts, won: true, award: null, sandbox: true })],
+    ["contract · Skydeck", contractEndModal({ ...bannerOpts, won: true, award: null, skydeck: true })],
+    ["contract · replay", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 0, firstClear: false, completedTier: null },
+    })],
+  ];
+  for (const [label, html] of banners) {
+    // The WRAPPER's class, matched to its end: every part of this component is
+    // named off the same stem, so `indexOf("salvage-row")` — or even
+    // `class="salvage-row` — is answered by a variant's own __amt one line
+    // below a wrapper that has been renamed out of the format.
+    const at = html.search(/class="salvage-row[ "]/);
+    const row = at < 0 ? "" : html.slice(at, html.indexOf("</div>", html.indexOf("salvage-row__body", at)));
+    check(`the ${label} banner is drawn as one`, at >= 0);
+    // The figure and the text column, in that order. Both are load-bearing:
+    // the figure is the only element the --amt sizes touch, the body is the
+    // only element the type block touches.
+    check(`...${label}: a figure beside a text column`,
+      row.includes("salvage-row__amt") && row.includes("salvage-row__body")
+        && row.indexOf("salvage-row__amt") < row.indexOf("salvage-row__body"));
+    // A heading FIRST, then the sentence. `.salvage-row__body > b` is the
+    // heading's leading and `.salvage-row__body span` the paragraph's; a
+    // variant that opened with a bare <span> would get the paragraph's
+    // treatment for its heading and no heading-to-body gap at all.
+    const body = row.slice(row.indexOf("salvage-row__body"));
+    const inner = body.slice(body.indexOf(">") + 1).trim();
+    check(`...${label}: a heading above the sentence`,
+      inner.startsWith("<b>") && inner.includes("<span"), inner.slice(0, 40));
+  }
+
+  // --- the stylesheet, read back --------------------------------------------
+  const bannerCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const lines = bannerCss.split("\n");
+  const decls = (selector: string): string[] =>
+    lines
+      .filter((l) => l.trim().startsWith(`${selector} {`))
+      .map((l) => l.slice(l.indexOf("{") + 1, l.lastIndexOf("}")));
+  /** Every font-size this selector is given, in source order — which is
+   *  cascade order here, so [0] is the base and the last entry is the tightest
+   *  step. */
+  const sizes = (selector: string): string[] =>
+    decls(selector).map((d) => d.match(/font-size:\s*([^;]+);/)?.[1].trim() ?? "").filter(Boolean);
+  // ONE RANK, MOVING TOGETHER. The banner's sentence, .end__why's paragraph and
+  // .end__where are the same thing on the same screen — explanatory copy under
+  // a display heading — so the banner reaches the token the paragraph is set
+  // from, and steps to the literal the paragraph steps to. It used to do
+  // neither: 11px at every viewport, below --fs-xs at that.
+  const sentence = sizes(".salvage-row__body span");
+  const why = sizes(".end__why p");
+  check("the banner's sentence reaches the paragraph's token",
+    sentence.includes("var(--fs-sm)") && why[0] === "var(--fs-sm)",
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  check("...and steps to where that paragraph steps",
+    sentence.length > 1 && sentence[sentence.length - 1] === why[why.length - 1],
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  // THE BIG SETTING IS AN OPT-IN, never a default with small windows cut out of
+  // it. That is the shape of the bug this row shipped once: gated the other way
+  // round, on `@media (min-height: 521px) and (max-height: 620px)`, one pixel of
+  // window height above the ceiling bought ~53px of banner, and the end modal's
+  // panel overflowed from 621px to 633px at 800px wide. A query built only out
+  // of `min-` features cannot do that — every viewport that fails it keeps a
+  // setting that costs nothing, including whatever viewport is invented next.
+  const bigAt = lines.findIndex((l) => /^\s+\.salvage-row__body span \{ font-size: var\(--fs-sm\)/.test(l));
+  let gate = "";
+  for (let i = bigAt; i >= 0 && bigAt > 0; i -= 1) {
+    if (lines[i].startsWith("@media")) { gate = lines[i]; break; }
+  }
+  check("the banner's big setting is gated on minimums only",
+    gate !== "" && !/\bmax-/.test(gate) && /\bmin-/.test(gate),
+    gate || "no @media above the --fs-sm rule");
+  // LEADING ON THE HEADING ONLY. An inline <b> inside the sentence (the banked
+  // figure, the salvage total) contributes its own line-height to the line box
+  // it lands in, so a bare `.salvage-row__body b { line-height: … }` sets ONE
+  // line of a three-line wrapped paragraph taller than the two around it.
+  const anyB = decls(".salvage-row__body b");
+  const headB = decls(".salvage-row__body > b");
+  check("the heading's leading cannot reach the inline emphasis",
+    anyB.length > 0 && anyB.every((d) => !/line-height/.test(d))
+      && headB.some((d) => /line-height/.test(d)),
+    `${anyB.length} shared, ${headB.length} heading-only`);
+}
+
+
+// ---------------------------------------------------------------------------
+section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
+// ---------------------------------------------------------------------------
+{
+  // ---- The floor exists, and it is the floor the tower thinks it is --------
+  //
+  // SKYDECK_CONTRACT_TIER and screens.ts's SKYDECK_TIER are arrived at
+  // independently — one is the generator's key, the other the tower's sentinel
+  // — and main.ts's contractsTier is the seam that assumes they agree. If they
+  // ever part company, parking the car on the roof deals a board nobody can
+  // reach any other way, and the screen shows someone else's Contracts.
+  check("the roof's board key is the tower's roof",
+    SKYDECK_CONTRACT_TIER === S.SKYDECK_TIER,
+    `${SKYDECK_CONTRACT_TIER} vs ${S.SKYDECK_TIER}`);
+  // OFF THE LADDER, which is what makes every "pays nothing, ticks nothing"
+  // claim in contracts.ts true by construction rather than by a branch. It is
+  // asserted against markUnlocked's own saturation, not against the literal 11:
+  // meta.ts is where the ceiling lives, and this is the property that depends
+  // on it.
+  const topMeta = (over: Partial<MetaState> = {}): MetaState =>
+    ({ ...newMeta(), mark: MARK_COUNT, ...over });
+  check("no save can put markUnlocked on the roof's tier",
+    markUnlocked(topMeta()) < SKYDECK_CONTRACT_TIER,
+    `${markUnlocked(topMeta())} < ${SKYDECK_CONTRACT_TIER}`);
+  {
+    // The consequence, played out through the real recorder rather than
+    // restated: a first clear on the roof logs the id (so the board ticks) and
+    // banks nothing (so the roof cannot be farmed for Workshop salvage, which
+    // would make the endgame floor a grind and hand a subscription real power).
+    const meta = topMeta({ salvage: 0, tierContracts: 0 });
+    const sky = dailyContracts(SKYDECK_CONTRACT_TIER, 20260101)[0];
+    const after = recordContractClear(meta, sky);
+    check("a Skydeck Contract banks no salvage", after.salvage === 0, `${after.salvage}`);
+    check("...and does not tick the tier's quota",
+      after.meta.tierContracts === 0, `${after.meta.tierContracts}`);
+    check("...but is still logged, so the board can show it cleared",
+      after.firstClear && after.meta.claimedContracts.includes(sky.id));
+    // THE SIBLING SURFACES, as one property rather than one pin each. #140's
+    // lesson is that a lying celebration comes in sets, and the set here is
+    // everything downstream that reads ladder standing after a clear: the
+    // Workshop's counters, the menu's pips, the end card's quota line, the
+    // guide's next step. All of them are derived from tierProgressFor and
+    // nextStep, so what has to hold is that a roof clear moves NEITHER — and
+    // asserting the derivations rather than their readers is what makes a
+    // surface added tomorrow covered by this line today.
+    check("a Skydeck clear moves no tier standing at all",
+      JSON.stringify(tierProgressFor(after.meta)) === JSON.stringify(tierProgressFor(meta)),
+      JSON.stringify(tierProgressFor(after.meta)));
+    check("...and does not move the guide's next step",
+      nextStep(after.meta) === nextStep(meta), `${nextStep(meta)} -> ${nextStep(after.meta)}`);
+    // The IN-BAY progress row got this right before the end card did, and by a
+    // different route: hudOpts gates on `contract.tier === tierProgressFor().tier`
+    // (main.ts). That gate is only correct because markUnlocked can never reach
+    // the roof's tier — the check above this block — so the two are pinned
+    // together rather than separately.
+    check("the in-bay progress gate refuses a roof Contract",
+      sky.tier !== tierProgressFor(meta).tier,
+      `${sky.tier} vs ${tierProgressFor(meta).tier}`);
+    // Ids embed the tier, so the roof's board can never collide with the
+    // tier-10 board a player is still working through on the ladder.
+    const ladder = dailyContracts(MARK_COUNT, 20260101).map((x) => x.id);
+    check("the roof's ids never collide with the ladder's",
+      dailyContracts(SKYDECK_CONTRACT_TIER, 20260101)
+        .every((x) => !ladder.includes(x.id)));
+  }
+
+  // ---- What the board actually deals ---------------------------------------
+  let boards = 0, cards = 0, bulk = 0, wideSlots = 0, patternCards = 0;
+  let offBed = 0, untileable = 0, undealable = 0;
+  const inventories = new Set<string>();
+  const dealRng = (() => { let z = 0x5c1de; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+  for (let seed = 20260101; seed < 20260101 + 24; seed++) {
+    const board = dailyContracts(SKYDECK_CONTRACT_TIER, seed);
+    boards += 1;
+    for (const c of board) {
+      cards += 1;
+      if (c.pieceSize === "bulk") bulk += 1;
+      // THE BED, by the EXISTING rule and not a floor check. contractBed's
+      // pentomino clause was written before anything in the game could satisfy
+      // it — bay 5's track is in 5/4 and a pentomino is five cubes — and the
+      // roof is what finally does. The rare roll is suppressed (it outranks
+      // everything by design, and this is a question about the rule below it).
+      if (contractBed(c, () => 1) !== "bay-5") offBed += 1;
+      if (c.kind !== "pattern") continue;
+      patternCards += 1;
+      if (c.variant === "wide") wideSlots += 1;
+      // TILEABILITY, re-derived by the independent checker rather than trusted
+      // from the generator that built it — the same rule the ladder's pattern
+      // sweep follows, and the one that catches an [I,O,J,J].
+      if (!tilesRegion(c.queue, c.goal, c.lineCells, c.pieceSize, c.standing)) untileable += 1;
+      // Packing is not building: the order has to be assemblable under gravity.
+      const dealt = dealPatternQueue(c, c.lineCells, dealRng);
+      if (!isBuildable(dealt, c.lineCells, c.pieceSize, "drop", c.standing)
+        && !isBuildable(dealt, c.lineCells, c.pieceSize, "tuck", c.standing)) undealable += 1;
+      inventories.add([...c.queue].sort().join(""));
+    }
+  }
+  check(`the Skydeck deals a full board (${boards} boards, ${cards} cards)`,
+    cards === boards * DAILY_COUNT);
+  check("every Skydeck Contract ships pentominoes", bulk === cards, `${bulk}/${cards}`);
+  check("its pattern slot is always Wide Gauge — dealt, never rolled",
+    patternCards === boards && wideSlots === patternCards, `${wideSlots}/${patternCards}`);
+  check("every Skydeck Contract plays bay 5's 5/4 bed", offBed === 0, `${offBed} off-bed`);
+  check("every Wide Gauge inventory tiles its 10-wide region", untileable === 0);
+  check("every Wide Gauge deal is provably finishable", undealable === 0);
+  // A daily board that deals the same puzzle forever is not a daily board. Ten
+  // rows of pentominoes has plenty of tilings; THREE has four in total, which
+  // is why the variant's goalBonus is 0 and not the -1 it was first written as.
+  check(`the roof's inventories vary across days (${inventories.size} distinct in ${boards})`,
+    inventories.size >= boards / 2, `${inventories.size}/${boards}`);
+
+  // ---- Ten is load-bearing, not decorative --------------------------------
+  //
+  // The negative control for the whole feature, and it took a deliberate
+  // mutation to get it right. The first cut of the check below asserted only
+  // that levelForContract writes PENTOMINO_LINE_CELLS into the bay — which is
+  // worth pinning (a bay built to a width the inventory was not sized to is the
+  // tiling bug's whole defect class) and is TAUTOLOGICAL about the width
+  // itself: setting the constant to 8 left it green.
+  //
+  // What actually makes 10 the answer is one line of arithmetic. A zero-waste
+  // pentomino inventory needs `goal * lineCells` divisible by 5 — so a width
+  // that is itself a multiple of 5 makes EVERY goal exact, and any other width
+  // makes the goal do the dividing (at 8, only multiples of 5: "a 40-cube,
+  // 8-shipment monster or nothing"). That is the property, so that is the pin.
+  check(`every goal is exact at ${PENTOMINO_LINE_CELLS} cells`,
+    PENTOMINO_LINE_CELLS % SIZE_SPEC.bulk.cubes === 0,
+    `${PENTOMINO_LINE_CELLS} % ${SIZE_SPEC.bulk.cubes}`);
+  check("...on a line WIDER than the bay's own, never narrower",
+    PENTOMINO_LINE_CELLS > CUBES_PER_LINE, `${PENTOMINO_LINE_CELLS} vs ${CUBES_PER_LINE}`);
+  // And the arithmetic borne out on the shipped shape table: at the bay's own
+  // line no goal below 5 is even possible, which is exactly what patternSize's
+  // note said and exactly why bulk waited for a wider line. Written against
+  // CUBES_PER_LINE rather than a literal 8 so it tracks the bay it is about.
+  const pent = ["I", "O", "T", "L", "J", "S", "Z"] as const;
+  const fiveOf = (n: number): PieceType[] =>
+    Array.from({ length: n }, (_, i) => pent[i % pent.length]);
+  const atBayWidth = (rows: number): boolean =>
+    tilesRegion(fiveOf((rows * CUBES_PER_LINE) / SIZE_SPEC.bulk.cubes), rows, CUBES_PER_LINE, "bulk");
+  check(`no pentomino set fills 2 rows of ${CUBES_PER_LINE}`, !atBayWidth(2));
+  check("...nor 3 rows", !atBayWidth(3));
+  check("...nor 4 rows", !atBayWidth(4));
+  // ...where every one of those goals tiles at ten. Measured 30/30 per goal
+  // when the width was chosen; re-derived here on the shipped shape table so a
+  // change to PENTA_SHAPES that broke it could not land quietly.
+  for (const goal of [2, 3, 4, 5, 6]) {
+    const q = tilingQueue(goal, PENTOMINO_LINE_CELLS, [...pent], dealRng, 4, "bulk");
+    check(`pentominoes tile ${goal} rows of ${PENTOMINO_LINE_CELLS}`,
+      q !== null && tilesRegion(q, goal, PENTOMINO_LINE_CELLS, "bulk"));
+  }
+
+  // ---- The ladder is untouched --------------------------------------------
+  //
+  // SIZE_EFFICIENCY is a new factor in the one formula every launch budget on
+  // every board has always been priced by, so the claim that it changes nothing
+  // below the roof has to be a proof and not a promise. std and tiny at 1 is
+  // what makes it one, and it is asserted on the FUNCTION rather than on the
+  // table, because the table being right is only half of it — a caller that
+  // multiplied it in twice would pass a table check.
+  check("the size factor is a no-op for tetrominoes", SIZE_EFFICIENCY.std === 1);
+  check("...and for dominoes, which measured no worse per cube", SIZE_EFFICIENCY.tiny === 1);
+  check("...and prices the pentomino's worse packing at all", SIZE_EFFICIENCY.bulk < 1);
+  check("a std belt prices identically with and without the size argument",
+    contractEfficiency("cryo", 0.2) === contractEfficiency("cryo", 0.2, "std")
+      && contractEfficiency(null, 0) === contractEfficiency(null, 0, "tiny"));
+  // And the board itself, byte for byte. Every ladder tier has to deal exactly
+  // what it dealt before the roof existed — the generator now branches on the
+  // tier in three places (payload, variant, conditions) and any one of them
+  // leaking downward would re-tune the whole game silently.
+  {
+    let ladderPent = 0, ladderWide = 0;
+    for (let tier = 1; tier <= MARK_COUNT; tier++) {
+      for (let seed = 20260101; seed < 20260101 + 20; seed++) {
+        for (const c of dailyContracts(tier, seed)) {
+          if (c.pieceSize === "bulk") ladderPent += 1;
+          if (c.variant === "wide") ladderWide += 1;
+          if (isSkydeckBoard(tier)) ladderWide += 1; // the predicate itself
+        }
+      }
+    }
+    check("no ladder tier is mistaken for the roof", ladderWide === 0);
+    check("no ladder tier deals a pentomino", ladderPent === 0);
+  }
+
+  // ---- The AWARD CARD has to agree with the settlement ---------------------
+  //
+  // The third instance of one bug class in this repo, and the first two are why
+  // this pin exists rather than a comment: the settlement is right and the
+  // CELEBRATORY SURFACE lies (PR #140's badge promising a seal a run could not
+  // land; the run-end card naming a tier that had opened when markUnlocked had
+  // saturated). Here recordContractClear correctly banks nothing and ticks
+  // nothing for a roof clear — and the end modal then read `award.firstClear`,
+  // took the ladder's first-clear branch, and captioned it "Tier 10 · Contracts
+  // 0/3 — 3 more Contracts and the Deep Run to complete the tier". Every word
+  // of that is about a board this clear cannot move. (codex P1, PR #154.)
+  //
+  // Asserted on the RENDERED CARD rather than on a flag, because the flag is
+  // not what lied: the modal is a chain of ternaries over award/progress and
+  // any of them can reach the ladder's copy. What has to be true is a property
+  // of the string a player reads.
+  {
+    // Each side is given the award ITS OWN settlement produces, which is the
+    // whole point of the comparison: recordContractClear pays a milestone share
+    // on the ladder and exactly 0 off it, and both arrive here with
+    // `firstClear` true. That shared flag is what made one card wear the
+    // other's copy.
+    const card = (
+      tier: number, progress: ReturnType<typeof tierProgressFor>, salvage: number,
+    ): string => contractEndModal({
+      won: true, name: "Quota Run", kind: "pattern", lines: 4, goal: 4,
+      launchesUsed: 8, launches: 0, queue: ["I", "O", "O", "T", "L", "J", "S", "S"],
+      cubesWasted: 0,
+      award: { firstClear: true, completedTier: null, salvage },
+      progress, salvageTotal: 120,
+      nextInstall: { name: "Reactor", cost: 15 },
+      skydeck: isSkydeckBoard(tier),
+    });
+    // READ AS THE PLAYER READS IT — tags stripped, entities folded. The first
+    // cut of this matched the raw HTML and went red on `class="salvage-row"`,
+    // which is markup the player never sees; a pin that cannot tell copy from a
+    // class name is a pin that will be silenced by renaming the class. Currency
+    // amounts survive stripping (salvageHTML wraps an icon and a NUMBER), which
+    // is what keeps the ladder half of this meaningful.
+    const copy = (html: string): string =>
+      html.replace(/<[^>]*>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
+    const roofFixture = (): string =>
+      card(SKYDECK_CONTRACT_TIER, tierProgressFor(topMeta()), 0);
+    const roof = copy(roofFixture());
+    const ladderHtml = card(4, tierProgressFor(topMeta({ mark: 3, tierContracts: 1 })), 5);
+    const ladder = copy(ladderHtml);
+    check("a Skydeck clear's card names no tier", !/\bTier\b/.test(roof), roof.slice(0, 300));
+    check("...nor a Contracts quota", !/Contracts \d+\/\d+/.test(roof), roof.slice(0, 300));
+    check("...nor any salvage", !/salvage/i.test(roof), roof.slice(0, 300));
+    check("...nor sends the player to the Workshop",
+      !/workshop/i.test(roof) && !/data-action="workshop"/.test(roofFixture()));
+    check("...but does say the clear was logged", /logged/i.test(roof), roof.slice(0, 300));
+    // The other half, so this is a DISTINCTION and not a deletion: the ladder's
+    // card must still do all four, or "the roof says less" could be satisfied
+    // by deleting the award row for everyone.
+    check("a ladder clear's card still names its tier and quota",
+      /Tier 4/.test(ladder) && /Contracts \d+\/\d+/.test(ladder), ladder.slice(0, 300));
+    check("...and still points at the salvage and the Workshop",
+      /salvage/i.test(ladder) && /data-action="workshop"/.test(ladderHtml));
+
+    // ---- …AND THE CALL SITE ACTUALLY SAYS SO ------------------------------
+    //
+    // The checks above render the modal directly, so they prove the modal is
+    // right and say nothing about the one caller. Deleting `skydeck:` from
+    // main.ts's contract-end case left every one of them green — measured, by
+    // doing it — which is precisely the gap that let the original defect ship:
+    // the mode was known at the settlement and simply never travelled to the
+    // surface that reported it.
+    //
+    // A SOURCE property, for the reason the tower's roll pins are: there is no
+    // Game, no DOM and no overlay in this process, so what can be asserted is
+    // that the code cannot reintroduce the shape that caused it. The modal has
+    // exactly one caller and one field to forget, which is what makes this
+    // narrow enough to be worth pinning rather than brittle.
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    // Anchored on the CALL, by brace matching, rather than on the surrounding
+    // `case "contract-end":`. The first cut sliced between that case label and
+    // `case "howto":` and silently spanned 72,000 characters — there are two of
+    // the former and three of the latter in main.ts, and the pair it found
+    // straddled the menu, whose own `skydeck:` argument satisfied the check.
+    // Deleting the field under test left it green. An anchor that can match the
+    // wrong thing is the same defect as a pin that cannot fail.
+    const callAt = mainSrc.indexOf("S.contractEndModal({");
+    const endCase = (() => {
+      if (callAt < 0) return "";
+      let depth = 0;
+      const start = mainSrc.indexOf("{", callAt);
+      for (let i = start; i < mainSrc.length; i++) {
+        if (mainSrc[i] === "{") depth++;
+        else if (mainSrc[i] === "}" && --depth === 0) return mainSrc.slice(callAt, i + 1);
+      }
+      return "";
+    })();
+    check("the contract-end call site exists to be checked",
+      endCase.length > 0 && endCase.length < 4000, `${endCase.length} chars`);
+    check("...and tells the card which board settled it",
+      /\bskydeck:\s*\w/.test(endCase), "main.ts's contractEndModal call omits `skydeck:`");
+    // And that the value it passes is derived from the CONTRACT, not from the
+    // tower. The two agree today; they are different questions, and only one of
+    // them is the thing recordContractClear priced. Checked against the whole
+    // file rather than the call's own braces — the binding is declared just
+    // above the call, outside them, which the narrowed anchor above correctly
+    // excludes.
+    check("...derived from the settled Contract, not the parked floor",
+      /const skyContract = isSkydeckBoard\(this\.contract\.tier\)/.test(mainSrc)
+        && /\bskydeck: skyContract\b/.test(endCase),
+      "the roof identity is not read off this.contract.tier");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1991,6 +3224,16 @@ section("Refit cadence + run economy (run.ts)");
     conceded.restarts === 2,
     String(conceded.restarts),
   );
+  // …and so does the FILED flag, for the same reason and with a different
+  // consequence. A run that lost bay 7, retried it from the game-over card and
+  // then cleared it has already been booked once (meta.ts's recordRunEnd
+  // `refiled`); a rebuild that dropped the flag would re-count the run in the
+  // lifetime total at the very next bay boundary.
+  check("a filed run stays filed across a bay boundary", conceded.filed === false);
+  const resumed = advanceRun(
+    advanceRun({ ...newRun(5), filed: true }, 800, 800, 0, 0, []), 800, 800, 0, 0, [],
+  );
+  check("...and a resumed one is still on the books", resumed.filed === true);
 
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
   run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
@@ -2025,6 +3268,28 @@ section("Refit cadence + run economy (run.ts)");
   // would pay the player for the same blast twice.
   check("demolition recovery never leaks into the carried float", demoA.carry === 0,
     String(demoA.carry));
+  // THE SAME THREE PROPERTIES, for what volatile TOOK. It is the mirror of the
+  // stat above and it fails the same three ways, so it is pinned the same three
+  // ways rather than trusted to the symmetry: run-long, defaulted to 0, and
+  // never operating cash. The last is the one worth stating out loud in this
+  // direction — the charge already came out of the bay's score when the blast
+  // settled (lineClear.ts's settleBlast), so a leak into carry would bill the
+  // player for the same detonation twice.
+  check("a bay nothing detonated in is charged nothing", run.volatileLosses === 0,
+    String(run.volatileLosses));
+  const volA = advanceRun(run, 800, 800, 0, 0, [], run.bondCharges, 0, 90);
+  const volB = advanceRun(volA, 800, 800, 0, 0, [], volA.bondCharges, 0, 35);
+  check("detonation charges accumulate across bays", volB.volatileLosses === 125,
+    String(volB.volatileLosses));
+  check("detonation charges never leak into the carried float", volA.carry === 0,
+    String(volA.carry));
+  // The two stats are independent columns, not one signed number: a bay can pay
+  // a bounty and be charged in the very same blast, and a version that netted
+  // them into one field would report a wash as "nothing happened".
+  const both = advanceRun(run, 800, 800, 0, 0, [], run.bondCharges, 60, 60);
+  check("a bay that both recovered and lost reports both, not the net",
+    both.salvagedFunds === 60 && both.volatileLosses === 60,
+    `${both.salvagedFunds} / ${both.volatileLosses}`);
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
   // The capstone hands two axes at once, and the same axis twice is a legal
@@ -2263,6 +3528,7 @@ section("Refit order: stage, revise, undock (upgrades.ts, run.ts, preview.ts)");
   // nothing, and three tracks used to do exactly that.
   const stopped = { ...newRun(4, [], 0, {
     bay: 1, launcher: 1, hydraulics: 1, magazine: 1, reactor: 1, bonds: 1, demolition: 1,
+    thaw: 1, cushion: 1, incinerator: 1,
   }, 6), levelIndex: 6, scrap: 999 };
   for (const u of UPGRADES) {
     const after = buyUpgrades(stopped, { [u.id]: 1 }, MAX_TIER)!;
@@ -2437,13 +3703,63 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   // ONE belt row, not one per material — the owner's device pass found a Tier
   // 10 material clause moving six tiles at once, two extra rows on the screen
   // that overflows first. The total is the number that prices the bay
-  // (belt.ts's ceiling: notches past it recompose rather than thicken); which
-  // material it is lives on the card being tapped.
+  // (belt.ts's ceiling: notches past it recompose rather than thicken).
   check("the belt row appears only once a content axis is picked",
     row(idle, "belt") === undefined && row(rowsFor(["cryo"]), "belt")!.changed);
   check("a second material moves the same one belt row",
     rowsFor(["cryo", "slag"]).filter((r) => r.id === "belt").length === 1
       && row(rowsFor(["cryo", "slag"]), "belt")!.changed);
+
+  // …AND THE COMPOSITION LIVES INSIDE THAT ONE ROW. Which material the total is
+  // made of used to be readable nowhere on this panel — the argument above only
+  // ever ruled out six more TILES, and the answer to "33% of what?" was the
+  // card the player happened to be holding. The row now carries a part per
+  // material, so the tile count is unchanged and the breakdown is a dense list
+  // inside the one unit that already prices the belt.
+  const mix2 = rowsFor(["cryo", "slag"]);
+  const beltRow = row(mix2, "belt")!;
+  check("the belt row breaks its total down by material",
+    (beltRow.parts ?? []).map((p) => p.id).join(",") === "slag,cryo",
+    (beltRow.parts ?? []).map((p) => p.id).join(","));
+  check("every part quotes a percentage on both sides",
+    (beltRow.parts ?? []).every((p) => /^\d+%$/.test(p.from) && /^\d+%$/.test(p.to)),
+    (beltRow.parts ?? []).map((p) => `${p.from}->${p.to}`).join(","));
+  check("a material the picks moved is flagged, and worse",
+    (beltRow.parts ?? []).every((p) => p.changed && p.tone === "worse"));
+  // A material with BANKED notches is on the list whatever the current
+  // selection does, and it says how many — the notch tally's own grammar
+  // (components.ts's runNotchTallyHTML), on the panel that prices the bay.
+  const bankedMix = { ...drafting, ratchets: { slag: 2 } as Ratchets };
+  const bankedBelt = row(
+    previewRows(levelForRun(bankedMix), levelForRun(bankedMix), bankedMix.ratchets), "belt")!;
+  check("a banked material stays on the belt list with nothing selected",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(",") === "slag",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(","));
+  check("a banked material quotes its notch count",
+    (bankedBelt.parts ?? [])[0]?.notches === 2,
+    String((bankedBelt.parts ?? [])[0]?.notches));
+  // THE TALLY IS NOT THE BANK, and the yard is why the two are separate
+  // arguments. `banked` promotes an axis's rows to core and active, which is
+  // right on a draft and wrong in the yard (main.ts's refitHTML: four unmoved
+  // pressure tiles push the rows the ORDER moved off a landscape phone). The
+  // yard passes an empty bank and the run's notches as the tally, so its belt
+  // breakdown can say "slag, taken twice, 12% of the belt" without a single
+  // row changing kind.
+  const quoted = previewRows(
+    levelForRun(bankedMix), levelForRun(bankedMix), {}, bankedMix.ratchets);
+  check("a quoted tally puts the notch count on the breakdown",
+    (row(quoted, "belt")!.parts ?? [])[0]?.notches === 2,
+    String((row(quoted, "belt")!.parts ?? [])[0]?.notches));
+  check("…and promotes nothing while it does it",
+    quoted.every((r) => !r.active) && row(quoted, "belt")!.kind === "context",
+    quoted.filter((r) => r.active).map((r) => r.id).join(","));
+  check("a material nothing has touched is not on the list",
+    (row(rowsFor(["cryo"]), "belt")!.parts ?? []).every((p) => p.id !== "tar"));
+  // Only the belt row breaks down: every other row is one number, and a `parts`
+  // list on one of them would be a second grammar for the same tile.
+  check("nothing but the belt carries parts",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(",") === "belt",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(","));
 
   // Two notches at Mark 10 project as one bay, not as two separate promises.
   const both = rowsFor(["cost", "time"]);
@@ -2599,7 +3915,20 @@ section("Draft gating (mods.ts + meta.ts)");
   const liveUnlocks = UNLOCKS.filter((u) => !u.retired);
   const total = liveUnlocks.reduce((a, u) => a + u.cost, 0)
     + INSTALLS.reduce((a, i) => a + i.cost, 0);
-  check(`the shelf costs ${total} salvage`, total === 445, String(total));
+  // 445 until the Thaw Lance added the eighth install at 50; 495 until the
+  // Impact Cushion added the ninth at 70. The proposal that argued for both
+  // also argued the ceiling: TWO more systems at the 70 band would have taken
+  // this to 585 against 600 of tier income and closed the slack to nothing.
+  // What shipped is one at 50 and one at 70 — 565, i.e. 35 of slack — because
+  // the two are not the same kind of system and meta.ts's INSTALLS says which
+  // is which: a single-axis counter with a measured ceiling is not worth a tier
+  // plus its run win, and one that answers two axes is.
+  //
+  // The EXPECTED total is typed into the label, not interpolated from `total`.
+  // It used to read `${total}` on both sides, so the message a failure printed
+  // agreed with itself no matter what broke and the reader had to go and look
+  // up the number the check wanted.
+  check("the shelf costs 575 salvage", total === 575, String(total));
   // Rank is what the Workshop groups by, and it promises rising price. A rank-2
   // unlock cheaper than a rank-1 would sort into a band it undercuts.
   const maxOf = (r: number) => Math.max(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
@@ -2683,6 +4012,103 @@ section("Tier milestones pay the salvage (meta.ts)");
   // and any future count of "floors sealed" reads high.
   const again = recordRunEnd(clean.meta, 1, true, 5, 0);
   check("re-flying a sealed Mark clean seals it once", again.meta.sealedMarks.length === 1);
+
+  // ---- A RUN THAT ENDS TWICE ---------------------------------------------
+  // The game-over card's Retry Bay hands the SAME run back (main.ts's
+  // retryBay), so a run can reach recordRunEnd twice: once as the loss that
+  // opened the card, once as whatever it becomes afterwards. Everything here is
+  // idempotent under that except the lifetime run COUNT, which counts runs and
+  // not endings — RunState.filed is what says "this one is already on the
+  // books" and `refiled` is what carries it in.
+  {
+    const start = newMeta();
+    // Bay 7 kills it. Filed: one run, deepest bay 7, nothing sealed.
+    const died = recordRunEnd(start, 1, false, 7, 0).meta;
+    check("the loss is filed as one run", died.runs === 1 && died.bestBay === 7);
+    // Retry, then the distance. Same run, second filing, one retry on it.
+    const finished = recordRunEnd(died, 1, true, RUN_LEVELS, 1, true);
+    check("a resumed run is still one run", finished.meta.runs === 1,
+      `${finished.meta.runs} runs`);
+    check("...and still banks the tier it won", finished.meta.tierRunDone
+      && finished.salvage === share);
+    check("...and still reaches the bay it reached", finished.meta.bestBay === RUN_LEVELS);
+    // THE PRICE. This is the whole of what a retry costs, and the notice the
+    // player is shown once (screens.ts's sealBreakModal) promises exactly this
+    // pair: the seal goes, the tier does not.
+    check("...but cannot be sealed", !finished.meta.sealedMarks.includes(1));
+    // The control: the identical run with no retry on it seals, so the check
+    // above is measuring the retry rather than something else about the path.
+    check("...where the same run flown clean would have sealed",
+      recordRunEnd(died, 1, true, RUN_LEVELS, 0, true).meta.sealedMarks.includes(1));
+    // …and `refiled` is the ONLY thing the flag changes. Two filings of the
+    // same shape differ in the run counter and in nothing else, or the flag has
+    // grown a second meaning nobody declared.
+    const counted = recordRunEnd(died, 1, true, RUN_LEVELS, 1, false).meta;
+    check("refiling changes the run count and nothing else",
+      counted.runs === died.runs + 1
+        && JSON.stringify({ ...counted, runs: 0 })
+          === JSON.stringify({ ...finished.meta, runs: 0 }));
+  }
+
+  // ---- THE SEALS ARE THE SKYDECK'S KEY (meta.ts's skydeckOpen) ------------
+  // The gate #124 shipped was "the ladder is beaten". It is now "the ladder is
+  // beaten AND every Mark is sealed", because a ladder can be beaten with a
+  // retry on every bay — the roof would have been handed to a player who had
+  // never flown a bay they could not restart, which is precisely what the roof
+  // asks for on the day (skydeck.ts: no yard, no chosen difficulty, one
+  // attempt).
+  {
+    const allMarks = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
+    const beaten: MetaState = { ...newMeta(), mark: MARK_COUNT };
+    check("the ladder beaten alone no longer opens the roof", !skydeckOpen(beaten));
+    check("...and it is the seals that are missing",
+      unsealedMarks(beaten).length === MARK_COUNT);
+    const sealedNotBeaten: MetaState = { ...newMeta(), mark: MARK_COUNT - 1, sealedMarks: allMarks };
+    // The near-miss that makes the second condition load-bearing rather than
+    // decorative: a Mark-10 WIN seals Mark 10 the moment it lands, while `mark`
+    // only reaches MARK_COUNT once that tier's Contracts land too. Ten seals
+    // and two owed Contracts is not a beaten ladder.
+    check("every seal without a beaten ladder does not open it either",
+      unsealedMarks(sealedNotBeaten).length === 0 && !skydeckOpen(sealedNotBeaten));
+    const both: MetaState = { ...beaten, sealedMarks: allMarks };
+    check("both together open it", skydeckOpen(both));
+    // One missing seal shuts it again — the gate is the SET, not a count that
+    // could be satisfied by a duplicate or an out-of-range entry.
+    check("one missing seal shuts it",
+      !skydeckOpen({ ...both, sealedMarks: allMarks.filter((m) => m !== 4) }));
+    check("...and a duplicate does not stand in for it",
+      !skydeckOpen({ ...both, sealedMarks: [...allMarks.filter((m) => m !== 4), 3] }));
+    // ACCESS IS NOT POWER, which is what keeps the seal inside the rule the
+    // section above states. The roof banks no salvage and ticks no tier
+    // (run.ts's tracksLadder), so nothing a seal opens can make a later run
+    // numerically stronger.
+    check("what the seals open still pays nothing",
+      !tracksLadder(skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)))));
+
+    // THE ROOF'S OWN CEREMONY. It used to ride on the Mark's watermark, because
+    // beating Mark 10 WAS the roof opening; the two events have come apart, so
+    // the roof needs its own — and it fires once.
+    check("the roof owes a ride the moment it opens", pendingSkydeck(both));
+    check("...and a shut roof owes none", !pendingSkydeck(beaten));
+    const ridden = skydeckCelebrated(both);
+    check("...and only one", !pendingSkydeck(ridden));
+    check("...burning it is idempotent", skydeckCelebrated(ridden) === ridden);
+  }
+
+  // ---- THE ONE-TIME SEAL NOTICE ------------------------------------------
+  // A bay retry has always cost the seal silently. It cannot stay silent now
+  // that the seals open a door, so the cost is quoted once, ever, on a
+  // watermark — see screens.ts's sealBreakModal for why once and not always.
+  {
+    check("a fresh save is owed the notice", sealBreakOwed(newMeta()));
+    const shown = sealBreakShown(newMeta());
+    check("...and is owed it exactly once", !sealBreakOwed(shown));
+    check("...showing it again changes nothing", sealBreakShown(shown) === shown);
+    // It is a WATERMARK and nothing else: it must not be able to move a number
+    // the ladder reads, or a message would have become a currency.
+    check("the notice moves no progression",
+      JSON.stringify({ ...shown, sealBreakSeen: false }) === JSON.stringify(newMeta()));
+  }
 
   let contractsOnly = { meta: newMeta(), completedTier: null as number | null, salvage: 0 };
   for (const c of board(1)) {
@@ -3148,6 +4574,71 @@ section("Layout solver (layout.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("Open sky above the field (layout.ts skyTop)");
+// The reported bug: fullscreen on a 16:9 desktop or TV drew a black band across
+// the top of the screen and the field stopped short of it. Nothing was broken
+// in the solver — the band IS the letterbox, and at exactly 16:9 it exists
+// because "snug" reserves a rail band out of the WIDTH, which costs height when
+// the world is refitted. The renderer then clipped every layer to the world
+// rect, so the band could only ever be backdrop colour.
+//
+// engine.ts's top boundary is deliberately OPEN (pieces fly above y=0 and fall
+// back in, the side walls span y=-SKY..H to keep them in the shaft), so the
+// band was capping a shaft the physics treats as unbounded. skyTop is how far
+// above the world's own top edge the canvas reaches, in world px — the number
+// the background bake and the render clip open upward by, so the sky reaches
+// the top of the screen at every aspect.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+  const cases: [string, number, number][] = [
+    ["1080p fullscreen", 1920, 1080],
+    ["4K fullscreen", 3840, 2160],
+    ["960x540 window", 960, 540],
+    ["16:10 laptop", 1600, 1000],
+    ["4:3 tablet", 1024, 768],
+    ["21:9 phone", 2400, 1080],
+    ["19.5:9 phone", 2556, 1179],
+    ["short phone", 960, 400],
+  ];
+  for (const [name, w, h] of cases) {
+    const l = computeLayout(w, h);
+    const top = skyTop(l.scale, l.oy);
+    // THE invariant: map the sky's top edge back through the very transform
+    // render() draws with. It must land at or above the canvas's first row —
+    // if it lands below, that difference is the black band the player sees.
+    const topCss = l.oy + top * l.scale;
+    check(`${name} paints the sky to the canvas top`, topCss <= 0, `${topCss.toFixed(2)}px of bare backdrop`);
+    // ...and it may only ever open UPWARD. A positive skyTop would crop the
+    // world's own first rows, which is the same bug pointing the other way.
+    check(`${name} never crops the world's top`, top <= 0, String(top));
+    // Nothing is opened that the viewport does not actually show: the sky is
+    // the letterbox band converted to world px and one px of overdraw, never a
+    // fixed slab bolted above the field.
+    const band = l.oy / l.scale;
+    check(`${name} opens only the band it has`, -top <= band + 2 + 1e-9, `${(-top).toFixed(2)} world px for a ${band.toFixed(2)} px band`);
+  }
+
+  // Why this is not a rounding curiosity: 1920x1080 is the world's OWN aspect,
+  // and it still letterboxes, because the rail band comes out of the width
+  // before the world is fitted. 23.6 CSS px at 1080p, and the same 23.6 at 4K
+  // — a band that survives every resolution the player might pick.
+  check("16:9 fullscreen still letterboxes (this is why the sky exists)",
+    computeLayout(1920, 1080).oy > 20, String(computeLayout(1920, 1080).oy));
+  // A viewport whose height is fully used has no band to open, and opens
+  // EXACTLY nothing — every landscape phone comes out of this pixel-identical,
+  // rather than pixel-identical-plus-a-rounding-margin.
+  const wide = computeLayout(2400, 1080);
+  check("a height-filling viewport opens no sky at all", wide.oy === 0 && skyTop(wide.scale, wide.oy) === 0,
+    `${wide.oy} / ${skyTop(wide.scale, wide.oy)}`);
+  // The world is 1280x720 and the sky is measured in the same units — a sanity
+  // rail against a future change that starts returning CSS px here.
+  check("the sky is measured in world px", Math.abs(skyTop(1, 100) - -101) < 1 + 1e-9, String(skyTop(1, 100)));
+  check("the sky scales with the field", skyTop(2, 100) > skyTop(1, 100), `${skyTop(2, 100)} vs ${skyTop(1, 100)}`);
+  check("the world's own height is untouched by the sky", WORLD.height === 720);
+}
+
+// ---------------------------------------------------------------------------
 section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
 // The regression this guards: a fixed worst-case budget (8 slots, counting the
 // aim-state cancel) needs a 410px column at the 44px floor, which priced the
@@ -3173,6 +4664,7 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
       target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
       timeLeftMs: 150_000, pieceSize: "std",
       bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+      thawOwned: true, thawCharges: 4,
       autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
     });
     const rail = hud.slice(hud.indexOf('class="side-rail"'), hud.indexOf('class="bay-banner"'));
@@ -3197,46 +4689,75 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   }
 
   check("a bare rail is the four base buttons",
-    railSlotsFor({ bond: false, demo: false, auto: false }) === RAIL_SLOTS_BASE);
+    railSlotsFor({ bond: false, demo: false, thaw: false, auto: false }) === RAIL_SLOTS_BASE);
   check("each drafted ability adds exactly one slot",
-    railSlotsFor({ bond: true, demo: false, auto: false }) === 5 &&
-    railSlotsFor({ bond: true, demo: true, auto: false }) === 6 &&
-    railSlotsFor({ bond: true, demo: true, auto: true }) === RAIL_SLOTS_MAX);
+    railSlotsFor({ bond: true, demo: false, thaw: false, auto: false }) === 5 &&
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: false }) === 6 &&
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: false }) === 7 &&
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: true }) === RAIL_SLOTS_MAX);
+  // THE REACHABLE WORST CASE IS SEVEN, NOT EIGHT, and the distinction is what
+  // keeps the 360dp phone on a vertical rail below.
+  //
+  // railSlotsFor can express four abilities, so RAIL_SLOTS_MAX is 8 and the
+  // clamp has to be. A RUN cannot build four: the Autoloader is written by
+  // exactly one thing (mods.ts's `autoloader`, which sets level.autoLaunchMs),
+  // and nothing in a shipped run calls applyMods any more — hazards.ts's
+  // ratchet draft replaced the mod draft, and neither run.ts's levelForRun nor
+  // contracts.ts's levelForContract touches it. So the deepest live rail is
+  // fullscreen + pause + two rotates + Bond Breaker + Demolition + Thaw Lance.
+  //
+  // Pinned rather than commented, because it is the premise the layout pins
+  // below stand on: if a fourth ability ever becomes reachable, this fails
+  // first and names the reason, instead of a 360dp phone quietly losing its
+  // rail in a build nobody measured.
+  check("the deepest rail a RUN can build is seven slots",
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: false }) === RAIL_SLOTS_MAX - 1);
   check("fine pointers budget only fullscreen + pause",
-    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true }) === 2);
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true, finePointer: true }) === 2);
   // Where no fullscreen toggle mounts at all (the native shells, iPhone
   // Safari — platform.ts's fullscreenSupported), the budget must not reserve
   // its slot: screens.ts renders no button there, and an empty slot is field
   // width given away for nothing.
   check("no fullscreen toggle (native shells) frees its slot",
-    railSlotsFor({ bond: false, demo: false, auto: false, fullscreen: false }) === RAIL_SLOTS_BASE - 1 &&
-    railSlotsFor({ bond: true, demo: true, auto: true, fullscreen: false }) === RAIL_SLOTS_MAX - 1);
+    railSlotsFor({ bond: false, demo: false, thaw: false, auto: false, fullscreen: false }) === RAIL_SLOTS_BASE - 1 &&
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: true, fullscreen: false }) === RAIL_SLOTS_MAX - 1);
   check("a fine pointer without fullscreen budgets the pause button alone",
-    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true, fullscreen: false }) === 1);
-  check("the budget clamps to the seven-slot worst case",
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true, finePointer: true, fullscreen: false }) === 1);
+  check("the budget clamps to the eight-slot worst case",
     (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
   // Floor of ONE: the pause-only rail (fine pointer, no fullscreen toggle) is
   // a real budget and must survive the clamp — see setRailSlots.
   check("the budget clamps at the one-button floor",
     (setRailSlots(0), getRailSlots() === 1));
   check("the pause-only budget survives the clamp",
-    (setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: true, fullscreen: false })),
+    (setRailSlots(railSlotsFor({ bond: false, demo: false, thaw: false, auto: false, finePointer: true, fullscreen: false })),
       getRailSlots() === 1));
 
   // The reported device: a 360dp-tall Android phone (2376x1080 @3x) in
-  // fullscreen Chrome. It must keep the vertical side rail at every loadout —
-  // at the full seven-slot draft the column fits its 360px exactly
-  // (7x44 + 6x6 + 16 = 360).
-  for (const slots of [RAIL_SLOTS_BASE, 5, 6, RAIL_SLOTS_MAX]) {
+  // fullscreen Chrome. It must keep the vertical side rail at every loadout a
+  // RUN CAN BUILD — and at the deepest of those, seven slots, the column fits
+  // its 360px exactly (7x44 + 6x6 + 16 = 360). That equality is the whole
+  // budget: it has no slack, which is why the loop stops at seven and why the
+  // pin above states that seven is the ceiling a run can reach.
+  const LIVE_RAIL_MAX = RAIL_SLOTS_MAX - 1;
+  for (const slots of [RAIL_SLOTS_BASE, 5, 6, LIVE_RAIL_MAX]) {
     setRailSlots(slots);
     const l = computeLayout(792, 360);
     check(`792x360 keeps the side rail with ${slots} buttons`, l.mode === "wide", l.mode);
   }
+  // …and an EIGHTH slot does not fit, which is the arithmetic the budget reform
+  // was built on (8x44 + 7x6 + 16 = 410 against 360). Asserted rather than left
+  // implicit: the reform's own note says a permanently-budgeted worst case
+  // priced the rail off this phone, and this is the line that keeps saying so
+  // while RAIL_SLOTS_MAX is 8 again.
+  setRailSlots(RAIL_SLOTS_MAX);
+  check("792x360 could not hold an eighth", computeLayout(792, 360).mode !== "wide",
+    computeLayout(792, 360).mode);
 
   // A 16:9 phone has no natural gutter: the solver must still prefer the
   // reserved RIGHT band (vertical rail) over the bottom strip while the
   // column fits...
-  setRailSlots(RAIL_SLOTS_MAX);
+  setRailSlots(LIVE_RAIL_MAX);
   check("640x360 reserves a right band, not the bottom", computeLayout(640, 360).mode === "snug",
     computeLayout(640, 360).mode);
   // ...and fall back to the bottom strip only when it genuinely cannot
@@ -3250,7 +4771,7 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // The budget must never move the field mid-aim: the cancel swap keeps the
   // slot count constant, so the same viewport at the same budget is the same
   // layout — aiming state is invisible to the solver by construction.
-  setRailSlots(RAIL_SLOTS_MAX);
+  setRailSlots(LIVE_RAIL_MAX);
 }
 
 section("Contract plant panel (screens.ts hudHTML)");
@@ -3268,6 +4789,7 @@ section("Contract plant panel (screens.ts hudHTML)");
     tier: null, target: 800, score: 200, launchCost: 0, bayNum: 1,
     timeLimitSec: 0, timeLeftMs: 0, pieceSize: "std" as const,
     bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
     autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
   };
   const progress = { tier: 1, runDone: false, contracts: 0, needed: 3, award: 45, milestone: 15 };
@@ -3444,6 +4966,7 @@ section("The dial collapse (screens.ts collapsingDial + app.css)");
     tier: 2, target: 800, score: 40, launchCost: 25, bayNum: 3,
     timeLimitSec: 150, timeLeftMs: 0, pieceSize: "std" as const,
     bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
     autoloaderOwned: false, ratchets: {} as Ratchets, tiers: newTiers(),
     contract: null,
   };
@@ -3617,12 +5140,26 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
+    systemCursor: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
     BINDABLE_ACTIONS.every((a) => kb.includes(`data-bind="${a}"`)));
   check("the keyboard tab carries the wheel-rotates toggle",
     kb.includes('data-toggle="wheelRotates"'));
+  // …and the pointer's own switch, beside it. The keyboard tab IS the
+  // fine-pointer family's pane (its comment in screens.ts says so, and the
+  // mouse rows above the toggles are the proof), which makes it the one pane
+  // in the app where a switch about the mouse cursor is not an orphan. It is
+  // also the pane that can afford a row: #controls-grid is on sim/uifit's
+  // scroll allowlist and the Settings toggle column is not.
+  check("the keyboard tab carries the system-pointer toggle",
+    kb.includes('data-toggle="systemCursor"'));
+  check("...and no OTHER tab does — a touch or pad pane has no cursor to hand back",
+    !controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-toggle="systemCursor"')
+      && !controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null })
+        .includes('data-toggle="systemCursor"'));
   check("a capturing row says so",
     controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
       .includes("Press a key…"));
@@ -3836,6 +5373,1180 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
   check("a narrow-but-tall window bottoms the scale without going compact",
     narrow.uiScale === UI_SCALE_MIN && narrow.density === "regular",
     `${narrow.uiScale} / ${narrow.density}`);
+
+  // A viewport 460px tall or shorter can never be magnified, and app.css leans
+  // on that: the menu's phone pin for --brand-w is written as
+  // `@media (max-height: 460px)`, i.e. a VIEWPORT query standing in for a
+  // question about the BOX the chrome is laid out in. The two are the same
+  // number only while zoom is 1, and down here it provably is — 460/720 is
+  // 0.64, and chromeZoom takes the smaller axis ratio and clamps it up to 1.
+  // If the reference box ever grew past 720, this fails before the phones
+  // silently start rendering a rule written for a box they no longer have.
+  for (const w of [640, 792, 915, 1280, 2560, 4000]) {
+    check(`a ${w}px-wide viewport 460px tall is not magnified`,
+      computeLayout(w, 460).chromeZoom === 1, String(computeLayout(w, 460).chromeZoom));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The HUD's per-frame writes (main.ts syncHud, app.css bar fills)");
+// Painting the DOM HUD is worth about 33fps of a 120Hz frame on the CPH2573 —
+// measured on the device, interleaved, in a live bay, and written up in
+// docs/superpowers/specs/2026-08-27-background-layer-split-design.md. The same
+// document measured that gating syncHud to every eighth frame recovers 21.3 of
+// them, and refused to call that the fix: a flat clock throttles the reload bar
+// and the bay clock along with everything else, and those are the two readouts
+// a player would notice stuttering. What shipped instead is a split by KIND —
+// the things that move every frame move through `transform`, everything else
+// writes only when its value changes.
+//
+// sim/hudperf is where that is measured (mutation counts per frame, off the
+// live loop in a real browser). What is pinned HERE is the part that has no
+// browser in it: the SHAPE the two files have to keep for those measurements to
+// stay true. A bar fill respelled back to `width` would pass every check in
+// sim/uifit — the box is identical either way, which is the point — and would
+// quietly put the layout engine back in the frame path.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const src = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+
+  /** One rule's declaration block, by exact selector text. Comments are already
+   *  stripped above, so a selector quoted inside a comment cannot match. */
+  const rule = (selector: string): string => {
+    const at = css.indexOf(`\n${selector} {`);
+    if (at < 0) return "";
+    return css.slice(at, css.indexOf("}", at) + 1);
+  };
+
+  // THE THREE FILLS. Each is a full-width element scaled about its left edge.
+  // `width: 100%` is as load-bearing as the transform: a fill left at `width:
+  // 0%` would be scaled from nothing and would never appear at all, which is
+  // the failure a half-applied revert produces.
+  for (const sel of [".pl-goal i", ".pl-load__track i", ".pl-pwr__fill"]) {
+    const body = rule(sel);
+    check(`${sel} is a full-width fill scaled about its left edge`,
+      body.includes("width: 100%") &&
+        /transform:\s*scaleX\(/.test(body) &&
+        /transform-origin:\s*left/.test(body),
+      body ? body.replace(/\s+/g, " ").slice(0, 160) : "rule not found");
+  }
+
+  // THE TRANSITIONS. The goal bar keeps one, because it is written on a payout
+  // and the slide is the payout. The two that are rewritten every frame lost
+  // theirs: a transition retargeted before it can finish is lag plus
+  // main-thread work, not smoothing. Either way it must never name `width`,
+  // which would animate layout for the length of the transition.
+  check("the goal bar's slide transitions the transform, not the width",
+    /transition:\s*transform\b/.test(rule(".pl-goal i")) &&
+      !/transition:[^;]*\bwidth\b/.test(rule(".pl-goal i")));
+  for (const sel of [".pl-load__track i", ".pl-pwr__fill"]) {
+    check(`${sel} carries no transition — it is rewritten every frame`,
+      !/transition:/.test(rule(sel)), rule(sel).replace(/\s+/g, " ").slice(0, 160));
+  }
+
+  // PROMOTION IS SCOPED. A layer held for the life of the bay is memory a phone
+  // does not have spare, so each fill is promoted only while it is the thing
+  // that is moving — the reload fill while the cannon is NOT ready, the PWR
+  // meter while a drag is live. A bare `.pl-load__track i { will-change }`
+  // would pass a naive "is it promoted" check and be the regression.
+  check("the reload fill is promoted only while it is reloading",
+    /\.pl-load:not\(\.ready\) \.pl-load__track i \{[^}]*will-change:\s*transform/.test(css) &&
+      !/^\.pl-load__track i \{[^}]*will-change/m.test(css));
+  check("the PWR fill is promoted only while a drag is live",
+    /\.hud--aiming \.pl-pwr__fill \{[^}]*will-change:\s*transform/.test(css) &&
+      !/^\.pl-pwr__fill \{[^}]*will-change/m.test(css));
+
+  // THE MARKUP'S STARTING STATE has to be spelled the way syncHud will spell
+  // it. If the HTML says `width:0%` and the first syncHud writes a transform,
+  // the bar renders at full width until that first frame lands — and on a
+  // screen that renders the HUD without ever running syncHud (the draft and
+  // refit overlays mount it behind them), it stays there.
+  const hud = hudHTML({
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: { bomb: false, type: "L" as const, quarterTurns: 1, empty: false, hidden: false, material: "standard" as const },
+    tier: null, target: 800, score: 200, launchCost: 20, bayNum: 1,
+    timeLimitSec: 180, timeLeftMs: 180_000, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
+    autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
+  });
+  check("the goal bar mounts empty, as a scale",
+    hud.includes('id="hud-goal" style="transform:scaleX(0)"'));
+  check("the reload bar mounts full, as a scale",
+    hud.includes('id="hud-load" style="transform:scaleX(1)"'));
+  check("no HUD element mounts carrying an inline width",
+    !/style="[^"]*width:/.test(hud), (hud.match(/style="[^"]*width:[^"]*"/) ?? [""])[0]);
+
+  // THE FUNCTION ITSELF. Two source properties, because there is no rAF and no
+  // compositor in this process and the shape is what can be asserted: syncHud
+  // writes no layout property inline, and every cache it keeps is dropped in
+  // one place. The second is the one that fails silently — a guard whose cache
+  // outlives its element does not throw, it leaves the new element on the
+  // stylesheet default for as long as the value it guards holds still.
+  const bodyOf = (name: string): string => {
+    const at = src.indexOf(`private ${name}(`);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = src.indexOf("{", at);
+    const start = i;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}" && --depth === 0) return src.slice(start, i + 1);
+    }
+    return "";
+  };
+  const sync = bodyOf("syncHud").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("syncHud exists and writes no geometry inline",
+    sync.length > 0 && !/\.style\.(width|height|top|left|right|bottom|margin|padding)\b/.test(sync),
+    (sync.match(/\.style\.\w+/g) ?? []).join(" "));
+  const forget = bodyOf("forgetHudCache");
+  check("every HUD cache is dropped in one place",
+    forget.includes("hudNodes.clear()") &&
+      forget.includes("hudShown.clear()") &&
+      forget.includes("abilityShown.clear()") &&
+      forget.includes("timeSecShown"),
+    forget.replace(/\s+/g, " ").slice(0, 200));
+  const render = bodyOf("renderOverlay");
+  check("...and renderOverlay drops them before it rewrites the overlay",
+    render.indexOf("forgetHudCache()") >= 0 &&
+      render.indexOf("forgetHudCache()") < render.indexOf("overlay.innerHTML ="));
+  // The clock is the third class in the split: it changes every frame and is
+  // read once a second. The bucket has to be formatMMSS's own arithmetic or
+  // the readout turns over on a different frame than the string says it does.
+  check("the clock is bucketed at the second it displays",
+    /Math\.max\(0,\s*Math\.ceil\(g\.timeLeftMs \/ 1000\)\)/.test(sync),
+    "syncHud no longer buckets #hud-time at whole seconds");
+  // The ability triggers are the one readout hudEl's cache cannot reach (two
+  // elements per ability, either can be absent), so the guard has to sit in
+  // front of the SELECTORS, not just the writes.
+  const ability = bodyOf("syncAbility").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("an unchanged ability never reaches querySelectorAll",
+    ability.indexOf("abilityShown") >= 0 &&
+      ability.indexOf("abilityShown") < ability.indexOf("querySelectorAll"),
+    ability.replace(/\s+/g, " ").slice(0, 200));
+}
+
+// ---------------------------------------------------------------------------
+section("The odometer (app.css .roll — the lift's readouts)");
+// Riding the tower changes the tier plate's number AND the destination panel's
+// four readouts, and one shared mechanism rolls all five so the screen makes
+// one move rather than five. The parts worth pinning are the ones that would
+// break silently: the motion is a TRANSFORM (a roll that laid out would drag
+// the panel's grid for the length of every ride), the curve is one token the
+// car also uses (two copies would drift and the panel would stop travelling
+// with the lift), reduced motion keeps the value and drops the travel, and the
+// cells inherit their host's truncation.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css");
+  const tokens = styles("tokens.css");
+
+  // ONE CURVE, ONE TOKEN. The whole point of this change is that the panel
+  // reads as travelling WITH the car, which is only true while the two share an
+  // easing. They were the same literal cubic-bezier in two rules before this;
+  // a token is what stops one of them being tuned alone.
+  check("the lift's easing is a token, not a literal repeated per rule",
+    /--roll-ease:\s*cubic-bezier\([^)]*\)/.test(tokens),
+    "no --roll-ease in tokens.css");
+  // Comments stripped first — the prose around these rules names the curve to
+  // explain which motions deliberately do NOT use it, and a mention is not a
+  // second copy.
+  const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const literals = [...cssBare.matchAll(/cubic-bezier\(0\.34,\s*1\.28,\s*0\.64,\s*1\)/g)].length;
+  check("...and no rule still carries that curve as a literal", literals === 0,
+    `${literals} literal copies left in app.css`);
+  const usesEase = [...css.matchAll(/transition:[^;]*var\(--roll-ease\)/g)].length;
+  check("the car and the odometer both ride it", usesEase >= 2, `${usesEase} user(s)`);
+
+  // THE LAYOUT CONTRACT, the same one the loss dial's keyframes are held to.
+  // The track is transformed; nothing here may animate a box. A `height` or
+  // `top` in this transition would move the panel's whole grid for the length
+  // of every ride, on a screen whose column budgets are measured to the pixel.
+  const rollRule = css.slice(css.indexOf(".is-rolling .roll {"));
+  const rollBody = rollRule.slice(rollRule.indexOf("{") + 1, rollRule.indexOf("}"));
+  // The WHOLE shorthand, split on its own TOP-LEVEL commas. Two traps here and
+  // this check fell into both while it was being written: `transition` takes a
+  // LIST, so reading only the first property lets `transform ..., height ...`
+  // sail straight past — and a naive split on every comma tears
+  // `var(--roll-dur, 355ms)` in half and reports the fallback as an animated
+  // property. Depth-tracking is what distinguishes a list separator from a
+  // comma inside a function.
+  const transitionList = rollBody.match(/transition:\s*([^;]+);/)?.[1] ?? "";
+  const segments: string[] = [];
+  let depth = 0;
+  let seg = "";
+  for (const ch of transitionList) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { segments.push(seg); seg = ""; continue; }
+    seg += ch;
+  }
+  segments.push(seg);
+  const animated = segments.map((s) => s.trim().split(/\s+/)[0]).filter(Boolean);
+  check("the roll animates transform and nothing else",
+    animated.length > 0 && animated.every((p) => p === "transform"), animated.join(", "));
+
+  // The cell height is a VARIABLE with a 1em default, and that is load-bearing
+  // rather than tidy: the plate's number sets `line-height: 1` so 1em is its
+  // line box, while .bay-stat__val inherits `normal` and measures 13px against
+  // its 11px font. A hard-coded 1em would crop every readout by 2px while it
+  // rolled. main.ts measures the resting box and passes it in.
+  // BOTH boxes, counted — the window and the cells inside it. Asserting the
+  // pattern merely EXISTS passes while one of the two is hard-coded, and a
+  // hard-coded window with variable cells is precisely the 2px crop this is
+  // here to prevent.
+  const sized = [...css.matchAll(/height:\s*var\(--roll-h,\s*1em\)/g)].length;
+  check("both the roll's window and its cells take the overridable height",
+    sized >= 2, `${sized} of the 2 boxes use var(--roll-h, 1em)`);
+
+  // Reduced motion: the theatre goes, the teaching stays. With no transition
+  // the track is laid out at its END offset on the first frame, so the new
+  // value is simply there — which is the same treatment the plate has always
+  // had, and the reason this is one line rather than a second set of keyframes.
+  const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)",
+    css.indexOf(".is-rolling .roll {")));
+  check("reduced motion drops the travel and keeps the value",
+    /\.is-rolling \.roll\s*\{\s*transition:\s*none/.test(reduced.slice(0, 200)),
+    reduced.slice(0, 160).trim());
+
+  // Each cell keeps its host's truncation. `.bay-stat__val` ellipsizes — the
+  // clock's "2:24 · 10 bays" is over budget on the narrowest phones and
+  // sim/uifit warns about exactly that — and that behaviour lives on the
+  // element whose contents the roll replaces, so without this the longest
+  // readout would grow its cell and push the track out of its own window.
+  check("a rolling cell inherits the readout's own truncation",
+    /\.roll > b\s*\{[^}]*white-space:\s*inherit[^}]*text-overflow:\s*inherit/.test(css),
+    "the roll's cells do not inherit white-space/text-overflow");
+
+  // WHY THE UNCHANGED-VALUE GATE EXISTS, stated as the fact that forces it.
+  // A track of two identical cells does not look still while it moves: at any
+  // offset you see the bottom of one copy above the top of the other, so an
+  // unchanged readout would spend the ride torn in half to say nothing. Every
+  // adjacent Mark step changes all four values — the ride the gate is FOR is
+  // the one to the roof, which moves the two MONEY cells (level.ts's Skydeck
+  // step reads the target and launch curves one rung further along) and leaves
+  // the clock and the bonds exactly where the capstone had them. A per-cell
+  // gate is the only thing that renders that trip legibly, which is why
+  // rollBayStats pairs the panels by label and skips the unchanged ones.
+  //
+  // This check used to read the other way: while the roof quoted the capstone's
+  // bay OUTRIGHT, no cell moved on that ride at all. The owner's playtest is
+  // what separated them, and the pin moved with the balance rather than being
+  // deleted — the mechanism it guards is the same one either way.
+  const statsFor = (tier: number): string[] => {
+    const html = S.baseBayPanelHTML({ tier, best: 0 });
+    return [...html.matchAll(/class="bay-stat__val"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  };
+  const top = statsFor(MARK_COUNT);
+  const roof = statsFor(S.SKYDECK_TIER);
+  check("the ride to the roof moves the money cells",
+    top.length === 4 && roof.length === 4 && top[0] !== roof[0] && top[1] !== roof[1],
+    `${JSON.stringify(top)} vs ${JSON.stringify(roof)}`);
+  check("...and holds the clock and the bonds still, which is what the gate is for",
+    top[2] === roof[2] && top[3] === roof[3],
+    `${JSON.stringify(top.slice(2))} vs ${JSON.stringify(roof.slice(2))}`);
+  // ...and the adjacent Marks are the opposite case, so the gate can never be
+  // mistaken for "this panel never animates".
+  let movedEverywhere = true;
+  for (let m = 2; m <= MARK_COUNT; m++) {
+    const a = statsFor(m - 1), b = statsFor(m);
+    if (a.some((v, i) => v === b[i])) movedEverywhere = false;
+  }
+  check("...while every adjacent Mark step changes all four", movedEverywhere,
+    "some adjacent pair shares a readout, so a normal ride would hold one still");
+
+  // --- THE ROLL RUNS ON THE LIFT'S CLOCK ------------------------------------
+  // The half of this mechanism that lives in main.ts, and the one a screenshot
+  // cannot catch: WHEN the tracks start and when they are allowed to be taken
+  // away. `pickTier` starts the car and registers the landing timeout in one
+  // tick, and the tracks used to arm two requestAnimationFrames later — so
+  // every ride tore the five tracks down before their own transitions had
+  // finished, by exactly the arming delay. Measured on the built app before the
+  // fix, riding four floors at 640ms: the transitions began at t+64.6ms and
+  // would have ended at t+704.6, while setSelectedTier rebuilt the panel at
+  // t+649.0, and `transitionend` never fired at all because removal cancels it.
+  //
+  // The delay is not a fixed two frames either; it is however long two frames
+  // happen to take, on a menu that is simultaneously running the attract demo's
+  // physics. That is the case worth pinning: at a steady 60Hz the theft is
+  // ~33ms and barely visible, and on a stuttering frame it is whatever the
+  // stutter was.
+  //
+  // Read out of main.ts because it is a SOURCE property — there is no rAF, no
+  // transition and no compositor in this process, so what can be asserted is
+  // that the code cannot reintroduce the shape that caused it.
+  const mainTs = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const bodyOf = (name: string): string => {
+    const at = mainTs.indexOf(`private ${name}(`);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = mainTs.indexOf("{", at);
+    const start = i;
+    for (; i < mainTs.length; i++) {
+      if (mainTs[i] === "{") depth++;
+      else if (mainTs[i] === "}" && --depth === 0) return mainTs.slice(start, i + 1);
+    }
+    return "";
+  };
+  const rollFn = bodyOf("roll").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const armBody = bodyOf("armRolls").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const pickBody = bodyOf("pickTier").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  check("the roll builder exists and no longer arms on a frame callback",
+    rollFn.length > 0 && !/requestAnimationFrame/.test(rollFn),
+    "roll() still defers `is-rolled` to requestAnimationFrame");
+  // Arming is one synchronous flush for all five, which is what makes "the
+  // plate and the four readouts start on the same tick" a property rather than
+  // a coincidence. Two forced reads: one to commit the start offset (what the
+  // rAF pair was really for), one to create the transitions inside this task.
+  check("...they are armed together, synchronously, by armRolls",
+    armBody.length > 0 && !/requestAnimationFrame/.test(armBody)
+      && /is-rolled/.test(armBody),
+    "armRolls() is missing or does not add is-rolled itself");
+  check("...with a forced reflow either side of the arm",
+    (armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length >= 2,
+    `${(armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length} forced layout reads in armRolls`);
+
+  // ORDER, inside pickTier: arm, then register the landing timer. Registering
+  // first would spend part of the ride's budget before the tracks exist.
+  const armAt = pickBody.indexOf("this.armRolls()");
+  const timerAt = pickBody.search(/setTimeout\(\s*land/);
+  check("pickTier arms the rolls before it starts the landing timer",
+    armAt >= 0 && timerAt >= 0 && armAt < timerAt, `arm@${armAt} timer@${timerAt}`);
+
+  // THE PROPERTY ITSELF: the teardown asks the tracks whether they are done.
+  // A transition created inside a task is not given its start time until the
+  // next rendering update, so even a synchronous arm finishes up to a frame
+  // after `setTimeout(dur)` fires — this is what closes that last frame, at any
+  // refresh rate rather than at 60Hz only.
+  check("the landing waits out whatever travel the rolls still owe",
+    /rollRemainingMs\(\)/.test(pickBody) && /setTimeout\(\s*land/.test(pickBody),
+    "pickTier lands on a bare timer with no completion check");
+  const remBody = bodyOf("rollRemainingMs").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("...measured off the animations themselves, counting only running ones",
+    /getAnimations\(\)/.test(remBody) && /playState/.test(remBody),
+    "rollRemainingMs does not read the tracks' own animations");
+  // Only RUNNING animations may count, and that is what keeps the two states
+  // with no travel from waiting forever for one: reduced motion sets
+  // `transition: none` (so there is no animation at all) and a transition
+  // cancelled by a second tap is not running either. A version that waited on
+  // `transitionend` instead would hang on both.
+  check("...so reduced motion and cancelled rolls land on time",
+    /playState\s*!==\s*"running"/.test(remBody),
+    "rollRemainingMs counts animations that are not running");
+}
+
+// ---------------------------------------------------------------------------
+section("The menu's demo panel is an equation (app.css --brand-cap)");
+// The home screen's attract panel is 16:9 and shares its column with a shelf
+// that has a hard floor, so its width is not a taste decision — it is the
+// solution of a budget. It used to be a STAIRCASE of height media queries
+// instead: 360px under a 620px-tall viewport, 640px at 700 and over, and a
+// 440px default filling the band between. Read as a function of height that
+// middle step is only reachable between box heights 621 and 699, which is a
+// band no row in sim/uifit/devices.ts had — and exactly the band a desktop
+// shell window lands in once the OS titlebar comes off a 1280x720 frame. The
+// panel drew itself 440 wide in a 658px column and the shelf under it hit its
+// per-row cap, which is the dead band a player reported from windowed Electron.
+//
+// Two files own halves of this now: the equation lives in app.css and the
+// magnification it is written against lives in layout.ts. Read the stylesheet
+// back rather than trusting a comment to stay true — same instrument the dial
+// collapse uses on its keyframes.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css");
+  const tokens = styles("tokens.css");
+
+  const spacing = (n: number): number => {
+    const m = tokens.match(new RegExp(`--sp-${n}:\\s*(\\d+)px`));
+    if (!m) throw new Error(`--sp-${n} is not in tokens.css`);
+    return Number(m[1]);
+  };
+
+  // THE CONTAINER THE EQUATION READS. `100cqh` needs a size container above it,
+  // and if .menu stops being one the unit does not error — it silently falls
+  // back to the small viewport height, which in a magnified subtree is the raw
+  // window rather than the divided box the chrome is laid out in. That is a
+  // wrong panel on every tablet and every desktop, with nothing to see in the
+  // diff but a deleted line. So the line is pinned.
+  const menuRule = css.slice(css.indexOf("\n.menu {"), css.indexOf("\n.menu__brand {"));
+  check("the menu row is a size container, so 100cqh means the column's height",
+    /container-type:\s*size/.test(menuRule),
+    menuRule.slice(0, 200).trim());
+
+  // THE TRACK HAS TO BE THE COLUMN'S OWN WIDTH, not the row's leftover, and
+  // this is the second half of the same defect the equation fixed. The
+  // equation caps the stack off the column's HEIGHT; a `1fr` brand track knows
+  // nothing about that cap, so on any window where it bites the track was
+  // wider than everything in it and the difference was drawn as backdrop
+  // between the brand stack and the tower — the reported "gap left of the
+  // elevator", 86.5px at 1269x663 and 24.5px on a Pixel 7.
+  //
+  // Nothing in sim/uifit can see it: a hole inside a grid area overflows
+  // nothing, clips nothing, scrolls nothing and overlaps nothing. It is a
+  // stylesheet fact, so it is pinned as one.
+  //
+  // COMMENTS OUT FIRST. The prose beside these two declarations quotes both of
+  // them by name — a check that read the raw slice would pass on its own
+  // justification, which is the most convincing way there is to assert nothing
+  // at all (proven: deleting the rule left the check green until this line
+  // existed).
+  const menuBody = menuRule.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("the brand track is sized to the column's cap, not to the row's leftover",
+    /--split-cols:\s*minmax\(0,\s*max-content\)\s*var\(--tower-w\)\s*var\(--rail-w\)/.test(menuBody),
+    (menuBody.match(/--split-cols:.*/) ?? ["--split-cols is not declared on .menu"])[0].trim());
+  // ...and what the track no longer takes is spent as OUTER margin rather than
+  // left in the row, which is the same trick the max-width beside it plays and
+  // the reason the three columns stay adjacent at every size.
+  check("...and the surplus goes outside the row, not between its columns",
+    /justify-content:\s*center/.test(menuBody),
+    menuBody.trim().slice(0, 300));
+
+  const brandRule = css.slice(css.indexOf("\n.menu__brand {"));
+  const brandBody = brandRule.slice(brandRule.indexOf("{") + 1, brandRule.indexOf("\n}"));
+  check("--brand-cap is solved from the column's own height somewhere in the sheet",
+    /--brand-cap:\s*calc\(\(100cqh\s*-\s*var\(--brand-reserve\)\)\s*\*\s*16\s*\/\s*9\)/
+      .test(css),
+    (css.match(/--brand-cap:.*/g) ?? ["--brand-cap is not declared"]).join(" | "));
+  // ...and --brand-w is that cap clamped to the column it landed in, one clamp
+  // and no steps of its own. The split is not cosmetic: .menu sizes the brand
+  // TRACK off the cap, and a `min(100%, …)` in a `max-content` track is a
+  // percentage against an indefinite box — Chromium answers zero and the whole
+  // column collapses (measured: every row in the device matrix came out 0px
+  // wide). The percentage belongs one level in, where the box is definite.
+  // Comments out first: the prose in this stylesheet names both tokens
+  // constantly, and one paragraph ends a sentence on "--brand-w:".
+  const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("--brand-w is one clamp over the cap, and never steps",
+    (cssBare.match(/--brand-w\s*:/g) ?? []).length === 1
+      && /--brand-w:\s*min\(100%,\s*var\(--brand-cap\)\)/.test(cssBare),
+    (cssBare.match(/--brand-w:.*/g) ?? ["--brand-w is not declared"]).join(" | "));
+  // The item side of the track rule. A `max-content` track measures the item's
+  // own width declaration, so the column has to STATE the cap; `max-width:
+  // 100%` is what keeps a narrow window honest, and it can only be a
+  // percentage — inert while the track is being sized, clamping once it is
+  // definite. Drop either half and the gap comes back (without the width) or
+  // the column overflows a phone (without the max-width).
+  check("the brand column states its cap so the track can measure it",
+    /width:\s*var\(--brand-cap\);/.test(brandBody) && /max-width:\s*100%/.test(brandBody),
+    brandBody.replace(/\/\*[\s\S]*?\*\//g, "").trim().slice(0, 200));
+
+  // The solver is kept off the STACKED branch, where the equation's premise
+  // fails: `100cqh` is the whole .menu row, and the row is this column only
+  // while the grid has one row. Guarded rather than overridden downstream —
+  // an override would have to sit after the @supports block to win, which is
+  // the arrangement that made the first attempt at this fragile.
+  check("the solver is scoped away from the one-column branch",
+    /@media\s+not\s+all\s+and\s*\(max-aspect-ratio:\s*1\s*\/\s*1\)\s*\{[\s\S]{0,400}?--brand-cap:[^;]*100cqh/
+      .test(css),
+    "the 100cqh declaration is not inside a `not all and (max-aspect-ratio: 1/1)` guard");
+
+  // The reserve, read back out of the stylesheet and re-derived here. Three
+  // shelf rows is the shelf at its tallest (an entitlement entry above
+  // Leaderboard and Settings), 44px is the tap floor the whole screen is built
+  // to, and the 12px on top is the margin for a face whose rows measure taller
+  // than Chromium's — WebKit's do.
+  const floorExpr = brandBody.match(/--shelf-floor:\s*calc\(3\s*\*\s*(\d+)px\s*\+\s*2\s*\*\s*var\(--sp-3\)\)/);
+  check("the shelf floor is three tap-sized rows and the gaps between them",
+    floorExpr !== null && Number(floorExpr[1]) === 44, floorExpr?.[1] ?? "missing");
+  const shelfFloor = 3 * 44 + 2 * spacing(3);
+  check("...which is the 156px the old 640px step was derived against", shelfFloor === 156,
+    String(shelfFloor));
+
+  const reserveExpr = brandBody.match(
+    /--brand-reserve:\s*calc\(var\(--shelf-floor\)\s*\+\s*(\d+)px\s*\+\s*var\(--sp-4\)\)/,
+  );
+  check("the reserve is the floor, the cross-engine headroom and the column's gap",
+    reserveExpr !== null, brandBody.trim().slice(0, 200));
+  const reserve = shelfFloor + Number(reserveExpr?.[1] ?? 0) + spacing(4);
+  check("the reserve comes to 184px", reserve === 184, String(reserve));
+
+  // THE IDENTITY THAT MAKES THIS A REFACTOR RATHER THAN A REDESIGN. In the
+  // authored 1280x720 box the brand column is 544px tall and 640px wide, and
+  // the equation returns exactly the 640 the deleted step declared by hand. So
+  // every viewport the old step governed — every tablet, 1512x945, 1920x1080,
+  // 2560x1080, all of them magnified to the same 720px box — lands on the same
+  // number it landed on before, and only the band that had no step moves.
+  const AUTHORED_COLUMN_H = 544;
+  const panel = (columnH: number): number => ((columnH - reserve) * 16) / 9;
+  check("the equation reproduces the authored 640px panel exactly",
+    panel(AUTHORED_COLUMN_H) === 640, String(panel(AUTHORED_COLUMN_H)));
+  // ...and the shelf it leaves is the 168px the old comment quoted: 12 more
+  // than its floor, which is where that 12 came from.
+  check("...leaving the shelf 12px over its floor",
+    AUTHORED_COLUMN_H - panel(AUTHORED_COLUMN_H) * 9 / 16 - spacing(4) === shelfFloor + 12,
+    String(AUTHORED_COLUMN_H - panel(AUTHORED_COLUMN_H) * 9 / 16 - spacing(4)));
+
+  // The reported window, which is what the whole change is for. 1269x663 is a
+  // 1280x720 desktop-shell frame minus the titlebar; its brand column measures
+  // 505.7px tall and 658.5px wide (sim/uifit's own row measures both). The old
+  // 440px default left a THIRD of that column empty beside the panel; the
+  // equation spends it.
+  const REPORTED_COLUMN_H = 505.7;
+  const REPORTED_COLUMN_W = 658.5;
+  const reported = Math.min(REPORTED_COLUMN_W, panel(REPORTED_COLUMN_H));
+  check("the reported windowed size grows the panel well past the old 440px default",
+    reported > 560 && reported < REPORTED_COLUMN_W, String(reported));
+  check("...and still leaves the shelf its floor",
+    REPORTED_COLUMN_H - reported * 9 / 16 - spacing(4) >= shelfFloor,
+    String(REPORTED_COLUMN_H - reported * 9 / 16 - spacing(4)));
+
+  // The 16/9 in the equation is the panel's own aspect ratio, not a constant
+  // that happens to look right. If the panel is ever redrawn to another shape
+  // the equation is wrong by exactly the difference, silently.
+  const demoRule = css.slice(css.indexOf(".menu__demo.is-live {"));
+  check("the equation's 16/9 is the panel's own aspect-ratio",
+    /aspect-ratio:\s*16\s*\/\s*9/.test(demoRule.slice(0, demoRule.indexOf("\n}"))),
+    demoRule.slice(0, 300).trim());
+
+  // The wordmark rode the same staircase (31px under 700px tall, 42 above) and
+  // is one number now for the same reason. A second cap coming back is a second
+  // thing keyed to a height the panel no longer answers to.
+  check("the wordmark's plate clamp is one cap, not a staircase",
+    (css.match(/font-size:\s*clamp\(8px,\s*6\.8cqw,\s*\d+px\)/g) ?? []).length === 1,
+    String((css.match(/font-size:\s*clamp\(8px,\s*6\.8cqw,\s*\d+px\)/g) ?? []).length));
+
+  // --- ...and the engine that cannot solve it -------------------------------
+  // THE DEPLOYMENT TARGET IS THE WHOLE REASON THE STEPS ARE STILL HERE.
+  // Container queries reached WKWebView in Safari 16; this app ships to iOS
+  // 15, so a supported device parses this stylesheet with no container units
+  // at all and has to be handed the staircase instead. Read the target out of
+  // the Xcode project rather than trusting the comment beside the CSS: the day
+  // someone raises it to 16 the fallback becomes dead weight, and this is the
+  // check that says so out loud instead of leaving it to rot.
+  const pbx = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "ios", "App",
+      "App.xcodeproj", "project.pbxproj"),
+    "utf8",
+  );
+  const targets = [...pbx.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g)].map((m) => parseFloat(m[1]));
+  check("the iOS deployment target is still readable from the Xcode project",
+    targets.length > 0, String(targets.length));
+  const CONTAINER_QUERY_IOS = 16;
+  check("...and still below the iOS that has container queries, so the steps are load-bearing",
+    Math.min(...targets) < CONTAINER_QUERY_IOS, `min target ${Math.min(...targets)}`);
+
+  // The fallback CANNOT be two declarations of the same custom property, which
+  // is what this rule tried first and what a review caught. A custom property's
+  // value is an untyped token stream, so an engine with no `cqh` still accepts
+  // the declaration and still lets it win on source order; the unit is only
+  // rejected when `width: var(--brand-w)` is substituted, and an
+  // invalid-at-computed-value-time `width` falls back to `auto`, not to the
+  // earlier declaration. Measured: on the reported 1269x663 window that took
+  // the brand column to 552.6px inside a 505.7px row — a 47px overflow under
+  // .screen's `overflow: hidden`, worse than the band the change set out to
+  // fix. So: exactly one --brand-w in .menu__brand's own block.
+  const ownBlock = brandBody.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("the brand rule declares --brand-cap once, not as a two-declaration fallback",
+    (ownBlock.match(/--brand-cap\s*:/g) ?? []).length === 1,
+    String((ownBlock.match(/--brand-cap\s*:/g) ?? []).length));
+
+  // Every container-unit use of --brand-w lives inside a feature query. Cut the
+  // @supports blocks out and no `cq*` unit may be left setting this token.
+  //
+  // Comments come out FIRST, and that is not tidiness — the prose beside these
+  // rules discusses @supports by name, and a brace-matcher that starts from the
+  // first literal "@supports" in the file starts inside a comment and swallows
+  // every rule between there and the next closing brace. It did exactly that on
+  // the first run of this check, which is how the two step assertions below
+  // went red against a stylesheet that already had them.
+  const stripSupports = (s: string): string => {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      const at = s.indexOf("@supports", i);
+      if (at < 0) { out += s.slice(i); break; }
+      out += s.slice(i, at);
+      let depth = 0, j = s.indexOf("{", at);
+      for (; j < s.length; j++) {
+        if (s[j] === "{") depth++;
+        else if (s[j] === "}" && --depth === 0) { j++; break; }
+      }
+      i = j;
+    }
+    return out;
+  };
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const noSupports = stripSupports(noComments);
+  check("stripping @supports leaves the rest of the stylesheet intact",
+    noSupports.includes(".menu__brand") && noSupports.length > noComments.length * 0.9,
+    `${noSupports.length} of ${noComments.length} chars survived`);
+  // No leading \b on the unit: a CSS length is `100cqh`, and a digit and a `c`
+  // are both word characters, so `\bcq` can never match a unit where it is
+  // actually used. Written with \b, this check was green against a solver
+  // moved out of its @supports — proven by the wordmark copy of it below
+  // failing its red-proof — so the boundary is only kept on the trailing edge,
+  // where `cqh` vs `cqhX` is a real distinction.
+  check("no --brand-cap outside a feature query uses a container unit",
+    !/--brand-cap\s*:[^;]*cq(h|w|i|b|min|max)\b/.test(noSupports),
+    (noSupports.match(/--brand-cap\s*:[^;]*cq[a-z]+[^;]*/g) ?? []).join(" | "));
+  // ...and the solver really is behind one, rather than simply absent.
+  check("the solved --brand-cap sits inside an @supports for container units",
+    /@supports\s*\(\s*width:\s*1cq[a-z]+\s*\)/.test(css)
+      && /--brand-cap\s*:[^;]*100cqh/.test(css),
+    "no @supports (width: 1cq*) guarding the solver");
+
+  // STRIP THE ENHANCEMENT AND THE OLD SCREEN HAS TO BE UNDERNEATH IT. These are
+  // the three steps this change replaced, and an iOS 15 device gets exactly
+  // them; the simulated run (cq units stubbed out) reproduces staging's panel
+  // at all eight sampled sizes. Asserted on the stripped stylesheet so that
+  // deleting a step "because the equation covers it" fails here rather than on
+  // a device nobody in this repo owns.
+  for (const [label, re] of [
+    ["440px default", /\.menu__brand\s*\{[^}]*--brand-cap:\s*440px/],
+    ["360px step under a 620px-tall viewport",
+      /@media\s*\(max-height:\s*620px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap:\s*360px/],
+    ["640px step at 700px and over",
+      /@media\s*\(min-height:\s*700px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap:\s*640px/],
+  ] as [string, RegExp][]) {
+    check(`the pre-container-query base still carries its ${label}`, re.test(noSupports),
+      "missing from the stylesheet with @supports stripped");
+  }
+  // The two thresholds must not OVERLAP. They are read back rather than
+  // assumed: if someone nudged the step-down past the step-up, both queries
+  // would match on the same viewport and the answer would come down to which
+  // rule happened to be later in the file. The band they leave between them is
+  // deliberate — it is where the 440px default lives, and on a modern engine it
+  // is exactly where the equation takes over.
+  const stepDown = noSupports.match(/@media\s*\(max-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap/);
+  const stepUp = noSupports.match(/@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-cap/);
+  check("the stepped fallback's two thresholds do not overlap",
+    stepDown !== null && stepUp !== null && Number(stepDown[1]) < Number(stepUp[1]),
+    `${stepDown?.[1] ?? "?"} / ${stepUp?.[1] ?? "?"}`);
+
+  // --- the LIVE WORDMARK rides the same two-layer arrangement ---------------
+  // Its plate clamp above is the ENHANCEMENT, and for a while it was the only
+  // sizing the plate had: no fallback at all, so an engine without container
+  // units dropped the declaration whole and the base .menu__title's headline
+  // clamp won — 52.9px inside a box built for ~25 on a OnePlus 7T (WebView 87,
+  // the engine class iOS 15 ships). These three checks are the two --brand-cap
+  // guards above, applied to the wordmark, plus the mirroring claim its
+  // fallback comment makes.
+  // The BASE declaration is asserted with the @media blocks cut out too, not
+  // just @supports. The first draft of this check matched anywhere in
+  // noSupports, and the two min-height step rules satisfied it on their own —
+  // green with the base deleted, which is exactly the viewport that found the
+  // bug: a landscape phone is ~384px tall, below both steps, and gets ONLY the
+  // base. The stripper is stripSupports with the at-keyword parameterised; the
+  // comment stripping it depends on has already happened by this line.
+  const stripAt = (s: string, kw: string): string => {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      const at = s.indexOf(kw, i);
+      if (at < 0) { out += s.slice(i); break; }
+      out += s.slice(i, at);
+      let depth = 0, j = s.indexOf("{", at);
+      for (; j < s.length; j++) {
+        if (s[j] === "{") depth++;
+        else if (s[j] === "}" && --depth === 0) { j++; break; }
+      }
+      i = j;
+    }
+    return out;
+  };
+  check("stripping @supports AND @media still leaves the live wordmark a size of its own",
+    /\.menu__demo\.is-live\s+\.menu__title\s*\{[^}]*font-size:\s*clamp\(8px,\s*6\.8vw,/
+      .test(stripAt(noSupports, "@media")),
+    "no unconditional vw fallback — a short cqw-less viewport gets the headline clamp again");
+  // Outside a feature query, a container-unit font-size is legal in exactly
+  // one shape: the SECOND of two font-size declarations in one block, where
+  // the first is the cq-free fallback the engine keeps when it rejects the cq
+  // one — the base .menu__title is that shape and must stay legal. Anything
+  // looser — a lone cq declaration, or one whose only siblings are also cq —
+  // strands a cqw-less engine on whatever earlier rule happens to match, which
+  // is the 52.9px wordmark this section exists to remember. Blocks are leaf
+  // bodies: @supports is stripped already, and @media interiors surface as
+  // their own leaves.
+  const looseCqFonts: string[] = [];
+  for (const m of noSupports.matchAll(/\{[^{}]*\}/g)) {
+    const decls = [...m[0].matchAll(/font-size\s*:[^;}]*/g)].map((d) => d[0]);
+    for (let i = 0; i < decls.length; i++) {
+      if (!/cq(h|w|i|b|min|max)\b/.test(decls[i])) continue;
+      if (!decls.slice(0, i).some((d) => !/cq(h|w|i|b|min|max)\b/.test(d)))
+        looseCqFonts.push(decls[i]);
+    }
+  }
+  check("every container-unit font-size outside a feature query has a fallback declared before it",
+    looseCqFonts.length === 0, looseCqFonts.join(" | "));
+  // The fallback's steps answer to the PANEL's staircase — a plate 6.8% of a
+  // panel that is 360/440/640 by height has to change caps exactly where the
+  // panel changes width. Read both sets of thresholds back and compare, so
+  // moving the panel staircase without the wordmark fails here rather than as
+  // a plate quietly one band out of step on an engine nobody at the desk runs.
+  const wmSteps = [...noSupports.matchAll(
+    /@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__demo\.is-live\s+\.menu__title\s*\{\s*font-size:\s*clamp\(8px,\s*6\.8vw,/g,
+  )].map((m) => Number(m[1]));
+  check("the wordmark fallback steps exactly where the panel staircase steps",
+    stepDown !== null && stepUp !== null
+      && wmSteps.length === 2
+      && wmSteps[0] === Number(stepDown[1]) + 1
+      && wmSteps[1] === Number(stepUp[1]),
+    `wordmark steps at ${wmSteps.join(", ")} vs panel ${stepDown?.[1]}/${stepUp?.[1]}`);
+}
+
+// ---------------------------------------------------------------------------
+section("The build rack's plate is ONE shape (app.css --plate-w)");
+// The plate is authored 40 wide by 69.3 tall — 0.577 — and four passes of
+// shaving took the WIDTH to 24 while the height never moved, because every
+// constraint that forced a pass was horizontal. That drift is what "the
+// systems in the HUD are all squashed small" was, and stating the shape as a
+// RATIO fixed it. Then a SEVEN-slot rig reported the marks going backwards on
+// a phone, which was the other half of the same rule being wrong: the width
+// answered to a flat 40 --fpx cap and a budget measured for ten slots, so
+// every count between four and ten, and every phone with a roomy row, was held
+// to a number some other device needed.
+//
+// Two caps now, with two different jobs, and both are measured rather than
+// chosen — see the stylesheet for the numbers. Neither this defect nor the
+// first one is visible to sim/uifit: a plate at the wrong aspect overflows
+// nothing, clips nothing and crowds no glyph (the `badge` assertion measures
+// side air, which a NARROWER box makes more of), and a rack that leaves 120px
+// of its row unspent is a rack that fits. They are stylesheet facts, so they
+// are pinned as stylesheet facts.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  // Comments out, for the reason the menu section states at length: the prose
+  // in these rules quotes its own numbers, and a check that reads them out of
+  // its own justification asserts nothing.
+  const decomment = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, "");
+  const plateRule = css.slice(css.indexOf("\n.ship-plate {"));
+  const plateBody = decomment(plateRule.slice(0, plateRule.indexOf("\n}")));
+  const compactRule = css.slice(css.indexOf('\n[data-density="compact"] .pl-mods .ship-plate {'));
+  const compactBody = decomment(compactRule.slice(0, compactRule.indexOf("\n}")));
+
+  // --- the shape ----------------------------------------------------------
+  // The AUTHORED proportion, still the number the rule turns on: 69.3/40 is
+  // 1.7325, and the compact clamp a few hundred lines up quotes the same shape
+  // from the other side ("the plate the tablet draws at 0.58:1").
+  const AUTHORED_W = 40;
+  const AUTHORED_H = 69.3;
+  const RATIO = AUTHORED_H / AUTHORED_W;
+  const height = plateBody.match(
+    /height:\s*min\(var\(--row-h\),\s*calc\(var\(--plate-w\)\s*\*\s*([\d.]+)\)\)/,
+  );
+  check("the plate's height is its width at the authored 40:69.3...",
+    height !== null && Math.abs(Number(height[1]) - RATIO) < 0.0005,
+    height?.[1] ?? plateBody.match(/height:.*/)?.[0]?.trim() ?? "no height declaration");
+  // ...CLAMPED TO THE ROW, and this is the cap that protects the panel. Left
+  // to follow the width freely the height is what grows the build row, and a
+  // bottom-anchored plant panel grows UPWARD over the play area: measured on
+  // `hud-lance` at 1269x663, four slots uncapped draw a 68.3x118.3 plate,
+  // taking the row from 81px to 135 and the panel from 285 to 315.
+  check("...and never taller than the row it sits in",
+    height !== null, plateBody.match(/height:.*/)?.[0]?.trim() ?? "no height declaration");
+  check("...with the width the shape token itself, so the two cannot drift apart",
+    /width:\s*var\(--plate-w\)/.test(plateBody),
+    plateBody.match(/width:.*/)?.[0]?.trim() ?? "no width declaration");
+  // A second --fpx coefficient on the height is exactly how the shape went
+  // stale the first time. There must not be one — the row height reaches it
+  // through --row-h, which is the ability chip's own number.
+  check("...with no independent height coefficient left to go stale",
+    !/height:[^;]*--fpx/.test(plateBody),
+    plateBody.match(/height:.*/)?.[0]?.trim() ?? "");
+
+  // --- the two allowances -------------------------------------------------
+  // WIDTH IS A BUDGET DIVIDED BY THE RACK'S OWN SLOT COUNT, capped at the row's
+  // height. That cap is the SHAPE rule: uncapped, four slots on a Pixel 7 is
+  // 78.5x25.2 and seven is 44.4x25.2 — a row of letterboxes with the mark lost
+  // in the middle. A square is where a cell stops being a cell.
+  const allowance = (body: string, label: string) => {
+    const m = body.match(
+      /--plate-w:\s*max\(\s*([\d.]+)px,\s*min\(\s*var\(--row-h\),\s*calc\(\((\d+) \* var\(--fpx\) \+ 1px\) \/ var\(--rack-slots, (\d+)\) - 1px\)\s*\)\s*\)/,
+    );
+    check(`${label}: the plate is the row's budget over its own count, capped square`,
+      m !== null && Number(m[3]) === SLOT_CAP,
+      m?.[0]?.replace(/\s+/g, " ") ?? body.match(/--plate-w:[\s\S]{0,160}/)?.[0] ?? "no --plate-w");
+    return { floor: Number(m?.[1] ?? 0), budget: Number(m?.[2] ?? 0) };
+  };
+  const reg = allowance(plateBody, "regular/roomy");
+  const compact = allowance(compactBody, "compact");
+  const rowH = (body: string) =>
+    body.match(/--row-h:\s*max\((\d+)px,\s*calc\(([\d.]+) \* var\(--fpx\)\)\)/);
+  const regRow = rowH(plateBody);
+  const compactRow = rowH(compactBody);
+
+  // THE ROW HEIGHT IS THE ABILITY CHIP'S, restated on the plate because a plate
+  // cannot query a sibling. If the two ever disagree the cap is measuring a row
+  // that does not exist, so the chip's own rule is read back here.
+  check("the regular row height the plate caps against is the chip's own",
+    regRow !== null && Number(regRow[1]) === 44 && Number(regRow[2]) === AUTHORED_H,
+    regRow?.[0] ?? "no --row-h on .ship-plate");
+  check("...and the compact one is the compact chip's",
+    compactRow !== null
+      && new RegExp(
+        `\\[data-density="compact"\\] \\.pl-mods \\.mod \\{ height: max\\(${compactRow[1]}px, calc\\(${compactRow[2]} \\* var\\(--fpx\\)\\)\\); \\}`,
+      ).test(css),
+    compactRow?.[0] ?? "no compact --row-h");
+
+  // THE BUDGETS, measured off `hud-lance` across the whole device matrix as
+  // "row width less everything else in the row, over --fpx". The rack owns the
+  // compact row outright (the BUILD tag and the ability chips are display:none
+  // there); at regular and roomy it shares, and 800x600 binds because three
+  // chips on their 44px TAP floor take a proportionally bigger bite of a small
+  // row than 58 --fpx would.
+  const MEASURED_AVAIL = { compact: 554.8, regular: 305.6 };
+  check("the compact budget fits the tightest compact row",
+    compact.budget <= MEASURED_AVAIL.compact,
+    `${compact.budget} against a measured ${MEASURED_AVAIL.compact} --fpx`);
+  check("...and spends nearly all of it — the rack owns that row",
+    compact.budget >= MEASURED_AVAIL.compact - 20,
+    `${compact.budget} of ${MEASURED_AVAIL.compact} --fpx`);
+  check("the regular budget fits the binding window (800x600)",
+    reg.budget <= MEASURED_AVAIL.regular,
+    `${reg.budget} against a measured ${MEASURED_AVAIL.regular} --fpx`);
+  check("...and spends nearly all of it",
+    reg.budget >= MEASURED_AVAIL.regular - 10,
+    `${reg.budget} of ${MEASURED_AVAIL.regular} --fpx`);
+  // Compact is the roomier row of the two by a wide margin, which is the whole
+  // reason a single flat width could not serve both.
+  check("compact really is the roomier allowance", compact.budget > reg.budget,
+    `${compact.budget} vs ${reg.budget}`);
+  check("both densities share one floor, the badge floor",
+    reg.floor === compact.floor && reg.floor === 17.5, `${reg.floor} / ${compact.floor}`);
+
+  // --- the rack always fits ----------------------------------------------
+  // At n slots the rack measures n x share + (n-1) hairline gaps, which is the
+  // budget by construction; both caps only ever make a plate smaller, so no
+  // count can overflow. Proven over every count and a spread of densities
+  // rather than argued.
+  const plateW = (n: number, fpx: number, b: { floor: number; budget: number }, rh: number): number =>
+    Math.max(b.floor, Math.min(rh, (b.budget * fpx + 1) / n - 1));
+  const REG_ROW = (f: number): number => Math.max(44, AUTHORED_H * f);
+  const COMPACT_ROW = (f: number): number => Math.max(25, 44 * f);
+  const rackW = (n: number, f: number, b: { floor: number; budget: number }, rh: (x: number) => number): number =>
+    n * plateW(n, f, b, rh(f)) + (n - 1);
+  const fits = (n: number, f: number, b: { floor: number; budget: number }, rh: (x: number) => number): boolean =>
+    rackW(n, f, b, rh) <= b.budget * f + 0.001
+      // The 17.5px floor is allowed to win on a row too small to pay for it;
+      // that is the same "floored, and the harness measures it" state the
+      // tightest phone has always been in.
+      || plateW(n, f, b, rh(f)) === b.floor;
+  const REG_FPX = [0.625, 0.78, 0.92, 1.15, 1.5];
+  const COMPACT_FPX = [0.376, 0.434, 0.5, 0.572, 0.72];
+  for (let n = 1; n <= SLOT_CAP; n++) {
+    check(`a ${n}-slot rack stays inside its row's budget at every density`,
+      REG_FPX.every((f) => fits(n, f, reg, REG_ROW))
+        && COMPACT_FPX.every((f) => fits(n, f, compact, COMPACT_ROW)),
+      REG_FPX.map((f) => `r${f}: ${rackW(n, f, reg, REG_ROW).toFixed(1)}/${(reg.budget * f).toFixed(1)}`)
+        .concat(COMPACT_FPX.map((f) =>
+          `c${f}: ${rackW(n, f, compact, COMPACT_ROW).toFixed(1)}/${(compact.budget * f).toFixed(1)}`))
+        .join(" | "));
+  }
+  // ...and where neither cap nor floor is binding it spends the WHOLE budget,
+  // which is the property the report asked for: "maximise their size". The
+  // regex above is what makes this model faithful to the stylesheet — it pins
+  // the share term character for character — and this says what that term is
+  // FOR. n = SLOT_CAP at the binding densities is the case where the budget is
+  // the only thing in charge.
+  const spendsAll = (n: number, f: number, b2: { floor: number; budget: number }, rh: (x: number) => number): boolean => {
+    const w = plateW(n, f, b2, rh(f));
+    return w === b2.floor || w === rh(f) || Math.abs(rackW(n, f, b2, rh) - b2.budget * f) < 0.001;
+  };
+  check("a rack that is neither capped nor floored spends its budget to the pixel",
+    REG_FPX.every((f) => [1, 4, 7, SLOT_CAP].every((n) => spendsAll(n, f, reg, REG_ROW)))
+      && COMPACT_FPX.every((f) => [1, 4, 7, SLOT_CAP].every((n) => spendsAll(n, f, compact, COMPACT_ROW))),
+    REG_FPX.map((f) => `r${f}: ${rackW(SLOT_CAP, f, reg, REG_ROW).toFixed(1)}/${(reg.budget * f).toFixed(1)}`)
+      .join(" | "));
+
+  // ...and the reported rig really did get bigger. Seven slots on a Pixel 7
+  // (--fpx 0.572, row height 25.2) drew 19px flat before; the square cap is
+  // what it draws now, and the mark goes with it.
+  const PIXEL7_FPX = 0.572;
+  const reported = plateW(7, PIXEL7_FPX, compact, COMPACT_ROW(PIXEL7_FPX));
+  check("the reported seven-slot phone rack is wider than the flat 19px it replaced",
+    reported > 19 * 1.25, `${reported.toFixed(1)}px`);
+  check("...and its mark grows with it, which is what the report was about",
+    reported / 2.18 > 8.5, `${(reported / 2.18).toFixed(1)}px against the 8.5px floor`);
+
+  // --- everything in the box answers to the box ---------------------------
+  // The mark is read OFF the plate at EVERY density now. It used to be
+  // restated at compact, because compact's width was a flat 19px and deriving
+  // would have lifted a mark off the floor it was on for a reason; with
+  // compact sizing from the same rule, deriving is the point. 2.18 is the
+  // 24/11 the tenth slot left behind, kept exactly.
+  check("the mark is a fixed fraction of the slot, at every density",
+    /font-size:\s*max\(8\.5px,\s*calc\(var\(--plate-w\)\s*\/\s*2\.18\)\)/.test(css)
+      && !/\[data-density="compact"\][^\n]*\.ship-plate__g/.test(decomment(css)),
+    (decomment(css).match(/\[data-density="compact"\][^\n]*ship-plate__g[^\n]*/g) ?? ["derived"]).join(" | "));
+  // ...and so do the pips, at the 5/40 the plate was authored with. They were
+  // the last thing in the box still sized off --fpx alone, which did not show
+  // while the plate WAS 40 --fpx wide.
+  const pipRule = css.match(/\.ship-plate__pips i \{[^}]*\}/)?.[0] ?? "no pip rule";
+  check("the pips are an eighth of the slot, not a coefficient of their own",
+    /width: max\(3px, calc\(var\(--plate-w(?:, [\d.]+px)?\) \/ 8\)\)/.test(pipRule)
+      && Math.abs(1 / 8 - 5 / AUTHORED_W) < 1e-9,
+    pipRule.slice(0, 120));
+
+  // --- ...and the pips are BORROWED, which the derivation nearly broke ------
+  // .ship-plate__pips is rendered by the Workshop's rack buttons as well
+  // (screens.ts's slotBtn) — the tier readout is the same readout, so sharing
+  // it is right — and those buttons are NOT inside a .ship-plate. An undefined
+  // --plate-w takes the whole `width` invalid at computed-value time, which
+  // lands it on `auto`, and an empty <i> at `auto` is ZERO: measured on the
+  // `workshop-owned` fixture, all fifteen pips on the aboard and shed slots
+  // rendered 0x0 at every viewport.
+  //
+  // Nothing in sim/uifit could see it. A pip that does not exist overflows
+  // nothing, clips nothing, scrolls nothing and is not a control, so the whole
+  // 177-row matrix stayed green over a readout that had silently gone. That is
+  // exactly the shape of defect this file exists for.
+  //
+  // Two halves, and both are pinned because either alone leaves the hole:
+  // the shared rule must be valid with no --plate-w at all, and the borrowing
+  // surface must state the slot its pips are an eighth OF.
+  const pipFallback = pipRule.match(/var\(--plate-w,\s*([\d.]+)px\)/);
+  check("the shared pip rule survives with no --plate-w in scope",
+    pipFallback !== null && Number(pipFallback[1]) === AUTHORED_W,
+    pipFallback?.[0] ?? "no fallback — a borrowing surface renders 0x0 pips");
+  const rackSlotRule = css.slice(css.indexOf("\n.rack-slot {"));
+  const rackSlotBody = decomment(rackSlotRule.slice(0, rackSlotRule.indexOf("\n}")));
+  const TAP_FLOOR = 44;
+  check("...and the Workshop's rack button states its own slot, at the tap floor",
+    new RegExp(`--plate-w:\\s*${TAP_FLOOR}px`).test(rackSlotBody),
+    rackSlotBody.trim().slice(0, 120));
+  // ...stated ONCE there, too: the button's own box reads the same token, so
+  // its width and its pips can never come to disagree about how big a slot is.
+  check("...which is the same number the button is drawn at",
+    /width:\s*var\(--plate-w\);\s*height:\s*var\(--plate-w\)/.test(rackSlotBody),
+    rackSlotBody.match(/width:[^;]*;\s*height:[^;]*/)?.[0] ?? "no width/height");
+  // The reuse audit, held so this stays the LAST instance rather than the first
+  // found. .ship-plate__g is never rendered outside a plate, and the other pip
+  // rows in the app are their own classes with their own rules.
+  const screens = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "screens.ts"),
+    "utf8",
+  );
+  const sandbox = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "sandbox-screen.ts"),
+    "utf8",
+  );
+  const components = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "components.ts"),
+    "utf8",
+  );
+  const markup = screens + sandbox + components;
+  check("the mark class is never rendered outside a plate, so it needs no fallback",
+    (markup.match(/class="ship-plate__g"/g) ?? []).length === 1
+      && components.includes(`class="ship-plate__g"`),
+    `${(markup.match(/class="ship-plate__g"/g) ?? []).length} uses, ` +
+      `${components.includes(`class="ship-plate__g"`) ? "in components.ts" : "NOT in components.ts"}`);
+  check("...and the pips have exactly two homes: the plate and the rack button",
+    (markup.match(/class="ship-plate__pips"/g) ?? []).length === 2
+      && (screens.match(/class="ship-plate__pips"/g) ?? []).length === 1
+      && (components.match(/class="ship-plate__pips"/g) ?? []).length === 1,
+    `${(markup.match(/class="ship-plate__pips"/g) ?? []).length} uses across the three markup files`);
+  // ...and sim/uifit's badge floor still clears at the tightest slot either
+  // density can draw: air is (padding box - mark)/2 against 0.4 of the mark,
+  // i.e. the padding box must be 1.8 marks wide.
+  const BORDERS = 2;
+  const MARK_FLOOR = 8.5;
+  check("the tightest slot still clears the badge floor",
+    reg.floor - BORDERS >= 1.8 * MARK_FLOOR,
+    `${reg.floor - BORDERS} against ${1.8 * MARK_FLOOR}`);
+}
+
+// ---------------------------------------------------------------------------
+section("The scrollbar's chrome (app.css ::-webkit-scrollbar)");
+// Every assertion here guards something sim/uifit STRUCTURALLY CANNOT SEE, and
+// that is the reason the section exists rather than a preference for reading
+// CSS. Playwright launches headless Chromium with `--hide-scrollbars`
+// (node_modules/playwright-core/.../chromium.js), so across all 20 device rows
+// and every fixture the harness measures a layout in which no scrollbar is
+// drawn and none takes space. It cannot tell a styled bar from an unstyled one,
+// and — the part that matters — it cannot tell a bar that costs a phone 10px of
+// pane width from one that costs nothing. Measured by hand with that flag
+// turned back off: a coarse-pointer scroller is 0px of gutter unstyled and 10px
+// once any ::-webkit-scrollbar width exists; a fine-pointer one is 15px stock
+// and 10px styled.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Brace-match the @media (pointer: fine) block that holds the scrollbar
+  // rules, so the checks below can ask what is INSIDE it rather than merely
+  // what is somewhere in the file.
+  const gateAt = bare.search(/@media\s*\(pointer:\s*fine\)\s*\{(?=[\s\S]{0,600}::-webkit-scrollbar)/);
+  check("the scrollbar chrome is gated behind pointer: fine", gateAt >= 0,
+    "no `@media (pointer: fine)` block contains the scrollbar rules — every " +
+    "touch pane would swap its free overlay bar for a 10px one");
+  let gated = "";
+  if (gateAt >= 0) {
+    let depth = 0, j = bare.indexOf("{", gateAt);
+    for (; j < bare.length; j++) {
+      if (bare[j] === "{") depth++;
+      else if (bare[j] === "}" && --depth === 0) break;
+    }
+    gated = bare.slice(gateAt, j + 1);
+  }
+
+  // The report named the arrow buttons specifically. They are also the one part
+  // of the stock bar that is a CONTROL — under the 44px floor this app holds
+  // everywhere else, and redundant with wheel, drag and keyboard.
+  check("the stock arrow buttons are gone",
+    /::-webkit-scrollbar-button\s*\{[^}]*display:\s*none/.test(gated),
+    "no ::-webkit-scrollbar-button { display: none } inside the gate");
+
+  // THE TRAP, pinned. Chromium gives `scrollbar-color` precedence over the
+  // pseudo-elements and discards them when both are set, so declaring the
+  // standards pair "as a fallback" alongside would silently throw the whole
+  // block away on the exact engine the report came from. It is therefore only
+  // legal inside a feature query that Chromium fails.
+  const colourDecls = [...bare.matchAll(/scrollbar-color\s*:/g)].length;
+  const inSupports = [...bare.matchAll(
+    /@supports\s+not\s+selector\(\s*::-webkit-scrollbar\s*\)\s*\{[\s\S]*?scrollbar-color\s*:/g,
+  )].length;
+  check("scrollbar-color is only ever set where ::-webkit-scrollbar does not exist",
+    colourDecls > 0 && colourDecls === inSupports,
+    `${colourDecls} declaration(s), ${inSupports} inside the feature query`);
+
+  // The four strips that scroll horizontally BY DESIGN and hide their bar — the
+  // piece queue, the notch tally, the mods row and the guide's tab rail. The
+  // blanket `*::-webkit-scrollbar` would give all four a visible channel; what
+  // stops it is that each says `display: none` from a class selector, which
+  // outranks `*`. That is a specificity argument, and a specificity argument
+  // that nothing checks is a specificity argument waiting to be lost.
+  for (const sel of [".pl-queue b", ".pl-notch b", ".pl-mods", ".guide__tabs"]) {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    check(`${sel} still hides its own scrollbar`,
+      new RegExp(`${esc}(,[^{]*)?::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare)
+        || new RegExp(`[^{]*,\\s*${esc}::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare),
+      "the blanket rule would give it a visible channel");
+  }
+
+  // Colours come from the palette, not from fresh values invented in this
+  // section — the same rule the rest of the stylesheet is held to. The track and
+  // corner take a surface token; the thumb takes the accent, either as a token
+  // or as the rgba() of it the stylesheet already uses for accent washes.
+  const scrollbarBgs = [...gated.matchAll(/background(?:-color)?:\s*([^;]+);/g)].map((m) => m[1].trim());
+  const ACCENT_RGBA = "rgba(0, 240, 255";
+  const fromPalette = (v: string): boolean =>
+    v.startsWith("var(--") || v.startsWith(ACCENT_RGBA) || v === "transparent";
+  const strays = scrollbarBgs.filter((v) => !fromPalette(v));
+  check("the scrollbar's colours all come from the palette",
+    scrollbarBgs.length > 0 && strays.length === 0, strays.join(" | "));
+
+  // Square, not a pill. The largest radius anywhere in tokens.css is 3px, and a
+  // rounded thumb was half of why the stock bar read as borrowed chrome.
+  const radii = [...gated.matchAll(/border-radius:\s*var\(--r-(sm|md)\)/g)].length;
+  check("the thumb keeps the design system's square corner", radii > 0,
+    "the thumb's border-radius is not one of the --r-* tokens");
+
+  // --- CONTRAST, RECOMPUTED ------------------------------------------------
+  // WCAG 2.2 SC 1.4.11 asks 3:1 of a non-text UI component against the colour
+  // it sits on. The thumb sits on its own track, both are written as alphas
+  // over a token, and NEITHER number is legible by reading the stylesheet —
+  // `rgba(0, 240, 255, 0.22)` looks like a perfectly reasonable resting cyan
+  // and is in fact 1.60:1, which is how it shipped to review. So the ratios are
+  // derived here, from the alphas in app.css and the token in tokens.css, and
+  // the stylesheet's own comment table is the thing under test.
+  //
+  // Nothing here can be satisfied by editing a comment, and nothing about it is
+  // reachable from sim/uifit — Playwright hides scrollbars outright, so this is
+  // the only place in the repo where the bar's colours are checked at all.
+  const chan = (h: string): [number, number, number] =>
+    [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+  // The palette itself, because the alphas in app.css are meaningless without
+  // the two colours they interpolate between.
+  const paletteSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  const deepHex = paletteSrc.match(/--bg-deep:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  const accentHex = paletteSrc.match(/--accent:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  check("the scrollbar's two source colours are still tokens", !!deepHex && !!accentHex,
+    `${deepHex ?? "no --bg-deep"} / ${accentHex ?? "no --accent"}`);
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = ([r, g, b]: [number, number, number]): number =>
+    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const contrast = (a: [number, number, number], b: [number, number, number]): number => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const track = chan(deepHex ?? "#000000");
+  const accent = chan(accentHex ?? "#ffffff");
+  const composite = (alpha: number): [number, number, number] =>
+    accent.map((c, i) => Math.round(c * alpha + track[i] * (1 - alpha))) as [number, number, number];
+
+  // The three states, read in source order out of the gated block: the bare
+  // thumb rule, then :hover, then :active (which is the token at full opacity).
+  const alphaOf = (decl: string): number | null => {
+    const m = decl.match(/rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/);
+    if (m) return Number(m[1]);
+    return /var\(--accent\)/.test(decl) ? 1 : null;
+  };
+  const thumbDecls = [...gated.matchAll(/::-webkit-scrollbar-thumb(:[a-z]+)?\s*\{[^}]*?background:\s*([^;]+);/g)]
+    .map((m) => ({ state: m[1] ?? ":rest", alpha: alphaOf(m[2]) }));
+  check("all three thumb states are readable as an accent alpha",
+    thumbDecls.length === 3 && thumbDecls.every((d) => d.alpha !== null),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" "));
+
+  const WCAG_NON_TEXT = 3;
+  const rest = thumbDecls[0]?.alpha ?? 0;
+  check("the RESTING thumb clears the 3:1 non-text contrast floor against its track",
+    contrast(composite(rest), track) >= WCAG_NON_TEXT,
+    `alpha ${rest} composites to rgb(${composite(rest).join(", ")}) = ` +
+      `${contrast(composite(rest), track).toFixed(2)}:1`);
+  // Rest is the one that matters most and the one that was wrong: a control has
+  // to be FOUND before it can be hovered, so a bright hover cannot stand in for
+  // a dim rest. Asserted separately from the ramp below for exactly that reason.
+
+  // ...and the ramp above it still reads as three states. Each step is measured
+  // against the previous state rather than against the track, because what is
+  // being checked is whether the CHANGE is perceivable, not whether the end
+  // point is legible.
+  const STEP_MIN = 1.5;
+  for (let i = 1; i < thumbDecls.length; i++) {
+    const prev = composite(thumbDecls[i - 1]!.alpha ?? 0);
+    const here = composite(thumbDecls[i]!.alpha ?? 0);
+    check(`the thumb's ${thumbDecls[i]!.state} state steps visibly up from ${thumbDecls[i - 1]!.state}`,
+      contrast(here, prev) >= STEP_MIN,
+      `${contrast(here, prev).toFixed(2)}:1 between rgb(${prev.join(", ")}) and rgb(${here.join(", ")})`);
+  }
+  // Monotonic, so "climbs on approach" stays true and a future edit cannot
+  // leave hover dimmer than rest while both individually pass.
+  check("the thumb only ever gets brighter towards the pointer",
+    thumbDecls.every((d, i) => i === 0 || (d.alpha ?? 0) > (thumbDecls[i - 1]!.alpha ?? 0)),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" < "));
+
+  // FIREFOX GETS NO RAMP. `scrollbar-color` names one thumb colour and offers
+  // the page no hover or active selector, so that single value is the whole
+  // control's contrast for its whole life and has to clear the floor by itself.
+  const ffAlpha = bare.match(/scrollbar-color:\s*rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/)?.[1];
+  check("the Firefox fallback names its thumb as an accent alpha too", ffAlpha !== undefined,
+    "no rgba() thumb in the scrollbar-color declaration");
+  const ff = Number(ffAlpha ?? 0);
+  check("...and clears 3:1 on its own, having no hover state to climb to",
+    contrast(composite(ff), track) >= WCAG_NON_TEXT,
+    `alpha ${ff} composites to rgb(${composite(ff).join(", ")}) = ` +
+      `${contrast(composite(ff), track).toFixed(2)}:1`);
 }
 
 // ---------------------------------------------------------------------------
@@ -4716,6 +7427,240 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       check("the press does not dissolve a tar weld",
         welds.length === 1, `${welds.length} left`);
     }
+
+    // AND THE GRIND WAS THE OTHER HOLE. theme.ts sells rebar on three verbs —
+    // a bad landing cannot be "squeezed, shoved or shattered" into a better one
+    // — and only the shattering was enforced. settleZoneCubes reads cubes and
+    // never asked what held them together, so the press squeezed and shoved a
+    // rigid shipment onto the slot grid at full strength: not merely free, but
+    // BETTER than ordinary cargo, because a piece whose joints never break is a
+    // four-cube stamp at exact CELL spacing and every cube in it carries the
+    // same correction. See lineClear.ts's RIGID_SETTLE_ASSIST and §8 of
+    // design/balance/winnability-sweep-findings.md.
+    //
+    // The invariant, not one layout of it: a still-bonded rigid shipment is
+    // ground STRICTLY LESS than the same shipment made of ordinary cargo, and
+    // strictly more than not at all.
+    {
+      check("a rigid shipment gets a real but reduced share of the press's grind",
+        RIGID_SETTLE_ASSIST > 0 && RIGID_SETTLE_ASSIST < 1,
+        `RIGID_SETTLE_ASSIST = ${RIGID_SETTLE_ASSIST}`);
+
+      const cfg = makeBaseLevel(0);
+      const phys = createPhysics(cfg);
+      const bar = new Compactor(phys.world, cfg);
+      // Mid-press, so the grind's own preconditions (pressing, in reach) hold.
+      Matter.Body.setPosition(bar.body, { x: (bar.leftX + bar.rightX) / 2, y: bar.yCenter });
+
+      // One cube, off its slot by a third of a cell and tipped — inside both
+      // SETTLE_SLOT_TOL and SETTLE_ANGLE_CAP, i.e. exactly the correction the
+      // assist exists to make — resting on the floor row, at rest.
+      const OFFSET = CELL / 3;
+      const TILT = 0.25;
+      const place = (material: Material): { cube: Cube; joint: Matter.Constraint } => {
+        const x = WALL_INNER - CELL / 2 - CELL + OFFSET;
+        const y = WORLD.height - CELL / 2;
+        const body = Matter.Bodies.rectangle(x, y, CELL, CELL);
+        Matter.Body.setAngle(body, TILT);
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        // A partner one cell along, joined — the joint is what makes this cube
+        // part of a SHIPMENT rather than a loose cube, which is the whole test.
+        const mate = Matter.Bodies.rectangle(x - CELL, y, CELL, CELL);
+        const joint = Matter.Constraint.create({ bodyA: body, bodyB: mate, length: CELL });
+        return { cube: { body, material, struck: true, blinkStart: null } as Cube, joint };
+      };
+      // Displacement after ONE call, which is the rate the multiplier scales.
+      const groundBy = (material: Material, bonded: boolean): number => {
+        const { cube, joint } = place(material);
+        const x0 = cube.body.position.x;
+        const a0 = cube.body.angle;
+        settleZoneCubes([cube], bar, cfg, bonded ? [joint] : []);
+        return Math.abs(cube.body.position.x - x0) + Math.abs(cube.body.angle - a0) * CELL;
+      };
+
+      const rigidBonded = groundBy("rebar", true);
+      const rigidLoose = groundBy("rebar", false);
+      const plainBonded = groundBy("standard", true);
+      check("the press still works a rigid shipment — it is a knob, not a lose button",
+        rigidBonded > 0, `moved ${rigidBonded.toFixed(4)}`);
+      check("a bonded rigid shipment resists the grind an ordinary one does not",
+        rigidBonded < plainBonded,
+        `rebar ${rigidBonded.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      // THE EXIT, and the reason this is a hazard rather than a tax: a Bond
+      // Breaker removes the joints (game.ts's useBondBreaker empties
+      // this.constraints), and the cubes it freed are loose cubes from that
+      // step on. Same cube, same material, joints gone.
+      check("a Bond Breaker gives a rigid shipment the full grind back",
+        Math.abs(rigidLoose - plainBonded) < 1e-9,
+        `freed ${rigidLoose.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      // NO COLLATERAL. The gate is the MATERIAL, not `breakStretch === Infinity`
+      // — which would also catch every joint on finals.ts's unbreakable-bonds
+      // bay and re-price a Final Inspection clause by accident.
+      check("ordinary cargo is ground the same whether or not it is still bonded",
+        Math.abs(plainBonded - groundBy("standard", false)) < 1e-9);
+      for (const m of ["cryo", "volatile", "tar", "magnetic", "slag"] as Material[]) {
+        check(`${m} is untouched by the rigid grind rule`,
+          Math.abs(groundBy(m, true) - plainBonded) < 1e-9);
+      }
+      // The Final Inspection's unbreakable-bonds clause stamps EVERY joint on
+      // the bay with rebar's own Infinity (pieces.ts's pieceBreakStretch off a
+      // non-finite level breakStretch). Gating the grind on the joint would
+      // therefore re-price that clause as a side effect of re-pricing a
+      // material, which is the one thing this change is not allowed to do.
+      {
+        const { cube, joint } = place("standard");
+        (joint as unknown as { breakStretch: number }).breakStretch = Infinity;
+        const x0 = cube.body.position.x;
+        const a0 = cube.body.angle;
+        settleZoneCubes([cube], bar, cfg, [joint]);
+        const moved = Math.abs(cube.body.position.x - x0)
+          + Math.abs(cube.body.angle - a0) * CELL;
+        check("an unbreakable-bonds BAY still grinds at full strength — the gate is the material",
+          Math.abs(moved - plainBonded) < 1e-9,
+          `${moved.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      }
+
+      // THE BAR ITSELF WAS THE OTHER HALF. It is kinematic — moved by
+      // setPosition — so it advanced through a welded steel cage at exactly the
+      // pace it advances through air, and "cannot be squeezed" meant nothing on
+      // the one surface that does the squeezing. See compactor.ts's
+      // rigidPressDrag.
+      check("bar stock slows the press",
+        rigidPressDrag(4) < rigidPressDrag(0), `${rigidPressDrag(4)} vs ${rigidPressDrag(0)}`);
+      check("a clean bay's press runs at full pace",
+        rigidPressDrag(0) === 1);
+      // A RECIPROCAL, not a subtraction, and that is the floor argument
+      // hazards.ts makes for Shift Cut: an axis that can reach an unplayable
+      // bay is a lose button, not a difficulty knob. No count stops the bar.
+      check("no amount of bar stock can stop the press dead",
+        rigidPressDrag(RIGID_PRESS_DRAG_CAP * 100) > 0,
+        `${rigidPressDrag(RIGID_PRESS_DRAG_CAP * 100)}`);
+      check("the drag is monotone in what is in the way",
+        [1, 2, 3, 4, 5].every((n) => rigidPressDrag(n) < rigidPressDrag(n - 1)));
+      // THE CAP HAS TO CLEAR WHAT THE BELT ACTUALLY PRODUCES, and this is the
+      // pin that says so in the numbers rather than in the constant. Measured
+      // p90 of still-bonded rigid cubes in front of the face at Tier 10 bay 10:
+      // 4 at one notch, 11 at three, 21 at six (findings doc §8c). A cap under
+      // the top of that range folds the upper rungs into each other and the
+      // axis comes back FLAT in the notch count — which is exactly what
+      // shipping the cap at 8 did (28/28/26 of 32). Written against the
+      // measured p90s, so it goes red on the specific mistake it is guarding.
+      const P90 = { one: 4, three: 11, six: 21 };
+      check("the drag separates the notch counts the belt actually produces",
+        rigidPressDrag(P90.one) > rigidPressDrag(P90.three)
+          && rigidPressDrag(P90.three) > rigidPressDrag(P90.six),
+        `${rigidPressDrag(P90.one).toFixed(3)} / ${rigidPressDrag(P90.three).toFixed(3)}`
+        + ` / ${rigidPressDrag(P90.six).toFixed(3)} at cap ${RIGID_PRESS_DRAG_CAP}`);
+      check("the drag stops counting past its cap — a late bay is the same game",
+        rigidPressDrag(RIGID_PRESS_DRAG_CAP) === rigidPressDrag(RIGID_PRESS_DRAG_CAP + 40));
+      // A dragged stroke is a SLOW stroke, never a short one: the bar still
+      // reaches full advance and still counts. A Contract budgeted in strokes
+      // (level.ts's strokeBudget) must not be refunded or robbed by what
+      // happens to be lying in the bay.
+      {
+        const cfg2 = makeBaseLevel(0);
+        const phys2 = createPhysics(cfg2);
+        const slow = new Compactor(phys2.world, cfg2);
+        const fast = new Compactor(phys2.world, cfg2);
+        let slowSteps = 0;
+        let fastSteps = 0;
+        while (slow.strokes === 0 && slowSteps < 100_000) { slow.update(rigidPressDrag(4)); slowSteps += 1; }
+        while (fast.strokes === 0 && fastSteps < 100_000) { fast.update(); fastSteps += 1; }
+        check("a dragged press still completes its stroke",
+          slow.strokes === 1 && slow.x === slow.rightX, `${slow.strokes} strokes`);
+        check("a dragged press takes strictly longer to complete it",
+          slowSteps > fastSteps, `${slowSteps} steps vs ${fastSteps}`);
+        // Retreat is free — the bar crushes nothing on the way back, and a
+        // slow retreat would take the drag out of the player's landing window
+        // instead of out of the press's crushing pace.
+        const back = new Compactor(phys2.world, cfg2);
+        back.dir = -1;
+        Matter.Body.setPosition(back.body, { x: back.rightX, y: back.yCenter });
+        const x0 = back.x;
+        back.update(rigidPressDrag(RIGID_PRESS_DRAG_CAP));
+        const opened = x0 - back.x;
+        const ref = new Compactor(phys2.world, cfg2);
+        ref.dir = -1;
+        Matter.Body.setPosition(ref.body, { x: ref.rightX, y: ref.yCenter });
+        const refX0 = ref.x;
+        ref.update();
+        check("the drag never slows the RETREAT — it costs crushing pace, not landing window",
+          Math.abs(opened - (refX0 - ref.x)) < 1e-9);
+      }
+
+      // THE BROKE GRACE WINDOW IS A CONSUMER OF THE STROKE, and it was sized
+      // off the UNDRAGGED one. Found by review on PR #151.
+      //
+      // game.ts's brokeGraceSteps exists so that "a full line already sitting
+      // in the zone must get its pressing stroke — which pays out and un-brokes
+      // the player — before the game calls it". It spent that promise as a step
+      // count derived from Compactor.cycleSteps, which is the round trip of a
+      // bar running free. A dragged advance takes up to 1/rigidPressDrag(CAP) =
+      // 3.88x longer, so the window fired first and the bay was declared broke
+      // BEFORE the stroke that was meant to rescue it.
+      //
+      // Two pins: the arithmetic that says the floor alone cannot carry the
+      // guarantee, and the bay-level behaviour that says the guarantee holds
+      // anyway.
+      {
+        const worst = rigidPressDrag(RIGID_PRESS_DRAG_CAP);
+        const cfg3 = makeBaseLevel(0);
+        const bar3 = new Compactor(createPhysics(cfg3).world, cfg3);
+        const span = bar3.rightX - bar3.leftX;
+        // The window game.ts computes, restated rather than imported: the field
+        // is private, and a pin that read it could not fail when it is wrong.
+        const floor = Math.min(bar3.cycleSteps + 2000 / (1000 / 60), 30_000 / (1000 / 60));
+        const draggedTrip = span / (bar3.speed * worst) + span / bar3.speed;
+        check("a dragged round trip OUTRUNS the broke grace floor — the floor cannot be the guarantee",
+          draggedTrip > floor,
+          `${draggedTrip.toFixed(0)} steps vs a ${floor.toFixed(0)}-step floor`);
+      }
+      {
+        // A bay nobody can shoot in: no funds, so the stuck-broke countdown
+        // arms on the first step every cube is at rest. A wall of RIGID cargo
+        // stands in front of the face and is still bonded, so the press is
+        // dragged for the whole window.
+        const cfg4 = makeBaseLevel(0);
+        cfg4.startingFunds = 0;
+        const g4 = new Game(cfg4, {}, 1);
+        // Bonded rebar, deep enough to reach the drag cap, sat on the floor
+        // right of the face where Game.rigidPressDrag counts it.
+        for (let i = 0; i < 8; i++) {
+          const p = createTetrisPiece(
+            g4.phys.world,
+            WALL_INNER - CELL * 1.5 - (i % 2) * CELL * 2,
+            WORLD.height - CELL * (1.5 + Math.floor(i / 2) * 2),
+            0, { x: 0, y: 0 }, "O", 0.95, "std", 1.7, "rebar",
+          );
+          g4.cubes.push(...p.cubes);
+          g4.constraints.push(...p.constraints);
+        }
+        let now4 = 0;
+        let steps4 = 0;
+        // Sampled DURING the window, not after it: the verdict is the moment
+        // this pin is about, and by then the pile may have moved.
+        let worstDragSeen = 1;
+        while (g4.status === "playing" && steps4 < 20_000) {
+          now4 += 1000 / 60;
+          worstDragSeen = Math.min(worstDragSeen, g4.rigidPressDrag);
+          g4.update(now4);
+          steps4 += 1;
+        }
+        const strokesAtVerdict = g4.compactor.strokes;
+        // NOT VACUOUS: if this bay's press were running free, the pin below
+        // would pass on the OLD math too and prove nothing at all.
+        check("the pin's own bay really does drag the press",
+          worstDragSeen < 0.5, `worst drag seen ${worstDragSeen.toFixed(3)}`);
+        check("a broke bay still ends",
+          g4.status === "lost" && g4.lossReason === "broke",
+          `${g4.status}/${g4.lossReason} after ${steps4} steps`);
+        // THE GUARANTEE. Whatever the drag did to the pace, the bay does not
+        // get called before the press it was promised has been flown.
+        check("the broke verdict never lands before one completed press",
+          strokesAtVerdict >= 1, `${strokesAtVerdict} strokes at the verdict`);
+        g4.destroy();
+      }
+    }
   }
 
   // Volatile needs a HARD impact — above cryo's strike speed, or the landing
@@ -5181,13 +8126,23 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     return { phys, compactor, cubes };
   };
 
+  /* These material pins ask whether a row CLEARS, never what it is worth, so
+   * the timing context is incidental to every one of them — but updateLineClear
+   * requires it (lineClear.ts says why: a defaulted clock is what produced
+   * PR #168's fencepost). MATERIAL_CLOCK names that indifference once, so an
+   * argument that means nothing here does not read as a number to decode. A
+   * shipment of 0 caps every band it produces at SWEPT, which is exactly right
+   * for rows nothing was ever launched at. */
+  const MATERIAL_CLOCK: ClearContext = {
+    clock: { stroke: 0, halfCycle: 0, step: 0 }, congested: false, shipment: 0,
+  };
   const need = rowLevel.compactorMinLineCells;
   const allStd: Material[] = Array.from({ length: need }, () => "standard" as Material);
 
   const good = buildRow(allStd);
   check(
     "a full row of standard shipments still clears (the baseline is intact)",
-    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
+    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   // ---- The penalty path reports WHERE the cargo was lost ------------------
@@ -5226,6 +8181,43 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const economy = plain(steps.map((s) => s.body).join(" "));
     check("the coach names the lost-cargo fine",
       economy.includes(`fine $${rowLevel.penaltyPerLostPiece}`), economy);
+    // ---- All four figures, against a bay that is nothing like Tier 1 --------
+    // The check above holds ONE number and holds it against the level the rest
+    // of this block already has, so a literal left in the copy could pass by
+    // coinciding with the real economy — which is not hypothetical, the fine
+    // was equal to the launch cost until the tier ladder moved Tier 1's shot to
+    // $20. This renders the deck against figures no bay has, so a literal
+    // cannot coincide with anything, and holds all four the card quotes.
+    const oddBay = {
+      ...rowLevel,
+      launchCost: 37, scorePerLine: 143, penaltyPerLostPiece: 61, targetScore: 929,
+    };
+    const oddEconomy = plain(coachSteps(oddBay).map((s) => s.body).join(" "));
+    check("the economy card quotes THIS bay's four figures, not a remembered example",
+      oddEconomy.includes("$37") && oddEconomy.includes("$143")
+        && oddEconomy.includes("$61") && oddEconomy.includes("$929"),
+      oddEconomy);
+    // ...and the launch cost is ONE figure on TWO surfaces. The card and the
+    // panel's meta row are the only two places a player is told what a shot
+    // costs, they are on screen together for the whole tutorial, and a
+    // disagreement between them is the kind of thing a player reads as the
+    // game lying rather than as a bug. Read off the rendered panel rather than
+    // restated here, so this fails if either surface starts quoting its own
+    // number.
+    const oddHud = hudHTML({
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      tier: 1,
+      target: oddBay.targetScore, score: 0, launchCost: oddBay.launchCost, bayNum: 1,
+      timeLimitSec: 180, timeLeftMs: 180_000, pieceSize: "std",
+      bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+      thawOwned: false, thawCharges: 0,
+      autoloaderOwned: false, ratchets: {}, tiers: newTiers(), contract: null,
+    });
+    const quoted = plain(oddHud.match(/<span class="pl-meta__launch"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? "");
+    check("the tutorial and the panel quote the same launch cost",
+      quoted.trim() === `Launch $${oddBay.launchCost}` && oddEconomy.includes(`cost $${oddBay.launchCost}`),
+      `${quoted.trim()} vs the card's copy`);
     // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
     // release are one continuous drag, so they must be taught on one card —
     // split across cards they advance mid-gesture and flash past unread,
@@ -5271,6 +8263,52 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         && !failCard.toLowerCase().includes("game over"));
     check("the failure card is a scrim modal, not an in-panel step",
       failCard.includes(`class="modal-scrim"`) && failCard.includes("coach--fail"));
+
+    // ---- The card's own box, read back out of app.css -----------------------
+    // Two facts about the tutorial card live in the stylesheet and nowhere
+    // else, and both of them are invisible to sim/uifit: the harness measures
+    // the tutorial's own screens, where the card renders correctly either way.
+    //
+    // 1. THE GIVE-WAY IS THE CARD'S, NOT THE HUD'S. A card handed less room
+    //    than its content wants has to lose the tail of its body rather than
+    //    push the readout it is stacked on, and that chain (shrinkable box,
+    //    flex column, scrollable body) used to be written against
+    //    `.hud[data-coach]` — the reveal attribute main.ts stamps alongside,
+    //    but separately from, mounting the card. Scoped that way the card had
+    //    two layouts, and only the one the fixtures render was ever measured:
+    //    beside a HUD without the attribute it became a rigid block over a
+    //    full readout, which is the shape a player reported. Re-scoping is a
+    //    one-character edit, so it gets a pin.
+    // 2. THE TYPE SCALES WITH THE BOX. The card's width is the plant's,
+    //    `0.4708 * var(--field-w)`; its type was fixed px, so the two diverged
+    //    on any field wider than the authored 1280 — a 904px card carrying one
+    //    14px line at 1920x1080. `--coach-px` is the multiplier that closes
+    //    that, floored at 1px so the growth direction is the only one it can
+    //    move in, and reset to a flat pixel on the failure card, which is in a
+    //    scrim app.css already magnifies by --chrome-zoom.
+    // Comments stripped first: this section of the stylesheet argues its own
+    // history in prose, `.hud[data-coach]` and `flex-direction` included, and a
+    // selector search that reads the prose finds the rule it is looking for in
+    // a paragraph explaining why that rule is gone.
+    const coachCss = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const giveWay = /(^|\n)\.coach \{[^}]*flex:\s*0 1 auto[\s\S]*?flex-direction:\s*column[\s\S]*?min-height:\s*0[^}]*\}/
+      .test(coachCss);
+    check("the tutorial card's give-way is the card's own, not the reveal attribute's",
+      giveWay && /(^|\n)\.coach__body \{[^}]*overflow-y:\s*auto/.test(coachCss),
+      "app.css");
+    check("...so no rule hands the give-way back to `.hud[data-coach]`",
+      !/\.hud\[data-coach\][^{]*\.coach(__card|__body)?\s*,?\s*[^{]*\{[^}]*(flex-direction|overflow-y)/
+        .test(coachCss));
+    check("the card's type is a multiple of the field's own pixel",
+      /--coach-px:\s*max\(1px,\s*var\(--fpx\)\)/.test(coachCss)
+        && /\.coach__body \{[^}]*font-size:\s*calc\(14 \* var\(--coach-px\)\)/.test(coachCss)
+        && /\.coach__title \{[^}]*font-size:\s*calc\(13 \* var\(--coach-px\)\)/.test(coachCss),
+      "app.css");
+    check("...and the failure card takes the scrim's magnification instead",
+      /\.coach--fail \{[^}]*--coach-px:\s*1px/.test(coachCss), "app.css");
   }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic
@@ -5289,19 +8327,19 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   alignMagnetic(magnets.cubes, WORLD.height - CELL / 2);
   check(
     "a magnetic row survives the align pass and still clears",
-    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, []).lines === 1,
+    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   const withSlag = buildRow(allStd.map((m, i) => (i === 3 ? "slag" : m)));
   check(
     "one slag cube denies the whole row",
-    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, []).lines === 0,
+    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 0,
   );
 
   const withCold = buildRow(allStd.map((m, i) => (i === 5 ? "cryo" : m)));
   check(
     "one COLD cryo cube denies the row",
-    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, []).lines === 0,
+    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 0,
   );
 
   // ...and the same row clears once it has been struck. This is the pair that
@@ -5310,7 +8348,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   for (const c of thawed.cubes) if (c.material === "cryo") c.struck = true;
   check(
     "striking the cryo cube makes the identical row clear",
-    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, []).lines === 1,
+    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   // ---- Striking ------------------------------------------------------------
@@ -5386,6 +8424,416 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("THE THAW LANCE — what a charge takes (lineClear.ts / game.ts)");
+// ---------------------------------------------------------------------------
+// The lance is cryo's bought counter, and its whole design is a targeting rule:
+// one charge takes THE CUBE THE PRESS IS ABOUT TO REACH. Everything below is
+// that rule and its three exclusions, each of which is a wasted charge rather
+// than a nicety — a stranded cube would swallow the whole rack, a cube above
+// the bar is never pressed, and a cube in flight is a shipment the player has
+// not landed yet.
+{
+  const lanceLevel = makeBaseLevel(0);
+  /** A row of cubes at the bottom, left-to-right from the wall (k = 0 is
+   *  hard against the wall, higher k is nearer the launcher). The advancing
+   *  face travels toward the wall, so the HIGHEST k is the cube it meets
+   *  first — which is what makes "smallest x" the press-order rule. */
+  const lanceRow = (materials: Material[]) => {
+    const phys = createPhysics(lanceLevel);
+    const compactor = new Compactor(phys.world, lanceLevel);
+    while (compactor.x < compactor.rightX) compactor.update();
+    compactor.dir = 1;
+    const cubes: Cube[] = [];
+    const rowY = WORLD.height - CELL / 2;
+    materials.forEach((material, k) => {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(phys.world, body);
+      cubes.push({
+        body, type: "O", color: "#fff", blinkStart: null,
+        material, struck: material !== "cryo",
+      });
+    });
+    return { phys, compactor, cubes };
+  };
+
+  // --- The targeting rule ---------------------------------------------------
+  {
+    const two = lanceRow(["cryo", "standard", "cryo"]);
+    const picked = nextColdCryo(two.cubes, two.compactor);
+    check("the lance takes the frozen cube the press reaches FIRST",
+      picked === two.cubes[2],
+      picked ? String(Math.round(picked.body.position.x)) : "none");
+    // The negative half, and the one that matters: "first in the array" is the
+    // rule the prototype used, and it is a DIFFERENT cube here.
+    check("...not simply the first frozen cube in the field list",
+      picked !== two.cubes[0]);
+  }
+  check("a bay with nothing frozen offers no target",
+    nextColdCryo(lanceRow(["standard", "standard"]).cubes,
+      lanceRow(["standard"]).compactor) === null);
+  {
+    const done = lanceRow(["cryo"]);
+    done.cubes[0].struck = true;
+    check("an already-thawed cube is not a target",
+      nextColdCryo(done.cubes, done.compactor) === null);
+  }
+  // EXCLUSION 1 — stranded cargo. The bar can never reach it (lineClear.ts's
+  // markLostPieces is what happens to it instead), so it never shatters and a
+  // charge spent on it buys nothing. It is also the cube with the SMALLEST x on
+  // the field, so without the cutoff it would take every charge in the rack —
+  // the exact failure the rule is written to avoid.
+  {
+    const lost = lanceRow(["cryo"]);
+    Matter.Body.setPosition(lost.cubes[0].body, {
+      x: lost.compactor.strandCutoffX - CELL,
+      y: lost.cubes[0].body.position.y,
+    });
+    check("stranded cargo is never the lance's target",
+      nextColdCryo(lost.cubes, lost.compactor) === null);
+    // …and a second, reachable cube is taken INSTEAD of it rather than the
+    // whole call being abandoned.
+    const both = lanceRow(["cryo", "cryo"]);
+    Matter.Body.setPosition(both.cubes[1].body, {
+      x: both.compactor.strandCutoffX - CELL,
+      y: both.cubes[1].body.position.y,
+    });
+    check("...and the reachable one is taken instead",
+      nextColdCryo(both.cubes, both.compactor) === both.cubes[0]);
+  }
+  // EXCLUSION 2 — above the bar's reach, the same `position.y < compactor.top`
+  // test shatterColdCryo makes. The two have to agree: the lance's whole claim
+  // is that it takes the cube that is about to be shattered.
+  {
+    const high = lanceRow(["cryo"]);
+    Matter.Body.setPosition(high.cubes[0].body, {
+      x: high.cubes[0].body.position.x, y: high.compactor.top - CELL * 2,
+    });
+    check("a cube above the bar's reach is not a target",
+      nextColdCryo(high.cubes, high.compactor) === null);
+  }
+  // EXCLUSION 3 — still moving. strikeCryo refuses a cube that is not at rest
+  // ("it is the target, not the projectile"), and a lance that thawed shipments
+  // in flight would delete the sequencing rather than pay for it.
+  {
+    const flying = lanceRow(["cryo"]);
+    Matter.Body.setVelocity(flying.cubes[0].body, { x: 0, y: -12 });
+    check("a shipment still in flight is not a target",
+      nextColdCryo(flying.cubes, flying.compactor) === null);
+  }
+
+  // --- Firing it -----------------------------------------------------------
+  //
+  // Through the real Game, not through the rule alone: what is being asserted
+  // is that a charge is spent, one cube changes state, and NOTHING else does.
+  const armedLevel = { ...makeBaseLevel(0), thawCharges: 2 };
+  const lanceGame = () => {
+    const g = new Game(armedLevel, {}, 5);
+    const row = lanceRow(["cryo", "standard", "cryo"]);
+    g.cubes.push(...row.cubes);
+    return { g, row };
+  };
+  {
+    const { g, row } = lanceGame();
+    let firedAt: { x: number; y: number } | null = null;
+    (g as unknown as { events: { onThawLance?: (at: { x: number; y: number }) => void } })
+      .events.onThawLance = (at) => { firedAt = at; };
+    const before = g.thawCharges;
+    check("a bay opens with the rack the config granted", before === 2, String(before));
+    check("firing the lance reports success", g.useThawLance(0));
+    check("...and spends exactly one charge", g.thawCharges === before - 1, String(g.thawCharges));
+    // The cube nearest the press, and ONLY it. A field-wide thaw would be a
+    // Bond Breaker for cryo, which is a different and much larger system.
+    check("...thaws the cube the press was about to reach",
+      row.cubes[2].struck && !row.cubes[0].struck);
+    check("...and announces where, so the cue can land on the cube",
+      firedAt !== null);
+    // The second charge takes the OTHER one, which is what makes the ladder a
+    // ladder: charges are comparable to the shipments they replace.
+    check("a second charge takes the next cube in press order",
+      g.useThawLance(0) && row.cubes[0].struck);
+    check("...and the rack is empty", g.thawCharges === 0, String(g.thawCharges));
+    check("an empty rack refuses, and reports it", !g.useThawLance(0));
+  }
+  // A bay with nothing frozen must not eat a charge, exactly as an all-welded
+  // field must not eat a Bond Breaker.
+  {
+    const g = new Game(armedLevel, {}, 6);
+    g.cubes.push(...lanceRow(["standard", "standard"]).cubes);
+    check("an empty bay costs no charge", !g.useThawLance(0) && g.thawCharges === 2);
+  }
+  // A ship with no lance cannot fire one, however the button is pressed.
+  check("a stock rig has no lance", !new Game(makeBaseLevel(0), {}, 7).useThawLance(0));
+
+  /* THE EVENT IS THE ONLY HONEST PLACE TO COUNT A USE, and this pin is here
+   * because the first push of this system got it wrong.
+   *
+   * The lance has FOUR triggers — the rail button, the plant chip, the keyboard
+   * binding and the pad binding — and only the first two go through the DOM.
+   * main.ts recorded the use at that DOM handler, so every keyboard and gamepad
+   * activation went uncounted and any input-profile comparison drawn from the
+   * telemetry would have under-reported the lance on exactly the profiles that
+   * use it most. (Caught in review on 393fb08; the Bond Breaker never had the
+   * bug because it is recorded on onBondBreak.)
+   *
+   * What can be pinned headlessly is the contract that makes the fix possible:
+   * the event fires once per SUCCESSFUL charge and never on a refusal. A
+   * listener wired to it therefore counts uses exactly, from any path — which
+   * is the property main.ts now relies on. Which module calls useThawLance is
+   * not reachable from here, and the comments in input.ts/gamepad.ts say why
+   * they need no record of their own. */
+  {
+    let fired = 0;
+    const armed = { ...makeBaseLevel(0), thawCharges: 1 };
+    const g = new Game(armed, { onThawLance: () => { fired += 1; } }, 9);
+    check("a bay with no target fires no event and spends nothing",
+      !g.useThawLance(0) && fired === 0 && g.thawCharges === 1);
+    g.cubes.push(...lanceRow(["cryo", "standard"]).cubes);
+    check("a landed charge fires the event exactly once",
+      g.useThawLance(0) && fired === 1, String(fired));
+    // The rack is empty now, so the refusal path is exercised with a target
+    // still on the field — the case a naive "fire if a cube is frozen" listener
+    // would miscount.
+    check("...and an empty rack fires nothing, with a target still standing",
+      !g.useThawLance(0) && fired === 1, String(fired));
+  }
+
+  // THE HALF THE LANCE DOES NOT BUY. shatterColdCryo is cryo's consequence
+  // half, and the design turns on it staying untouched: a rack of six charges
+  // is not a bay with no cryo in it. Asserted through the shatter path itself,
+  // on a cube the lance did not take.
+  {
+    const { g, row } = lanceGame();
+    g.useThawLance(0); // takes cubes[2] — the one at the face
+    // cubes[0] is deeper in and still frozen. Put IT at the face and press.
+    const face = row.compactor.x + row.compactor.width / 2;
+    Matter.Body.setPosition(row.cubes[0].body, { x: face + CELL / 2, y: row.cubes[0].body.position.y });
+    const shattered = shatterColdCryo(row.phys.world, row.cubes, row.compactor, []);
+    check("a frozen cube the lance did not take still shatters at the press",
+      shattered.cubes.length === 1, String(shattered.cubes.length));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("THE THAW LANCE — one grant, two horizons (upgrades.ts / run.ts)");
+// ---------------------------------------------------------------------------
+// The charges are sized PER BAY (upgrades.ts's THAW_CHARGES_PER_TIER measures
+// each tier against one bay's worth of frozen shipments), and the mode decides
+// what a grant is: a ladder run docks and is resupplied between bays, a Skydeck
+// run never docks and flies the rack it launched with. Both rules live in
+// advanceRun, one line apart.
+{
+  /* THE FOUR TRAILING ARGUMENTS GO WHERE THEY SAY THEY GO.
+   *
+   * advanceRun ends in four bare numbers — two STOCKS that default to what the
+   * run holds (bondsLeft, thawLeft) and two STATS that default to 0
+   * (salvagedFunds, volatileLosses) — and they alternate. Nothing in the type
+   * system can tell them apart, so inserting one, or merging two branches that
+   * each appended one, silently re-points every positional caller.
+   *
+   * That is not hypothetical: it happened on the merge that brought the
+   * volatile re-price and this system together. Both branches appended a ninth
+   * argument; the merged signature can only have one there, and six call sites
+   * in this file went on passing a lance stock into a volatile stat. Four
+   * Skydeck pins went red and named the mode, which is the pins working — but
+   * they named a SYMPTOM. This names the cause, with four values that cannot be
+   * confused for each other, so the next insertion fails here first and says
+   * which argument moved.
+   */
+  {
+    const wired = { ...newRun(11, [], 0, { ...newTiers(), bonds: 3, thaw: 3 }, 6), skydeck: null };
+    // Deliberately distinct, and none of them equal to a default: 7 bonds left
+    // of a granted 3 would be clamped, so the stock arguments are given values
+    // BELOW what the run holds and the stats are given values nothing else in
+    // the call could produce.
+    const after = advanceRun(wired, 900, 600, 4, 10, [], 1, 333, 444, 2);
+    check("advanceRun reads argument 7 as the BOND stock", after.bondCharges === 1,
+      String(after.bondCharges));
+    check("...argument 8 as the SALVAGE stat", after.salvagedFunds === 333,
+      String(after.salvagedFunds));
+    check("...argument 9 as the VOLATILE stat", after.volatileLosses === 444,
+      String(after.volatileLosses));
+    // The lance's is asserted through the SKYDECK, because that is the only
+    // mode where the argument survives to a field — a ladder run refills over
+    // it by design, which is exactly what made the merge's slip invisible on
+    // nine of this file's ten thaw pins.
+    const skyWired = skydeckRunFor({ ...newTiers(), bonds: 3, thaw: 3 }, [],
+      new Date(Date.UTC(2026, 7, 27)));
+    check("...and argument 10 as the LANCE stock",
+      advanceRun(skyWired, 900, 600, 4, 0, [], 1, 333, 444, 2).thawCharges === 2,
+      String(advanceRun(skyWired, 900, 600, 4, 0, [], 1, 333, 444, 2).thawCharges));
+  }
+
+  check("a tier's grant is THAW_CHARGES_PER_TIER a rung",
+    thawChargesFor(1) === THAW_CHARGES_PER_TIER
+    && thawChargesFor(3) === THAW_CHARGES_PER_TIER * 3,
+    String(thawChargesFor(3)));
+  check("an uninstalled lance grants none", thawChargesFor(0) === 0);
+  // The config layer states the same rule (upgrades.ts's apply), so a single
+  // bay flown headlessly gets the same rack a run's first bay does.
+  {
+    const cfg = makeBaseLevel(0);
+    applyUpgrades(cfg, { ...newTiers(), thaw: 2 });
+    check("the track grants the same charges onto a config",
+      cfg.thawCharges === thawChargesFor(2), String(cfg.thawCharges));
+    const stock = makeBaseLevel(0);
+    applyUpgrades(stock, newTiers());
+    check("an uninstalled track grants none onto a config", stock.thawCharges === 0);
+  }
+
+  const lanced = { ...newTiers(), thaw: 2 };
+  // --- THE LADDER: resupplied between bays ---------------------------------
+  {
+    const run = newRun(3, [], 0, lanced, 5);
+    check("a ladder run undocks with the tier's rack",
+      run.thawCharges === thawChargesFor(2), String(run.thawCharges));
+    check("...and the bay is flown with what the RUN holds",
+      levelForRun(run).thawCharges === run.thawCharges);
+    // Spend the lot, clear the bay, and the next bay opens full again.
+    const next = advanceRun(run, 900, 600, 4, 10, [], run.bondCharges, 0, 0, 0);
+    check("a cleared bay resupplies the ladder rack in full",
+      next.thawCharges === thawChargesFor(2), String(next.thawCharges));
+    // …and a bay that spent NOTHING is not handed more than the grant.
+    const untouched = advanceRun(run, 900, 600, 4, 10, [], run.bondCharges, 0, 0, run.thawCharges);
+    check("...and never more than the grant",
+      untouched.thawCharges === thawChargesFor(2), String(untouched.thawCharges));
+  }
+  // --- THE SKYDECK: no yard, no resupply -----------------------------------
+  //
+  // skydeck.ts's rule verbatim — "the rig that undocks is the rig that lands".
+  // A lance that refilled itself ten times would be a supply line the mode does
+  // not have, and it is the one field where the ladder's own correct behaviour
+  // is the bug.
+  {
+    const sky = skydeckRunFor(lanced, [], new Date(Date.UTC(2026, 7, 27)));
+    check("a Skydeck run launches with one rack for the whole run",
+      sky.thawCharges === thawChargesFor(2), String(sky.thawCharges));
+    const spentOne = advanceRun(sky, 900, 600, 4, 0, [], sky.bondCharges, 0, 0, sky.thawCharges - 1);
+    check("a charge spent on the Skydeck is gone at the bay boundary",
+      spentOne.thawCharges === thawChargesFor(2) - 1, String(spentOne.thawCharges));
+    const emptied = advanceRun(sky, 900, 600, 4, 0, [], sky.bondCharges, 0, 0, 0);
+    check("...and an emptied rack stays empty",
+      emptied.thawCharges === 0, String(emptied.thawCharges));
+    check("...for every bay after it, not just the next one",
+      advanceRun(emptied, 900, 600, 4, 0, [], emptied.bondCharges, 0, 0, 0).thawCharges === 0);
+    // The HUD reads the mode through the same field: levelForRun writes the
+    // run's stock onto the bay, so a depleted Skydeck lance opens its next bay
+    // at 0 — which is exactly what hides the trigger (main.ts's hudOpts derives
+    // thawOwned from level.thawCharges > 0).
+    check("a depleted Skydeck lance opens the next bay with a dead rack",
+      levelForRun({ ...emptied, levelIndex: 5 }).thawCharges === 0);
+    // THE WHOLE-RUN BOUND, which is the claim the mode actually makes: ten bays
+    // of a Skydeck run can never issue more than ONE grant, however each bay
+    // reports itself. Walked rather than argued, because the ladder's refill
+    // line sits one branch away.
+    let walk = sky;
+    let issued = walk.thawCharges;
+    for (let i = 0; i < RUN_LEVELS - 1; i++) {
+      walk = advanceRun(walk, 900, 600, 4, 0, [], walk.bondCharges, 0, 0, walk.thawCharges);
+      issued = Math.max(issued, walk.thawCharges);
+    }
+    check("ten Skydeck bays issue exactly one rack between them",
+      issued === thawChargesFor(2), String(issued));
+  }
+  // --- The yard's top-up ----------------------------------------------------
+  //
+  // The Bond Emitter's rule verbatim: a rung issues the DIFFERENCE, on top of
+  // what is left. Not redundant on the ladder — advanceRun refilled to the OLD
+  // tier before the yard opened, so without this a player who bought a rung
+  // would undock flying the rack they walked in with.
+  {
+    const docked = { ...newRun(4, [], 999, lanced, 6), levelIndex: 3 };
+    const raised = buyUpgrades(docked, { thaw: 1 }, MAX_TIER)!;
+    check("a refit rung issues the charges it ADDS",
+      raised.thawCharges === docked.thawCharges + THAW_CHARGES_PER_TIER,
+      String(raised.thawCharges));
+    // …and never resets a magazine the player already spent down.
+    const halfSpent = { ...docked, thawCharges: 1 };
+    check("...on top of what is left, not instead of it",
+      buyUpgrades(halfSpent, { thaw: 1 }, MAX_TIER)!.thawCharges === 1 + THAW_CHARGES_PER_TIER,
+      String(buyUpgrades(halfSpent, { thaw: 1 }, MAX_TIER)!.thawCharges));
+    // A rung on ANOTHER track must not touch the rack.
+    check("another track's rung leaves the lance alone",
+      buyUpgrades(docked, { reactor: 1 }, MAX_TIER) === null
+      || buyUpgrades({ ...docked, tiers: { ...docked.tiers, reactor: 1 } }, { reactor: 1 }, MAX_TIER)!
+        .thawCharges === docked.thawCharges);
+    // --- AND THE SAME RUNG ON THE ROOF, which is the ruling the reopened yard
+    // had to make (run.ts's thawChargesFor). The stop sells a BIGGER RACK, never
+    // a refill: a Skydeck pilot who has spent the lot and then buys the lance's
+    // last rung undocks with exactly the charges that rung ADDS, not with a
+    // full new-tier grant. This is the case where the two readings differ — on
+    // a full rack a delta and a refill look identical, which is why the pin is
+    // written on an emptied one.
+    const skyDocked = {
+      ...skydeckRunFor(lanced, [], new Date(Date.UTC(2026, 7, 27))),
+      levelIndex: 3, scrap: 999, thawCharges: 0,
+    };
+    const skyRaised = buyUpgrades(skyDocked, { thaw: 1 }, MAX_TIER)!;
+    check("a spent Skydeck rack buys the rung's charges, not a fresh rack",
+      skyRaised.thawCharges === THAW_CHARGES_PER_TIER
+        && skyRaised.thawCharges < thawChargesFor(3),
+      `${skyRaised.thawCharges} vs a full rack of ${thawChargesFor(3)}`);
+    // …and the next bay boundary does not quietly hand the rest back either:
+    // the mode's no-resupply rule survives the yard reopening.
+    check("...and the bay boundary still refuses to resupply it",
+      advanceRun(skyRaised, 900, 600, 4, 0, [], skyRaised.bondCharges, 0, 0, 1)
+        .thawCharges === 1);
+  }
+  // --- The shop -------------------------------------------------------------
+  //
+  // The counter has to be BUYABLE by the player who can be dealt the hazard.
+  // hazards.ts opens cryo at Mark 4 and `requiresMark` counts Marks BEATEN, so
+  // the gate has to be one less than the axis's Mark — the relationship, not the
+  // number, because moving cryo down the ladder must move its counter with it.
+  {
+    const lance = installById("thaw")!;
+    const cryoAxis = HAZARDS.find((h) => h.id === "cryo")!;
+    check("the lance is on the shelf for the Mark that first deals cryo",
+      lance.requiresMark === cryoAxis.mark - 1,
+      `install ${lance.requiresMark} vs axis Mark ${cryoAxis.mark}`);
+    // Priced a band BELOW the two systems that answer every build. A counter
+    // with a measured ceiling is worth a tier of Contracts, not a tier plus its
+    // run win — see meta.ts's INSTALLS.
+    check("...and priced under the two general-purpose systems",
+      lance.cost < installById("bonds")!.cost
+      && lance.cost < installById("demolition")!.cost,
+      String(lance.cost));
+  }
+
+  /* -------------------------------------------------------------------------
+   * THE IMPACT CUSHION'S SHELF ENTRY — the same two rules, and the second one
+   * had to be decided against a measurement that overturned the proposal.
+   *
+   * The counter-systems proposal argued this system into the 70 band on the
+   * grounds that it answers volatile AND crosswind. It does not. Measured at
+   * Tier 7 bay 10 over 48 paired seeds, a `wind:3` bay is byte-identical at
+   * every cushion tier — 44/48, 9.7 lines, 29.5 shots, $1838 — because the
+   * only thing this system touches is the speed at which a VOLATILE cube goes
+   * off, and wind on its own detonates nothing. The proposal's crosswind
+   * evidence was a `volatile:3 wind:3` bay, where the damage runs THROUGH
+   * volatile; the cushion helps there for the same single-axis reason.
+   *
+   * So it is priced with the Thaw Lance, at the band meta.ts reserves for a
+   * counter that answers one axis, and the two are pinned to the same band
+   * rather than to the same number.
+   * ----------------------------------------------------------------------- */
+  {
+    const cushion = installById("cushion")!;
+    const volatileAxis = HAZARDS.find((h) => h.id === "volatile")!;
+    check("the cushion is on the shelf for the Mark that first deals volatile",
+      cushion.requiresMark === volatileAxis.mark - 1,
+      `install ${cushion.requiresMark} vs axis Mark ${volatileAxis.mark}`);
+    check("...and is priced in the single-axis band, with the lance and not with the two general answers",
+      cushion.cost === installById("thaw")!.cost
+      && cushion.cost < installById("bonds")!.cost
+      && cushion.cost < installById("demolition")!.cost,
+      String(cushion.cost));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -6660,9 +10108,16 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       skydeckSeed(a) !== dailySeed(a));
   }
 
-  // ---- NO YARD ------------------------------------------------------------
-  // "You play with the rig you have." Every bay of every Skydeck run, against
-  // the ladder run that opens a stop on three of them.
+  // ---- THE YARD, AT THE ROOF'S PRICES -------------------------------------
+  //
+  // A REVERSAL, and the pins reversed with it. The Skydeck shipped with the
+  // yard shut ("you play with the rig you have"); the owner ruled that in, flew
+  // it, and ruled it back out — run.ts's schedule note carries the history. So
+  // what is pinned now is the pair of facts that replaced it: the stop opens on
+  // the ladder's own schedule, and the roof pays HALF the ladder's scrap for
+  // the bays that reach it (level.ts's SKYDECK_SCRAP_SHARE), because the player
+  // who can open this floor arrives with a maxed Workshop and every rung the
+  // yard can still sell is one flat price.
   {
     const sky = skyRun();
     const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
@@ -6670,11 +10125,174 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       .filter((i) => refitAfterBay(sky, i));
     const ladderStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
       .filter((i) => refitAfterBay(ladder, i));
-    check("a Skydeck run opens no refit stop", skyStops.length === 0, skyStops.join(","));
-    check("...where the ladder run it sits above opens three",
-      ladderStops.length === 3, ladderStops.join(","));
-    check("and the draft is told there is no stop coming",
-      baysUntilRefitFor(sky) === null && baysUntilRefitFor(ladder) !== null);
+    check("a Skydeck run opens the ladder's three refit stops",
+      skyStops.length === 3 && skyStops.join(",") === ladderStops.join(","),
+      `${skyStops.join(",")} vs ${ladderStops.join(",")}`);
+    check("...and the draft is told when the next one lands",
+      baysUntilRefitFor(sky) === baysUntilRefitFor(ladder)
+        && baysUntilRefitFor(sky) !== null,
+      String(baysUntilRefitFor(sky)));
+    // The payout, read off the bay the run will actually fly rather than off
+    // the constant: this is what a stop can spend.
+    const skyBay = levelForRun(sky);
+    const ladderBay = levelForRun(ladder);
+    // HALF THE LADDER'S RATE, ON BOTH HALVES OF IT — and EXACTLY half, which is
+    // the check a future re-pricing has to answer to: a ladder rate that does
+    // not halve cleanly should stop a build and ask for a decision rather than
+    // have one rounded for it (level.ts's note).
+    check("the roof pays exactly half the ladder's line rate",
+      skyBay.scrapPerLine * 2 === ladderBay.scrapPerLine
+        && skyBay.scrapPerLine === SKYDECK_SCRAP_PER_LINE,
+      `${skyBay.scrapPerLine} vs ${ladderBay.scrapPerLine}`);
+    check("...and exactly half its clear bonus",
+      skyBay.scrapPerBay * 2 === ladderBay.scrapPerBay
+        && skyBay.scrapPerBay === SKYDECK_SCRAP_PER_BAY,
+      `${skyBay.scrapPerBay} vs ${ladderBay.scrapPerBay}`);
+    // BOTH halves, deliberately. Withholding the clear bonus alone was the
+    // rejected shape (level.ts records why): it taxes the rough run and barely
+    // touches the strong one, and the pilot this floor is for is the strong one.
+    check("...so neither half of the payout survives at the ladder's size",
+      skyBay.scrapPerLine < ladderBay.scrapPerLine
+        && skyBay.scrapPerBay < ladderBay.scrapPerBay);
+    // WHAT THAT BUYS, against the only rung a maxed rig can still reach
+    // (upgrades.ts sells to UPRATE_MAX_TIER; tier 3 exists only in the yard, and
+    // every one of them is the same price). The design claim is that the FIRST
+    // stop is earned rather than arrived at, and that the run can shop from the
+    // second on — stated at the ~10 lines a bay an endgame pilot actually
+    // clears, since income here is a function of lines and nothing else.
+    // The SELLING rate, not the clearing one: a bay's income is lines x the
+    // rate, and the PRECISION PREMIUM raised what a roof bay has to sell before
+    // its door opens (level.ts's skydeckScrapAtFirstStop carries the argument).
+    // Scrap is ungraded by design — skill pays funds, volume pays scrap
+    // (grades.ts) — so the extra rows a raised target demands are extra scrap
+    // at exactly the flat rate, and the yard's arithmetic moves with the bar.
+    const banked = (lines: number, bays: number): number =>
+      Math.floor(bays * (
+        lines * precisionPremium(SKYDECK_RUNG) * skyBay.scrapPerLine + skyBay.scrapPerBay
+      ));
+    /* THE OWNER'S ASK, AS AN INEQUALITY — "refit of some systems's third tier
+     * should be possible".
+     *
+     * Before the premium the roof's first stop was a DEAD STOP: 3 x (12 x 1 + 5)
+     * = 51 against a rung priced at 55, so the pilot docked at the only yard the
+     * mode has, was shown a shelf on which nothing was affordable, and undocked.
+     * level.ts's SKYDECK_SCRAP_SHARE note describes that stop as "reachable only
+     * by an opening that really dismantled its three bays" — which was its
+     * stated intent and was four scrap short of being true.
+     *
+     * BOTH HALVES ARE PINNED, and the second is the one that makes this a design
+     * rather than a giveaway: the stop reaches ONE rung and never two. Every
+     * rung the roof's yard can still sell costs the same TIER_COSTS[2] (the
+     * Workshop stops at UPRATE_MAX_TIER), so "how many rungs" IS "how many
+     * systems get chosen", and one is a decision the pilot can get wrong. */
+    check("an endgame run reaches a tier-3 rung by the roof's FIRST stop",
+      banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY) >= TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...and exactly ONE, so the stop is a choice and not a shopping trip",
+      banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY) < 2 * TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`);
+    check("...and a WEAKER run still does not — the first stop is earned",
+      banked(10, REFIT_EVERY) < TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(10, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...which is the arithmetic level.ts states, in the module that owns it",
+      skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)
+        === banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY),
+      `${skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`
+      + ` vs ${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`);
+    check("...and level.ts's copy of REFIT_EVERY is run.ts's, since it cannot import it",
+      skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY)
+        === skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY));
+    check("the weaker run does reach a rung by the SECOND stop",
+      banked(10, REFIT_EVERY * 2) >= TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(10, REFIT_EVERY * 2)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...where the LADDER's own payout would have bought one at the first",
+      REFIT_EVERY * (10 * ladderBay.scrapPerLine + ladderBay.scrapPerBay)
+        >= TIER_COSTS[UPRATE_MAX_TIER]);
+    // The roof's rate is still exactly the SHARE it was — the premium moved the
+    // DEMAND, not the price of a row. Pinned because "raise the target until the
+    // yard works" and "pay more scrap per row" produce the same stop-1 total and
+    // are completely different designs: one makes the pilot play more bay, the
+    // other hands them the rung.
+    check("the roof's scrap RATE is untouched — the premium moved the demand, not the price",
+      skyBay.scrapPerLine === Math.round(ladderBay.scrapPerLine * SKYDECK_SCRAP_SHARE)
+        && skyBay.scrapPerBay === Math.round(ladderBay.scrapPerBay * SKYDECK_SCRAP_SHARE));
+    // …and a whole run can never buy out the shelf, which is the difference
+    // between tightening the yard and simply reopening the ladder's.
+    check("a whole run cannot buy half the shelf",
+      banked(10, RUN_LEVELS - 1) < (UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(10, RUN_LEVELS - 1)} vs ${(UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER]}`);
+    // The hold is EMPTY at undock however many options the pilot owns — the
+    // Scrap Cache opens a ladder run's first stop 30 ahead (main.ts), and the
+    // day's run refuses it so the board is ranking play (skydeck.ts).
+    check("the roof undocks with an empty hold, Scrap Cache or not",
+      skydeckRunFor(newTiers(), ["scrap-cache"], new Date(Date.UTC(2026, 7, 27))).scrap === 0);
+  }
+
+  // ---- THE ROOF'S OWN STEP ------------------------------------------------
+  //
+  // One rung past the top of the ladder, on the ladder's own curves — not a
+  // second set of numbers written beside them. What is pinned is the
+  // EXTRAPOLATION rather than the literals: the step from the capstone to the
+  // roof is the same step the ladder takes from Mark 9 to Mark 10, at every bay
+  // — so a retune of TARGET_BASE / TARGET_PER_TIER / the launch endpoints moves
+  // the roof with the ladder and this check stays true, while a hand-typed
+  // Skydeck number would fail it the moment the ladder moved.
+  {
+    const sky = skyRun();
+    const ladderTop = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    // EXTRAPOLATED FROM THE QUIET BAND, which is what the PRECISION PREMIUM
+    // forced and improved. The ladder's target is now two composed curves — a
+    // linear climb and a multiplicative premium above rung 8 — so a step read
+    // off Marks 9 and 10 would carry the premium in it and comparing it against
+    // a roof that ALSO carries the premium would prove nothing about either.
+    //
+    // Rungs 7 and 8 are premium-free by construction (checked exhaustively in
+    // the tier-ladder section), so the linear curve's per-rung step is exact
+    // integer arithmetic there. The roof then has to be that line carried to
+    // SKYDECK_RUNG and multiplied by the roof's own premium — one more rung of
+    // BOTH curves, which is the whole discipline of the step.
+    const quiet = PRECISION_PREMIUM_FROM_RUNG;
+    const offBy: string[] = [];
+    for (let i = 0; i < RUN_LEVELS; i++) {
+      const step = targetScoreFor(i, quiet) - targetScoreFor(i, quiet - 1);
+      const line = targetScoreFor(i, quiet) + step * (SKYDECK_RUNG - quiet);
+      if (skydeckTargetScoreFor(i) !== Math.round(line * precisionPremium(SKYDECK_RUNG))) {
+        offBy.push(`bay${i + 1}`);
+      }
+    }
+    check("the roof's target is the ladder's line carried one rung on, premium and all",
+      offBy.length === 0, offBy.join(","));
+    check("...so the roof pays a premium step the capstone does not",
+      precisionPremium(SKYDECK_RUNG) > precisionPremium(MARK_COUNT),
+      `${precisionPremium(SKYDECK_RUNG)} vs ${precisionPremium(MARK_COUNT)}`);
+    check("...and its launch price is that line's next point",
+      skydeckLaunchCost() === 2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1),
+      `${skydeckLaunchCost()} vs ${2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1)}`);
+    check("...with the float still buying the ladder's eight launches",
+      skydeckStartingFunds() === LAUNCH_BUDGET_SHOTS * skydeckLaunchCost(),
+      `${skydeckStartingFunds()} vs ${LAUNCH_BUDGET_SHOTS} x ${skydeckLaunchCost()}`);
+    // The rung the roof prices at and the floor the tower parks on are the same
+    // place, stated in two modules that cannot import each other.
+    check("the roof's rung is the tower's roof", SKYDECK_RUNG === S.SKYDECK_TIER,
+      `${SKYDECK_RUNG} vs ${S.SKYDECK_TIER}`);
+    // And it reaches the BAY, through levelForRun and nowhere else — every
+    // layer above (ship, notches, clauses, carry) lands on the roof's numbers.
+    const skyBay = levelForRun(sky);
+    const ladderBay = levelForRun(ladderTop);
+    check("a Skydeck bay is built at the roof's terms",
+      skyBay.targetScore === skydeckTargetScoreFor(0)
+        && skyBay.launchCost === skydeckLaunchCost()
+        && skyBay.startingFunds === skydeckStartingFunds(),
+      `${skyBay.targetScore}/${skyBay.launchCost}/${skyBay.startingFunds}`);
+    check("...which is dearer than the capstone's on both counts",
+      skyBay.targetScore > ladderBay.targetScore && skyBay.launchCost > ladderBay.launchCost,
+      `${skyBay.targetScore}/${skyBay.launchCost} vs ${ladderBay.targetScore}/${ladderBay.launchCost}`);
+    check("...and asks the capstone's clock, which the step deliberately leaves alone",
+      skyBay.timeLimitSec === ladderBay.timeLimitSec);
+    // A ladder run at Mark 10 must not pick any of it up.
+    check("the ladder's capstone is untouched by the roof's step",
+      ladderBay.targetScore === targetScoreFor(0, MARK_COUNT)
+        && ladderBay.launchCost === launchCostFor(MARK_COUNT));
   }
 
   // ---- ONE NOTCH A BAY ----------------------------------------------------
@@ -6927,10 +10545,17 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     const beaten: MetaState = {
       // The arrival that makes the bug reachable: the ladder finished, so
       // markUnlocked saturates and the "tier in progress" is Mark 10 again.
+      //
+      // FULLY SEALED as well, now that the roof asks for it (meta.ts's
+      // skydeckOpen). The seals are not what makes the bug reachable — the
+      // saturation is — but a fixture that could not actually open the roof
+      // would be proving the guard on a state no Skydeck player is ever in,
+      // which is how a pin quietly stops covering the thing it was written for.
       ...newMeta(), mark: MARK_COUNT, salvage: 40,
+      sealedMarks: Array.from({ length: MARK_COUNT }, (_, i) => i + 1),
     };
     check("the arrival is the one that opens the Skydeck",
-      markUnlocked(beaten) === MARK_COUNT && beaten.mark >= MARK_COUNT);
+      markUnlocked(beaten) === MARK_COUNT && skydeckOpen(beaten));
 
     const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
     const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
@@ -6961,9 +10586,20 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // The seal is the half NOT gated on the Mark being current (recordRunEnd's
     // `sealed`), so it is the one an "it is already done at Mark 10" argument
     // would have missed.
+    //
+    // Asserted as "adds none" rather than "holds none": the fixture above is
+    // fully sealed, because that is the only state a Skydeck player can be in
+    // now. The control is the same save with Mark 10's seal lifted — a ladder
+    // run there puts it back, a Skydeck run does not, which is the difference
+    // the mode's gate exists to make.
+    const unsealedTop: MetaState = {
+      ...beaten, sealedMarks: beaten.sealedMarks.filter((m) => m !== MARK_COUNT),
+    };
     check("a Skydeck run never seals a Mark",
-      finish(sky, true).sealedMarks.length === 0
-        && recordRunEnd(beaten, MARK_COUNT, true, RUN_LEVELS, 0).meta.sealedMarks.length === 1);
+      finish(sky, true).sealedMarks.join() === beaten.sealedMarks.join()
+        && !tracksLadder(sky)
+        && recordRunEnd(unsealedTop, MARK_COUNT, true, RUN_LEVELS, 0)
+          .meta.sealedMarks.includes(MARK_COUNT));
   }
 
   // ---- THE ANALYSER IS TOLD WHICH MODE IT IS LOOKING AT --------------------
@@ -6989,20 +10625,87 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
   {
     const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
     const listed = clauseDefs(rules);
-    check("the menu lists one row per stop", listed.length === CLAUSE_STOPS.length);
-    check("...naming the bay each arms on",
+    check("the day arms one clause per stop", listed.length === CLAUSE_STOPS.length);
+    check("...each on the bay it is scheduled for",
       listed.every((r, i) => r.bay === CLAUSE_STOPS[i].fromBay),
       listed.map((r) => r.bay).join(","));
-    // The draft's third bank cell is the clause tally INSTEAD of scrap, because
-    // a scrap readout on a mode with no yard can only ever be 0.
+
+    // ---- AND THE MENU GIVES NONE OF THEM AWAY ------------------------------
+    // These two pins are the inverse of the ones they replace. The recap panel
+    // used to list the day's clauses by name and bay — "the menu lists one row
+    // per stop", "…naming the bay each arms on" — so that the whole day could
+    // be planned before the first launch. The owner's call is that the Skydeck
+    // is a run you fly rather than a schedule you read: the clauses are a
+    // surprise now, met at the stops that arm them.
+    //
+    // Asserted over the WHOLE menu rather than over the recap panel, and for
+    // the same reason the "no surface calls it anything else" pin below is: the
+    // failure worth catching is a leak somewhere nobody thought to look — an
+    // aria-label, a title, a button subtitle, a tooltip. Every name and every
+    // "Bay N" the day deals is checked against all of it.
+    const roofMenu = S.menuScreen(
+      98_760, 1_480, { available: true, unlimited: false }, undefined, undefined,
+      { unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2 },
+      listed.length,
+    );
+    //
+    // EVERY clause the roof can deal, not just the three this fixed day rolled:
+    // the menu is built from today's date in the app, so a pin that only knew
+    // one day's names would pass on the three hundred and sixty-four it did not
+    // check.
+    const dealable = CLAUSE_STOPS.flatMap((_, i) => dealableAt(i));
+    const named = dealable.filter((d) => roofMenu.includes(d.name));
+    check("the menu names no clause before the run",
+      named.length === 0, named.map((d) => d.name).join(", "));
+    const bayed = listed.filter((r) => roofMenu.includes(`Bay ${r.bay}`));
+    check("...nor the bay any of them arms on",
+      bayed.length === 0, bayed.map((r) => `Bay ${r.bay}`).join(", "));
+    // The list's own markup is gone with it — a stylesheet hook left behind
+    // would be the next person's invitation to fill it back in.
+    check("...and the panel it lived on has no clause row left",
+      !roofMenu.includes("sky-rules"));
+    // WHAT STAYS PUBLIC IS THE COUNT. "Three standing clauses" is the terms of
+    // the run; which three is the run. Compared against menuPlaySub's own
+    // output rather than against a copy of its words, so this pin still holds
+    // when that line is reworded — the rule is that the number reaches the
+    // button, not that the sentence never changes.
+    check("...while how MANY there are is still on the button",
+      roofMenu.includes(menuPlaySub(S.SKYDECK_TIER, listed.length, null)));
+    // THE BANK ROW IS THREE CELLS ON BOTH MODES, and the Skydeck's clause tally
+    // now rides the NOTCHES cell rather than taking the scrap one.
+    //
+    // It took the scrap cell while the roof had no yard — that number could only
+    // ever be 0, so the slot was free. The yard is back (run.ts's refitAfterBay)
+    // and scrap is a live decision again, so the cell has an owner. The tally
+    // joins the notches because the row's three cells are MONEY carried,
+    // PRESSURE carried and CAPITAL banked, and a standing clause is pressure
+    // carried for the rest of the run exactly the way a notch is. A FOURTH cell
+    // was the alternative and does not fit the 640x360 phone (sim/uifit), which
+    // is the same budget the bay-clear card's fourth row already failed.
+    //
+    // S.SKYDECK_TIER, not MARK_COUNT — mirroring the fixed caller
+    // (main.ts's draftHTML). The run flies Mark 10's numbers, but the mark is
+    // an input to the bay, not the floor's name: passing it here had the
+    // between-bays eyebrow filing the day run as "Tier 10" (device report).
     const draft = S.draftScreen({
-      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      bayNum: 4, tier: S.SKYDECK_TIER, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
-      picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 0, baysToRefit: null,
+      picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 62, baysToRefit: 2,
       standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
     });
-    check("the Skydeck draft counts clauses where the ladder counts scrap",
-      draft.includes(`1/${CLAUSE_STOPS.length}`) && !/Scrap/.test(draft));
+    check("the Skydeck draft counts clauses beside the notches",
+      draft.includes(`1/${CLAUSE_STOPS.length}`) && draft.includes("clause Bay 7"));
+    check("...and counts its scrap in the cell the tally used to take",
+      /Scrap/.test(draft) && draft.includes("62") && draft.includes("refit in 2"));
+    check("...in three cells, the same row the ladder draws",
+      (draft.match(/class="bay-stat"/g) ?? []).length === 3,
+      String((draft.match(/class="bay-stat"/g) ?? []).length));
+    // The eyebrow follows the plate's spelling (screens.ts's tierText): "Tier
+    // SKY", never the borrowed mark and never the sentinel's raw number.
+    check("...and its eyebrow names the floor, not the borrowed mark",
+      draft.includes("Tier SKY") && !/Tier 1[01]\b/.test(draft));
+    check("...while a ladder draft's eyebrow still prints its tier",
+      S.tierText(MARK_COUNT) === `Tier ${MARK_COUNT}`);
     const ladderDraft = S.draftScreen({
       bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
@@ -7010,9 +10713,13 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     });
     check("...and the ladder draft still counts scrap", /Scrap/.test(ladderDraft));
     // The bay-clear card is the ONE screen between the bay that earned a clause
-    // and the projection whose numbers it has already moved.
+    // and the projection whose numbers it has already moved — and, since the
+    // menu stopped listing them, it is also where the player MEETS the clause.
+    // The pin was always here; what changed is what it is load-bearing for. A
+    // reveal that is nowhere is not a surprise, it is a missing feature, so the
+    // two halves are asserted together: no name on the menu, the name here.
     const armed = S.bayClearScreen({
-      bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 0,
+      bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 18,
       slot: { value: "Cold Chain", label: "clause \u00b7 from Bay 4" },
     });
     check("the bay-clear card announces the arming clause",
@@ -7020,12 +10727,357 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // ...and takes the SCRAP slot to do it, rather than growing the card. The
     // card is centred in a fixed viewport with no scroller: a fourth row put
     // the HUD's own controls off the bottom of the 640x360 phone (sim/uifit).
+    //
+    // The payout it displaces is a REAL one now \u2014 the roof earns scrap again \u2014
+    // which is why main.ts only asks for this slot on the three clears where a
+    // clause actually arms, and why the fixture passes 18 rather than 0: a
+    // check that displaced a zero would not notice if the card started
+    // swallowing a number the player needed.
     check("...in the slot the scrap payout would have had",
-      !/scrap/i.test(armed) && (armed.match(/class="stat/g) ?? []).length === 3);
+      !/scrap/i.test(armed) && !armed.includes("18")
+        && (armed.match(/class="stat/g) ?? []).length === 3);
     check("...and says nothing on a ladder clear",
       /scrap/i.test(S.bayClearScreen({
         bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 40,
       })));
+    // The bay banner — the run's title, top-center of the field. Given the
+    // sentinel it wears the tower's Sky plate and says "Skydeck" to assistive
+    // tech; the raw "tier 11" the sentinel would print as a number is exactly
+    // the leak this asserts against.
+    const skyHud = hudHTML({
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+      tier: S.SKYDECK_TIER,
+      target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+      timeLeftMs: 150_000, pieceSize: "std",
+      bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+      thawOwned: true, thawCharges: 4,
+      autoloaderOwned: false, ratchets: {}, tiers: newTiers(), contract: null,
+    });
+    const banner = skyHud.slice(skyHud.indexOf('class="bay-banner"'), skyHud.indexOf('class="bay-banner__pips"'));
+    check("the Skydeck bay banner wears the Sky plate",
+      banner.includes('aria-label="Skydeck"') && banner.includes("tier-plate--sky"));
+    check("...and its accessible label says Skydeck, not a tier number",
+      banner.includes(", Skydeck") && !/tier 1[01]\b/i.test(banner), banner.slice(0, 160));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
+// ---------------------------------------------------------------------------
+{
+  const DAY_A = new Date(Date.UTC(2026, 7, 27, 12, 0, 0));
+  const DAY_B = new Date(Date.UTC(2026, 7, 28, 12, 0, 0));
+  const skyRun = (d = DAY_A): RunState => skydeckRunFor(newTiers(), [], d);
+  const ladderRun = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+
+  // ---- THE ROUTING RULE ---------------------------------------------------
+  // The bug this section exists for: a Skydeck run carries mark = SKYDECK_MARK
+  // (= MARK_COUNT), so every seam that files a score by `run.mark` filed the
+  // day's run — a rung past Mark 10, under three standing clauses — onto the
+  // Tier 10 board. The rule is now one function, and these are its cases.
+  check("the day's run files to the roof's own board",
+    boardForRun(skyRun()) === BOARD_SKYDECK);
+  check("...and not to the board of the Mark it borrows",
+    boardForRun(skyRun()) !== skyRun().mark && skyRun().mark === MARK_COUNT);
+  check("a Mark-10 Deep Run at that same Mark still files to Tier 10",
+    boardForRun(ladderRun(MARK_COUNT)) === MARK_COUNT);
+  check("every other rung files to its own Tier",
+    [1, 2, 5, 9].every((m) => boardForRun(ladderRun(m)) === m));
+  check("Tier S still outranks both — a sandbox run is filed nowhere else",
+    boardForRun({ ...skyRun(), sandbox: true }) === BOARD_SANDBOX);
+
+  // ---- THE ID -------------------------------------------------------------
+  // Negative for the reason Tier S is, and the alternative is worth pinning
+  // because it is the one a reader reaches for first: SKYDECK_TIER is the
+  // tower's floor id (MARK_COUNT + 1), and any server that knows only Marks
+  // clamps it back onto MARK_COUNT — i.e. straight back to the pooling above.
+  check("the roof is not a rung of the ladder", !isLadderBoard(BOARD_SKYDECK));
+  check("the roof's board cannot collide with a Tier",
+    !Array.from({ length: MARK_COUNT }, (_, i) => i + 1).includes(BOARD_SKYDECK));
+  check("...nor with Tier S", BOARD_SKYDECK !== BOARD_SANDBOX);
+  check("...and is not the tower's floor id, which clamps onto Mark 10",
+    BOARD_SKYDECK !== S.SKYDECK_TIER
+      && Math.min(MARK_COUNT, S.SKYDECK_TIER) === MARK_COUNT);
+
+  // ---- THE DAY ------------------------------------------------------------
+  // The board key's second part is a DERIVATION of the daily seed, not a
+  // literal: the run files under the day it was dealt, and that day is the same
+  // key the Contract board rolls on, so the two dailies can never turn over at
+  // different midnights.
+  check("the day a score files under IS the daily seed",
+    [DAY_A, DAY_B, new Date(Date.UTC(2027, 0, 1))].every(
+      (d) => boardDayForRun(skyRun(d)) === dailySeed(d)));
+  check("one UTC day is one board",
+    boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 0, 0, 1))))
+      === boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 23, 59, 59)))));
+  check("the next day is a different board",
+    boardDayForRun(skyRun(DAY_A)) !== boardDayForRun(skyRun(DAY_B)));
+  // The rollover rule the run makes possible: a run is stamped at undock, so
+  // one flown across midnight still ranks against the seed it played rather
+  // than against tomorrow's players.
+  check("a run flown across midnight keeps the day it undocked on",
+    boardDayForRun(skyRun(DAY_A)) === dailySeed(DAY_A)
+      && dailySeed(DAY_A) !== dailySeed(DAY_B));
+  check("an all-time board has no day at all",
+    boardDayForRun(ladderRun(MARK_COUNT)) === DAY_NONE
+      && boardDayForRun({ ...skyRun(), sandbox: true, skydeck: null }) === DAY_NONE);
+
+  // ---- WHICH BOARD A SCREEN SHOWS -----------------------------------------
+  //
+  // `this.run` OUTLIVES the run on screen — main.ts clears it only when a
+  // Contract starts — so "there is a run" and "a run is on screen" are
+  // different questions, and a rule that asks the first one answers for a run
+  // the player has walked away from. Both sides pinned, because a fix to one
+  // that breaks the other is the shape this bug had (codex review, PR #166).
+  {
+    const TODAY = dailySeed(DAY_B);
+    const sky = skyRun(DAY_A);
+    const view = (o: Partial<BoardView>): BoardView =>
+      ({ run: null, inRun: false, skydeckParked: false, mark: MARK_COUNT, ...o });
+
+    check("a Skydeck run ON SCREEN shows the roof's board",
+      boardForView(view({ run: sky, inRun: true })) === BOARD_SKYDECK);
+    check("...and dates it with the day that run was dealt, not today",
+      boardDayForView(view({ run: sky, inRun: true }), TODAY) === dailySeed(DAY_A)
+        && dailySeed(DAY_A) !== TODAY);
+    // The regression itself: the same finished run, still in hand, with the car
+    // parked back on a Mark. The board asked for is the Mark's.
+    check("a finished Skydeck run left in hand does NOT hold the board hostage",
+      boardForView(view({ run: sky, inRun: false, mark: 7 })) === 7);
+    check("...and the roof's board comes back by PARKING there, not by the run",
+      boardForView(view({ run: sky, inRun: false, skydeckParked: true })) === BOARD_SKYDECK);
+    check("...dated TODAY, since no run is on screen to date it",
+      boardDayForView(view({ run: sky, inRun: false, skydeckParked: true }), TODAY) === TODAY);
+    check("a ladder run on screen still shows its own Mark",
+      boardForView(view({ run: ladderRun(4), inRun: true })) === 4);
+    // The inherited asymmetry, pinned so it stays a decision: a parked MARK
+    // still opens the UNLOCKED Tier's board rather than the parked floor's,
+    // exactly as it did before the roof had a board. Only the roof reads the
+    // parking, because nothing else says a Skydeck run is what comes next.
+    check("a parked Mark opens the unlocked Tier's board, as it always has",
+      boardForView(view({ mark: MARK_COUNT, skydeckParked: false })) === MARK_COUNT);
+    // Tier S is deliberately NOT gated on `inRun` — closing the mode mid-run
+    // must not move where that run was filed. Pinned so the asymmetry is a
+    // decision rather than something the next reader tidies away.
+    check("a Tier S run answers whatever the screen, on purpose",
+      boardForView(view({ run: { ...ladderRun(3), sandbox: true }, inRun: false }))
+        === BOARD_SANDBOX);
+  }
+
+  // ---- THE CACHE ----------------------------------------------------------
+  //
+  // Cached rows are drawn IMMEDIATELY and the fetch repaints behind them, so a
+  // cache keyed on the board alone paints yesterday's rows under today's
+  // heading for a session left open across UTC midnight — and leaves them there
+  // if the request is slow or fails. The date on a daily board is a promise
+  // about the rows under it (codex review, PR #166).
+  {
+    const rows = (n: string): ScoreEntry[] =>
+      [{ name: n, score: 1, mark: BOARD_SKYDECK, level: 10, lines: 1, created_at: 0 }];
+    const cache = new BoardCache();
+    const dayN = dailySeed(DAY_A);
+    const dayN1 = dailySeed(DAY_B);
+    cache.set(BOARD_SKYDECK, dayN, rows("YESTERDAY"));
+    check("yesterday's rows are not today's board",
+      cache.get(BOARD_SKYDECK, dayN1).length === 0);
+    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY");
+    cache.set(BOARD_SKYDECK, dayN1, rows("TODAY"));
+    check("...with both days held at once, so neither tab blanks the other",
+      cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY"
+        && cache.get(BOARD_SKYDECK, dayN1)[0]?.name === "TODAY");
+    // The all-time boards go on behaving exactly as they did: one key each.
+    cache.set(MARK_COUNT, DAY_NONE, rows("TIER10"));
+    check("an all-time board is one entry, on the day it does not have",
+      cache.get(MARK_COUNT, DAY_NONE)[0]?.name === "TIER10");
+    check("...and does not collide with another board's",
+      cache.get(BOARD_SANDBOX, DAY_NONE).length === 0);
+  }
+
+  // ---- THE WIRE -----------------------------------------------------------
+  // The compatibility guarantee, asserted where it can actually be observed:
+  // the daily board is asked for on a path of its own, so a Worker that
+  // predates it 404s instead of clamping -2 onto Tier S. Both globals are
+  // stubbed and restored the same way the settings-migration record does it.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const calls: { url: string; body: string }[] = [];
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "tetrilaunch.com" }, configurable: true, writable: true,
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      value: async (url: string, init?: { body?: string }) => {
+        calls.push({ url: String(url), body: String(init?.body ?? "") });
+        return { ok: true, json: async () => ({ scores: [] }) };
+      },
+      configurable: true, writable: true,
+    });
+    try {
+      const day = dailySeed(DAY_A);
+      await fetchLeaderboard(BOARD_SKYDECK, 10, day);
+      await fetchLeaderboard(MARK_COUNT, 10);
+      await submitScore("ACE", 100, BOARD_SKYDECK, 10, 40, day);
+      await submitScore("ACE", 100, MARK_COUNT, 10, 40);
+      const [skyGet, tierGet, skyPost, tierPost] = calls;
+      check("the daily board is asked for on its own path",
+        skyGet.url.includes("/api/daily") && skyGet.url.includes(`day=${day}`)
+          && skyGet.url.includes(`mark=${BOARD_SKYDECK}`), skyGet.url);
+      check("...and a Tier board on the one it always used",
+        tierGet.url.includes("/api/scores") && !tierGet.url.includes("/api/daily")
+          && !tierGet.url.includes("day="), tierGet.url);
+      check("a Skydeck score posts to the daily route, carrying its day",
+        skyPost.url.endsWith("/api/daily")
+          && JSON.parse(skyPost.body).day === day
+          && JSON.parse(skyPost.body).mark === BOARD_SKYDECK, skyPost.body);
+      check("a Tier score posts where it always did, with no day",
+        tierPost.url.endsWith("/api/scores")
+          && JSON.parse(tierPost.body).day === DAY_NONE
+          && JSON.parse(tierPost.body).mark === MARK_COUNT, tierPost.body);
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+  }
+
+  // ---- THE TABLE ----------------------------------------------------------
+  //
+  // Read out of worker/index.ts as SOURCE, and the limitation is worth stating
+  // rather than hiding: the Worker is in neither tsconfig and imports
+  // @cloudflare/workers-types, so it cannot be executed from this process
+  // without pulling a Workers runtime's globals into a DOM-typed program. What
+  // can be asserted is the shape of every statement it sends, which is exactly
+  // where the bug was — the same reason the rAF and pixel-arithmetic sections
+  // above read their files instead of running them.
+  //
+  // THE INVARIANT: an all-time board is `day = 0` and a daily board is
+  // `day > 0`, so the two routes PARTITION the table rather than agreeing to.
+  // Without the predicate the daily rows leak upward twice over: the combined
+  // board (no mark at all — the list a client older than tier boards gets) is
+  // unpartitioned by definition, and a per-Tier board is only safe while no
+  // daily row carries a Tier's mark, which /api/daily's clamp does not forbid.
+  {
+    const workerTs = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "worker", "index.ts"),
+      "utf8",
+    );
+    // Every statement the Worker sends, normalised to one line so a reformat
+    // cannot break a check — and EXPANDED, because two of them are templates.
+    // `${ALL_TIME}` is substituted from its own declaration (so the predicate
+    // keeps one home in the Worker and this still reads what is sent), and a
+    // `${cond ? "a" : "b"}` becomes BOTH statements, since a template that
+    // serves the combined board and a Tier's board sends two queries and each
+    // has to be checked as one.
+    const allTime = /const ALL_TIME = "([^"]+)";/.exec(workerTs)?.[1] ?? "";
+    check("the all-time predicate is a predicate about the day", allTime === "day = 0", allTime);
+    const TERNARY = /\$\{[^}]*\?\s*"([^"]*)"\s*:\s*"([^"]*)"\s*\}/;
+    const expand = (q: string): string[] => {
+      let out = [q.replaceAll("${ALL_TIME}", allTime)];
+      while (out.some((s) => TERNARY.test(s))) {
+        out = out.flatMap((s) => {
+          const m = TERNARY.exec(s);
+          return m ? [s.replace(m[0], m[1]), s.replace(m[0], m[2])] : [s];
+        });
+      }
+      return out.map((s) => s.replace(/\s+/g, " ").trim());
+    };
+    const statements = [...workerTs.matchAll(/`((?:SELECT|INSERT)[\s\S]*?)`/g)]
+      .flatMap((m) => expand(m[1]));
+    const selects = statements.filter((q) => q.startsWith("SELECT"));
+    check("the Worker's queries were found at all", selects.length >= 4, String(selects.length));
+    // A daily query names both halves of the key; an all-time query names the
+    // day it does not have. Between them, no SELECT may be silent about `day`.
+    check("no board query is silent about the day",
+      selects.every((q) => /day = 0/.test(q) || /day = \?/.test(q)),
+      selects.find((q) => !/day = 0|day = \?/.test(q)) ?? "");
+    check("the combined board — the one a legacy client gets — is all-time only",
+      selects.some((q) => /FROM scores WHERE day = 0 ORDER BY/.test(q)),
+      selects.join(" | ").slice(0, 200));
+    check("...and so is the per-Tier board, whatever mark a daily row carries",
+      selects.some((q) => /WHERE day = 0.*mark = \?/.test(q)));
+    check("...and the rank a submission is told, which is a place ON that board",
+      selects.some((q) => /COUNT\(\*\).*WHERE day = 0 AND mark = \? AND score > \?/.test(q)));
+    check("a daily board binds both halves of its key",
+      selects.some((q) => /WHERE mark = \? AND day = \? ORDER BY/.test(q))
+        && selects.some((q) => /COUNT\(\*\).*WHERE mark = \? AND day = \? AND score > \?/.test(q)));
+    // The other half of the partition: the all-time INSERT must not name `day`,
+    // so the column default (0) is what files the row.
+    const inserts = statements.filter((q) => q.startsWith("INSERT"));
+    check("the all-time insert leaves the day to the column default",
+      inserts.some((q) => /INSERT INTO scores \(name, score, mark, level, lines, created_at\)/.test(q)));
+    check("...and only the daily insert writes one",
+      inserts.filter((q) => /created_at, day\)/.test(q)).length === 1);
+    // The floor that makes `day > 0` true of every daily row — without it the
+    // partition has a hole at 0, where every all-time row lives.
+    check("a daily row can never be filed on day 0",
+      /const DAY_MIN = 20_000_101;/.test(workerTs)
+        && /day < DAY_MIN\) return json\(\{ error: "invalid_day" \}, 400\)/.test(workerTs));
+    // And the migration has to be able to serve the predicate the queries now
+    // carry, or a legacy client's board becomes a full scan.
+    const migration = fs.readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..", "..", "migrations", "0003_daily_boards.sql",
+      ),
+      "utf8",
+    );
+    check("the day column defaults to the all-time value, so no row moves",
+      /ADD COLUMN day INTEGER NOT NULL DEFAULT 0/.test(migration));
+    check("both new queries have an index to seek on",
+      /ON scores \(mark, day, score DESC\)/.test(migration)
+        && /ON scores \(day, score DESC\)/.test(migration));
+  }
+
+  // ---- THE SCREEN ---------------------------------------------------------
+  // A board nobody can see is not a board. The tab arrives with the floor
+  // (meta.ts's skydeckOpen) and wears the tower's own identity, and the heading
+  // says WHICH day is on screen — a daily board whose contents change overnight
+  // for no visible reason is the one failure a date on it prevents.
+  const day = dailySeed(DAY_A);
+  const skyScreen = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day,
+  });
+  check("the roof's board is a tab on the leaderboard",
+    skyScreen.includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...wearing the tower's Sky identity, star and all",
+    skyScreen.includes(`${S.tierText(S.SKYDECK_TIER)} ${S.SKY_STAR}`));
+  check("...and never a raw board id",
+    !skyScreen.includes(`Tier ${BOARD_SKYDECK}`) && !S.boardText(BOARD_SKYDECK).includes("-"));
+  check("the heading names the day on screen",
+    skyScreen.includes(S.dayText(day)) && S.dayText(day) === "2026-08-27");
+  // An EMPTY board still has to say what it is. "No scores at this Tier yet" on
+  // a board that is a day is the same leak tierText exists for.
+  check("an empty Sky board is a day with no scores, not a tier with none",
+    !S.emptyBoardText(BOARD_SKYDECK).includes("Tier")
+      && S.emptyBoardText(BOARD_SKYDECK).includes("today"));
+  check("...and every other board keeps the sentence it had",
+    S.emptyBoardText(MARK_COUNT) === S.emptyBoardText(BOARD_SANDBOX)
+      && S.emptyBoardText(MARK_COUNT).includes("this Tier"));
+  check("a save that cannot fly the roof is offered no Sky tab",
+    !S.leaderboardScreen("", { board: MARK_COUNT, tier: MARK_COUNT, sandbox: true })
+      .includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...and one that can still keeps its ladder tab to switch back to",
+    skyScreen.includes(`data-board="${MARK_COUNT}"`));
+  // The run-end modal is where the score is actually filed, so it has to name
+  // the board it went to — the same failure the bay banner's Sky plate fixed,
+  // one screen later.
+  {
+    const skyEnd = S.endModal({
+      won: true, runComplete: true, score: 40_000, lines: 90, baysCleared: 10,
+      funds: 300, best: 50_000, name: "PILOT", rows: "", bayNum: 10,
+      bayName: "Skydeck", tierCompleted: null, tierSalvage: 0,
+      progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+      boardTier: BOARD_SKYDECK,
+      boardDay: day,
+    });
+    check("the end card files the day's run to the roof's board",
+      skyEnd.includes(`${S.boardText(BOARD_SKYDECK)} board`));
+    check("...on the day it was dealt", skyEnd.includes(S.dayText(day)));
+    check("...and never says Tier 10",
+      !skyEnd.includes(`${S.tierText(MARK_COUNT)} board`));
   }
 }
 
@@ -7207,20 +11259,129 @@ section("Misfire prevention");
 {
   const DT = 1000 / 60;
 
-  // --- The firing floor -----------------------------------------------------
-  // The threshold in world px, re-derived from the constants rather than
-  // restated: DRAG_MIN + MIN_FIRE_RATIO * (DRAG_MAX - DRAG_MIN). Both drag
-  // bounds are module-private in cannon.ts (nothing outside it has any business
-  // knowing the mapping), so this brackets the crossing through the public
-  // function instead of asserting a number.
-  let floorPx = 0;
-  for (let len = 0; len <= 260; len += 0.5) {
-    if (powerRatioForDrag(len) >= MIN_FIRE_RATIO) { floorPx = len; break; }
+  // --- The shape of the ramp ------------------------------------------------
+  // Three landmarks on the pull-back's power curve, all found by SCANNING the
+  // public function rather than by importing constants: the foot (where the
+  // dead zone ends and power starts rising), the firing floor (where a release
+  // starts counting as a shot), and the ceiling (where the pull is asking for
+  // everything). cannon.ts's DRAG_MIN is module-private on purpose — nothing
+  // outside it has any business knowing the mapping — so every property below
+  // is stated about what a PULL PRODUCES, which is also the only thing the
+  // player can observe.
+  const STEP = 0.05;
+  const scan = (want: (r: number) => boolean): number => {
+    for (let len = 0; len <= 600; len += STEP) if (want(powerRatioForDrag(len))) return len;
+    return NaN;
+  };
+  const footPx = scan((r) => r > 0);
+  const floorPx = scan((r) => r >= MIN_FIRE_RATIO);
+  const fullPx = scan((r) => r >= 1);
+
+  // --- A FULL PULL HAS TO FIT ON THE PLAYFIELD --------------------------------
+  // THE BUG: DRAG_MAX was a flat 220 while the cannon stands CANNON.x = 150
+  // world px from the left wall, so a finger placed on the cannon and pulled
+  // straight back — the gesture the control is named for — was asking to end at
+  // world x = -70. There is no such place. It "worked" only because the canvas
+  // is full-bleed and screenToWorld does not clamp, so the stroke ran out
+  // through the letterbox bars and off the world; on a panel with no bars (an
+  // exact 16:9 viewport) full power from the cannon was unreachable at 63%, and
+  // on a panel whose outer band eats touches (the OnePlus 7T of the spec) the
+  // pull died with a real pointerup partway up the ramp.
+  //
+  // Stated as the DERIVATION, not as a number: whatever the span becomes, a
+  // full pull from the cannon's own x must land on the field with a cube of
+  // clearance from the wall. That is DRAG_MAX = CANNON.x - CELL read backwards
+  // through the only door the mapping opens.
+  check("a full-power pull exists at all", Number.isFinite(fullPx), `${fullPx} world px`);
+  // STEP of slack, and only STEP: the scan can locate the ceiling no more
+  // finely than its own stride, and the rule leaves exactly zero margin by
+  // construction — so this goes red the moment the span outgrows the room.
+  check(
+    "a full pull from the cannon ends a cube clear of the wall",
+    CANNON.x - fullPx >= CELL - STEP,
+    `ends at world x=${(CANNON.x - fullPx).toFixed(1)}, floor ${CELL}`,
+  );
+  // The same property said through the gesture instead of through the geometry:
+  // a horizontal pull-back whose endpoint is still on the field is a 100% shot.
+  {
+    const c = new Cannon(makeBaseLevel(0), 7);
+    const reach = CANNON.x - CELL; // the furthest such pull the rule allows
+    check("...and that pull is a full-power one", c.aimFromDrag(-reach, 0) === 1,
+      String(c.aimFromDrag(-reach, 0)));
+    check("...at the cannon's top speed", Math.abs(c.power - c.speedMax) < 1e-9,
+      `${c.power} vs ${c.speedMax}`);
   }
-  check("the firing floor sits inside a thumb's reach", floorPx > 60 && floorPx < 110, `${floorPx} world px`);
+
+  // --- The firing floor -----------------------------------------------------
+  // MIN_FIRE_RATIO is a FRACTION of the span and has to stay one. That is the
+  // property that let the span itself change without re-tuning the gate: shrink
+  // DRAG_MAX and the misfire threshold shrinks with it, in px, automatically,
+  // because "did they mean it" is about what the pull MEANS and not about how
+  // far a finger moved on a particular screen.
+  check(
+    "the misfire gate is a fixed fraction of the span, not a pixel count",
+    Math.abs((floorPx - footPx) / (fullPx - footPx) - MIN_FIRE_RATIO) < 0.01,
+    `${((floorPx - footPx) / (fullPx - footPx)).toFixed(4)} vs ${MIN_FIRE_RATIO}`,
+  );
+  // Both ends of "inside a thumb's reach", derived rather than banded: further
+  // than a whole cube of travel, so a graze cannot reach it; shorter than the
+  // full pull, so the gate is never the control.
+  check("the firing floor is further than a graze travels", floorPx > CELL, `${floorPx.toFixed(1)} world px`);
+  check("the firing floor is short of a full pull", floorPx < fullPx, `${floorPx.toFixed(1)} of ${fullPx.toFixed(1)}`);
   check("a pull just under the floor is refused", powerRatioForDrag(floorPx - 1) < MIN_FIRE_RATIO);
   check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
   check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
+
+  // --- The pad's power curve did not move with the span -----------------------
+  // THE PIN THAT WAS MISSING. The stick's ramp used to be spelled
+  // `powerRatioForDrag(deflection * 240)` against a 28/220 span, and shrinking
+  // DRAG_MAX rescaled that ramp WITHOUT rescaling its foot — DRAG_MIN is a
+  // fixed 28 that belongs to a thumb, not to the span. Both endpoints survived
+  // (a pinned stick still saturated, a centred one still read zero) while every
+  // interior point moved: half deflection fell 48% -> 39%, and the first
+  // deflection past the deadzone fell 13% -> 0, growing a second dead band at
+  // the bottom of the throw. Endpoint checks cannot see that. A CURVE check
+  // can, so this samples the whole throw against the mapping as it shipped.
+  {
+    // The reference: deflection * 240 through DRAG_MIN 28 / DRAG_MAX 220, the
+    // triple the pad's feel was born in. Written out rather than imported
+    // because the whole point is that cannon.ts's span is free to move again.
+    const asShipped = (d: number): number =>
+      Math.max(0, Math.min(1, (d * 240 - 28) / (220 - 28)));
+    let worst = 0;
+    let worstAt = 0;
+    for (let i = 0; i <= 2000; i++) {
+      const d = i / 2000;
+      const gap = Math.abs(asShipped(d) - stickPowerRatio(d));
+      if (gap > worst) { worst = gap; worstAt = d; }
+    }
+    // Float precision, not a tolerance: the two forms are the same line written
+    // two ways (a length through a span, versus the two deflections that line
+    // crosses), so they agree to a few ULP and nothing looser is acceptable.
+    check("the stick's power curve is the one pad players have, all the way along",
+      worst < 1e-12, `worst gap ${worst.toExponential(2)} at deflection ${worstAt.toFixed(4)}`);
+    check("a pinned stick is full power", stickPowerRatio(1) === 1);
+    check("a centred stick asks for nothing", stickPowerRatio(0) === 0);
+    check("...and a half-deflected one is neither", stickPowerRatio(0.5) > 0.4 && stickPowerRatio(0.5) < 0.6,
+      String(stickPowerRatio(0.5)));
+    // The bottom of the throw specifically: the first deflection the poller
+    // will even look at must already be asking for power, or the stick has two
+    // deadzones stacked and the first live millimetre does nothing.
+    check("the first deflection past the deadzone still asks for power",
+      stickPowerRatio(DEADZONE) > 0.1, `${(stickPowerRatio(DEADZONE) * 100).toFixed(1)}% at ${DEADZONE}`);
+    // And the whole loop, through the cannon: a deflection put through
+    // dragLenForRatio must come back off the cannon as the ratio it asked for.
+    // This is the seam the fix actually closed — the pad speaks in ratios and
+    // the touch mapping speaks in px, and only one of them may own the ramp.
+    const c = new Cannon(makeBaseLevel(0), 7);
+    let seam = 0;
+    for (const d of [DEADZONE, 0.35, 0.5, 0.7, 0.9, 1]) {
+      c.aimFromDrag(-dragLenForRatio(stickPowerRatio(d)), 0);
+      seam = Math.max(seam, Math.abs(c.powerRatio - asShipped(d)));
+    }
+    check("a deflection lands on the cannon as the power it always meant",
+      seam < 1e-12, `worst ${seam.toExponential(2)}`);
+  }
 
   // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
   // gesture asked for, not what the cannon happens to be holding — a tap
@@ -7772,6 +11933,73 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("a cheat rewrites the save", applyCheat("sbx-grant-salvage", newMeta(), 1)!.salvage === 1000);
   check("a non-cheat is not handled", applyCheat("sbx-launch", newMeta(), 1) === null);
 
+  /* "UNLOCK EVERYTHING" HAS TO PRODUCE A RIG THAT FLIES EVERYTHING, and the
+   * property is stated against safeLoadout rather than against the loadout it
+   * writes. That is the whole finding (codex, PR #157): the cheat set
+   * `loadout: maxedTiers()` and left the save's rack at SLOT_BASE, so the meta
+   * it produced OWNED ten systems and FLEW four — the label was true of the
+   * field it wrote and false of the run it produced, which is the one thing a
+   * blunt developer action must never be.
+   *
+   * The equality is exact and deliberately not `>=`: a cheat that granted nine
+   * of ten would pass any weaker check while still being a lie, and "everything"
+   * is the only reading of the button's own word. */
+  //
+  // APPLIED TO A TOP-MARK SAVE, and the reason is the second gate this pin
+  // found once the first was fixed. safeLoadout asks TWO questions — does the
+  // rig fit the Mark's build budget, and what is aboard — and only the second
+  // is a slot question. A maxed rig costs FULL_BUILD_COST, which no Mark below
+  // the last can afford, so on a fresh save the cheat's own loadout is refused
+  // by budgetForMark long before the rack is consulted. That is correct and is
+  // pinned separately below: a Mark is the one thing no cheat except
+  // `sbx-grant-mark` may touch, so "unlock everything" granting a Mark's worth
+  // of budget as a side effect would be the worse bug. The developer flow is
+  // both buttons, which is what this meta is.
+  //
+  // WITH SOMETHING ALREADY IN THE SHED, which is the half of this pin that was
+  // vacuous on its first draft and was caught by breaking the code: a fresh
+  // save's shed is empty, so a cheat that forgot to clear one passed a pin
+  // written against `newMeta()` without changing a single character of output.
+  // The developer flow the button has to survive is "stow a system, then tap
+  // Unlock everything", so that is the meta it is asked about.
+  const topMeta: MetaState = {
+    ...newMeta(),
+    mark: MARK_COUNT - 1,
+    loadout: { ...newTiers(), [UPGRADES[0].id]: 1, [UPGRADES[1].id]: 1 },
+    stowed: [UPGRADES[0].id],
+  };
+  check("the sandbox's own fixture really does have a stowed system",
+    stowedIds(topMeta).length === 1 && !isMounted(topMeta, UPGRADES[0].id));
+  const cheated = applyCheat("sbx-unlock-all", topMeta, MARK_COUNT)!;
+  check(`"unlock everything" flies everything, not just the first ${SLOT_BASE}`,
+    JSON.stringify(safeLoadout(cheated)) === JSON.stringify(maxedTiers()),
+    `${mountedIds(cheated).length} of ${UPGRADES.length} aboard`);
+  check("...because it widens the rack rather than leaving the mask to eat it",
+    slotsFor(cheated) === SLOT_CAP && stowedIds(cheated).length === 0);
+  // THE OTHER GATE, stated so a future reader chasing a slot bug does not
+  // "fix" the budget guard on the way past. Below the top Mark the same cheat
+  // still flies a stock rig, and it is budgetForMark refusing it rather than
+  // the rack: the rig is fully mounted and simply unaffordable.
+  const cheapCheat = applyCheat("sbx-unlock-all", newMeta(), 1)!;
+  check("...while a cheated rig the MARK cannot afford is still refused",
+    tiersCost(safeLoadout(cheapCheat)) === 0
+      && mountedIds(cheapCheat).length === UPGRADES.length);
+  // THE OTHER THREE ARE NOT THE SAME CLASS, and each is checked rather than
+  // asserted in prose. `sbx-wipe` is newMeta() whole, so its rack is the base
+  // one by construction; `sbx-grant-salvage` writes no rig at all (and its
+  // salvage now buys slots like anyone else's); and `sbx-grant-mark` grants a
+  // BUDGET rather than a rig — the systems still have to be bought, and the
+  // rack it leaves behind is the one the player had. A Mark-N save whose rig
+  // could not have been mounted is not a state this cheat can reach.
+  check("wiping the save restores the base rack",
+    slotsFor(applyCheat("sbx-wipe", { ...cheated, salvage: 99 }, 1)!) === SLOT_BASE);
+  check("granting salvage touches neither the rack nor the shed",
+    slotsFor(applyCheat("sbx-grant-salvage", cheated, 1)!) === SLOT_CAP
+      && applyCheat("sbx-grant-salvage", newMeta(), 1)!.stowed.length === 0);
+  check("granting a Mark grants a budget, never a rig",
+    JSON.stringify(applyCheat("sbx-grant-mark", newMeta(), 9)!.loadout)
+      === JSON.stringify(newTiers()));
+
   // The end modal has to say what the run did NOT do, or a player will assume
   // it did.
   const sEnd = S.endModal({
@@ -7782,7 +12010,8 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     boardTier: BOARD_SANDBOX,
     runComplete: false, tierCompleted: null, tierSalvage: 0,
     progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 20,
-    salvagedFunds: 0, tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+    salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0,
+    tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
   });
   check("a Tier S end says nothing was banked", sEnd.includes("No salvage"));
   check("a Tier S end names its board", sEnd.includes("Tier S board"));
@@ -8177,12 +12406,24 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
   // says it once, and says it in words as well as in a class name.
   const base: S.TowerState = { unlocked: 3, selected: 3, skydeck: false, sealed: [2] };
   const html = S.tierTowerHTML(base);
-  check("a sealed floor is marked", html.includes("tower__seal"));
-  check(
-    "an unsealed floor is not",
-    (html.match(/tower__seal/g) ?? []).length === 1,
-    `${(html.match(/tower__seal/g) ?? []).length} seals for one sealed Mark`,
-  );
+  /** Stamps PRESSED — the filled seal, and only it. Matched on the closing
+   *  quote so the empty socket's own class (`tower__seal tower__seal--owed`)
+   *  cannot be counted as one: the two are now one glyph in two states, and a
+   *  substring test would call the bill a receipt. */
+  const stamped = (h: string): number => (h.match(/class="tower__seal"/g) ?? []).length;
+  const owed = (h: string): number => (h.match(/tower__seal--owed/g) ?? []).length;
+  check("a sealed floor is marked", stamped(html) === 1, `${stamped(html)} stamps`);
+  // THE EMPTY SOCKET is what makes "all seals open the roof" legible without a
+  // sentence on the menu (screens.ts's floorHTML): the building shows its own
+  // bill. Three here — Marks 1 and 3, which are open and unsealed, and the
+  // locked roof, which is waiting on both of them.
+  check("every floor that still owes a seal shows an empty socket",
+    owed(html) === 3, `${owed(html)} sockets`);
+  // …and NOT on a Mark the player cannot fly yet. A floor above the unlock has
+  // a Mark question, not a seal question, and ten sockets on a Mark-1 tower
+  // would be a bill for a mode whose door that player cannot see.
+  check("a locked Mark is not billed for a seal it cannot earn",
+    stamped(html) + owed(html) === 4);
   // The distinction must survive a viewer who cannot separate the hues. The
   // stamp is a shape and it is aria-hidden, so the floor's accessible NAME is
   // what carries it to anyone the shape does not reach. Asserted as the whole
@@ -8193,19 +12434,1131 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     html.includes('aria-label="Tier 2 — sealed"'),
   );
   // The Skydeck is not a Mark. meta.ts can never record a seal for it, so a
-  // build in which the Skydeck could wear one is drawing a state nothing
-  // produces.
-  check(
-    "the Skydeck is never sealed",
-    !S.tierTowerHTML({ ...base, skydeck: true, sealed: [S.SKYDECK_TIER] })
-      .includes("tower__seal"),
-  );
+  // build in which the Skydeck could wear a PRESSED stamp is drawing a state
+  // nothing produces — and an OPEN roof wears nothing at all, socket included:
+  // the socket is the floor stating what it wants, and a floor that has what it
+  // wants states nothing.
+  {
+    const openRoof = S.tierTowerHTML({
+      ...base, unlocked: MARK_COUNT, skydeck: true,
+      sealed: [...Array.from({ length: MARK_COUNT }, (_, i) => i + 1), S.SKYDECK_TIER],
+    });
+    const skyFloor = /<button[^>]*data-tier="\d+"[^>]*>(?:(?!<\/button>).)*<span class="tower__n">SKY<\/span>(?:(?!<\/button>).)*<\/button>/s
+      .exec(openRoof)?.[0] ?? "";
+    check("the Skydeck is never sealed", skyFloor.length > 0 && !skyFloor.includes("tower__seal"),
+      skyFloor ? "the roof carries a stamp" : "the roof was not found");
+    // The bill it replaced, so the check above cannot pass by the roof simply
+    // never drawing anything.
+    const shutRoof = S.tierTowerHTML({ ...base, unlocked: MARK_COUNT, skydeck: false });
+    check("...but a shut one shows what it is waiting for",
+      shutRoof.includes("tower__seal--owed"));
+  }
+  // THE ROOF'S PRICE IN WORDS. The sockets are a shape and the shape is
+  // aria-hidden, so the locked floor's accessible name is the only place the
+  // count reaches a screen-reader user — and the count is the whole gate
+  // (meta.ts's skydeckOpen).
+  check("a locked roof states how many Marks are sealed",
+    S.tierTowerHTML({ unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, sealed: [1, 2, 4] })
+      .includes(`aria-label="Skydeck — locked — 3 of ${MARK_COUNT} Marks sealed"`));
+  // …and an OPEN one says only its name, which is what the top-floor naming
+  // pins below assert verbatim.
+  check("...and an open one says only its name",
+    S.tierTowerHTML({ unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: true })
+      .includes('aria-label="Skydeck"'));
   // Absent reads as none — menuScreen's fallback tower and every uifit fixture
-  // that predates the seal must render exactly the tower they always did.
+  // that predates the seal must render no STAMPS. They do now draw sockets, and
+  // that is the change being made rather than a regression: a tower with no
+  // seal record is a tower that owes every seal it can earn.
   check(
-    "a tower with no seal record draws no seals",
-    !S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false }).includes("tower__seal"),
+    "a tower with no seal record draws no stamps",
+    stamped(S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false })) === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  /** A run end, with only the things these checks are about spelled out. The
+   *  rest is a plausible losing run, because a fixture that varied everything
+   *  would make each failure a hunt for which knob moved it. */
+  const end = (o: Partial<Parameters<typeof S.endModal>[0]> = {}): string =>
+    S.endModal({
+      won: false, runComplete: false, score: 40_000, lines: 90, baysCleared: 6,
+      funds: 300, best: 50_000, name: "PILOT", rows: "", reason: "broke",
+      bayNum: 7, bayName: "Cryo Vault", tierCompleted: null, tierSalvage: 0,
+      progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
+      ...o,
+    });
+
+  /* -------------------------------------------------------------------------
+   * WHAT VOLATILE TOOK IS PRINTED. A cost the player is never shown reads to
+   * them exactly the way it read to the sim before it was billed — as free pile
+   * relief — which is the defect lineClear.ts's volatileLossFor was written to
+   * remove. Pricing it and hiding it removes the defect from the numbers and
+   * leaves it in the player's head.
+   *
+   * On the BREAKDOWN row specifically, and that is the assertion rather than an
+   * incidental fact about where the string landed. The sandbox foot beside it
+   * (screens.ts's demoFoot) renders on Tier S runs only, so a charge parked
+   * there would be invisible on every ladder run — i.e. on every run where it
+   * cost the player anything that mattered.
+   * ----------------------------------------------------------------------- */
+  {
+    const charged = end({ volatileLosses: 240 });
+    check("a run that ate detonations says what they took",
+      charged.includes("$240 lost to detonations"));
+    check("...on the breakdown row, which every run draws — not the Tier S foot",
+      /end__breakdown[^]*?\$240 lost to detonations[^]*?<\/div>/.test(charged));
+    // Suppressed at zero rather than printed as "$0": most runs never ratchet
+    // the axis, and a hazard the player never met has no business on the one
+    // row that reconciles the run's money.
+    check("a run that met no volatile is not told what it did not lose",
+      !end({ volatileLosses: 0 }).includes("lost to detonations"));
+    // The two readouts are independent, and a run can carry both. Pinned
+    // because they are one sentence apart in screens.ts and the obvious
+    // regression is a branch that renders whichever is checked first.
+    const mixed = end({ volatileLosses: 240, salvagedFunds: 310, sandbox: true });
+    check("a run that both recovered and lost prints both figures",
+      mixed.includes("$240 lost to detonations")
+        && mixed.includes("$310 recovered by demolition"));
+  }
+
+  // ---- THE CONTRACTS ROUTE -----------------------------------------------
+  // The end card is where a player decides what to do next, and it used to
+  // offer the run again or the menu. Contracts pay the salvage the next run
+  // wants, so the door belongs here — but only while there is something behind
+  // it: a board of three ticks is a door onto free practice, which is not what
+  // to advertise on the way out of a lost run.
+  check("a board with cards left offers the route",
+    end({ contracts: { remaining: 2, next: false } }).includes('data-action="contracts"'));
+  check("...and a fully cleared board does not",
+    !end({ contracts: { remaining: 0, next: true } }).includes('data-action="contracts"'));
+  check("...and a caller that knows nothing about the board draws nothing",
+    !end().includes('data-action="contracts"'));
+  // THE BADGE IS meta.ts's nextStep AND NOTHING ELSE, which is what keeps "one
+  // surface carries it" true across the screen boundary. Available is not the
+  // same question as next: a player whose salvage already covers an install is
+  // being sent to the Workshop, and this card has a Workshop button of its own
+  // in the salvage row.
+  check("the route is badged only when Contracts are the next step",
+    end({ contracts: { remaining: 3, next: true } }).includes("Next step"));
+  check("...and merely being available earns no badge",
+    !end({ contracts: { remaining: 3, next: false } }).includes("Next step"));
+  // The card's OTHER badge-bearer, so the two cannot both light: a run that
+  // banked salvage draws a Workshop button, and nextStep answers "workshop"
+  // exactly when it would not answer "contracts".
+  check("the two doors are the same rule's two branches",
+    nextStep({ ...newMeta(), salvage: 1_000 }) === "workshop"
+      && nextStep(newMeta()) === "contracts");
+
+  // ---- THE RUN-END CARD AT SATURATION ------------------------------------
+  // The same sentence as the Contract card's, on the other door into the same
+  // moment: a tier completes on whichever half lands second, and either half
+  // can be the run. Both cards ask tierOpenedByCompleting now, so a fix to one
+  // cannot leave the other lying. The run card carries a second claim as well
+  // — what the new rung changes — and that one is doubly false at the top,
+  // since Mark 10 opens no hazard axis and the build budget it quotes is the
+  // budget the player already had.
+  const endMid = end({ runComplete: true, tierCompleted: 3, tierSalvage: 15,
+    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 } });
+  check("the run-end card names the floor the completion opened",
+    endMid.includes("Tier 4 is open"));
+  const endTop = end({ runComplete: true, tierCompleted: MARK_COUNT, tierSalvage: 15,
+    progress: {
+      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+    } });
+  check("...and announces no unlock when the ladder simply ended",
+    !endTop.includes("is open"), "the top-of-ladder run card still names a floor");
+  check("...saying what did happen instead", endTop.includes("ladder is finished"));
+  check("...and promises no budget rise that cannot happen",
+    !endTop.includes("build budget rises"));
+
+  // ---- RETRY BAY vs RETRY RUN --------------------------------------------
+  // They were one button ("Play Again") that only ever meant the fresh start.
+  // Two now, because they hand back two different things — and the pair only
+  // reads if both halves say which.
+  const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3, next: true } });
+  check("a lost ladder run offers the bay back", lost.includes('data-action="retry-bay"'));
+  check("...and the fresh start beside it, named", lost.includes(">Retry Run<"));
+  check("...and never as one button", !lost.includes(">Play Again<"));
+  // NOT THE PRIMARY, and this is the pin that matters most on this screen.
+  // padnav's focusInitial lands a pad on the primary button, so whichever
+  // button wears it is what a stray A after a loss presses — and Retry Bay is
+  // the only control on the card that spends something permanent. The primary
+  // stays the fresh start, which is the slot "Play Again" already held.
+  const primary = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(lost)?.[1];
+  check("the button a stray press finds is not the one that costs the seal",
+    primary === "restart", primary ?? "no primary");
+  // NEVER SILENT. The glyph is on the button and the sentence is above the row,
+  // and the sentence carries the half a player will otherwise get wrong.
+  check("the retry wears the seal it is about to spend", lost.includes("btn__seal"));
+  check("...and says what it does and does not cost",
+    /breaks this run's seal/.test(lost) && /still opens/.test(lost));
+
+  // ---- THE BUTTON HOLDS THE MARK, BOTH WAYS -------------------------------
+  // Playtest: "restart bay button should hold the mark of whether the seal has
+  // been broken or not". It used to draw the glyph while the seal was INTACT
+  // and nothing at all once it was spent — so the one state a player most wants
+  // to read back (this run's seal is already gone, further retries are free)
+  // was the state with no mark on it. Absence is not something a player can
+  // read; two distinct faces are.
+  const spent = end({ retryBay: { seal: "spent", mark: 4 } });
+  check("a spent seal is drawn, not omitted", spent.includes("btn__seal--broken"));
+  check("...and an intact one is drawn differently",
+    lost.includes("btn__seal") && !lost.includes("btn__seal--broken"));
+  // The struck stamp means on this button what it means on the tower: a seal
+  // that is GONE. It used to mean "about to go", which is the glyph predicting
+  // the press rather than reporting the run.
+  check("the struck stamp reports the run, not the press",
+    !spent.includes('class="btn__seal"'));
+  // Both faces reach a screen reader, which the shape cannot — it is
+  // aria-hidden on both.
+  check("both states are named, not merely drawn",
+    /breaks this run's seal/.test(lost)
+      && /this run's seal is already broken/.test(spent));
+  // …and the line above the row is a READOUT rather than a warning now, so it
+  // has something to say in both states. The second is not the first repeated:
+  // it is the opposite news, and it is news the player can act on.
+  check("the spent state says retries are free now",
+    /costs nothing now/.test(spent) && !/breaks this run's seal/.test(spent));
+
+  // ---- THE THIRD FACE: A MARK ALREADY STAMPED ----------------------------
+  // Found in review (codex, PR #135). A re-fly of a sealed Mark was drawn as an
+  // intact seal about to be spent, which is a price no retry can charge.
+  {
+    const held = end({ retryBay: { seal: "held", mark: 3 } });
+    // SOLID, because the stamp is not gone — the glyph means here what it means
+    // on the tower — and MUTED, because nothing is at risk. It is the alarm
+    // taken off the at-stake face, not the struck face reused.
+    check("a held stamp is drawn solid, not struck",
+      held.includes("btn__seal--held") && !held.includes("btn__seal--broken"));
+    check("...and is not the at-stake face either",
+      !/class="btn__seal"/.test(held));
+    // THE COPY IS ABOUT THE MARK, NOT THE RUN, and this is the pin that keeps
+    // it honest: the player is looking at a LOSS, and a line implying this run
+    // sealed something would be flatly untrue.
+    //
+    // Read out of the LINE rather than out of the whole card, because the same
+    // words are in the button's aria-label — a `.test(held)` over the document
+    // passed with the visible line deleted, which is a pin that cannot fail for
+    // the reason it was written. (Caught red-first while checking this block.)
+    const sealLine = (h: string): string =>
+      (/<p class="muted end__seal">([\s\S]*?)<\/p>/.exec(h)?.[1] ?? "")
+        .replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    check("the held line names the Mark whose stamp it is",
+      /Mark 3 is already sealed/.test(sealLine(held)), sealLine(held) || "no line");
+    check("...and says the press is free",
+      /costs nothing/.test(sealLine(held)));
+    // Case-INSENSITIVE, which is not fussiness: the spent line opens with
+    // "This run's seal", so a case-sensitive test passed against the very line
+    // this pin exists to rule out. (Caught red-first, same pass as the scoping
+    // above.)
+    check("...and never claims this run sealed anything",
+      !/this run's seal/i.test(sealLine(held)));
+    // The other two lines are scoped the same way, so all three are held to the
+    // element the player actually reads.
+    check("...where the at-stake line is the one that charges",
+      /breaks this run's seal/.test(sealLine(lost)));
+    check("...and the spent line is the one that reports a price paid",
+      /already broken/.test(sealLine(spent)));
+    // It reaches a screen reader too — the shape is aria-hidden in all three.
+    check("...and the button says so as well",
+      /aria-label="Retry Bay \d+ — Mark 3 is already sealed, so this costs nothing"/.test(held));
+    // The bay is still offered: this is the FORGIVING state, and gating the
+    // button on it would take the retry away exactly where it is free.
+    check("a held seal still offers the bay back",
+      held.includes('data-action="retry-bay"'));
+  }
+
+  // ---- EVERY DOOR WEARS THE FACE, NOT JUST THE LOSS CARD ------------------
+  // Owner playtest, with a screenshot of the pause modal: Restart Bay is the
+  // same irreversible action through a different door and it went out with a
+  // bare label. A cost visible from one door and invisible from another is
+  // worse than invisible from both — it teaches the player that the plain
+  // button is the safe one, and the plain button was the one that charged.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const paused = (seal?: { state: SealState; mark: number }): string =>
+      S.pauseModal(true, "keyboard", abilities, seal);
+    /** Just the Restart Bay button, so a glyph counted here is that button's.
+     *  Resume, Fullscreen and Quit share the row and `includes` cannot tell
+     *  them apart. */
+    const restart = (h: string): string =>
+      /<button[^>]*data-action="restart-bay"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+
+    check("the pause modal still has its Restart Bay", restart(paused()).length > 0);
+    // ALL THREE STATES, the same three the loss card draws — and the SAME
+    // markup, because both buttons now render through sealFaceHTML. A second
+    // face tuned to this modal is exactly how the two would drift into saying
+    // almost-the-same thing.
+    check("at-stake wears the stamp about to be spent",
+      /class="btn__seal"/.test(restart(paused({ state: "at-stake", mark: 4 }))));
+    check("...spent wears the struck stamp",
+      restart(paused({ state: "spent", mark: 4 })).includes("btn__seal--broken"));
+    check("...and held wears the solid muted one",
+      restart(paused({ state: "held", mark: 4 })).includes("btn__seal--held"));
+    // …and the three are genuinely different faces rather than one class name
+    // that happens to substring-match the others.
+    check("the three faces are three faces", new Set(
+      (["at-stake", "spent", "held"] as SealState[])
+        .map((state) => /class="(btn__seal[^"]*)"/.exec(restart(paused({ state, mark: 4 })))?.[1]),
+    ).size === 3);
+    // THE GLYPH IS aria-hidden, here as everywhere, so the words have to reach
+    // the other half of the audience — and they are the SAME words the loss
+    // card uses, from sealFaceLabel.
+    // Written out whole, and the clause carries its own subject: "retrying
+    // breaks this run's seal" rather than the bare predicate this said for one
+    // release. The subject is what lets the same words be glued onto the rail's
+    // longer name without coming out as a relative clause — see the composition
+    // block below. (Codex review, PR #144.)
+    check("the button names the cost as well as drawing it",
+      restart(paused({ state: "at-stake", mark: 4 }))
+        .includes('aria-label="Restart Bay — retrying breaks this run\'s seal"'));
+    check("...and names the Mark in the held state",
+      restart(paused({ state: "held", mark: 3 }))
+        .includes("Mark 3 is already sealed, so this costs nothing"));
+    // ONE RULE, TWO CALLERS. The loss card and the pause modal must produce
+    // byte-identical faces for the same state, which is the property that
+    // makes "don't fork a second face" checkable rather than a comment.
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const fromEnd = /class="(btn__seal[^"]*)"/
+        .exec(end({ retryBay: { seal: state, mark: 4 } }))?.[1];
+      const fromPause = /class="(btn__seal[^"]*)"/.exec(restart(paused({ state, mark: 4 })))?.[1];
+      check(`the ${state} face is the same on both doors`,
+        !!fromEnd && fromEnd === fromPause, `${fromEnd} vs ${fromPause}`);
+      check(`...and so are the ${state} words`,
+        S.sealFaceLabel(state, 4).length > 0
+          && restart(paused({ state, mark: 4 })).includes(S.sealFaceLabel(state, 4))
+          && end({ retryBay: { seal: state, mark: 4 } }).includes(S.sealFaceLabel(state, 4)));
+    }
+    // NO SEAL, NO FACE. A Contract, a drill, Tier S and the Skydeck all pause
+    // with no seal question, and a glyph there would be a claim about a cost
+    // that does not exist. Absence also has to leave the button exactly as it
+    // was, so every caller that predates the argument is unmoved.
+    check("a run with no seal question draws no glyph",
+      !restart(paused()).includes("btn__seal"));
+    check("...and no aria-label it did not have before",
+      !restart(paused()).includes("aria-label"));
+
+    // THE HELD ⏸ IS THE THIRD DOOR, and it takes the WORDS without the glyph:
+    // a 22px icon button on a live field is not where a cost readout goes (the
+    // rail is width-budgeted, and the hint strip's own note argues the same
+    // point from the other side). The gesture is deliberate, it has its own
+    // meter, and requestBayRetry confirms it like every other door — so what
+    // the name buys is the half that has nowhere else to go.
+    const railBtn = (h: string): string =>
+      /<button[^>]*data-action="pause"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const hud = (seal?: { state: SealState; mark: number } | null): string =>
+      S.hudHTML({
+        beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+        loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+        tier: 2, target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+        timeLeftMs: 150_000, pieceSize: "std",
+        bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+        thawOwned: true, thawCharges: 4,
+        autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+        seal,
+      });
+    // ASSERTED AS WHOLE NAMES, in every state, and that is the change this
+    // block needed rather than a third reading. The two checks that lived here
+    // tested SUBSTRINGS — "hold to restart the bay, which breaks this run's
+    // seal" and, for the free press, just the tail "already sealed, so this
+    // costs nothing" — and both were true of a name that was ungrammatical
+    // around them: the rail glued the price on with ", which ", which parses
+    // after the at-stake predicate and produces "hold to restart the bay, which
+    // this run's seal is already broken" for the other two. A substring pin
+    // cannot see that, because the substring is exactly the part that was fine.
+    //
+    // So the expected names are written out, once per state, by a human who
+    // read them. This is the same reason the tower's seal pin asserts
+    // `aria-label="Tier 2 — sealed"` whole rather than testing for "sealed".
+    // (Codex review, PR #144.)
+    const railName = (h: string): string =>
+      /aria-label="([^"]*)"/.exec(railBtn(h))?.[1] ?? "";
+    const HOLD = "Pause — hold to restart the bay";
+    check("the hold's name is a whole sentence when the seal is at stake",
+      railName(hud({ state: "at-stake", mark: 4 }))
+        === `${HOLD} — retrying breaks this run's seal`,
+      railName(hud({ state: "at-stake", mark: 4 })));
+    check("...and when it has already been spent",
+      railName(hud({ state: "spent", mark: 4 }))
+        === `${HOLD} — this run's seal is already broken`,
+      railName(hud({ state: "spent", mark: 4 })));
+    check("...and when the press is free",
+      railName(hud({ state: "held", mark: 3 }))
+        === `${HOLD} — Mark 3 is already sealed, so this costs nothing`,
+      railName(hud({ state: "held", mark: 3 })));
+    check("...and is the name it always had when no seal is in play",
+      railName(hud()) === HOLD, railName(hud()));
+    // …and NOT a glyph, on any of them. This is the pin that keeps a later
+    // "make it consistent" pass from painting the rail.
+    check("the rail never grows a seal glyph",
+      (["at-stake", "spent", "held"] as SealState[])
+        .every((state) => !railBtn(hud({ state, mark: 4 })).includes("btn__seal")));
+
+    // ---- ONE COMPOSITION RULE, AT EVERY DOOR ------------------------------
+    // The words being shared was already pinned above; what was NOT pinned was
+    // how a door is allowed to attach them, and that is where the malformation
+    // got in. Every accessible name that speaks the price is `<name> — <clause>`
+    // (screens.ts's sealNameWith), so a door that invents its own join fails
+    // here rather than in a screen reader.
+    //
+    // FOUR doors, not three: the confirmation panel's own Retry Bay used to
+    // hand-write the at-stake words, which is the drift this feature moved the
+    // face out to prevent.
+    const names = (state: SealState, mark: number): { where: string; name: string }[] => [
+      { where: "the rail's hold", name: railName(hud({ state, mark })) },
+      {
+        where: "the pause modal",
+        name: /aria-label="([^"]*)"/.exec(restart(paused({ state, mark })))?.[1] ?? "",
+      },
+      {
+        where: "the loss card",
+        name: /data-action="retry-bay"[\s\S]*?aria-label="([^"]*)"/
+          .exec(end({ retryBay: { seal: state, mark } }))?.[1] ?? "",
+      },
+    ];
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const clause = S.sealFaceLabel(state, 4);
+      for (const { where, name } of names(state, 4)) {
+        check(`${where} joins the ${state} clause the one way`,
+          name.endsWith(` — ${clause}`) && name.length > clause.length + 3,
+          name);
+      }
+      // THE REGRESSION ITSELF, stated as the thing no name may contain. A
+      // relative pronoun is the join that reads correctly in exactly one state,
+      // which is why it survived a release.
+      check(`no ${state} name glues the price on as a relative clause`,
+        names(state, 4).every(({ name }) => !/,\s*which\b/.test(name)),
+        names(state, 4).map((n) => n.name).join(" | "));
+    }
+    // The confirmation panel is the fourth door and only ever opens at-stake.
+    {
+      const confirm = /data-action="seal-break-go"[\s\S]*?aria-label="([^"]*)"/
+        .exec(S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: true }))?.[1] ?? "";
+      check("the confirmation's own button speaks the shared clause",
+        confirm === `Retry Bay 7 — ${S.sealFaceLabel("at-stake", 4)}`, confirm);
+    }
+    // EVERY CLAUSE STANDS ALONE, which is the property the join depends on. A
+    // bare predicate reads correctly after a button name and after "which", and
+    // that coincidence is the whole bug — so each line has to carry a subject
+    // of its own. Checked as "it does not open with the verb", which is the one
+    // shape that silently re-admits the old failure.
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const first = S.sealFaceLabel(state, 4).split(" ")[0];
+      check(`the ${state} clause opens with a subject, not a verb ("${first}")`,
+        !["breaks", "costs", "is", "was", "makes", "spends"].includes(first));
+    }
+  }
+  // THE MODES THAT HAVE NO BAY TO GIVE BACK. main.ts passes `retryBay` only for
+  // a run tracksLadder accepts — Tier S re-flies its whole configuration from
+  // the primary, and the Skydeck is the day's single attempt, which is the
+  // whole of what the mode sells (skydeck.ts).
+  check("a Tier S end offers no bay retry",
+    !end({ sandbox: true, sandboxSetup: "Mark 10 · from bay 9" })
+      .includes('data-action="retry-bay"'));
+  check("...and neither does a win",
+    !end({ won: true, runComplete: true, reason: null }).includes('data-action="retry-bay"'));
+
+  // ---- THE SEAL CONFIRMATION ----------------------------------------------
+  // It was a one-time notice. It is a confirmation now (playtest: "we can also
+  // keep the confirmation on breaking the seal, not just the first time"), and
+  // the watermark that used to decide whether it appeared at all now decides
+  // only how much of it there is — see the `explain` block below.
+  {
+    const note = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: true });
+    // The second paragraph is the whole point of the panel: a player who thinks
+    // a retry forfeits the tier will abandon runs they could still win.
+    check("the notice promises the tier still opens", /Tier 4 still opens/.test(note));
+    check("...and quotes the roof's price in the tower's own numbers",
+      note.includes(`${MARK_COUNT} Marks carry a stamp`) && /3 of 10 so far/.test(note));
+    check("...and offers both answers", note.includes('data-action="seal-break-go"')
+      && note.includes('data-action="seal-break-back"'));
+    // Same reasoning as the end card's primary, one screen further in: the
+    // reversible answer is the one a pad lands on.
+    const keep = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(note)?.[1];
+    check("keeping the seal is the default answer", keep === "seal-break-back", keep ?? "none");
+
+    // THE PROMISE IS ONLY MADE WHERE IT IS TRUE (codex review, PR #134). The
+    // panel quoted the player's HIGH-WATER tier, so a Mark-3 re-fly by a
+    // Mark-10 player read "Tier 10 still opens" about a run that can move
+    // nothing at all. It names the run's own Mark now, and drops the tier
+    // clause entirely when there is no tier to open.
+    const refly = S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9, explain: true });
+    check("a re-fly names the Mark whose seal is actually at stake",
+      /Mark 3<\/b> cannot be\s+sealed/.test(refly) && !/Mark 10/.test(refly));
+    check("...and promises no tier it cannot open", !/Tier \d+ still opens/.test(refly));
+    // …and still says the run is not wasted, which is the half that is true on
+    // every run and the half the player is actually afraid of losing.
+    check("...but still says the run is not thrown away",
+      /still earns/.test(refly) && /salvage banks/.test(refly));
+    // The frontier panel names the Mark too — the two numbers agree there, and
+    // a build that printed the tier in the seal sentence would pass the re-fly
+    // check above by accident.
+    check("the frontier panel names its Mark as well", /Mark 4<\/b> cannot be/.test(note));
+
+    // ---- LONG ONCE, SHORT EVERY TIME AFTER --------------------------------
+    // The watermark's whole remaining job. The LESSON — what a seal is, what
+    // the full set opens — is worth exactly one reading; the DECISION is worth
+    // asking every time it is real, and the short form is that decision with
+    // the lesson taken out.
+    const brief = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: false });
+    check("the first panel teaches what a seal is",
+      note.includes(`${MARK_COUNT} Marks carry a stamp`));
+    check("...and every one after it does not",
+      !brief.includes(`${MARK_COUNT} Marks carry a stamp`));
+    check("...and is genuinely shorter for it", brief.length < note.length,
+      `${brief.length} vs ${note.length}`);
+    // WHAT THE SHORT FORM MUST KEEP is everything the decision needs: the cost,
+    // the correction to the fear (tierOpenableBy's promise, still branch-aware)
+    // and both answers. A confirmation stripped to a bare "are you sure?" is a
+    // dialog people dismiss without reading.
+    check("...while still stating the cost", /Mark 4<\/b> cannot be\s+sealed/.test(brief));
+    check("...and still correcting the fear", /Tier 4 still opens/.test(brief));
+    check("...and still offering both answers",
+      brief.includes('data-action="seal-break-go"')
+        && brief.includes('data-action="seal-break-back"'));
+    const briefKeep =
+      /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(brief)?.[1];
+    check("...with the reversible answer still the default",
+      briefKeep === "seal-break-back", briefKeep ?? "none");
+    // The re-fly branch survives the shortening, which is the one place the two
+    // features cross: a short panel on a re-fly must still not promise a tier.
+    const briefRefly =
+      S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9, explain: false });
+    check("...and a short re-fly panel promises no tier either",
+      !/Tier \d+ still opens/.test(briefRefly) && /still earns/.test(briefRefly));
+  }
+
+  // ---- WHEN THE CONFIRMATION IS ASKED AT ALL (run.ts's retryBreaksSeal) ----
+  // The predicate every door into a bay retry shares with the button's face
+  // (main.ts's requestBayRetry, endModal's `retryBay.sealed`), so a build where
+  // the button says one thing and the panel does another cannot exist.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    /** No Mark sealed — the state every check below is in unless it says so. */
+    const none: number[] = [];
+    check("a clean ladder run has a seal to spend", retryBreaksSeal(ladder, none));
+    // TRUE AT MOST ONCE PER RUN — the property that makes confirming EVERY
+    // seal-breaking retry cheap rather than nagging, and the reason a panel on
+    // every retry is not a toll.
+    check("...and only until it is spent",
+      !retryBreaksSeal({ ...ladder, restarts: 1 }, none)
+        && !retryBreaksSeal({ ...ladder, restarts: 9 }, none));
+    // A CONFIRMATION FOR A FREE ACTION IS WORSE THAN NONE: it teaches the
+    // player to click through the one panel that matters. The modes that keep
+    // no seal answer false for the same reason recordRunEnd never seals them.
+    check("Tier S has nothing to confirm",
+      !retryBreaksSeal({ ...ladder, sandbox: true }, none));
+    check("...and neither has the Skydeck",
+      !retryBreaksSeal(
+        skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27))), none,
+      ));
+    // The rule is exactly the seal's own rule, asked one bay earlier: a run
+    // this predicate calls spendable is a run recordRunEnd would still seal.
+    check("...and it agrees with what actually seals",
+      recordRunEnd(newMeta(), 4, true, RUN_LEVELS, ladder.restarts).meta.sealedMarks.includes(4)
+        === retryBreaksSeal(ladder, none));
+
+    // ---- A MARK ALREADY SEALED CANNOT BE CHARGED AGAIN -------------------
+    // Found in review (codex, PR #135). A fresh re-fly of a Mark whose stamp is
+    // already on the tower answered "at stake", so the confirmation claimed a
+    // price no retry can take and the end card drew the seal as spendable.
+    //
+    // THE REASON IS meta.ts's OWN APPEND-ONLY RULE, so it is asserted rather
+    // than assumed: the whole finding rests on a stamp being permanent.
+    check("a stamp survives a retried run at the same Mark",
+      recordRunEnd({ ...newMeta(), sealedMarks: [4] }, 4, false, 6, 3)
+        .meta.sealedMarks.includes(4));
+    check("...and a won one, retries and all",
+      recordRunEnd({ ...newMeta(), sealedMarks: [4] }, 4, true, RUN_LEVELS, 3)
+        .meta.sealedMarks.includes(4));
+    // …so the gate must not ask for it.
+    check("a re-fly of a sealed Mark confirms nothing", !retryBreaksSeal(ladder, [4]));
+    check("...however clean the run is",
+      !retryBreaksSeal({ ...ladder, restarts: 0 }, [1, 2, 3, 4, 5]));
+    // THE CONTROL, and the one thing this change must not break: the
+    // seal-hunting re-fly of an UNSEALED Mark is exactly as it shipped. A
+    // player going back for a stamp they do not have still has one to lose.
+    check("...but a re-fly of an UNSEALED Mark is unchanged",
+      retryBreaksSeal(ladder, [1, 2, 3, 5, 6]));
+    // The three states, stated as the states rather than as the predicate, so
+    // the button's faces are pinned as well as the gate.
+    check("a sealed Mark reads held", sealStateFor(ladder, [4]) === "held");
+    check("...and outranks what this run has done",
+      sealStateFor({ ...ladder, restarts: 2 }, [4]) === "held");
+    check("an unsealed Mark on a clean run reads at-stake",
+      sealStateFor(ladder, none) === "at-stake");
+    check("...and reads spent once this run has retried",
+      sealStateFor({ ...ladder, restarts: 1 }, none) === "spent");
+    check("a run with no seal question reads as none at all",
+      sealStateFor({ ...ladder, sandbox: true }, none) === null
+        && sealStateFor({ ...ladder, sandbox: true }, [4]) === null);
+    // One rule, two readers: the gate is DEFINED on the state, so a build that
+    // let them drift would have to do it deliberately.
+    check("the gate is the at-stake state and nothing else",
+      ([none, [4], [1, 2]] as number[][]).every((s) =>
+        [0, 1].every((r) =>
+          retryBreaksSeal({ ...ladder, restarts: r }, s)
+            === (sealStateFor({ ...ladder, restarts: r }, s) === "at-stake"))));
+
+    // THE CRUX OF THE EARLIER CHANGE, stated as an independence rather than as
+    // a call site (main.ts's requestBayRetry is where it is read, and no
+    // harness can call that). The confirmation used to be gated on
+    // `stakes && watermark`, so it appeared once per SAVE; it is gated on this
+    // predicate alone now, so it appears once per RUN. What the predicate may
+    // read has GROWN by exactly one thing — the saved seal record, which is the
+    // #135 fix — and the watermark is still not it: a meta differing only in
+    // `sealBreakSeen` cannot change the answer, because the function is never
+    // handed a meta at all.
+    check("whether to confirm does not depend on having confirmed before",
+      retryBreaksSeal.length === 2);
+    // …and the watermark still has its own, smaller job: the LESSON.
+    check("the watermark now gates only the explainer",
+      sealBreakOwed(newMeta()) && !sealBreakOwed(sealBreakShown(newMeta())));
+  }
+
+  // ---- WHEN QUITTING COSTS SOMETHING (run.ts's quitLosesProgress) ---------
+  // The sibling of the gate above, asked about the OTHER irreversible press on
+  // the pause card. A bay retry hands the run back; Quit throws it away without
+  // settling it — main.ts's finishRun is never reached, so recordRunEnd never
+  // runs and the run banks no score, no bestBay and no place in the lifetime
+  // count. Every other exit from a run files it first.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    // BAY 1 GOES STRAIGHT THROUGH, on exactly the reasoning the block above
+    // states for a free retry: a confirmation on a press that costs nothing
+    // teaches the player to click past the one that costs something. Nothing
+    // has been cleared, so there is no carry, no scrap and no notch to lose,
+    // and the menu's Start Run hands back the same offer.
+    check("quitting bay 1 costs nothing", !quitLosesProgress(ladder));
+    check("...and quitting bay 2 costs the bay behind it",
+      quitLosesProgress({ ...ladder, levelIndex: 1 }));
+    check("...and every bay after that",
+      [2, 3, 4, 5, 6, 7, 8, 9].every((i) => quitLosesProgress({ ...ladder, levelIndex: i })));
+    // TIER S IS A BENCH, NOT A RUN TO PROTECT. It files to its own board and
+    // climbs no ladder — and it STARTS at the bay that was dialled in, so its
+    // levelIndex counts bays skipped rather than bays cleared. A bay-7 bench
+    // run has cleared nothing, which is the case a bare index test gets wrong.
+    check("Tier S has nothing to protect",
+      !quitLosesProgress({ ...ladder, sandbox: true, levelIndex: 6 }));
+    check("...and the bench really does start deep",
+      sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } }).levelIndex === 6);
+    check("...so the shipping bench run is ungated too",
+      !quitLosesProgress(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } })));
+    // THE SKYDECK IS NOT EXCLUDED, and that is the distinction this predicate
+    // exists to keep straight: tracksLadder is about the ladder's BOOKKEEPING,
+    // this is about a player's work, and the roof is ten real bays flown from
+    // a cold start.
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    check("the roof starts cold like any run", roof.levelIndex === 0);
+    check("...so its first bay is free to leave", !quitLosesProgress(roof));
+    check("...and its sixth is not", quitLosesProgress({ ...roof, levelIndex: 5 }));
+    check("the roof is gated even though the ladder ignores it",
+      !tracksLadder(roof) && quitLosesProgress({ ...roof, levelIndex: 5 }));
+    // It reads the RUN and nothing else — no meta, no saved record — which is
+    // what lets the card's face and main.ts's gate ask the identical question.
+    check("the gate takes the run alone", quitLosesProgress.length === 1);
+  }
+
+  // ---- THE ROOF DOES NOT HAND BAYS BACK (run.ts's bayRetryable) -----------
+  // Owner report: the Skydeck's pause menu offered Restart Bay. The mode is
+  // permadeath — the day's seeded single attempt — and the retry it offered was
+  // free in every sense: the roof keeps no seal, so requestBayRetry's
+  // confirmation never fired, and resetBay rebuilds the SAME bay from the same
+  // run seed at the same levelIndex with the score back at zero. Grind bay 6
+  // until it goes perfectly, file the result against everyone who flew it once.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    check("a ladder run may restart its bay", bayRetryable(ladder));
+    check("the roof may not", !bayRetryable(roof));
+    // TIER S KEEPS ITS RETRY, and it is the case that proves this rule cannot
+    // ride on the ladder bookkeeping the roof and the bench share: the bench is
+    // FOR re-flying the same bay, and its run-end card puts the re-fly on the
+    // primary. What separates the two modes is permadeath, not bookkeeping.
+    check("...but the bench does, exactly as it always has",
+      bayRetryable({ ...ladder, sandbox: true })
+        && bayRetryable(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } })));
+    check("...so 'no seal' was never the right question to ask",
+      sealStateFor({ ...ladder, sandbox: true }, []) === null
+        && sealStateFor(roof, []) === null
+        && bayRetryable({ ...ladder, sandbox: true }) !== bayRetryable(roof));
+    // The refusal holds at every bay of the day, not just the first.
+    check("...at every bay of the day",
+      [0, 1, 5, 9].every((i) => !bayRetryable({ ...roof, levelIndex: i })));
+    // WHAT MADE THE HOLE EXPENSIVE: the day's bay is BYTE-IDENTICAL every time
+    // it is built, so the retry was a reroll of the SCORE and nothing else —
+    // the same puzzle, the same rules, as many attempts as you like, filed
+    // against players who took one. Stated against the builder resetBay
+    // actually reaches (main.ts's startLevel → levelForRun), and against a
+    // DIFFERENT day so the equality is the seed's doing and not the check's.
+    const day = (d: number): RunState =>
+      ({ ...skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, d))), levelIndex: 5 });
+    check("the day's roof bay is the same bay however often it is built",
+      JSON.stringify(levelForRun(day(27))) === JSON.stringify(levelForRun(day(27))));
+    check("...and another day's is a different one",
+      JSON.stringify(levelForRun(day(27))) !== JSON.stringify(levelForRun(day(28))));
+    check("the gate takes the run alone", bayRetryable.length === 1);
+  }
+
+  // ---- BAY 1'S RETRY IS THE RUN (run.ts's retryIsWholeRun) ----------------
+  // Owner playtest: "on the first bay there's no point in retrying by breaking
+  // the seal." The card had two doors onto one moment and priced the wrong one
+  // — a bay-1 restart charged the run's seal to hand back a bay with nothing
+  // behind it, while Quit → Start Run handed back the same offer with the seal
+  // intact. So on bay 1 the button becomes the free door, wearing the loss
+  // card's name for it.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    // THE COST THAT MADE THIS WORTH DOING, asserted rather than assumed — the
+    // whole change rests on bay 1 being exactly where the seal is charged.
+    check("a bay-1 restart really was the priced door",
+      ladder.levelIndex === 0 && retryBreaksSeal(ladder, []));
+    check("...while quitting the same bay was the free one",
+      !quitLosesProgress(ladder));
+    check("so bay 1 offers the run back", retryIsWholeRun(ladder));
+    check("...and every later bay offers the bay",
+      [1, 2, 5, 9].every((i) => !retryIsWholeRun({ ...ladder, levelIndex: i })));
+    // NOT ASKED OF THE SEAL, deliberately. A sealed Mark or a seal already
+    // spent makes a bay-1 retry free too, and the button still becomes Retry
+    // Run: a control whose identity flips on state the player cannot see is
+    // worse than one that is the same on every bay 1.
+    check("the swap does not depend on the seal",
+      retryIsWholeRun({ ...ladder, restarts: 3 }) && retryIsWholeRun.length === 1);
+    // TIER S IS EXCLUDED for quitLosesProgress's reason: its levelIndex counts
+    // bays SKIPPED, and re-flying the bay in front of it is the whole mode.
+    check("the bench keeps its bay retry", !retryIsWholeRun({ ...ladder, sandbox: true }));
+    check("...even dialled to bay 1, where a bare index test would swap it",
+      sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 1 } }).levelIndex === 0
+        && !retryIsWholeRun(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 1 } })));
+    // THE ROOF IS EXCLUDED because it hands nothing back at all, and a "retry
+    // run" there would be a second attempt at the day.
+    check("the roof's first bay is a retry of nothing",
+      roof.levelIndex === 0 && !retryIsWholeRun(roof));
+    check("...so the two refusals agree", !bayRetryable(roof) && !retryIsWholeRun(roof));
+    check("the gate takes the run alone", retryIsWholeRun.length === 1);
+  }
+
+  // ---- …AND THE CARD SAYS SO (screens.ts's pauseModal) --------------------
+  // One wording for one action: the name is the loss card's, because it is the
+  // loss card's action (main.ts's `restart`). A second name for the same route
+  // is how a player learns that two buttons which read differently might do
+  // the same thing — or that two that read alike might not.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const seal = { state: "at-stake" as SealState, mark: 4 };
+    const bayOne = S.pauseModal(true, "keyboard", abilities, seal, undefined, true, true);
+    const later =
+      S.pauseModal(true, "keyboard", abilities, seal, { armed: false, bayNum: 4 }, true, false);
+    check("bay 1's card offers the run", bayOne.includes(">Retry Run</button>"));
+    check("...in the loss card's own words",
+      end({ retryBay: { seal: "at-stake", mark: 4 } }).includes(">Retry Run<"));
+    check("...through the loss card's own action",
+      /data-action="restart"[^>]*>Retry Run</.test(bayOne));
+    check("...and not the bay",
+      !bayOne.includes('data-action="restart-bay"') && !/Restart Bay/.test(bayOne));
+    // NOTHING IS CHARGED, SO NOTHING IS PRICED. The seal face is still PASSED
+    // in — the ⏸ hold on the same bay still spends it — and this card is what
+    // decides not to draw a price onto a free press.
+    check("...and quotes no price for a free press",
+      !bayOne.includes("btn__seal") && !/breaks this run's seal/.test(bayOne));
+    // THE LATER BAYS ARE UNTOUCHED, which is the half of the change that has to
+    // be provable rather than assumed.
+    check("bay 4's card still offers the bay, priced",
+      later.includes('data-action="restart-bay"') && later.includes("btn__seal")
+        && !later.includes("Retry Run"));
+    // THE HOLD IS STILL TAUGHT on bay 1. It is not the workaround for a control
+    // removed here: it hands back THIS seed, which no button on this card does,
+    // and requestBayRetry quotes its price at the moment of the press.
+    check("bay 1 still teaches the hold", /hold pause to restart/.test(bayOne));
+    // The way out of the card is the way it always was — and Quit is ONE press
+    // there, which is the other half of the same argument: bay 1 banks nothing.
+    check("bay 1 still resumes, and still leaves on one press",
+      bayOne.includes('data-action="resume"') && bayOne.includes('data-action="menu"')
+        && !bayOne.includes('data-action="quit-run"'));
+  }
+
+  // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
+  // The idiom is arm-then-confirm rather than a second panel: Quit is already
+  // ON a modal, and the seal notice earned its own panel because it interrupts
+  // a press made from the field. Here the player is stopped and reading a card.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const paused = (quit?: { armed: boolean; bayNum: number }): string =>
+      S.pauseModal(true, "keyboard", abilities, undefined, quit);
+    /** Just the Quit button. Resume, Fullscreen and Restart Bay share the row
+     *  and `includes` cannot tell them apart. */
+    const quitBtn = (h: string): string =>
+      /<button[^>]*data-action="quit-run"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const idle = paused({ armed: false, bayNum: 4 });
+    const armed = paused({ armed: true, bayNum: 4 });
+
+    // NO GATE, NO CHANGE. A Contract, a drill, Tier S and bay 1 all pause with
+    // nothing to protect, and the card there is the one-press ghost button it
+    // has always been — wired straight to the menu.
+    check("an ungated pause still leaves on one press",
+      paused().includes('<button class="btn btn--ghost" data-action="menu">Quit</button>'));
+    check("...and mounts no arming machinery at all",
+      !paused().includes("quit-run") && !paused().includes("pause__quit-note"));
+
+    // A GATED QUIT DOES NOT CARRY THE MENU ACTION AT ALL. This is the pin that
+    // says a single activation cannot end a live run: main.ts routes "menu"
+    // straight to the home screen, and the gated button is not that action, so
+    // there is no press on this card that reaches it without going through
+    // requestQuitRun. A flag on "menu" would have been one `if` away from being
+    // walked around by the next back button somebody adds.
+    check("a gated Quit is its own action", idle.includes('data-action="quit-run"'));
+    check("...and cannot reach the menu action in one press",
+      !quitBtn(idle).includes('data-action="menu"')
+        && !quitBtn(armed).includes('data-action="menu"'));
+    check("...and the rest of the card still can (Resume is the way back)",
+      idle.includes('data-action="resume"') && idle.includes('data-action="restart-bay"'));
+    // It is never the primary, so padnav's focusInitial (which lands on
+    // .btn--primary) cannot open this card with the ring on the destructive
+    // control — a stray A press finds Resume.
+    check("the pad does not open the card on Quit",
+      !quitBtn(armed).includes("btn--primary") && idle.includes('class="btn btn--primary"'));
+
+    // THE ARM IS A STATE, AND IT IS THE WORDS THAT CHANGE. Colour alone reaches
+    // neither a red-blind player nor a screen reader.
+    check("an unarmed Quit says so in the markup", quitBtn(idle).includes('data-armed="false"'));
+    check("...and an armed one says so too", quitBtn(armed).includes('data-armed="true"'));
+    // BOTH FACES SHIP IN BOTH STATES — app.css stacks them in one grid cell, so
+    // the button measures the same armed as idle and the four-button row cannot
+    // reflow under the thumb that is about to press again. A face rendered only
+    // in its own state would collapse that reservation.
+    for (const [what, h] of [["idle", idle], ["armed", armed]] as const) {
+      check(`the ${what} button reserves both faces`,
+        quitBtn(h).includes('<span class="btn__quit-face">Quit</span>')
+          && quitBtn(h).includes('class="btn__quit-face btn__quit-face--armed">Quit anyway</span>'));
+    }
+
+    // THE ACCESSIBLE NAMES, WRITTEN OUT WHOLE, one per state — the same
+    // discipline the rail's seal name is held to (codex PR #144: a substring
+    // pin cannot see an ungrammatical name, because the substring is the part
+    // that was fine).
+    const name = (h: string): string => /aria-label="([^"]*)"/.exec(quitBtn(h))?.[1] ?? "";
+    check("the idle name promises the confirmation rather than hiding it",
+      name(idle) === "Quit — ends this run, and asks once more first", name(idle));
+    check("the armed name names the consequence and the bay",
+      name(armed) === "Quit anyway — bay 4 ends here and this run files nothing", name(armed));
+    check("...and follows the bay it was handed",
+      /aria-label="Quit anyway — bay 9 /.test(paused({ armed: true, bayNum: 9 })));
+
+    // THE NOTE. Only under the arm, and it says what a quit costs that a loss
+    // does not — the half a player will otherwise get wrong, exactly as the
+    // seal notice's second paragraph does.
+    check("an unarmed card mounts no warning", !idle.includes("pause__quit-note"));
+    check("an armed card names the loss", armed.includes(S.quitArmNoteHTML(4)));
+    check("...naming the bay and what goes with it",
+      /Quitting drops bay 4 and everything behind it/.test(armed)
+        && /carry, scrap and every notch/.test(armed));
+    check("...and that a run played out banks what a quit does not",
+      /Nothing files/.test(armed) && /even a loss banks the score and the bay record/.test(armed));
+    // Announced on insertion, which is what main.ts's syncQuitArm relies on: it
+    // creates this node rather than filling a hidden region that a screen
+    // reader may never have registered.
+    check("the warning announces itself", /class="pause__quit-note" role="alert"/.test(armed));
+    // ONE RULE, TWO DOORS. The card is rendered here and PATCHED by main.ts's
+    // syncQuitArm (a re-render would replay `.pop` and destroy the button the
+    // pad is focused on, which on a two-press control is the press that
+    // confirms). Both read these two builders, so the rendered card and the
+    // patched one cannot say different things.
+    check("the rendered card is built from the shared face",
+      armed.includes(`aria-label="${S.quitArmLabel(true, 4)}"`)
+        && idle.includes(`aria-label="${S.quitArmLabel(false, 4)}"`));
+    // THE CARD IS A PURE FUNCTION OF THE ARM, which is what makes disarming a
+    // one-line rule in setState: leaving "paused" clears the flag, and the next
+    // render of this card is byte-identical to the one before it was ever
+    // armed. Nothing has to be un-patched.
+    check("disarming restores the card exactly",
+      paused({ armed: false, bayNum: 4 }) === idle);
+    // ---- …AND THE SECOND PRESS HAS TO BE A SECOND PRESS -------------------
+    // Found in review (codex, PR #167) and reproduced on a real run: with the
+    // button keyboard-focused, HOLDING Enter makes Chromium dispatch a native
+    // click per keydown REPEAT. The first repeat armed and the next confirmed,
+    // so one physical press ended a run — the warning flashing on screen under
+    // the player's own finger, which is worse than no warning because it is the
+    // pattern appearing to work. Space did it too.
+    //
+    // The plumbing is main.ts's, which no harness can drive, so what gets
+    // pinned is the machine it runs on (ui/padnav.ts).
+    {
+      /** Run one stream of events through the machine and report whether it
+       *  ever confirmed. "a" is an activation, "r" a release — a held key is
+       *  "aaa" (repeats with no release between), two real presses are "ara". */
+      const run = (stream: string): { confirms: number; end: ArmState } => {
+        let s = DISARMED;
+        let confirms = 0;
+        for (const e of stream) {
+          if (e === "r") { s = armRelease(s); continue; }
+          const step = armActivate(s);
+          s = step.state;
+          if (step.confirmed) confirms += 1;
+        }
+        return { confirms, end: s };
+      };
+
+      check("one activation arms and does not confirm",
+        run("a").confirms === 0 && run("a").end.armed && run("a").end.held);
+      // THE BUG, stated as the stream that produced it.
+      check("a held key's repeats never confirm, however long it is held",
+        run("aa").confirms === 0
+          && run("aaa").confirms === 0
+          && run("aaaaaaaaaa").confirms === 0);
+      check("...and leave the control armed and still warning",
+        run("aaaaa").end.armed);
+      // THE CONTROL: a real second press still ends it, and does so exactly
+      // once. This is the half the fix must not break.
+      check("a release and a second press confirms", run("ara").confirms === 1);
+      check("...and spends the arm rather than staying armed",
+        JSON.stringify(run("ara").end) === JSON.stringify(DISARMED));
+      // The fast double-tap this control is meant to accept: two taps ARE two
+      // releases (a click is dispatched after its own pointerup), so no amount
+      // of speed can make them look like one press.
+      check("two distinct presses confirm however fast they arrive",
+        run("arar").confirms === 1 && run("rara").confirms === 1);
+      // …and a release is genuinely the ONLY thing that opens the confirm. A
+      // stream with no 'r' in it cannot confirm at any length.
+      check("nothing confirms without a release",
+        Array.from({ length: 12 }, (_, i) => "a".repeat(i + 1))
+          .every((s) => run(s).confirms === 0));
+      // Releases are idempotent and harmless out of order — several paths can
+      // deliver one for the same press (a mouse whose pointerup and a keyup
+      // both land), and the pad delivers one on every press edge.
+      check("a release before anything is armed changes nothing",
+        JSON.stringify(armRelease(DISARMED)) === JSON.stringify(DISARMED));
+      check("...and a second release cannot re-open a spent arm",
+        run("arra").confirms === 1 && run("arrra").confirms === 1);
+      check("...and cannot confirm on its own", run("arr").confirms === 0);
+      // A release does NOT disarm: the warning stays up between the two
+      // presses, which is the entire point of the state.
+      check("releasing keeps the warning up", run("ar").end.armed && !run("ar").end.held);
+    }
+
+    check("...and the arm is the only thing the two cards differ by",
+      armed.replace(S.quitArmNoteHTML(4), "")
+        .replace(`data-armed="true"`, `data-armed="false"`)
+        .replace(`aria-label="${S.quitArmLabel(true, 4)}"`, `aria-label="${S.quitArmLabel(false, 4)}"`)
+        === idle);
+
+    // ---- AND THE ROOF'S CARD OFFERS NO RESTART AT ALL --------------------
+    // REMOVED, not disabled — the idiom the run-end card already set for this
+    // exact refusal (its `retryBay` is undefined on a Skydeck run, not a dead
+    // control) and the one every other mode-shaped absence in this file
+    // follows: Tier S drops the tier row, a drill drops the ship rack.
+    const roofCard = S.pauseModal(true, "keyboard", abilities, undefined, undefined, false);
+    check("the roof's pause card has no Restart Bay",
+      !roofCard.includes('data-action="restart-bay"') && !/Restart Bay/.test(roofCard));
+    check("...and no dead control standing in for it",
+      !roofCard.includes("disabled") && !/aria-disabled/.test(roofCard));
+    // The hint table is the OTHER place the gesture is taught (D2: every
+    // instruction renders from what the game will do). A card that removed the
+    // button and kept the line would be teaching the workaround.
+    check("...and does not teach the hold that would perform it",
+      !/hold pause to restart/.test(roofCard));
+    check("...while a ladder run's card teaches it and offers it",
+      idle.includes('data-action="restart-bay"') && /hold pause to restart/.test(idle));
+    // The way OUT is untouched — this card still resumes and still quits, which
+    // is the whole reason removing the middle button is safe.
+    check("the roof can still resume and still leave",
+      roofCard.includes('data-action="resume"')
+        && (roofCard.includes('data-action="menu"') || roofCard.includes('data-action="quit-run"')));
+    // …and the ⏸ rail button's name loses the gesture with it. This name is the
+    // only description an assistive-technology user of an icon-only control
+    // gets, so a name still offering a hold nothing performs would be the label
+    // being wrong to the one audience that cannot check.
+    const railName = (h: string): string =>
+      /aria-label="([^"]*)"/.exec(
+        /<button[^>]*data-action="pause"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "",
+      )?.[1] ?? "";
+    const hudFor = (restart: boolean): string =>
+      S.hudHTML({
+        beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+        loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+        tier: 2, target: 800, score: 200, launchCost: 25, bayNum: 6, timeLimitSec: 150,
+        timeLeftMs: 150_000, pieceSize: "std",
+        bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+        thawOwned: true, thawCharges: 4,
+        autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+        restart,
+      });
+    check("the roof's ⏸ names no gesture it cannot perform",
+      railName(hudFor(false)) === "Pause", railName(hudFor(false)));
+    check("...and every other run's ⏸ is the name it always had",
+      railName(hudFor(true)) === S.PAUSE_HOLD_NAME, railName(hudFor(true)));
+    check("...and the field strip drops the line too",
+      !/hold pause to restart/.test(hudFor(false))
+        && /hold pause to restart/.test(hudFor(true)));
+  }
+
+  // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------
+  // The predicate behind the copy above, written against the same comparison
+  // recordRunEnd's tier bookkeeping uses, so the panel cannot promise something
+  // the recorder refuses.
+  {
+    const at = (mark: number): MetaState => ({ ...newMeta(), mark });
+    check("a run at the frontier opens its tier", tierOpenableBy(at(3), 4) === 4);
+    check("...and a re-fly of a beaten Mark opens none", tierOpenableBy(at(9), 3) === null);
+    // The saturated top: markUnlocked stops moving at MARK_COUNT, so a Mark-10
+    // run passes the frontier test and there is still no Tier 11 to name.
+    check("...and a finished ladder opens none either",
+      tierOpenableBy(at(MARK_COUNT), MARK_COUNT) === null);
+    // The control: the recorder agrees. A run the predicate says opens nothing
+    // must be a run recordRunEnd ticks nothing for, or the copy and the
+    // bookkeeping have drifted.
+    const beaten = at(9);
+    check("...and the recorder agrees about the re-fly",
+      recordRunEnd(beaten, 3, true, RUN_LEVELS).meta.tierRunDone === false
+        && recordRunEnd(beaten, 10, true, RUN_LEVELS).meta.tierRunDone === true);
+  }
+
+  // ---- A RIDE NEEDS A FLOOR THAT WAS NOT FLYABLE BEFORE --------------------
+  // pendingUnlockMark asks whether the MARK has moved somewhere the ceremony
+  // has not followed; the tower needs to know whether there is a FLOOR to ride
+  // to. Below saturation those are the same question. At the top they are not,
+  // and the gap armed a ~4.5s ride to the floor the car was already parked on
+  // every time Tier 10 completed with seals still owed. (Codex review, #134.)
+  {
+    const rung = (mark: number, celebrated: number): MetaState =>
+      ({ ...newMeta(), mark, celebratedMark: celebrated });
+    check("an ordinary tier completion still owes a ride", pendingLadderRide(rung(3, 2)));
+    check("...and a celebrated one does not", !pendingLadderRide(rung(3, 3)));
+    // THE BUG, stated as the state that produced it: the ladder finished, the
+    // ceremony has not been told, and markUnlocked has nowhere left to go.
+    const top = rung(MARK_COUNT, MARK_COUNT - 1);
+    check("the ladder's last rung opens no new floor",
+      markUnlocked(top) === markUnlocked(rung(MARK_COUNT - 1, MARK_COUNT - 1)));
+    check("...so it owes no ladder ride", !pendingLadderRide(top));
+    check("...while the watermark it still owes is real",
+      pendingUnlockMark(top) !== null);
+    // …and the roof is the OTHER axis, unchanged by any of this: the ride it
+    // owes is asked for separately and arms the same ceremony.
+    const sealedTop: MetaState = {
+      ...top, sealedMarks: Array.from({ length: MARK_COUNT }, (_, i) => i + 1),
+    };
+    check("...and the roof still owes its own ride when the seals land",
+      !pendingLadderRide(sealedTop) && pendingSkydeck(sealedTop));
+  }
+
+  // ---- THE WORKSHOP'S OTHER DOOR ------------------------------------------
+  // The Workshop is where a player finds out they are short of salvage — every
+  // greyed price on its shelf says so — and the thing that pays salvage was a
+  // trip through the home screen away.
+  {
+    /** Just the Contracts button, so a badge counted here is that button's and
+     *  not the shelf card's — the two live on the same screen and `includes`
+     *  cannot tell them apart. */
+    const route = (h: string): string =>
+      /<button[^>]*data-action="contracts"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const shop = S.workshopScreen(newMeta());
+    check("the Workshop routes to Contracts", route(shop).length > 0);
+    check("...without giving up its own primary",
+      /<button class="btn btn--primary btn--lg" data-action="play"/.test(shop));
+    // A fresh save owes Contracts and can afford nothing, so the badge is here;
+    // a save holding salvage is being sent to the shelf instead, and the two
+    // badges on this screen can never both light.
+    check("...badged when Contracts are the next step", route(shop).includes("next-badge"));
+    const rich = S.workshopScreen({ ...newMeta(), salvage: 1_000, mark: 3 });
+    check("...and not when the shelf is the next step",
+      route(rich).length > 0 && !route(rich).includes("next-badge")
+        && rich.includes("shop-card--next"));
+  }
+
+  // ---- THE RECORDER FOLLOWS THE RUN BACK ----------------------------------
+  // A run that is retried from the game-over card has already been FILED
+  // (main.ts's finishRun), and telemetry.endRun nulls its module-level run —
+  // so startBay's `!run` guard silently dropped the retried bay and every bay
+  // after it, and the run's real ending no-oped. With playtest recording on,
+  // the export showed a run that stopped at the bay it lost. (Codex review,
+  // PR #134.)
+  //
+  // This is the one block in the file that has to make telemetry actually
+  // RECORD, so it stands up the same localStorage stub the settings-migration
+  // section uses, and puts the real one back afterwards. Everything else here
+  // relies on recording() being false under Node (see this file's header).
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+    });
+    try {
+      telemetry.enable(true);
+      check("the harness can make the recorder record", telemetry.recording());
+
+      const bayCfg = (bay: number) => ({
+        bay, mark: 4, seed: 1, mode: "run" as const, target: 1_000, timeLimitSec: 180,
+        cooldownMs: 900, launchCost: 20, scorePerLine: 100, compactorSpeed: 26,
+        compactorOpenCells: 4, compactorMinLineCells: 8, tiers: newTiers(),
+        notches: [], pieceSize: "standard",
+      });
+      const flyBay = (bay: number, result: "won" | "lost") => {
+        telemetry.startBay(bayCfg(bay));
+        telemetry.endBay({
+          result, reason: result === "lost" ? "broke" : null,
+          secs: 90, lines: 8, lostPieces: 2, endScore: 900,
+        });
+      };
+
+      telemetry.startRun(4, newTiers(), []);
+      flyBay(1, "won");
+      flyBay(2, "lost");
+      // The loss card. finishRun files the run; the player then presses Retry
+      // Bay, which is where main.ts's resetBay calls resumeRun.
+      telemetry.endRun(false, 0);
+      const filed = telemetry.summary();
+      check("a lost run files the bays it flew", filed.runs === 1 && filed.bays === 2,
+        `${filed.runs} runs / ${filed.bays} bays`);
+      // THE CONTROL, and the whole finding: without the resume, this bay is
+      // dropped on the floor.
+      flyBay(2, "won");
+      check("a bay flown after a filed loss is dropped without a resume",
+        telemetry.summary().bays === 2, `${telemetry.summary().bays} bays`);
+
+      telemetry.resumeRun();
+      flyBay(3, "won");
+      flyBay(4, "won");
+      const resumed = telemetry.summary();
+      check("...and kept once the recorder is told the run goes on",
+        resumed.bays === 4, `${resumed.bays} bays`);
+      // ONE RUN, which is the half that matters as much as the bays. A fresh
+      // startRun would have kept the bays too and filed a SECOND run, putting
+      // the analyser at odds with meta.runs — the very count recordRunEnd's
+      // `refiled` exists to keep honest.
+      check("...as ONE run, not two", resumed.runs === 1, `${resumed.runs} runs`);
+
+      telemetry.endRun(true, 40);
+      check("...whose ending is the one it actually reached",
+        telemetry.summary().runs === 1);
+      // The outcome is re-openable in both directions: the loss that was
+      // reversed must not survive alongside the win.
+      const exported = JSON.parse(
+        globalThis.localStorage.getItem("tetrilaunch.playtest.v1") ?? "{}",
+      ) as { runs?: { won: boolean | null; bays: unknown[] }[] };
+      check("a resumed run reports the outcome it ended on",
+        exported.runs?.length === 1 && exported.runs[0].won === true
+          && exported.runs[0].bays.length === 4,
+        JSON.stringify(exported.runs?.map((r) => ({ won: r.won, bays: r.bays.length }))));
+      // …and a resume with nothing to resume is inert, which is what lets
+      // resetBay call it on the pause modal's restart without a second test.
+      telemetry.resumeRun();
+      check("resuming with nothing open opens nothing", telemetry.summary().runs === 1);
+    } finally {
+      telemetry.enable(false);
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -8390,7 +13743,7 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
   // BARE LOADOUT deliberately: with the Autoloader owned the strip already
   // says "hold to autofire", and /hold.*restart/ would then match across two
   // separate hints and pass for the wrong reason.
-  const bare = { bond: false, demo: false, auto: false };
+  const bare = { bond: false, demo: false, thaw: false, auto: false };
   // Keyboard and touch share one arm, and the strip is drawn on the
   // fine-pointer path — where a MOUSE performs the same pointerdown hold. So
   // the keyboard strip is the one that has to name it.
@@ -8423,8 +13776,8 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
 section("The hint strip is transient; the pause modal is its reference (screens.ts)");
 // ---------------------------------------------------------------------------
 {
-  const bare = { bond: false, demo: false, auto: false };
-  const full = { bond: true, demo: true, auto: true };
+  const bare = { bond: false, demo: false, thaw: false, auto: false };
+  const full = { bond: true, demo: true, thaw: true, auto: true };
   // The strip mounts in whichever fade state main.ts hands it — the HUD is
   // re-rendered wholesale on every state change, so a pause round-trip on a
   // dismissed strip must come back dismissed (see hudHTML's hintsDismissed).
@@ -9143,6 +14496,50 @@ section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
     check("more loft costs more power, still inside the band",
       flat.power < half.power && half.power < full.power && full.power <= SPEED_MAX + 1e-9,
       `${flat.power.toFixed(2)} → ${half.power.toFixed(2)} → ${full.power.toFixed(2)} px/step`);
+    // WHICH END OF THAT FAMILY THE PLAYER STARTS ON — flipped to the top
+    // (cannon.ts's AIM_LOFT_DEFAULT). Pinned here, beside the family it picks
+    // out of, because the two facts that make the flip safe are the two
+    // asserted directly above: the steep member lands on the SAME point, and
+    // it pays for the height inside the ship's speed band rather than off the
+    // end of it.
+    check("the dial's shipped default is the steepest member of that family",
+      AIM_LOFT_DEFAULT === 1 && full.hit,
+      `default ${AIM_LOFT_DEFAULT}, miss ${full.miss.toFixed(1)}px`);
+    // AND IT COSTS NO REACH, which is the one claim that would sink the flip
+    // if it were false: a default that quietly made part of the bay
+    // unhittable would be a worse bug than the compactor bar it was flipped
+    // to dodge. Swept rather than spot-checked, because "unreachable at the
+    // top of the dial" would be a BAND of the field, not a total loss.
+    {
+      let flatHits = 0;
+      let loftHits = 0;
+      let lost = "";
+      for (let x = 420; x <= 1240; x += 60) {
+        for (let y = 200; y <= 680; y += 80) {
+          const p = { x, y };
+          const a = solve(p).hit;
+          const b = solve(p, SPEED_MIN, SPEED_MAX, 0, AIM_LOFT_DEFAULT).hit;
+          if (a) flatHits += 1;
+          if (b) loftHits += 1;
+          if (a && !b) lost = `${x},${y}`;
+        }
+      }
+      check("...and the whole bay stays as reachable from the top of the dial",
+        loftHits === flatHits && lost === "",
+        `${flatHits} flat vs ${loftHits} lofted; first lost ${lost || "none"}`);
+    }
+    // ...and the SOLVER's own default is untouched at 0. Nothing that isn't a
+    // human with a mouse should inherit the preference: sim/bots.ts and the
+    // autopilot call this with no loft argument and want the cheapest answer
+    // to "can this be reached", not the prettiest one.
+    {
+      const bare = solveAimForTarget(
+        origin, CANNON.barrel, t, SPEED_MIN, SPEED_MAX, G_ACCEL, FRICTION, STEPS, () => 0,
+      );
+      check("...while the solver's own default stays the cheap arc for the bots",
+        bare.angle === flat.angle && bare.power === flat.power,
+        `${bare.angle.toFixed(4)}rad @ ${bare.power.toFixed(2)} vs flat ${flat.angle.toFixed(4)}rad @ ${flat.power.toFixed(2)}`);
+    }
   }
 
   // --- Out of reach ---------------------------------------------------------
@@ -9190,7 +14587,9 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     hintAim("touch"));
   // The fine-pointer strip renders on the same surface and has to agree with it.
   check("the fine-pointer strip names the click too",
-    /click to aim/i.test(S.hintStripHTML("keyboard", { bond: false, demo: false, auto: false })));
+    /click to aim/i.test(
+      S.hintStripHTML("keyboard", { bond: false, demo: false, thaw: false, auto: false }),
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -9412,24 +14811,33 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   // dial (Game.aimLoft) rather than on the piece, and that spending it
   // re-solves the arc through the point last clicked — the release that ended
   // the chord block above left one banked in lastTarget.
-  check("scroll up raises the loft dial, turns nothing, and swallows the scroll", (() => {
+  // DIRECTION FLIPPED WITH THE DEFAULT (cannon.ts's AIM_LOFT_DEFAULT). These
+  // two lines used to read "scroll UP raises the dial / into a steeper arc",
+  // and they failed the moment the dial started at the top — which is the
+  // whole point of asserting the default at all: a fresh bay opens on the
+  // steepest arc, so the only travel the wheel has is DOWNWARD, and the notch
+  // that used to be the interesting one is now the one that hits a stop.
+  check("a fresh bay opens on the steepest arc, not the flattest",
+    g.aimLoft === AIM_LOFT_DEFAULT && AIM_LOFT_DEFAULT === 1,
+    `dial at ${g.aimLoft}`);
+  check("scroll down lowers the loft dial, turns nothing, and swallows the scroll", (() => {
     prevented = 0;
     const before = g.aimLoft;
-    const t = turned(() => send(onCanvas, "wheel", whl(-100)));
-    return t === 0 && prevented === 1 && g.aimLoft > before;
+    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    return t === 0 && prevented === 1 && g.aimLoft < before;
   })());
-  check("...re-solving the last clicked point into a steeper arc", (() => {
-    const a0 = g.cannon.angle;
-    send(onCanvas, "wheel", whl(-100));
-    return g.aimLoft > 0 && g.cannon.angle > a0;
-  })());
-  check("scroll down at the dial's floor changes nothing but still owns the event", (() => {
-    // Walk the dial back to its stop first; the range is five notches.
-    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(100));
-    prevented = 0;
+  check("...re-solving the last clicked point into a flatter arc", (() => {
     const a0 = g.cannon.angle;
     send(onCanvas, "wheel", whl(100));
-    return g.aimLoft === 0 && prevented === 1 && g.cannon.angle === a0;
+    return g.aimLoft < 1 && g.cannon.angle < a0;
+  })());
+  check("scroll up at the dial's ceiling changes nothing but still owns the event", (() => {
+    // Walk the dial back to its stop first; the range is five notches.
+    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(-100));
+    prevented = 0;
+    const a0 = g.cannon.angle;
+    send(onCanvas, "wheel", whl(-100));
+    return g.aimLoft === 1 && prevented === 1 && g.cannon.angle === a0;
   })());
   check("ctrl+wheel is left alone, so browser zoom still works", (() => {
     prevented = 0;
@@ -9503,6 +14911,3996 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
 
   delete glob.window;
   glob.requestAnimationFrame = prevRaf;
+}
+
+// ===========================================================================
+// THE HOVER AIM (input.ts's onMove hover branch + onLeave).
+//
+// Its own harness rather than more lines on the block above, for one reason
+// that matters: this one has to DRIVE THE FRAME. A hovered target is recorded
+// by the move and spent by the rAF tick (input.ts's pendingTarget — the solve
+// is a search over the whole cone and there is nothing to gain from running it
+// for a cursor position that will never be drawn), so a stub that swallows
+// requestAnimationFrame the way the block above does would prove only that
+// nothing crashes. This one keeps the callback and runs it on demand, which is
+// also what lets the "a bay that ended between the move and the frame" case be
+// stated at all.
+// ===========================================================================
+{
+  type Handler = (e: unknown) => void;
+  const onCanvas = new Map<string, Handler[]>();
+  const onWindow = new Map<string, Handler[]>();
+  const bind = (m: Map<string, Handler[]>, t: string, h: Handler) => {
+    const a = m.get(t) ?? [];
+    a.push(h);
+    m.set(t, a);
+  };
+  const canvas = {
+    addEventListener: (t: string, h: Handler) => bind(onCanvas, t, h),
+    removeEventListener: () => {},
+    getBoundingClientRect: () => ({ width: 800, height: 450, left: 0, top: 0 }),
+    setPointerCapture: () => {},
+  } as unknown as HTMLCanvasElement;
+
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevRaf = glob.requestAnimationFrame;
+  glob.window = {
+    addEventListener: (t: string, h: Handler) => bind(onWindow, t, h),
+    removeEventListener: () => {},
+  };
+  // The frame pump. The controller re-arms at the END of every tick, so
+  // holding the newest callback and calling it is exactly one drawn frame.
+  let frameCb: ((t: number) => void) | null = null;
+  glob.requestAnimationFrame = (cb: (t: number) => void) => { frameCb = cb; return 0; };
+
+  const g = new Game(makeBaseLevel(0), {}, 7);
+  g.status = "playing";
+  let shots = 0;
+  const realShoot = g.shoot.bind(g);
+  g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
+  new InputController(canvas, () => g, undefined, () => false);
+  const frame = () => { const cb = frameCb; frameCb = null; cb?.(0); };
+
+  const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
+    (m.get(t) ?? []).forEach((h) => h(e));
+  const move = (clientX: number, clientY: number, pointerType = "mouse", buttons = 0) =>
+    send(onCanvas, "pointermove", {
+      button: -1, buttons, pointerId: 1, pointerType, clientX, clientY,
+      preventDefault: () => {},
+    });
+  /** Where the cursor at (clientX, clientY) lands in the bay — the SAME
+   *  transform the controller uses, so a pin can talk about world points
+   *  without re-deriving the letterbox fit. */
+  const world = (clientX: number, clientY: number) =>
+    screenToWorld(800, 450, 0, 0, clientX, clientY);
+  /** Closest approach of the drawn arc to a world point. The arc travels
+   *  15-25px between dots, so this measures against the SEGMENTS for the same
+   *  reason cannon.ts's segDistSq does. */
+  const arcMissTo = (p: { x: number; y: number }): number => {
+    let best = Infinity;
+    for (let i = 1; i < g.trajectory.length; i++) {
+      const a = g.trajectory[i - 1];
+      const b = g.trajectory[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y));
+    }
+    return best;
+  };
+  const aim = () => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }) =>
+    g.cannon.angle === a.angle && g.cannon.power === a.power;
+
+  // THE FEATURE. A cursor over the bay with NOTHING HELD DOWN aims the cannon
+  // at the spot it is over, and the dots go through that spot — the arc is a
+  // readout the player can move around the bay, not something a press has to
+  // buy. Both halves asserted: the barrel moved, and it moved to the right
+  // place.
+  {
+    const before = aim();
+    move(560, 300);
+    check("a hover queues an aim rather than solving it on the spot",
+      same(before), "the solve belongs to the frame, not to the move");
+    frame();
+    const t = world(560, 300);
+    check("a hover with no button held aims the cannon at the cursor",
+      !same(before) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+    // The whole point of tracking on hover is that it costs nothing. If this
+    // ever fires, the feature is a way to lose a launch by moving the mouse.
+    check("...and fires nothing at all", shots === 0, `${shots} shots`);
+    // g.aiming drives the HUD's aim state (main.ts swaps ⏸ for ✕ off it).
+    // A hover is not a gesture in progress and must not dress the chrome as
+    // though one were — there is nothing to cancel.
+    check("...and leaves the HUD's aim state alone", g.aiming === false);
+  }
+
+  // Moving on keeps re-solving: the second spot answers as readily as the
+  // first, which is what makes it a sweep rather than a one-shot preview.
+  {
+    const first = aim();
+    move(300, 380);
+    frame();
+    const t = world(300, 380);
+    check("sweeping the cursor re-solves at each new spot",
+      !same(first) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  // OUT OF THE FIELD. The bay is 16:9 and a viewport is not, so a cursor in
+  // the letterbox band maps to a world point outside the bay. A CLICK there
+  // still means something (the solver clamps it to the nearest honest arc); a
+  // hover there is a mouse on its way to a menu, and answering it would swing
+  // the barrel at the bay's edge every time one crossed.
+  {
+    const held = aim();
+    move(5000, 300);
+    frame();
+    check("a hover past the field's edge leaves the aim where it was", same(held));
+    move(-400, 300);
+    frame();
+    check("...on the near side too", same(held));
+  }
+
+  // THE CURSOR LEAVES. The queued solve is dropped so it cannot land a frame
+  // later from outside the field — and the AIM STAYS PUT, because the player
+  // has gone to press a rail button and snapping the barrel back to some
+  // earlier position would be motion carrying no information.
+  {
+    const held = aim();
+    move(700, 260);
+    send(onCanvas, "pointerleave", { pointerId: 1, pointerType: "mouse" });
+    frame();
+    check("leaving the canvas drops the queued hover instead of landing it late",
+      same(held));
+  }
+
+  // NOT WHILE THE BAY IS REFUSING. A paused bay is a live field under a card,
+  // and it still delivers moves to the canvas; a bay that is over, or has run
+  // dry, would be drawing an arc for a shot nothing will accept.
+  {
+    const held = aim();
+    g.paused = true;
+    move(420, 240);
+    frame();
+    check("a paused bay does not track the cursor", same(held));
+    g.paused = false;
+    g.status = "won";
+    move(430, 250);
+    frame();
+    check("...and neither does a finished one", same(held));
+    g.status = "playing";
+  }
+
+  // OVERTIME, which is the case that does not look like an ending. Both the
+  // clock and the launch budget END A BAY BY CONVERGENCE, not by verdict:
+  // update() leaves `status` at "playing" and waits on settleDone so the
+  // shipments already in the air get to land, get pressed and get paid. That
+  // is many cycles, and for every one of them Game.shoot has already been
+  // refusing — timeLeftMs <= 0 and launchesLeft <= 0 are the second and third
+  // guards it checks. The hover predicate did not check either (found in
+  // review on #126), so the arc went on following the cursor through the whole
+  // of overtime, advertising a launch the bay had declined before the player
+  // moved the mouse.
+  //
+  // Asserted as a PAIR each time — shoot refuses AND the preview stays put —
+  // because the bug was precisely the two disagreeing, and a pin that only
+  // watched the aim would pass just as well against a bay that had quietly
+  // started accepting launches again.
+  {
+    const held = aim();
+    // The shot counter is a record of what the CONTROLLER did; the two calls
+    // below are this pin talking to the Game directly, to establish what
+    // shoot() says at this moment. Put back afterwards so the click pin at the
+    // end of this block still counts from the same zero.
+    const attempts = shots;
+    const clock = g.timeLeftMs;
+
+    g.timeLeftMs = 0;
+    // The precondition, stated rather than assumed: this is a bay that still
+    // calls itself playable. If either of these ever flips, the gap this pin
+    // guards has closed somewhere else and the pin is measuring nothing.
+    check("overtime is still status \"playing\", and not `settling`",
+      g.status === "playing" && !g.settling && !g.paused);
+    check("...but the clock being out already refuses every shot",
+      g.shoot(performance.now()) === false);
+    move(600, 380);
+    frame();
+    check("...so a hover in clock overtime moves neither barrel nor arc", same(held));
+    g.timeLeftMs = clock;
+
+    // The budget's overtime, same shape. launchesLeft is derived from the
+    // level's budget and the shots taken, so it is spent by giving the bay a
+    // budget of one and telling it one has gone.
+    const budget = g.level.launchBudget;
+    const spent = g.shotsFired;
+    g.level.launchBudget = 1;
+    g.shotsFired = 1;
+    check("a spent launch budget refuses every shot too",
+      g.launchesLeft === 0 && g.shoot(performance.now()) === false);
+    move(640, 400);
+    frame();
+    check("...and a hover in budget overtime is refused with it", same(held));
+    g.level.launchBudget = budget;
+    g.shotsFired = spent;
+    shots = attempts;
+
+    // ...and the bay tracks again the moment the refusal lifts, so this is a
+    // gate rather than a one-way latch.
+    move(680, 420);
+    frame();
+    check("a bay that is playable again tracks the cursor again", !same(held));
+  }
+
+  // A BAY THAT ENDS BETWEEN THE MOVE AND THE FRAME. The two are up to 16ms
+  // apart, and the frame must re-ask rather than spend a cursor position that
+  // outlived its bay. This is the case the pump exists to state.
+  {
+    const held = aim();
+    move(520, 300);
+    g.status = "lost";
+    frame();
+    check("a hover queued before the bay ended is not spent after it", same(held));
+    g.status = "playing";
+  }
+
+  // AND IT DOES NOT WAIT OUT THE PAUSE. Found by these pins rather than by
+  // reasoning: the frame that lands during a pause used to return without
+  // touching the queue, so the cursor position recorded on the last frame
+  // before the card went up was still sitting there when play resumed and
+  // swung the barrel on the first frame after it — an aim made before an
+  // interruption, applied after it, at a moment when the player's hand had
+  // moved on. The tick drops the queue now (input.ts's tickKeys).
+  {
+    const held = aim();
+    move(540, 320);
+    g.paused = true;
+    frame();
+    g.paused = false;
+    frame();
+    check("a hover queued before a pause does not swing the barrel on resume",
+      same(held));
+  }
+
+  // TOUCH HAS NO HOVER, and the guard is belt-and-braces: a finger off the
+  // glass sends nothing, so this is really asserting that a pen or an
+  // unknown pointer type — both of which land on touch hardware, per this
+  // file's standing line — cannot pick up the mouse's scheme by accident.
+  {
+    const held = aim();
+    move(560, 300, "touch");
+    frame();
+    check("a touch move with nothing held aims nothing", same(held));
+    move(560, 300, "pen");
+    frame();
+    check("...and a hovering pen keeps the slingshot too", same(held));
+  }
+
+  // AND THE CLICK STILL FIRES, at the point clicked. Hover made the press
+  // optional, not decorative: the release is still the launch, and it still
+  // solves the release position rather than the last frame's.
+  {
+    const down = { button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", clientX: 600,
+      clientY: 300, preventDefault: () => {} };
+    send(onCanvas, "pointerdown", down);
+    send(onWindow, "pointerup", { ...down, buttons: 0 });
+    check("a click still fires, after all that hovering", shots === 1, `${shots} shots`);
+    const t = world(600, 300);
+    check("...at the point it was clicked on", arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  delete glob.window;
+  glob.requestAnimationFrame = prevRaf;
+}
+
+/* ===========================================================================
+ * THE WINNABILITY HARNESS (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts)
+ *
+ * These pins guard three claims the findings in `design/balance/` are written
+ * on, and each is a property rather than a number, because a number here would
+ * only re-state what the sweep printed on the day it ran.
+ *
+ *  1. The enumerated notch-combo space is EXACTLY what the draft can reach.
+ *     `legalHands` states the rule in closed form; `togglePick` is the rule the
+ *     player actually meets. If the two ever disagree the sweep is describing a
+ *     ladder nobody is dealt, which is the one failure that would make every
+ *     "unwinnable" claim worthless.
+ *  2. The deep-run driver walks `run.ts`'s real ladder — the refit stops, the
+ *     Final Inspection rung, the capped carry — rather than a re-derivation of
+ *     it, and does so deterministically.
+ *  3. The proposed counter systems are bounded the way their design notes say:
+ *     a cushion softens and never primes, and it never reaches "volatile is
+ *     inert".
+ * ========================================================================= */
+section("The Incinerator's flue (chute.ts / upgrades.ts / lineClear.ts / game.ts)");
+{
+  const cube = (material: Material, x: number, y: number): Cube => ({
+    body: { position: { x, y }, velocity: { x: 0, y: 0 } },
+    material, struck: true, blinkStart: null,
+  } as unknown as Cube);
+
+  /* -------------------------------------------------------------------------
+   * 1. THE PLANE IS AUTHORED, NEVER DRAWN.
+   *
+   * The obvious reading of "the space above the HUD" is layout.ts's skyTop, and
+   * it is a viewport function — it is however much letterbox band the player's
+   * aspect ratio leaves. A ledger written against it would charge two players
+   * different money for the same seed. chute.ts's rect note carries the whole
+   * argument ("Physics that varied with HUD size would break seed
+   * determinism"); this is that argument as a check, and it is the pin that
+   * fails first if anyone ever "simplifies" the plane into the renderer.
+   * ----------------------------------------------------------------------- */
+  check("the flue plane is the plant's roof — where the power bar is mounted",
+    INCINERATOR_Y === CHUTE_SURFACE_Y, `${INCINERATOR_Y} vs ${CHUTE_SURFACE_Y}`);
+  {
+    // Three viewports whose letterboxing differs wildly: a 16:9 phone (no band
+    // at all), a 4:3 tablet (a tall band) and a desktop window.
+    const boxes: [number, number][] = [[800, 450], [1024, 768], [1600, 900]];
+    const skies = boxes.map(([w, h]) => {
+      const l = computeLayout(w, h);
+      return skyTop(l.scale, l.oy);
+    });
+    check("...and the sky's own top edge is NOT one number but three",
+      new Set(skies.map((s) => Math.round(s))).size > 1, skies.join(" / "));
+    check("...so the flue is device-independent where the sky is not",
+      boxes.every(() => inIncinerator(900, INCINERATOR_Y) && !inIncinerator(900, INCINERATOR_Y + 1)),
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * 2. WHAT IS IN THE FLUE AND WHAT IS NOT.
+   * ----------------------------------------------------------------------- */
+  // The open shaft PR #128 opened is inside it, all the way up — that is the
+  // half of the owner's request the plane has to keep even though it anchors at
+  // the roof rather than at y=0.
+  check("the whole open sky above the field is in the flue",
+    [0, -1, -CELL, -SKY].every((y) => inIncinerator(900, y)), "");
+  check("...and so is the open bay above the power bar",
+    inIncinerator(900, INCINERATOR_Y - 1) && inIncinerator(300, 100));
+  // The pile is NOT. This is the check that says the system has no passive
+  // floor: cargo destroyed down in the works pays full price, and the
+  // winnability tables in design/balance are what that costs.
+  check("the bay floor and the pile that sits on it are NOT in the flue",
+    [INCINERATOR_Y + 1, 500, 600, WORLD.height - CELL / 2]
+      .every((y) => !inIncinerator(WALL_INNER - CELL, y)),
+    "");
+
+  /* -------------------------------------------------------------------------
+   * 3. WHATEVER THE INTAKE TAKES IS IN THE FLUE — AT ANY SPEED.
+   *
+   * The hood sits ON the machine, so the maw is part of the burner. The
+   * tempting implementation is arithmetic — push the plane half a cell under
+   * the roof so a plain `y <= plane` test happens to cover a cube the intake
+   * caught — and chute.ts records why that is wrong: the intake is tested once
+   * per step, so the deepest centre it can take a cube at rises with fall
+   * speed, and a margin sized for today's fastest arrival is one a future
+   * muzzle-speed rung walks silently through. So the second clause asks the
+   * INTAKE'S OWN QUESTION, and this sweeps the whole depth of the maw to prove
+   * no speed can outrun it.
+   * ----------------------------------------------------------------------- */
+  {
+    const rightEdge = chuteRightEdge(780);
+    let allBurn = true;
+    let deepest = 0;
+    // Every centre-y the bottom-edge test admits, a pixel at a time, from the
+    // shallowest capture to the floor of the maw.
+    for (let y = CHUTE_SURFACE_Y - CELL / 2; y <= CHUTE.y1; y += 1) {
+      if (!inChute(100, y + CELL / 2, rightEdge)) continue;
+      if (!inIncinerator(100, y, rightEdge)) allBurn = false;
+      deepest = y;
+    }
+    check("every cube the intake can take is in the flue, however fast it fell",
+      allBurn && deepest > INCINERATOR_Y + CELL,
+      `deepest ${deepest}, plane ${INCINERATOR_Y}`);
+    // ...and the mouth is still a mouth: the same depth OUTSIDE the maw's span
+    // is ordinary bay, and pays full price.
+    check("...but the same depth out in the open bay is not",
+      !inIncinerator(WALL_INNER - CELL, CHUTE_SURFACE_Y + CELL, rightEdge));
+    // The mouth narrows with the press, exactly as the maw does — a Bay
+    // Extension that walks the open stop inside the panel must not leave the
+    // flue claiming cells the press can still reach (chute.ts's chuteRightEdge).
+    const narrow = chuteRightEdge(547);
+    check("...and the flue's mouth narrows with the maw's",
+      inIncinerator(500, CHUTE_SURFACE_Y + CELL, rightEdge)
+        && !inIncinerator(600, CHUTE_SURFACE_Y + CELL, narrow),
+      `${rightEdge} vs ${narrow}`);
+  }
+
+  /* -------------------------------------------------------------------------
+   * 4. THE LADDER, AND THE CEILING IT MUST NOT REACH.
+   * ----------------------------------------------------------------------- */
+  check("a bay with no hood remits nothing", incineratorRelief(0) === 0);
+  check("the ladder is a quarter a rung",
+    INCINERATOR_TIERS.length === MAX_TIER
+      && INCINERATOR_TIERS.every((r, i) => Math.abs(r - 0.25 * (i + 1)) < 1e-9),
+    INCINERATOR_TIERS.join("/"));
+  check("...and it stops one rung short of free, which hazards.ts forbids",
+    INCINERATOR_TIERS[MAX_TIER - 1] < 1, String(INCINERATOR_TIERS[MAX_TIER - 1]));
+  check("a hand-edited tier past the ladder reads as the capstone, not a fourth rung",
+    incineratorRelief(MAX_TIER + 9) === INCINERATOR_TIERS[MAX_TIER - 1]
+      && incineratorRelief(-3) === 0);
+  {
+    const cfg = makeBaseLevel(9, 10);
+    applyUpgrades(cfg, { ...newTiers(), incinerator: 2 });
+    check("the track writes the bay's relief", cfg.incineratorRelief === INCINERATOR_TIERS[1],
+      String(cfg.incineratorRelief));
+    const bare = makeBaseLevel(9, 10);
+    applyUpgrades(bare, newTiers());
+    check("...and an uninstalled track leaves the bay priced exactly as before",
+      bare.incineratorRelief === 0, String(bare.incineratorRelief));
+  }
+
+  /* -------------------------------------------------------------------------
+   * 5. THE ARITHMETIC — one rule, both bills, rounded per cube.
+   * ----------------------------------------------------------------------- */
+  check("a full-price cube is unchanged", chargeAfterRelief(40, 0) === 40);
+  check("the rungs take a quarter, a half and three quarters",
+    chargeAfterRelief(40, 0.25) === 30
+      && chargeAfterRelief(40, 0.5) === 20
+      && chargeAfterRelief(40, 0.75) === 10);
+  // Clamped both ends: a relief above 1 would PAY the player for losing cargo,
+  // which is the income inversion slagBountyFor refuses by name.
+  check("relief is clamped, so no hand-edited loadout can make a loss profitable",
+    chargeAfterRelief(40, 2) === 0 && chargeAfterRelief(40, -1) === 40);
+
+  /* -------------------------------------------------------------------------
+   * 6. PER CUBE, NOT PER BLAST — the centroid trap.
+   *
+   * A detonation can straddle the plane. Pricing it off one position would let
+   * a single high cube buy the discount for everything under it, which is the
+   * opposite of what a positional system is for.
+   * ----------------------------------------------------------------------- */
+  {
+    const perLive = 40;
+    const high = cube("standard", 900, INCINERATOR_Y - CELL);
+    const low1 = cube("standard", 900, 600);
+    const low2 = cube("standard", 900, 640);
+    const straddle = [high, low1, low2];
+    const relief = (c: Cube): number => (inIncinerator(c.body.position.x, c.body.position.y) ? 0.75 : 0);
+    check("a straddling blast discounts the cube in the flue and bills the rest in full",
+      volatileLossFor(straddle, perLive, relief) === 10 + 40 + 40,
+      String(volatileLossFor(straddle, perLive, relief)));
+    check("...where the whole blast in the flue is discounted whole",
+      volatileLossFor([high, high, high], perLive, relief) === 30,
+      String(volatileLossFor([high, high, high], perLive, relief)));
+    check("...and a blast entirely in the pile is untouched by the hood",
+      volatileLossFor([low1, low2], perLive, relief) === 80,
+      String(volatileLossFor([low1, low2], perLive, relief)));
+    check("a blast priced with no hood is byte-identical to one priced before the track existed",
+      volatileLossFor(straddle, perLive) === volatileLossFor(straddle, perLive, () => 0),
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * 7. HOW IT COMPOSES WITH settleBlast — the ruling this branch had to make.
+   *
+   * PR #136 nets the slag bounty against the live-cargo charge atomically. The
+   * hood touches the CHARGE and only the charge, and it lands BEFORE the
+   * netting and BEFORE the clamp. Each of the three is checked, because the
+   * obvious alternative gets each of them wrong.
+   * ----------------------------------------------------------------------- */
+  {
+    const perLive = 40;
+    const perDead = 12;
+    const burn = (): number => 0.75;
+    const blast = [cube("standard", 900, 0), cube("slag", 900, 0)];
+    const bare = settleBlast(blast, 500, perLive, perDead);
+    const hooded = settleBlast(blast, 500, perLive, perDead, burn);
+    check("the hood never touches the bounty — burning slag is not an income route",
+      hooded.bounty === bare.bounty && hooded.bounty === perDead,
+      `${hooded.bounty} vs ${bare.bounty}`);
+    check("...it takes its share off the charge",
+      hooded.owed === 10 && bare.owed === 40, `${hooded.owed} vs ${bare.owed}`);
+    check("...and the netting is done on the DISCOUNTED charge, not after it",
+      hooded.net === perDead - 10, String(hooded.net));
+    // BEFORE THE CLAMP. The clamp forgives what a broke bay cannot pay;
+    // discounting after it would remit money that never moved, and would make
+    // the hood worth nothing at all to the near-broke player it was asked for.
+    const brokeBare = settleBlast(blast, 0, perLive, perDead);
+    const brokeHood = settleBlast(blast, 0, perLive, perDead, burn);
+    check("at $0 the hood still reduces what is actually taken",
+      brokeHood.charged < brokeBare.charged && brokeHood.charged === 10,
+      `${brokeHood.charged} vs ${brokeBare.charged}`);
+    check("...and the settlement still never drives the balance below zero",
+      0 + brokeHood.net >= 0, String(brokeHood.net));
+  }
+
+  /* -------------------------------------------------------------------------
+   * 7b. CHARGED LESS IS NOT THE SAME AS KEPT MORE.
+   *
+   * The saving is NOT the discount. The discount is applied before the clamp
+   * (§7, and settleBlast's own argument for why it must be); the SAVING is the
+   * difference in money that actually moved, which means clamping both bills
+   * independently and subtracting. Found in review (codex, PR #156) — the
+   * ledger had inherited §7's rule for a question §7 does not answer.
+   *
+   * The example is the reviewer's, verbatim, and it is the one case where every
+   * wrong version of this arithmetic is visibly wrong.
+   * ----------------------------------------------------------------------- */
+  {
+    // $10 in the bank, a $40 gross fine, a maxed hood that cuts it to $10. Both
+    // bays lose the same $10 — the clamp was taking everything either way — so
+    // the hood saved NOTHING.
+    check("a near-broke bay saves nothing, because the clamp was taking it all anyway",
+      reliefRealised(10, 40, 10) === 0, String(reliefRealised(10, 40, 10)));
+    // Solvent: the whole nominal discount is real, because both bills land whole.
+    check("...a solvent bay keeps the whole discount",
+      reliefRealised(500, 40, 10) === 30, String(reliefRealised(500, 40, 10)));
+    // PARTLY clamped, which is the case the old scaling got closest to and still
+    // missed: at $25 the gross bill would have taken 25 and the discounted one
+    // takes 10, so 15 was kept — not the 30 the discount nominally was, and not
+    // the 12 that scaling 30 by (10/10) or by (25/40) would have produced.
+    check("...and a partly-clamped bay keeps exactly the difference the clamp let through",
+      reliefRealised(25, 40, 10) === 15, String(reliefRealised(25, 40, 10)));
+    check("relief realised is never negative, whatever it is handed",
+      reliefRealised(0, 40, 10) === 0 && reliefRealised(10, 10, 10) === 0
+        && reliefRealised(-5, 40, 10) === 0);
+
+    // THE SAME RULE ON THE BLAST PATH, through settleBlast's own ceiling
+    // (funds + bounty) rather than a second copy of it. game.ts settles the
+    // blast TWICE — once bare, once hooded — and takes the difference of what
+    // each actually charged; this is that, on the reviewer's numbers.
+    const perLive = 40;
+    const blast = [cube("standard", 900, 0)];
+    const burn = (): number => 0.75;
+    {
+      // No slag in the blast, so the ceiling is the bare bankroll: $10.
+      const bare = settleBlast(blast, 10, perLive, SLAG_BOUNTY);
+      const hooded = settleBlast(blast, 10, perLive, SLAG_BOUNTY, burn);
+      // Through blastRelief, which is game.ts's ONE call site for this — the
+      // scaling the review found would read \$30 here, on a bay that kept
+      // nothing. The alternative formula is spelled out beside it so the pin
+      // documents the wrong answer as well as the right one.
+      const scaled = hooded.owed > 0
+        ? Math.round(((bare.owed - hooded.owed) * hooded.charged) / hooded.owed) : 0;
+      check("a near-broke BLAST saves nothing either, on the same example",
+        bare.charged === 10 && hooded.charged === 10 && blastRelief(bare, hooded) === 0
+          && scaled === 30,
+        `realised ${blastRelief(bare, hooded)}, scaled would be ${scaled}`);
+    }
+    {
+      const bare = settleBlast(blast, 500, perLive, SLAG_BOUNTY);
+      const hooded = settleBlast(blast, 500, perLive, SLAG_BOUNTY, burn);
+      check("...and a solvent blast saves the whole discount",
+        blastRelief(bare, hooded) === 30, String(blastRelief(bare, hooded)));
+    }
+    {
+      // The bounty is part of the ceiling, which is exactly why game.ts does not
+      // re-derive it: a blast that catches slag can pay a charge a bare bankroll
+      // could not, so the two settlements have to be run rather than modelled.
+      const mixed = [cube("standard", 900, 0), cube("slag", 900, 0)];
+      const bare = settleBlast(mixed, 0, perLive, SLAG_BOUNTY);
+      const hooded = settleBlast(mixed, 0, perLive, SLAG_BOUNTY, burn);
+      check("a blast at $0 still saves what its own bounty let the hood keep",
+        bare.charged === Math.min(SLAG_BOUNTY, 40) && hooded.charged === Math.min(SLAG_BOUNTY, 10)
+          && bare.charged - hooded.charged === bare.charged - hooded.charged,
+        `${bare.charged} vs ${hooded.charged}`);
+    }
+
+    // END TO END: a bay too poor to pay its gross fine must report no saving,
+    // whatever the hood is. Driven through the real Game so the pin covers the
+    // wiring and not only the helper.
+    {
+      const cfg = makeBaseLevel(9, 10);
+      applyUpgrades(cfg, { ...newTiers(), incinerator: MAX_TIER });
+      const flown = applyRatchets(cfg, { slag: 3 });
+      // A bankroll that cannot cover one shipment's gross fine, so every loss
+      // this bay takes clamps identically with and without the hood.
+      flown.startingFunds = flown.launchCost;
+      const out = runBay(flown, dumpHands(bondHands(BOTS.demo(3))), 3);
+      check("a bay that never had the money never reports a saving",
+        out.incineratedFunds === 0, String(out.incineratedFunds));
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+   * 8. THE RUN'S READOUT, and the positional tail it sits in.
+   *
+   * run.ts's advanceRun takes a growing list of bare numbers, and the file's own
+   * note says why the newest one goes on the END. Pinned with an unmistakable
+   * value, exactly as the volatile stat before it is.
+   * ----------------------------------------------------------------------- */
+  {
+    const run = newRun(1, [], 0, newTiers(), 5);
+    const after = advanceRun(run, 900, 600, 4, 10, [], run.bondCharges, 111, 222, run.thawCharges, 777);
+    check("advanceRun takes the hood's saving as argument 11",
+      after.incineratedFunds === 777, String(after.incineratedFunds));
+    check("...without disturbing the two stats in front of it",
+      after.salvagedFunds === 111 && after.volatileLosses === 222,
+      `${after.salvagedFunds} / ${after.volatileLosses}`);
+    check("...and it accumulates across bays rather than being replaced",
+      advanceRun(after, 900, 600, 4, 10, [], after.bondCharges, 0, 0, after.thawCharges, 23)
+        .incineratedFunds === 800);
+    check("a fresh run has burned nothing", run.incineratedFunds === 0);
+
+    /* THE TWELFTH ARGUMENT — the bay's TIMING TALLY (grades.ts).
+     *
+     * The tail's newest entry, on the end for the reason run.ts's own note
+     * gives: regrouping the arguments would silently re-point every positional
+     * caller, which for a bare value is a bug no type checker can see.
+     *
+     * Pinned the way the three stats before it are — with values nothing else in
+     * the call could produce, each band DISTINCT from the others, so a
+     * transposition inside the tally is as visible as a transposition of the
+     * tally itself. */
+    const tally = { excellent: 3, good: 5, swept: 7, lucky: 11 };
+    const graded = advanceRun(
+      run, 900, 600, 4, 10, [], run.bondCharges, 111, 222, run.thawCharges, 777, tally,
+    );
+    check("advanceRun takes the bay's grade tally as argument 12",
+      graded.grades.excellent === 3 && graded.grades.good === 5
+      && graded.grades.swept === 7 && graded.grades.lucky === 11,
+      JSON.stringify(graded.grades));
+    check("...without disturbing the three stats in front of it",
+      graded.salvagedFunds === 111 && graded.volatileLosses === 222
+      && graded.incineratedFunds === 777);
+    check("...and it accumulates across bays like the stats it sits with",
+      advanceRun(graded, 900, 600, 4, 10, [], graded.bondCharges, 0, 0, graded.thawCharges, 0,
+        { excellent: 1, good: 0, swept: 2, lucky: 0 }).grades.excellent === 4);
+    check("...defaulting to an empty tally, so a caller that forgets under-reports ONE bay",
+      advanceRun(graded, 900, 600, 4, 10).grades.excellent === 3,
+      String(advanceRun(graded, 900, 600, 4, 10).grades.excellent));
+    check("a fresh run has been judged on nothing",
+      gradeTallyTotal(run.grades) === 0);
+    // The default is a FRESH object every call — a shared one would let a
+    // forgetful caller alias the run's own tally and then mutate it.
+    check("...and that default is not a shared object two runs could both hold",
+      advanceRun(run, 900, 600, 4, 10).grades !== advanceRun(run, 900, 600, 4, 10).grades);
+  }
+
+  /* -------------------------------------------------------------------------
+   * 9. THE BAY, END TO END. The only pin here that flies the real Game — the
+   * two above price the rule, this one proves the rule reaches the ledger.
+   * ----------------------------------------------------------------------- */
+  {
+    // A cube destroyed by the intake, with and without the hood: same seed,
+    // same bay, one field different. Driven through the real dump policy so the
+    // path is the one a player actually takes.
+    const play = (tier: number): { score: number; saved: number } => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, { ...newTiers(), incinerator: tier });
+      // Ratchets RETURN a config rather than mutating one (hazards.ts), the
+      // same layering winnability.ts's counter mode uses: base ladder, ship,
+      // then the conditions it is flown in.
+      const flown = applyRatchets(cfg, { slag: 3 });
+      flown.startingFunds += CARRY_CAP;
+      const out = runBay(flown, dumpHands(bondHands(BOTS.demo(7))), 7);
+      return { score: out.endScore, saved: out.incineratedFunds };
+    };
+    const bare = play(0);
+    const hooded = play(MAX_TIER);
+    check("a bare bay's hood saves nothing at all", bare.saved === 0, String(bare.saved));
+    check("...and a hooded one saves real money on the same seed",
+      hooded.saved > 0, String(hooded.saved));
+    check("...which the bay keeps: the same seed ends richer",
+      hooded.score > bare.score, `${hooded.score} vs ${bare.score}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("Volatile is billed for the cargo it destroys (level.ts / lineClear.ts / game.ts)");
+{
+  const cube = (material: Material): Cube => ({
+    body: { position: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } },
+    material, struck: true, blinkStart: null,
+  } as unknown as Cube);
+
+  // The two halves of one rule: pay for the dead, charge for the live. Same
+  // test (countsForLines), same unit (per cube), opposite sign.
+  const mixed = [cube("standard"), cube("slag"), cube("volatile"), cube("slag"), cube("cryo")];
+  check(
+    "a blast charges for exactly the cubes that could still have made a line",
+    volatileLossFor(mixed, 10) === 30, `${volatileLossFor(mixed, 10)}`,
+  );
+  check(
+    "...and pays for exactly the ones that never could, with nothing counted twice",
+    slagBountyFor(mixed, 10) === 20
+      && volatileLossFor(mixed, 10) / 10 + slagBountyFor(mixed, 10) / 10 === mixed.length,
+  );
+  check(
+    "an unstruck cryo cube is LIVE cargo and is billed as such",
+    volatileLossFor([{ ...cube("cryo"), struck: false } as Cube], 10) === 10,
+  );
+  check(
+    "a blast that caught only slag is billed nothing",
+    volatileLossFor([cube("slag"), cube("slag")], 10) === 0,
+  );
+
+  /* -------------------------------------------------------------------------
+   * ONE SETTLEMENT, NOT TWO. The invariant is that the bounty and the charge
+   * come out of the same blast and are therefore netted BEFORE the balance
+   * clamp — not applied one after the other.
+   *
+   * Review found the hole in the sequential version and its example is pinned
+   * verbatim below: a bay at $0 takes a blast that kills one standard cube and
+   * one slag cube. Charging first clamps against a balance of $0, so nothing is
+   * taken; then the bounty lands in full. The near-broke player — exactly the
+   * one the charge is aimed at — collects $20 of relief for free and steps
+   * around the broke path the clamp exists to route them into.
+   *
+   * The general property is the second check: as long as the blast pays for
+   * itself, the charge is paid IN FULL out of the bounty, whatever the balance.
+   * ----------------------------------------------------------------------- */
+  {
+    const perLive = 8;
+    const blast = [cube("standard"), cube("slag")];
+    const broke = settleBlast(blast, 0, perLive, SLAG_BOUNTY);
+    check(
+      "at $0 a blast that kills live cargo is charged out of its own bounty",
+      broke.charged === perLive && broke.net === SLAG_BOUNTY - perLive,
+      `charged ${broke.charged} of ${broke.owed}, net ${broke.net}`,
+    );
+    // The clamp is not removed, only re-ordered: a blast whose bounty cannot
+    // cover the charge still bottoms the bay out at $0 rather than going
+    // negative, which is the rule loseCubes's spill fine follows.
+    for (const funds of [0, 1, 7, 40, 300]) {
+      const s = settleBlast(
+        [cube("standard"), cube("standard"), cube("standard"), cube("slag")],
+        funds, perLive, SLAG_BOUNTY,
+      );
+      check(
+        `at $${funds}: the settlement never drives the balance below zero, and never forgives what the bay can pay`,
+        funds + s.net >= 0 && s.charged === Math.min(funds + s.bounty, s.owed),
+        `charged ${s.charged} of ${s.owed}, net ${s.net}, balance ${funds + s.net}`,
+      );
+    }
+  }
+
+  // The price rides the bay's own spill fine, so it ramps with the tier ladder
+  // instead of being right at one tier. Volatile opens at Mark 7 (hazards.ts),
+  // so that is where the band is checked.
+  for (const [mark, bay] of [[7, 5], [7, 10], [10, 10]] as [number, number][]) {
+    const cfg = makeBaseLevel(bay - 1, mark);
+    check(
+      `Tier ${mark} bay ${bay}: the charge is ${VOLATILE_LOSS_SHARE} of that bay's own spill fine`,
+      cfg.volatileLoss === Math.round(penaltyPerLostPieceFor(bay - 1, mark) * VOLATILE_LOSS_SHARE)
+        && cfg.volatileLoss > 0,
+      `${cfg.volatileLoss} vs fine ${penaltyPerLostPieceFor(bay - 1, mark)}`,
+    );
+  }
+  check(
+    "the charge is a SHARE of the fine, never the whole of it — a detonation",
+    VOLATILE_LOSS_SHARE > 0 && VOLATILE_LOSS_SHARE < 1,
+    `${VOLATILE_LOSS_SHARE}`,
+  );
+
+  // A BAY WITH NO VOLATILE ON THE BELT CANNOT BE BILLED, and this is what the
+  // "nothing else moved" claim rests on rather than a sample that happened not
+  // to deal one. skydeck.ts's report card came back byte-identical across this
+  // change, but at three seeds it never dealt the Tier-7 pair at all, so the
+  // sample proves less than it looks like it does. This is the property: the
+  // charge is levied by resolveVolatile, resolveVolatile is reached only by a
+  // detonation, and only a volatile cube detonates.
+  {
+    const clean = makeBaseLevel(9, 7);
+    const g = new Game(clean, {}, 1);
+    for (let i = 0; i < 600; i++) g.update(i * (1000 / 60));
+    check(
+      "a bay with no volatile on the belt is never billed for one",
+      clean.materialMix.volatile === 0 && g.volatileLosses === 0,
+      `mix ${clean.materialMix.volatile}, billed ${g.volatileLosses}`,
+    );
+    g.destroy();
+  }
+  /* -------------------------------------------------------------------------
+   * EVERY SURFACE THAT SELLS THE AXIS DISCLOSES THE CHARGE.
+   *
+   * A price the player is not told about is not a price, it is a surprise, and
+   * this axis is the one where that bites hardest: a detonation VISIBLY helps
+   * — the pile drops, the bay breathes — so a player shown only the blast will
+   * read the notch the way the sim read it before it was billed. The guide's
+   * volatile topic used to end "Aimed into a dead pile, it is a free demolition
+   * charge", which was the exact wrong lesson taught in the exact right words.
+   *
+   * Pinned as the PROPERTY over every volatile-bearing surface rather than as
+   * three string equalities, so a fourth surface — a new Final clause at some
+   * later tier, a reworded draft card — inherits the requirement instead of
+   * quietly opting out of it. The test is deliberately loose about wording and
+   * strict about subject: the copy must say the bay is charged, in whatever
+   * voice that surface speaks in.
+   * ----------------------------------------------------------------------- */
+  {
+    const disclosesCharge = (copy: string): boolean =>
+      /\b(billed|pays for|charged)\b/i.test(copy);
+
+    const card = hazardById("volatile");
+    check(
+      "the volatile draft card prices the notch, not just the bang",
+      !!card && disclosesCharge(card.desc), card?.desc,
+    );
+
+    // Bay 1 of the tier volatile opens at, which is where the guide reads its
+    // numbers from (guide.ts's buildTopics).
+    const topic = guideTopics(7).find((t) => t.id === "mat-volatile");
+    check(
+      "the guide's volatile topic names the charge and its per-cube price",
+      !!topic
+        && disclosesCharge(topic.body)
+        && topic.body.includes(`$${makeBaseLevel(0, 7).volatileLoss}`),
+      topic?.body,
+    );
+    check(
+      "...and no longer sells a detonation as free demolition",
+      !!topic && !/free demolition/i.test(topic.body),
+    );
+
+    // Both halves of the Tier-7 pair schedule volatile, so both are selling the
+    // hazard and both owe the disclosure — the clause the player picks is often
+    // the only place they read about the material at all.
+    //
+    // Found by APPLYING each clause and reading the belt, not by matching its
+    // text: a clause that sells volatile is one whose applied config puts
+    // volatile on the belt, and a rule that asked the copy whether the copy was
+    // right would be no rule at all.
+    //
+    // SELLS it, which is narrower than "schedules" it, and the difference is
+    // Odd Lots. That clause deals all six materials at once and its whole
+    // pitch is the breadth — it is not a volatile clause any more than it is a
+    // tar one, and demanding six materials' rules in one sentence would turn a
+    // disclosure into a wall nobody reads. A clause whose ONLY addition is
+    // volatile has no such excuse: it is a volatile clause, that is the one
+    // thing it is about, and the charge is half of what it does.
+    const volatileFinals = FINALS.filter((f) => {
+      const base = makeBaseLevel(9, f.tier);
+      const cfg = makeBaseLevel(9, f.tier);
+      applyFinal(cfg, f.id);
+      const added = (Object.keys(cfg.materialMix) as (keyof MaterialMix)[])
+        .filter((m) => cfg.materialMix[m] > (base.materialMix[m] ?? 0));
+      return added.length === 1 && added[0] === "volatile";
+    });
+    check(
+      "every Final clause that SELLS volatile discloses the charge too",
+      volatileFinals.length >= 2 && volatileFinals.every((f) => disclosesCharge(f.desc)),
+      volatileFinals.map((f) => f.id).join(),
+    );
+  }
+
+  // Volatile counts for lines, so it is not dead cargo — the rule the Skydeck
+  // uses to refuse a clause outright (skydeck.ts's schedulesDeadCargo) reads
+  // countsForLines and therefore cannot be moved by anything priced here.
+  check(
+    "re-pricing volatile does not make it dead cargo, so the Skydeck's refusal is untouched",
+    MATERIAL_SPEC.volatile.countsForLines
+      && !FINALS.filter((f) => f.tier === 7).some((f) => schedulesDeadCargo(f)),
+  );
+
+  /* -------------------------------------------------------------------------
+   * THE DIRECTION PIN. hazards.ts's contract on the ratchet is one sentence:
+   * "It is mandatory and unrewarded. […] A notch is pure cost." Volatile broke
+   * it — at the belt cap a volatile bay OUT-WON a clean one (16/16 against
+   * 14/16 for the adaptive pilot, 15/16 against 14/16 for the fixed-arc one)
+   * because detonations thinned the pile for free.
+   *
+   * So this pins the DIRECTION rather than a number: at the belt cap, on
+   * matched seeds and a matched rig, a volatile bay must not win more often
+   * than the clean control. Worded that way on purpose — a future buff that
+   * re-made volatile profitable would fail here even if it moved the win rate
+   * by a different mechanism and even if every constant above still typechecked.
+   *
+   * AT THE CAP, and the pin says why rather than leaving it to look arbitrary.
+   * One notch fires ~2.5 detonations a bay against the cap's ~19.4, so the
+   * shallow end of the axis sits inside this instrument's noise floor (94%
+   * against an 88% control is one seed in sixteen) and a pin there would be
+   * pinning a coin flip. The cap is where the defect was measurable, so the cap
+   * is where it is guarded.
+   *
+   * BOTH PILOT PROFILES, because the original finding carried a bot-bias
+   * caveat that had to be discharged rather than repeated: `aim` always lobs,
+   * so it never pays volatile's ARRIVAL cost, and the advantage might have been
+   * an artifact of one bot's arc. `lob-flat` is a fixed high arc with a
+   * different detonation rate entirely, and it showed the same advantage before
+   * and pays the same price after — so the finding was the mechanic, not the
+   * bot.
+   * --------------------------------------------------------------------- */
+  {
+    const SEEDS = 8;
+    const rig = loadoutFor(PRIORITY_ORDERS.material, 7);
+    const wins = (stack: Ratchets, botName: string): number => {
+      let won = 0;
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const cfg = makeBaseLevel(9, 7);
+        applyUpgrades(cfg, rig);
+        const flown = applyRatchets(cfg, stack);
+        flown.startingFunds += CARRY_CAP;
+        const out = runBay(flown, bondHands(BOTS[botName](seed)), seed);
+        if (out.status === "won") won += 1;
+      }
+      return won;
+    };
+    // POOLED across the two profiles, not one check each, and that is about
+    // resolving power rather than tidiness. Run against the OLD pricing the
+    // per-bot checks read `demo` 8/8 against clean 6/8 — a clear failure — and
+    // `lob-flat` 8/8 against 8/8, which passes. The fixed-arc pilot detonates a
+    // third as often (6.5 a bay against 19.4), so its share of the defect is
+    // about one seed in sixteen and a per-bot check on it would be a guard that
+    // cannot see what it guards. Pooling doubles the sample, keeps both
+    // profiles in the claim, and still fails loudly on the old numbers.
+    const detail: string[] = [];
+    let clean = 0;
+    let capped = 0;
+    for (const botName of ["demo", "lob-flat"]) {
+      const c = wins({}, botName);
+      const v = wins({ volatile: 6 }, botName);
+      clean += c;
+      capped += v;
+      detail.push(`${botName} ${v}/${c}`);
+    }
+    check(
+      `a belt at the volatile cap never out-wins a clean bay (Tier 7 bay 10, ${SEEDS} paired seeds x 2 pilots)`,
+      capped <= clean,
+      `volatile ${capped} vs clean ${clean} of ${SEEDS * 2} — ${detail.join(", ")}`,
+    );
+  }
+}
+
+section("The winnability sweep — the enumerated combo space (sim/draft-space.ts)");
+{
+  /**
+   * Brute force: every hand of size `need` reachable by TAPPING, folded through
+   * the real `togglePick`.
+   *
+   * Breadth-first over tap sequences rather than a formula, deliberately — this
+   * is the independent witness, so it must not share an argument with the thing
+   * it is checking. Depth 6 is well past saturation for a two-card hand at one
+   * or two picks (a hand of two cards has at most three states at need 2, and
+   * every one is reachable in two taps), and the check below asserts the
+   * frontier actually closed rather than assuming the depth was enough.
+   */
+  const reachableByTapping = (
+    hand: HazardDef[], need: number, forced: boolean,
+  ): { hands: Set<string>; closed: boolean } => {
+    const seen = new Set<string>();
+    const hands = new Set<string>();
+    let frontier: HazardId[][] = [[]];
+    seen.add("");
+    let closed = false;
+    for (let d = 0; d < 6; d++) {
+      const next: HazardId[][] = [];
+      for (const picks of frontier) {
+        for (const card of hand) {
+          const after = togglePick(picks, card.id, need, forced);
+          const key = after.join(",");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (after.length === need) hands.add([...after].sort().join(","));
+          next.push(after);
+        }
+      }
+      if (next.length === 0) { closed = true; break; }
+      frontier = next;
+    }
+    return { hands, closed };
+  };
+
+  let mismatches = 0;
+  let neverClosed = 0;
+  let handsChecked = 0;
+  let cappedSeen = 0;
+  // Every rung of every Mark, on several seeds — the whole space the sweep can
+  // ever enumerate, checked in closed form against the taps that reach it.
+  for (let mark = 1; mark <= MARK_COUNT; mark++) {
+    for (const seed of [1, 2, 7, 4242]) {
+      for (let levelIndex = 0; levelIndex < RUN_LEVELS - 1; levelIndex++) {
+        const rung = rungFor(seed, mark, levelIndex, {});
+        if (!rung) continue;
+        handsChecked += 1;
+        const brute = reachableByTapping(rung.hand, rung.need, rung.forced);
+        if (!brute.closed) neverClosed += 1;
+        const mine = new Set(rung.hands.map((h) => [...h].sort().join(",")));
+        if (mine.size !== brute.hands.size
+          || [...mine].some((k) => !brute.hands.has(k))) mismatches += 1;
+        // Did this rung actually EXERCISE the forced-hand cap? A pin that never
+        // reaches the branch it is guarding is a pin that passes for the wrong
+        // reason, so the run counts the branch and asserts it was reached.
+        if (rung.forced && rung.need > 1
+          && rung.hand.some((h) => h.kind !== "content")) cappedSeen += 1;
+      }
+    }
+  }
+  check(
+    "legalHands enumerates exactly the hands togglePick can reach, at every rung of every Mark",
+    mismatches === 0 && handsChecked > 0,
+    `${mismatches} mismatches over ${handsChecked} rungs`,
+  );
+  check(
+    "...and the tap search saturated rather than running out of depth",
+    neverClosed === 0, `${neverClosed} rungs still expanding at depth 6`,
+  );
+  // THE LAST DRAFT IS A REAL RUNG ON THE ROOF, and the harness has to be able
+  // to deal it. rungFor answers null at the ladder's inspection rung, which is
+  // right for enumerateSpace (a clause is not a member of the notch space) and
+  // wrong for a driver flying the day's run, where the clauses are dealt and the
+  // last draft is an ordinary notch (skydeck.ts). Found the hard way: with the
+  // ladder's predicate hard-coded, deeprun.ts threw "no draft rung at levelIndex
+  // 8" the first time a Skydeck run in sim/skyyard.ts survived to bay 9.
+  {
+    const last = RUN_LEVELS - 2;
+    check("the ladder's last draft is the inspection, not a rung",
+      rungFor(7, MARK_COUNT, last, {}) === null);
+    const roofRung = rungFor(7, MARK_COUNT, last, {}, SKYDECK_PICKS_PER_BAY, false);
+    check("...where the roof's last draft deals a hand a notch can be taken from",
+      roofRung !== null && roofRung.hand.length > SKYDECK_PICKS_PER_BAY
+        && roofRung.hands.length > 0,
+      String(roofRung?.hand.length));
+  }
+  // The cap's own branch, constructed directly rather than waited for: the
+  // shipped ladder deals a forced hand of two MATERIALS at every capstone rung
+  // (materialHand), so the number-axis partner is a fence and no seed reaches
+  // it. hazards.ts's togglePick note says exactly that, and says the rule is
+  // kept as the invariant rather than as a patch for one layout — which is
+  // precisely what has to be pinned when the live ladder cannot reach it.
+  {
+    const material = HAZARDS.find((h) => h.kind === "content")!;
+    const number = HAZARDS.find((h) => h.kind === "number" && h.id !== "target")!;
+    const synthetic = [number, material];
+    const brute = reachableByTapping(synthetic, 2, true);
+    const mine = new Set(legalHands(synthetic, 2, true).map((h) => [...h].sort().join(",")));
+    check(
+      "a forced hand's number partner may never absorb the whole quota (synthetic rung)",
+      !mine.has([number.id, number.id].sort().join(",")),
+      `enumerated ${[...mine].join(" | ")}`,
+    );
+    check(
+      "...and togglePick agrees, so the enumeration is not a second opinion",
+      mine.size === brute.hands.size && [...mine].every((k) => brute.hands.has(k)),
+      `enum ${[...mine].join(" | ")} vs taps ${[...brute.hands].join(" | ")}`,
+    );
+    check(
+      "...while a forced MATERIAL card may still be doubled",
+      mine.has([material.id, material.id].sort().join(",")),
+    );
+    check(
+      "the live ladder never reaches that branch — it is a fence, as hazards.ts says",
+      cappedSeen === 0, `${cappedSeen} live rungs carried a number partner at 2 picks`,
+    );
+  }
+
+  // The space's SIZE is a closed form, and the sweep's coverage banner quotes
+  // it. Pinned as the product of the per-rung hand counts rather than as a
+  // literal, so a change to picksPerBay or to the hand size fails here instead
+  // of silently re-scaling every "N reachable paths" line in the docs.
+  for (const mark of [1, 5, 10]) {
+    const space = enumerateSpace(1, mark);
+    const product = space.rungs.reduce((a, r) => a * r.hands.length, 1);
+    check(
+      `Mark ${mark}: the enumerated path count is the product of its rungs' hands`,
+      space.paths === product,
+      `${space.paths} paths vs product ${product} over ${space.rungs.length} rungs`,
+    );
+    check(
+      `Mark ${mark}: every rung deals ${picksPerBay(mark)} pick(s) from a hand of 2`,
+      space.rungs.every((r) => r.need === picksPerBay(mark) && r.hand.length === 2),
+    );
+    check(
+      `Mark ${mark}: distinct terminal combos never outnumber the paths that reach them`,
+      space.vectors.size > 0 && space.vectors.size <= space.paths,
+      `${space.vectors.size} combos from ${space.paths} paths`,
+    );
+  }
+  // The ratchet ladder is RUN_LEVELS - 2 rungs long: one draft after each
+  // cleared bay except the last two — bay 10 ends the run, and the draft after
+  // bay 9 is the Final Inspection (finals.ts), which deals clauses, not notches.
+  check(
+    "the enumerated ladder stops where the Final Inspection starts",
+    enumerateSpace(1, 10).rungs.length === RUN_LEVELS - 2,
+    `${enumerateSpace(1, 10).rungs.length} rungs`,
+  );
+}
+
+section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
+{
+  // A Mark-10 run, which the sweep measures as walling early — chosen for the
+  // pin precisely because it is SHORT. The claim being guarded is that the
+  // driver is deterministic and walks the real ladder, and neither needs ten
+  // bays of physics to state.
+  // A bare ladder RunState at `mark`, for asking run.ts's run-aware schedule
+  // questions the same way the driver does. `newRun` writes skydeck: null, so
+  // this is a ladder run by construction — which is the point: the pins below
+  // check that the driver reads the RUN rather than the bay index, and a
+  // ladder run is the one where a wrong reading would still pass.
+  const deepRunAt = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+  const loadout = loadoutFor(PRIORITY_ORDERS.spatial, 10);
+  const opts = {
+    mark: 10, seed: 1, bot: BOTS.aim, loadout, draft: spreadPolicy,
+    refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+  };
+  const a = runDeepRun(opts);
+  const b = runDeepRun(opts);
+  check(
+    "two deep runs with identical inputs are identical outcomes",
+    JSON.stringify(a.bays.map((x) => x.outcome)) === JSON.stringify(b.bays.map((x) => x.outcome))
+      && comboKey(a.ratchets) === comboKey(b.ratchets),
+    `${a.baysCleared}/${b.baysCleared} bays, ${comboKey(a.ratchets)} vs ${comboKey(b.ratchets)}`,
+  );
+  check(
+    "a run that did not clear reports the bay it died in, and played exactly that many",
+    a.cleared ? a.diedAt === null : a.diedAt === a.bays.length && a.baysCleared === a.bays.length - 1,
+    `cleared ${a.cleared}, diedAt ${a.diedAt}, played ${a.bays.length}, cleared ${a.baysCleared}`,
+  );
+  check(
+    "every notch the run banked came from a hand the draft actually dealt",
+    a.bays.every((rec, i) => {
+      if (rec.picks.length === 0) return true;
+      const rung = rungFor(1, 10, i, rec.ratchets);
+      return !!rung && rung.hands.some(
+        (h) => [...h].sort().join() === [...rec.picks].sort().join(),
+      );
+    }),
+  );
+  // Asked of the RUN's own reading (run.ts's picksForRun), not of the ladder's
+  // picksPerBay. The two agree on a ladder run and #124 pins that they do; what
+  // this guards is that the DRIVER asks the run-aware one, so pointing it at a
+  // mode that charges differently cannot silently over-charge the draft.
+  check(
+    "the driver takes exactly the notches the RUN charges, at every draft it reached",
+    a.bays.slice(0, Math.max(0, a.bays.length - 1))
+      .every((rec) => rec.picks.length === picksForRun(deepRunAt(10))),
+    a.bays.map((r) => r.picks.length).join(","),
+  );
+
+  // The three couplings a per-bay sweep cannot have, asserted on a run long
+  // enough to have them. A Mark-1 run reaches the first refit stop.
+  const long = runDeepRun({
+    mark: 1, seed: 3, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.economy, 1),
+    draft: dodgePolicy, refit: greedyRefit(PRIORITY_ORDERS.economy, true),
+  });
+  check(
+    "the carry into every bay is the previous bay's overshoot, capped at CARRY_CAP",
+    long.bays[0].carryIn === 0 && long.bays.every((rec, i) => {
+      if (i === 0) return true;
+      const prev = long.bays[i - 1].outcome;
+      return rec.carryIn === Math.min(CARRY_CAP, Math.max(0, prev.endScore - prev.target));
+    }),
+    long.bays.map((r) => `${r.carryIn}`).join(","),
+  );
+  check(
+    "scrap is only ever spent at a stop the RUN opens (run.ts's refitAfterBay)",
+    long.bays.every((rec) => rec.refitSpend === 0
+      || refitAfterBay(deepRunAt(1), rec.bay - 1)),
+    long.bays.filter((r) => r.refitSpend > 0).map((r) => `bay${r.bay}:${r.refitSpend}`).join(" "),
+  );
+  check(
+    "a run that reached bay 10 accepted a Final Inspection clause, and one that did not, did not",
+    long.bays.length >= RUN_LEVELS ? long.final !== null : long.final === null,
+    `bays ${long.bays.length}, final ${long.final}`,
+  );
+  // The Bond magazine is a RUN consumable, and the bug it replaced ("a free
+  // 'flatten the whole field' every level is what let one fat carry-over clear
+  // two bays back to back", run.ts's RunState.bondCharges) is invisible unless
+  // a charge is actually spent — so the check is run on a pilot that fires
+  // them, at a Mark whose loadout carries the emitter, and asserts the spend
+  // happened before asserting it stuck.
+  {
+    const armed = runDeepRun({
+      mark: 5, seed: 2, bot: (s) => bondHands(BOTS.aim(s)),
+      loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5), draft: spreadPolicy,
+      refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const magazine = armed.bays.map((r) => r.outcome.bondsLeft);
+    const issued = bondChargesFor(loadoutFor(PRIORITY_ORDERS.spatial, 5).bonds);
+    check(
+      "the run's Bond magazine is actually spent down by a pilot that fires it",
+      issued > 0 && magazine.some((n) => n < issued),
+      `issued ${issued}, left per bay ${magazine.join(",")}`,
+    );
+    check(
+      "...and never refills across a bay boundary",
+      magazine.every((n, i) => i === 0 || n <= magazine[i - 1]),
+      magazine.join(","),
+    );
+  }
+}
+
+section("The winnability sweep — proposed counters (sim/counters.ts)");
+{
+  /* -------------------------------------------------------------------------
+   * THE IMPACT CUSHION (upgrades.ts CUSHION_TIERS / lineClear.ts volatileBlast)
+   *
+   * These pins used to guard a PROTOTYPE — a field-wide multiplier standing in
+   * for a system that did not exist — and the block they lived in was headed
+   * "proposed counters". The track shipped, so what they guard now is the
+   * shipped rule, and the two things the prototype could not express (the liner
+   * is positional; a clause and a liner meet under a floor) are where most of
+   * the new ones are.
+   * ----------------------------------------------------------------------- */
+
+  // A CUSHION SOFTENS. Every tier must raise the trigger threshold, never lower
+  // it — a "cushion" that primed the material finer would be finals.ts's Hair
+  // Trigger wearing a system's name, and the sweep would read it as the system
+  // working. Both halves of the ladder are monotone, because a rung that bought
+  // a deeper liner and a HARDER one would be a rung that sells two things and
+  // takes one back.
+  check(
+    "every cushion tier softens, and each tier softens more than the last",
+    CUSHION_TIERS.every((r) => r.mult > 1)
+      && CUSHION_TIERS.every((r, i) => i === 0 || r.mult > CUSHION_TIERS[i - 1].mult),
+    CUSHION_TIERS.map((r) => r.mult).join(","),
+  );
+  check(
+    "...and every tier lines more of the floor than the last",
+    CUSHION_TIERS.every((r) => r.cells > 0)
+      && CUSHION_TIERS.every((r, i) => i === 0 || r.cells > CUSHION_TIERS[i - 1].cells),
+    CUSHION_TIERS.map((r) => r.cells).join(","),
+  );
+  // The ceiling the design note argues for: the top tier lands ON the measured
+  // maximum first-contact speed (lineClear.ts's VOLATILE_TRIGGER_SPEED note
+  // records the range as 17.3 to 30.8) and not past it. Past it, no impact of
+  // ANY kind sets a cube off and the cushion is a delete button — which
+  // hazards.ts forbids outright ("a system does not DELETE a hazard").
+  check(
+    "the top cushion tier reaches the measured maximum arrival speed and stops there",
+    Math.abs(cushionThreshold(3) - 30.8) < 0.5,
+    `threshold ${cushionThreshold(3).toFixed(1)} vs measured max 30.8`,
+  );
+  check(
+    "the first cushion tier still leaves a full-power shot dangerous (median 25.5)",
+    cushionThreshold(1) < 25.6, `threshold ${cushionThreshold(1).toFixed(1)}`,
+  );
+  // THE LINER STOPS AT THE LINE ZONE, and that is a relationship rather than
+  // the number 8. The top rung's depth IS compactorMinLineCells — the cushion
+  // lines the slots a line is made in and no more — so a bay that changes how
+  // many cells a row needs moves the liner with it instead of leaving a
+  // constant behind that used to mean something.
+  check(
+    "the deepest liner covers the slots a line is made in, and stops there",
+    CUSHION_TIERS[CUSHION_TIERS.length - 1].cells === makeBaseLevel(0).compactorMinLineCells,
+    `${CUSHION_TIERS[CUSHION_TIERS.length - 1].cells} cells`
+      + ` vs a line's ${makeBaseLevel(0).compactorMinLineCells}`,
+  );
+
+  // THE LINER IS POSITIONAL, which is the whole difference between the shipped
+  // system and the prototype that priced it. Asserted through volatileBlast
+  // itself rather than off the config, because "the liner covers the deep end"
+  // is a claim about the collision side: the same shot, at the same speed, must
+  // detonate in a shallow slot and survive in a lined one.
+  {
+    const shot = 26; // clears stock's 22 AND tier 1's 25.3, so one speed reads
+                     // the whole ladder: a shot the bare floor sets off.
+    /**
+     * One fixture read two ways. Two cubes meeting at `shot` in the slot at x,
+     * and the ONLY difference between the readings is which of them carried the
+     * speed in — written as one builder because that difference IS the rule
+     * being pinned, and two hand-written fixtures could drift apart by a stray
+     * constant and still both pass.
+     */
+    const blastAt = (
+      x: number,
+      cushion: { cells: number; mult: number },
+      volatileArrives: boolean,
+    ): boolean => {
+      const moving = { x: 0, y: shot };
+      const still = { x: 0, y: 0 };
+      const vol = {
+        position: { x, y: volatileArrives ? 360 : 400 },
+        velocity: volatileArrives ? moving : still,
+      } as Matter.Body;
+      const other = {
+        position: { x, y: volatileArrives ? 400 : 360 },
+        velocity: volatileArrives ? still : moving,
+      } as Matter.Body;
+      const cubes = [
+        { body: vol, material: "volatile", struck: true, blinkStart: null },
+        { body: other, material: "standard", struck: true, blinkStart: null },
+      ] as unknown as Cube[];
+      return volatileBlast(cubes, vol, other, 1, cushion).length > 0;
+    };
+    /** A volatile shipment coming DOWN into the slot at x — the landing the
+     *  liner is insurance on. */
+    const at = (x: number, cushion: { cells: number; mult: number }): boolean =>
+      blastAt(x, cushion, true);
+    /** A volatile cube already lying in the slot at x, with ordinary cargo
+     *  landing on top of it. Not a landing of its own. */
+    const landedOn = (x: number, cushion: { cells: number; mult: number }): boolean =>
+      blastAt(x, cushion, false);
+    const deep = WALL_INNER - 1 * CELL;               // hard against the wall
+    const shallow = WALL_INNER - 11 * CELL;           // outside every liner
+    const maxed = { cells: CUSHION_TIERS[2].cells, mult: CUSHION_TIERS[2].mult };
+    check(
+      "a shot that detonates on a bare floor still detonates outside the liner",
+      at(shallow, NO_CUSHION) && at(shallow, maxed),
+      `bare ${at(shallow, NO_CUSHION)}, lined ${at(shallow, maxed)}`,
+    );
+    check(
+      "...and the same shot into a lined slot does not",
+      at(deep, NO_CUSHION) && !at(deep, maxed),
+      `bare ${at(deep, NO_CUSHION)}, lined ${at(deep, maxed)}`,
+    );
+
+    // THE LINER INSURES A LANDING, NOT A CUBE — and this is the same shot in
+    // the same slot under the same liner, differing only in which body arrived.
+    //
+    // The liner is bedding: a volatile shipment comes down ON it and the
+    // bedding takes the blow. A volatile cube that is ALREADY lying in it has
+    // had its landing; there is nothing between it and the cargo dropped on top
+    // of it, so that impact meets the stock threshold like any other. Without
+    // the arriving test, `primed` is simply whichever body is volatile, so the
+    // settled cube reads its own position and softens an impact it played no
+    // part in — and a maxed liner then makes volatile inert for the rest of the
+    // bay everywhere it lies deep, which hazards.ts forbids in as many words:
+    // "a system does not DELETE a hazard". upgrades.ts sells the narrow
+    // version, and the copy is the promise this pin holds it to: the deep slots
+    // it lines are where volatile "lands without going off".
+    check(
+      "a cushion softens a volatile cube's OWN landing",
+      !at(deep, maxed),
+      `arriving into a maxed liner detonates: ${at(deep, maxed)}`,
+    );
+    check(
+      "...and never protects one already lying there from what lands on top of it",
+      CUSHION_TIERS.every((r) => landedOn(deep, { cells: r.cells, mult: r.mult })),
+      CUSHION_TIERS.map((r) => `${r.cells}c:${landedOn(deep, { cells: r.cells, mult: r.mult })}`)
+        .join(" "),
+    );
+    // Not an artefact of that one slot: nothing anywhere under the deepest
+    // liner is protected once it is down. Sampled every cell of the liner,
+    // because "inside the liner" is exactly the region the bug covered.
+    {
+      const depths = Array.from({ length: maxed.cells }, (_, i) => WALL_INNER - (i + 0.5) * CELL);
+      check(
+        "...at every lined slot, and on a bare floor alike",
+        depths.every((x) => landedOn(x, maxed) && landedOn(x, NO_CUSHION)),
+        `${depths.filter((x) => !landedOn(x, maxed)).length} of ${depths.length} lined slots suppressed`,
+      );
+    }
+    // WHICH cube the liner is asked about cannot fall out of pile order. The
+    // one impact where the arriving cube and the primed cube can differ is a
+    // volatile shipment coming down on a volatile cube already lying there —
+    // and `cubes.find` would answer that with whichever of the two the pile
+    // happens to list first, which is nothing a player can see, let alone play
+    // against. There is one impact and one threshold, so the question has one
+    // answer: did a volatile cube ARRIVE inside the liner.
+    {
+      const bomb = (x: number, y: number, vy: number) => ({
+        position: { x, y }, velocity: { x: 0, y: vy },
+      }) as Matter.Body;
+      const chainAt = (x: number, listArrivalFirst: boolean): boolean => {
+        const down = bomb(x, 400, 0);      // already lying in the slot
+        const inbound = bomb(x, 360, shot); // the shipment coming down on it
+        const cubes = (listArrivalFirst ? [inbound, down] : [down, inbound]).map((body) => (
+          { body, material: "volatile", struck: true, blinkStart: null }
+        )) as unknown as Cube[];
+        return volatileBlast(cubes, down, inbound, 1, maxed).length > 0;
+      };
+      check(
+        "a volatile shipment landing on a volatile cube reads the same either way round",
+        chainAt(deep, true) === chainAt(deep, false)
+          && chainAt(shallow, true) === chainAt(shallow, false),
+        `lined ${chainAt(deep, true)}/${chainAt(deep, false)}`
+          + ` · bare ${chainAt(shallow, true)}/${chainAt(shallow, false)}`,
+      );
+    }
+    // The rule underneath both readings, pinned on its own so the next system
+    // that needs "who arrived" inherits a definition rather than re-deriving
+    // one: the arriving body is the one carrying the speed, and a pair of cubes
+    // at rest against each other has no arrival in it at all.
+    {
+      const body = (vx: number, vy: number) => ({ velocity: { x: vx, y: vy } }) as Matter.Body;
+      const fast = body(0, shot);
+      const slow = body(0, 0);
+      const jitter = body(0, 1); // pile chatter, below lineClear's SETTLE
+      check(
+        "the arriving body is the one that carried the impact in",
+        arrivingBody(fast, slow) === fast && arrivingBody(slow, fast) === fast,
+        "and it is found whichever side of the pair it is on",
+      );
+      check(
+        "...and a pile settling against itself has nothing arriving in it",
+        arrivingBody(slow, jitter) === null && arrivingBody(jitter, slow) === null,
+      );
+    }
+
+    // The edge is where the tier says it is, to the cell. Checked either side of
+    // ONE rung's boundary rather than trusting the two extremes above, which a
+    // liner of any depth at all would satisfy.
+    const t1 = { cells: CUSHION_TIERS[0].cells, mult: CUSHION_TIERS[2].mult };
+    const inside = WALL_INNER - (CUSHION_TIERS[0].cells - 0.5) * CELL;
+    const outside = WALL_INNER - (CUSHION_TIERS[0].cells + 0.5) * CELL;
+    check(
+      "the liner's edge sits exactly where its tier's depth says",
+      !at(inside, t1) && at(outside, t1),
+      `inside ${at(inside, t1)}, outside ${at(outside, t1)}`,
+    );
+    // THE DRAWN EDGE AND THE TESTED EDGE ARE ONE NUMBER. render.ts's
+    // drawCushion paints the line the player aims against and volatileBlast
+    // decides whether an impact cleared it; both read cushionEdgeX, and this
+    // pins that the boundary the collision side actually uses IS that function
+    // rather than a second copy of the same arithmetic. The precedent is
+    // Compactor.strandCutoffX, whose own note is the argument: its readers "all
+    // have to agree on it exactly", because "a warning drawn against one number
+    // and a penalty charged against another is a game lying about its own
+    // rules". A cushion the player can see but cannot trust is worse than one
+    // they cannot see.
+    for (const rung of CUSHION_TIERS) {
+      const edge = cushionEdgeX(rung.cells);
+      const spec = { cells: rung.cells, mult: CUSHION_TIERS[2].mult };
+      check(
+        `the ${rung.cells}-cell liner softens from exactly the x it is drawn at`,
+        !at(edge + 1, spec) && at(edge - 1, spec),
+        `edge ${edge}: inside ${at(edge + 1, spec)}, outside ${at(edge - 1, spec)}`,
+      );
+    }
+    // An unbought track must leave the material byte-identical to a bay that
+    // never heard of the system — the inert-by-default stance level.ts takes
+    // for windMax and volatileTriggerMult, asserted rather than assumed.
+    const bare = makeBaseLevel(9, 7);
+    applyUpgrades(bare, newTiers());
+    check(
+      "a rig with no cushion aboard leaves the bay's floor bare",
+      bare.cushionCells === 0 && bare.cushionMult === 1,
+      `${bare.cushionCells} cells x${bare.cushionMult}`,
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * THE HAIR TRIGGER FLOOR — the finding this system's proposal made about
+   * itself, now closed.
+   *
+   * The pin that stood here was headed KNOWN and asserted the BUG: a maxed
+   * cushion multiplied Hair Trigger's 0.85 by 1.40 and landed at 1.19x stock,
+   * so the Tier-7 exam was not paid off but walked past, into a bay safer than
+   * one carrying no clause at all. The proposal called the arithmetic
+   * unavoidable and put the fix on the clause side. lineClear.ts's
+   * cushionedTrigger is that fix, as a FLOOR: where something has primed the
+   * bay finer than stock, a cushion may buy it back to stock and no further.
+   *
+   * Three properties, and the third is the one that keeps the clause worth
+   * accepting: the cushion must still BE worth something under Hair Trigger, or
+   * the floor would have solved the overshoot by deleting the purchase.
+   * ----------------------------------------------------------------------- */
+  {
+    const clause = 0.85;
+    const maxed = CUSHION_TIERS[2].mult;
+    check(
+      "a maxed cushion under Hair Trigger lands ON stock, never past it",
+      Math.abs(cushionedTrigger(clause, maxed) - 1) < 1e-9,
+      `${cushionedTrigger(clause, maxed).toFixed(3)}x stock`,
+    );
+    check(
+      "...and no cushion tier walks past it either",
+      CUSHION_TIERS.every((r) => cushionedTrigger(clause, r.mult) <= 1 + 1e-9),
+      CUSHION_TIERS.map((r) => cushionedTrigger(clause, r.mult).toFixed(3)).join(","),
+    );
+    check(
+      "...while still buying the clause back, so accepting it is still a trade",
+      CUSHION_TIERS.every((r) => cushionedTrigger(clause, r.mult) > clause),
+      CUSHION_TIERS.map((r) => cushionedTrigger(clause, r.mult).toFixed(3)).join(","),
+    );
+    // The floor is a rule about SUB-STOCK multipliers, not about Hair Trigger by
+    // id, so a second clause that primes volatile inherits it and an ordinary
+    // bay is untouched by it.
+    check(
+      "an ordinary bay's cushion is not floored — the liner is worth its full tier",
+      Math.abs(cushionedTrigger(1, maxed) - maxed) < 1e-9,
+      `${cushionedTrigger(1, maxed).toFixed(3)}`,
+    );
+    check(
+      "the floor is stated for any sub-stock priming, not for one clause id",
+      FINALS.filter((f) => {
+        const cfg = makeBaseLevel(9, f.tier);
+        applyFinal(cfg, f.id);
+        return cfg.volatileTriggerMult < 1;
+      }).every((f) => {
+        const cfg = makeBaseLevel(9, f.tier);
+        applyFinal(cfg, f.id);
+        return cushionedTrigger(cfg.volatileTriggerMult, maxed) <= 1 + 1e-9;
+      }),
+    );
+  }
+  /* -------------------------------------------------------------------------
+   * A MATERIAL WITH A BOUGHT ANSWER SAYS SO, where the player meets the
+   * material — not only in the rig chapter, where they will look once they
+   * already know the system exists.
+   *
+   * This is the shape the guide has been growing toward one system at a time:
+   * slag's topic has always named the demolition charge, and the Thaw Lance
+   * took the sentence that used to end cryo's ("land it early and low, then
+   * thaw it on the way past") because the two said the same thing and only one
+   * of them named the system that does it. Pinned as the RULE rather than left
+   * as three habits, so the next counter inherits it.
+   *
+   * The counter has to be NAMED, not alluded to: the string is the shop card's
+   * own name, so a player can go and find it. It is checked against
+   * upgrades.ts's `name` rather than a literal, which is what stops the guide
+   * and the shelf drifting apart the first time a system is renamed.
+   * ----------------------------------------------------------------------- */
+  {
+    const answers: [Material, UpgradeId][] = [
+      ["slag", "demolition"],
+      ["cryo", "thaw"],
+      ["volatile", "cushion"],
+    ];
+    for (const [material, track] of answers) {
+      const name = UPGRADES.find((u) => u.id === track)!.name;
+      const topic = guideTopics(10).find((t) => t.id === `mat-${material}`);
+      check(
+        `${material}'s guide topic names the system that answers it`,
+        !!topic && topic.body.includes(name),
+        topic?.body,
+      );
+    }
+  }
+
+  // THE KIT INSTALLS THE SHIPPED TRACK, and asserts nothing about the numbers
+  // itself. The same retirement the lance's kit went through: what the harness
+  // may own is which rung is fitted, and never what a rung does — a kit that
+  // kept its own copy of CUSHION_TIERS would go on measuring the proposal after
+  // the implementation had moved. Checked against applyUpgrades rather than
+  // against the constants, so the delegation is what fails if it breaks.
+  for (const t of [1, 2, 3]) {
+    const viaKit = makeBaseLevel(9, 7);
+    cushionKit(t).level!(viaKit);
+    const viaTrack = makeBaseLevel(9, 7);
+    applyUpgrades(viaTrack, { ...newTiers(), cushion: t });
+    check(
+      `the sweep's cushion ${t} is the shipped tier ${t}, not a second copy of it`,
+      viaKit.cushionCells === viaTrack.cushionCells
+        && viaKit.cushionMult === viaTrack.cushionMult
+        && viaKit.cushionCells === CUSHION_TIERS[t - 1].cells,
+      `${viaKit.cushionCells}x${viaKit.cushionMult} vs ${viaTrack.cushionCells}x${viaTrack.cushionMult}`,
+    );
+  }
+
+  // THE THAW LANCE'S HANDS, and what changed when the system shipped.
+  //
+  // This wrapper used to BE the proposal — it marked cubes struck out of a
+  // magazine it counted itself, because there was no system to call. There is
+  // now, so the only thing it may do is pull the trigger: which cube is taken,
+  // whether a charge is spent and what an empty bay costs are the game's rules
+  // (game.ts's useThawLance, pinned above), and a harness that kept its own
+  // copy of any of them would go on measuring the proposal after the
+  // implementation had moved.
+  //
+  // So what is asserted here is exactly the delegation, and NOT a magazine:
+  // `thawHands` no longer takes a charge count, and the per-bay renewal it used
+  // to model is now run.ts's advanceRun — where it is one branch away from the
+  // Skydeck's no-resupply rule, which is the reason the harness must not own it.
+  {
+    let acts = 0;
+    let pulls = 0;
+    let lastNow = -1;
+    const stub = { name: "stub", act: () => { acts += 1; } };
+    const rig = thawHands(stub);
+    const bay = { useThawLance: (now: number) => { pulls += 1; lastNow = now; return true; } };
+    for (let i = 0; i < 5; i++) rig.act(bay as unknown as Game, i * 16);
+    check("the lance's hands pull the shipped trigger", pulls === 5, `${pulls} pulls`);
+    check("...with the caller's clock, not one of their own", lastNow === 64, String(lastNow));
+    check("...while still handing every tick to the bot it wraps", acts === 5, `${acts} acts`);
+    // A refusal must not stop the bay: useThawLance returns false and spends
+    // nothing on an empty rack, and the tick has to fall through to the shot.
+    let refusedActs = 0;
+    const refusing = thawHands({ name: "stub", act: () => { refusedActs += 1; } });
+    refusing.act({ useThawLance: () => false } as unknown as Game, 0);
+    check("...and a refused charge still lets the bot shoot", refusedActs === 1);
+  }
+  // The kit grants the SHIPPED charge count, from the shipped rule, so a
+  // re-tuned THAW_CHARGES_PER_TIER moves the harness and the game together —
+  // and prices itself on the shared cumulative ladder rather than a table of
+  // its own (upgrades.ts's TIER_COSTS: "a proposal that arrives with its own
+  // price table is a proposal asking not to be compared").
+  {
+    for (const t of [1, 2, 3]) {
+      const cfg = makeBaseLevel(0);
+      thawKit(t).level!(cfg);
+      check(`thaw${t} grants the shipped rack`, cfg.thawCharges === thawChargesFor(t),
+        `${cfg.thawCharges} vs ${thawChargesFor(t)}`);
+    }
+    check("the lance's kit prices itself on the shared cumulative ladder",
+      thawKit(1).cost === TIER_COSTS[0]
+      && thawKit(2).cost === TIER_COSTS[0] + TIER_COSTS[1]
+      && thawKit(3).cost === TIER_COSTS[0] + TIER_COSTS[1] + TIER_COSTS[2],
+      `${thawKit(1).cost}/${thawKit(2).cost}/${thawKit(3).cost}`);
+  }
+  // Bond hands must not spend the run's rarest consumable on an empty bay.
+  {
+    let acts = 0;
+    let used = 0;
+    const stub = { name: "stub", act: () => { acts += 1; } };
+    const rig = bondHands(stub);
+    const bay = (n: number, charges: number): Game => ({
+      cubes: new Array(n).fill(null),
+      bondCharges: charges,
+      timeLeftMs: 120_000,
+      level: { timeLimitSec: 144 },
+      useBondBreaker: () => { used += 1; return true; },
+    } as unknown as Game);
+    rig.act(bay(BOND_MIN_CUBES - 1, 3), 0);
+    check("bond hands hold fire on a bay below the pile floor", used === 0 && acts === 1);
+    rig.act(bay(BOND_MIN_CUBES, 3), 0);
+    check("...and fire once the pile is deep enough", used === 1);
+    rig.act(bay(BOND_MIN_CUBES + 20, 0), 0);
+    check("...and never fire a charge the run does not have", used === 1 && acts === 2);
+  }
+
+  // A SAMPLED policy must not carry its RNG stream between runs. Review found
+  // it doing exactly that — draft-space.ts's POLICY SPECS note has the repro
+  // and the reasoning; this is the guard.
+  //
+  // Stated on the POLICY rather than on a deep run, deliberately. A run-level
+  // version is what was tried first and it was vacuous: the pair of runs it
+  // chose both died on bay 2, so the shared stream only ever advanced one draw
+  // and the buggy code and the fixed code agreed. Driving the policy directly
+  // over one rung makes the carry-over visible in six draws and costs no
+  // physics at all.
+  {
+    const spec = randomSpec(20973);
+    // A capstone rung: two picks from a two-card hand is three distinct hands,
+    // so six draws off one stream is a sequence, not a coin flip.
+    const rung = rungFor(1, CAPSTONE_MARK, 0, {})!;
+    const seq = (pol: { choose: (r: typeof rung, x: Ratchets) => HazardId[] }): string =>
+      Array.from({ length: 6 }, () => pol.choose(rung, {}).join("+")).join(" ");
+
+    check(
+      "two runs at one seed draw the same sampled walk when the policy is built per run",
+      seq(spec.build(4)) === seq(spec.build(4)),
+      `${seq(spec.build(4))} vs ${seq(spec.build(4))}`,
+    );
+    {
+      // The shape the bug had: ONE built policy, asked twice. Its stream
+      // carries, so the second pass is a continuation rather than a repeat —
+      // and this asserts that it IS, because a pin blind to the defect it
+      // guards is not a pin.
+      const shared = spec.build(4);
+      const passA = seq(shared);
+      const passB = seq(shared);
+      check(
+        "...and a SHARED policy continues its stream instead, which is the defect",
+        passA !== passB, `${passA} then ${passB}`,
+      );
+      check(
+        "...so the per-run build is what makes the first pass of each pair agree",
+        passA === seq(spec.build(4)),
+      );
+    }
+    // And the run-level consequence the repro reported: same seed, same
+    // options, identical outcome.
+    const flight = () => runDeepRun({
+      mark: 5, seed: 4, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5),
+      draft: spec.build(4), refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const a = flight();
+    const b = flight();
+    check(
+      "a deep run under a sampled policy reproduces on the same seed",
+      comboKey(a.ratchets) === comboKey(b.ratchets)
+        && a.baysCleared === b.baysCleared && a.diedAt === b.diedAt,
+      `${comboKey(a.ratchets)} @${a.diedAt} vs ${comboKey(b.ratchets)} @${b.diedAt}`,
+    );
+  }
+
+  // Every bay's scrap payout reaches the reported total, INCLUDING the last one
+  // played. The last bay never goes through advanceRun — the run ends on it —
+  // so a bay-10 win returned before the accounting its nine clears went
+  // through, and every successful run under-reported by that bay's payout.
+  //
+  // Mark 1 seed 1 is the fixture because its last bay actually PAYS (6 of the
+  // run's 146). A run whose final bay earned nothing cannot tell the fixed code
+  // from the broken code, which is how the first attempt at this pin passed
+  // while proving nothing.
+  {
+    const o = runDeepRun({
+      mark: 1, seed: 1, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 1),
+      draft: spreadPolicy, refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const paid = o.bays.map((b) => b.scrapPaid);
+    const tally = paid.reduce((x, y) => x + y, 0);
+    const last = paid[paid.length - 1];
+    check(
+      "a run reports the scrap every bay it played paid out, the last one included",
+      o.scrapEarned === tally, `reported ${o.scrapEarned}, bays paid ${tally}`,
+    );
+    check(
+      "...on a fixture whose last bay pays, so the check can see the bug it guards",
+      last > 0 && o.scrapEarned - last === tally - last && tally > last,
+      `paid [${paid.join(",")}], last ${last}`,
+    );
+    check(
+      "...and only a CLEARED bay collects the per-bay clear bonus",
+      o.bays.every((b, i) => (i === o.bays.length - 1 && !o.cleared
+        ? b.scrapPaid === b.outcome.scrapEarned
+        : b.scrapPaid === b.outcome.scrapEarned + SCRAP_PER_BAY)),
+      o.bays.map((b) => `${b.outcome.scrapEarned}->${b.scrapPaid}`).join(" "),
+    );
+  }
+}
+
+/* ===========================================================================
+ * AIMING STRATEGIES (sim/aim-strategies.ts)
+ *
+ * The harness gained a second axis of PLAYER this release. `draft-space.ts`
+ * already stated which run a policy builds; `aim-strategies.ts` states how a
+ * pilot flies it, because three ship systems — the Thaw Lance, the Impact
+ * Cushion, and the Incinerator when it lands — are worth what a DECISION makes
+ * them worth, and the harness had exactly one decision-maker.
+ *
+ * Three claims are pinned, and the first is what the whole three-arm table
+ * rests on:
+ *
+ *  1. THE NAIVE ARM IS THE OLD PILOT, exactly. Not "close enough" and not
+ *     "re-derived the same way" — the same bytes out of the same bay. A control
+ *     arm that had drifted would make every "the strategy added N wins" number
+ *     in `design/balance/` a comparison against a bot nobody has flown. And the
+ *     comparison is proved able to SEE a difference, on the same fixture and
+ *     through each hook separately, because a pin that cannot fail is not one.
+ *  2. THE STRATEGIES READ THE GAME'S OWN RULES rather than copies of them: the
+ *     slot grid is tied to `cushionEdgeX`, the liner threshold to
+ *     `cushionedTrigger`, and the lance's targets to `nextColdCryo`.
+ *  3. THE MISSING ONE IS LOUD. There is no incinerator-aware strategy, and the
+ *     placeholder throws rather than quietly behaving like `naive` — which
+ *     would let an arms table report the Incinerator as worth nothing.
+ * ========================================================================= */
+section("Aiming strategies — the naive arm is the old pilot (sim/aim-strategies.ts)");
+{
+  // A bay with something for both strategies to have an opinion about: deep in
+  // a Tier-7 ladder, volatile on the belt, one notch of cryo in play.
+  const bayCfg = (): LevelConfig => {
+    const cfg = makeBaseLevel(9, 7);
+    applyUpgrades(cfg, loadoutFor(PRIORITY_ORDERS.material, 7));
+    return applyRatchets(cfg, { volatile: 3, cryo: 1 });
+  };
+  /** Everything a bay reports except who flew it — the bot NAME is expected to
+   *  differ ("aim" vs "aim:naive"), and comparing it would make the pin fail
+   *  for the one reason that proves the strategy was installed at all. */
+  const trace = (o: BayOutcome): string => JSON.stringify({ ...o, bot: "" });
+
+  const bare = runBay(bayCfg(), aimBot(1), 1);
+  const naive = runBay(bayCfg(), aimBot(1, { strategy: naiveStrategy.build(1) }), 1);
+  check(
+    "a bay flown with the naive strategy is byte-identical to one flown without one",
+    trace(bare) === trace(naive),
+    `${bare.status}/${bare.lines}/${bare.shots}/${Math.round(bare.endScore)} vs `
+      + `${naive.status}/${naive.lines}/${naive.shots}/${Math.round(naive.endScore)}`,
+  );
+  check(
+    "...and the pilot still says which strategy it flew, so the arm is nameable",
+    bare.bot === "aim" && naive.bot === "aim:naive", `${bare.bot} / ${naive.bot}`,
+  );
+  {
+    // THE ANTI-VACUOUS HALF, one probe per hook. A strategy that moves every
+    // landing a cell must produce a different bay, and so must one that only
+    // changes which arc is chosen — otherwise the equality above is a statement
+    // about hooks nothing calls rather than about the naive arm.
+    const probe = runBay(bayCfg(), aimBot(1, {
+      strategy: { name: "probe", target: (_g, _n, base) => ({ ...base, x: base.x - CELL }) },
+    }), 1);
+    check(
+      "...and the same comparison DOES separate a strategy that changes the aim",
+      trace(probe) !== trace(bare),
+      `probe ${probe.status}/${probe.lines}/${probe.shots}`
+        + ` vs bare ${bare.status}/${bare.lines}/${bare.shots}`,
+    );
+    const flattest = runBay(bayCfg(), aimBot(1, {
+      strategy: {
+        name: "probe2",
+        select: (_g, _n, pool) => pool.reduce((a, b) => (b.deg < a.deg ? b : a)),
+      },
+    }), 1);
+    check(
+      "...and separates one that changes only which ARC is chosen",
+      trace(flattest) !== trace(bare),
+      `select-probe ${flattest.status}/${flattest.lines}/${flattest.shots}`,
+    );
+  }
+
+  // The ability hook is NOT inside the aim bot, and that placement is
+  // load-bearing: `counters.ts`'s thawHands fires on every tick, and a lance
+  // sitting behind the cannon's cooldown would be a different lance from the
+  // one it is being measured against.
+  {
+    let ticks = 0;
+    let acts = 0;
+    const g = {} as unknown as Game;
+    const wrapped = strategyHands(
+      { name: "probe", abilities: () => { ticks += 1; return false; } },
+      { name: "stub", act: () => { acts += 1; } },
+    );
+    wrapped.act(g, 0);
+    wrapped.act(g, 16);
+    check("a strategy's abilities fire on every tick, and false never claims the shot",
+      ticks === 2 && acts === 2, `${ticks} ability ticks, ${acts} acts`);
+    const spent = strategyHands(
+      { name: "probe", abilities: () => true },
+      { name: "stub", act: () => { acts += 1; } },
+    );
+    spent.act(g, 32);
+    check("...and a strategy that returns true DOES spend the tick", acts === 2);
+    const passthrough = strategyHands(
+      { name: "noop" }, { name: "stub", act: () => { acts += 1; } },
+    );
+    passthrough.act(g, 48);
+    check("...and a strategy with no ability hook is not wrapped at all",
+      passthrough.name === "stub" && acts === 3);
+  }
+
+  // The pilot factory is the one every driver takes — (seed) -> Bot — and it
+  // composes the same three wrappers `winnability.ts` composes by hand.
+  {
+    const bot = strategyPilot(cushionStrategy)(7);
+    check("a strategy pilot is a demolition bot with bond hands and the strategy aboard",
+      bot.name === "demo:cushion+bond", bot.name);
+  }
+}
+
+section("Aiming strategies — the pool a strategy chooses from (sim/bots.ts aimCandidates)");
+{
+  const cfg = makeBaseLevel(0, 1);
+  const g = new Game(cfg, {}, 1);
+  const { pool, best } = aimCandidates(g, WALL_INNER - CELL * 3, CELL / 2);
+
+  check("the aim search hands back the candidates it flew", pool.length > 0, `${pool.length}`);
+  check("...and its own pick is one of them", pool.includes(best));
+  // The baseline rule, restated as a property of the returned pool rather than
+  // as a number: nearest landing, steepest among ties. A strategy that re-ranks
+  // the pool is only meaningful if this is what it re-ranks AWAY from.
+  {
+    const bestErr = Math.min(...pool.map((c) => c.err));
+    const near = pool.filter((c) => c.err <= bestErr + 20);
+    check(
+      "...and `best` is the steepest arc within the tie tolerance of the nearest landing",
+      best.err <= bestErr + 20 && near.every((c) => c.deg <= best.deg),
+      `best ${best.deg}deg err ${best.err.toFixed(1)}, ${near.length} ties`,
+    );
+  }
+  /* -------------------------------------------------------------------------
+   * THE RELATIONSHIP THAT MAKES A CUSHION PLAY POSSIBLE AT ALL, and it is a
+   * relationship between two tables that have never been read against each
+   * other: `AIM_POWER_CANDIDATES` (19/22/25/28 — what a bot can fire) and
+   * `CUSHION_TIERS[0]` (what the first liner rung insures).
+   *
+   * `lineClear.ts` sizes VOLATILE_TRIGGER_SPEED against the whole power dial
+   * ("median impact runs 19.5 at power 0 to 25.5 at full — so 22 sits between
+   * the two halves"). The aim search does not have the whole dial. Its softest
+   * candidate is 19, and measured here the grid arrives in 22.7-25.6 px/step —
+   * ENTIRELY ABOVE stock's 22. That is the mechanical reason `sim/README.md`'s
+   * caveat is true: no bot lobs a volatile shipment safely, because no bot
+   * fires soft enough to.
+   *
+   * The liner is what closes the gap: 25.3 at rung 1 sits ABOVE the grid's
+   * softest arc, so with a liner aboard a soft shot is insured and the
+   * cushion-aware `select` has something to choose. Both halves are pinned,
+   * because both are load-bearing and neither is obvious. Widen the power grid
+   * downward and the first fails (and the cushion's whole case has to be
+   * re-argued against a pilot that can lob); re-tune rung 1 below the grid's
+   * floor and the second fails (and the rung buys nothing this pilot can use).
+   *
+   * This pin is also what caught the impact estimate reading mid-flight: taken
+   * at `compactor.top` the same grid read 16.4-21.5, entirely BELOW stock, and
+   * the cushion's threshold gate would have been dead code.
+   * ----------------------------------------------------------------------- */
+  {
+    const soft = Math.min(...pool.map((c) => c.impact));
+    const hard = Math.max(...pool.map((c) => c.impact));
+    check(
+      "...and every arc the search can fire still arrives hard enough to set stock volatile off"
+        + " — no bot lobs safely, because no bot fires soft enough",
+      soft > VOLATILE_TRIGGER_SPEED,
+      `softest ${soft.toFixed(1)} vs stock ${VOLATILE_TRIGGER_SPEED}`,
+    );
+    check(
+      "...but the FIRST liner rung sits above that softest arc, which is what gives the"
+        + " cushion-aware pilot a shot to choose",
+      soft < cushionThreshold(1),
+      `softest ${soft.toFixed(1)} vs rung 1 at ${cushionThreshold(1).toFixed(1)}`,
+    );
+    check(
+      "...and every arrival estimate is a speed the cannon could actually deliver",
+      pool.every((c) => c.impact > 0 && c.impact < SPEED_MAX * 2),
+      `${soft.toFixed(1)}..${hard.toFixed(1)}`,
+    );
+  }
+  g.destroy();
+}
+
+section("Aiming strategies — the liner's grid is the game's grid (sim/aim-strategies.ts)");
+{
+  // The identity the cushion-aware strategy is written on. Without it "aim into
+  // the liner" is arithmetic stated twice and checked never, and the two copies
+  // drift the day `cushionEdgeX` or the slot anchor moves.
+  check(
+    "a slot's centre sits half a cell inside that slot's own cushion edge",
+    [0, 1, 2, 3, 4, 7].every((k) => Math.abs(slotCenterX(k) - (cushionEdgeX(k) - CELL / 2)) < 1e-9),
+    [0, 1, 2].map((k) => `${slotCenterX(k)} vs ${cushionEdgeX(k) - CELL / 2}`).join(" | "),
+  );
+  check(
+    "...and slot k is lined by a liner of `cells` exactly when k < cells",
+    CUSHION_TIERS.every((rung) =>
+      [0, 1, 2, 3, 4, 5, 6, 7, 8].every((k) =>
+        slotIsLined(k, rung.cells) === (slotCenterX(k) >= cushionEdgeX(rung.cells)))),
+  );
+  check(
+    "...and the grid round-trips, so a cube's x names the slot it is standing in",
+    [0, 1, 2, 5, 8].every((k) => slotOf(slotCenterX(k)) === k),
+  );
+  // The threshold the strategy aims under is the one `volatileBlast` will
+  // actually test, floor and all — never a re-derived product.
+  {
+    const bay = (clause: number, mult: number): Game =>
+      ({ level: { volatileTriggerMult: clause, cushionMult: mult } } as unknown as Game);
+    check(
+      "the liner threshold a strategy aims under is the game's own cushionedTrigger",
+      [1, 0.85].every((clause) => CUSHION_TIERS.every((rung) =>
+        Math.abs(linerTriggerSpeed(bay(clause, rung.mult))
+          - VOLATILE_TRIGGER_SPEED * cushionedTrigger(clause, rung.mult)) < 1e-9)),
+    );
+    check(
+      "...so a clause that primed the bay finer than stock still floors at stock",
+      linerTriggerSpeed(bay(0.85, CUSHION_TIERS[2].mult)) === VOLATILE_TRIGGER_SPEED,
+      `${linerTriggerSpeed(bay(0.85, CUSHION_TIERS[2].mult))}`,
+    );
+  }
+}
+
+section("Aiming strategies — the cushion play and the lance play (sim/aim-strategies.ts)");
+{
+  /** A bay stub carrying only what the two strategies read. Thin on purpose:
+   *  these pins are about the RULES, and a real Game would answer them through
+   *  a pile nobody placed. */
+  const stubBay = (over: Record<string, unknown>): Game => ({
+    level: {
+      cushionCells: 0, cushionMult: 1, volatileTriggerMult: 1,
+      compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+    },
+    cannon: { currentType: "O", currentMaterial: "standard" },
+    compactor: { x: 100, width: 40, top: 200, strandCutoffX: 0 },
+    cubes: [],
+    thawCharges: 0,
+    timeLeftMs: 120_000,
+    useThawLance: () => true,
+    ...over,
+  } as unknown as Game);
+
+  /* --- the cushion play ------------------------------------------------- */
+  {
+    const cushion = cushionStrategy.build(1);
+    const base = { x: WALL_INNER - CELL * 6, slot: 6 };
+    const noLiner = stubBay({
+      cannon: { currentType: "O", currentMaterial: "volatile" },
+    });
+    check(
+      "the cushion strategy is INERT with no liner aboard — which is what makes the arms"
+        + " table's control row a control",
+      cushion.target!(noLiner, 0, base) === null
+        && cushion.select!(noLiner, 0, [], base) === null,
+    );
+    for (const rung of CUSHION_TIERS) {
+      const lined = stubBay({
+        level: {
+          cushionCells: rung.cells, cushionMult: rung.mult, volatileTriggerMult: 1,
+          compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+        },
+        cannon: { currentType: "O", currentMaterial: "volatile" },
+      });
+      const shot = cushion.target!(lined, 0, base)!;
+      check(
+        `a volatile shipment is aimed INSIDE a ${rung.cells}-cell liner`,
+        shot !== null && shot.x >= cushionEdgeX(rung.cells) && slotIsLined(shot.slot, rung.cells),
+        `x ${shot?.x} vs edge ${cushionEdgeX(rung.cells)}, slot ${shot?.slot}`,
+      );
+    }
+    {
+      // The threshold gate. Two candidates, one soft and one hard; the soft one
+      // wins only while it is actually under the liner's trigger. Above it,
+      // there is no insurance to buy and the baseline's nearest landing is the
+      // better of two bad shots — so the hook stands down rather than credit
+      // the strategy for an uninsured lob.
+      const lined = stubBay({
+        level: {
+          cushionCells: CUSHION_TIERS[0].cells, cushionMult: CUSHION_TIERS[0].mult,
+          volatileTriggerMult: 1, compactorMinLineCells: 9,
+          pieceSize: "standard", timeLimitSec: 144,
+        },
+        cannon: { currentType: "O", currentMaterial: "volatile" },
+      });
+      const want = linerTriggerSpeed(lined);
+      const soft = { deg: 35, power: 19, err: 5, landX: 0, impact: want * 0.5 };
+      const hard = { deg: 21, power: 28, err: 1, landX: 0, impact: want * 1.5 };
+      check(
+        "the softest arc under the liner's trigger wins, even at a worse landing error",
+        cushion.select!(lined, 0, [hard, soft], base) === soft,
+      );
+      check(
+        "...and a pool with nothing under it stands down rather than lob uninsured",
+        cushion.select!(lined, 0, [hard], base) === null,
+      );
+      check(
+        "...and a NON-volatile shipment is never re-ranked at all",
+        cushion.select!(stubBay({
+          level: {
+            cushionCells: 8, cushionMult: 1.4, volatileTriggerMult: 1,
+            compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+          },
+        }), 0, [hard, soft], base) === null,
+      );
+    }
+  }
+
+  /* --- the lance play ---------------------------------------------------- */
+  {
+    const lance = lanceStrategy.build(1);
+    /** A settled, frozen, in-reach cryo cube standing in slot `k`.
+     *
+     *  Placed on the REAL grid rather than at a convenient number: the bar
+     *  advances toward the wall, so a HIGH slot index is a SMALL x and is the
+     *  cube the press reaches first. Getting that backwards is exactly the
+     *  mistake a hand-picked coordinate hides, and the first draft of this
+     *  fixture put both cubes outside the line zone entirely. */
+    const ice = (k: number): Cube => ({
+      body: { position: { x: slotCenterX(k), y: 400 }, velocity: { x: 0, y: 0 } },
+      material: "cryo", struck: false, blinkStart: null,
+    } as unknown as Cube);
+    const near = ice(8);
+    const far = ice(3);
+    // The bar's face one cell short of the near cube: inside the lance's band
+    // (1 <= LANCE_URGENT_CELLS), while the far cube — five cells further out —
+    // is not.
+    const face = near.body.position.x - CELL;
+    const barAt = { x: face - 20, width: 40, top: 200, strandCutoffX: 0 };
+
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      const claimed = lance.abilities!(bay, 0);
+      check(
+        "the lance is HELD for a frozen cube a shipment can still reach in time",
+        fired === 0 && claimed === false, `${fired} charges`,
+      );
+    }
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [near], thawCharges: 3, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      const claimed = lance.abilities!(bay, 0);
+      check(
+        "...and spent on one the press is about to reach",
+        fired === 1, `${fired} charges`,
+      );
+      check(
+        "...and never claims the tick, because the lance does not cost a launch",
+        claimed === false,
+      );
+    }
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [far], thawCharges: 3, timeLeftMs: 5_000, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      lance.abilities!(bay, 0);
+      check("...and the discipline lifts at the whistle, where an unspent charge is a wasted one",
+        fired === 1);
+    }
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [near], thawCharges: 0, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      lance.abilities!(bay, 0);
+      check("...and an empty rack is never pulled on", fired === 0);
+    }
+    {
+      // THE MIDDLE ARM. `strike` is the same shipment rule over the SHIPPED
+      // greedy trigger, and it exists because a strategy with two independent
+      // halves cannot be attributed from one table: run alone against `naive`,
+      // `lance` produced one number for two changes. So the contrast has to be
+      // real — same cube, same rack, opposite decision.
+      let rationed = 0;
+      let greedy = 0;
+      const bayFor = (count: () => void): Game => stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        useThawLance: () => { count(); return true; },
+      });
+      lanceStrategy.build(1).abilities!(bayFor(() => { rationed += 1; }), 0);
+      strikeStrategy.build(1).abilities!(bayFor(() => { greedy += 1; }), 0);
+      check(
+        "`strike` pulls on the far cube where `lance` holds — the two halves are separable",
+        rationed === 0 && greedy === 1, `lance ${rationed}, strike ${greedy}`,
+      );
+    }
+
+    /* THE DIVISION OF LABOUR: the shipment takes the cube the lance is NOT
+     * going to take. Pinned as the two cases rather than as one, because the
+     * whole point of the rule is that the two tools never contend.
+     *
+     * THE FIXTURE HAS TO FIRE A REAL LANCE, and the first version of these two
+     * pins did not — its `useThawLance` returned true and changed nothing, so
+     * `nextColdCryo` still offered the cube the charge had just taken and the
+     * only way to pass was for the strategy to skip it a SECOND time. That is
+     * the double-advance review found: the pin was not merely blind to the bug,
+     * it required it. `thawed` marks the cube struck and spends a charge, which
+     * is `game.ts`'s useThawLance minus the FX, and the tick is driven in the
+     * order `strategyHands` drives it. */
+    const base = { x: 0, slot: 0 };
+    const thawed = (over: Record<string, unknown>): Game => {
+      const g = stubBay(over);
+      (g as unknown as { useThawLance(): boolean }).useThawLance = () => {
+        const t = nextColdCryo(g.cubes, g.compactor);
+        if (!t || g.thawCharges <= 0) return false;
+        t.struck = true;
+        (g as { thawCharges: number }).thawCharges -= 1;
+        return true;
+      };
+      return g;
+    };
+    {
+      // Fresh cubes per case: `struck` is mutable state and a shared fixture
+      // would carry one case's thaw into the next.
+      const a = ice(8);
+      const b = ice(3);
+      const bay = thawed({ cubes: [a, b], thawCharges: 3, compactor: barAt });
+      lance.abilities!(bay, 0);
+      const shot = lance.target!(bay, 0, base);
+      check(
+        "with the near cube inside the lance's band, the shipment is sent at the FAR one",
+        a.struck && !b.struck
+          && shot !== null && Math.abs(shot!.x - b.body.position.x) < 1e-9,
+        `near struck ${a.struck}, shot ${shot?.x} vs far ${b.body.position.x}`,
+      );
+    }
+    {
+      const b = ice(3);
+      const bay = thawed({ cubes: [b], thawCharges: 3, compactor: barAt });
+      lance.abilities!(bay, 0);
+      const shot = lance.target!(bay, 0, base);
+      check(
+        "...and with nothing in the band, the lance holds and the shipment takes that cube",
+        !b.struck && bay.thawCharges === 3
+          && shot !== null && Math.abs(shot!.x - b.body.position.x) < 1e-9,
+        `struck ${b.struck}, charges ${bay.thawCharges}, shot ${shot?.x}`,
+      );
+    }
+    {
+      const bay = stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        cannon: { currentType: "O", currentMaterial: "cryo" },
+      });
+      check(
+        "a CRYO shipment is never sent at a frozen cube — strikeCryo refuses a moving striker,"
+          + " so that shot freezes two cubes instead of thawing one",
+        lance.target!(bay, 0, base) === null,
+      );
+      const vol = stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        cannon: { currentType: "O", currentMaterial: "volatile" },
+      });
+      check("...and neither is a volatile one", lance.target!(vol, 0, base) === null);
+    }
+  }
+}
+
+section("Aiming strategies — three holes review found (sim/ — winnability, lance, arms)");
+{
+  /* -------------------------------------------------------------------------
+   * 1. A ROW'S LABEL IS A FACT ABOUT THE BOT THAT FLEW IT.
+   *
+   * `winnability.ts` rebuilt the pilot for a strategy run by passing ONE option
+   * — `demolish` — so `--bot patient --strategies cushion` dropped the
+   * congestion rule that IS the `patient` preset, and printed rows labelled
+   * `patient` that plain `aim` had flown. Both halves are pinned: the options
+   * table is what `BOTS` is built from (so it cannot describe a preset that
+   * does not exist), and a strategy pilot carrying `patient` actually plays a
+   * congested bay differently from one carrying `aim`.
+   * ----------------------------------------------------------------------- */
+  check(
+    "every adaptive preset in BOTS is spelled once, in ADAPTIVE_BOTS",
+    Object.keys(ADAPTIVE_BOTS).every((id) => id in BOTS)
+      && ADAPTIVE_BOTS.patient.congestionAware === true
+      && ADAPTIVE_BOTS.impatient.impatient === true
+      && ADAPTIVE_BOTS.demo.demolish === true
+      && Object.keys(ADAPTIVE_BOTS.aim).length === 0,
+    Object.keys(ADAPTIVE_BOTS).join(","),
+  );
+  {
+    // Names first — cheap, and it is the half that says the option SURVIVED the
+    // wrap rather than being reconstructed from a default.
+    const named = (id: string): string => strategyPilot(cushionStrategy, {
+      bot: ADAPTIVE_BOTS[id],
+    })(1).name;
+    check(
+      "a strategy pilot keeps the preset it was asked for, not a default",
+      named("patient") === "patient:cushion+bond"
+        && named("impatient") === "impatient:cushion+bond"
+        && named("aim") === "aim:cushion+bond",
+      `${named("patient")} / ${named("impatient")} / ${named("aim")}`,
+    );
+    // ...and the behavioural half, which is the one that would have caught the
+    // bug: a congested bay has to come out DIFFERENT under `patient`. A bay the
+    // two agree on cannot see the defect, so the fixture is the same
+    // volatile-loaded Tier-7 bay 10 the arms table uses, where the pile is deep
+    // enough for `pileTier` to be non-null and the hold rule to bite.
+    const congested = (): LevelConfig => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, loadoutFor(PRIORITY_ORDERS.material, 7));
+      return applyRatchets(cfg, { volatile: 6 });
+    };
+    const flyWith = (id: string): BayOutcome =>
+      runBay(congested(), strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS[id] })(3), 3);
+    const asAim = flyWith("aim");
+    const asPatient = flyWith("patient");
+    check(
+      "...and a `patient` strategy pilot really flies the congestion rule, not `aim`",
+      asAim.shots !== asPatient.shots || asAim.lines !== asPatient.lines,
+      `aim ${asAim.shots} shots/${asAim.lines} lines`
+        + ` vs patient ${asPatient.shots}/${asPatient.lines}`,
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * 2. ONE TICK, ONE RESERVATION.
+   *
+   * `strategyHands` fires `abilities` before the pilot acts, so on a shooting
+   * tick the lance has already spent its charge and `useThawLance` has already
+   * marked that cube struck — which `nextColdCryo` then skips. Asking
+   * `lanceTakes` a SECOND time in `target` reserved the NEXT cube for a charge
+   * that was already gone, and the shipment went at a third cube or at nothing.
+   *
+   * Two cubes and two charges is the smallest bay that can tell the two apart,
+   * and it is deliberately the smallest: with one cube the broken version
+   * returns null and so does a bay with nothing left to strike, which is how a
+   * pin here would pass against the defect.
+   * ----------------------------------------------------------------------- */
+  {
+    const ice = (k: number): Cube => ({
+      body: { position: { x: slotCenterX(k), y: 400 }, velocity: { x: 0, y: 0 } },
+      material: "cryo", struck: false, blinkStart: null,
+    } as unknown as Cube);
+    const a = ice(8);
+    const b = ice(7);
+    const bar = { x: a.body.position.x - CELL - 20, width: 40, top: 200, strandCutoffX: 0 };
+    /** A bay whose lance behaves like `game.ts`'s: it takes `nextColdCryo`'s
+     *  cube, marks it struck, and spends a charge. Stubbed rather than driven
+     *  through a real Game because the fixture is two cubes in named slots, and
+     *  the RULE being pinned is the strategy's, not the physics'. */
+    const bay = (): Game => {
+      const cubes = [a, b].map((c) => ({ ...c, body: { ...c.body }, struck: false }) as Cube);
+      const g = {
+        level: {
+          cushionCells: 0, cushionMult: 1, volatileTriggerMult: 1,
+          compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+        },
+        cannon: { currentType: "O", currentMaterial: "standard" },
+        compactor: bar,
+        cubes,
+        thawCharges: 2,
+        timeLeftMs: 120_000,
+        useThawLance(): boolean {
+          const t = nextColdCryo(cubes, bar as unknown as Compactor);
+          if (!t || g.thawCharges <= 0) return false;
+          t.struck = true;
+          g.thawCharges -= 1;
+          return true;
+        },
+      };
+      return g as unknown as Game;
+    };
+    for (const spec of [lanceStrategy, strikeStrategy]) {
+      const g = bay();
+      const strategy = spec.build(1);
+      // The real tick order: abilities, then the shot.
+      strategy.abilities!(g, 0);
+      const shot = strategy.target!(g, 0, { x: 0, slot: 0 });
+      const struck = g.cubes.filter((c) => c.struck);
+      check(
+        `\`${spec.name}\`: one tick spends one charge and the shipment takes the OTHER cube`,
+        struck.length === 1 && shot !== null
+          && Math.abs(shot!.x - g.cubes.find((c) => !c.struck)!.body.position.x) < 1e-9,
+        `${struck.length} struck, shot at ${shot?.x ?? "null"},`
+          + ` unstruck at ${g.cubes.find((c) => !c.struck)?.body.position.x}`,
+      );
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+   * 3. AN "OFF" ARM HAS TO BE OFF.
+   *
+   * `strategy-arms.ts` grants the system under test through a kit, which
+   * controls nothing if the rig underneath already installs it. `--build liner`
+   * does exactly that, so both tier-0 arms flew with a cushion aboard and the
+   * table's zero was not zero. Pinned on the CONFIG rather than on the tiers,
+   * because what the arms tool actually flies is a LevelConfig and a track that
+   * grew a third field would slip past a tier check.
+   * ----------------------------------------------------------------------- */
+  {
+    const off = (order: UpgradeId[], track: UpgradeId): LevelConfig => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, loadoutWithoutTrack(order, 7, track));
+      return cfg;
+    };
+    const named = (order: UpgradeId[]): LevelConfig => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, loadoutFor(order, 7));
+      return cfg;
+    };
+    // The fixture only means something if the named order really does install
+    // the track — otherwise this pin passes on a build that never had the
+    // problem, which is how it would pass against the defect.
+    check(
+      "the `liner` and `chill` orders really do install the tracks the arms tool controls",
+      named(PRIORITY_ORDERS.liner).cushionCells > 0
+        && named(PRIORITY_ORDERS.chill).thawCharges > 0,
+      `liner ${named(PRIORITY_ORDERS.liner).cushionCells} cells,`
+        + ` chill ${named(PRIORITY_ORDERS.chill).thawCharges} charges`,
+    );
+    check(
+      "...and an arm built with the track dropped carries NONE of its state",
+      off(PRIORITY_ORDERS.liner, "cushion").cushionCells === 0
+        && off(PRIORITY_ORDERS.liner, "cushion").cushionMult === 1
+        && off(PRIORITY_ORDERS.chill, "thaw").thawCharges === 0,
+      `${off(PRIORITY_ORDERS.liner, "cushion").cushionCells} cells /`
+        + ` ${off(PRIORITY_ORDERS.liner, "cushion").cushionMult} mult /`
+        + ` ${off(PRIORITY_ORDERS.chill, "thaw").thawCharges} charges`,
+    );
+    check(
+      "...and the budget it freed is spent, not stranded — this is a rig, not a hole",
+      tiersCost(loadoutWithoutTrack(PRIORITY_ORDERS.liner, 7, "cushion")) > 0
+        && loadoutWithoutTrack(PRIORITY_ORDERS.liner, 7, "cushion").cushion === 0,
+      `${tiersCost(loadoutWithoutTrack(PRIORITY_ORDERS.liner, 7, "cushion"))} pts`,
+    );
+    // A build that never carried the track is untouched, which is why the
+    // published tables (flown on `--build material`) did not move.
+    check(
+      "...and a build that never installed it is unchanged by the drop",
+      JSON.stringify(loadoutWithoutTrack(PRIORITY_ORDERS.material, 7, "cushion"))
+        === JSON.stringify(loadoutFor(PRIORITY_ORDERS.material, 7))
+      && JSON.stringify(loadoutWithoutTrack(PRIORITY_ORDERS.material, 7, "thaw"))
+        === JSON.stringify(loadoutFor(PRIORITY_ORDERS.material, 7)),
+    );
+  }
+}
+
+section("Aiming strategies — the timed pilot reads the press (sim/aim-strategies.ts)");
+{
+  /* The `timed` arm is what makes design/balance/timed-clears.md a comparison
+   * rather than an assertion, so its one rule is pinned the way every other
+   * instrument here is. Both halves are exported FOR this — `pressPhaseAfter`
+   * takes a Game, `shouldHoldForPress` takes the phase it returns — so the rule
+   * can be checked against numbers instead of against a flown bay.
+   *
+   * The bar is a triangle wave between two stops at one speed, and the
+   * prediction is closed form rather than a simulated loop. A loop would be a
+   * second copy of `Compactor.update`'s stop-and-flip logic living in the
+   * harness; this checks the closed form against the REAL bar, driven step by
+   * step, which is the only comparison that can catch the copy drifting. */
+  const lvl = makeBaseLevel(0);
+  const phys = createPhysics(lvl);
+  const bar = new Compactor(phys.world, lvl);
+  const fake = { compactor: bar } as unknown as Parameters<typeof pressPhaseAfter>[0];
+
+  check("with no time elapsed the prediction is the bar's own state",
+    pressPhaseAfter(fake, 0)?.advancing === bar.pressing);
+
+  // Walk the bar and ask, at every step, where it will be N steps out — then
+  // walk it N steps and look. Two disagreements are two different bugs and the
+  // detail says which: a phase error shows as `advancing` flipping.
+  let wrong = 0;
+  let sampled = 0;
+  const LOOK = 40;
+  for (let i = 0; i < 900; i++) {
+    const predicted = pressPhaseAfter(fake, LOOK);
+    const probe = new Compactor(createPhysics(lvl).world, lvl);
+    // Put the probe where the real bar is, then let IT do the walking.
+    Matter.Body.setPosition(probe.body, { x: bar.x, y: probe.yCenter });
+    probe.dir = bar.dir;
+    for (let k = 0; k < LOOK; k++) probe.update();
+    if (predicted && predicted.advancing !== probe.pressing) wrong += 1;
+    sampled += 1;
+    bar.update();
+  }
+  check("the closed-form phase agrees with the bar actually walked forward",
+    wrong === 0, `${wrong} of ${sampled} steps disagreed`);
+
+  // THE RULE. Hold unless the shipment lands on an advance with room left.
+  check("a landing into a retreat is held for",
+    shouldHoldForPress({ advancing: false, advanceLeft: 0 }));
+  check("a landing at the very end of an advance is held for — the press cannot crush it",
+    shouldHoldForPress({ advancing: true, advanceLeft: 1 }));
+  check("a landing with a whole margin of advance ahead of it is taken",
+    !shouldHoldForPress({ advancing: true, advanceLeft: TIMED_PRESS_MARGIN_STEPS }));
+  check("...and one step under the margin is not",
+    shouldHoldForPress({ advancing: true, advanceLeft: TIMED_PRESS_MARGIN_STEPS - 1 }));
+  // A timing rule that cannot read the clock must NOT become a rule against
+  // firing — a degenerate bar would otherwise starve the pilot outright.
+  check("an unreadable bar holds nothing", !shouldHoldForPress(null));
+
+  // The flight constant is a MEASUREMENT (see its note: 71/74/75 steps median
+  // at bays 1/5/10). What is pinned is the relationship that makes the rule
+  // mean anything — the estimate has to be shorter than the stroke it is being
+  // timed into, or the pilot can never land inside one.
+  const half = (bar.rightX - bar.leftX) / bar.speed;
+  check("the flight estimate fits inside a stroke, or no shot could ever be EXCELLENT",
+    TIMED_FLIGHT_STEPS + TIMED_PRESS_MARGIN_STEPS < 2 * half,
+    `${TIMED_FLIGHT_STEPS} + ${TIMED_PRESS_MARGIN_STEPS} vs cycle ${(2 * half).toFixed(0)}`);
+  check("...and the arm is a NAMED policy a sweep can ask for by name",
+    STRATEGIES.timed !== undefined && STRATEGIES.timed.build(1).name === "timed");
+  check("...whose only hook is the hold, so it changes WHEN and never WHERE",
+    STRATEGIES.timed.build(1).target === undefined
+    && STRATEGIES.timed.build(1).select === undefined
+    && STRATEGIES.timed.build(1).abilities !== undefined);
+
+  Matter.Engine.clear(phys.engine);
+}
+
+section("Aiming strategies — the missing one is loud (sim/aim-strategies.ts)");
+{
+  // The Incinerator is not on staging. A stub that behaved like `naive` would
+  // let an arms table report the track as worth nothing, which is the exact
+  // mispricing this whole file exists to end — so the placeholder throws, and
+  // the registry does not carry a name for it.
+  check(
+    "there is no incinerator strategy a sweep can name",
+    !("incinerator" in STRATEGIES), Object.keys(STRATEGIES).join(","),
+  );
+  let threw = "";
+  try { incineratorAware(); } catch (e) { threw = String((e as Error).message); }
+  check(
+    "...and the placeholder refuses to fly rather than quietly fly as naive",
+    threw.includes("not implemented"), threw || "did not throw",
+  );
+  check(
+    "...and says where the follow-up lives",
+    threw.includes("incinerator-system"), threw,
+  );
+}
+
+// ===========================================================================
+// THE TIMING GRADE — the clock, the ladder, and the money that rides them
+//
+// `src/game/grades.ts` puts a MULTIPLIER on the one number the whole economy is
+// denominated in, so the pins here are not "does the enum exist". Three claims
+// are load-bearing and each is checked against a case that can actually break:
+//
+//  1. THE CLOCK IS THE PRESS. The grade is a function of two integer counters
+//     and of nothing else — not `now`, not `stepCount`, not the frame rate.
+//     Checked by driving one hand-built row through the REAL `updateLineClear`
+//     at explicit clocks and reading the band back, and by re-clearing the same
+//     row at a different wall clock and getting the same money.
+//  2. SWEPT IS THE ANCHOR. A swept row pays byte-identically to what a row paid
+//     before grades existed. This is the promise that keeps the mid-ladder
+//     still, and it is one multiplication away from being silently broken.
+//  3. THE LADDER IS STRICT AND ORDERED, so no play can ever be graded up by
+//     waiting.
+// ===========================================================================
+section("The timing grade — the clock is the press (src/game/grades.ts)");
+{
+  /** A landing, and the step it happened on. `step` is the fixed-step clock the
+   *  EXCELLENT window is measured in; the two bar counters are the rest. */
+  const land = (stroke: number, halfCycle: number, step: number): LandingStamp =>
+    ({ stroke, halfCycle, step });
+  const clock = (stroke: number, halfCycle: number, step: number): ClearClock =>
+    ({ stroke, halfCycle, step });
+  /** A step far enough past a landing that the window cannot possibly be open —
+   *  used everywhere a pin is about the BAR rather than about the window. */
+  const LATER = EXCELLENT_WINDOW_STEPS * 10;
+
+  // ---- 0. The step is the engine's step, and the window is the owner's -----
+  check("the grade's step and the physics step are the same number",
+    STEP_MS === 1000 / 60, String(STEP_MS));
+  check("the EXCELLENT window is the owner's 100ms",
+    EXCELLENT_WINDOW_MS === 100, String(EXCELLENT_WINDOW_MS));
+  check("...which is exactly 6 fixed steps, so the threshold needs no rounding argument",
+    EXCELLENT_WINDOW_STEPS === 6
+    && Math.abs(EXCELLENT_WINDOW_STEPS * STEP_MS - EXCELLENT_WINDOW_MS) < 1e-9,
+    `${EXCELLENT_WINDOW_STEPS} steps = ${(EXCELLENT_WINDOW_STEPS * STEP_MS).toFixed(1)}ms`);
+
+  // ---- 1. The four bands, as derivations rather than as a table ----------
+  //
+  // Each case names the PLAY it is, because that is what the boundary means; a
+  // pin that only said `gradeForRow(...) === "excellent"` would pass just as
+  // happily against a ladder read upside down.
+  check(
+    "a row that closed on the step its cargo landed is EXCELLENT",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 500)) === "excellent",
+  );
+  // THE WINDOW'S OWN EDGE, both sides of it. The owner's number is inclusive:
+  // "within 100ms" is "no more than", so 100ms exactly is still the top band.
+  check(
+    `...still EXCELLENT at exactly ${EXCELLENT_WINDOW_MS}ms — the window is inclusive`,
+    gradeForRow(land(4, 9, 500), clock(4, 9, 500 + EXCELLENT_WINDOW_STEPS)) === "excellent",
+  );
+  check(
+    "...and ONE STEP past it is not, however good the bar's phase looks",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 501 + EXCELLENT_WINDOW_STEPS)) === "good",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 501 + EXCELLENT_WINDOW_STEPS)),
+  );
+  // GOOD is the owner's second sentence: landed while the bar was moving right,
+  // cleared on that same rightward stroke. Equal half-cycles say both halves.
+  check(
+    "a row that landed on the advance and cleared on that same stroke is GOOD",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 500 + LATER)) === "good",
+  );
+  // ...and the case that used to be GOOD and is not any more: a RETREAT landing
+  // the next press sold. The owner's GOOD asks for a rightward landing.
+  check(
+    "a landing on the RETREAT, sold by the very next press, is SWEPT — the press brought it in",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 500 + LATER)) === "swept",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 500 + LATER)),
+  );
+  check(
+    "one completed sweep since the landing is SWEPT",
+    gradeForRow(land(4, 8, 500), clock(5, 10, 500 + LATER)) === "swept",
+  );
+  check(
+    `...and so is ${LUCKY_SWEEPS - 1}, the last band before the owner's "definitely lucky"`,
+    gradeForRow(land(4, 8, 500), clock(4 + LUCKY_SWEEPS - 1, 20, 500 + LATER)) === "swept",
+  );
+  check(
+    `${LUCKY_SWEEPS} sweeps is LUCKY`,
+    gradeForRow(land(4, 8, 500), clock(4 + LUCKY_SWEEPS, 22, 500 + LATER)) === "lucky",
+  );
+  check(
+    "a row whose cargo has never rested grades LUCKY, never EXCELLENT",
+    gradeForRow(null, clock(0, 0, 0)) === "lucky",
+  );
+  // THE WINDOW IS THE PRIMARY DEFINITION, and this is the case that says so: a
+  // slam that lands on the tail of a retreat and is crushed inside the window
+  // is EXCELLENT even though the bar was moving LEFT when it landed. Checked
+  // first in gradeForRow for exactly this reason.
+  check(
+    "a leftward landing crushed inside the window is EXCELLENT — the window outranks the phase",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 503)) === "excellent",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 503)),
+  );
+  // ...and the same landing one sweep later is not, so the window is doing the
+  // work rather than the half-cycle.
+  check(
+    "...and the same landing after a whole sweep is not",
+    gradeForRow(land(4, 8, 500), clock(5, 10, 500 + LATER)) === "swept",
+  );
+  // The ladder can only ever fall as the clock runs on. A grade that could rise
+  // by waiting would make holding fire and doing nothing a strategy.
+  {
+    let monotone = true;
+    let prev = 0;
+    for (let steps = 0; steps <= 40; steps++) {
+      // One landing, one bar walking on: every 8 steps the bar reverses, every
+      // 16 it completes a sweep. The ladder must never step back up.
+      const halfCycle = Math.floor(steps / 8);
+      const rank = GRADES.indexOf(
+        gradeForRow(land(0, 0, 0), clock(Math.floor(halfCycle / 2), halfCycle, steps)),
+      );
+      if (rank < prev) monotone = false;
+      prev = rank;
+    }
+    check("the ladder never improves with age — waiting cannot upgrade a row", monotone);
+  }
+
+  // ---- 2. The compactor's two counters ------------------------------------
+  //
+  // `halfCycles` is a NEW counter and the grade's whole Excellent/Good split
+  // rests on it ticking at both stops and exactly once per stop. The bar sits
+  // pinned at a stop for one step before reversing, which is precisely where a
+  // naive increment double-counts.
+  {
+    const lvl = makeBaseLevel(0);
+    const phys = createPhysics(lvl);
+    const bar = new Compactor(phys.world, lvl);
+    check("a fresh bar opens at zero on both counters",
+      bar.strokes === 0 && bar.halfCycles === 0);
+    // Drive two whole round trips and watch the pair.
+    const seen: Array<{ s: number; h: number; d: number }> = [];
+    for (let i = 0; i < 4000 && bar.halfCycles < 4; i++) {
+      bar.update();
+      seen.push({ s: bar.strokes, h: bar.halfCycles, d: bar.dir });
+    }
+    check("two round trips are 4 half-cycles and 2 strokes",
+      bar.halfCycles === 4 && bar.strokes === 2, `${bar.halfCycles}/${bar.strokes}`);
+    // Never more than one tick per step, in either counter — the double-count
+    // this guard exists for would show up here as a step that jumped by 2.
+    let jumped = false;
+    for (let i = 1; i < seen.length; i++) {
+      if (seen[i].h - seen[i - 1].h > 1 || seen[i].s - seen[i - 1].s > 1) jumped = true;
+    }
+    check("...and neither counter ever ticks twice in one step", !jumped);
+    // The right stop advances BOTH; the left stop advances only halfCycles.
+    // That is the identity `gradeForRow` leans on when it checks halfCycle
+    // equality first and never special-cases the sweep count.
+    let leftStopsMovedStrokes = false;
+    for (let i = 1; i < seen.length; i++) {
+      const bumpedHalf = seen[i].h > seen[i - 1].h;
+      // dir is +1 AFTER a left-stop flip, -1 after a right-stop flip.
+      if (bumpedHalf && seen[i].d === 1 && seen[i].s !== seen[i - 1].s) {
+        leftStopsMovedStrokes = true;
+      }
+    }
+    check("the OPEN stop advances the half-cycle and never the stroke count",
+      !leftStopsMovedStrokes);
+    check("...so equal half-cycles imply equal strokes, which is why EXCELLENT is checked first",
+      seen.every((p, i) => i === 0 || p.h !== seen[i - 1].h || p.s === seen[i - 1].s));
+    Matter.Engine.clear(phys.engine);
+  }
+
+  // ---- 3. Landings are stamped ONCE, at the row scan's own threshold -------
+  {
+    const lvl = makeBaseLevel(0);
+    const phys = createPhysics(lvl);
+    const body = Matter.Bodies.rectangle(WALL_INNER - CELL / 2, WORLD.height - CELL / 2, CELL, CELL);
+    Matter.Composite.add(phys.world, body);
+    const cube: Cube = {
+      body, type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+    };
+    Matter.Body.setVelocity(body, { x: 20, y: 0 });
+    stampLandings([cube], clock(3, 7, 40));
+    check("a cube still moving is not stamped", landingOf(cube) === null);
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    stampLandings([cube], clock(3, 7, 40));
+    check("...and is stamped the first step it comes to rest",
+      landingOf(cube)?.stroke === 3 && landingOf(cube)?.halfCycle === 7
+      && landingOf(cube)?.step === 40);
+    // THE RULE THE GRADE RESTS ON: knocked loose and re-settled keeps the
+    // ORIGINAL landing, so a stale pile cannot have its clock reset.
+    Matter.Body.setVelocity(body, { x: 30, y: -10 });
+    stampLandings([cube], clock(9, 19, 400));
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    stampLandings([cube], clock(9, 19, 400));
+    check("cargo knocked loose and re-settled keeps its ORIGINAL landing",
+      landingOf(cube)?.stroke === 3 && landingOf(cube)?.halfCycle === 7
+      && landingOf(cube)?.step === 40,
+      `${landingOf(cube)?.stroke}/${landingOf(cube)?.halfCycle}/${landingOf(cube)?.step}`);
+    Matter.Engine.clear(phys.engine);
+  }
+
+  // ---- 4. A row is graded on its NEWEST cargo, order-independently ---------
+  {
+    const stamp = (s: number, h: number): Cube => ({
+      body: Matter.Bodies.rectangle(0, 0, CELL, CELL),
+      type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+      landedStroke: s, landedHalfCycle: h, landedStep: h * 8,
+    });
+    const old = stamp(1, 2);
+    const fresh = stamp(4, 9);
+    check("the newest landing wins whichever order the row is walked",
+      newestLanding([old, fresh])?.halfCycle === 9
+      && newestLanding([fresh, old])?.halfCycle === 9);
+    check("...and a row of cargo that never rested reports no landing at all",
+      newestLanding([
+        {
+          ...stamp(0, 0),
+          landedStroke: undefined, landedHalfCycle: undefined, landedStep: undefined,
+        },
+      ]) === null);
+  }
+
+  // ---- 5. The pay ladder is a SPREAD around today's economy ---------------
+  //
+  // The anchor is the whole "mid ladder stays approachable" claim, and it is one
+  // typo away from being an inflation instead.
+  check("SWEPT pays exactly the base rate — the anchor the mid-ladder rests on",
+    GRADE_PAY.swept === 1);
+  {
+    const base = makeBaseLevel(4, 5).scorePerLine;
+    check("...so a swept row is byte-identical to a row before grades existed",
+      gradedLinePay(base, "swept") === base, `${gradedLinePay(base, "swept")} vs ${base}`);
+  }
+  check("the ladder is strictly descending — every band is worth less than the one above",
+    GRADE_PAY.excellent > GRADE_PAY.good
+    && GRADE_PAY.good > GRADE_PAY.swept
+    && GRADE_PAY.swept > GRADE_PAY.lucky);
+  check("LUCKY pays BELOW the base rate, which is what makes volume cost something",
+    GRADE_PAY.lucky < 1);
+  {
+    // The arithmetic the ladder was sized against (grades.ts's table): at the
+    // top of the tier ladder a row takes ~2.9 launches, so a LUCKY row must not
+    // pay for the shots that made it while an EXCELLENT one comfortably does.
+    // Bay 1 is the thin-margin bay the sizing was done on — the scorePerLine
+    // ramp makes later bays kinder, which is a fact about the ramp and is why
+    // the claim is pinned where it is tightest.
+    // level.ts's economy note carries the measurement this quotes: "the
+    // measured ~2.9 launches/line". Restated as a local rather than imported
+    // because it is a MEASUREMENT the note records, not a constant the game
+    // reads — nothing in src/ has an opinion about it, and exporting one would
+    // create a number the ladder could be re-tuned against by accident.
+    const LAUNCHES_PER_LINE = 2.9;
+    const b1 = makeBaseLevel(0, TIER_COUNT);
+    const perRow = LAUNCHES_PER_LINE * b1.launchCost;
+    check("at Tier 10 bay 1 a LUCKY row does not pay for the launches that made it",
+      gradedLinePay(b1.scorePerLine, "lucky") < perRow,
+      `$${gradedLinePay(b1.scorePerLine, "lucky")} vs $${perRow.toFixed(0)} of launches`);
+    check("...and an EXCELLENT one pays for them nearly twice over",
+      gradedLinePay(b1.scorePerLine, "excellent") > 1.7 * perRow,
+      `$${gradedLinePay(b1.scorePerLine, "excellent")} vs $${perRow.toFixed(0)}`);
+  }
+
+  // ---- 6. Tallies ---------------------------------------------------------
+  {
+    const a = { excellent: 2, good: 1, swept: 3, lucky: 0 };
+    const b = { excellent: 0, good: 4, swept: 1, lucky: 2 };
+    const sum = addGradeTally(a, b);
+    check("tallies add field by field without mutating either side",
+      sum.excellent === 2 && sum.good === 5 && sum.swept === 4 && sum.lucky === 2
+      && a.good === 1 && b.good === 4);
+    check("...and the timed share counts the two bands the economy pays a premium for",
+      Math.abs(timedShare(sum) - 7 / 13) < 1e-9, `${timedShare(sum)}`);
+    check("an empty tally reports a 0 share, never a NaN that would print as a measurement",
+      timedShare(newGradeTally()) === 0);
+    check("newGradeTally hands out a FRESH object, so a bay's count cannot leak into a run's",
+      newGradeTally() !== newGradeTally());
+  }
+
+  /* ---- 7. THE TWO GATES (grades.ts's awardedGrade) ------------------------
+   *
+   * The clock says when a row closed. Two further facts decide whether the bay
+   * is allowed to SELL that band, and both cap at the same rung.
+   * --------------------------------------------------------------------- */
+  {
+    const open = { congested: false, participation: "in-row" as RowParticipation };
+    // The gates are OPEN by default, or the ladder would not exist.
+    check("an uncongested row the shipment took part in is sold at the clock's own band",
+      GRADES.every((g) => awardedGrade(g, open) === g));
+
+    // CONGESTION. The owner's rule: no excellent, no good, while congested.
+    const congested = { congested: true, participation: "in-row" as RowParticipation };
+    check("a congested bay cannot sell EXCELLENT",
+      awardedGrade("excellent", congested) === CONGESTION_GRADE_CAP,
+      awardedGrade("excellent", congested));
+    check("...nor GOOD",
+      awardedGrade("good", congested) === CONGESTION_GRADE_CAP,
+      awardedGrade("good", congested));
+    check("...and the cap is SWEPT, the anchor — a withdrawn premium, not an invented fine",
+      CONGESTION_GRADE_CAP === "swept" && GRADE_PAY[CONGESTION_GRADE_CAP] === 1);
+    // THE RUNG BELOW STAYS REACHABLE. A ceiling, never a value: a stale row in a
+    // congested bay is still LUCKY and still costs money. A gate that clamped
+    // every congested row TO swept would be a pay RISE for the worst play in
+    // the game, which is the exact inversion this whole file exists to remove.
+    check("a stale row in a congested bay still falls to LUCKY — the cap is a ceiling",
+      awardedGrade("lucky", congested) === "lucky");
+    check("...and SWEPT is untouched by the gate it caps at",
+      awardedGrade("swept", congested) === "swept");
+
+    // PARTICIPATION. Same ceiling, different failure.
+    const absent = { congested: false, participation: "none" as RowParticipation };
+    check("a row the launched shipment had no part in cannot sell a timed band",
+      awardedGrade("excellent", absent) === CONGESTION_GRADE_CAP
+      && awardedGrade("good", absent) === CONGESTION_GRADE_CAP);
+    check("...and still falls to LUCKY when the clock says so",
+      awardedGrade("lucky", absent) === "lucky");
+    check("an IMPACT-ASSIST row participates — the owner's case, paid",
+      awardedGrade("excellent", { congested: false, participation: "impact" }) === "excellent");
+    // The two gates are independent and either one alone is enough.
+    check("congestion caps an impact-assist row too — the gates do not cancel out",
+      awardedGrade("excellent", { congested: true, participation: "impact" })
+        === CONGESTION_GRADE_CAP);
+
+    // THE LADDER-SHAPED PIN. Whatever the gates are, the awarded band is never
+    // BETTER than the raw one — the property that makes "cap" the right word
+    // and that an inverted gate breaks on every input at once.
+    let everPromoted = false;
+    for (const g of GRADES) {
+      for (const congestedFlag of [false, true]) {
+        for (const part of ["in-row", "impact", "none"] as RowParticipation[]) {
+          const out = awardedGrade(g, { congested: congestedFlag, participation: part });
+          if (GRADES.indexOf(out) < GRADES.indexOf(g)) everPromoted = true;
+        }
+      }
+    }
+    check("no combination of gates can ever PROMOTE a row — a cap only ever costs",
+      !everPromoted);
+  }
+}
+
+section("The timing grade — through the real clear check (lineClear.ts / game.ts)");
+{
+  // Hand-built rows through the ACTUAL updateLineClear for the reason the
+  // material section states: the claim is that the SHIPPED code path prices a
+  // row by its landing, and a reimplementation of that path would prove nothing.
+  const rowLevel = makeBaseLevel(0);
+  /** The shipment every hand-built row below is stamped as, and the one every
+   *  context names as the latest. Any non-zero value would do; it is named so a
+   *  reader can see at a glance that these rows PARTICIPATE and that the clock
+   *  is therefore the only thing under test. */
+  const PIN_SHIPMENT = 7;
+  /** A context that isolates the CLOCK: nothing congested, the built row's own
+   *  shipment the latest. Both gates open, so the awarded band is the raw one.
+   *  The gates are pinned separately, below. */
+  const clockOnly = (clock: ClearClock): ClearContext =>
+    ({ clock, congested: false, shipment: PIN_SHIPMENT });
+  /** N stacked rows, each with its OWN landing stamp — row 0 is the floor row.
+   *  Multi-row is the case that matters and the single-row case is just N = 1:
+   *  a crush takes several rows at once and each is a separate sale, so a
+   *  builder that could only make one row could never catch a grade computed
+   *  across the whole crush. */
+  const buildGradedRows = (stamps: Array<[number, number, number]>) => {
+    const phys = createPhysics(rowLevel);
+    const compactor = new Compactor(phys.world, rowLevel);
+    while (compactor.x < compactor.rightX) compactor.update();
+    compactor.dir = 1; // the advancing stroke — the only one that clears
+    const cubes: Cube[] = [];
+    stamps.forEach(([landedStroke, landedHalfCycle, landedStep], r) => {
+      const rowY = WORLD.height - CELL / 2 - r * CELL;
+      for (let k = 0; k < rowLevel.compactorMinLineCells; k++) {
+        const body = Matter.Bodies.rectangle(
+          WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+        );
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Composite.add(phys.world, body);
+        cubes.push({
+          body, type: "O", color: "#fff", blinkStart: null,
+          material: "standard", struck: true, landedStroke, landedHalfCycle, landedStep,
+          // Every hand-built row is cargo from PIN_SHIPMENT, so the
+          // participation gate passes and these pins keep asking the question
+          // they were written to ask — what the CLOCK says. The gate has pins
+          // of its own further down.
+          shipment: PIN_SHIPMENT,
+        });
+      }
+    });
+    return { phys, compactor, cubes };
+  };
+  const buildGradedRow = (landedStroke: number, landedHalfCycle: number, landedStep: number) =>
+    buildGradedRows([[landedStroke, landedHalfCycle, landedStep]]);
+
+  const clearAt = (
+    landedStroke: number, landedHalfCycle: number, landedStep: number, clock: ClearClock,
+  ) => {
+    const r = buildGradedRow(landedStroke, landedHalfCycle, landedStep);
+    const out = updateLineClear(
+      r.phys.world, r.cubes, r.compactor, rowLevel, [], clockOnly(clock),
+    );
+    Matter.Engine.clear(r.phys.engine);
+    return out;
+  };
+
+  {
+    const out = clearAt(6, 13, 900, { stroke: 6, halfCycle: 13, step: 902 });
+    check("a row closed inside the window clears EXCELLENT through the real path",
+      out.lines === 1 && out.graded.length === 1 && out.graded[0].grade === "excellent",
+      out.graded.map((g) => g.grade).join(","));
+    check("...and every cleared row has a graded entry beside it, index for index",
+      out.graded.length === out.rows.length && out.graded[0].y === out.rows[0]);
+    check("...carrying the landing it was priced from, so the derivation is inspectable",
+      out.graded[0].landing?.stroke === 6 && out.graded[0].landing?.halfCycle === 13
+      && out.graded[0].landing?.step === 900);
+    // The same row, the same stroke, one step past the window: GOOD, through
+    // the real path. This is the pin the shortened window is FOR.
+    const late = clearAt(6, 13, 900, {
+      stroke: 6, halfCycle: 13, step: 901 + EXCELLENT_WINDOW_STEPS,
+    });
+    check("...and the same landing one step past the window clears GOOD instead",
+      late.graded[0].grade === "good", late.graded[0].grade);
+  }
+  check("the same row three sweeps stale clears LUCKY",
+    clearAt(6, 13, 900, { stroke: 6 + LUCKY_SWEEPS, halfCycle: 30, step: 2000 })
+      .graded[0].grade === "lucky");
+
+  /* A CRUSH IS SEVERAL SALES, and each row is priced on the cargo that filled
+   * ITS OWN slots.
+   *
+   * The pin that had to exist and did not: every check above builds ONE row, so
+   * a grade computed across the whole crush's removal set would pass all of
+   * them — proved by mutation, which came back 0 failures against a
+   * `newestLanding([...toRemove, ...filled])` that let a lower row's fresh
+   * shipment grade the stale rows above it.
+   *
+   * Two stacked rows with landings a run apart, cleared in one call. The floor
+   * row is FRESH (it is scanned first, while the removal set is still empty, so
+   * only the row above it can be corrupted) and the row above it is stale by a
+   * full LUCKY_SWEEPS. If the crush is graded as one thing, the stale row
+   * inherits the fresh one's landing and comes back EXCELLENT. */
+  {
+    const r = buildGradedRows([[9, 19, 1000], [2, 5, 200]]);
+    const out = updateLineClear(
+      r.phys.world, r.cubes, r.compactor, rowLevel, [],
+      clockOnly({ stroke: 9, halfCycle: 19, step: 1001 }),
+    );
+    Matter.Engine.clear(r.phys.engine);
+    check("one crush takes both rows", out.lines === 2 && out.graded.length === 2,
+      `${out.lines} lines / ${out.graded.length} graded`);
+    check("...the floor row, closed on the press, sells EXCELLENT",
+      out.graded[0].grade === "excellent", out.graded[0].grade);
+    check("...and the stale row above it sells LUCKY, on ITS OWN cargo",
+      out.graded[1].grade === "lucky", out.graded[1].grade);
+    check("...so the two rows in one crush are NOT priced the same",
+      out.graded[0].grade !== out.graded[1].grade);
+  }
+
+  /* ---- PARTICIPATION — was this row the player's shot? --------------------
+   *
+   * grades.ts's gate needs an answer from the FIELD, and this is the function
+   * that reads it. Built as geometry pins rather than as a table, because the
+   * impact-assist branch IS a geometry claim and a table of booleans would
+   * restate it rather than test it.
+   * --------------------------------------------------------------------- */
+  {
+    const NOW = 12;
+    /** One cube at (x, y) belonging to `shipment`, landed unless told not to. */
+    const loose = (x: number, y: number, shipment?: number, landed = true): Cube => ({
+      body: Matter.Bodies.rectangle(x, y, CELL, CELL),
+      type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+      shipment,
+      landedStroke: landed ? 1 : undefined,
+      landedHalfCycle: landed ? 2 : undefined,
+      landedStep: landed ? 20 : undefined,
+    });
+    const floorY = WORLD.height - CELL / 2;
+    const rowCubes = [loose(WALL_INNER - CELL / 2, floorY, 3), loose(WALL_INNER - CELL * 1.5, floorY, 3)];
+
+    check("a row holding a cube of the latest shipment is IN-ROW",
+      rowParticipation(rowCubes, rowCubes, 3) === "in-row");
+    check("...and the same row is NOT the current shot once a later shipment has flown",
+      rowParticipation(rowCubes, rowCubes, 4) === "none");
+    check("a bay that has launched nothing participates in nothing",
+      rowParticipation(rowCubes, rowCubes, 0) === "none");
+
+    // THE IMPACT ASSIST. The shipment is not in the row; it is sitting ON it.
+    // ONE cube in the row, deliberately: the tolerance edges below are about
+    // one cube's column and one cube's height, and a two-cube row would put a
+    // second column a cell away for an "off column" probe to land squarely on.
+    {
+      const row = [loose(WALL_INNER - CELL / 2, floorY, 1)];
+      const above = loose(WALL_INNER - CELL / 2, floorY - CELL, NOW);
+      check("a shipment resting directly on the row counts as taking part",
+        rowParticipation(row, [...row, above], NOW) === "impact");
+      // ...and the three ways it does not.
+      const tooHigh = loose(WALL_INNER - CELL / 2, floorY - CELL * 2, NOW);
+      check("...but a cube two cells up is resting on something else, not on this row",
+        rowParticipation(row, [...row, tooHigh], NOW) === "none");
+      const offColumn = loose(WALL_INNER - CELL / 2 - CELL, floorY - CELL, NOW);
+      check("...and a cube over the NEXT column along is not weight this row felt",
+        rowParticipation(row, [...row, offColumn], NOW) === "none");
+      const stillFlying = loose(WALL_INNER - CELL / 2, floorY - CELL, NOW, false);
+      check("...and cargo still arriving has not put its weight on anything yet",
+        rowParticipation(row, [...row, stillFlying], NOW) === "none");
+      // DIRECTION MATTERS. A shipment BELOW the row did not press it down.
+      const below = loose(WALL_INNER - CELL / 2, floorY + CELL, NOW);
+      check("...and a shipment UNDER the row is not an impact assist either",
+        rowParticipation(row, [...row, below], NOW) === "none");
+      // The tolerances are the named ones, checked at their own edges rather
+      // than at values a reader would have to trust.
+      const atEdgeIn = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MAX + 0.5, NOW);
+      const atEdgeOut = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MAX - 0.5, NOW);
+      check("the vertical band's far edge is IMPACT_ASSIST_Y_MAX and the rule changes across it",
+        rowParticipation(row, [...row, atEdgeIn], NOW) === "impact"
+        && rowParticipation(row, [...row, atEdgeOut], NOW) === "none");
+      const nearIn = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MIN - 0.5, NOW);
+      const nearOut = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MIN + 0.5, NOW);
+      check("...and its near edge is IMPACT_ASSIST_Y_MIN, likewise",
+        rowParticipation(row, [...row, nearIn], NOW) === "impact"
+        && rowParticipation(row, [...row, nearOut], NOW) === "none");
+      const sideIn = loose(WALL_INNER - CELL / 2 + IMPACT_ASSIST_X_TOL - 0.5, floorY - CELL, NOW);
+      const sideOut = loose(WALL_INNER - CELL / 2 + IMPACT_ASSIST_X_TOL + 0.5, floorY - CELL, NOW);
+      check("...and the column tolerance is IMPACT_ASSIST_X_TOL, likewise",
+        rowParticipation(row, [...row, sideIn], NOW) === "impact"
+        && rowParticipation(row, [...row, sideOut], NOW) === "none");
+    }
+  }
+
+  /* ---- THE GATES THROUGH THE REAL CLEAR CHECK ----------------------------
+   *
+   * Two stacked rows landing on the SAME tick with the SAME clock — so every
+   * band the clock can produce is identical between them — and the shipment in
+   * only one of them. Anything that fails to gate prices them the same.
+   * --------------------------------------------------------------------- */
+  {
+    const CLOCK: ClearClock = { stroke: 9, halfCycle: 19, step: 1001 };
+    /** Two fresh rows; `owner[r]` is the shipment stamped on row r's cubes. */
+    const twoRows = (owner: [number | undefined, number | undefined]) => {
+      const r = buildGradedRows([[9, 19, 1000], [9, 19, 1000]]);
+      const per = rowLevel.compactorMinLineCells;
+      r.cubes.forEach((c, i) => { c.shipment = owner[Math.floor(i / per)]; });
+      return r;
+    };
+    // The shipment is in the UPPER row, so the floor row below it is the
+    // impact-assist case and the upper row is the in-row one. Both sell.
+    {
+      const r = twoRows([undefined, 5]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a shipment in the upper row takes part in it directly",
+        out.graded[1].participation === "in-row", out.graded[1].participation);
+      check("...and presses the row beneath it, which is the impact assist",
+        out.graded[0].participation === "impact", out.graded[0].participation);
+      check("...so BOTH rows sell EXCELLENT — the owner's case, paid",
+        out.graded[0].grade === "excellent" && out.graded[1].grade === "excellent");
+    }
+    /* THE ASSIST HAS TO SUPPLY THE CLOCK TOO, or the owner's case cannot reach
+     * the top band at all under a 100ms window.
+     *
+     * A row whose OWN cargo is a run old, with the shipment landing on top of
+     * it this step. Measured from the row's own cubes the window is shut and
+     * the band is LUCKY; measured from the landing that actually closed it —
+     * the shipment resting on it — it is EXCELLENT. This is the pin that fails
+     * if `rowClaim`'s assist landing is dropped and only its verdict kept. */
+    {
+      const r = buildGradedRows([[2, 5, 200], [9, 19, 1000]]);
+      const per = rowLevel.compactorMinLineCells;
+      r.cubes.forEach((c, i) => { c.shipment = i < per ? 1 : 5; });
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a stale row the shipment landed ON is priced from the SHIPMENT's landing",
+        out.graded[0].landing?.step === 1000, String(out.graded[0].landing?.step));
+      check("...so the impact assist reaches the top band under the 100ms window",
+        out.graded[0].grade === "excellent", out.graded[0].grade);
+      // ...and the same stale row with nothing over it is exactly what it was.
+      const bare = buildGradedRows([[2, 5, 200]]);
+      bare.cubes.forEach((c) => { c.shipment = 1; });
+      const outBare = updateLineClear(
+        bare.phys.world, bare.cubes, bare.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(bare.phys.engine);
+      check("...while the same stale row with nothing resting on it is LUCKY and unpaid",
+        outBare.graded[0].raw === "lucky" && outBare.graded[0].participation === "none",
+        `${outBare.graded[0].raw}/${outBare.graded[0].participation}`);
+    }
+    // Nothing of the current shipment anywhere: identical clock, capped bands.
+    {
+      const r = twoRows([2, 2]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("rows built entirely of older cargo take no part in their own clear",
+        out.graded.every((g) => g.participation === "none"));
+      check("...so the clock's EXCELLENT is sold as SWEPT",
+        out.graded.every((g) => g.raw === "excellent" && g.grade === "swept"),
+        out.graded.map((g) => `${g.raw}->${g.grade}`).join(","));
+      check("...and every one of them is flagged capped, so the toast can say so",
+        out.graded.every((g) => g.capped));
+    }
+    // CONGESTION, through the same call. Same rows, same shipment, one flag.
+    {
+      const r = twoRows([5, 5]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: true, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a congested clear is graded EXCELLENT by the clock and sold as SWEPT",
+        out.graded.every((g) => g.raw === "excellent" && g.grade === "swept"),
+        out.graded.map((g) => `${g.raw}->${g.grade}`).join(","));
+      check("...and every row carries the congestion that capped it",
+        out.graded.every((g) => g.congested && g.capped));
+    }
+    // ...and a LATE row in a congested bay is not "capped": it was already
+    // below the ceiling. The flag has to mean something or the tag lies.
+    {
+      const r = buildGradedRows([[2, 5, 200]]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        {
+          clock: { stroke: 2 + LUCKY_SWEEPS, halfCycle: 20, step: 2000 },
+          congested: true, shipment: PIN_SHIPMENT,
+        },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a LUCKY row in a congested bay stays LUCKY and is not reported as capped",
+        out.graded[0].grade === "lucky" && out.graded[0].capped === false,
+        `${out.graded[0].grade}/${out.graded[0].capped}`);
+    }
+  }
+
+  /* ---- THE TICK BOUNDARIES (codex, PR #168) ------------------------------
+   *
+   * The grade's clock advances INSIDE `compactor.update()`, and the step reads
+   * it on both sides of that call — once to stamp landings, once to grade the
+   * clears. Reading it twice is reading two different clocks, and the tick the
+   * press completes is where they disagree: a row closed on that tick was
+   * stamped on stroke S and graded against S+1, i.e. charged a completed sweep
+   * it had not survived. EXCELLENT failing on the tick that earns it most
+   * literally.
+   *
+   * These replay game.ts's real order — sample, stamp, update, clear — with the
+   * REAL functions, because the bug lived in the order rather than in any one
+   * of them. `sim/_scratch-tickboundary.ts` is the same walk with a printed
+   * table, and design/balance/timed-clears.md §2c carries it.
+   *
+   * The bar is DRIVEN to each boundary, never teleported: `Compactor.update` is
+   * what decides where a stop is, and a hand-placed bar would be a test of the
+   * placement. */
+  {
+    /** One step of game.ts's order. `late` reads the clock AFTER the bar moved,
+     *  which is the bug; the shipped path samples once, before. */
+    const oneStep = (
+      bar: Compactor, phys: ReturnType<typeof createPhysics>, cubes: Cube[],
+      late: boolean, stampNow: boolean, stepNo: number,
+    ): { grade: string | null; completedStroke: boolean } => {
+      const clock: ClearClock = {
+        stroke: bar.strokes, halfCycle: bar.halfCycles, step: stepNo,
+      };
+      if (stampNow) stampLandings(cubes, clock);
+      const pressing = bar.pressing;
+      const before = bar.strokes;
+      bar.update();
+      const completedStroke = bar.strokes !== before;
+      if (!pressing) return { grade: null, completedStroke };
+      // The BUG's clock: the bar's counters read after `update()` moved them.
+      // The step is the same either way — nothing in `compactor.update()`
+      // touches the step counter — so this is precisely the fencepost and
+      // nothing else.
+      const live: ClearClock = {
+        stroke: bar.strokes, halfCycle: bar.halfCycles, step: stepNo,
+      };
+      const out = updateLineClear(
+        phys.world, cubes, bar, rowLevel, [], clockOnly(late ? live : clock),
+      );
+      return { grade: out.graded[0]?.grade ?? null, completedStroke };
+    };
+
+    /** A bay whose bar is ADVANCING and exactly `stepsBefore` steps short of
+     *  full advance, with a complete unstamped row on the floor. */
+    const approaching = (stepsBefore: number) => {
+      const phys = createPhysics(rowLevel);
+      const bar = new Compactor(phys.world, rowLevel);
+      // Two round trips first, so `strokes` is past zero and a sweep count of 1
+      // is distinguishable from "the bay just opened".
+      while (bar.halfCycles < 4) bar.update();
+      while (bar.dir !== 1) bar.update();
+      while (bar.rightX - bar.x > stepsBefore * bar.speed + 0.001) bar.update();
+      const r = buildGradedRows([[0, 0, 0]]);
+      // The row builder stamps; this walk needs cubes that have never rested.
+      for (const c of r.cubes) {
+        c.landedStroke = undefined; c.landedHalfCycle = undefined; c.landedStep = undefined;
+      }
+      // Re-home the row into THIS bay's world.
+      for (const c of r.cubes) Matter.Composite.add(phys.world, c.body);
+      Matter.Engine.clear(r.phys.engine);
+      return { phys, bar, cubes: r.cubes };
+    };
+
+    /** Land the row `before` steps short of the stop, then run until it clears. */
+    const landAndClear = (before: number, late: boolean) => {
+      const { phys, bar, cubes } = approaching(before);
+      let grade: string | null = null;
+      let onStopTick = false;
+      for (let i = 0; i < 600 && grade === null; i++) {
+        const s = oneStep(bar, phys, cubes, late, i === 0, i);
+        grade = s.grade;
+        if (grade !== null) onStopTick = s.completedStroke;
+      }
+      Matter.Engine.clear(phys.engine);
+      return { grade, onStopTick };
+    };
+
+    // THE FENCEPOST ITSELF. One step short of the stop: the landing and the
+    // clear both fall on the stroke that is still running, and the clear lands
+    // on the very tick that completes it.
+    const stopTick = landAndClear(1, false);
+    check("a row closed on the tick the press COMPLETES clears on that tick",
+      stopTick.onStopTick, "the case did not reach the stop tick");
+    check("...and grades EXCELLENT — it closed inside the stroke already running",
+      stopTick.grade === "excellent", String(stopTick.grade));
+    // ...and the same walk against the LATE clock. Under the FIRST ladder this
+    // was the pin that caught the fencepost: the bug charged this row a sweep.
+    // Under the owner's 100ms window it does not, and the reason is worth
+    // recording rather than deleting — a clear ON the stop tick is by
+    // construction about one step from its landing, so the window is open and
+    // the top band no longer depends on which clock the bar was read from at
+    // all. The fix stays (the stamp side still needs it — see acrossFlip below,
+    // and `gradeClock`'s pin in the real-Game block), and this line now pins
+    // the ROBUSTNESS rather than the bug: the shortened window makes the top
+    // band immune to the fencepost in either direction.
+    check("...and the window makes that tick immune to which clock the bar was read from",
+      landAndClear(1, true).grade === "excellent", String(landAndClear(1, true).grade));
+
+    // THE NEIGHBOURS, so the fix is not a one-tick patch that breaks the ticks
+    // either side of it. Post-update sampling would fix the row above and break
+    // these instead.
+    check("a landing two steps short of the stop still grades EXCELLENT",
+      landAndClear(2, false).grade === "excellent", String(landAndClear(2, false).grade));
+    check("...and five steps short, well inside the stroke, likewise",
+      landAndClear(5, false).grade === "excellent", String(landAndClear(5, false).grade));
+    // A landing on the tick the bar has ALREADY reversed on is a retreat
+    // landing. The next press sells it — a whole retreat, a flip and an advance
+    // later, so the window is long shut and the owner's GOOD sentence ("lands
+    // when the compactor is moving right") does not describe it either. SWEPT:
+    // the press brought it in.
+    check("a landing after the bar has turned is SWEPT — the press brought it in",
+      landAndClear(0, false).grade === "swept", String(landAndClear(0, false).grade));
+
+    // THE REVERSAL TICK at the OPEN stop — and under the new ladder this is
+    // where the fencepost's remaining bite lives. No clear is ever evaluated
+    // during a retreat (`pressing` is false), so that stop has no clear-side
+    // exposure at all; what it has is a STAMP-side one, and it now decides GOOD
+    // against SWEPT. Stamping from a post-update read would move the landing
+    // across the flip and hand a retreat landing the rightward band.
+    const acrossFlip = (ticksAfterFlip: number): string | null => {
+      const phys = createPhysics(rowLevel);
+      const bar = new Compactor(phys.world, rowLevel);
+      while (bar.halfCycles < 4) bar.update();
+      while (bar.dir !== -1) bar.update();
+      while (bar.x - bar.leftX > bar.speed + 0.001) bar.update();
+      const r = buildGradedRows([[0, 0, 0]]);
+      for (const c of r.cubes) {
+        c.landedStroke = undefined; c.landedHalfCycle = undefined; c.landedStep = undefined;
+      }
+      for (const c of r.cubes) Matter.Composite.add(phys.world, c.body);
+      Matter.Engine.clear(r.phys.engine);
+      for (let i = 0; i < ticksAfterFlip; i++) oneStep(bar, phys, r.cubes, false, false, i);
+      let grade: string | null = null;
+      for (let i = 0; i < 600 && grade === null; i++) {
+        grade = oneStep(bar, phys, r.cubes, false, i === 0, ticksAfterFlip + i).grade;
+      }
+      Matter.Engine.clear(phys.engine);
+      return grade;
+    };
+    check("cargo that landed while the bar was still RETREATING grades SWEPT",
+      acrossFlip(0) === "swept", String(acrossFlip(0)));
+    check("...and cargo that landed one tick later, on the advance, grades GOOD",
+      acrossFlip(1) === "good", String(acrossFlip(1)));
+    check("...so the band changes exactly at the flip, with no tick in between",
+      acrossFlip(0) !== acrossFlip(1));
+  }
+
+  /* ---- ...AND THE WIRING, through the REAL Game ---------------------------
+   *
+   * Everything above pins the RULE and none of it pins the WIRING, which a
+   * mutation pass proved rather than suspected: putting the fencepost back into
+   * game.ts — grading the clear against the bar's live post-update reading —
+   * left every check above green, because they replay the step order inside the
+   * test with their own helper instead of exercising game.ts's.
+   *
+   * A rule nothing connects to the game is a rule the game does not have. So
+   * this drives the REAL `Game.update` through the exact tick, and it is the
+   * check that actually fails when the fencepost comes back.
+   *
+   * The bar is walked to one step short of full advance and the row is injected
+   * unstamped, so the single `update()` below does the whole sequence the bug
+   * lived in: sample, stamp, move the bar onto its stop, clear.
+   *
+   * BOTH GATES RIDE THE SAME RIG, and they have to: congestion is sampled from
+   * `stepPileTier` and participation from `shipmentSeq`, and neither of those
+   * exists in a replay harness at all. A pure-function pin on `awardedGrade`
+   * cannot tell whether game.ts passes it the bay's real state or a literal
+   * `false`. This can. */
+  {
+    /** One bay, one step, one row — with the two gates as knobs.
+     *
+     *  `congest` piles loose cargo ABOVE the bar's reach (`compactor.top`), so
+     *  the row scan never sees it and the only thing it changes is
+     *  `cubes.length`, which is exactly what `pileTier` reads. Sized off the
+     *  level's own first knee rather than off a literal 32.
+     *
+     *  `launched` stamps the row as the current shipment and tells the Game so.
+     *  Left false, nothing was ever launched into this bay and the row is
+     *  cargo the press found — which is the participation gate's whole point. */
+    const oneTickBay = (opts: { congest?: boolean; launched?: boolean } = {}) => {
+      const cfg = makeBaseLevel(0);
+      const g = new Game(cfg, {}, 11);
+      // Two round trips first, so a sweep count of 1 is distinguishable from
+      // "the bay just opened" — the same reason the walks above take them.
+      while (g.compactor.halfCycles < 4) g.compactor.update();
+      while (g.compactor.dir !== 1) g.compactor.update();
+      while (g.compactor.rightX - g.compactor.x > g.compactor.speed + 0.001) {
+        g.compactor.update();
+      }
+      const preStroke = g.compactor.strokes;
+      const preHalf = g.compactor.halfCycles;
+
+      // A complete row on the floor, settled and never yet stamped.
+      for (const c of g.cubes.splice(0)) Matter.Composite.remove(g.phys.world, c.body);
+      const rowY = WORLD.height - CELL / 2;
+      const mk = (x: number, y: number, shipment?: number): void => {
+        const body = Matter.Bodies.rectangle(x, y, CELL, CELL, { label: "cube" });
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Composite.add(g.phys.world, body);
+        g.cubes.push({
+          body, type: "O", color: "#fff", blinkStart: null,
+          material: "standard", struck: true, shipment,
+        });
+      };
+      if (opts.launched) g.shipmentSeq = 1;
+      for (let k = 0; k < cfg.compactorMinLineCells; k++) {
+        mk(WALL_INNER - CELL / 2 - k * CELL, rowY, opts.launched ? 1 : undefined);
+      }
+      if (opts.congest) {
+        // One past the first knee, counting the row already on the floor.
+        const knee = cfg.pileTiers[0].cubes + cfg.pileAllowance;
+        const spare = knee + 1 - g.cubes.length;
+        // Two ranks well above the bar's top, spaced so nothing overlaps and
+        // nothing is inside a scannable row.
+        for (let i = 0; i < spare; i++) {
+          mk(WALL_INNER - CELL - (i % 12) * CELL * 1.4, g.compactor.top - CELL * (3 + Math.floor(i / 12) * 2));
+        }
+      }
+      const scoreBefore = g.score;
+      g.effects.length = 0;
+      g.update(1000);
+      const payout = g.effects.find((e) => e.kind === "payout");
+      return { cfg, g, preStroke, preHalf, scoreBefore, payout };
+    };
+
+    // ---- The shipped case: a threaded row in a clean bay ------------------
+    {
+      const { cfg, g, preStroke, preHalf, scoreBefore, payout } =
+        oneTickBay({ launched: true });
+      check("the real Game completes a stroke on this step",
+        g.compactor.strokes === preStroke + 1,
+        `${preStroke} -> ${g.compactor.strokes}`);
+      check("...and the step's clock is the one sampled BEFORE the bar moved",
+        g.gradeClock.stroke === preStroke && g.gradeClock.halfCycle === preHalf,
+        `${g.gradeClock.stroke}/${g.gradeClock.halfCycle} vs ${preStroke}/${preHalf}`);
+      check("...the row cleared on that very tick",
+        payout !== undefined && g.cubes.length === 0, `${g.cubes.length} cubes left`);
+      // THE ONE THAT CATCHES THE FENCEPOST. Grading against the live clock makes
+      // this SWEPT; sampling the step clock late makes it GOOD.
+      check("...and the REAL game grades it EXCELLENT, not SWEPT",
+        payout !== undefined && payout.kind === "payout" && payout.grade === "excellent",
+        payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+      // ...and the money followed the grade, not just the callout.
+      check("...and paid the EXCELLENT rate, so the callout and the ledger agree",
+        g.score - scoreBefore === gradedLinePay(cfg.scorePerLine, "excellent"),
+        `${g.score - scoreBefore} vs ${gradedLinePay(cfg.scorePerLine, "excellent")}`);
+      check("...with no congestion tag on a clean bay's toast",
+        payout !== undefined && payout.kind === "payout" && payout.congested === false);
+      g.destroy();
+    }
+
+    // ---- THE CONGESTION GATE, through the same tick ------------------------
+    //
+    // Identical bay, identical tick, identical row — the ONLY difference is
+    // loose cargo above the bar's reach pushing the field past its first knee.
+    // The row is still threaded into the running stroke, so anything that reads
+    // the clock alone still calls it EXCELLENT; the awarded band must be SWEPT.
+    {
+      const { cfg, g, scoreBefore, payout } = oneTickBay({ congest: true, launched: true });
+      check("a congested bay still clears the row on the same tick",
+        payout !== undefined, "no payout");
+      check("...and the REAL game refuses to award EXCELLENT while congested",
+        payout !== undefined && payout.kind === "payout" && payout.grade === "swept",
+        payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+      // THE MONEY, not just the word. `payoutMult` caps the combo at the tier's
+      // own payMult on top, so the sale is the SWEPT rate times that ceiling —
+      // both of congestion's payout taxes, from one reading of one moment.
+      const tier = cfg.pileTiers[0];
+      const expected = Math.round(
+        gradedLinePay(cfg.scorePerLine, "swept") * payoutMult(1, tier),
+      );
+      check("...and pays the SWEPT rate under the congestion ceiling, not the EXCELLENT one",
+        g.score - scoreBefore === expected,
+        `${g.score - scoreBefore} vs ${expected} (excellent would be `
+        + `${Math.round(gradedLinePay(cfg.scorePerLine, "excellent") * payoutMult(1, tier))})`);
+      check("...and the toast carries the CONGESTED tag, so the player learns why",
+        payout !== undefined && payout.kind === "payout" && payout.congested === true);
+      g.destroy();
+    }
+
+    /* ---- THE LAUNCHER STAMPS THE SHIPMENT, through the real shoot() -------
+     *
+     * The gap a mutation pass found rather than suspected: stopping
+     * `shipmentSeq` from ever advancing left every check above green, because
+     * every one of them either sets the counter by hand or passes a shipment id
+     * into `updateLineClear` directly. A rule the LAUNCHER does not implement is
+     * a rule the game does not have, so this fires the real cannon. */
+    {
+      const g = new Game(makeBaseLevel(0), {}, 5);
+      check("a fresh bay has launched nothing, and no cube can claim shipment 0",
+        g.shipmentSeq === 0);
+      g.cannon.aimFromDrag(-40, 40);
+      const fired = g.shoot(1000);
+      check("...the cannon fires", fired, "the shot was refused");
+      check("...and the launch advances the shipment counter to 1",
+        g.shipmentSeq === 1, String(g.shipmentSeq));
+      check("...stamping every cube of the shipment with it",
+        g.cubes.length > 0 && g.cubes.every((c) => c.shipment === 1),
+        g.cubes.map((c) => String(c.shipment)).join(","));
+      // A SECOND LAUNCH TAKES THE ID, which is what disowns the first: the
+      // participation gate compares against `shipmentSeq`, so cargo from the
+      // previous shot stops being "the piece that has just been launched" the
+      // moment the next one leaves the muzzle. (What that does to a ROW is
+      // pinned on `rowParticipation` above, where the cargo can be held still.)
+      for (let i = 0; i < 200 && !g.shoot(1000 + i * 20); i++) g.update(1000 + i * 20);
+      check("...and a second launch takes the id, so the first shipment is no longer the latest",
+        g.shipmentSeq === 2 && g.cubes.some((c) => c.shipment === 2),
+        `${g.shipmentSeq}: ${[...new Set(g.cubes.map((c) => c.shipment))].join("/")}`);
+      // A BOMB IS A SHOT AND IS NOT A SHIPMENT. Letting a charge advance the
+      // counter would disown cargo already in the air for a reason no player
+      // could see.
+      const seqBefore = g.shipmentSeq;
+      const shotsBefore = g.shotsFired;
+      g.bombCharges += 1;
+      g.armBomb();
+      for (let i = 0; i < 400 && g.shotsFired === shotsBefore; i++) {
+        g.shoot(2000 + i * 20);
+        g.update(2000 + i * 20);
+      }
+      check("...while a demolition charge advances the SHOT count and not the shipment",
+        g.shotsFired > shotsBefore && g.shipmentSeq === seqBefore,
+        `shots ${shotsBefore}->${g.shotsFired}, shipment ${seqBefore}->${g.shipmentSeq}`);
+      g.destroy();
+    }
+
+    // ---- THE PARTICIPATION GATE, through the same tick ---------------------
+    //
+    // Same clean bay, same threaded tick, but nothing was ever launched: the row
+    // is cargo the press found. The clock says EXCELLENT and the bay must not.
+    {
+      const { cfg, g, scoreBefore, payout } = oneTickBay({ launched: false });
+      check("a row the current shipment had no part in still clears",
+        payout !== undefined, "no payout");
+      check("...and the REAL game refuses it a timed band",
+        payout !== undefined && payout.kind === "payout" && payout.grade === "swept",
+        payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+      check("...paying the SWEPT rate for it",
+        g.score - scoreBefore === gradedLinePay(cfg.scorePerLine, "swept"),
+        `${g.score - scoreBefore} vs ${gradedLinePay(cfg.scorePerLine, "swept")}`);
+      check("...and does NOT tag it congested — the bay was clean, the shot was not there",
+        payout !== undefined && payout.kind === "payout" && payout.congested === false);
+      g.destroy();
+    }
+  }
+
+  // THE DETERMINISM CLAIM, checked the only way that means anything: the same
+  // sim state at two different wall clocks must produce the same money. The
+  // grade takes no `now` and no step count, so this is a pin on the SHAPE of
+  // the dependency rather than on a number.
+  {
+    const a = clearAt(6, 13, 900, { stroke: 7, halfCycle: 15, step: 1200 });
+    const b = clearAt(6, 13, 900, { stroke: 7, halfCycle: 15, step: 1200 });
+    check("two clears of identical sim state grade identically — the money is frame-rate free",
+      a.graded[0].grade === b.graded[0].grade);
+  }
+
+  // ---- The headline grade, which is what the callout says ------------------
+  {
+    /** A hand-built graded row. `raw` defaults to the awarded band and both
+     *  gates open, because these pins are about WHICH ROW the toast picks and
+     *  nothing else; the gate's own pins build capped rows explicitly. */
+    const row = (y: number, halfCycle: number, grade: ClearGrade,
+      extra: Partial<GradedRow> = {}): GradedRow => ({
+      y, landing: { stroke: Math.floor(halfCycle / 2), halfCycle, step: halfCycle * 8 },
+      raw: grade, grade, congested: false, participation: "in-row", capped: false,
+      ...extra,
+    });
+    const rows: GradedRow[] = [
+      row(10, 3, "lucky"), row(50, 9, "excellent"), row(90, 5, "swept"),
+    ];
+    check("a mixed crush is announced as the row the shot just CLOSED",
+      headlineGrade(rows) === "excellent");
+    check("...which is not simply the best grade present — an older EXCELLENT loses to a newer SWEPT",
+      headlineGrade([row(10, 3, "excellent"), row(50, 9, "swept")]) === "swept");
+    check("a clear with nothing in it announces nothing", headlineGrade([]) === null);
+    // THE CALLOUT MAY NEVER SHOUT A BAND THE LEDGER DID NOT PAY. headlineGrade
+    // reads `grade`, the AWARDED band, and a row whose raw band was better is
+    // exactly the case a leak would show up in.
+    {
+      const capped = row(50, 9, "swept", { raw: "excellent", congested: true, capped: true });
+      check("a congestion-capped row is announced at the band it was PAID, not the one it earned",
+        headlineGrade([capped]) === "swept", String(headlineGrade([capped])));
+      check("...and the row itself still carries the raw band, so the toast can say WHY",
+        headlineRow([capped])?.raw === "excellent" && headlineRow([capped])?.capped === true);
+    }
+  }
+
+  // ---- The money, end to end, through Game -------------------------------
+  //
+  // The one pin that proves the multiplier is actually APPLIED. Two identical
+  // fields, one row each, cleared at two different clocks: the scores have to
+  // differ by exactly the ladder.
+  {
+    const scoreFor = (
+      landedStroke: number, landedHalfCycle: number, landedStep: number, clock: ClearClock,
+    ) => {
+      const r = buildGradedRow(landedStroke, landedHalfCycle, landedStep);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [], clockOnly(clock),
+      );
+      Matter.Engine.clear(r.phys.engine);
+      return out.graded.reduce(
+        (sum, row) => sum + gradedLinePay(rowLevel.scorePerLine, row.grade), 0,
+      );
+    };
+    const exc = scoreFor(6, 13, 900, { stroke: 6, halfCycle: 13, step: 902 });
+    const lucky = scoreFor(6, 13, 900, { stroke: 9, halfCycle: 20, step: 2000 });
+    check("the SAME row is worth more when it was closed on the press",
+      exc > lucky, `$${exc} vs $${lucky}`);
+    check("...by exactly the ladder, not by an approximation of it",
+      exc === Math.round(rowLevel.scorePerLine * GRADE_PAY.excellent)
+      && lucky === Math.round(rowLevel.scorePerLine * GRADE_PAY.lucky));
+  }
+
+  /* ---- THE FEEDBACK SURFACE ----------------------------------------------
+   *
+   * A grade the player cannot see is a rule they cannot learn, so the two
+   * places it is said out loud are pinned like any other copy here: the bay's
+   * callout and the end card's clause.
+   * --------------------------------------------------------------------- */
+  {
+    // Every band has a word, the words are the GRADE NAMES uppercased, and only
+    // the top one shouts. theme.ts's note argues that at length; this is the
+    // half that fails when someone gives LUCKY an exclamation mark.
+    const missing = GRADES.filter((g) => !GRADE_CALLOUT[g] || !GRADE_COLOR[g]);
+    check("every grade has a callout word and a colour", missing.length === 0, missing.join(","));
+    check("...each one distinct, or two bands read as one",
+      new Set(GRADES.map((g) => GRADE_CALLOUT[g])).size === GRADES.length);
+    check("...the words ARE the grade names, so the bay and the end card teach one vocabulary",
+      GRADES.every((g) => GRADE_CALLOUT[g].startsWith(g.toUpperCase())));
+    check("...and only the best band celebrates",
+      GRADE_CALLOUT.excellent.endsWith("!")
+      && !GRADE_CALLOUT.good.includes("!")
+      && !GRADE_CALLOUT.swept.includes("!")
+      && !GRADE_CALLOUT.lucky.includes("!"),
+      GRADES.map((g) => GRADE_CALLOUT[g]).join(" / "));
+    // FOUR BANDS, FOUR COLOURS — the owner's ask, and the pin is the half that
+    // fails when a palette edit collapses two of them back together. Pinned as
+    // RELATIONS rather than as four hex literals: the palette is free to move,
+    // the mapping is not.
+    check("every band has a colour of its own — no two timing levels look alike",
+      new Set(GRADES.map((g) => GRADE_COLOR[g])).size === GRADES.length,
+      GRADES.map((g) => `${g}:${GRADE_COLOR[g]}`).join(" "));
+    check("...the top band wears the payout green, and it is the ONLY one that does",
+      GRADE_COLOR.excellent === COLORS.trajectory
+      && GRADES.filter((g) => GRADE_COLOR[g] === COLORS.trajectory).length === 1);
+    check("...GOOD wears the aiming colour — the band you placed, one beat late",
+      GRADE_COLOR.good === COLORS.aim);
+    check("...SWEPT is the neutral readout and LUCKY the dim one, in that order",
+      GRADE_COLOR.swept === COLORS.text && GRADE_COLOR.lucky === COLORS.textDim);
+    // The congestion tag is NOT a fifth band: it says something about the BAY,
+    // it wears the bar's own alarm colour, and it must never be mistakable for
+    // a grade.
+    check("the congestion tag is the bay's alarm colour and no band's",
+      CONGESTION_TAG_COLOR === COLORS.compactor
+      && !GRADES.some((g) => GRADE_COLOR[g] === CONGESTION_TAG_COLOR));
+    check("...and says the same word the guide and the HUD use for the state",
+      CONGESTION_TAG === "CONGESTED");
+
+    // THE END CARD'S CLAUSE. Named bands only, and only when earned.
+    check("the end card names the two bands that paid a premium",
+      S.gradeBreakdownClause({ excellent: 6, good: 4, swept: 9, lucky: 2 })
+        === " · 6 excellent · 4 good",
+      S.gradeBreakdownClause({ excellent: 6, good: 4, swept: 9, lucky: 2 }));
+    check("...and drops a band nobody earned rather than printing a zero",
+      S.gradeBreakdownClause({ excellent: 0, good: 4, swept: 9, lucky: 2 }) === " · 4 good");
+    check("...and says nothing at all to a run that earned neither",
+      S.gradeBreakdownClause({ excellent: 0, good: 0, swept: 9, lucky: 2 }) === "");
+    check("...or to a caller that predates the mechanic",
+      S.gradeBreakdownClause(undefined) === "");
+  }
+}
+
+// ===========================================================================
+// THE PILE'S DRAW SEQUENCE (render.ts's drawCube + drawJointSeams).
+//
+// A frame is one Game.update() plus one render(), and sim/renderperf --breakdown
+// puts the cargo layer at 13.5ms of an 18.2ms frame at 146 cubes. What that
+// layer costs is decided by two things: the pixels it blends, and the number of
+// canvas commands it issues to blend them. The pixels are guarded by
+// sim/renderperf --snapshot, which needs a real browser's rasteriser and cannot
+// run here. The COMMANDS can be counted in node against a recording context,
+// and that is what this block does.
+//
+// It exists because both optimisations below are invisible by construction.
+// Neither changes a pixel — that is the whole point of them — so nothing in the
+// digest, the uifit shots or a playtest would notice if a later edit put the
+// per-cube `save`/`restore` back or resumed writing a fresh `strokeStyle` for
+// every one of a hundred identical seams. A count is the only witness.
+//
+// ATTRIBUTION BY DELTA, the same trick sim/renderperf --breakdown uses: the
+// frame is painted three times — bare, with cargo, with cargo and joints — and
+// each layer is the difference between two of them. Counting a whole frame's
+// `stroke` calls and hoping they are the seams would be measuring the cannon,
+// the chute and the wind gauge as well.
+//
+// The stub is deliberately thin: it records method names and property writes
+// and nothing else. It is not a rasteriser and cannot say what the frame LOOKS
+// like — sim/renderperf owns that question, and the two harnesses answer
+// different halves of the same one.
+// ===========================================================================
+section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSeams)");
+{
+  interface Rec { calls: string[]; sets: [string, unknown][] }
+
+  const makeCtx = (canvas: unknown, rec: Rec): Record<string, unknown> => {
+    const ctx: Record<string, unknown> = { canvas };
+    const method = (name: string, ret?: () => unknown) => {
+      ctx[name] = (...args: unknown[]) => { rec.calls.push(name); void args; return ret?.(); };
+    };
+    for (const m of [
+      "save", "restore", "translate", "rotate", "scale", "transform", "setTransform",
+      "resetTransform", "beginPath", "closePath", "moveTo", "lineTo", "arc", "arcTo",
+      "rect", "roundRect", "quadraticCurveTo", "bezierCurveTo", "ellipse",
+      "fill", "stroke", "clip", "fillRect", "strokeRect", "clearRect",
+      "fillText", "strokeText", "drawImage", "putImageData", "setLineDash",
+    ]) method(m);
+    method("measureText", () => ({ width: 10 }));
+    // A gradient is an object the caller keeps and feeds stops to; anything
+    // less and the first createLinearGradient in the frame throws.
+    const gradient = { addColorStop: () => {} };
+    method("createLinearGradient", () => gradient);
+    method("createRadialGradient", () => gradient);
+    method("createConicGradient", () => gradient);
+    method("createPattern", () => null);
+    // trimToInk reads its bake back to find the ink. All-zero alpha means "no
+    // ink anywhere", which sends it down its own early return — the same path a
+    // context that refused getImageData takes, and documented there as always
+    // correct. What this pin counts is the calls AROUND the sprites.
+    ctx.getImageData = (...args: unknown[]) => {
+      rec.calls.push("getImageData");
+      const w = (args[2] as number) || 1;
+      const h = (args[3] as number) || 1;
+      return { data: new Uint8ClampedArray(w * h * 4) };
+    };
+    for (const p of [
+      "fillStyle", "strokeStyle", "lineWidth", "lineCap", "lineJoin", "miterLimit",
+      "globalAlpha", "globalCompositeOperation", "shadowBlur", "shadowColor",
+      "shadowOffsetX", "shadowOffsetY", "font", "textAlign", "textBaseline",
+      "filter", "imageSmoothingEnabled", "imageSmoothingQuality", "lineDashOffset",
+    ]) {
+      let held: unknown;
+      Object.defineProperty(ctx, p, {
+        get: () => held,
+        set: (v: unknown) => { held = v; rec.sets.push([p, v]); },
+      });
+    }
+    return ctx;
+  };
+
+  const rec: Rec = { calls: [], sets: [] };
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevDoc = glob.document;
+  const prevWin = glob.window;
+  const prevPath = glob.Path2D;
+  // Every offscreen bake goes through document.createElement("canvas"); those
+  // get their own recorder, so a sprite bake's commands never land in the count
+  // being asserted.
+  glob.document = {
+    createElement: () => {
+      const off: Record<string, unknown> = { width: 0, height: 0 };
+      const offRec: Rec = { calls: [], sets: [] };
+      off.getContext = () => makeCtx(off, offRec);
+      return off;
+    },
+  };
+  glob.window = { matchMedia: () => ({ matches: false }) };
+  glob.Path2D = class { constructor(_d?: string) { void _d; } };
+
+  const g = new Game(makeBaseLevel(0), {}, 11);
+  g.status = "playing";
+  // A stated pile, placed rather than played, and never stepped: every cube sits
+  // exactly where it is put, so the seam geometry below is arithmetic instead of
+  // whatever a settle happened to leave.
+  const ROW = 8;
+  const CUBES = 24;
+  for (let i = 0; i < CUBES; i++) {
+    const body = Matter.Bodies.rectangle(
+      700 + (i % ROW) * CELL, 690 - Math.floor(i / ROW) * CELL, CELL, CELL,
+      { friction: 0.5, frictionAir: 0.012, restitution: 0.05, density: 0.001, label: "cube" },
+    );
+    Matter.Composite.add(g.phys.world, body);
+    g.cubes.push({
+      body, type: "O", color: PIECE_COLORS.O, blinkStart: null,
+      material: "standard", struck: true,
+    });
+  }
+  // Seams need adjacent PAIRS. render.ts skips any joint whose rest length is
+  // over CELL * 1.35, because that is a clique's diagonal and lies underneath
+  // the cubes rather than across their shared edge — so the pairs here are
+  // side-by-side within a row, never across the row wrap.
+  const seamPairs: [number, number][] = [];
+  for (let i = 0; i < CUBES - 1; i++) if (i % ROW !== ROW - 1) seamPairs.push([i, i + 1]);
+  for (const [i, j] of seamPairs) {
+    const c = Matter.Constraint.create({
+      bodyA: g.cubes[i].body, bodyB: g.cubes[j].body,
+      length: CELL, stiffness: 0.9, render: { visible: false },
+    });
+    Matter.Composite.add(g.phys.world, c);
+    g.constraints.push(c);
+  }
+  const SEAMS = seamPairs.length;
+
+  const canvas: Record<string, unknown> = { width: 1600, height: 900 };
+  const ctx = makeCtx(canvas, rec);
+  const paint = (cubes: typeof g.cubes, constraints: typeof g.constraints): Rec => {
+    rec.calls.length = 0;
+    rec.sets.length = 0;
+    render(ctx as unknown as CanvasRenderingContext2D, 800, 450, 2, {
+      cubes, constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return { calls: [...rec.calls], sets: [...rec.sets] };
+  };
+  const calls = (r: Rec, name: string): number => r.calls.filter((c) => c === name).length;
+  const sets = (r: Rec, p: string): number => r.sets.filter(([k]) => k === p).length;
+
+  // Warm the sprite and background caches first: a cold frame pays for every
+  // bake and would report the cache's cost as the pile's.
+  paint(g.cubes, g.constraints);
+  const bare = paint([], []);
+  const withCubes = paint(g.cubes, []);
+  const withSeams = paint(g.cubes, g.constraints);
+
+  const cubeSaves = calls(withCubes, "save") - calls(bare, "save");
+  const cubeStamps = calls(withCubes, "drawImage") - calls(bare, "drawImage");
+  check(
+    "the cube loop stamps each cube without a save/restore pair around it",
+    cubeSaves === 0,
+    `${CUBES} cubes added ${cubeSaves} save calls`,
+  );
+  check(
+    "...save and restore still balance over the whole frame, so no state leaks",
+    calls(withSeams, "save") === calls(withSeams, "restore"),
+    `${calls(withSeams, "save")} save vs ${calls(withSeams, "restore")} restore`,
+  );
+  check(
+    "...and every cube still gets exactly one stamp",
+    cubeStamps === CUBES,
+    `${cubeStamps} stamps for ${CUBES} cubes`,
+  );
+  // THE CONTRACT EVERYTHING DRAWN AFTER THE PILE RELIES ON. The cube loop
+  // replaces the CTM per cube instead of saving and restoring around it, so the
+  // last cube leaves the transform on its own body — and render() re-states the
+  // world transform once, immediately after the loop, for the seams, the arc,
+  // the cannon and every overlay that follows. An empty bay proves that call
+  // exists at all: three setTransforms with no cargo on the field, being the
+  // device-space reset before the background blit, the world transform, and the
+  // one that puts it back. Delete the last of those and this drops to two.
+  check(
+    "...and the pile hands the world transform back for whatever draws after it",
+    calls(bare, "setTransform") === 3
+      && calls(withCubes, "setTransform") - calls(bare, "setTransform") === CUBES,
+    `empty bay ${calls(bare, "setTransform")}, ` +
+      `${calls(withCubes, "setTransform") - calls(bare, "setTransform")} more for ${CUBES} cubes`,
+  );
+
+  const seamStrokes = calls(withSeams, "stroke") - calls(withCubes, "stroke");
+  const seamStyles = sets(withSeams, "strokeStyle") - sets(withCubes, "strokeStyle");
+  const seamWidths = sets(withSeams, "lineWidth") - sets(withCubes, "lineWidth");
+  check(
+    "every seam in the bay is stroked",
+    seamStrokes === SEAMS,
+    `${seamStrokes} strokes for ${SEAMS} seams`,
+  );
+  check(
+    "...but a bay of identical seams writes its style ONCE, not once per seam",
+    seamStyles === 1 && seamWidths === 1,
+    `${SEAMS} seams wrote ${seamStyles} strokeStyle / ${seamWidths} lineWidth`,
+  );
+  check(
+    "a steady frame bakes nothing — the sprite caches are hit, not re-run",
+    calls(withSeams, "getImageData") === 0,
+    `${calls(withSeams, "getImageData")} readbacks in a warm frame`,
+  );
+
+  g.destroy();
+  glob.document = prevDoc;
+  glob.window = prevWin;
+  glob.Path2D = prevPath;
+}
+
+// ---------------------------------------------------------------------------
+section("The cursor set covers the whole app (scripts/make-cursors.mjs → cursors.css)");
+// The owner's report was "the custom pointer does not show up on buttons or on
+// the blocked floors" — the app wore its own arrow over the chrome and handed
+// the OS its cursor back at the exact moments the pointer was doing something.
+// Four facts hold the fix together, and each one is a different file's job, so
+// none of them can be checked by looking at any single file:
+//
+//   1. cursors.css is GENERATED and gets overwritten wholesale, so the shape of
+//      what it emits is pinned here rather than trusted to survive an edit
+//      nobody is allowed to make by hand.
+//   2. The generated selectors are keyed on BEHAVIOUR (aria-disabled, role,
+//      data-action) — screens.ts has to keep spelling those attributes, and the
+//      blocked floors in particular are the report's own example.
+//   3. app.css is @imported after cursors.css, so specificity is the only thing
+//      standing between thirty `cursor: pointer` class rules and the bitmaps.
+//   4. The keyword after each url() is the whole degradation story.
+{
+  const readSrc = (...parts: string[]): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...parts),
+      "utf8",
+    );
+  const cursors = readSrc("src", "styles", "cursors.css");
+  const appCss = readSrc("src", "styles", "app.css");
+  const tokens = readSrc("src", "styles", "tokens.css");
+  const gen = readSrc("scripts", "make-cursors.mjs");
+
+  check("cursors.css still says it is generated, and by whom",
+    /GENERATED by scripts\/make-cursors\.mjs/.test(cursors));
+
+  // --- 1. all four cursors, and every one of them degrades ------------------
+  // Each declaration is `cursor: <image> <hx> <hy>, <keyword>;`. The keyword is
+  // not punctuation: a data URI the engine refuses (size cap, print context,
+  // a stripped inline asset) drops the image and lands there, and what is left
+  // has to be the RIGHT cursor for that element rather than an arrow on
+  // everything. Every declaration in the file, no exceptions.
+  // Line by line, because the generator emits exactly one declaration per line
+  // and a `[\s\S]*?;` would stop at the FIRST semicolon it met — which is the
+  // one inside `data:image/png;base64,…`, four characters in.
+  const decls = cursors.split("\n").filter((l) => /^\s*cursor:\s*(?:image-set\()?url\(/.test(l));
+  check("every image cursor is declared twice — plain url() first, image-set() second",
+    decls.length === 8, `${decls.length} image declarations`);
+  const FALLBACKS = new Set(["default", "crosshair", "pointer", "not-allowed"]);
+  const tails = decls.map((d) => d.trim().replace(/;$/, "").split(",").pop()!.trim());
+  check("...and every one of them ends in a bare keyword the browser can fall back to",
+    tails.length === 8 && tails.every((t) => FALLBACKS.has(t)),
+    tails.filter((t) => !FALLBACKS.has(t)).join(" | ") || "all keyworded");
+  check("...one of each: arrow -> default, bay -> crosshair, clickable -> pointer, blocked -> not-allowed",
+    [...FALLBACKS].every((k) => tails.filter((t) => t === k).length === 2),
+    tails.join(" "));
+
+  // --- 2. the two new rules, scoped, and blocked strictly the heavier --------
+  // A disabled button matches BOTH selectors, and which one it wears may not
+  // depend on where in the file they landed. The first cut of this leaned on
+  // source order with "equal specificity" — which was not true: `:is()` takes
+  // the weight of its most specific argument, the clickable list contains the
+  // compound `a[href]` and the blocked list was all bare attributes, so
+  // clickable outranked blocked by one element name and every locked floor in
+  // the tower wore a pointing hand. The blocked selector now repeats the
+  // control list and chains the refusal onto it, which makes it strictly
+  // heavier — and this pins that shape rather than the ordering it replaced.
+  const CONTROLS = '#app :is(button, a[href], [role="button"], [role="switch"],'
+    + ' [tabindex="0"], [data-action], [data-toggle])';
+  const iAt = cursors.indexOf(`${CONTROLS} {`);
+  const bAt = cursors.indexOf(`${CONTROLS}:is(:disabled, [disabled], [aria-disabled="true"])`);
+  check("the clickable rule is scoped to #app — one id, so it outranks app.css's class rules",
+    iAt >= 0);
+  check("the blocked rule is the SAME control list plus the refusal, so it can only ever outrank it",
+    bAt >= 0, `clickable @${iAt}, blocked @${bAt}`);
+  const fine = cursors.indexOf("@media (pointer: fine)");
+  const a11y = cursors.indexOf("@media (forced-colors: active)");
+  check("both live inside @media (pointer: fine) — a touch device is not asked to carry them",
+    fine >= 0 && fine < iAt && iAt < a11y && bAt < a11y,
+    `fine @${fine}, a11y @${a11y}`);
+  // The accessibility escape hatch is the reason it is defensible to take the
+  // system's pointer and not-allowed away from everyone else. `body { cursor:
+  // auto }` alone would not do it: the two id-scoped rules above would go on
+  // holding their bitmaps on every button, so the one audience that must never
+  // see a fixed-size bitmap would be the only one that always did.
+  const tail = cursors.slice(a11y);
+  check("...and the high-contrast override hands ALL FOUR surfaces back to the system, not just the body",
+    /body\s*\{\s*cursor:\s*auto/.test(tail)
+      && /#game\s*\{\s*cursor:\s*crosshair/.test(tail)
+      && tail.includes(`${CONTROLS} { cursor: pointer; }`)
+      && /aria-disabled="true"\]\)\s*\{\s*cursor:\s*not-allowed/.test(tail));
+
+  // --- 2b. the escape hatch no media query can offer ------------------------
+  // forced-colors and prefers-contrast are the only pointer-adjacent signals a
+  // browser exposes, and NEITHER is about the pointer. Windows' pointer
+  // size/colour and macOS's pointer size are standalone preferences: a player
+  // can triple their cursor and tint it yellow with both queries off, and no
+  // engine reports it. A 26px bitmap would silently override that. So the
+  // stylesheet also stands down for a SETTING (store.ts's systemCursor,
+  // published by main.ts as <html data-system-cursor>), and these pin that the
+  // two stand-downs are the same stand-down.
+  const KEYWORDS = /^(?<sel>[^{\n]+?)\s*\{\s*cursor:\s*(?<kw>[a-z-]+);\s*\}$/;
+  const keywordRules = (block: string): { sel: string; kw: string }[] =>
+    block.split("\n").map((l) => l.trim().match(KEYWORDS))
+      .filter((m): m is RegExpMatchArray => m !== null)
+      .map((m) => ({ sel: m.groups!.sel, kw: m.groups!.kw }));
+  const SWITCH = ':root[data-system-cursor="on"]';
+  const switchAt = cursors.indexOf(SWITCH);
+  const switchRules = keywordRules(cursors.slice(switchAt, a11y));
+  const a11yRules = keywordRules(tail);
+  check("the switch block exists, and is keyed on the root attribute main.ts publishes",
+    switchAt > 0);
+  // A top-level `}` between the media query and the switch is the media
+  // query's own close: the switch rules are not nested inside it.
+  check("...it is OUTSIDE @media (pointer: fine) — a mouse plugged into a tablet still gets it",
+    switchAt > fine && cursors.slice(fine, switchAt).includes("\n}\n"),
+    `fine @${fine}, switch @${switchAt}`);
+  check("...and it hands back the same FOUR surfaces the high-contrast block does",
+    switchRules.length === 4 && a11yRules.length === 4,
+    `switch ${switchRules.length}, a11y ${a11yRules.length}`);
+  // The two lists come out of one function in the generator, so this is a
+  // check that nobody has hand-edited the generated file into disagreement —
+  // which is the exact failure that leaves one surface wearing a bitmap for
+  // the one audience that must never see one.
+  check("...surface for surface, keyword for keyword, with only the scope differing",
+    switchRules.every((r, i) =>
+      r.kw === a11yRules[i].kw && r.sel === `${SWITCH} ${a11yRules[i].sel}`),
+    switchRules.map((r, i) => `${r.sel}=${r.kw} vs ${a11yRules[i]?.sel}=${a11yRules[i]?.kw}`).join(" | "));
+  check("...including the bay: the reticle goes too, and `crosshair` keeps saying what the surface is",
+    a11yRules.some((r) => r.sel === "#game" && r.kw === "crosshair")
+      && switchRules.some((r) => r.sel === `${SWITCH} #game` && r.kw === "crosshair"));
+  // Every scoped selector is its bitmap rule's selector with two extra simple
+  // selectors bolted on the front, so each one strictly outranks the rule it
+  // has to beat. Stated as a structural fact rather than as specificity
+  // arithmetic nobody can re-derive at review time.
+  //
+  // THE UNSCOPED FORM HAS TO BE FOUND AS A RULE HEAD, not as a substring, and
+  // the first cut of this check got that wrong in the one way that makes a
+  // check worthless: `:root[…] #app :is(…)` CONTAINS `#app :is(…)`, so a plain
+  // `includes` was asking whether the scoped rule contains itself. It passed
+  // against a deliberately mangled selector, which is how it was caught.
+  const asRuleHead = (sel: string): boolean =>
+    new RegExp(`^\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{`, "m").test(cursors);
+  check("...and each scoped selector is exactly its own bitmap rule's, prefixed — so it cannot lose",
+    switchRules.length === 4 && switchRules.every((r) =>
+      r.sel.startsWith(`${SWITCH} `) && asRuleHead(r.sel.slice(SWITCH.length + 1))),
+    switchRules.map((r) => r.sel.slice(SWITCH.length + 1)).join(" | "));
+
+  // The three ends of the wire, each in a different file and none of them able
+  // to see the others: the default, the publisher, and the flip. A stylesheet
+  // block keyed on an attribute nobody writes is the quietest possible way for
+  // this feature to be dead on arrival.
+  const store = readSrc("src", "lib", "store.ts");
+  const defaults = store.slice(store.indexOf("const DEFAULTS"));
+  check("System Pointer is OFF by default — the game's cursors are what you get unasked",
+    /systemCursor:\s*false/.test(defaults.slice(0, defaults.indexOf("}"))));
+  const mainSrc = readSrc("src", "main.ts");
+  check("...main.ts publishes the attribute the stylesheet reads, with the value it matches on",
+    /dataset\.systemCursor\s*=\s*this\.settings\.systemCursor\s*\?\s*"on"\s*:\s*"off"/.test(mainSrc));
+  check("...at boot, before the first paint, so nobody sees a bitmap they opted out of",
+    /this\.applySystemCursor\(\);/.test(mainSrc.slice(0, mainSrc.indexOf("private applySystemCursor"))));
+  check("...and on the flip, so the cursor changes under the hand that flipped it",
+    /key === "systemCursor"\) this\.applySystemCursor\(\)/.test(mainSrc));
+
+  // --- 3. the palette is still tokens.css's, in the generator ---------------
+  // The generator's own header promises the art is coloured "straight from the
+  // design tokens". Nothing enforces that but this: the grids are ASCII and the
+  // palette is four literals beside them, which drift silently the day a token
+  // moves.
+  const tok = (name: string): string =>
+    (tokens.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, "i"))?.[1] ?? "??").toLowerCase();
+  const litInGen = (hex: string): boolean => {
+    const b = hex.slice(1).match(/../g)!.map((h) => `0x${h}`).join(", ");
+    return gen.includes(b);
+  };
+  for (const [name, why] of [
+    ["--bg-deep", "the outline every cursor is legible by"],
+    ["--accent", "the arrow, the hand and the reticle's arms"],
+    ["--piece-o", "the reticle's inner tips"],
+    ["--danger", "the barred disc, and the app's refusal colour everywhere else"],
+  ] as const) {
+    check(`the generator's palette still mirrors tokens.css ${name} — ${why}`,
+      litInGen(tok(name)), `${name} is ${tok(name)}`);
+  }
+
+  // --- 4. what screens.ts has to keep spelling ------------------------------
+  // The report's own example. A locked floor is a real <button> that stays
+  // clickable on purpose (tapping it is how the tower shakes its head), so
+  // `:disabled` would never have caught it — aria-disabled is the attribute
+  // that both the accessibility tree and the blocked cursor read, and it is
+  // load-bearing for the cursor now as well as for the screen reader.
+  const tower = S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false });
+  const floors = [...tower.matchAll(/<button class="tower__floor[\s\S]*?>/g)].map((m) => m[0]);
+  check("every floor in the tower is a real button",
+    floors.length === S.SKYDECK_TIER, `${floors.length} floors`);
+  const locked = floors.filter((f) => f.includes("is-locked"));
+  check("...the ones above the unlock are locked, and say so with aria-disabled",
+    locked.length > 0 && locked.every((f) => f.includes('aria-disabled="true"')),
+    `${locked.length} locked floors`);
+  check("...and the floors you may fly carry no aria-disabled at all",
+    floors.filter((f) => !f.includes("is-locked")).every((f) => !f.includes("aria-disabled")));
+
+  // --- 5. the lookalikes that are not controls ------------------------------
+  // Two things in this app wear a control's face and take no click:
+  // .menu__entitlement (a <div class="btn" role="status">) and
+  // .guide__drill--locked (a <div>). Both are invisible to the clickable
+  // selector, which is correct — and both used to force `cursor: default`,
+  // which is the OS arrow, i.e. the exact bug the owner reported, surviving in
+  // two spots the selector can never reach. `inherit` is what puts them back on
+  // the game's own chrome arrow.
+  for (const sel of [".menu__entitlement", ".guide__drill--locked"]) {
+    // The class's OWN rule, not the first text match and not the last: both
+    // classes also head descendant rules (.guide__drill--locked
+    // .guide__drill-kind and friends), and .menu__entitlement shares a rule
+    // with .menu__unlock. Anchor on a line that is the whole selector.
+    const at = appCss.search(new RegExp(`^\\${sel} \\{`, "m"));
+    const rule = at < 0 ? "" : appCss.slice(at, appCss.indexOf("}", at));
+    const decl = rule.match(/cursor:\s*([a-z-]+)/)?.[1];
+    check(`${sel} is not a control, and does not fall back to the OS arrow`,
+      decl === "inherit", `cursor: ${decl ?? "unset"}`);
+  }
+  // …and the mirror image: a CHILD of a control may not declare a cursor at
+  // all. The settings pill is a picture of the switch that .setting carries
+  // (components.ts's toggleHTML), and its own `cursor: pointer` used to be
+  // harmless duplication — until the row started wearing a bitmap, at which
+  // point a class-weight keyword on the child beat the inherited value and put
+  // the OS hand back in the middle of the row. Inheritance is the only thing
+  // that tracks the parent through mouse, touch and forced-colors alike.
+  {
+    const at = appCss.search(/^\.toggle \{/m);
+    const rule = at < 0 ? "" : appCss.slice(at, appCss.indexOf("}", at));
+    check(".toggle declares no cursor — the pill inherits the switch row's",
+      at >= 0 && !/cursor:/.test(rule), rule.match(/cursor:[^;]*/)?.[0] ?? "no rule found");
+  }
 }
 
 console.log(

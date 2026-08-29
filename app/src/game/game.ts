@@ -1,10 +1,14 @@
 import Matter from "matter-js";
-import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
-import { AIM_CONE, CANNON, Cannon, predictTrajectory, solveAimForTarget } from "./cannon";
 import {
-  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
+  CELL, WALL_INNER, WORLD, createPhysics, markPrevStep, stepPhysics, type PhysicsWorld,
+} from "./engine";
+import {
+  AIM_CONE, AIM_LOFT_DEFAULT, CANNON, Cannon, predictTrajectory, solveAimForTarget,
+} from "./cannon";
+import {
+  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, inIncinerator, pathStrands, shredInChute,
 } from "./chute";
-import { Compactor } from "./compactor";
+import { Compactor, rigidPressDrag } from "./compactor";
 import {
   createStandingWall,
   createTetrisPiece,
@@ -31,16 +35,31 @@ import {
   resetLineClear,
   settleZoneCubes,
   wakeNear,
+  nextColdCryo,
   type ClearResult,
-  slagBountyFor,
+  settleBlast,
+  chargeAfterRelief,
+  reliefRealised,
+  blastRelief,
+  stampLandings,
+  headlineRow,
+  type GradedRow,
 } from "./lineClear";
+import {
+  gradedLinePay, newGradeTally, STEP_MS, type ClearClock, type GradeTally,
+} from "./grades";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
+import { MATERIAL_SPEC } from "./theme";
 import type { Material, PieceSize, PieceType } from "./theme";
 
-const DT = 1000 / 60;
+/** The engine's fixed step. Imported rather than restated: grades.ts owns the
+ *  number because the EXCELLENT window is the only place in the game that has
+ *  to convert a real duration into steps, and two spellings of 1000/60 would be
+ *  two numbers free to drift. */
+const DT = STEP_MS;
 
 /**
  * How long an aim has to KEEP feeding the machine before the warning fires.
@@ -108,13 +127,26 @@ export interface ShotInfo {
 }
 
 export interface GameEvents {
-  onLineClear?: (lines: number) => void;
+  onLineClear?: (
+    lines: number,
+    /** THIS crush's timing bands (grades.ts). Passed rather than left to
+     *  be inferred from the bay's running tally, because the one question
+     *  a device pass has to answer — does a human reach the paying bands,
+     *  and when in a bay — is a question about individual clears. */
+    grades: GradeTally,
+  ) => void;
   onShoot?: (info: ShotInfo) => void;
   onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
   /** Fired when the Bond Breaker ability successfully discharges (see
    *  useBondBreaker) — lets the UI play a haptic/SFX cue. */
   onBondBreak?: () => void;
+  /** Fired when a Thaw Lance charge actually lands (see useThawLance) — never
+   *  on a refused call, the same contract onBondBreak keeps. Carries where the
+   *  cube was so the cue can be placed on it: a field-wide shatter reads at the
+   *  centre, one cube thawing has to read AT the cube or the player cannot tell
+   *  which one the lance picked. */
+  onThawLance?: (at: { x: number; y: number }) => void;
   /** Fired the step the bay's funding target is met and the SETTLE window
    *  opens (see update()'s win handling) — the UI stops accepting launches and
    *  shows the settling readout, well before onStatus("won") lands. */
@@ -447,6 +479,21 @@ export class Game {
   timeLeftMs: number;
   /** Pieces AND bombs fired so far this level — drives nextIsBomb. */
   shotsFired = 0;
+  /**
+   * How many SHIPMENTS this bay has launched — the participation gate's id
+   * (grades.ts's `RowParticipation`). Every cube of the shipment is stamped
+   * with the value this had when it left the muzzle, so "is the latest shipment
+   * in this row" is an integer comparison.
+   *
+   * NOT `shotsFired`, which counts demolition charges too. A bomb is a shot and
+   * is not a shipment: letting one advance this counter would mean firing a
+   * charge instantly disowned the cargo already in the air, and the next row it
+   * closed would lose its premium for a reason no player could see.
+   *
+   * 0 before the first launch, and no cube ever carries 0 — so an opening pile
+   * the player has not yet fired into cannot sell a timed row.
+   */
+  shipmentSeq = 0;
   /** Bond Breaker charges left in the RUN's stock (see useBondBreaker).
    *  Seeded from level.bondBreakerCharges — which main.ts threads bay-to-bay,
    *  so this is the run's remaining magazine, not a per-bay refill. */
@@ -454,6 +501,11 @@ export class Game {
   /** Demolition charges left this bay (see armBomb/shoot). Seeded from
    *  level.bombCharges — 0 unless the player drafted them. */
   bombCharges: number;
+  /** Thaw Lance charges left (see useThawLance). Seeded from level.thawCharges,
+   *  which run.ts's levelForRun writes from the RUN's stock — so on the ladder
+   *  this opens each bay refilled and on the Skydeck it opens with whatever the
+   *  last bay left, and the Game itself is not the place that knows which. */
+  thawCharges: number;
   /** How many charges the resupply line has already returned this bay. Counts
    *  GRANTS, not charges held, so spending one never re-opens a grant already
    *  paid — see level.ts's bombResupply, which is idempotent against this. */
@@ -469,9 +521,42 @@ export class Game {
    *  run.ts's advanceRun. Accrues even in a bay that is ultimately lost, which
    *  is deliberate: the run keeps whatever the bay actually produced. */
   scrapEarned = 0;
+  /** Rows this bay has sold at each TIMING GRADE (grades.ts).
+   *
+   *  A tally rather than a running money figure, because the two questions it
+   *  answers are both counts: the end card tells the player how their bay
+   *  actually read, and the balance sweeps steer on `timedShare`. What each row
+   *  earned is already in `score`, and a second total of the same dollars is a
+   *  second thing to keep in step.
+   *
+   *  Per BAY, like `scrapEarned` and `linesTotal` above it. run.ts banks it
+   *  into the run at the bay boundary. */
+  gradeTally: GradeTally = newGradeTally();
   /** Funds recovered from demolition-charge blasts this bay — a stat for the
    *  end/HUD readouts so bomb income is visibly separate from line income. */
   salvagedFunds = 0;
+  /** Funds this bay has been billed for live cargo destroyed by VOLATILE
+   *  detonations (resolveVolatile). A READOUT, like salvagedFunds beside it and
+   *  for the same reason: the charge already left the bay's score when the
+   *  blast resolved, so this must never be deducted a second time by anything
+   *  that reads it. It exists because a cost nobody can total is a trade the
+   *  player never gets to settle — the argument salvagedFunds makes for
+   *  itself in RunState. */
+  volatileLosses = 0;
+  /** Funds the INCINERATOR saved this bay — what the two loss bills WOULD have
+   *  come to for cargo destroyed inside the flue, minus what they actually
+   *  came to (chute.ts's inIncinerator, upgrades.ts's incinerator track).
+   *
+   *  A READOUT like the two above, and it is the one of the three that reads
+   *  the OTHER way: salvagedFunds and volatileLosses are money that moved, and
+   *  this is money that did not. It exists for exactly the reason they do —
+   *  upgrades.ts's refit note, "a shop where a purchase projects nothing
+   *  teaches that the purchase does nothing". A passive positional discount is
+   *  invisible by construction (nothing on screen says what the bill would have
+   *  been), so without this total the hood is a purchase the player can never
+   *  settle up on. Never added to the score: the discount was already taken at
+   *  the moment each cube was billed. */
+  incineratedFunds = 0;
   /** Render-facing FX events (shatter/payout/rowflash/explosion); spawned
    *  here, pruned here by FX_TTL, drawn by render.ts. */
   effects: FxEvent[] = [];
@@ -483,6 +568,10 @@ export class Game {
    *  update()), or null. Step-based rather than wall-clock: see
    *  brokeGraceSteps below for why. */
   private brokeSinceStep: number | null = null;
+  /** Compactor.strokes at the moment the countdown armed, or null when it is
+   *  not armed. The window's promise is "one completed press", and this is the
+   *  half that MEASURES one — see brokeGraceSteps. */
+  private brokeSinceStroke: number | null = null;
   /** Grace window (physics steps) before stuck-broke becomes a loss: one full
    *  compactor round trip (Compactor.cycleSteps, retreat to open + press back
    *  to full advance), plus a small buffer (2000ms worth of steps), capped at
@@ -494,8 +583,31 @@ export class Game {
    *  Steps, not wall-clock ms: update() doesn't run while paused, so a
    *  wall-clock deadline armed just before a long pause would already be
    *  expired the instant play resumes — the same pause-safety reasoning as
-   *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS). */
+   *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS).
+   *
+   *  THIS IS A FLOOR, NOT THE WHOLE RULE, and it stopped being the whole rule
+   *  when the press learned to LABOUR. `cycleSteps` is the undragged round
+   *  trip; the stroke this window is guaranteeing is the one the bay is
+   *  actually flying, and a bar dragged by bonded rigid cargo
+   *  (compactor.ts's RIGID_PRESS_DRAG) advances up to 3.88x slower. Measured
+   *  on the real bays: a Tier 1 bay 1 round trip at worst-case drag takes 652
+   *  steps against a 387-step window, and Tier 10 bay 10 on a `rebar:6` belt
+   *  takes 409 against 287 — so the verdict landed BEFORE the stroke that was
+   *  supposed to be allowed to rescue it. Bumping this constant would only
+   *  move the arithmetic; the guarantee is a stroke, so update() now waits for
+   *  the stroke (brokeSinceStroke) and keeps this as the earliest it may fire.
+   *  Found by review on PR #151. */
   private readonly brokeGraceSteps: number;
+  /** The absolute ceiling on the whole broke window, however slow the press
+   *  the bay is flying.
+   *
+   *  Once the verdict waits for a completed press, something has to answer
+   *  "and what if the press never completes one" — a degenerate compactorSpeed
+   *  mutator, or a drag deep enough that a stroke outruns any sane window. It
+   *  is the same 30s this file already used to cap brokeGraceSteps, kept at the
+   *  same value and for the same reason, but now applied where it is actually
+   *  load-bearing: a bay must always reach a verdict. */
+  private readonly brokeGraceMaxSteps = 30_000 / DT;
 
   /** Ceiling on an overtime window, in physics steps — the backstop half of
    *  settleDone, and the only exit a pile in permanent contact-jitter can
@@ -705,6 +817,7 @@ export class Game {
     this.autoRng = mulberry32((seed ^ 0x5f356495 ^ (level.id * 0x85ebca6b)) >>> 0);
     this.bondCharges = level.bondBreakerCharges;
     this.bombCharges = level.bombCharges;
+    this.thawCharges = level.thawCharges;
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
@@ -768,7 +881,10 @@ export class Game {
         // rather than removed inline for the same reason bombs are — matter is
         // mid-solve here, and deleting bodies out from under the pair loop
         // corrupts the very iteration that found them.
-        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult);
+        const blast = volatileBlast(
+          this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult,
+          { cells: this.level.cushionCells, mult: this.level.cushionMult },
+        );
         for (const c of blast) this.pendingBlast.add(c.body);
         // TAR: welds to whatever it settled against. Also deferred — adding a
         // constraint during collisionStart is the same mid-solve mutation.
@@ -944,13 +1060,46 @@ export class Game {
    * Contract prices a lost piece at nothing, and a $0 penalty would teach a
    * rule that isn't there.
    */
-  private chargeLostCubes(n: number, _now: number): number {
+  private chargeLostCubes(lost: { x: number; y: number }[], _now: number): number {
+    const n = lost.length;
     this.combo = 0;
     this.lostTotal += n;
-    const deducted = Math.min(this.score, n * this.level.penaltyPerLostPiece);
+    // PRICED A CUBE AT A TIME, and the position each cube was AT when it was
+    // destroyed. Both halves are the Incinerator (chute.ts's INCINERATOR_Y):
+    // the hood is a place, so a batch that straddles it has to be billed cube
+    // by cube, and a batch billed off one number could only ever be billed off
+    // the wrong cube's. Callers hand over the last positions rather than a
+    // count for exactly this reason — updateBlinking and shredInChute both
+    // already return them, because the "−$" toast needed to know where the
+    // cargo went before the ledger did.
+    let owed = 0;
+    const rightEdge = chuteRightEdge(this.strandCutoffX);
+    for (const p of lost) {
+      const relief = this.reliefFor(p.x, p.y, rightEdge);
+      owed += chargeAfterRelief(this.level.penaltyPerLostPiece, relief);
+    }
+    // What the same batch would have cost with no hood aboard. Computed rather
+    // than accumulated as a running "saved" because the two numbers have to meet
+    // the clamp SEPARATELY — see lineClear.ts's reliefRealised for the near-broke
+    // case that separates them, and preview.ts for the same stance stated
+    // generally ("a projection that models numbers separately from the game would
+    // eventually lie"). The hood is priced by running the bill twice, not by
+    // modelling its delta.
+    const gross = n * this.level.penaltyPerLostPiece;
+    const deducted = Math.min(this.score, owed);
+    this.incineratedFunds += reliefRealised(this.score, gross, owed);
     this.score -= deducted;
     this.events.onPieceLost?.(n);
     return deducted;
+  }
+
+  /** The share of one cube's loss charge the hood remits, from where that cube
+   *  was at the moment it was destroyed. The single reader of the config seam,
+   *  so the two bills (spill fine, volatile charge) cannot disagree about where
+   *  the flue is. */
+  private reliefFor(x: number, y: number, rightEdge: number): number {
+    if (this.level.incineratorRelief <= 0) return 0;
+    return inIncinerator(x, y, rightEdge) ? this.level.incineratorRelief : 0;
   }
 
   /**
@@ -1007,7 +1156,15 @@ export class Game {
     cx /= shredded.length;
     this.events.onExplosion?.("chute");
 
-    const deducted = this.chargeLostCubes(shredded.length, now);
+    // The positions the cubes were AT when the intake took them — bodies keep
+    // their last position after Composite.remove, which is the same fact
+    // updateBlinking's "−$" placement has always relied on. They are all inside
+    // the flue by construction: shredInChute takes cargo by its BOTTOM edge at
+    // the plant's roof, and chute.ts's INCINERATOR_Y is placed half a cell under
+    // that roof precisely so this path and the hood cannot disagree.
+    const deducted = this.chargeLostCubes(
+      shredded.map((c) => ({ x: c.body.position.x, y: c.body.position.y })), now,
+    );
     if (deducted > 0) {
       // Spawned a full SINK above the lip, not 20px above it. The toast
       // travels PENALTY_SINK_PX down over its life, and the plant panel's top
@@ -1091,6 +1248,56 @@ export class Game {
     return true;
   }
 
+  /**
+   * THAW LANCE — cryo's bought counter (upgrades.ts's `thaw` track).
+   *
+   * Spend one charge and thaw the frozen cube the press is about to reach
+   * (lineClear.ts's nextColdCryo picks it and states why that cube and no
+   * other). The state change is exactly strikeCryo's — the cube is marked
+   * struck and starts counting for lines — MINUS the shipment. That is the
+   * whole system in one sentence, and it is the sentence that makes it a
+   * counter rather than a delete button: cryo's cost is that it "costs a
+   * shipment: land it, then spend a second shot hitting it" (strikeCryo), and
+   * the lance pays that cost out of a charge instead of out of a launch.
+   *
+   * WHAT IT DOES NOT TOUCH, deliberately: shatterColdCryo. A frozen cube the
+   * player ignores still reaches the bar, still breaks, and still knocks its
+   * row off the grid. The lance answers the INERT half of cryo — the row that
+   * will not sell — and leaves the consequence half a real punishment, which is
+   * what keeps the material about sequencing rather than about owning a system.
+   * A rack of six charges is not a bay with no cryo in it.
+   *
+   * ONE CUBE PER CHARGE, so the charge count is comparable to the shipment
+   * count it replaces — the unit the tier ladder was measured in. A field-wide
+   * thaw would be a Bond Breaker for cryo, which is a different and much larger
+   * proposal.
+   *
+   * A no-op returning false — spending nothing — when there are no charges
+   * left, nothing frozen the press can reach, or the game is not actively
+   * playable. Same contract as useBondBreaker, so the HUD can call it blind.
+   * `now` is the caller's wall clock, used only as the FX timestamp.
+   */
+  useThawLance(now: number): boolean {
+    if (this.status !== "playing" || this.paused || this.settling) return false;
+    if (this.thawCharges <= 0) return false;
+    const target = nextColdCryo(this.cubes, this.compactor);
+    // An empty bay must not eat a charge, exactly as an all-welded field must
+    // not eat a Bond Breaker.
+    if (!target) return false;
+
+    target.struck = true;
+    const { x, y } = target.body.position;
+    // A ring at the cube, in the Bond Breaker's own vocabulary at one cube's
+    // scale: the same "a charge discharged here" cue the player already knows,
+    // sized to what this charge actually reaches. The cube's own face carries
+    // the rest — theme.ts draws a struck cryo cube differently from a frozen
+    // one, and that state is the thing worth knowing about it.
+    this.effects.push({ kind: "explosion", x, y, r: CELL * 0.9, t0: now });
+    this.events.onThawLance?.({ x, y });
+    this.thawCharges -= 1;
+    return true;
+  }
+
   /** Signed lateral wind acceleration (px/step^2) at THIS instant, AFTER the
    *  launcher's stabilizer (level.windAssist, from the LAUNCHER upgrade track)
    *  has cancelled its share. This — not the raw drunk walk — is the single
@@ -1158,6 +1365,44 @@ export class Game {
     return this.lastCongestionIdx >= 0
       ? this.level.pileTiers[this.lastCongestionIdx] ?? null
       : null;
+  }
+
+  /**
+   * The share of its pace the press keeps this step — see compactor.ts's
+   * `rigidPressDrag` for what it is and why rebar needed it.
+   *
+   * A cube counts when all three hold:
+   *
+   *  - its MATERIAL is rigid. Not `breakStretch === Infinity`, which would also
+   *    catch every joint on an unbreakable-bonds bay (finals.ts's clause) and
+   *    re-price a Final Inspection as a side effect of re-pricing a material.
+   *  - it is STILL BONDED. A cube a Bond Breaker has freed is a loose cube, and
+   *    the emitter being the way out is the whole shape of this hazard.
+   *  - it is IN THE BAR'S PATH — right of the face and inside the bar's own
+   *    vertical reach. Bar stock lying above the bar or already crushed against
+   *    the wall behind it is not what the press is straining against, and
+   *    counting it would make the drag a property of the pile rather than of
+   *    what is in the way.
+   */
+  get rigidPressDrag(): number {
+    if (!this.constraints.length) return 1;
+    const bonded = new Set<number>();
+    for (const c of this.constraints) {
+      if (c.bodyA) bonded.add(c.bodyA.id);
+      if (c.bodyB) bonded.add(c.bodyB.id);
+    }
+    const face = this.compactor.x + this.compactor.width / 2;
+    const top = this.compactor.top;
+    let n = 0;
+    for (const cube of this.cubes) {
+      if (cube.blinkStart !== null) continue;
+      if (!MATERIAL_SPEC[cube.material].rigid) continue;
+      const b = cube.body;
+      if (b.position.x < face || b.position.y < top) continue;
+      if (!bonded.has(b.id)) continue;
+      n += 1;
+    }
+    return rigidPressDrag(n);
   }
 
   /** What the NEXT launch actually costs, congestion included. The HUD reads
@@ -1251,8 +1496,22 @@ export class Game {
    *  STAYS raised across clicks: the owner's pass found the flat default
    *  ploughing through the compactor bar, and a dial that reset per click
    *  would need re-raising on every shot. Per-bay by construction — a new
-   *  bay is a new Game. */
-  aimLoft = 0;
+   *  bay is a new Game.
+   *
+   *  IT NOW OPENS AT THE TOP (cannon.ts's AIM_LOFT_DEFAULT, and see that
+   *  constant for why the flat arc lost the default). What did NOT change is
+   *  the persistence, and the two halves are one decision: the dial is sticky
+   *  within the bay in BOTH directions. A player who scrolls the arc down to
+   *  drive into the face of a stack keeps that flat arc for the next shot and
+   *  every shot after it, exactly as a raised one used to persist — nothing
+   *  here resets between shots, and nothing should. Yanking the dial back to
+   *  the top after each launch would be the same complaint that flipped the
+   *  default ("i don't need to scroll up every time") pointed the other way,
+   *  and it would be worse: at least the old default was consistent, where a
+   *  spring-loaded dial fights the player mid-bay in a place they cannot see.
+   *  The reset lives at the only boundary where the bay's geometry, its
+   *  compactor and its pile all change at once, which is a new bay. */
+  aimLoft = AIM_LOFT_DEFAULT;
 
   aimAt(target: Matter.Vector): number {
     const p = this.previewModel();
@@ -1377,6 +1636,13 @@ export class Game {
         // stock thresholds, and one shape of call is one shape to read.
         { types: this.level.weakBondTypes, mult: this.level.weakBondMult },
       );
+      // THE SHIPMENT'S ID, stamped here because this is the only place that
+      // knows a shipment was launched (pieces.ts's Cube.shipment says why the
+      // constructor deliberately does not). Advanced BEFORE the stamp so the
+      // first shipment of a bay is 1 and never 0 — 0 is the "nothing has been
+      // launched" reading the participation gate leans on.
+      this.shipmentSeq += 1;
+      for (const cube of piece.cubes) cube.shipment = this.shipmentSeq;
       this.cubes.push(...piece.cubes);
       this.constraints.push(...piece.constraints);
       this.cannon.markShot(now);
@@ -1497,8 +1763,49 @@ export class Game {
     this.liveBombs.push({ body, bornStep: this.stepCount });
   }
 
+  /**
+   * COLLAPSE THE INTERPOLATION WINDOW — every drawn body's previous transform
+   * becomes its current one, so the next frame draws the world exactly as it
+   * stands whatever alpha it is handed.
+   *
+   * For whoever zeroes the accumulator on a bay that is ALREADY RUNNING, which
+   * in practice means resuming from a pause (main.ts's resume). alpha 0 means
+   * "one step ago", and one step ago is not where a paused bay was left — the
+   * frames under the pause card were drawn part-way through a step, and
+   * arriving back at 0 would walk everything in flight backwards by the
+   * remainder before it moved on again. A few px for a single frame, but on
+   * exactly the beat the player is looking for the bay to resume.
+   *
+   * Not needed where the accumulator is zeroed for a NEW bay: its cubes are
+   * new objects that have never been marked, and Compactor.reset marks its own.
+   */
+  collapseStepWindow(): void {
+    for (const cube of this.cubes) markPrevStep(cube.body);
+    for (const bomb of this.liveBombs) markPrevStep(bomb.body);
+    markPrevStep(this.compactor.body);
+  }
+
   update(now: number): void {
     if (this.status !== "playing") return;
+
+    // INTERPOLATION'S ANCHOR (engine.ts's markPrevStep). Every body the
+    // renderer draws records where it is before this step moves it, so a
+    // display refreshing faster than the 60Hz simulation can paint the frames
+    // between two steps at two different places instead of twice at the same
+    // one.
+    //
+    // FIRST THING IN THE STEP, ahead of every mutation in it: the clock, the
+    // press, the line-clear grind and the solver all move things, and the pair
+    // this records has to be "the world the last frame drew" against "the
+    // world the next frame draws". Recording it anywhere later would leave
+    // whatever ran before it un-interpolated — a visible stutter on exactly
+    // the cubes the press is squaring up, which is where the eye already is.
+    //
+    // Three writes per cube per step, over a field whose p90 is ~71 cubes
+    // (sim/pile-metrics.ts's census). Against a step that costs 0.9ms at 300
+    // cubes it does not register, and it buys the frame that would otherwise
+    // be a duplicate.
+    this.collapseStepWindow();
 
     if (this.timeLeftMs !== Infinity) {
       this.timeLeftMs = Math.max(0, this.timeLeftMs - DT);
@@ -1559,6 +1866,49 @@ export class Game {
     this.stepAutoLaunch(now);
     stepPhysics(this.phys);
     this.applyWind();
+    // THE TIMING GRADE'S CLOCK FOR THIS STEP (grades.ts), sampled ONCE, here,
+    // and handed to BOTH of the step's readers — the landing stamp below and
+    // the clear check further down. It is not read off the bar again anywhere
+    // in this step.
+    //
+    // ONE SAMPLE, because two reads either side of `compactor.update()` are two
+    // different clocks, and that was a real bug (codex, PR #168). The bar's
+    // counters advance inside that call, so a shipment that came to rest on the
+    // very step the press completes was stamped on stroke S and then graded
+    // against stroke S+1 — one completed sweep charged to a row that closed
+    // inside the stroke already running. Measured on a constructed case
+    // (sim/_scratch-tickboundary.ts): a landing one step short of the stop whose
+    // row cleared ON the stop tick graded SWEPT where it had earned EXCELLENT,
+    // which is the top band failing on the tick that earns it most literally.
+    //
+    // THE PRE-UPDATE SAMPLE IS THE RIGHT ONE, and it is not a coin flip between
+    // the two. `pressing` below is captured before the same call for exactly the
+    // same reason, and its comment already states the rule: the tick the bar
+    // reaches full advance is a tick of the ADVANCING stroke, which is why the
+    // clear is evaluated on it at all. A clock that had already rolled over
+    // would price that tick as belonging to the next stroke while the game
+    // plays it as belonging to this one. Sampling post-update fixes the case
+    // above and breaks its neighbour instead — a landing one step earlier,
+    // clearing on the stop tick, would then be charged the sweep.
+    //
+    // The sample's POSITION is load-bearing in both directions, as before.
+    // AFTER the physics step and the wind, so a cube that arrived on this step
+    // is already carrying the velocity the settle test will read. BEFORE
+    // `compactor.update()`, so the whole of one stroke — every tick of it,
+    // including the one that completes it — shares a single `halfCycle`, which
+    // is what makes "the bar has not reversed since the landing" a fact about
+    // the stroke rather than about which side of a function call a tick fell.
+    this.stepClock = {
+      stroke: this.compactor.strokes,
+      halfCycle: this.compactor.halfCycles,
+      // ...and the fixed step, for the EXCELLENT window. `stepCount` was
+      // advanced at the top of this update, so this is THIS step's index and
+      // the difference a grade takes against a landing stamped on an earlier
+      // step is exactly the number of steps between them.
+      step: this.stepCount,
+    };
+    stampLandings(this.cubes, this.stepClock);
+
 
     // Fuse: a bomb that never collides with anything still has to go off.
     for (const bomb of this.liveBombs) {
@@ -1575,7 +1925,10 @@ export class Game {
     // stop is also the tick update() flips dir to -1 (pressing -> false) — read
     // after update(), that tick's settle/clear gate would be skipped entirely.
     const pressing = this.compactor.pressing;
-    this.compactor.update();
+    // Read BEFORE the bar moves, for the same reason `pressing` is: the drag is
+    // what this step's travel is fighting, and a face that has already advanced
+    // is past some of it.
+    this.compactor.update(this.rigidPressDrag);
     // The bar's x clamps exactly to rightX on the tick it arrives (then flips
     // to retreat), so this records precisely the full-advance ticks — and full
     // advance is the one phase at which two samples of the pile are comparable,
@@ -1623,7 +1976,11 @@ export class Game {
     // (vibro-compaction) so the strict clear rule below stays reachable even
     // when a cube wedges tilted against the wall.
     if (pressing) {
-      settleZoneCubes(this.cubes, this.compactor, this.level);
+      // The joints go in because a RIGID shipment resists the grind while they
+      // hold (lineClear.ts's RIGID_SETTLE_ASSIST) — and this call sits AFTER
+      // breakJointsInBand above on purpose, so a piece the press just shattered
+      // is already loose on the step it is first ground.
+      settleZoneCubes(this.cubes, this.compactor, this.level, this.constraints);
     }
 
     // Cryo that reached the press still frozen breaks, and takes its row's
@@ -1642,8 +1999,39 @@ export class Game {
     // Cubes are ONLY removed when a full row is crushed against the wall on the
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
     const clear: ClearResult = pressing
-      ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level, this.constraints)
-      : { lines: 0, cubes: [], rows: [] };
+      ? updateLineClear(
+        this.phys.world, this.cubes, this.compactor, this.level, this.constraints,
+        {
+          // THE STEP'S clock, not the bar's live one — see the sample above.
+          clock: this.stepClock,
+          // CONGESTION AT THE MOMENT OF AWARD, read off `stepPileTier` — the
+          // bay as it stood at the TOP of this step, which is the same reading
+          // `payoutMult` is handed four lines below.
+          //
+          // One reading, one moment, both of congestion's payout taxes. The
+          // alternative was to gate on the state when the CARGO LANDED (a flag
+          // stamped beside the landing), and it is the gameable one: the grade
+          // reads only the NEWEST contributing landing, so parking a mess and
+          // dropping the closing cube one step after a collapse dipped the
+          // count under the knee would sell a premium out of a bay that was
+          // still full. Reading it here cannot be dodged that way, because the
+          // only things that lower the cube count are a line clearing (which is
+          // tidying, the behaviour being asked for), cargo lost out of the bay
+          // (paid for with the spill fine) and the chute (a purchased hood).
+          // There is no free way under the knee. It also cannot FLICKER inside
+          // the step that pays: `lastCongestionIdx` is latched once per step,
+          // at the top, before anything moves.
+          //
+          // See design/balance/timed-clears.md §2e.
+          congested: this.stepPileTier !== null,
+          // THE PARTICIPATION GATE's id (grades.ts). The latest shipment, read
+          // live rather than latched, because "just launched" is a fact about
+          // now: a row closing this step is being judged against the cargo the
+          // player most recently put in the air.
+          shipment: this.shipmentSeq,
+        },
+      )
+      : { lines: 0, cubes: [], rows: [], graded: [] };
     if (clear.lines > 0) {
       // A clear is progress, and progress earns more strokes: reopen the
       // convergence window so no overtime branch can compare across a field
@@ -1669,15 +2057,45 @@ export class Game {
       // touch a four-row collapse. Below 1 it replaces the bonus outright,
       // which is the intent — a congested bay is not a place to build a streak.
       const bonus = payoutMult(this.combo, this.stepPileTier);
-      const awarded = Math.round(clear.lines * this.level.scorePerLine * bonus);
+      // ONE SALE PER ROW, at that row's own TIMING GRADE (grades.ts), and the
+      // congestion/combo multiplier over the top of each.
+      //
+      // Per row rather than on the clear's line count, which is the whole
+      // change: a four-row collapse used to sell four rows at one price, so an
+      // Excellent row threaded into a pile and the three stale rows the same
+      // crush happened to take were worth the same money. They are not the same
+      // play and they no longer fetch the same price.
+      //
+      // The combo bonus still multiplies the WHOLE clear rather than being
+      // graded itself. It is a streak across crushes and the grade is a verdict
+      // on one row; folding one into the other would make a streak worth more
+      // to a player who happened to close their rows on the press and would
+      // charge the grade twice.
+      let awarded = 0;
+      // THIS clear's own bands, beside the bay's running total. Two tallies
+      // rather than a delta at the call site: the event below reports what one
+      // crush was, and the field reports what the bay has been, and a consumer
+      // that had to subtract one from the other would be re-deriving an event
+      // from a running sum.
+      const crush = newGradeTally();
+      for (const row of clear.graded) {
+        awarded += Math.round(gradedLinePay(this.level.scorePerLine, row.grade) * bonus);
+        crush[row.grade] += 1;
+        this.gradeTally[row.grade] += 1;
+      }
       this.score += awarded;
       this.linesTotal += clear.lines;
-      // Scrap is earned per LINE, flat and combo-free (unlike funds): capital
-      // shouldn't spike on a lucky multi-clear, or one good stroke would buy a
-      // whole upgrade track. See level.ts's SCRAP_PER_LINE note.
+      // Scrap is earned per LINE, flat, combo-free AND UNGRADED (unlike funds):
+      // capital shouldn't spike on a lucky multi-clear, or one good stroke
+      // would buy a whole upgrade track. See level.ts's SCRAP_PER_LINE note,
+      // and grades.ts's header for the other half of the rule — skill pays
+      // funds, VOLUME pays scrap, so a player who burns bankroll to manufacture
+      // rows converts one currency into the other at a price the grade sets.
       this.scrapEarned += clear.lines * this.level.scrapPerLine;
-      this.events.onLineClear?.(clear.lines);
-      this.spawnClearFx(clear, awarded, now);
+      this.events.onLineClear?.(clear.lines, crush);
+      // The ROW the toast is a verdict on, not just its band: the callout also
+      // has to say when a gate took the band away, and a bare grade cannot.
+      this.spawnClearFx(clear, awarded, headlineRow(clear.graded), now);
       // A MAXED Demolition Rack returns charges as rows close. Run against the
       // cumulative line count rather than this clear's delta so a four-line
       // crush pays everything it earned — see level.ts's bombResupply for why
@@ -1702,7 +2120,7 @@ export class Game {
     markLostPieces(this.cubes, this.compactor, now);
     const lostCubes = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
     if (lostCubes.length > 0) {
-      const deducted = this.chargeLostCubes(lostCubes.length, now);
+      const deducted = this.chargeLostCubes(lostCubes, now);
       // The expense twin of spawnClearFx's payout: one "−$" at the cluster's
       // centroid, where the cubes just blinked away. A penalty the player only
       // ever met in the end screen's tally read as a hidden rule (playtest,
@@ -1738,9 +2156,15 @@ export class Game {
     // price, so a rescue fixes both halves at once.
     if (this.score >= this.launchCostNow) {
       this.brokeSinceStep = null;
+      this.brokeSinceStroke = null;
     } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));
-      if (allAtRest) this.brokeSinceStep = this.stepCount;
+      if (allAtRest) {
+        this.brokeSinceStep = this.stepCount;
+        // Snapshot the stroke count with it: the verdict below counts presses
+        // FROM HERE, so the two halves of the window have to arm together.
+        this.brokeSinceStroke = this.compactor.strokes;
+      }
     }
 
     // Funding target met: open the SETTLE window rather than winning on the
@@ -1759,10 +2183,7 @@ export class Game {
     } else if (this.isToppedOut()) {
       this.lossReason = "topout";
       this.setStatus("lost");
-    } else if (
-      this.brokeSinceStep !== null &&
-      this.stepCount - this.brokeSinceStep > this.brokeGraceSteps
-    ) {
+    } else if (this.brokeSinceStep !== null && this.brokeVerdictDue()) {
       this.lossReason = "broke";
       this.setStatus("lost");
     } else if (this.piecesLeft <= 0 || this.objectiveUnreachable) {
@@ -1885,11 +2306,28 @@ export class Game {
     }
   }
 
+  /** THIS STEP's timing clock (grades.ts) — the compactor's counters as they
+   *  stood before the bar moved, sampled once in `update` and read by both the
+   *  landing stamp and the row scan.
+   *
+   *  A FIELD rather than the accessor this used to be, and that is the whole
+   *  fix for PR #168's fencepost: an accessor is a fresh read every time it is
+   *  touched, so the two readers sat either side of `compactor.update()` and saw
+   *  different strokes. A value sampled once cannot do that. Exposed read-only
+   *  so sim/systems.ts can assert that the clear really is graded against the
+   *  step's sample and not against the bar. */
+  get gradeClock(): ClearClock {
+    return this.stepClock;
+  }
+  private stepClock: ClearClock = { stroke: 0, halfCycle: 0, step: 0 };
+
   /** Push the FX events a clear implies: one shatter per removed cube, one
    *  rowflash per cleared row (spanning the compactor face to the wall), and
    *  a single payout at the cluster's rough centroid/top with the actual
-   *  awarded amount (post-combo-bonus). */
-  private spawnClearFx(clear: ClearResult, awarded: number, now: number): void {
+   *  awarded amount (post-combo-bonus) and the clear's headline timing grade. */
+  private spawnClearFx(
+    clear: ClearResult, awarded: number, headline: GradedRow | null, now: number,
+  ): void {
     for (const c of clear.cubes) {
       this.effects.push({ kind: "shatter", x: c.x, y: c.y, color: c.color, t0: now });
     }
@@ -1900,7 +2338,16 @@ export class Game {
     if (clear.cubes.length) {
       const meanX = clear.cubes.reduce((s, c) => s + c.x, 0) / clear.cubes.length;
       const minY = Math.min(...clear.cubes.map((c) => c.y));
-      this.effects.push({ kind: "payout", x: meanX, y: minY - 30, amount: awarded, t0: now });
+      this.effects.push({
+        kind: "payout", x: meanX, y: minY - 30, amount: awarded,
+        grade: headline?.grade ?? null,
+        // Only a CONGESTION cap gets a tag. A row capped for non-participation
+        // is a row the player did not close, and there is nothing to tell them
+        // about it that the band itself does not already say; congestion is a
+        // STATE they can act on, which is the whole reason it gets shouted.
+        congested: (headline?.capped ?? false) && (headline?.congested ?? false),
+        t0: now,
+      });
     }
   }
 
@@ -2097,6 +2544,11 @@ export class Game {
     let n = 0;
     const gone: { x: number; y: number }[] = [];
     const razed: Cube[] = [];
+    // Where each razed cube WAS, taken before anything is removed. Matter keeps
+    // a body's position after Composite.remove, so reading it later would work
+    // by accident today; recording it here says out loud that the price of a
+    // blast is a function of where its victims stood when it went off.
+    const razedAt = new Map<Cube, { x: number; y: number }>();
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const cube = this.cubes[i];
       const b = cube.body;
@@ -2105,6 +2557,7 @@ export class Game {
       cy += b.position.y;
       n += 1;
       razed.push(cube);
+      razedAt.set(cube, { x: b.position.x, y: b.position.y });
       gone.push({ x: b.position.x, y: b.position.y });
       this.throwChunks(cube, now);
       removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -2121,13 +2574,52 @@ export class Game {
         r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: now,
       });
       this.events.onExplosion?.("volatile");
-      // Reuses the bomb's salvage toast rather than inventing a second one: it
-      // is the same statement ("that wreckage was worth something") and the
-      // player has already learned to read it. A payout they only meet in the
-      // end screen teaches nothing — the rule PILE_TIERS follows for its clock.
-      const bounty = slagBountyFor(razed, this.level.slagBounty);
-      if (bounty > 0) {
-        this.score += bounty;
+      // ONE SETTLEMENT — the dead cargo's payout and the live cargo's charge
+      // are netted before either touches the balance. lineClear.ts's
+      // settleBlast carries the argument for why that ordering is load-bearing
+      // and not a tidy-up; volatileLossFor carries the measurement that put the
+      // charge here at all, and level.ts's VOLATILE_LOSS_SHARE carries its
+      // price. The player should see both halves land together, which is why
+      // this is one place and not two.
+      // THE HOOD'S RELIEF, read off each cube's LAST POSITION — the one it held
+      // when the blast razed it, captured in `razedAt` above before the bodies
+      // were removed. A blast is the one loss path whose victims are spread
+      // out, so this is where "per cube, at the moment of destruction" earns its
+      // keep: a detonation that catches a shipment in the air over the machine
+      // and three cubes down in the pile discounts the one and bills the three.
+      const settled = settleBlast(
+        razed, this.score, this.level.volatileLoss, this.level.slagBounty,
+        (cube) => {
+          const p = razedAt.get(cube) ?? cube.body.position;
+          return this.reliefFor(p.x, p.y, chuteRightEdge(this.strandCutoffX));
+        },
+      );
+      // THE SAME BLAST SETTLED AGAIN WITH NO HOOD, and the difference in what
+      // each one actually TOOK is what the hood saved. Two settlements rather
+      // than arithmetic on one, for the reason preview.ts gives for running
+      // levelForRun twice: a number modelled separately from the thing it
+      // describes eventually lies, and this one already had. The clamp here is
+      // `funds + bounty` rather than `funds` (settleBlast's own rule, and the
+      // whole point of its netting argument), so re-deriving the ceiling at this
+      // call site would be a second copy of the very formula most likely to move.
+      //
+      // Found in review (codex, PR #156): the old version scaled the nominal
+      // discount by the share of the discounted bill that landed, which reports
+      // a saving on a bay that saved nothing — see lineClear.ts's reliefRealised
+      // for the $10-bankroll case that separates "charged less" from "kept more".
+      const bare = settleBlast(
+        razed, this.score, this.level.volatileLoss, this.level.slagBounty,
+      );
+      this.score += settled.net;
+      this.volatileLosses += settled.charged;
+      this.incineratedFunds += blastRelief(bare, settled);
+      if (settled.bounty > 0) {
+        // Reuses the bomb's salvage toast rather than inventing a second one:
+        // it is the same statement ("that wreckage was worth something") and
+        // the player has already learned to read it. A payout they only meet in
+        // the end screen teaches nothing — the rule PILE_TIERS follows for its
+        // clock.
+        //
         // NOT salvagedFunds. That field is the demolition charge's trade and
         // nothing else — its doc here, RunState's, and the end screen's all
         // say so, and screens.ts prints it as "$N recovered by demolition".
@@ -2137,7 +2629,24 @@ export class Game {
         // at the moment it happens (the toast below); what it must not do is
         // claim to be something else on the way out.
         this.effects.push({
-          kind: "salvage", x: cx / n, y: cy / n - 24, amount: bounty, t0: now,
+          kind: "salvage", x: cx / n, y: cy / n - 24, amount: settled.bounty, t0: now,
+        });
+      }
+      if (settled.charged > 0) {
+        // The same "−$" toast the chute uses for a spilled shipment, for the
+        // same reason the payout reuses the bomb's: this is a statement the
+        // player has already learned to read ("that cargo cost you"), and a
+        // charge they only meet in the end screen teaches nothing. Placed above
+        // the blast's centre so it clears the debris, and above the salvage
+        // toast so a mixed blast reads as two lines rather than one number
+        // sitting on top of the other.
+        //
+        // Shows what was ACTUALLY taken rather than what was owed: when the
+        // clamp forgives part of a charge the player did not pay that part, and
+        // a toast for money that never moved is the kind of small lie that
+        // makes an economy unreadable.
+        this.effects.push({
+          kind: "penalty", x: cx / n, y: cy / n - 40, amount: settled.charged, t0: now,
         });
       }
     }
@@ -2241,6 +2750,43 @@ export class Game {
       this.scrapEarned += Math.floor((vaporized * this.level.scrapPerLine) / 4);
       this.effects.push({ kind: "salvage", x: cx, y: cy - 24, amount: refund, t0: now });
     }
+  }
+
+  /**
+   * Has the stuck-broke countdown actually run out?
+   *
+   * Two conditions, and they answer different halves of the same promise. The
+   * window exists so that "a full line already sitting in the zone must get its
+   * pressing stroke — which pays out and un-brokes the player — before the game
+   * calls it" (brokeGraceSteps). That is a promise about a STROKE, and it used
+   * to be enforced with a step count derived from an UNDRAGGED round trip:
+   *
+   *  - `brokeGraceSteps` is the floor — the earliest the verdict may land. It
+   *    is unchanged, so on every bay with nothing rigid in front of the bar the
+   *    verdict lands on exactly the step it always did. One undragged round
+   *    trip always contains a completed advance, so the stroke condition below
+   *    is already satisfied by the time this elapses and the two agree.
+   *  - the STROKE is the guarantee itself. Once the press can be dragged
+   *    (compactor.ts's RIGID_PRESS_DRAG) an advance takes up to 3.88x longer,
+   *    and the floor alone fired at 387 steps on a round trip that took 652 —
+   *    i.e. it called the bay before the rescuing press had happened. Counting
+   *    the press rather than predicting it is the fix that cannot drift again
+   *    when the drag constants move.
+   *  - `brokeGraceMaxSteps` is the backstop, because "wait for a press" needs
+   *    an answer to "and if one never comes". A bay must always reach a
+   *    verdict.
+   *
+   * Deliberately NOT a check that the press cleared anything: a stroke that
+   * finds no full row still had its chance, and a line clear cancels the
+   * countdown outright (update() clears brokeSinceStep on funds recovery), so
+   * reaching here means the stroke was flown and paid nothing.
+   */
+  private brokeVerdictDue(): boolean {
+    if (this.brokeSinceStep === null) return false;
+    const elapsed = this.stepCount - this.brokeSinceStep;
+    if (elapsed <= this.brokeGraceSteps) return false;
+    if (elapsed > this.brokeGraceMaxSteps) return true;
+    return this.compactor.strokes > (this.brokeSinceStroke ?? this.compactor.strokes);
   }
 
   /** Lose when a settled cube stacks up to the ceiling. */

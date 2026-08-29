@@ -34,7 +34,11 @@ interface Bay extends ModeTag {
   /** Compactor geometry, for turning a phase back into seconds. Absent in
    *  sessions recorded before section 6 existed. */
   compactorSpeed?: number; compactorOpenCells?: number; compactorMinLineCells?: number;
-  shots: Shot[]; funds: { t: number; v: number }[]; lineClears: { t: number; lines: number }[];
+  shots: Shot[]; funds: { t: number; v: number }[];
+  /** Each crush, with the TIMING BANDS it sold at. `grades` is absent in every
+   *  session recorded before the mechanic existed — section 7 says so rather
+   *  than averaging over a zero. */
+  lineClears: { t: number; lines: number; grades?: Record<string, number> }[];
   abilities: { t: number; kind: string }[];
   result: "won" | "lost" | null; reason: string | null; secs: number;
   lines: number;
@@ -385,6 +389,37 @@ if (!phaseBays.length) {
   } else {
     console.log("   no window saw two shots — the window never fits a second launch");
   }
+}
+
+// ---------------------------------------------------------------------------
+// 7. TIMING GRADES — the question the sim harness can only put a floor under.
+// ---------------------------------------------------------------------------
+// src/game/grades.ts prices a row by WHEN it closed, and design/balance/
+// timed-clears.md §7 lists the two things its bot arms cannot answer: whether
+// holding fire for the press reads as skill or as dead air, and whether the
+// premium is legible when the bay stops the moment it is paid for. Both are
+// questions about a band mix over a real session, which is this.
+//
+// The bots reach 18-32% in the two paying bands with a policy built to hunt
+// them, and 17-31% without one. A human well under that is a mechanic nobody
+// can see; a human well over it is a mechanic that has stopped being a choice.
+const GRADE_BANDS = ["excellent", "good", "swept", "lucky"] as const;
+const gradedClears = bays.flatMap((b) => b.lineClears.filter((c) => c.grades));
+console.log("\n7. TIMING GRADES  (the sim's floor: 17-32% in the paying bands)");
+if (!gradedClears.length) {
+  console.log("   no grade data — this session predates it (replay to collect)");
+} else {
+  const tally: Record<string, number> = {};
+  for (const band of GRADE_BANDS) tally[band] = 0;
+  for (const c of gradedClears) {
+    for (const band of GRADE_BANDS) tally[band] += c.grades?.[band] ?? 0;
+  }
+  const rows = GRADE_BANDS.reduce((a, band) => a + tally[band], 0);
+  console.log(`   ${GRADE_BANDS.map((b) => `${b} ${pct(tally[b] / Math.max(1, rows))}`).join(" · ")}`);
+  console.log(
+    `   ${pct((tally.excellent + tally.good) / Math.max(1, rows))} of ${rows} rows paid a premium`
+    + ` across ${gradedClears.length} crushes`,
+  );
 }
 
 // ---------------------------------------------------------------------------

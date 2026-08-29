@@ -207,6 +207,27 @@ const NO_OVERLAP: [string, string][] = [
   // is a question about stacking. This pair is: it fails the moment the strip's
   // box and the panel's box share pixels, whoever wins the paint.
   [".kbd-hint", ".plant"],
+  // The run-end card's exits against the column that explains the run. These
+  // are two rows of ONE grid (app.css: "main side" / "actions actions"), so
+  // "laid out beside each other" here means one directly under the other, and
+  // the pair says the buttons may not be drawn over the outcome.
+  //
+  // It is here because an owner reported the Tier S banner with FLY IT AGAIN
+  // lying across its last line on a OnePlus 12, and every assertion in this
+  // file was green on that exact device row. That is not an oversight in any
+  // one of them; it is what the defect looked like. `.end__main` carried
+  // `min-height: 0` (a rule the leaderboard column needs and it does not), so
+  // the `1fr` track resolved 32px SHORTER than the column's content and the
+  // column quietly drew past its own bottom edge: `.end` measured exactly at
+  // its cap, so `fit` saw nothing; nothing scrolled, so `scrollers` saw
+  // nothing; the text stayed inside the viewport and inside its own box, so
+  // `offscreen` and `textclip` saw nothing; the buttons kept their 44px, so
+  // `tap` saw nothing. The overflow existed only BETWEEN two boxes.
+  //
+  // Both halves of the fix are needed for this pin to bite: with the automatic
+  // minimum back on `.end__main` the rect tells the truth, and this pair fails
+  // the moment the two boxes share pixels.
+  [".end__actions", ".end__main"],
 ];
 
 /**
@@ -285,8 +306,21 @@ function measure(cfg: {
   // deliberately covered elsewhere: a compressed control falls under the
   // 44px floor and the `tap` assertion catches it; compressed text clips and
   // `textclip` catches that. The division of labour is the answer, not a gap.
+  //
+  // `.end__main` is the one COLUMN in the list, and it is here because it is
+  // the one column whose overflow nothing else can witness. It is a grid item
+  // in the run-end card's `1fr` track with `.end__actions` in the `auto` track
+  // directly beneath it, so a column taller than its track does not grow the
+  // panel, does not scroll, and does not leave the viewport — it just paints
+  // over the buttons, or is painted over by them. That shipped: the Tier S
+  // banner's last line under FLY IT AGAIN on a OnePlus 12, with every
+  // assertion in this file green. Asking the column the same question `fit`
+  // asks a screen is the check that has no blind spot here — unlike the
+  // `.end__actions`/`.end__main` pair in NO_OVERLAP, which needs the column's
+  // rect to be honest before it can see anything, this reads the content
+  // against the box and so survives a `min-height: 0` being put back.
   document
-    .querySelectorAll(".screen, .modal, .bayclear__card, .howto, .workshop, .rotate-guard")
+    .querySelectorAll(".screen, .modal, .bayclear__card, .howto, .workshop, .rotate-guard, .end__main")
     .forEach((el) => {
       const over = el.scrollHeight - el.clientHeight;
       if (over > 1) {
@@ -741,11 +775,11 @@ function measure(cfg: {
     seat("chute mouth right vs panel right", fieldX + mouth.x1 * fieldW, p.right);
   }
 
-  // --- rack: the seven system slots must all be reachable at a glance -------
+  // --- rack: every system slot must be reachable at a glance ----------------
   // The build row scrolls horizontally, which is right for the HAZARD chips
   // after it — a deep run banks up to ten distinct axes and no panel holds
-  // them — but wrong for the ship's systems. There are exactly seven, they are
-  // the same seven for the whole run, and they are the readout a player checks
+  // them — but wrong for the ship's systems. There is a fixed set of them, the
+  // same set for the whole run, and they are the readout a player checks
   // mid-bay to know what their rig can do; one of them parked off the right
   // edge is not a readout, it is a thing you have to remember to go looking
   // for. So the slots are sized to the narrowest panel in the matrix rather

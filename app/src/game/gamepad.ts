@@ -1,5 +1,6 @@
 import type { Game } from "./game";
 import { actionForPad, padFor, type BindableAction } from "./bindings";
+import { dragLenForRatio, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 
 /**
  * GAMEPAD SUPPORT (canvas D1) — the Gamepad API has no events for buttons,
@@ -31,11 +32,50 @@ import { actionForPad, padFor, type BindableAction } from "./bindings";
  * thresholds happening to agree rather than on one test.
  */
 
-/** Deadzone below which the stick reads as centred — covers worn sticks. */
-const DEADZONE = 0.22;
-/** Full deflection maps to this drag length (past cannon.ts's DRAG_MAX, so
- *  a pinned stick is full power). */
-const STICK_DRAG = 240;
+/** Deadzone below which the stick reads as centred — covers worn sticks.
+ *  Exported for the pin that the first deflection PAST it still asks for
+ *  power: the pull-room fix briefly put zero there, and a stick whose first
+ *  live millimetre does nothing is a stick with two deadzones. */
+export const DEADZONE = 0.22;
+/**
+ * THE STICK'S POWER CURVE, IN DEFLECTION — where it belongs, and where it now
+ * lives rather than being borrowed from a length in world px.
+ *
+ * The curve is unchanged from the one pad players have always had. It used to
+ * be spelled `powerRatioForDrag(deflection * 240)` against cannon.ts's old
+ * 28/220 span, which made the pad's feel an accident of a mapping written for a
+ * thumb on glass — and the pull-room fix proved how sharp that accident was.
+ * When DRAG_MAX shrank from 220 to CANNON.x - CELL so a full pull would fit on
+ * the playfield, rescaling the stick's length rescaled the ramp but NOT its
+ * foot (DRAG_MIN is a fixed 28 that does not scale with the span): a
+ * half-deflected stick fell from 48% to 39%, and the deadzone edge went from
+ * 13% to exactly zero, growing a dead band at the bottom of the throw. The
+ * endpoints still agreed, so nothing was red.
+ *
+ * So the two landmarks are stated here, as the fractions of full throw they
+ * always were — the numerators are the px triple the curve was born in, kept
+ * visible so the derivation can be audited rather than trusted:
+ *
+ *   FOOT: below this deflection the stick asks for no power at all (28 / 240).
+ *   FULL: at this deflection it is asking for everything (220 / 240) — a
+ *   little inside 1.0, because a stick rarely reports a clean pin: worn
+ *   returns, a diagonal clipped to the circle, a pad that reads 0.96 hard
+ *   over. The last ~8% of the throw is headroom, not ramp.
+ */
+const STICK_POWER_FOOT = 28 / 240;
+const STICK_POWER_FULL = 220 / 240;
+
+/**
+ * Deflection magnitude (0..1) -> power ratio (0..1), the slingshot stick's own
+ * ramp. Pure and exported so sim/systems.ts can pin it as a CURVE — sampled
+ * across the throw against the mapping as it shipped — rather than at its two
+ * endpoints, which is precisely the pin that would have caught the regression
+ * described above and did not exist.
+ */
+export function stickPowerRatio(deflection: number): number {
+  const t = (deflection - STICK_POWER_FOOT) / (STICK_POWER_FULL - STICK_POWER_FOOT);
+  return Math.max(0, Math.min(1, t));
+}
 /** Assist lerp factor per frame — settles in ~6 frames, ~100ms at 60Hz. */
 const ASSIST_LERP = 0.3;
 /** Stick-as-D-pad thresholds for MENU navigation (see onUiButton): a flick
@@ -82,20 +122,22 @@ const NAV_REPEAT_MS = 120;
  * every nudge is exactly the step it always was (and the first poll of a
  * session is seeded to one frame rather than zero, so even the very first
  * charge matches what the per-poll code did).
+ *
+ * THE NUMBER ITSELF now lives in cannon.ts beside the steps it divides, and
+ * input.ts's held keys divide by the same one — a stick and a key that trimmed
+ * at different rates would undo the whole point of sharing the step constant.
+ * Aliased rather than inlined so the dial-specific reasoning above and below
+ * still has a local name to hang off.
  */
-const DIAL_FRAME_MS = 1000 / 60;
+const DIAL_FRAME_MS = NUDGE_FRAME_MS;
 /**
  * The longest gap a single poll may charge the dials for.
  *
- * A backgrounded tab, a garbage-collection stall or a tabbed-away TV delivers
- * the next rAF timestamp seconds after the last one, and an unclamped dt would
- * spend all of it in one step — the player alt-tabs back with a stick still
- * leaning and finds the barrel pinned at the cone limit. Six frames' worth is
- * long enough that ordinary jank is charged honestly (nothing a 120Hz shell
- * does comes close) and short enough that the worst case is a nudge the player
- * can see happen rather than a jump they can only undo.
+ * The player alt-tabs back with a stick still leaning and must not find the
+ * barrel pinned at the cone limit. Shared with the keyboard's held keys — see
+ * cannon.ts's NUDGE_MAX_STEP_MS for the full argument.
  */
-const DIAL_MAX_STEP_MS = 100;
+const DIAL_MAX_STEP_MS = NUDGE_MAX_STEP_MS;
 
 /**
  * ONE AXIS of the rate dials, as a signed rate in -1..1 — the factor
@@ -357,7 +399,24 @@ export class GamepadPoller {
           this.sx = target.x;
           this.sy = target.y;
         }
-        g.cannon.aimFromDrag(this.sx * STICK_DRAG, this.sy * STICK_DRAG);
+        // THE PAD ASKS FOR A RATIO, NOT FOR A LENGTH. aimFromDrag is the one
+        // place aim and power are applied together, so the stick still speaks
+        // through it — but it hands over the pull length that MEANS the power
+        // the deflection asked for (dragLenForRatio), rather than a deflection
+        // scaled by some number chosen to sit past the touch span. The angle is
+        // untouched by this: aimFromDrag takes it from atan2, which is blind to
+        // the vector's length, so normalising to `len` rotates nothing.
+        //
+        // Multiplying a deflection by a length is what coupled the pad's feel
+        // to the touch mapping's ramp, and the pull-room fix is what showed the
+        // bill: DRAG_MIN does not scale with the span, so halving the span
+        // moved every interior point of this curve while leaving both ends
+        // where they were. See stickPowerRatio.
+        const mag = Math.hypot(this.sx, this.sy);
+        if (mag > 0) {
+          const len = dragLenForRatio(stickPowerRatio(mag));
+          g.cannon.aimFromDrag((this.sx / mag) * len, (this.sy / mag) * len);
+        }
         g.updateTrajectory();
       }
     }
@@ -376,6 +435,7 @@ export class GamepadPoller {
       case "powerDown": g.cannon.powerDown(); g.updateTrajectory(); break;
       case "bond": g.useBondBreaker(now); break;
       case "demo": g.armBomb(); break;
+      case "thaw": g.useThawLance(now); break;
       // "auto" is held, handled from level state above; null is an unbound
       // button and does nothing.
       default: break;

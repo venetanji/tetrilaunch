@@ -3,8 +3,11 @@ import { MATERIAL_GAP } from "./belt";
 import {
   makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
 } from "./level";
+import { EXCELLENT_WINDOW_MS, GRADE_PAY, LUCKY_SWEEPS } from "./grades";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
-import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
+import {
+  markUnlocked, SLOT_BASE, SLOT_CAP, SLOT_PRICES, TIER_CONTRACTS_REQUIRED, type MetaState,
+} from "./meta";
 import { SIZE_SPEC } from "./pieces";
 import { REFIT_EVERY, RUN_LEVELS } from "./run";
 import { CLAUSE_COUNT, CLAUSE_STOPS } from "./skydeck";
@@ -132,7 +135,7 @@ const FIRST_NOTCH_PCT = Math.round(materialRate(1) * 100);
 /**
  * One topic per ship system, generated from UPGRADES.
  *
- * Generated rather than written out because the seven tracks already carry
+ * Generated rather than written out because the eight tracks already carry
  * their own name, blurb and per-tier copy, and a hand-written guide row for
  * each would be seven more places for a re-priced tier to go stale. The tier
  * gate is the INSTALL's gate (meta.ts's INSTALLS), stated in the same
@@ -145,6 +148,20 @@ function systemTopics(): GuideTopic[] {
   // imports upgrades.ts, and the guide imports both.
   const gate: Record<UpgradeId, number> = {
     reactor: 1, launcher: 1, magazine: 1, bay: 2, hydraulics: 2, bonds: 3, demolition: 2,
+    // The Thaw Lance opens at the tier that opens the axis it answers, which is
+    // the same rule every other row here follows and the reason cryo's material
+    // topic below can point at it (meta.ts's INSTALLS states the gate).
+    thaw: 4,
+    // Same rule: volatile opens at Mark 7 (hazards.ts), so its counter's guide
+    // row opens with the tier that opens the axis.
+    cushion: 7,
+    // THE ONE ROW THAT IS NOT GATED ON AN AXIS, because the Incinerator does
+    // not answer one: it discounts the two bills every material can run up
+    // (a spilled shipment and a detonation), so there is no single axis whose
+    // arrival is the right moment to open it. Tier 5 instead, which is the
+    // rung MATERIAL_DRAFT_BAYS stops being dodgeable (hazards.ts) — the first
+    // tier at which a player is guaranteed cargo they may have to write off.
+    incinerator: 5,
   };
   // Sorted by the tier that opens each system, ties keeping the UPGRADES order
   // — so the chapter reads as the ladder the player will actually buy it in
@@ -172,29 +189,50 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
   const spec: Array<{ m: Exclude<Material, "standard">; axis: HazardId; body: string }> = [
     {
       m: "cryo", axis: "cryo",
-      body: `Ice arrives <b>unstruck</b>: it fills a slot, but the row will not sell until`
-        + ` something hits it hard. Its own landing never counts, so cryo costs a second`
-        + ` shipment — land it early and low, then thaw it on the way past.`,
+      // 249 plain characters against the 250 a material pane holds
+      // (sim/systems.ts's COPY BUDGET). The lance earned its clause by taking
+      // the sentence that used to end this paragraph — "land it early and low,
+      // then thaw it on the way past" — because the two say the same thing and
+      // only one of them names the system that does it.
+      body: `Ice arrives <b>unstruck</b>: the row will not sell until something hits it`
+        + ` hard, and its own landing never counts. Cryo costs a second shipment — or one`
+        + ` <b>Thaw Lance</b> charge, which takes the cube the press is about to reach.`
+        + ` Pressed cold, it shatters the row.`,
     },
     {
       m: "rebar", axis: "rebar",
-      body: `Nothing breaks rebar. No landing shatters it and the press cannot split it, so`
-        + ` <b>what lands is what you keep</b> — aim it whole and flat. A <b>Bond Breaker</b>`
-        + ` is the only thing that splits it.`,
+      body: `Nothing breaks rebar, so <b>what lands is what you keep</b> — aim it whole and`
+        + ` flat. The press cannot crush a bar either: it <b>labours</b> while bar stock`
+        + ` stands in its path. A <b>Bond Breaker</b> splits it, and the press runs free.`,
     },
     {
       m: "slag", axis: "slag",
       body: `Dead cargo. A slag cube fills a slot and can <b>never</b> count, so a row holding`
         + ` one will not sell until it leaves the bay. Nothing passive removes it — a`
-        + ` <b>demolition charge</b> is the answer, and refunds`
+        + ` <b>Demolition Rack</b> charge is the answer, and refunds`
         + ` <b>$${lv.salvagePerCube}</b> a cube.`,
     },
     {
       m: "volatile", axis: "volatile",
+      // "Aimed into a dead pile, it is a free demolition charge" used to close
+      // this, and it was true — measurably so, which was the problem. The bay
+      // pays for the live cargo a blast destroys now (lineClear.ts's
+      // volatileLossFor), and the line that taught the old reading is the one
+      // the player would have carried into the bay that bills them for it.
+      // The cushion earned its clause the way the Thaw Lance earned cryo's:
+      // by naming the system that does what the sentence was already telling
+      // the player to do. 235 plain characters against the pane's 250, which
+      // the copy-budget pin in sim/systems.ts counts.
+      //
+      // LANDING, not "shot", and the word is doing work: the liner insures an
+      // arrival and nothing else (lineClear.ts's volatileBlast). A cube already
+      // lying in a lined slot still goes off when cargo lands hard on top of
+      // it, so a sentence that let the slots read as safe ground would be
+      // teaching the player a rule the bay does not have.
       body: `A hard landing detonates it, taking every cube within`
-        + ` <b>${VOLATILE_BLAST_CELLS} cells</b>. The trigger is impact SPEED, so the dial is`
-        + ` your <b>power</b>: a soft lob lands like anything else. Aimed into a dead pile, it`
-        + ` is a free demolition charge.`,
+        + ` <b>${VOLATILE_BLAST_CELLS} cells</b>, and every live cube it takes is billed`
+        + ` <b>$${lv.volatileLoss}</b>. The trigger is impact SPEED: lob it soft, or land it on an`
+        + ` <b>Impact Cushion</b> — the deep slots it lines take a much harder LANDING.`,
     },
     {
       m: "tar", axis: "tar",
@@ -375,12 +413,19 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "lost", chapter: "economy", tier: 1,
     name: "Lost cargo",
     summary: `Cubes that never reach the press are fined $${lv.penaltyPerLostPiece} each.`,
+    // THE INCINERATOR EARNED ITS CLAUSE HERE the way the cushion earned one in
+    // volatile's topic: this is the pane that teaches the fine, so it is the
+    // pane that owes the player the fact that the fine can be bought down. Room
+    // was made by tightening the tier-price sentence rather than by dropping
+    // it — the pane is capped at 370 plain characters (sim/systems.ts's COPY
+    // BUDGET) and every number below is still in it.
     body: `A cube that drops short of the zone, or bounces back out of it, blinks away and costs you`
-      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. It is billed <b>per cube</b>`
-      + ` — a standard shipment is ${SIZE_SPEC.std.cubes} of them — and the tier sets the price:`
-      + ` $${penaltyPerLostPieceFor(0, 1)} a cube at Tier 1,`
-      + ` $${penaltyPerLostPieceFor(0, TIER_COUNT)} and climbing bay by bay at Tier ${TIER_COUNT}.`
-      + ` So the question mid-drag is "does this reach the zone" before "does this fit the row".`,
+      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. Billed <b>per cube</b>`
+      + ` (a standard shipment is ${SIZE_SPEC.std.cubes}), and the tier sets the price:`
+      + ` $${penaltyPerLostPieceFor(0, 1)} at Tier 1,`
+      + ` $${penaltyPerLostPieceFor(0, TIER_COUNT)} and climbing at Tier ${TIER_COUNT}.`
+      + ` An <b>Incinerator</b> cuts it for cargo destroyed above the power bar.`
+      + ` Otherwise: does this reach the zone, before does it fit the row.`,
   },
   {
     id: "clock", chapter: "economy", tier: 1,
@@ -392,6 +437,26 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` the exam's, and Contracts deliberately have <b>no clock at all</b>.`
       + ` The habit that buys the most time is lining up the next shot <i>while</i> the cannon reloads.`,
     drill: DRILLS.clock,
+  },
+  {
+    // THE TOPIC THAT HAS TO EXIST, because the grade is the one rule the bay
+    // teaches only in passing: a callout over a payout says a word, and a word
+    // is not a rule. Filed under MONEY rather than under Basics because it IS
+    // the money — a row's price, not a flourish on it.
+    //
+    // Tier 1, and the premium it names is a Tier-9-and-up raise (level.ts's
+    // PRECISION_PREMIUM_FROM_RUNG). Deliberately: the ladder's bottom is where
+    // the habit is cheap to build, and a rule first met at the tier that
+    // punishes you for not having it is a rule met too late.
+    id: "grades", chapter: "economy", tier: 1,
+    name: "Timing a row",
+    summary: `A row pays by WHEN it closes: x${GRADE_PAY.excellent} inside ${EXCELLENT_WINDOW_MS}ms, x${GRADE_PAY.lucky} three sweeps late.`,
+    body: `The shipment you just launched must be part of the row — in it, or landed on it.`
+      + ` Close within <b>${EXCELLENT_WINDOW_MS}ms</b> of it settling: <b>EXCELLENT</b>,`
+      + ` x${GRADE_PAY.excellent}. Land while the bar moves right and let that sweep finish it:`
+      + ` <b>GOOD</b>, x${GRADE_PAY.good}. Ground flat is <b>SWEPT</b> at the plain rate;`
+      + ` ${LUCKY_SWEEPS} sweeps is <b>LUCKY</b>, x${GRADE_PAY.lucky}. A congested bay pays no`
+      + ` premium at all.`,
   },
   {
     id: "scrap", chapter: "economy", tier: 1,
@@ -419,12 +484,13 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "congestion", chapter: "economy", tier: 1,
     name: "Congestion",
     summary: `Past ${PILE_TIERS[0].cubes} loose cubes the bay taxes every shot and every payout.`,
-    body: `Firing into a bay that is already full is priced, in three places at once. Past`
+    body: `Firing into a bay that is already full is priced, in four places at once. Past`
       + ` <b>${PILE_TIERS[0].cubes} loose cubes</b> launches cost <b>×${PILE_TIERS[0].costMult}</b>,`
       + ` the reload runs <b>×${PILE_TIERS[0].reloadMult}</b> longer and a cleared row pays only`
       + ` <b>${Math.round(PILE_TIERS[0].payMult * 100)}%</b>; past <b>${PILE_TIERS[1].cubes}</b> it is`
       + ` <b>×${PILE_TIERS[1].costMult}</b>, <b>×${PILE_TIERS[1].reloadMult}</b> and`
       + ` <b>${Math.round(PILE_TIERS[1].payMult * 100)}%</b>.`
+      + ` It also pays <b>no timing premium</b> — SWEPT at best.`
       + ` The bay floor lights up as you cross each rung. <b>Bay Extension</b> is what buys the`
       + ` allowance back.`,
     drill: DRILLS.congestion,
@@ -521,6 +587,24 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` Everything bought here lasts the whole run and stacks with whatever the tier's build budget`
       + ` let you launch with.`,
   },
+  {
+    id: "slots", chapter: "rig", tier: 1,
+    name: "Rack slots",
+    summary: `A rig undocks with ${SLOT_BASE} systems aboard. Salvage buys room for more.`,
+    // Every number quoted, never restated: the ladder is SLOT_PRICES read out,
+    // and the roster size is UPGRADES.length, so a re-price or an eleventh
+    // system moves this topic without anybody remembering it exists.
+    // Every number quoted, never restated: the ladder is SLOT_PRICES read out
+    // and the top is SLOT_CAP, so a re-price or an eleventh system moves this
+    // topic without anybody remembering it exists. Kept short because the pane
+    // caps a topic's body — see sim/systems.ts's guide-length pins.
+    body: `Owning a system and <b>flying</b> it are different things. The rack holds`
+      + ` <b>${SLOT_BASE}</b>; only what is in it undocks, and the rest waits in the`
+      + ` <b>shed</b>, keeping every tier you paid for. Set it in the Workshop, free, before`
+      + ` any run. The ${SLOT_CAP - SLOT_BASE} slots up to <b>${SLOT_CAP}</b> cost`
+      + ` ${SLOT_PRICES.join(", ")} salvage — dearer as each buys less. A refit stop can only`
+      + ` raise what is aboard.`,
+  },
   ...systemTopics(),
   {
     id: "demolition-charge", chapter: "rig", tier: 2,
@@ -554,8 +638,8 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, run end to end.`
       + ` Each bay has its own funding target and countdown; go broke or run the clock out and the run`
       + ` ends there — there are no lives.`
-      + ` Between bays you ratchet an axis, and three times you refit. It is the only mode that`
-      + ` posts to the leaderboard, and the only one that can raise your tier.`,
+      + ` Between bays you ratchet an axis, and three times you refit. Every Mark keeps its own`
+      + ` leaderboard, and this is the only mode that can raise your tier.`,
   },
   {
     id: "contracts", chapter: "modes", tier: 1,
@@ -568,6 +652,23 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` to learn.`,
   },
   {
+    // THE SEAL, at tier 1, and that is a deliberate departure from the rule the
+    // Skydeck topic below states. The roof's topic is gated because a door the
+    // player cannot see is not worth teaching; the seal is the opposite — it is
+    // earned from the very first Mark, it is drawn on the tower from the first
+    // menu (the empty sockets), and it is spent by a button on the pause modal
+    // that a first-session player will press. A rule you can lose before you
+    // are told about it belongs at the bottom of the catalogue.
+    id: "seals", chapter: "modes", tier: 1,
+    name: "Seals",
+    summary: "Clear a Mark without retrying a bay and its floor is stamped. All ten stamps open the Skydeck.",
+    body: `A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays in one run without`
+      + ` retrying a single one. The tower stamps that floor; empty sockets are the seals still`
+      + ` owed. Retrying a bay costs this run its seal and <b>nothing else</b> — the run counts, the`
+      + ` salvage banks, the tier opens — and any later run can take it, a beaten Mark included.`
+      + ` All <b>${MARK_COUNT}</b> seals open the Skydeck.`,
+  },
+  {
     // The roof, and the last thing in the catalogue to open — gated at the top
     // of the ladder because that is exactly when the floor does (screens.ts's
     // tierOpen). A topic about a door the player cannot see would teach them
@@ -575,11 +676,16 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "skydeck", chapter: "modes", tier: MARK_COUNT,
     name: "The Skydeck",
     summary: "The day's fixed run, flown on the rig you brought. No yard, and the clauses are written for you.",
-    body: `The floor above the ladder, open once you have beaten it. One run a day, dealt from`
-      + ` the date, so everyone flies the same one. <b>No refit stops</b> \u2014 the loadout you`
-      + ` undock with is the loadout you land with \u2014 and <b>one notch a bay</b> instead of the`
-      + ` capstone's two. In their place the day writes <b>${CLAUSE_COUNT} standing clauses</b>,`
-      + ` arming at bays ${CLAUSE_STOPS.map((c) => c.fromBay).join(", ")} and riding every bay after.`,
+    body: `The floor above the ladder, open once you have beaten it and`
+      + ` <b>sealed every Mark</b> (see Seals). One run a day, dealt from the date,`
+      + ` so everyone flies the same one. <b>No refit stops</b>, and <b>one notch a bay</b>`
+      + ` instead of the capstone's two. In their place the day writes`
+      + ` <b>${CLAUSE_COUNT} standing clauses</b>,`
+      + ` arming at bays ${CLAUSE_STOPS.map((c) => c.fromBay).join(", ")} and riding every bay after.`
+      // The board is a fact about the mode, so it is stated with the rest of
+      // them — one clause, because the pane does not scroll (the copy budget
+      // in sim/systems.ts leaves this topic ~40 characters).
+      + ` Its leaderboard is one <b>day</b> at a time.`,
   },
   {
     id: "tiers", chapter: "modes", tier: 1,

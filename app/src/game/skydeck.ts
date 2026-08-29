@@ -11,9 +11,8 @@ import { newRun, REFIT_EVERY, RUN_LEVELS, type RunState } from "./run";
  *
  * Every other mode in the game asks the player to author the difficulty. A Deep
  * Run hands them the ratchet (hazards.ts: "by bay 10 they have authored their
- * own curve") and the yard (upgrades.ts's refit stops), and a Contract hands
- * them free retries against a budget proven winnable. The Skydeck removes all
- * three levers and replaces them with a DATE:
+ * own curve"), and a Contract hands them free retries against a budget proven
+ * winnable. The Skydeck takes the authoring away and replaces it with a DATE:
  *
  *  - **The run is the day's.** Its seed is the Contract board's own day key
  *    (contracts.ts's dailySeed) put through a salt, so every player who opens
@@ -21,11 +20,44 @@ import { newRun, REFIT_EVERY, RUN_LEVELS, type RunState } from "./run";
  *    weather, the same belt and the same standing clauses. The reason is the
  *    reason the Contract board is seeded that way and stated there: a board
  *    means nothing unless everyone on it flew the same thing.
- *  - **There is no yard.** Refit stops are gone (run.ts's refitAfterBay), so the
- *    rig that undocks is the rig that lands — the loadout bought against Mark
- *    10's build budget and nothing else. The Deep Run's answer to a bay going
- *    wrong is "buy your way out at the next stop"; the Skydeck's answer is that
- *    there isn't one.
+ *  - **The bays are a step past the ladder.** Mark 10's bays with the target
+ *    and launch curves read one rung further along — $1656 -> $3933 against
+ *    $31 a shot, where the capstone asks $1544 -> $3683 against $30 (level.ts's
+ *    SKYDECK_RUNG). An owner's playtest is what put it there: the roof was
+ *    flying the exact bay the ladder's last rung flies, so the only thing above
+ *    Mark 10 was the clauses.
+ *  - **The yard opens, at the roof's prices.** Refit stops land after bays 3, 6
+ *    and 9 exactly as they do on the ladder (run.ts's refitAfterBay), and the
+ *    bays pay HALF the ladder's scrap for them (level.ts's
+ *    SKYDECK_SCRAP_SHARE). This is a REVERSAL and the history is worth keeping:
+ *    the mode shipped with no yard at all, on the argument that "the rig that
+ *    undocks is the rig that lands" was its identity, and the owner ruled that
+ *    in. Playtesting ruled it out — a ten-bay run whose only decision is the
+ *    notch is a long run with one lever, and the scrap line every screen had to
+ *    carry could only ever read 0. What the tightened rate keeps is the part of
+ *    the old rule that was actually load-bearing: the player who can open this
+ *    floor has a maxed Workshop, so every rung the yard can still sell is a
+ *    tier-3 rung at one flat price, and at the ladder's payout the roof would
+ *    hand over half a ship across three stops. design/balance/skydeck-yard.md
+ *    has the measurement that set the share.
+ *
+ *    CONSUMABLES ARE STILL NOT RESUPPLIED, which is the same old rule read one
+ *    step further and the reason the Thaw Lance has a branch in run.ts's
+ *    advanceRun. A ladder run flies a lance rack that renews at every bay
+ *    boundary (upgrades.ts sizes the charges per BAY); a Skydeck run gets ONE
+ *    rack at undock and spends it down across ten bays. The reopened yard sells
+ *    a BIGGER rack — buyUpgrade issues the difference a rung adds, on top of
+ *    what is left — and never a refill, so a charge spent in bay 2 is still
+ *    spent in bay 10. A consumable that could be topped up three times a run
+ *    would be a supply line; a rung that adds three charges once is a build.
+ *
+ *    Bond Breakers already worked this way everywhere (a run magazine by
+ *    design), and DEMOLITION charges still do not — they are re-granted onto a
+ *    fresh config every bay by applyUpgrades, on the Skydeck as on the ladder.
+ *    That asymmetry is left alone deliberately rather than tidied up here:
+ *    changing it is an unmeasured nerf to a mode whose per-bay rate was swept
+ *    (sim/skydeck.ts) with the rack refilling, and it belongs to whoever
+ *    re-measures it.
  *  - **One notch a bay, not the capstone's two.** hazards.ts's picksPerBay asks
  *    for two at Mark 10 because Mark 10 opens no new axis and needs somewhere
  *    to put the pressure. Here that pressure has a home already — the clauses
@@ -43,13 +75,19 @@ import { newRun, REFIT_EVERY, RUN_LEVELS, type RunState } from "./run";
  * times, and each clause STANDS — it rides every bay from the one it arms on to
  * the end of the run.
  *
- * WHERE THEY ARM is the yard's own schedule, read backwards. Refits land after
+ * WHERE THEY ARM is the yard's own schedule, read forwards. Refits land after
  * bays 3, 6 and 9 (run.ts's REFIT_EVERY), so bays 4, 7 and 10 are exactly the
- * bays a Deep Run opens on a fresh rig. Those are the three bays the Skydeck
- * opens on a fresh CLAUSE instead. One line of the loop is deleted and the
- * other is written in its place, at the same three places, which is why
- * CLAUSE_STOPS is derived from REFIT_EVERY rather than typed out as 4/7/10: a
- * ladder that re-spaces its yard re-spaces its inspections with it.
+ * bays a run opens on a fresh rig. Those are the three bays the Skydeck opens
+ * on a fresh CLAUSE as well, which is why CLAUSE_STOPS is derived from
+ * REFIT_EVERY rather than typed out as 4/7/10: a ladder that re-spaces its yard
+ * re-spaces its inspections with it.
+ *
+ * The pairing was a substitution when the roof had no yard — one line of the
+ * loop deleted, the other written in its place — and it reads BETTER now that
+ * the stop is back, which is the happiest thing about the reversal: the run
+ * walks out of the yard having bought what it could and is handed the clause it
+ * will be carrying, in the same breath. The bays that ask the most are the bays
+ * you have just been given the chance to prepare for.
  *
  * THEY ARE DEALT, NOT DRAFTED, and that is the design decision most worth
  * arguing. The obvious shape is the shipped one — deal the Tier's pair at each
@@ -124,12 +162,22 @@ import { newRun, REFIT_EVERY, RUN_LEVELS, type RunState } from "./run";
  * per-bay rate and the implied run clear. The bands above are what that sweep
  * settled on; the numbers are in the commit message, where a balance claim has
  * to be able to be checked.
+ *
+ * The YARD's own numbers are a later and separate measurement — sim/skyyard.ts
+ * flies the whole ten-bay run through run.ts's real advanceRun/buyUpgrades on a
+ * maxed Workshop rig, at the step above, and prices the three economies (no
+ * yard / the ladder's payout / the roof's half share) against each other on
+ * paired seeds. The table is in design/balance/skydeck-yard.md.
  */
 
 /** The Mark a Skydeck run is flown at — the top of the ladder, because the
  *  Skydeck is not a rung of its own and the base bays have to come from
- *  somewhere. Every other difference between this mode and a Mark-10 Deep Run
- *  is stated in this file rather than in level.ts's ladder. */
+ *  somewhere. What the roof does to those bays afterwards — one more step of
+ *  the ladder's own target and launch curves, and half its scrap rate — is
+ *  level.ts's applySkydeckEconomy, which lives there because it is that
+ *  module's curves being read one rung further along and because run.ts (which
+ *  applies it) cannot import this file at runtime. Every other difference
+ *  between this mode and a Mark-10 Deep Run is stated here. */
 export const SKYDECK_MARK = MARK_COUNT;
 
 /** Notches the Skydeck asks for after every cleared bay. ONE, at a Mark whose
@@ -308,9 +356,18 @@ export function clauseDefs(rules: SkydeckRules): { bay: number; def: FinalDef }[
  * what a run IS, and a mode is a small set of overrides on top of it rather
  * than a sixth positional argument nobody else would ever pass.
  *
- * NO STARTING SCRAP, and no scrap earned either (main.ts's afterBayClear) —
- * there is no yard to spend it in, and a currency that only ever accumulates is
- * a number on a screen pretending to be a decision.
+ * NO STARTING SCRAP — an EMPTY HOLD, still, now that there is a yard to spend
+ * it in. The Scrap Cache unlock (meta.ts) opens a ladder run's first stop with
+ * 30 scrap already banked, and main.ts passes it to newRun for exactly that;
+ * the roof declines it on the rule that writes every other line in this file.
+ * Everyone who opens the Skydeck flies the same day, and a stop that opened
+ * further along for the pilot who happened to have bought one option would be
+ * the board ranking a purchase. It also happens to be the tighter reading, and
+ * the roof's stops are tight on purpose (level.ts's SKYDECK_SCRAP_SHARE).
+ *
+ * The scrap the bays PAY is a different question and it is answered on the
+ * config, not here: applySkydeckEconomy writes the roof's rate onto every bay
+ * (half the ladder's), so a run's income is a property of the bays it flew.
  */
 export function skydeckRunFor(
   loadout: UpgradeTiers,

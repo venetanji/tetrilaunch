@@ -17,8 +17,9 @@ ladder (`marks.ts`), the Skydeck's standing-clause stack (`skydeck.ts`), the
 congestion tax (`pile.ts` and `pile-metrics.ts`),
 whether the non-physics systems are wired up at all (`systems.ts`), whether a
 pattern Contract can actually be built (`patterns.ts`), what a human's session
-looks like next to a bot's (`playtest.ts`), and whether every screen fits every
-device (`uifit/`). `bots.ts`, `runner.ts` and `ratchet-model.ts` are shared
+looks like next to a bot's (`playtest.ts`), whether every screen fits every
+device (`uifit/`), and what a frame of HUD costs the DOM (`hudperf/`).
+`bots.ts`, `runner.ts` and `ratchet-model.ts` are shared
 parts rather than CLIs.
 
 This directory lives **outside** `app/src/`, so the app's own build never
@@ -40,14 +41,19 @@ From `app/`:
 npm run sim:balance -- --bays 1,2,3 --seeds 5 --bots middle,lob,flat,lob-rot --mods all --carry 100
 npm run sim:perf -- --counts 50,100,150,200,300,400 --steps 600
 npm run sim:renderperf -- --counts 0,100,200,300 --frames 240
+npm run sim:strategy -- --system cushion --mark 7 --bay 10 --ratchets volatile:6 --seeds 96
+npm run sim:slots -- --marks 5,10 --slots 3,4,5,6,8 --seeds 8
 ```
 
 (the `--` forwards flags through the npm script to the underlying `tsx`
 call; you can also invoke directly with `npx tsx sim/sweep.ts ...` /
 `npx tsx sim/perf.ts ...` from `app/`.)
 
-`perf.ts` and `renderperf/` are the two halves of one frame — physics and
-drawing — and neither is a frame on its own. A budget claim needs both.
+`perf.ts`, `renderperf/` and `hudperf/` are the three parts of one frame —
+physics, drawing, and writing the HUD's DOM — and none is a frame on its own.
+A budget claim needs all three, and on the device it was the third that bound:
+the whole canvas scene measured 0.414ms while the HUD's per-frame repaint was
+worth about 33fps.
 
 Both scripts print markdown tables to stdout and write full per-run JSON to
 `sim/results/` (gitignored — see below).
@@ -105,6 +111,10 @@ shot. Presets:
 
 No lookahead, no trajectory awareness — these approximate "hold roughly the
 same aim and keep firing," not a strong player.
+
+Every preset above flies ONE aiming policy. Swapping it is
+`aim-strategies.ts` (below), which is a separate axis from the preset: a
+strategy is hooks *inside* `aim`'s search, not a bot of its own.
 
 #### Valuing a blast (`demo`)
 
@@ -289,6 +299,31 @@ mode's one hard rule: a slag clause took bays 7 and 10 to 0% and stayed there,
 which is `theme.ts`'s `countsForLines` showing up as a measurement, and
 `skydeck.ts` now refuses to deal dead cargo as a standing rule at all.
 
+## `skyyard.ts` — what a refit stop is worth on the roof
+
+The Skydeck's yard reopened after a playtest (`run.ts`'s schedule note carries
+the history), and this is the sweep that priced it.
+
+```sh
+npx tsx sim/skyyard.ts --mark 3 --seeds 20 --days 2 --pays 2/10,1/5,2/0,1/0
+```
+
+Two halves, and the FIRST one is the decisive one. **Purchasing power** is
+arithmetic: the roof's pilot has a finished Workshop, so every rung the yard can
+sell them is a tier-3 rung at one flat price, and income is a function of lines
+cleared alone — so "what does this payout buy" has an exact answer per
+lines-a-bay, with no bot in it. That matters because lines are the bots' weakest
+statistic. The **flights** then answer what the table cannot: whether the
+tightened yard still leaves a run that can be flown, over paired seeds through
+`deeprun.ts`'s real `advanceRun`/`buyUpgrades`.
+
+`--mark` defaults to 6 and the published run uses 3, for `skydeck.ts`'s own
+reason: at Mark 10 the instrument is on the floor and cannot show a change. The
+rig is the Workshop ceiling MINUS the Loader Magazine — `marks.ts`'s
+`CALIBRATION_TRACKS` refusal, borrowed, because a shorter reload buys a bot that
+fires on every cooldown more shots at the same fixed arc and nothing else. The
+write-up is `design/balance/skydeck-yard.md`.
+
 ## `pile.ts` — congestion-tax sweep
 
 The three questions `level.ts`'s `PILE_TIERS` cannot be tuned without.
@@ -367,7 +402,14 @@ re-derived rather than remembered.
 ```sh
 npm run sim:patterns
 npm run sim:patterns -- --seeds 3000 --tiers 5,6,7 --orders 200
+npm run sim:patterns -- --seeds 60 --tiers 9,11 --orders 40 --per-variant 25
 ```
+
+The default `--tiers` list runs the ladder **and the roof**
+(`contracts.ts`'s `SKYDECK_CONTRACT_TIER`), because Wide Gauge — the
+10-cell-line pentomino variant — exists on no other rung, and a sweep that
+skipped it would report "every variant packs" over a table missing the one
+variant whose geometry is new.
 
 It exists because "provably feasible" turned out to have two meanings and the
 generator only guaranteed the weaker one. `tiling.ts` proves the inventory
@@ -397,9 +439,12 @@ nothing to them either, which would be a real finding about something we sell.
 Then: a human's shots-per-line, which sets the whole economy and which every
 balance number derived from the bots inherits the bots' badness at; whether the
 clock binds at all; how close to broke a bay really came, which an
-end-of-bay total hides; the abilities the bots never use; and the compactor
+end-of-bay total hides; the abilities the bots never use; the compactor
 window, which a shot count cannot see because "aim time" is two behaviours —
-aiming, and waiting for the bar — wearing one number.
+aiming, and waiting for the bar — wearing one number; and the **timing-grade
+band mix**, which `timing.ts`'s arms can only put a floor under (17–32% of rows
+in the paying bands). A human well under that floor is a mechanic nobody can
+see; a human well over it is a mechanic that has stopped being a choice.
 
 ## `ratchet-model.ts` — the difficulty model the sweeps share
 
@@ -433,6 +478,404 @@ bomb-carrying player clears those bays* is now false: `demo` does. What is still
 true is that **this model** excludes content axes, so a `spread` number prices
 the ladder's arithmetic and not its cargo. To price a material, ratchet it
 explicitly and fly `aim` against `demo` on a rig that carries charges.
+
+## `winnability.ts` — which notch combos can a Deep Run survive?
+
+The question no per-bay sweep can be asked. `sweep.ts` prices a bay, `marks.ts`
+prices a Mark, `pile.ts` prices the congestion tax — and a *build of the run* is
+eight ratchet picks whose entire cost is that they compound, which both existing
+sweeps deliberately replace with `ratchet-model.ts`'s average-run model (content
+axes excluded, and it says so).
+
+```sh
+npm run sim:winnability                                   # marks 5,10 · 2 seeds
+npm run sim:winnability -- --marks 1,5,10 --seeds 4 --trace
+npm run sim:winnability -- --marks 7 --mode cheapest --seeds 3
+npm run sim:winnability -- --mode counter --marks 7 --bay 10 \
+  --ratchets volatile:6 --counters cushion1,cushion2,cushion3 --seeds 8
+npm run sim:winnability -- --mode counter --marks 10 --bay 10 \
+  --ratchets slag:3 --counters dump,dump+incin1,dump+incin3 --seeds 48 --build material
+```
+
+Three modes, and the third one exists because the first could not answer its
+question. `--mode combos` sweeps the notch space; `--mode cheapest` walks the
+loadout ladder upward; **`--mode counter`** prices ONE kit against ONE bay under
+an EXPLICIT `--ratchets` stack, paired on the same seeds. A counter changes the
+physics, the physics changes where every later shipment lands, and ten bays of
+that moves the wall by more than the counter is worth — measured at Tier 7 on
+`max:volatile`, the three cushion tiers came back identical to each other and
+two bays from the baseline in the *wrong* direction. That is run-level leverage,
+not an effect. The paired single-bay comparison is the shape `pile.ts` already
+uses for the congestion tax, and it has the resolution.
+
+`--mode counter` also prints a **`saved$`** column (`runner.ts`'s
+`incineratedFunds`). It is the one column that measures a SYSTEM rather than an
+outcome, and it exists because the Incinerator is the only track whose whole
+effect is the ABSENCE of a charge — in win rate, lines, shots and ending funds
+that is indistinguishable from never having been charged. A row with wins and a
+zero there is a row the hood did not touch, which is a finding rather than a null
+result (`design/balance/winnability-sweep-findings.md` §5c).
+
+Four new parts, three of them shared modules rather than CLIs:
+
+| file | what it is |
+|---|---|
+| `draft-space.ts` | the reachable notch-combo space, **enumerated** — real hands from `hazardOffers`, only picks `togglePick` accepts — plus the draft POLICIES the sweep samples with |
+| `deeprun.ts` | ten bays end to end through `run.ts`'s own `advanceRun`/`buyUpgrades`. No `--carry` stand-in and no modelled scrap schedule: the couplings are the real ones |
+| `builds.ts` | the loadout vocabulary (`loadoutFor`, `PRIORITY_ORDERS`), lifted out of `marks.ts`, which cannot be imported — it is a CLI with top-level output |
+| `counters.ts` | the counters the bots did not use (`bondHands`, `thawHands`, `dumpHands`). **No prototypes are left**: `thawKit` drives the shipped Thaw Lance, `cushionKit` installs the shipped Impact Cushion and `incinKit` the shipped Incinerator, all through `applyUpgrades`, so this file no longer models any system the game does not have |
+
+### Covered vs sampled — printed in every run
+
+The combo space is **exhaustively enumerated** and only **partly played**, and
+the banner prints both numbers because the gap is the result's main caveat.
+Enumerating is free (2^8 = 256 reachable paths below the capstone, 3^8 = 6561 at
+it — milliseconds either way); playing one combo costs seconds.
+
+- **Covered exhaustively**: the CORNERS — one `max:<axis>` policy per axis the
+  Mark deals. A cliff is found by walking to the edge, not by sampling the
+  middle.
+- **Sampled**: the interior — `spread`, `dodge`, and `--random N` seeded walks.
+- **Not covered at all**: policies that change their mind mid-run; the second
+  Final Inspection clause unless `--finals both`; seeds beyond `--seeds`.
+
+### The verdict reads the WALL, not the clear rate
+
+A run needs every bay, so — `marks.ts`'s own arithmetic — 90% a bay is 35% of
+runs and 80% a bay is 11%. At any seed count this tool can afford, 0 clears is
+exactly what a correctly-tuned ladder looks like, so a clear rate cannot tell a
+correct Tier from an impossible one. What can is **where the run stops**: dying
+on bay 2 every seed and dying on bay 9 every seed both score zero and are
+nothing alike. So `wall` is the median bay a run died in, `MARGINAL_WALL` is 6
+(the bay after the second refit stop — a run that has been handed every lever
+and is still going is failing on play), and a clear only promotes.
+
+### A policy is built per RUN, not per row
+
+Worth stating here because it is a rule the harness already had and this tool
+broke: `bots.ts` rebuilds a bot per run "so that two runs given the same seed
+reproduce identically". `draft-space.ts` shipped the opposite — one built policy
+per table row, reused across every seed, Final clause and `--build` order, so a
+sampled walk carried its RNG stream forward and a run's draft choices depended
+on how many drafts all the runs before it had reached. Same seed, same options,
+two different combos.
+
+Two things it broke, and the second is the one that hides: identical seeds
+stopped reproducing, and the best-of-`--build` comparison stopped being paired
+(the second rig was flown on different draft choices from the first, so the row
+compared two runs rather than two rigs). `DraftPolicySpec` is the fix — a name
+for the table and a `build(runSeed)` the driver calls once per run — and
+`sim/systems.ts` pins both halves, including a check that a SHARED policy still
+misbehaves, so the guard cannot pass by being blind.
+
+Only `random:*` rows were ever affected: `spread`, `dodge` and every
+`max:<axis>` policy are stateless.
+
+### The pessimism ledger
+
+Two of `sim/README.md`'s oldest caveats are **closed** here: the pilot fires
+demolition charges (`bots.ts`'s `demo`) *and* Bond Breakers
+(`counters.ts`'s `bondHands`), and it can make the DELIBERATE DISCARD
+(`counters.ts`'s `dumpHands` — firing a shipment that can never complete a row into
+the plant's intake, which `chute.ts` has always called a move and no bot had ever
+made, because every bot here aims at a landing slot and the machine is not one).
+Still open: no lookahead, a fixed landing target,
+no reading of the pile, no re-planning of the draft, and **nothing aims a shipment
+high on purpose** — which is what leaves half of the Incinerator's flue unmeasured. So a combo this tool calls
+**winnable is winnable**; a combo it calls **unwinnable beat a competent pair of
+hands holding every existing counter**, which is the strongest claim the
+instrument can make and still not a proof.
+
+### `--build` is measured, not chosen
+
+`spatial` by default. At Mark 5 over 6 seeds under `dodge` the four orders wall
+at bay 5 (spatial), 4 (material), 4 (economy), 3 (full); at Mark 7, spatial 6 vs
+material 5. `full` is last because it is the only order reaching MAGAZINE, which
+`marks.ts` already records as a self-inflicted wound to a bot that fires on every
+cooldown. **The exception**: `spatial` carries no DEMOLITION, so a slag row
+measured on it is measuring a rig with no answer — re-run slag on
+`--build material`.
+
+### It could fly the Skydeck, and deliberately does not yet
+
+`deeprun.ts` asks `run.ts`'s **run-aware** schedule — `finalDraftFor`,
+`picksForRun`, `refitAfterBay` — rather than their ladder twins, because #124's
+note on those functions names each difference as "a place where a caller that
+forgot to ask would silently fly the wrong mode". So the driver is already
+mode-correct: hand it a `RunState` built by `skydeck.ts`'s `skydeckRunFor`
+instead of by `newRun` and it would shut the yard, skip the drafted inspection
+and charge one notch at the capstone, because it asks the run and the run
+answers.
+
+**That is a possibility, not a feature, and nothing here has been pointed at a
+daily.** Three things would have to be decided first, and all three are design
+questions rather than plumbing:
+
+- **What "winnable" means for a mode with no refit stop.** The wall statistic
+  and `MARGINAL_WALL` are both argued from the ladder's three refit stops ("a
+  run that has been handed the scrap lever and used it"). A Skydeck run is
+  handed no lever, so the threshold means something else there.
+- **What the cheapest-strategy search would even search.** Two of its three
+  levers — the loadout ladder and the refit stance — collapse to one on a mode
+  where the rig that undocks is the rig that lands.
+- **Whether one day's seed is a sample at all.** The whole point of the daily
+  is that everyone flies the same board; a sweep over seeds is measuring
+  something the mode does not have.
+
+`skydeck.ts`'s own harness answers the questions that mode actually raises. The
+note is here so the option is on the record rather than rediscovered.
+
+### The aiming strategy is now a dimension of the answer
+
+`--strategies naive,cushion,lance` (default `naive`) runs the cheapest-strategy
+search once per aiming policy on the same seeds, prints the policy in every row
+and reports the cheapest clear across all of them. Before this the search
+walked three levers — the loadout ladder, the refit stance and the draft — and
+held a fourth fixed without saying so.
+
+Two `--build` orders exist to make that dimension mean something: `chill`
+(Thaw Lance first) and `liner` (Impact Cushion first). No other order installs
+either track, so a cushion-aware pilot flown on `spatial` is a pilot with no
+hands — the third time this harness has made that mistake.
+
+### Findings
+
+Live in `design/balance/` — `winnability-sweep-findings.md` (what the sweep
+found), `aim-strategy-findings.md` (what the sweep found once the pilot could
+play the systems it was pricing), `system-slots.md` (what the rack's WIDTH is
+worth, and the fact that every table in the other two was flown on a five-to-
+seven-track rig without saying so) and `counter-systems-proposal.md` (what to
+build about it). All quote the numbers a re-run reproduces; none is a
+substitute for re-running it.
+
+## `slots.ts` — how WIDE does a rig have to be?
+
+```sh
+npx tsx sim/slots.ts --marks 5,10 --slots 3,4,5,6,8 --seeds 8
+npx tsx sim/slots.ts --marks 7 --slots 4 --content cryo --mounts mount-generic,mount-cryo --seeds 8
+npx tsx sim/slots.ts --marks 10 --slots 4,8 --content skydeck --seeds 8
+```
+
+The instrument behind the **system slots** economy (`meta.ts`'s
+`SLOT_BASE`/`SLOT_PRICES`), and it makes an axis explicit that every other sweep
+in this directory has been holding at an accidental value.
+
+`winnability.ts` and `marks.ts` both spend a Mark's budget through
+`builds.ts`'s `loadoutFor`, which walks a named priority order breadth-first —
+so how many DISTINCT systems the rig ends up carrying is a side effect of how
+long that order happens to be. **Every table in `design/balance/` was flown on
+an order of five to seven tracks, and none of them says so**, because until
+slots existed nothing turned on it.
+
+Three axes, crossed:
+
+| axis | flag | what it varies |
+|---|---|---|
+| width | `--slots` | how many systems may be MOUNTED (`builds.ts`'s `mountedLoadout`) |
+| choice | `--mounts` | WHICH ones, as a full-roster priority order |
+| content | `--content` | what the belt and the ratchet stack actually deal |
+
+`--mounts auto` (the default) picks the order whose first seat is the content's
+own answer — the lance for `cryo`, the liner for `volatile`, the rack for
+`slag` — which is what makes the viability table a test of "with the RIGHT
+choices" rather than of one fixed shopping list. Naming several orders instead
+crosses them against the content, which is the identity table.
+
+### The pilot matches the rack, and only when the belt is asking
+
+A strategy (`aim-strategies.ts`) is flown when the content has an answer AND the
+rig is carrying it; everywhere else the pilot is `naive`, which is what every
+existing table was measured on. Both halves are needed. Keying on the rack alone
+flew `clean` at ten slots with `lance` and `clean` at four with `naive` — two
+different pilots in the two cells of a paired comparison about the rig — and it
+is not a neutral swap, since `aim-strategy-findings.md` puts the lance's PLAY at
+−15 of 48 on top of a +16 rung. The wider rack would have been handed a worse
+pilot and the slot axis would have paid for it.
+
+### Read the mean, not the clears
+
+At the Tiers a slot ladder has to be priced at, the bots clear whole runs so
+rarely that `clears` is 0 in most cells and the median moves in whole bays.
+`avg` — mean bays cleared — moves in tenths and is the only readout here fine
+enough to show one slot paying for itself. The wall is still printed, and
+`winnability.ts`'s doctrine still applies: a combo that dies on bay 2 and one
+that dies on bay 9 are nothing alike.
+
+### Two biases this tool inherits and cannot fix
+
+- **The tenth slot is unmeasurable here.** The mount orders end
+  `… incinerator, magazine`, and those are precisely the two systems this
+  harness cannot fly: `marks.ts`'s CALIBRATION_TRACKS note records that the
+  Magazine "reads as a self-inflicted wound to a bot that fires on every
+  cooldown", and PR #156 measured the Incinerator at exactly **zero** for a
+  pilot that never aims into the flue. So the 8 → 10 step measures the
+  instrument, not the game, and every claim in `design/balance/system-slots.md`
+  stops at eight.
+- **One content per run.** A real ratchet stack is several axes at once, and a
+  rack that must answer all of them is worth more than any corner policy can
+  show. The `spread` profile is the closest this tool gets.
+
+### Findings
+
+`design/balance/system-slots.md`.
+
+## `aim-strategies.ts` — the pilot, as a swappable policy
+
+Three ship systems are not passive. The Thaw Lance, the Impact Cushion and the
+Incinerator (in flight) are worth what a **decision** makes them worth, and
+until this landed the harness had exactly one decision-maker: `bots.ts`'s
+`aim`, which reads gaps, re-solves against the wind, and does nothing else.
+Measured against it the cushion's three rungs came back at 56/63/59 wins of 96,
+and `winnability.ts`'s own ledger says why — *"no bot lobs a volatile shipment
+on purpose"*.
+
+A strategy is **three optional hooks** over that same pilot, never a second bot:
+
+| hook | when | what it decides |
+|---|---|---|
+| `abilities(g, now)` | every tick, outside the cooldown | spend the consumables (where `thawHands` fires its own) |
+| `target(g, now, base)` | per shot | where to land this shipment (null = keep the gap read) |
+| `select(g, now, pool, shot)` | per shot | which arc gets it there (null = keep nearest/steepest) |
+
+`select` re-ranks the candidates the search **already flew** (`bots.ts`'s
+`aimCandidates`, which hands back its pool). It never runs a second aim search:
+two arms of one table have to be flying the same cannon, or the row measures
+the search grid.
+
+- **`naive`** — no hooks. The control arm, on the *identical code path*, not a
+  re-implementation. `systems.ts` pins that a bay flown with it is
+  byte-identical to one flown without a strategy, and pins separately that the
+  same comparison can see a strategy that changes the aim and one that changes
+  only the arc.
+- **`strike`** — the cryo-striking bot the findings asked for by name: shipments
+  are sent at settled frozen cubes, over the **shipped** greedy lance trigger.
+  Targets come from `lineClear.ts`'s own `nextColdCryo`, asked twice (once with
+  the cube the lance is about to take removed), so every exclusion the game
+  applies is intact and none is copied here.
+- **`lance`** — `strike` plus charge discipline: the lance is **held** for a
+  frozen cube within `LANCE_URGENT_CELLS` of the advancing face, the one a
+  shipment can no longer reach in time. The pair exists so the two halves are
+  attributable — a strategy that changes two things produces one number for
+  both. Measured, **both halves lose wins**; see `aim-strategy-findings.md` §4.
+- **`cushion`** — lands volatile shipments **inside** the liner on the
+  **slowest** arc under `cushionedTrigger`'s own threshold, and refuses to drop
+  a non-volatile shipment onto a slot whose top cube is an intact volatile one
+  (the deferred bomb §5b-ter identified). Inert with no liner aboard, which is
+  what makes the arms table's control row a control.
+- **`incinerator`** — deliberately **absent**. The track is not on staging; the
+  placeholder throws rather than quietly behaving like `naive`, which would let
+  an arms table report the system as worth nothing.
+
+### One relationship worth knowing about
+
+Pinned in `systems.ts`, and neither table shows it alone: the aim search's
+softest power candidate is **19**, so every arc a bot can fire arrives at
+**22.7-25.6 px/step** — *entirely above* `VOLATILE_TRIGGER_SPEED` (22). That is
+the mechanical reason no bot lobs volatile safely: none fires soft enough. The
+first liner rung (25.3) sits just above the grid's softest arrival, which is
+precisely what gives a cushion-aware pilot a shot to choose.
+
+## `strategy-arms.ts` — what the system pays vs what the player does with it
+
+```sh
+npx tsx sim/strategy-arms.ts --system cushion --mark 7 --bay 10 \
+  --ratchets volatile:6 --seeds 96 --build material
+npx tsx sim/strategy-arms.ts --system lance --ratchets cryo:3 --seeds 48
+```
+
+A **2x2**: system off/on crossed with pilot naive/aware, one bay, one explicit
+stack, every cell on the same seeds inside one process. Two arms cannot answer
+the question — what they measure is *(system + a pilot who cannot use it)*
+minus *(no system)*, and a pilot who cannot use it is a floor of unknown depth.
+The tool prints the system's passive effect, the strategy's effect, their
+interaction, and the totals.
+
+The no-system/aware cell means different things by system, so each declares
+which: `expectInert: true` (cushion) makes it a **control** that must land on
+no-system/naive; `expectInert: false` (lance) makes it a **measurement** — the
+free counter-play a player gets with no rig at all.
+
+`--aware <strategy>` overrides which policy plays the aware cells. Use it when
+a strategy changes more than one thing: run the tool twice against the same
+control and each step is one change. That is how `naive → strike → lance` reads
+as two separate measurements instead of one number for two rules.
+
+Flags: `--system`, `--aware`, `--mark`, `--bay`, `--ratchets`, `--seeds`,
+`--tiers`, `--build`, `--json`.
+
+## `timing.ts` — the timing grade, and the economy built on it
+
+`src/game/grades.ts` prices a row by WHEN it closed (excellent / good / swept /
+lucky — a 100ms window at the top, the bar's own direction below it, and two
+gates over both). That is only a design if two pilots who play differently land
+in different bands, and only a BALANCE claim if the band decides whether the bay
+clears. This tool answers both, plus the two economy questions that ride on them.
+
+**Four arms**, all on one bot and one aim search, so the difference between two
+rows is the policy and literally nothing else:
+
+| arm | is | measures |
+|---|---|---|
+| `sweep` | `naive` | today's pilot — fires the instant cooldown and purse allow |
+| `timed` | `timed` | holds fire until the shipment will land inside an advancing stroke |
+| `excel` | `excellent` | holds for the CRUSH — the last stretch of the advance |
+| `burn` | `naive` on the `impatient` preset | maximum volume, no patience |
+
+**Four modes:**
+
+```sh
+npx tsx sim/timing.ts --marks 4,8,10 --bays 1,5,10 --seeds 6
+npx tsx sim/timing.ts --mode target --marks 10 --bays 5,10 --seeds 6
+npx tsx sim/timing.ts --mode burn   --marks 10 --bays 5,10 --seeds 6
+npx tsx sim/timing.ts --mode scrap  --marks 10 --seeds 6 --skydeck
+```
+
+- **`arms`** (default) — the grade census: win rate, lines, shots and the four
+  bands' shares per (mark, bay, arm). Prints `End/Target`, which is **the wrong
+  statistic and is there to say so**: a bay opens its settle window the moment
+  the target is met, so every winning arm lands near 1.0 whatever it banked per
+  shot.
+- **`target`** — the one that chooses a number. Multiplies the bay's own target
+  and nothing else, and reads the win rate per arm at each step. Margin has to
+  be measured by MOVING THE BAR, because of the saturation above.
+- **`burn`** — the funds→scrap exchange rate. Deltas are against `--baseline`
+  (default `timed`): the opportunity cost of manufacturing rows is the
+  disciplined play you gave up, not the undisciplined one you were not making.
+  `--baseline sweep` prints the other reading, in which the loop is free almost
+  everywhere — free relative to a pilot who was wasting the money anyway.
+- **`scrap`** — can the first refit stop sell a tier-3 rung? Reports rungs
+  afforded, which is the number that matters: one is a choice, five is a
+  shopping trip.
+
+Flags: `--marks`, `--bays`, `--seeds`, `--build`, `--skydeck`, `--mode`,
+`--baseline`, `--target-mults`, `--json`.
+
+**Two pessimism items of its own**, on top of `winnability.ts`'s standing
+ledger, and both run the same way: the timed arms predict the bar at its
+NOMINAL speed (so a bay dragging under rebar fires early), and their flight
+estimate is one constant for every arc. Both cost the arms grades they aimed
+for, so a timed share reported here is a FLOOR on a human's.
+
+**And one finding that is really a limit of the instrument.** Under the shipped
+100ms EXCELLENT window every arm banks 0-4% of its rows in the top band,
+including the one built to hunt it. These pilots cannot deliberately drop cargo
+into a row that is one cube short at the moment the press arrives — one flight
+constant against a 33-107 step spread, and no read of the pile — and that is the
+only way into the band. Treat EXCELLENT shares from this tool as a floor of
+roughly zero, and read GOOD as the arms' real separator.
+
+Results and the tuning argument: `design/balance/timed-clears.md`.
+Pictures of the callout: `sim/uifit/grade-shots.ts`.
+
+Four throwaway probes live beside it and are named in the findings:
+`_scratch-target.ts` (win rate AND seconds-to-win as a bay's target is
+multiplied — the calibration that chose the recalibrated curve),
+`_scratch-pacing.ts` (one upgrade track at three tiers, everything else stock —
+the decomposition that acquitted the Reactor as the cause of short bays),
+`_scratch-congestion.ts` (the share of cleared lines sold out of a congested
+bay, per arm — the congestion gate's exposure) and `_scratch-excelprobe.ts`
+(three arms, one bay, one seed — the starvation the `excellent` arm's patience
+rule exists to fix).
 
 ## `perf.ts` — physics step-cost sweep
 
@@ -526,9 +969,54 @@ These are before/after numbers on one machine and a ranking of draw paths, not
 a device budget. They are also worthless on a loaded machine — check the run
 is alone before trusting a delta.
 
+## `hudperf/` — what does a frame of HUD cost the DOM?
+
+The third half of the frame, and on a phone it turned out to be the biggest
+one. `perf.ts` times the physics, `renderperf/` times the canvas — and neither
+of them touches `main.ts`'s `syncHud`, which writes the HUD's DOM once per
+drawn frame. The device measurement in
+`docs/superpowers/specs/2026-08-27-background-layer-split-design.md` put about
+**33fps of a 120Hz CPH2573 frame in that one call's repaint**, against 0.414ms
+for drawing the entire canvas scene.
+
+```sh
+npm run sim:hudperf                       # census + the five pins
+npm run sim:hudperf -- --frames 900
+npm run sim:hudperf -- --no-assert        # census only, never fails
+```
+
+It boots the **shipping page** — `index.html`, the real `main.ts` — drives the
+real App through the dev-only `window.__tl` handle, and counts DOM mutations
+per frame under `#overlay` with a `MutationObserver`, tallied per node. Three
+arms: an idle bay (loaded cannon, nobody touching it), a live one (firing
+whenever the cannon is loaded), and the idle one again with every CSS
+animation stilled, which is an **attribution** arm rather than a proposal —
+once `syncHud` stops writing on quiet frames, the style work left over belongs
+to running keyframes and it is worth knowing how much.
+
+**Mutation counts, not milliseconds**, for the same reason `renderperf/`'s
+draw counts travel and its timings do not: headless Chromium rasterises in
+software on a desktop CPU. A mutation is the *input* to the phone's
+style/layout/paint bill rather than a measurement of it, and a frame that
+mutates nothing cannot repaint. Chromium's own `RecalcStyleDuration` and
+`LayoutDuration` are pulled over CDP alongside as corroboration.
+
+The five pins are the contract the split has to keep, and each one exists
+because the obvious cheap fix violates it: an idle bay writes nothing but the
+clock; the clock writes once a second; the reload fill still moves on
+essentially every reloading frame (this is what a flat frame-gate breaks); no
+HUD write names a layout property; and a funds change reaches the DOM on the
+**very next frame** (this is what a time-gated throttle breaks).
+
+`systems.ts` holds the browser-less half of the same contract — that the three
+bar fills are still transforms, that the caches are still dropped in one place
+— because a fill respelled back to a `width` passes every `uifit` assertion:
+the box is identical either way, which is exactly the point.
+
 ## `uifit/` — does every screen fit every device?
 
-The only harness here that runs a browser besides `renderperf/`. `systems.ts` checks the layout
+The only harness here that runs a browser besides `renderperf/` and
+`hudperf/`. `systems.ts` checks the layout
 solver's *arithmetic*; `uifit` checks what that arithmetic plus
 `src/styles/app.css` actually **lay out** in a real engine, at real device
 viewports with real landscape safe-area insets.

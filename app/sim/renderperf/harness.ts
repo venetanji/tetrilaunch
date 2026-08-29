@@ -20,17 +20,19 @@ import Matter from "matter-js";
 import { Game } from "../../src/game/game";
 import { makeBaseLevel } from "../../src/game/level";
 import { CELL, WORLD } from "../../src/game/engine";
-import { PIECE_COLORS } from "../../src/game/theme";
+import { PIECE_COLORS, shipmentColor, type Material, type PieceType } from "../../src/game/theme";
 import { mulberry32 } from "../../src/game/mods";
 import { JOINT_DAMPING, type Cube } from "../../src/game/pieces";
 import { render } from "../../src/game/render";
 import type { FxEvent } from "../../src/game/fx";
+import { setBlitSkipper, startCensus, stopCensus, type DrawCensus } from "./probe";
 
 export interface RenderPerfOptions {
   /** Cubes on the field. */
   count: number;
-  /** "loose" = unjointed cubes; "cliques" = 4-cube K4 groups, as pieces.ts welds them. */
-  variant: "loose" | "cliques";
+  /** "loose" = unjointed cubes; "cliques" = 4-cube K4 groups, as pieces.ts welds
+   *  them; "mixed" = cliques whose cargo VARIES, as a played bay's does. */
+  variant: Variant;
   /** Timed frames (a 60-frame warmup runs first and is not timed). */
   frames: number;
   /** CSS viewport the frame is drawn at. */
@@ -49,6 +51,9 @@ export interface RenderPerfOptions {
    */
   layers?: SceneLayers;
 }
+
+export type Variant = "loose" | "cliques" | "mixed";
+export const VARIANTS: readonly Variant[] = ["loose", "cliques", "mixed"];
 
 export interface SceneLayers {
   cubes: boolean;
@@ -103,7 +108,39 @@ function placeLoose(g: Game, n: number, rng: () => number): void {
   }
 }
 
-function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: number): void {
+/**
+ * WHAT A CLIQUE IS MADE OF, and why "mixed" had to exist.
+ *
+ * `placeCliques` gives every cube in the field the same type, the same colour
+ * and the same material, so render.ts's sprite cache answers all of them from
+ * ONE baked face. That is a fine scene for timing fill and a misleading one for
+ * counting rasteriser state: a played bay stacks shipments of seven types in
+ * six materials, and each combination is a different baked canvas for the
+ * rasteriser to bind. sim/renderperf --probe counts source switches, and against a monochrome
+ * pile that count is a property of the harness rather than of the game.
+ *
+ * So "mixed" varies the cargo the way a bay does — per PIECE, not per cube,
+ * because pieces.ts spawns a shipment's four cubes together and game.ts keeps
+ * them adjacent in `cubes`. That run structure is the whole point: it is what
+ * decides whether consecutive stamps share a texture.
+ */
+const MIXED_TYPES: PieceType[] = ["I", "O", "T", "L", "J", "S", "Z"];
+const MIXED_MATERIALS: Material[] = ["standard", "cryo", "rebar", "volatile", "tar", "magnetic"];
+
+function cliqueCargo(index: number, mixed: boolean): { type: PieceType; color: string; material: Material } {
+  if (!mixed) return { type: "O", color: PIECE_COLORS.O, material: "standard" };
+  // The material stride must be COPRIME WITH THE LIST LENGTH, or it walks a
+  // subgroup instead of the whole list. Six materials with a stride of 3 visits
+  // indices {0, 3} and nothing else — standard and volatile forever — which is
+  // the bug this comment used to describe itself as avoiding. Five is coprime
+  // with six, so every material appears, and 5 against the 7 types gives 42 of
+  // the 42 possible pairings rather than 14.
+  const type = MIXED_TYPES[index % MIXED_TYPES.length];
+  const material = MIXED_MATERIALS[(index * 5) % MIXED_MATERIALS.length];
+  return { type, color: shipmentColor(type, material), material };
+}
+
+function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: number, mixed: boolean): void {
   const cliqueCols = Math.max(1, Math.floor(COLS / 2));
   const offsets: [number, number][] = [[0, 0], [1, 0], [0, 1], [1, 1]];
   let placed = 0;
@@ -113,6 +150,7 @@ function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: num
     const row = Math.floor(cliqueIndex / cliqueCols);
     const baseX = START_X + col * CELL * 2;
     const baseY = START_Y - row * CELL * 2;
+    const cargo = cliqueCargo(cliqueIndex, mixed);
     const clique: Cube[] = [];
     for (const [ox, oy] of offsets) {
       if (placed >= n) break;
@@ -121,8 +159,13 @@ function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: num
       const body = makeCubeBody(x, y);
       Matter.Composite.add(g.phys.world, body);
       const cube: Cube = {
-        body, type: "O", color: PIECE_COLORS.O, blinkStart: null,
-        material: "standard", struck: true,
+        body, type: cargo.type, color: cargo.color, blinkStart: null,
+        // Struck, like every other cube these harnesses place: an unstruck cryo
+        // cube draws its frost sprite, which is a different bake and a valid
+        // scene, but "which face is on screen" is not what the variant is
+        // varying and one unlucky material should not silently change the
+        // measurement's meaning.
+        material: cargo.material, struck: true,
       };
       g.cubes.push(cube);
       clique.push(cube);
@@ -151,7 +194,10 @@ function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: num
 function busyEffects(now: number): FxEvent[] {
   return [
     { kind: "shatter", x: 900, y: 500, color: PIECE_COLORS.I, t0: now - 200 },
-    { kind: "payout", x: 700, y: 400, amount: 120, t0: now - 300 },
+    // Graded, not null: the callout is a second `fillText` with its own shadow
+    // on the busiest toast in the set, and a frame budget measured without it
+    // would be a budget for a payout the game no longer draws.
+    { kind: "payout", x: 700, y: 400, amount: 120, grade: "excellent", congested: false, t0: now - 300 },
     { kind: "rowflash", y: 640, x0: 0, x1: WORLD.width, t0: now - 100 },
     { kind: "explosion", x: 800, y: 560, r: 120, t0: now - 150 },
     { kind: "salvage", x: 820, y: 520, amount: 9, t0: now - 250 },
@@ -161,12 +207,12 @@ function busyEffects(now: number): FxEvent[] {
   ];
 }
 
-function buildGame(variant: "loose" | "cliques", n: number): Game {
+function buildGame(variant: Variant, n: number): Game {
   const cfg = { ...makeBaseLevel(0), timeLimitSec: 0 };
   const g = new Game(cfg);
   const rng = mulberry32(1000 + n);
   if (variant === "loose") placeLoose(g, n, rng);
-  else placeCliques(g, n, rng, cfg.jointStiffness);
+  else placeCliques(g, n, rng, cfg.jointStiffness, variant === "mixed");
   return g;
 }
 
@@ -184,7 +230,21 @@ function percentile(sorted: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
 }
 
-export function runRenderPerf(opts: RenderPerfOptions): RenderPerfResult {
+/**
+ * Everything both the timed sweep and the draw-call census need: a sized
+ * canvas, a settled pile, and a closure that paints one frame of it.
+ *
+ * Shared rather than copied because the census is only worth anything if it is
+ * counting the SAME frame the sweep times — two scene builders that drifted
+ * apart would have the counts describing one scene and the milliseconds
+ * another, which is the failure mode that makes an attribution table lie.
+ */
+function prepare(opts: RenderPerfOptions): {
+  canvas: HTMLCanvasElement;
+  g: Game;
+  draw: (t: number) => void;
+  now: number;
+} {
   const canvas = document.getElementById("game") as HTMLCanvasElement;
   canvas.style.width = `${opts.cssW}px`;
   canvas.style.height = `${opts.cssH}px`;
@@ -236,6 +296,13 @@ export function runRenderPerf(opts: RenderPerfOptions): RenderPerfResult {
     now += DT;
     draw(now);
   }
+  return { canvas, g, draw, now };
+}
+
+export function runRenderPerf(opts: RenderPerfOptions): RenderPerfResult {
+  const { canvas, g, draw, now: t0now } = prepare(opts);
+  const ctx = canvas.getContext("2d")!;
+  let now = t0now;
 
   const durations = new Array<number>(opts.frames);
   for (let i = 0; i < opts.frames; i++) {
@@ -259,6 +326,96 @@ export function runRenderPerf(opts: RenderPerfOptions): RenderPerfResult {
     p95Ms: percentile(sorted, 0.95),
     worstMs: sorted[sorted.length - 1],
     overBudgetPct: (durations.filter((d) => d > FRAME_BUDGET_MS).length / durations.length) * 100,
+    frames: opts.frames,
+  };
+}
+
+/**
+ * COUNT one frame's draw commands instead of timing them.
+ *
+ * The counts are what survive the trip to a different machine. Headless
+ * Chromium's milliseconds rank draw paths and compare a before against an
+ * after; its `drawImage` count is the phone's `drawImage` count exactly, and so
+ * is the number of texture switches inside it. When the spec's three open
+ * questions are asked here, the answers are device answers.
+ *
+ * The frames counted are ordinary frames — same `prepare`, same warmup, so the
+ * sprite and background caches are hot before the first counted frame. That is
+ * load-bearing for question (3): a census that included the warmup would report
+ * the bakes it CAUSED and say nothing about whether a steady frame re-bakes.
+ */
+export function probeScene(opts: RenderPerfOptions): DrawCensus & { cubesDrawn: number } {
+  const { g, draw, now: t0now } = prepare(opts);
+  let now = t0now;
+  startCensus();
+  for (let i = 0; i < opts.frames; i++) {
+    now += DT;
+    draw(now);
+  }
+  const census = stopCensus(opts.frames);
+  // The pile that was actually on the field, not the N asked for: `prepare`
+  // settles for 60 steps and the press clears lines during them, so a run
+  // labelled N=300 draws whatever survived. Reporting the request instead of
+  // the reality is how a census ends up with more draws at N=27 than at N=71.
+  const cubesDrawn = g.cubes.length;
+  g.destroy();
+  return { ...census, cubesDrawn };
+}
+
+/**
+ * WHAT THE BACKGROUND BLIT COSTS, asked the way the device was asked it.
+ *
+ * The background-split spec priced its own proposal on the CPH2573 by wrapping
+ * drawImage, identifying the full-canvas blit exactly, and skipping it on
+ * demand — wrong pixels, right cost. It measured −0.295ms, which is what zero
+ * looks like through noise, and the split has stayed unbuilt on that reading.
+ * Two confounds were later found in it, so the result is an indication rather
+ * than a proof, and the spec now names the two-stacked-canvas page as the
+ * decisive probe.
+ *
+ * This is the same probe on this machine, and it is here for one reason: a
+ * render-perf effort that points at the sprite pass ought to be able to say how
+ * big the thing it is NOT pointing at is. If the sprite pass cannot account for
+ * the frame, that is worth knowing early and out loud.
+ *
+ * INTERLEAVED PER FRAME, which is stricter than the device probe could be. The
+ * spec's own trap note says long A/B/A blocks are useless here — three
+ * four-second blocks during live play returned a background "prize" of
+ * −11.7fps purely because the scene was busier during the baseline. This scene
+ * is frozen and driven from a fixed clock, so alternating every single frame
+ * costs nothing and leaves the two conditions no room at all to drift apart.
+ */
+export interface BlitAbResult {
+  drawnP50Ms: number;
+  skippedP50Ms: number;
+  drawnAvgMs: number;
+  skippedAvgMs: number;
+  frames: number;
+}
+
+export function blitAb(opts: RenderPerfOptions): BlitAbResult {
+  const { canvas, g, draw, now: t0now } = prepare(opts);
+  const ctx = canvas.getContext("2d")!;
+  let now = t0now;
+  let skip = false;
+  setBlitSkipper(() => skip);
+  const drawn: number[] = [];
+  const skipped: number[] = [];
+  for (let i = 0; i < opts.frames; i++) {
+    now += DT;
+    skip = i % 2 === 1;
+    const t0 = performance.now();
+    draw(now);
+    ctx.getImageData(0, 0, 1, 1);
+    (skip ? skipped : drawn).push(performance.now() - t0);
+  }
+  setBlitSkipper(null);
+  g.destroy();
+  const p50 = (a: number[]): number => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+  const avg = (a: number[]): number => a.reduce((s, d) => s + d, 0) / a.length;
+  return {
+    drawnP50Ms: p50(drawn), skippedP50Ms: p50(skipped),
+    drawnAvgMs: avg(drawn), skippedAvgMs: avg(skipped),
     frames: opts.frames,
   };
 }
@@ -366,8 +523,10 @@ declare global {
     __renderperf: {
       run: (opts: RenderPerfOptions) => RenderPerfResult;
       snapshot: (opts: RenderPerfOptions & { png?: boolean }) => SnapshotResult;
+      probe: (opts: RenderPerfOptions) => DrawCensus & { cubesDrawn: number };
+      blitAb: (opts: RenderPerfOptions) => BlitAbResult;
     };
   }
 }
 
-window.__renderperf = { run: runRenderPerf, snapshot: snapshotScene };
+window.__renderperf = { run: runRenderPerf, snapshot: snapshotScene, probe: probeScene, blitAb };

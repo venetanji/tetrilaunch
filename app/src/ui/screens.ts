@@ -1,7 +1,8 @@
 import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { baseBayFor } from "../game/level";
-import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
+import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
+import type { GradeTally } from "../game/grades";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
   runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph, axisIconHTML,
@@ -15,7 +16,8 @@ import {
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
-  tierProgressFor, uprateCost, TIER_CONTRACTS_REQUIRED,
+  tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
+  maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -24,7 +26,9 @@ import {
 } from "../game/guide";
 import type { Settings } from "../lib/store";
 import { PAD_BACK, PAD_CONFIRM, PAD_CONTROLS } from "./padnav";
-import { BOARD_SANDBOX, isLadderBoard, type BoardId, type ScoreEntry } from "../lib/api";
+import {
+  BOARD_SANDBOX, BOARD_SKYDECK, isLadderBoard, type BoardId, type ScoreEntry,
+} from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
@@ -35,7 +39,7 @@ import {
   ACTION_LABELS, BINDABLE_ACTIONS, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
   type BindableAction, type InputProfile,
 } from "../game/bindings";
-import type { PreviewRow } from "../game/preview";
+import type { PreviewPart, PreviewRow } from "../game/preview";
 
 /* ---------------------------------------------------------------------------
  * TIER PLATE — one component at three sizes (canvas A1/A4/C · A15's note):
@@ -60,7 +64,57 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   const sbx = tier === SANDBOX_TIER;
   const label = sky ? "Skydeck" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
   const tint = sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
-  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? "★" : sbx ? "S" : tier}</span></span>`;
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? SKY_STAR : sbx ? "S" : tier}</span></span>`;
+}
+
+/** The Skydeck's mark, in the plate's number slot where every other floor puts
+ *  a digit. Named because it is now worn in three places — the plate, the
+ *  leaderboard's Sky tab and that board's heading (boardText) — and a floor
+ *  whose identity differs between the tower and the board it files to is two
+ *  floors to the player. */
+export const SKY_STAR = "★";
+
+/** The tier as running text — "Tier 7", "Tier S", "Tier SKY" — for the lines
+ *  that name a tier mid-sentence (the draft eyebrow, the bay banner's
+ *  accessible label) rather than wearing the plate. The special floors follow
+ *  the plate's spelling ("S" in the number slot, "Sky" on the label) so a
+ *  screen and its eyebrow never disagree about a floor's name: a Skydeck run
+ *  is flown at Mark 10's numbers, but printing "Tier 10" here filed the day
+ *  run as a ladder run — the device-reported bug this helper exists for. */
+export function tierText(tier: number): string {
+  if (tier === SKYDECK_TIER) return "Tier SKY";
+  if (tier === SANDBOX_TIER) return "Tier S";
+  return `Tier ${tier}`;
+}
+
+/**
+ * A BOARD as running text — the leaderboard's tab, its heading and the run-end
+ * modal's "… board" line all read this one function.
+ *
+ * It is tierText's counterpart on the other side of the wire, and it exists
+ * because a BoardId is not a tier: `BOARD_SANDBOX` and `BOARD_SKYDECK` are
+ * negative ids chosen so no Mark can clamp onto them (lib/api.ts), and printing
+ * one raw gives "Tier -2". Each special board is named with the floor's own
+ * spelling — the tower, the plate and the board agree by construction rather
+ * than by three literals that have to be kept in step.
+ */
+export function boardText(board: BoardId): string {
+  if (board === BOARD_SKYDECK) return `${tierText(SKYDECK_TIER)} ${SKY_STAR}`;
+  if (board === BOARD_SANDBOX) return tierText(SANDBOX_TIER);
+  return tierText(board);
+}
+
+/** A day key (lib/api.ts's BoardDay — contracts.ts's dailySeed, YYYYMMDD in
+ *  UTC) as a date. ISO rather than a locale format on purpose: the board is a
+ *  UTC day shared by every player on it, and "28/08" would read as a different
+ *  day either side of the date line. Splits the integer rather than going
+ *  through Date — the key is already a calendar day, and re-parsing it into a
+ *  timestamp is where a timezone gets to move it. */
+export function dayText(day: number): string {
+  const y = Math.floor(day / 10000);
+  const m = Math.floor(day / 100) % 100;
+  const d = day % 100;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -84,6 +138,32 @@ export function salvageHTML(amount: string | number = "", size = 12): string {
 /** Scrap: 2/line and 10/bay, spent at the refit yard, gone when the run ends. */
 export function scrapHTML(amount: string | number = "", size = 12): string {
   return `<span class="currency">${icon("scrap", size)}${amount}</span>`;
+}
+
+/**
+ * THE ACCESSIBLE NAME FOR A PRICE-SHAPED BUTTON — both shops' one grammar.
+ *
+ * A shop button prints its price and nothing else (the refit card's own
+ * buy-button note argues why, and the Workshop's has since B6). On screen that
+ * is right: the card above the button names the system in a heading, in 13px
+ * display type, with its glyph. In a screen reader it is not, because a control
+ * list is read WITHOUT the card — and "T3 · 55" is the same eight characters on
+ * every card at that tier, with the currency mark `aria-hidden` on top. Seven
+ * tracks, one name. That is the one fact the label has to carry and the only
+ * one the price does not.
+ *
+ * `label` is the VISIBLE string, quoted verbatim rather than spelled out as
+ * "tier 3, 55 scrap": WCAG 2.5.3 asks that an accessible name contain the label
+ * a sighted user can see, because a voice-input user says what is on the
+ * button. The currency word is what the glyph would have said if a glyph could
+ * be read aloud, and it is the one thing on this screen the two shops disagree
+ * about — the yard spends scrap, the Workshop salvage.
+ *
+ * Not needed where the visible label already names its object: the Workshop's
+ * "+1 slot" button is one per screen and says what it buys.
+ */
+function priceAria(system: string, verb: string, label: string, currency: "scrap" | "salvage"): string {
+  return `${system} — ${verb} ${label} ${currency}`;
 }
 
 /** The NEXT STEP badge (canvas A3): ONE surface ever carries it, computed by
@@ -209,13 +289,17 @@ export interface TowerState {
   /** The floor the car is parked on — a Mark, SKYDECK_TIER, or SANDBOX_TIER once
    *  the beacon has been found. */
   selected: number;
-  /** Whether the Skydeck is open (the whole ladder beaten). */
+  /** Whether the Skydeck is open — the whole ladder beaten AND every Mark
+   *  sealed (meta.ts's skydeckOpen). Passed rather than derived from `sealed`
+   *  below, because the ladder half of that rule is not in this shape and a
+   *  screen that guessed at it would open the roof for a player holding ten
+   *  seals and two owed Contracts. */
   skydeck: boolean;
   /** Whether Tier S is a floor at all (lib/store.ts's Settings.devMode, set by
    *  the beacon gesture — see lib/devmode.ts). Absent reads as off, so every
    *  caller that predates the mode renders the tower it always did. */
   sandbox?: boolean;
-  /** Marks cleared in one run with no bay restart (meta.ts's sealedMarks).
+  /** Marks cleared in one run with no bay retry (meta.ts's sealedMarks).
    *  Absent reads as none, so every caller that predates the seal — and there
    *  are two, menuScreen's fallback tower and every uifit fixture — renders
    *  the tower it always did. */
@@ -450,6 +534,14 @@ function floorHTML(state: TowerState, tier: number): string {
   const contractsNote = !sky && tier === state.unlocked
     ? ` — Contracts ${lit}/${TIER_CONTRACTS_REQUIRED}`
     : "";
+  // THE ROOF'S PRICE, in words, because the stamps below it are a shape and a
+  // shape has no accessible name. A locked Skydeck says exactly how many of the
+  // ladder's Marks are sealed — the one number that decides whether the car
+  // will go there (meta.ts's skydeckOpen), and the number a screen-reader user
+  // has no other way to count. Open, it says nothing extra: the price has been
+  // paid and the label is the floor's name, which is what the sim pins.
+  const sealsHeld = (state.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
+  const sealsNote = sky && !open ? ` — ${sealsHeld} of ${MARK_COUNT} Marks sealed` : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
   // swatches and sim/systems.ts fails the build below dE00 10, so there is no
@@ -457,14 +549,37 @@ function floorHTML(state: TowerState, tier: number): string {
   // a red-green viewer anyway. It has to survive a greyscale screenshot.
   // app.css draws it.
   //
-  // Never on the Skydeck. The Skydeck is not a Mark, meta.ts records no seal
-  // for it, and a stamp there would be a state nothing can ever produce.
+  // Never a FILLED stamp on the Skydeck. The Skydeck is not a Mark, meta.ts
+  // records no seal for it, and a stamp there would be a state nothing can ever
+  // produce.
   //
   // It joins the floor's accessible NAME as well, because the shape itself is
   // aria-hidden: a distinction a screen reader has no way to reach is a
   // distinction half the audience does not get.
   const isSealed = !sky && (state.sealed ?? []).includes(tier);
-  const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
+  // THE EMPTY SOCKET — the same stamp, unpressed, on a floor that still owes
+  // one. It is what makes "all seals open the roof" legible without a sentence
+  // anywhere on the menu: the building shows its own bill. Tapping the locked
+  // roof flares exactly these (main.ts's pickTier adds `is-owed`), so the
+  // refusal answers "which ones" in the tower the player is already reading,
+  // rather than in a toast over it — the same argument .tower__floor.is-denied
+  // has always made.
+  //
+  // ON THE ROOF TOO, and that is not the contradiction it looks like. The
+  // socket there is not "the Skydeck is unsealed"; it is the floor stating what
+  // it is waiting for, in the one glyph the building uses for seals. It is
+  // drawn only while the roof is shut, so an open Skydeck carries no stamp of
+  // any kind and the rule above still holds.
+  //
+  // ONLY ON FLOORS THE PLAYER MAY FLY. A Mark above the unlock has no seal
+  // question yet — it has a Mark question — and ten sockets on a Mark-1 tower
+  // would be a bill for a mode that player cannot see the door of.
+  const owesSeal = sky ? !open : open && !isSealed;
+  const seal = isSealed
+    ? `<span class="tower__seal" aria-hidden="true"></span>`
+    : owesSeal
+      ? `<span class="tower__seal tower__seal--owed" aria-hidden="true"></span>`
+      : "";
   // THE CEREMONY'S TIMING, per floor and inline — the one thing about this
   // drawing that cannot be a stylesheet constant, because it depends on where
   // the floor sits in a trip whose length the ladder decides (towerRisePassMs).
@@ -480,7 +595,7 @@ function floorHTML(state: TowerState, tier: number): string {
   const rideAt = pass === null ? "" : ` style="--tower-pass:${pass}ms"`;
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"${rideAt}`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${contractsNote}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${sky ? "SKY" : tier}</span>`
     + windows
@@ -687,30 +802,29 @@ function unknownBayPanelHTML(best: number, extras: string): string {
   </div>`;
 }
 
-/**
- * The Skydeck's day contract, for the panel's `extras` slot.
+/*
+ * THE DAY'S CLAUSES USED TO BE PRINTED HERE, and their absence is the feature.
  *
- * PASSED IN, never computed here, and that is a testability decision rather
- * than a style one: the clauses are a function of today's DATE (skydeck.ts),
- * and a screen that read the clock would render differently every morning —
- * which is fine in the app and fatal in sim/uifit, whose whole job is to
- * measure this markup against a fixed budget. The fixture passes a fixed set;
- * main.ts passes the day's.
+ * The recap panel listed them by name and bay — "Bay 4 Tight Gauge", "Bay 7
+ * Cold Weld", "Bay 10 Odd Lots" — as three rows in its extras slot, so that a
+ * player could plan the whole day before touching the launcher. That is a
+ * different game from the one the Skydeck is: a fixed daily run, no refit yard,
+ * and a schedule you fly rather than a schedule you read. Handed the names on
+ * the home screen, bay 7 is arithmetic the moment bay 1 starts; discovered at
+ * the stop, it is the thing that just happened to your bay.
  *
- * Three rows, one per stop, each naming the bay it arms on and the clause. The
- * bay number leads because that is what the player is planning against — "I
- * have three bays before the ice" is the sentence this list exists to make
- * available before a single launch.
+ * So the names are gone from every menu surface, and they are gone from the
+ * DATA the menu is given as well as from its markup: menuScreen now takes a
+ * COUNT (see its `standingClauses`), not a list, which is why nothing
+ * downstream — no aria-label, no title, no tooltip — can leak one by accident.
+ * The count is not a spoiler and stays public on the primary button's subtitle;
+ * "three standing clauses" is the terms of the run, and which three is the run.
+ *
+ * WHERE THEY FIRST APPEAR: the bay-clear card, at the stop the clause arms on
+ * ("Cold Chain · from Bay 4" — see bayClearScreen's standing announcement).
+ * That announcement is now the reveal, and sim/systems.ts pins both halves —
+ * that the menu carries no name, and that the card still does.
  */
-function skydeckRulesHTML(rules: { bay: number; name: string }[]): string {
-  if (rules.length === 0) return "";
-  return `<div class="sky-rules" role="list" aria-label="Today's standing clauses">
-    ${rules.map((r) => `<div class="sky-rules__row" role="listitem">
-      <span class="sky-rules__bay">Bay ${r.bay}</span>
-      <span class="sky-rules__name">${r.name}</span>
-    </div>`).join("")}
-  </div>`;
-}
 
 export function baseBayPanelHTML(opts: {
   /** The floor the panel is describing — a Mark, SKYDECK_TIER, or SANDBOX_TIER. */
@@ -718,19 +832,23 @@ export function baseBayPanelHTML(opts: {
   best: number;
   /** The entitlement chips, if this build has any. */
   extras?: string;
-  /** The day's standing clauses, when the Skydeck is the parked floor. The
-   *  panel's `extras` slot has been empty since #90 and this is exactly what it
-   *  was kept for: the one thing about the parked floor that the four stat
-   *  cells and the belt cannot say. */
-  skydeck?: { bay: number; name: string }[];
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
   const sky = opts.tier === SKYDECK_TIER;
-  // The Skydeck flies the top of the ladder, so it reads off MARK_COUNT's bays
-  // — the floor is a different CONTRACT, not a different bay table.
+  // The Skydeck flies the top of the ladder's bay TABLE — same ten bays, same
+  // clock, same bonds — with the money curves read one rung further along
+  // (level.ts's applySkydeckEconomy). So the mark is MARK_COUNT and the roof
+  // flag is what makes the two money cells quote $800→$1880 and $31 · $248
+  // instead of the capstone's. The panel is the only place a player sees those
+  // numbers before accepting them, so it has to be the run's own.
+  //
+  // It is the LAST thing on this panel that is specific to the roof, now that
+  // the day's clauses are no longer listed here (see the note above) — and the
+  // two decisions agree rather than pulling apart: the terms of the run stay
+  // public, the contents stay a surprise. A target and a shot price are terms.
   const mark = sky ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
-  const bay = baseBayFor(mark);
+  const bay = baseBayFor(mark, sky);
   const bonds = `×${bay.bondMult.toFixed(1)}${bay.unbreakableCapstone ? " ∞" : ""}`;
   // No "Tier N \u00b7 Base bay" line any more. It named the floor the car is
   // parked on, one column away from the tower that is showing exactly that,
@@ -748,10 +866,143 @@ export function baseBayPanelHTML(opts: {
       ${statCellHTML("bonds", "Bonds", bonds, "var(--piece-t)")}
     </div>
     ${beltLadderHTML(mark)}
-    <div class="base-bay__extras">${
-      (sky && opts.skydeck ? skydeckRulesHTML(opts.skydeck) : "") + (opts.extras ?? "")
-    }</div>
+    <div class="base-bay__extras">${opts.extras ?? ""}</div>
   </div>`;
+}
+
+/**
+ * The primary button's subtitle — ONE copy of the rule.
+ *
+ * It has to be a function rather than an expression inside the markup because
+ * main.ts rewrites this line IN PLACE while the elevator travels (setPlaySub):
+ * re-rendering the menu mid-ride would tear down the attract demo, so the ride
+ * patches the two halves of the button by id. That left a second copy of the
+ * three-way rule in main.ts, which agreed with this one only for as long as
+ * neither changed — and the seal step is exactly the change that breaks it,
+ * since it gives an ordinary ladder floor a subtitle of its own for the first
+ * time. A player tapping a floor at the finished ladder would have watched the
+ * objective disappear.
+ *
+ * `seal` is non-null only while sealing is the next step (meta.ts's nextStep),
+ * which is why it selects the line rather than being read from the tower every
+ * time: on nine tiers out of ten the seals are a badge, not the thing the game
+ * is asking for. `tier` null is the in-flight line.
+ *
+ * Its `sealed` half is about the PARKED FLOOR, not the ladder — the primary
+ * flies one floor, and a floor that already holds its stamp cannot be sealed
+ * again however many the roof is still waiting for. See the note on the two
+ * seal lines below.
+ */
+export interface SealPrompt {
+  /** Marks the roof is still waiting for (meta.ts's unsealedMarks). */
+  owed: number;
+  /** The floor this button would fly already holds its seal. */
+  sealed: boolean;
+}
+
+/**
+ * Does the primary wear the NEXT STEP badge with the car parked on `tier`?
+ *
+ * The same shape as menuPlaySub and for the same reason: the ride patches this
+ * button by id (main.ts's setSelectedTier), so a rule stated only inside the
+ * markup would be a rule that stops applying the moment the player taps a
+ * floor. The badge used to be a property of the STEP alone, which was fine
+ * while every step named a screen; the seal step names a floor, and a floor
+ * that already holds its stamp cannot be sealed by flying it again.
+ *
+ * `sealed` is about that floor. Tier S is never badged — the guide points at
+ * the ladder and the sandbox is not on it — and at the seal step only a ladder
+ * floor can be, since only a Mark has a seal to owe.
+ */
+export function menuPlayBadged(
+  step: NextStepId | undefined, tier: number, sealed: boolean,
+): boolean {
+  if (tier === SANDBOX_TIER) return false;
+  if (step === "run") return true;
+  if (step !== "seal") return false;
+  return tier >= 1 && tier <= MARK_COUNT && !sealed;
+}
+
+/**
+ * The Contracts entry's PIPS and SUBTITLE — one copy of each rule, for exactly
+ * the reason menuPlaySub is a function rather than an expression: main.ts
+ * rewrites both nodes IN PLACE while the elevator travels (setSelectedTier),
+ * because re-rendering the menu mid-ride would tear down the attract demo. A
+ * rule stated only inside the markup is a rule that stops applying the moment
+ * the player taps a floor.
+ *
+ * They became per-floor at the same moment the Contract board did. The board is
+ * the PARKED FLOOR's (main.ts's contractsTier), and the roof deals one of its
+ * own: pentomino cargo, and no salvage, because a Skydeck Contract is not on
+ * the ladder and meta.ts's recordContractClear banks nothing for it. Both of
+ * those are things the door has to say before it is opened — a button
+ * advertising a milestone the board behind it cannot pay is worse than a button
+ * that says nothing.
+ *
+ * The pips go entirely on the roof. They are a claim about a TIER's quota
+ * (`progress.contracts` of `needed`), and drawing a tier's progress over a
+ * board that cannot move it would be the same lie in a smaller font.
+ */
+export function menuContractsPips(tier: number, progress?: TierProgress): string {
+  if (!progress || tier === SKYDECK_TIER) return "";
+  return `<span class="tier-pips${progress.contracts < progress.needed ? " tier-pips--live" : ""}" role="img" aria-label="Tier ${progress.tier} Contracts: ${progress.contracts} of ${progress.needed} cleared">${
+    Array.from({ length: progress.needed }, (_, i) =>
+      `<span class="tier-pip${i < progress.contracts ? " tier-pip--done" : ""}"></span>`).join("")
+  }</span>`;
+}
+
+export function menuContractsSub(tier: number, progress?: TierProgress): string {
+  // Numbers lead (A3): at compact the sub is one ellipsized line, so the live
+  // figures must sit before the prose that can afford to go. On the roof the
+  // count is still the lead number and what follows it is what is DIFFERENT
+  // about this board — the cargo, and the terms.
+  if (tier === SKYDECK_TIER) return `${DAILY_COUNT} today · pentomino cargo · no salvage`;
+  return progress
+    ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
+    : "Short challenges · retry freely";
+}
+
+export function menuPlaySub(
+  tier: number | null, clauses: number, seal: SealPrompt | null,
+): string {
+  if (tier === null) return "Elevator moving…";
+  if (tier === SANDBOX_TIER) return "Any Mark, bay or Contract · own board";
+  // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
+  // once · no mercy", which described a floor that was not playable yet and
+  // promised something the mode does not do — the Skydeck flies Mark 10's
+  // bays, not all ten Marks.
+  //
+  // "No refits" was the middle term until the yard came back (run.ts's
+  // refitAfterBay), and a subtitle that still promised it would be selling the
+  // one thing the mode had stopped doing. What replaced it is the term that
+  // actually distinguishes the floor now that it has a yard again: the bays
+  // are a rung above the ladder's last (level.ts's SKYDECK_RUNG), which is
+  // what the panel beside this button is quoting in dollars. The clause count
+  // stays public and the clause NAMES stay a surprise, which is why this line
+  // counts them rather than listing them.
+  if (tier === SKYDECK_TIER) return `Today's run · a step above Mark ${MARK_COUNT} · ${clauses} standing clauses`;
+  // THE ENDGAME, STATED. With the ladder beaten there is no tier left to open
+  // and the roof is the only thing still locked, so the primary stops
+  // advertising the bay count and names the price instead: a Mark won with no
+  // bay retried is a seal (meta.ts's recordRunEnd), and every Mark sealed
+  // opens the Skydeck (skydeckOpen). Until this line the count lived only in
+  // the tower's sockets and one aria-label.
+  //
+  // TWO LINES, because the primary flies ONE floor and the objective is a set.
+  // A seal lands without moving meta.mark, so the car stays parked exactly
+  // where it was — and on the floor it just sealed, "N Marks left to seal ·
+  // win with no bay retried" describes a run that cannot seal anything. The
+  // second line says so and hands the player back to the tower, which is the
+  // control that picks a floor and already draws an empty socket on every one
+  // that owes a stamp. It is deliberately not a refusal: re-flying a sealed
+  // Mark for the board is a real thing to want, and this button still does it.
+  if (seal) {
+    const owed = `${seal.owed} Mark${seal.owed === 1 ? "" : "s"}`;
+    return seal.sealed
+      ? `Sealed · ${owed} still owed — pick one on the tower`
+      : `${owed} left to seal · win with no bay retried`;
+  }
+  return `Clear ${RUN_LEVELS} bays in one run`;
 }
 
 /** `store` is absent on web and on native builds without a RevenueCat key —
@@ -789,10 +1040,23 @@ export function menuScreen(
    *  the shaft is the menu's centre column, and a hole there is worse than a
    *  ground floor. */
   tower?: TowerState,
-  /** Today's Skydeck clauses (game/skydeck.ts), shown on the recap panel and
-   *  summarised on the primary button when the car is parked on the roof.
-   *  Passed rather than computed — see skydeckRulesHTML. */
-  skydeck?: { bay: number; name: string }[],
+  /** HOW MANY standing clauses today's Skydeck run carries (game/skydeck.ts's
+   *  CLAUSE_COUNT), for the primary button's subtitle when the car is parked on
+   *  the roof.
+   *
+   *  A COUNT, and it used to be the list. The recap panel printed the clauses by
+   *  name and bay, and the owner's call is that the day's schedule is something
+   *  you fly rather than something you read — so the names now first reach the
+   *  player on the bay-clear card at the stop each one arms on (see the note
+   *  above baseBayPanelHTML). Narrowing the parameter is what makes that a
+   *  property of the code rather than a promise: a screen that is never told a
+   *  clause name cannot leak one into an aria-label, a title or a tooltip.
+   *
+   *  Passed rather than computed, for the reason every other date-derived
+   *  argument on this screen is: a screen that read the clock would render
+   *  differently every morning, which is fine in the app and fatal in
+   *  sim/uifit. */
+  standingClauses = 0,
 ): string {
   const twr: TowerState = tower ?? {
     unlocked: progress?.tier ?? 1,
@@ -808,6 +1072,25 @@ export function menuScreen(
   const sel = twr.selected;
   const skySel = sel === SKYDECK_TIER;
   const sbxSel = sel === SANDBOX_TIER;
+  // THE SEAL STEP RIDES THE PRIMARY, because a seal is flown and not bought
+  // (meta.ts's nextStep). It is the run's badge under another name, so it
+  // lights the same button — what changes is the subtitle, which is the only
+  // place on this screen that says how many Marks the roof is still waiting
+  // for in words. The count comes off the tower's own list rather than a new
+  // parameter: the building already draws a socket per owed Mark, and two
+  // sources for one number is how they end up disagreeing.
+  //
+  // …EXCEPT ON A FLOOR THAT IS ALREADY SEALED. The badge is a claim about the
+  // button under it, and this button flies the PARKED floor. A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the floor the
+  // car is on becomes sealed, and the badge went on promising a seal that run
+  // could not land. (Codex P2, #140.) The claim goes rather than the parking:
+  // the tower is the chooser, and menuPlaySub's second line sends the player
+  // there instead of quietly driving them there.
+  const sealStep = guide?.step === "seal";
+  const sealsOwed = MARK_COUNT - (twr.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
+  const selSealed = (twr.sealed ?? []).includes(sel);
+  const badged = menuPlayBadged(guide?.step, sel, selSealed);
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -882,7 +1165,7 @@ export function menuScreen(
              thing under it — across the screen from it (where it started) the
              player had to hold four numbers in their head while their eye
              travelled past the whole tower to reach the button they qualify. -->
-        ${baseBayPanelHTML({ tier: sel, best, skydeck })}
+        ${baseBayPanelHTML({ tier: sel, best })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -897,41 +1180,30 @@ export function menuScreen(
              floor you park on is what the primary action does. main.ts rewrites
              the label in place while the car travels, so both faces carry ids
              rather than being found by shape. -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${guide?.step === "run" && !sbxSel ? " btn--next" : ""}" data-action="play" id="menu-play">${
+        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play">${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
           sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
         }</span><span class="btn__sub" id="menu-play-sub">${
-          sbxSel
-            ? "Any Mark, bay or Contract · own board"
-            // THE DAY'S TERMS, in the order they bite. It used to read "All ten
-            // marks at once · no mercy", which described a floor that was not
-            // playable yet and promised something the mode does not do — the
-            // Skydeck flies Mark 10's bays, not all ten Marks. What it actually
-            // trades is stated here: today's fixed run, no yard, and the
-            // clauses the panel above lists by bay.
-            : skySel
-              ? `Today's run · no refits · ${skydeck?.length ?? 0} standing clauses`
-              : `Clear ${RUN_LEVELS} bays in one run`
-        }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
-          // THE TIER'S CONTRACT PIPS, on the button that leads to them. They
-          // replaced the run-end "Tier N progress" banner: a sentence about
-          // finishing Contracts on a screen the player wants to leave was
-          // never read, where an unfilled pip flickering on this button is
-          // the same fact at the moment the player can act on it.
-          progress
-            ? `<span class="tier-pips${progress.contracts < progress.needed ? " tier-pips--live" : ""}" role="img" aria-label="Tier ${progress.tier} Contracts: ${progress.contracts} of ${progress.needed} cleared">${
-                Array.from({ length: progress.needed }, (_, i) =>
-                  `<span class="tier-pip${i < progress.contracts ? " tier-pip--done" : ""}"></span>`).join("")
-              }</span>`
-            : ""
-        }</span><span class="btn__sub">${
-          // Numbers lead (A3): at compact the sub is one ellipsized line, so
-          // the live figures must sit before the prose that can afford to go.
-          progress
-            ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
-            : "Short challenges · retry freely"
+          // The rule lives in menuPlaySub, because the ride rewrites this exact
+          // node by id and two copies of it would drift — see the note there.
+          menuPlaySub(sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
+        }</span></span>${badged ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
+          THE TIER'S CONTRACT PIPS, on the button that leads to them. They
+          replaced the run-end "Tier N progress" banner: a sentence about
+          finishing Contracts on a screen the player wants to leave was never
+          read, where an unfilled pip flickering on this button is the same
+          fact at the moment the player can act on it.
+
+          Both faces carry ids for the same reason the primary button's two do:
+          the ride rewrites them in place rather than re-rendering the menu.
+          The wrapper is what holds the id, because the pips themselves are
+          ABSENT on the roof and a node that can vanish is a node the ride
+          cannot find again. -->
+          <span id="menu-contracts-pips">${menuContractsPips(sel, progress)}</span>
+        </span><span class="btn__sub" id="menu-contracts-sub">${
+          menuContractsSub(sel, progress)
         }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           guide
@@ -1299,7 +1571,22 @@ export function controlsScreen(opts: {
       ${infoRow("Arc height", "scroll · up comes down steeper")}
       ${infoRow("Mouse rotate", "right-click ⟳ · wheel press ⟲")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
-      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}`;
+      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}
+      ${
+        // THE POINTER, HANDED BACK (store.ts's systemCursor, styles/cursors.css).
+        //
+        // HERE AND NOT ON THE SETTINGS SCREEN, which is where it was first
+        // written. Two reasons, one of them measured. It BELONGS here: this is
+        // the fine-pointer family's pane by its own comment above, it is the
+        // one screen in the app that talks about a mouse, and the switch above
+        // it is the app's other mouse-behaviour switch. And the Settings pane
+        // has no room — its toggle column is not on sim/uifit's scroll
+        // allowlist, and a fourth row there overflowed .panel on nine of the
+        // nineteen devices (37px on an iPhone SE 3), which is 18 new
+        // violations for a row those devices have no cursor to spend it on.
+        // #controls-grid is allowlisted and already carries a taller pane.
+        toggleHTML("systemCursor", "System Pointer", "Draw the OS cursor instead of the game's, at whatever size and colour you have set it to", opts.settings.systemCursor)
+      }`;
   } else {
     // THE MENU BUTTONS ARE INFO ROWS, not bind rows, because they are not
     // bindings: ui/padnav.ts fixes them at their standard-mapping indices and
@@ -1409,9 +1696,25 @@ export function endBoard(entries: ScoreEntry[], name?: string): BoardRow[] {
 
 export const END_BOARD_TOP = 5;
 
-export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): string {
+/** What an EMPTY board says. The roof's is a day rather than a rung, so it
+ *  cannot borrow the ladder's sentence: "no scores at this Tier" on the
+ *  Skydeck's board is the same leak tierText exists for, one screen along. */
+export function emptyBoardText(board: BoardId): string {
+  return board === BOARD_SKYDECK
+    ? "No scores on today's board yet — be the first!"
+    : "No scores at this Tier yet — be the first!";
+}
+
+export function leaderboardRowsHTML(
+  rows: BoardRow[],
+  highlight?: string,
+  /** Which board these rows are from — only read when there are none. Defaults
+   *  to a Tier's wording, which is what every caller that predates the daily
+   *  board meant. */
+  board: BoardId = 1,
+): string {
   if (!rows.length) {
-    return `<div class="muted" style="padding:20px;text-align:center">No scores at this Tier yet — be the first!</div>`;
+    return `<div class="muted" style="padding:20px;text-align:center">${emptyBoardText(board)}</div>`;
   }
   const medals = ["🥇", "🥈", "🥉"];
   return `<div class="lb">${rows
@@ -1431,17 +1734,28 @@ export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): strin
 /**
  * The standalone Leaderboard.
  *
- * TWO BOARDS once Tier S is open, and they are separate for the reason the
- * mode is safe at all: a sandbox run can start on bay 9, at Mark 10, on a
- * maxed rig nobody paid for. Mixing one of those into the Deep Run board would
- * not make it a better board — it would end it, because after the first such
- * entry no honest score could ever place. So they are two boards with one
+ * MORE THAN ONE BOARD, and they are separate for the reason each extra mode is
+ * safe at all. A sandbox run can start on bay 9, at Mark 10, on a maxed rig
+ * nobody paid for; mixing one of those into the Deep Run board would not make
+ * it a better board — it would end it, because after the first such entry no
+ * honest score could ever place. The Skydeck is the opposite failure at the
+ * same seam: it flies Mark 10's bays a rung further along under three standing
+ * clauses (game/skydeck.ts), so filing it on Tier 10 ranked a harder run
+ * against an easier one on the easier one's terms. So they are boards with one
  * shape, and the tab strip is what says so out loud rather than leaving the
  * player to discover it from a score they cannot explain.
  *
- * The strip renders ONLY when the sandbox is open. A player who has never
- * found Tier S has one board, and a tab strip with one tab in it is a
- * question mark, not a control.
+ * A tab renders ONLY for a board that player has: a strip with one tab in it is
+ * a question mark, not a control, and a board for a mode you cannot fly is
+ * worse than none.
+ *
+ * THE SKY TAB IS A DAY, not a list. Its heading carries the date it is showing
+ * because a daily board with no date on it is a board whose contents change for
+ * no visible reason overnight. Only TODAY is browsable — yesterday's rows are
+ * still in the table and reachable by key, but a history control would need a
+ * second axis on this screen (a date picker beside a tab strip on a 360px
+ * phone) to serve a board nobody can still post to. The day's run is a thing
+ * you fly today; the board follows it.
  */
 export function leaderboardScreen(rows: string, opts?: {
   /** Which board's rows are in `rows` (lib/api.ts's BoardId). */
@@ -1454,14 +1768,22 @@ export function leaderboardScreen(rows: string, opts?: {
   tier?: number;
   /** Whether the Tier S board exists for this player. */
   sandbox: boolean;
+  /** Whether the roof's board does (meta.ts's skydeckOpen — the same gate as
+   *  the floor itself, so the board arrives with the mode). */
+  skydeck?: boolean;
+  /** WHICH DAY of the Skydeck board is on screen (lib/api.ts's BoardDay).
+   *  Ignored on every other board, which has no day. */
+  day?: number;
 }): string {
   const board = opts?.board ?? 1;
   const sandbox = board === BOARD_SANDBOX;
+  const sky = board === BOARD_SKYDECK;
   const tier = opts?.tier ?? (isLadderBoard(board) ? board : 1);
-  const tabs = opts?.sandbox
+  const tabs = opts?.sandbox || opts?.skydeck
     ? `<div class="lb-tabs" role="tablist" aria-label="Leaderboard">
-        ${lbTabHTML(tier, `Tier ${tier}`, board)}
-        ${lbTabHTML(BOARD_SANDBOX, "Tier S", board)}
+        ${lbTabHTML(tier, tierText(tier), board)}
+        ${opts?.skydeck ? lbTabHTML(BOARD_SKYDECK, boardText(BOARD_SKYDECK), board) : ""}
+        ${opts?.sandbox ? lbTabHTML(BOARD_SANDBOX, boardText(BOARD_SANDBOX), board) : ""}
       </div>`
     : "";
   return `<div class="screen neon-backdrop center">
@@ -1471,9 +1793,13 @@ export function leaderboardScreen(rows: string, opts?: {
           // #88: under the tier ladder "Deep Run" does not name a board on its
           // own — a Tier 10 run banks more lines against a heavier target than
           // a Tier 1 run can, so each tier keeps its own list and the heading
-          // has to say which one is on screen. Tier S is the one board with a
-          // name instead of a number, because it is not a rung.
-          sandbox ? "Tier S · Sandbox" : `Tier ${board} · Deep Run`
+          // has to say which one is on screen. Tier S and the Skydeck are the
+          // boards with a name instead of a number, because neither is a rung —
+          // and the roof's second half is the DAY rather than the mode, since
+          // that is the half that changes under the player.
+          sky
+            ? `${boardText(board)} · ${dayText(opts?.day ?? 0)}`
+            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · Deep Run`
         }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
@@ -1654,6 +1980,12 @@ export function collapsingDial(
  *  the pulse that runs up the strip toward the cannon. */
 const BELT_ARROWS = Array.from({ length: 8 }, (_, i) => `<i style="--i:${i}"></i>`).join("");
 
+/** The ⏸ rail button's name on a run that MAY restart a bay — the base the
+ *  seal's price is dashed onto (sealNameWith), and the half that disappears on
+ *  a Skydeck run. A constant because the button's name is now built two ways
+ *  and the gesture is named in exactly one of them. */
+export const PAUSE_HOLD_NAME = "Pause — hold to restart the bay";
+
 export function hudHTML(opts: {
   /** What rides the belt: the shot AFTER the muzzle's (see game.ts's
    *  Game.beltPreview). */
@@ -1684,6 +2016,16 @@ export function hudHTML(opts: {
    *  HELD trigger to the rail — the rig no longer fires on its own. */
   autoloaderOwned: boolean;
   bombCharges: number;
+  /** Whether this bay carries the Thaw Lance, and how many charges are left —
+   *  the same two-trigger treatment as the two above.
+   *
+   *  Charged by CHARGES like Bond Breaker rather than by the config like Demo,
+   *  and the difference is a MODE rather than a preference: a Skydeck run's
+   *  lance never resupplies (run.ts's advanceRun), so a rig that spent its last
+   *  charge in bay 4 has no lance for bays 5 to 10 and must not be shown a live
+   *  trigger for one. A ladder run reads the same field refilled. */
+  thawOwned: boolean;
+  thawCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
    *  tally in the plant panel (see components.ts's runNotchTallyHTML). */
   ratchets: Ratchets;
@@ -1698,6 +2040,15 @@ export function hudHTML(opts: {
    *  rack would be ugly in a Contract: main.ts's hudOpts passes `{}` there,
    *  so every plate would be permanently empty. */
   tiers: UpgradeTiers;
+  /** How many SLOTS the rig's rack has (game/meta.ts's slotsFor) — the width
+   *  the row draws, filled with the mounted systems and then with open boxes.
+   *
+   *  A FLOOR rather than a count: `shipPlatesHTML` draws every mounted system
+   *  whatever this says and only the trailing open slots come from it, so the
+   *  worst a wrong value here can do is draw one empty box too few. Defaulted
+   *  and optional for that reason, and because the two surfaces that pass no
+   *  rack at all — a Contract and a Drill — have no rig to have slots. */
+  slots?: number;
   /** The run's tier, for the bay banner's plate (canvas A4). Null in
    *  Contract mode, whose banner names the Contract instead. */
   tier?: number | null;
@@ -1736,6 +2087,21 @@ export function hudHTML(opts: {
    *  a tier deal is not a thing it can advertise), and the ship rack goes with
    *  it — a drill's rig is granted by the lesson, not built by the player. */
   drill?: { name: string } | null;
+  /** The run's seal state and flown Mark (run.ts's sealStateFor), for the ⏸
+   *  button's accessible name — the hold restarts the bay, so its name is
+   *  where that gesture's price belongs. Absent on every bay with no seal
+   *  question (a Contract, a drill, Tier S, the Skydeck) and on every caller
+   *  that predates it, which renders the name it always had. */
+  seal?: { state: SealState; mark: number } | null;
+  /** Whether this run may hand a bay back at all (run.ts's bayRetryable).
+   *
+   *  False ONLY on the Skydeck, which is permadeath: the ⏸ hold then loses the
+   *  half of its accessible name that names the gesture, and the hint strip
+   *  loses the line that teaches it (hintParts). A name that offers a gesture
+   *  main.ts refuses is worse than no name — an assistive-technology user has
+   *  nothing else to read, so it is the ONE description they would get, and it
+   *  would be wrong. */
+  restart?: boolean;
   contract?: {
     name: string;
     kind: "lines" | "pattern";
@@ -1802,7 +2168,8 @@ export function hudHTML(opts: {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
-    tier, loaded, contract, drill, fullscreenSupported = true,
+    thawOwned, thawCharges, tier, loaded, contract, drill, fullscreenSupported = true,
+    slots = 0,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -1882,6 +2249,20 @@ export function hudHTML(opts: {
   const demoRailBtn = demoOwned
     ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>${icon("demo", 20)}<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
     : "";
+  // The lance's pair. TAPPED, like Demolition and unlike Bond Breaker: it aims
+  // itself, costs no launch and renews every bay on the ladder, so there is
+  // nothing a hold-to-confirm meter would be protecting. The accessible name
+  // says which cube it takes, because that is the whole skill of the control —
+  // a player who does not know the lance melts what the BAR is about to reach
+  // will fire it at the wrong moment and read the charge as wasted.
+  const thawChip = thawOwned
+    ? `<button class="mod mod--thaw thaw-trigger" data-game="thaw" id="thaw-chip" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>
+        <span class="g">${icon("thaw", 15)}</span><span class="nm">THAW</span><span class="stk">×<span class="thaw-trigger__count">${thawCharges}</span></span><span class="key">C</span>
+      </button>`
+    : "";
+  const thawRailBtn = thawOwned
+    ? `<button class="icon-btn thaw-btn thaw-trigger" data-game="thaw" id="thaw-btn" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>${icon("thaw", 20)}<span class="thaw-btn__count thaw-trigger__count">${thawCharges}</span></button>`
+    : "";
   // Held, not tapped: pointerdown starts the burst and pointerup ends it (see
   // main.ts's onGamePointerDown). Sits at the BOTTOM of the rail, nearest a
   // right thumb at rest, because it is the only rail control meant to be held
@@ -1891,7 +2272,7 @@ export function hudHTML(opts: {
     : "";
   // The ship rack is a Deep Run readout. See the build row below for why a
   // Contract does not get one.
-  const plates = contract || drill ? "" : shipPlatesHTML(tiers);
+  const plates = contract || drill ? "" : shipPlatesHTML(tiers, slots);
   // BAY BANNER — the run position, top-center of the field. Playtest feedback:
   // "Bay 1/10" as small muted text inside the plant title read as part of the
   // level name, so players didn't know they were 1 bay into a 10-bay run. The
@@ -1907,7 +2288,7 @@ export function hudHTML(opts: {
     ? `<div class="bay-banner bay-banner--contract" role="status">
         <span class="bay-banner__mode">Contract</span> ${contract.name}
       </div>`
-    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, tier ${tier}` : ""}">
+    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, ${tier === SKYDECK_TIER ? "Skydeck" : tierText(tier)}` : ""}">
         ${tier ? tierPlateHTML(tier, "banner") : ""}
         <span class="bay-banner__mode">Bay</span>
         <span class="bay-banner__n">${bayNum}<span class="bay-banner__of">/${RUN_LEVELS}</span></span>
@@ -1951,11 +2332,48 @@ export function hudHTML(opts: {
            labels. Costs no pixels on any device and is the only route an
            assistive-technology user has to a gesture that is otherwise
            undiscoverable. -->
-      <button class="icon-btn" data-action="pause" aria-label="Pause — hold to restart the bay">${icon("pause", 22)}</button>
+      <!-- …and the seal's price rides that same name when there is one, in the
+           SAME words the two buttons wear (sealFaceLabel). NO GLYPH here, and
+           that is a decision rather than an omission: this is a 22px icon
+           button on a live field, the rail is width-budgeted (sim/uifit's
+           rail assertion), and a cost readout painted over a bay in flight is the
+           mistake the hint strip's own note describes from the other side.
+           The hold is also the one door of the three that cannot be pressed by
+           accident — it is a deliberate gesture with its own meter — and it is
+           confirmed by the same panel every other door is (requestBayRetry),
+           so the press is never charged unannounced. What the label buys is
+           the half that has nowhere else to go: an assistive-technology user
+           gets the cost before the gesture, exactly as they get the gesture
+           itself. -->
+      <!-- …and the price is DASHED on, exactly as the two buttons dash it on,
+           not folded in as a relative clause. This read ", which " for one
+           release: "breaks this run's seal" happens to parse after a relative
+           pronoun, so the at-stake name looked right and the other two came out
+           as "hold to restart the bay, which this run's seal is already
+           broken". Since this name is the ONLY cost explanation an
+           assistive-technology user of an icon-only control ever gets, a
+           malformed one is not a typo — it is the explanation failing. The
+           label carries its own subject now and every door joins it the same
+           way (sealNameWith). (Codex review, PR #144.) -->
+      <!-- …and on a run that may not hand a bay back at all (run.ts's
+           bayRetryable — the Skydeck, which is permadeath) the name loses the
+           gesture along with its price, because main.ts refuses the hold there.
+           This name is the ONLY description an assistive-technology user of an
+           icon-only control ever gets, so a name that offers a gesture nothing
+           performs is not a smaller version of this label — it is the label
+           being wrong, to the one audience that cannot check. -->
+      <button class="icon-btn" data-action="pause" aria-label="${
+        (opts.restart ?? true)
+          ? (opts.seal
+            ? sealNameWith(PAUSE_HOLD_NAME, opts.seal.state, opts.seal.mark)
+            : PAUSE_HOLD_NAME)
+          : "Pause"
+      }">${icon("pause", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
       ${bondRailBtn}
       ${demoRailBtn}
+      ${thawRailBtn}
       ${autoRailBtn}
       <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">${icon("close", 22)}</button>
     </div>
@@ -2062,7 +2480,7 @@ export function hudHTML(opts: {
               ? `<div class="pl-funds">
             <div class="lbl">Lines<span class="lbl__q"> / Goal</span></div>
             <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
-            <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
+            <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">${contract.kind === "pattern" ? "Shipments" : "Launches"}</div>
@@ -2076,7 +2494,7 @@ export function hudHTML(opts: {
               : `<div class="pl-funds${collapse === "funds" ? " dial-collapse" : ""}">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
-            <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
+            <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">Launches</div>
@@ -2087,10 +2505,21 @@ export function hudHTML(opts: {
         </div>
         <!-- Reload: fills as the launch cooldown runs down (see
              cannon.reloadRatio). Goes .ready the instant the cannon can fire
-             again, which is the only state change that matters here. -->
+             again, which is the only state change that matters here.
+
+             THE FILL IS A TRANSFORM, not a width, and so are the PWR meter's
+             and the goal bar's. All three are full-width elements scaled about
+             their left edge, which is what lets the one readout on this panel
+             that genuinely moves every frame move without asking the layout
+             engine for anything. See app.css's "THE THREE BAR FILLS" and
+             main.ts's syncHud; the inline value here is the starting state the
+             first frame of the bay shows, before syncHud has run at all, and
+             it has to be spelled the same way syncHud will spell it or the
+             first write would be a mechanism change rather than a value
+             change. -->
         <div class="pl-load" id="hud-load-row">
           <span class="lbl">Reload</span>
-          <div class="pl-load__track"><i id="hud-load" style="width:100%"></i></div>
+          <div class="pl-load__track"><i id="hud-load" style="transform:scaleX(1)"></i></div>
         </div>
         ${
           // COMBO / LAUNCH COST / SCRAP — the small meta line, and Deep Run
@@ -2240,11 +2669,12 @@ export function hudHTML(opts: {
           // the chips are hidden at compact density (the rail carries the
           // same triggers, counts included), so app.css drops the whole row
           // there rather than leave its padding behind.
-          plates || bondChip || demoChip
+          plates || bondChip || demoChip || thawChip
             ? `<div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>
           ${bondChip}
           ${demoChip}
+          ${thawChip}
           ${plates}
         </div>`
             : ""
@@ -2255,8 +2685,9 @@ export function hudHTML(opts: {
     <div class="hud__bottom">
       ${hintStripHTML(
         opts.profile ?? "keyboard",
-        { bond: bondBreakerOwned, demo: demoOwned, auto: autoloaderOwned },
+        { bond: bondBreakerOwned, demo: demoOwned, thaw: thawOwned, auto: autoloaderOwned },
         opts.hintsDismissed ?? false,
+        opts.restart ?? true,
       )}
     </div>
     <!-- Settle banner: shown while the bay's funding target is met and the
@@ -2278,13 +2709,18 @@ export function hudHTML(opts: {
  */
 function hintParts(
   profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; auto: boolean },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
   /** The pause card asks for the FULL scheme; the field strip stays the lean
    *  onboarding set — its two extra mouse lines wrapped it onto a second row
    *  on a 1280x720 laptop, straight into the plant panel (caught by uifit's
    *  overlap assertion). The strip is a subset of the card, never a
    *  disagreement: shared parts render from the same lines. */
   full = false,
+  /** Whether the run may hand a bay back at all (run.ts's bayRetryable). False
+   *  only on the Skydeck, which is permadeath — the hold-to-restart line below
+   *  is then teaching a gesture main.ts refuses, and D2's whole rule is that a
+   *  hint renders from what the game will actually do. */
+  restart = true,
 ): string[] {
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
   const parts: string[] = [];
@@ -2304,6 +2740,7 @@ function hintParts(
     part(`${kbd(padLabel(padFor("fire")))} fire`);
     if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
+    if (owned.thaw) part(`${kbd(padLabel(padFor("thaw")))} thaw`);
     if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
     part(`${kbd(padLabel(padFor("pause")))} pause`);
     /* THE MENU GESTURES (ui/padnav.ts): the D-pad moves focus, A activates,
@@ -2338,6 +2775,12 @@ function hintParts(
     part(`${kbd(keyLabel(keyFor("fire")))} fire`);
     if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+    // ONE WORD, and the shortest true one on the strip. The strip is
+    // width-budgeted — two extra mouse lines already wrapped it into the plant
+    // panel once (see `full` above) — and a fourth ability hint is the same
+    // pressure. "thaw" is what the verb is; which cube it takes is on the
+    // button's own accessible name and in the guide, where a sentence fits.
+    if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
     if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
     /* "click to aim", not "drag to aim", and this strip is the one place the
        change is safe to state flatly. It renders only under `pointer: fine`
@@ -2381,7 +2824,7 @@ function hintParts(
        held pad button to resetBay — a pad player restarts through the pause
        modal's own button, which pad navigation reaches (main.ts's
        onPadUiButton). */
-    part("hold pause to restart");
+    if (restart) part("hold pause to restart");
   }
   return parts;
 }
@@ -2408,10 +2851,12 @@ const HINT_SEP = `<span class="kbd-hint__sep">·</span>`;
  */
 export function hintStripHTML(
   profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; auto: boolean },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
   dismissed = false,
+  /** run.ts's bayRetryable — see hintParts. */
+  restart = true,
 ): string {
-  const parts = hintParts(profile, owned);
+  const parts = hintParts(profile, owned, false, restart);
   return `<div class="kbd-hint${dismissed ? " kbd-hint--hidden" : ""}" aria-hidden="true">${
     parts.join(`\n        ${HINT_SEP}\n        `)
   }</div>`;
@@ -2432,9 +2877,11 @@ export function hintStripHTML(
  */
 export function pauseKeysHTML(
   profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; auto: boolean },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
+  /** run.ts's bayRetryable — see hintParts. */
+  restart = true,
 ): string {
-  const parts = hintParts(profile, owned, true);
+  const parts = hintParts(profile, owned, true, restart);
   return `<div class="pause-keys" id="pause-keys">
     <div class="pause-keys__grid">${parts.join("\n      ")}</div>
     <p class="pause-keys__note muted">Rebind these under Settings → Controls.</p>
@@ -2803,38 +3250,79 @@ export function refitScreen(opts: {
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < owned ? "on" : i < tier ? "queued" : ""}"></i>`,
     ).join("");
-    const step = cost === null ? null : u.step(tier);
     // ONE CONTROL PER CARD, cycling — the draft's own idiom for the same
     // problem (its cards fill the hand while there is room and edit it once it
     // is full). Two controls is what the tap floor cannot afford: at 44px a
     // second button per row costs a card's worth of height across the shelf,
-    // on the screen that already needs a scroller to hold seven of them.
+    // on the screen that already needs a scroller to hold all of them.
     //
     // So the button STAGES while the track has room and takes the track back
     // once it is ordered to MAX — and it stays live when the order has spent
     // the scrap but this track has rungs queued, because a disabled button on
     // a staged track is an order the player cannot undo.
-    const canStage = cost !== null && step !== null && left >= cost;
+    const canStage = cost !== null && left >= cost;
     const undo = queued > 0 && !canStage;
     const buy =
       owned === 0
-        ? `<span class="shop-card__locked">Not installed — buy it in the <b>Workshop</b></span>`
+        // "Not installed" was true of the only way a track could be at tier 0,
+        // until system slots gave it a second one. A STOWED system is installed
+        // — bought, uprated, paid for — and simply not aboard this run
+        // (meta.ts's safeLoadout masks it to 0, which is what this card is
+        // reading). The yard cannot tell the two apart and does not need to:
+        // "not aboard" is true of both, the Workshop is where both are fixed,
+        // and the two verbs name the two fixes.
+        ? `<span class="shop-card__locked">Not aboard — buy or mount it in the <b>Workshop</b></span>`
         : undo
-          ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}">
+          // The one button on the shelf that keeps a word, and the price rule
+          // below is what sanctions it: "Undo" names the STATE this control is
+          // in, it does not describe what a rung does. The figure beside it is a
+          // REFUND, and a bare "+90" on a shelf of prices reads as a cost.
+          ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}"
+              aria-label="${
+                // Same rule as the stage button, one word different: this
+                // figure is a refund, so the name says so where the button
+                // only has room for a plus sign.
+                priceAria(
+                  u.name,
+                  `Undo${queued > 1 ? ` ×${queued}` : ""},`,
+                  `refunds +${orderCost(opts.tiers, { [u.id]: queued })}`,
+                  "scrap",
+                )
+              }">
               <span class="refit-card__arrow">${icon("close", 10)}</span>
               <span class="refit-card__delta">Undo${queued > 1 ? ` ×${queued}` : ""}</span>
               <span class="refit-card__price">+${icon("scrap", 11)}${orderCost(opts.tiers, { [u.id]: queued })}</span>
             </button>`
-          : cost === null || step === null
+          : cost === null
             ? `<span class="refit-card__max">MAX</span>`
-            : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"${canStage ? "" : " disabled"}>
-                <span class="refit-card__arrow">${icon(step.dir, 10)}</span>
-                <span class="refit-card__delta">${step.text}</span>
-                <span class="refit-card__price"><span class="refit-card__tier">T${tier + 1}<span class="price__sep">·</span></span>${icon("scrap", 11)}${cost}</span>
+            // THE PRICE, AND NOTHING ELSE. This button used to carry a
+            // direction arrow and the rung's effect prose beside the price, and
+            // the prose is unbounded copy on a bounded rail: the Demolition
+            // Rack's capstone says "+2 charges, resupply, a wider blast and a
+            // better rate", the Impact Cushion's "a deeper liner, and no launch
+            // sets one off inside it". Ellipsised at every width the app ships
+            // — so it taught nothing — and it still took the price track with
+            // it, which is what collapsed the card's description column to one
+            // word per line (app.css's .refit-card note has the widths).
+            //
+            // What the rung DOES is the projection's job, in the bay's own
+            // numbers rather than in a phrase: staging is free and reversible,
+            // so a tap is how you read the effect, and it reads it in the units
+            // the purchase will actually be flown in. The button states the one
+            // fact the panel beside it cannot — the tier it buys and what that
+            // costs — in the Workshop's price grammar exactly ("T2 · <cur> 15",
+            // one glyph apart).
+            : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"
+                aria-label="${priceAria(u.name, "stage", `T${tier + 1} · ${cost}`, "scrap")}"${canStage ? "" : " disabled"}>
+                <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
               </button>`;
-    // The track's OWN before/after — absolute on both sides, because "+2 cells"
-    // is only legible next to the number it moves. Unstaged, the card states
-    // what the ship carries today and nothing more.
+    // The track's OWN before/after — absolute on both sides, because a delta is
+    // only legible next to the number it moves. It is now the ONE place a
+    // single track's change is stated in that track's own units: the button
+    // above prices the rung and the projection beside the shelf prices the
+    // whole order in the bay's units, and neither answers "what does THIS one
+    // do to THIS system". Unstaged, the card states what the ship carries today
+    // and nothing more.
     const state = queued > 0
       ? `<span class="refit-card__from">${u.current(owned)}</span><span class="refit-card__to-arrow">→</span><span class="refit-card__to">${u.current(tier)}</span>`
       : `<span class="refit-card__now">${u.current(owned)}</span>`;
@@ -2894,6 +3382,11 @@ export function refitScreen(opts: {
           staged > 0 ? `+${staged} staged` : "as it stands",
           opts.preview,
           staged > 0 ? "" : "Stage a refit and this redraws with what it does to the bay.",
+          // THE PANEL EXPLAINS THE PURCHASE HERE, and only here: the belt's
+          // material breakdown and the moved count — see previewGridHTML's
+          // `explains`. This is the screen whose buttons stopped describing
+          // themselves.
+          true,
         )}
       </div>
       <div class="refit__foot" id="refit-foot">
@@ -2905,7 +3398,12 @@ export function refitScreen(opts: {
         <p class="refit__foot-note muted">${
           staged > 0
             ? "Nothing is paid for until you undock — undo the order and the scrap stays banked."
-            : "Tap a system to stage a tier. Nothing is paid for until you undock."
+            // NAMES THE PANEL, now that the buttons no longer describe
+            // themselves: a price says what a rung costs and the projection
+            // says what it does, so the sentence that teaches the screen has to
+            // join the two. Staging is free, which is what makes "tap it and
+            // look" a fair instruction rather than a dare.
+            : "Tap a system to stage a tier — the projection redraws with what it does. Nothing is paid for until you undock."
         }</p>
       </div>
     </div>
@@ -2963,7 +3461,8 @@ export function workshopScreen(meta: MetaState): string {
       // B6's grammar without a tier: an option is not a rung on a track, so
       // its price is just the salvage glyph and the number.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"
+            aria-label="${priceAria(u.name, "unlock for", String(u.cost), "salvage")}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       // "Permanent" on every card (playtest feedback): the Workshop and the
       // mid-run Refit both sell upgrades, and nothing on screen said which
@@ -2999,8 +3498,14 @@ export function workshopScreen(meta: MetaState): string {
   // is owned: tier 1 is the install, tier 2 the uprate, and tier 3 belongs to
   // the refit stop's scrap. A card that vanished the moment a track was bought
   // is what left budgetForMark with nothing to gate — 140 points of reachable
-  // loadout against a budget that climbs to 770.
+  // loadout against a budget that climbs to 880.
   const onShelf = (i: InstallDef): boolean => (meta.loadout[i.id] ?? 0) < UPRATE_MAX_TIER;
+  // HONEST COPY FOR A SYSTEM THAT CANNOT MOUNT YET. A full rack does not refuse
+  // the sale (meta.ts's buyInstall says why), so nothing on the card is
+  // disabled and nothing else on screen would tell the player their new system
+  // is going straight into the shed. This sentence is the whole difference
+  // between a purchase and a surprise.
+  const rackFull = mountedIds(meta).length >= slotsFor(meta);
   const nextId = INSTALLS.filter(onShelf)
     .filter((i) => installAvailable(meta, i) && meta.salvage >= uprateCost(i))
     .sort((a, b) => uprateCost(a) - uprateCost(b))[0]?.id;
@@ -3018,14 +3523,16 @@ export function workshopScreen(meta: MetaState): string {
       // same words the refit yard's buy buttons use, with the one difference
       // that matters: this purchase is salvage, that one scrap.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"
+            aria-label="${priceAria(def.name, owned === 0 ? "install" : "uprate to", `T${next} · ${cost}`, "salvage")}"${affordable ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
       <div class="shop-card__body">
         <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
         <p class="shop-card__desc">${def.blurb} ${
           owned === 0
-            ? `Installs at tier 1; the Workshop raises it to ${UPRATE_MAX_TIER}, refit stops to ${MAX_TIER}.`
+            ? `Installs at tier 1; the Workshop raises it to ${UPRATE_MAX_TIER}, refit stops to ${MAX_TIER}.${
+                rackFull ? " The rack is full — this one waits in the shed until you free a slot or buy one." : ""}`
             : `Owned at tier ${owned}. Tier ${MAX_TIER} is scrap, at a refit stop.`
         }</p>
       </div>
@@ -3033,6 +3540,84 @@ export function workshopScreen(meta: MetaState): string {
     </div>`;
     })
     .join("");
+
+  /* ---- The rack ----------------------------------------------------------
+   * WHAT A RUN CARRIES, and the one screen where that is a decision.
+   *
+   * It sits ABOVE the shelf and inside the scroller, and both placements are
+   * arguments rather than defaults.
+   *
+   * Above, because it is what the shelf is FOR. The Workshop's whole ordering
+   * rule is "lead with the decision you came here to make" (see the owned-
+   * collapse note above), and once a player owns more systems than they can
+   * mount, which four fly is a bigger decision than which fifth to buy — it is
+   * remade before every run, where a purchase is made once.
+   *
+   * Inside the scroller rather than pinned in the aside beside the build
+   * budget, because the two constraints do different things to the shelf. The
+   * budget GREYS CARDS — it is the usual reason a purchase is refused, so
+   * scrolling it away from the cards it explains would be the one thing this
+   * pane must not do (the aside's own note). A full rack refuses nothing: the
+   * purchase still goes through and the system lands in the shed
+   * (meta.ts's buyInstall). A constraint that never disables a button does not
+   * need to be pinned beside the buttons.
+   */
+  const slots = slotsFor(meta);
+  const aboard = mountedIds(meta);
+  const shed = stowedIds(meta);
+  const nextSlot = slotPrice(slots);
+  // ONE CONTROL PER SYSTEM, and it is the same control in both rows: tap to
+  // move it across. The refit yard settled this idiom for the same reason
+  // (upgrades.ts's clearTrack — "the tap floor leaves room for one"), and here
+  // it also means the shed is not a second kind of thing to learn; it is the
+  // rack's other half.
+  const slotBtn = (id: string, on: boolean): string => {
+    const def = upgradeById(id)!;
+    const tier = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
+    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+      `<i class="${i < tier ? "on" : ""}"></i>`).join("");
+    return `<button class="rack-slot${on ? "" : " rack-slot--shed"}" data-action="mount" data-mount="${id}"
+      title="${def.name} — tier ${tier}. ${on ? "Aboard; tap to stow." : "In the shed; tap to mount."}"
+      aria-label="${def.name}, ${on ? "aboard" : "in the shed"}">
+      <span class="rack-slot__g">${icon(id as IconName, 15)}</span>
+      <span class="ship-plate__pips">${pips}</span>
+    </button>`;
+  };
+  // An OPEN slot is a button too, and a disabled one — not a bare div. It is
+  // the target a player's thumb goes for after tapping something in the shed,
+  // and a control that is sometimes an element and sometimes not is a row that
+  // re-flows under the finger.
+  const openSlots = `<span class="rack-slot rack-slot--open" aria-hidden="true"></span>`
+    .repeat(Math.max(0, slots - aboard.length));
+  const slotFoot = nextSlot === null
+    ? `<span class="rack__full">every slot bought</span>`
+    : `<button class="btn btn--primary" data-action="buy-slot"${meta.salvage >= nextSlot ? "" : " disabled"}>+1 slot<span class="price__sep">·</span>${icon("salvage", 11)}${nextSlot}</button>`;
+  const rackHTML = `<section class="rack">
+      <div class="rack__hdr">
+        <span class="workshop__aside-label">rack</span>
+        <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots<span class="price__sep">·</span>${
+          // THE POINTS ABOARD, beside the budget's own readout in the aside and
+          // deliberately a different number from it. The budget counts what is
+          // OWNED, which is right — a tier you paid for is spent whether or not
+          // it undocks — but at the top of the ladder a rig can own 550 points
+          // and fly 220 of them, and a screen that only ever printed the first
+          // number would be describing a rig nobody flies. This is the one the
+          // bay actually meets.
+          tiersCost(maskLoadout(meta.loadout, aboard))
+        } pts aboard</span>
+        ${slotFoot}
+      </div>
+      <div class="rack__row">${aboard.map((id) => slotBtn(id, true)).join("")}${openSlots}</div>
+      ${shed.length
+        ? `<div class="rack__shed"><span class="rack__shed-label">shed</span>${
+            shed.map((id) => slotBtn(id, false)).join("")}</div>`
+        : ""}
+      <p class="rack__note muted">${
+        shed.length
+          ? "Systems in the shed keep every tier you paid for — they just don't undock. A refit stop can only raise what is aboard."
+          : "Every system you own is aboard. Buy a slot before the roster outgrows the rack."
+      }</p>
+    </section>`;
 
   const installedStrip = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) > 0)
     .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
@@ -3110,13 +3695,33 @@ export function workshopScreen(meta: MetaState): string {
       }</div>
       <div class="workshop__body">
         ${aside}
-        <div class="workshop__shop" data-scroll>${
+        <div class="workshop__shop" data-scroll>${rackHTML}${
           shelfEmpty
             ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
             : `<div class="workshop__grid">${shelf}</div>`
         }${haveStrips}</div>
       </div>
-      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
+      <div class="row workshop__go">
+        <!-- THE SHOP'S OTHER DOOR (playtest feedback). The Workshop is where a
+             player finds out they are short of salvage — every greyed price on
+             the shelf above says so — and until now the only way out of that
+             discovery was back through the home screen. Contracts are what pay
+             salvage (the blurb at the top of this screen says so in the same
+             breath), so the door belongs on the screen that creates the want.
+
+             SECONDARY, beside the primary rather than replacing it: Start Run
+             is still what the Workshop is FOR, and a shop whose loudest button
+             sends you shopping somewhere else has lost the plot. The badge is
+             meta.ts's nextStep, exactly as on the home screen and the run-end
+             card — and it can never collide with this screen's OTHER badge,
+             the next-step install card above, because those two states are the
+             same rule's two branches: an affordable install makes the Workshop
+             the next step, and nothing else makes Contracts it. -->
+        <button class="btn btn--secondary btn--lg${nextStep(meta) === "contracts" ? " btn--next" : ""}" data-action="contracts">${
+          icon("contracts")
+        }Contracts${nextStep(meta) === "contracts" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--primary btn--lg" data-action="play">${icon("play")}Start Run</button>
+      </div>
     </div>
   </div>`;
 }
@@ -3130,10 +3735,180 @@ export function workshopScreen(meta: MetaState): string {
  *  they are lost mid-bay, which makes it the right permanent home for the
  *  hints the transient strip retires from. Touch never sees the block (same
  *  CSS gates as the strip — the rail is touch's reference). */
+/**
+ * THE BAY-RETRY BUTTON'S FACE — one rule, every door.
+ *
+ * Three surfaces can start a bay retry (main.ts's requestBayRetry): the
+ * game-over card's Retry Bay, the pause modal's Restart Bay, and the held ⏸.
+ * The first got this treatment when it shipped and the second did not, so the
+ * pause modal spent a release asking for the same irreversible thing with a
+ * bare label — the cost visible from one door and invisible from another,
+ * which is worse than invisible from both because it teaches the player that
+ * the plain button is the safe one. (Owner playtest, screenshot.)
+ *
+ * So the face is written ONCE and both buttons call it. Not a second copy
+ * tuned to the pause modal: two copies is how the end card ends up saying
+ * "breaks this run's seal" while the pause modal says something almost like
+ * it, and a player who reads both learns to trust neither.
+ *
+ * WHAT EACH STATE DRAWS is argued in full at the .btn__seal rules in app.css
+ * and at run.ts's sealStateFor; the short version is that the shape says
+ * whether a stamp exists and the wash says whether it is in danger.
+ */
+export function sealFaceHTML(seal: SealState): string {
+  return `<span class="btn__seal${
+    seal === "at-stake" ? "" : seal === "held" ? " btn__seal--held" : " btn__seal--broken"
+  }" aria-hidden="true"></span>`;
+}
+
+/** …and the same rule's words, for the accessible name of whichever control is
+ *  wearing the glyph. Separate from the markup above because the two buttons
+ *  put it in different places (one appends to a label naming a bay, the other
+ *  labels the whole control), and because the ⏸ hold takes the words WITHOUT
+ *  the glyph — see hudHTML.
+ *
+ *  EVERY STATE IS A STANDALONE CLAUSE, and that is a rule rather than a
+ *  coincidence of phrasing. The three lines are glued onto three different
+ *  prefixes, so the only composition that can work at all three doors is one
+ *  that treats the label as a sentence in its own right — join with a dash and
+ *  read it.
+ *
+ *  It shipped otherwise for one release. "breaks this run's seal" is a bare
+ *  predicate, which reads fine after a button name that supplies the subject
+ *  ("Retry Bay 7 — breaks this run's seal") and ALSO reads fine after a
+ *  relative pronoun — so the rail glued its own name on with ", which " and
+ *  looked correct in the one state anybody checked. The other two are full
+ *  clauses, and "hold to restart the bay, which this run's seal is already
+ *  broken" is what that assumption actually produces. (Codex review, PR #144.)
+ *
+ *  So at-stake carries its subject too. "retrying" is very slightly redundant
+ *  after a button called Retry Bay, and that is the cheaper of the two costs:
+ *  a label that only parses next to certain prefixes is a label that will be
+ *  mis-glued again by the next door somebody adds.
+ *
+ *  `mark` is only ever spoken in the "held" line, which is a statement about
+ *  THAT FLOOR's stamp rather than about this run — the distinction sealStateFor
+ *  exists to keep straight. */
+export function sealFaceLabel(seal: SealState, mark: number): string {
+  return seal === "at-stake"
+    ? "retrying breaks this run's seal"
+    : seal === "held"
+      ? `Mark ${mark} is already sealed, so this costs nothing`
+      : "this run's seal is already broken";
+}
+
+/** The one way a door may glue the price onto its own name: a dash, and the
+ *  clause. Stated as a function so "the composition rule" is a thing the sim
+ *  can check rather than three string literals that agree today. */
+export function sealNameWith(name: string, seal: SealState, mark: number): string {
+  return `${name} — ${sealFaceLabel(seal, mark)}`;
+}
+
+/* ---------------------------------------------------------------------------
+ * QUITTING A LIVE RUN — the pause card's one irreversible door.
+ *
+ * Every other exit from a run settles it first: bay 10 wins it, a loss files
+ * it, and both land on the run-end card with the score already banked. Quit
+ * does none of that (main.ts's finishRun is never reached), so the run's score,
+ * its bay record and its place in the lifetime count all go — and until now it
+ * went on ONE tap of a ghost button sitting beside Resume.
+ *
+ * THE IDIOM IS ARM-THEN-CONFIRM, NOT A SECOND MODAL. Quit is already ON a
+ * modal; stacking a panel over the pause card would be a dialog in front of a
+ * dialog, and the seal notice — the app's other confirmation — earned its own
+ * panel precisely because it interrupts a press made from the FIELD. Here the
+ * player is already stopped and reading a card, so the cheaper affordance is
+ * the honest one: the first press makes the button say what it does, the
+ * second press does it.
+ *
+ * WHAT THE ARMED STATE CHANGES IS THE WORDS, not just a colour: the face
+ * relabels, the accessible name gains the consequence, and a line under the row
+ * names what is lost. A ring that only reddened would be unreadable to the
+ * quarter of players who cannot separate #ff2d55 from #7b8290, and invisible to
+ * anyone on a screen reader.
+ *
+ * BOTH FACES SHIP IN THE MARKUP and app.css stacks them in one grid cell, so
+ * the button is as wide armed as idle — the same "a card does not change shape
+ * when it is tapped" rule the draft's pick box follows. A four-button row that
+ * reflowed under the player's thumb would move Restart Bay onto the press that
+ * was aimed at Quit.
+ * ------------------------------------------------------------------------ */
+
+/** The armed face's words, and the idle face's. Two doors draw them —
+ *  pauseModal renders the card, and main.ts patches the MOUNTED card in place
+ *  when the first press arms it (a re-render would replay `.pop` and drop the
+ *  focus a pad is holding on the button being armed) — so they are written once
+ *  here, the same split and the same reason as sealFaceHTML/sealFaceLabel.
+ *
+ *  The idle name says a confirmation is coming, because a screen-reader player
+ *  who presses Quit and hears nothing has been told the button is broken. The
+ *  armed name says the price, as a standalone clause after the dash — the
+ *  composition rule sealNameWith exists to hold. */
+export function quitArmLabel(armed: boolean, bayNum: number): string {
+  return armed
+    ? `Quit anyway — bay ${bayNum} ends here and this run files nothing`
+    : "Quit — ends this run, and asks once more first";
+}
+
+/** The line the armed card puts under the button row.
+ *
+ *  It names the loss in the two currencies the player can check for themselves
+ *  afterwards: the bays behind them, and the record a finished run leaves. The
+ *  second sentence is the half worth printing — the same shape the seal notice
+ *  uses, where the first sentence says what goes and the second says what does
+ *  not. A quit and a loss are NOT the same outcome, and a player who thinks
+ *  they are will quit runs they should have flown into the ground.
+ *
+ *  `role="alert"` rather than a live region that is always mounted: the node is
+ *  inserted at the moment of arming, which is the announcement pattern that
+ *  works without depending on a hidden region having been registered first. */
+export function quitArmNoteHTML(bayNum: number): string {
+  return `<p class="pause__quit-note" role="alert">Quitting drops bay ${bayNum} and everything`
+    + ` behind it — carry, scrap and every notch this run took. Nothing files: play it out and`
+    + ` even a loss banks the score and the bay record.</p>`;
+}
+
 export function pauseModal(
   fullscreen = true,
   profile: InputProfile = "keyboard",
-  owned: { bond: boolean; demo: boolean; auto: boolean } = { bond: false, demo: false, auto: false },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean }
+    = { bond: false, demo: false, thaw: false, auto: false },
+  /** The run's seal state and the Mark it is flying (run.ts's sealStateFor) —
+   *  the SAME read requestBayRetry gates its confirmation on, so this button's
+   *  face and the panel that press opens can never disagree.
+   *
+   *  Absent means "no seal question here", which is the honest answer for Tier
+   *  S, the Skydeck, a Contract, a drill, and for every caller that predates
+   *  this argument. Restart Bay then renders exactly as it always did. */
+  seal?: { state: SealState; mark: number },
+  /** The quit gate (run.ts's quitLosesProgress), and where it currently sits.
+   *
+   *  Absent means "this exit costs nothing", which is the honest answer for
+   *  bay 1, for Tier S, for a Contract, for a drill, and for every caller that
+   *  predates this argument — Quit then renders as the plain one-press ghost
+   *  button it always was, wired straight to the menu. Present means the run
+   *  has bays behind it, and the button takes two presses. */
+  quit?: { armed: boolean; bayNum: number },
+  /** Whether this run may hand a bay back at all (run.ts's bayRetryable).
+   *
+   *  False ONLY on the Skydeck, whose bays are the day's single seeded attempt.
+   *  The button is REMOVED rather than disabled, which is the idiom the run-end
+   *  card already set for this exact refusal (main.ts's `retryBay` is
+   *  `undefined` there, not a dead control) and the one the rest of this file
+   *  follows for a mode that lacks a thing: Tier S drops the tier row, a drill
+   *  drops the ship rack, a Contract drops the launch-cost line. A greyed
+   *  Restart Bay with a tooltip would be four buttons of chrome explaining a
+   *  feature the mode does not have, on the one card a player opens to leave.
+   *
+   *  Defaults true so every caller that predates the argument — and every
+   *  ladder run, Contract, drill and bench run — is unmoved. */
+  restart = true,
+  /** Whether the retry this card offers is the whole RUN rather than the bay
+   *  (run.ts's retryIsWholeRun) — true only on the first bay of a ladder run.
+   *
+   *  Defaults false, so every caller that predates the argument draws the
+   *  Restart Bay it always did. */
+  runRetry = false,
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
@@ -3142,10 +3917,59 @@ export function pauseModal(
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
         ${fullscreen ? `<button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>` : ""}
-        <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
-        <button class="btn btn--ghost" data-action="menu">Quit</button>
+        <!-- RESTART BAY WEARS THE SAME FACE THE LOSS CARD'S RETRY DOES. It is
+             the same action through a different door, and until now it was the
+             only door that charged the seal without showing it (owner playtest
+             screenshot). The glyph comes from sealFaceHTML so there is one rule
+             rather than two that drift; the label carries the words, because
+             the glyph is aria-hidden and a cost only half the audience can read
+             is a cost half the audience is not told about. -->
+        <!-- …EXCEPT ON BAY 1, WHERE THE BAY AND THE RUN ARE THE SAME THING
+             and only one of them was free (owner playtest: "on the first bay
+             there's no point in retrying by breaking the seal"). The argument
+             is run.ts's retryIsWholeRun; the short version is that a bay-1
+             restart charges the run's seal to hand back a bay with nothing
+             behind it, while Quit → Start Run hands back the same offer with
+             the seal intact. So the card offers the free door instead, wearing
+             the loss card's name for it — one wording for one action, the same
+             rule sealFaceHTML follows for the priced one.
+
+             NO GLYPH AND NO PRICE IN THE NAME, because nothing is charged: the
+             action is "restart", which main.ts routes to a brand-new run
+             without ever reaching requestBayRetry's confirmation. A seal face
+             on a free press is the thing that teaches players to stop reading
+             seal faces.
+
+             THE HOLD KEEPS ITS OWN MEANING and the reference block below keeps
+             teaching it. It is not the workaround for a control removed here —
+             it hands back THIS seed, which no button on this card does — and
+             it quotes its own price at the moment of the press. -->
+        ${
+          restart
+            ? runRetry
+              ? `<button class="btn btn--secondary" data-action="restart">Retry Run</button>`
+              : `<button class="btn btn--secondary" data-action="restart-bay"${
+                seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
+              }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>`
+            : ""
+        }
+        ${
+          // A GATED QUIT DOES NOT CARRY THE MENU ACTION AT ALL — it is
+          // `quit-run`, which main.ts routes through the arming check before it
+          // ever reaches the menu. Not a flag on `menu`: eight other buttons in
+          // this file are that action, and a gate that has to ask which screen
+          // it is on is a gate one new back button quietly walks around. The
+          // ungated card keeps the old wiring exactly, so a Contract's pause
+          // still leaves on one press.
+          quit
+            ? `<button class="btn btn--ghost btn--quit" data-action="quit-run"
+          data-armed="${quit.armed}" aria-label="${quitArmLabel(quit.armed, quit.bayNum)}"
+        ><span class="btn__quit-face">Quit</span><span class="btn__quit-face btn__quit-face--armed">Quit anyway</span></button>`
+            : `<button class="btn btn--ghost" data-action="menu">Quit</button>`
+        }
       </div>
-      ${pauseKeysHTML(profile, owned)}
+      ${quit?.armed ? quitArmNoteHTML(quit.bayNum) : ""}
+      ${pauseKeysHTML(profile, owned, restart)}
     </div>
   </div>`;
 }
@@ -3157,8 +3981,26 @@ export function pauseModal(
  * twice: the two screens deliberately show the SAME projection of the same
  * config pipeline, and a second copy of this markup is how the two would
  * eventually disagree about which rows a phone drops.
+ *
+ * `explains` — this panel is the screen's ONLY account of what the player is
+ * about to buy, which is true of the yard and of nothing else. It turns on the
+ * belt tile's per-material breakdown here and the moved count on the header
+ * below.
+ *
+ * The split is a real one and not a fit budget in disguise. A draft and a Final
+ * Inspection both put the change in words on the card the player is holding —
+ * the material's own name and glyph included — so on those screens a breakdown
+ * and a tally restate what has already been said. The yard's cards say what a
+ * system IS and its buttons say what a rung COSTS; nothing on it says what the
+ * belt is made of, and that is exactly what decides between a Demolition Rack
+ * and a Thaw Lance.
+ *
+ * Neither is free, which is why the screen that does not need them does not pay
+ * for them: the list costs the belt tile a line (34px on the 1269x663 draft,
+ * whose body fits with nothing to spare) and the count wraps this header onto a
+ * second line (8px, everywhere the title is already at its width).
  */
-function previewGridHTML(rows: PreviewRow[]): string {
+function previewGridHTML(rows: PreviewRow[], explains: boolean): string {
   return rows
     .map((r) => {
       const val = r.changed
@@ -3179,12 +4021,49 @@ function previewGridHTML(rows: PreviewRow[]): string {
       const label = r.active
         ? `<span class="preview-stat__labeltxt">${txt}</span><span class="preview-stat__live">ACTIVE</span>`
         : txt;
-      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
+      // A row that is a SUM carries its own breakdown (preview.ts's
+      // PreviewPart), as a wrapping list INSIDE its own tile. Deliberately not
+      // a spanning tile: `grid-column: 1 / -1` cannot share a grid row with
+      // anything, so it costs a whole row wherever it lands — measured at +78px
+      // on the 800x600 draft, five times what the list itself is. Wrapped
+      // inside the tile it costs only the lines it needs, on the row the belt
+      // tile already sat in.
+      const parts = explains && r.parts?.length ? previewMixHTML(r.parts) : "";
+      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}${parts ? " preview-stat--mix" : ""}">
         <div class="preview-stat__label">${label}</div>
         <div class="preview-stat__val">${val}</div>
+        ${parts}
       </div>`;
     })
     .join("");
+}
+
+/**
+ * THE BELT'S COMPOSITION, as one dense line per material inside the belt tile.
+ *
+ * GLYPH, NOT NAME. The mark is the material's own belt icon (components.ts's
+ * materialIconHTML, which carries the name as its aria-label), on the
+ * one-vocabulary rule that governs every other surface that names a material:
+ * the mark a player learns watching the belt is the mark they read here. Six
+ * names spelled out would be two more wrapped lines on the panel that overflows
+ * first, and would say nothing the glyph does not.
+ *
+ * A notch tally rides beside the glyph in the plant panel's grammar ("×2" —
+ * components.ts's runNotchTallyHTML) whenever the caller supplied the run's
+ * banked ratchets. The refit yard deliberately does not (main.ts's refitHTML),
+ * so the yard's list is shares and the draft's is shares with the bill beside
+ * them.
+ */
+function previewMixHTML(parts: PreviewPart[]): string {
+  return `<ul class="preview-mix">${parts.map((p) => {
+    const pct = p.changed
+      ? `<span class="preview-stat__from">${p.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${p.to}</span>`
+      : `<span class="preview-stat__to">${p.from}</span>`;
+    return `<li class="preview-mix__m${p.changed ? ` preview-mix__m--${p.tone}` : ""}">
+      ${materialIconHTML(p.id, 13)}${p.notches > 0 ? `<span class="preview-mix__notch">×${p.notches}</span>` : ""}
+      <span class="preview-mix__pct">${pct}</span>
+    </li>`;
+  }).join("")}</ul>`;
 }
 
 /**
@@ -3211,13 +4090,34 @@ function projectionHTML(
    *  and a half-empty box with no explanation reads as a screen that failed to
    *  load rather than one waiting for a tap. */
   idleHint = "",
+  /** This panel is the screen's only account of the change — see
+   *  previewGridHTML's `explains`. The yard passes it; nothing else does. */
+  explains = false,
 ): string {
+  // HOW MANY NUMBERS MOVED, on the header the panel already has.
+  //
+  // The tiles have always coloured the change (app.css's .preview-stat--worse /
+  // --better), but a moved tile is only a highlight once you have found it, and
+  // this grid runs to seventeen rows on a fully staged order. Now that the
+  // yard's buttons carry a price rather than a description, this panel IS the
+  // answer to "what does that buy" — so it says up front that it has one, and
+  // how much of it. Absent when nothing moved: a permanent "0 moved" would be
+  // chrome, and the idle hint below is what an untouched panel says instead.
+  const moved = explains ? rows.filter((r) => r.changed).length : 0;
   return `<div class="projection" id="${id}" aria-live="polite">
     <div class="projection__hd">
       <span>${title}</span>
-      <span class="projection__note">${note}</span>
+      <span class="projection__note">${
+        // INSIDE the note rather than beside it. This header is a flex row in
+        // which only the note carries `min-width: 0`, so a third item makes the
+        // TITLE the one that has to give — and the title has no floor, so it
+        // wraps. Riding in the note the count shares the note's own budget and
+        // is the last thing an ellipsis reaches, which is the right order: the
+        // count is the fact and the note is the caption.
+        moved ? `<b class="projection__moved">${moved} moved</b> · ` : ""
+      }${note}</span>
     </div>
-    <div class="preview-grid">${previewGridHTML(rows)}</div>
+    <div class="preview-grid">${previewGridHTML(rows, explains)}</div>
     ${idleHint ? `<p class="projection__idle muted">${idleHint}</p>` : ""}
   </div>`;
 }
@@ -3291,17 +4191,26 @@ export function draftScreen(opts: {
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
-  /** The Skydeck's standing-clause tally (game/skydeck.ts), which REPLACES the
-   *  scrap cell rather than joining it.
+  /** The Skydeck's standing-clause tally (game/skydeck.ts), which now rides the
+   *  NOTCHES cell instead of taking the scrap one.
    *
-   *  Replaces, because on that mode the scrap cell is a lie of omission: there
-   *  is no yard, so the number can only ever be 0 and the reader is left to
-   *  work out whether they are failing to earn it. What belongs in that slot is
-   *  the pressure the yard's absence was traded for — how many of the day's
-   *  clauses are already riding, and which bay the next one arms on.
+   *  It took the scrap cell while the roof had no yard: the number there could
+   *  only ever be 0, so the slot was free and the tally was the honest thing to
+   *  put in it. The yard is back (run.ts's refitAfterBay) and scrap is a live
+   *  decision again — how much is banked, and how many clears until it can be
+   *  spent — so the cell it borrowed has an owner again.
    *
-   *  Absent on every ladder run, so the bank row is the three cells it has
-   *  always been either way. */
+   *  It joins the notch tally rather than adding a fourth cell, because the two
+   *  are the same fact: the bank row's three cells are MONEY carried, PRESSURE
+   *  carried, CAPITAL banked, and a standing clause is pressure carried for the
+   *  rest of the run in exactly the way a notch is. One is authored and one is
+   *  dealt, which is why they are two numbers in one cell rather than a sum. A
+   *  fourth cell was the alternative and it does not fit: the row is three
+   *  columns wide on the 640x360 phone (sim/uifit), the same budget the
+   *  bay-clear card's fourth row already failed.
+   *
+   *  Absent on every ladder run, where the cell is the plain notch count it has
+   *  always been. */
   standing?: { active: number; total: number; nextBay: number | null };
   /** True on a forced-material hand (hazards.ts's isMaterialDraft): the
    *  partner card there is capped at one seat (togglePick), so its footer must
@@ -3350,7 +4259,7 @@ export function draftScreen(opts: {
       // doubles.
       const canDouble = !ready && !(opts.forced && h.kind !== "content");
       const foot = picks > 0
-        ? canDouble ? "Tap again to double it" : "Tap to undo"
+        ? canDouble ? "Tap again for 2x" : "Tap to undo"
         : ready
           ? "Tap to swap this in"
           : "Tap to preview";
@@ -3382,7 +4291,7 @@ export function draftScreen(opts: {
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared · ${tierText(opts.tier)}</div>
       <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       ${quotaHTML(pending, opts.picksNeeded, opts.offers.length, opts.selected.map((id) => {
         // Resolved against the whole table, not just the dealt hand: a pick is
@@ -3397,27 +4306,24 @@ export function draftScreen(opts: {
       <div class="draft__bank">
         ${statCellHTML("reactor", "Carry", `$${opts.carry} · ended $${opts.funds}`, "var(--accent)")}
         <div class="bay-stat">${icon("up", 14)}<span class="bay-stat__txt">
-          <span class="bay-stat__lbl">Notches</span>
-          <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</span>
+          <span class="bay-stat__lbl">Notches${
+            opts.standing
+              ? opts.standing.nextBay === null
+                ? " · clauses"
+                : ` · clause Bay ${opts.standing.nextBay}`
+              : ""
+          }</span>
+          <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}${
+            opts.standing ? ` · ${opts.standing.active}/${opts.standing.total}` : ""
+          }</span>
         </span></div>
-        ${opts.standing
-          ? statCellHTML(
-              "bond",
-              `Clauses${
-                opts.standing.nextBay === null
-                  ? " · all signed"
-                  : ` · next Bay ${opts.standing.nextBay}`
-              }`,
-              `${opts.standing.active}/${opts.standing.total}`,
-              "var(--accent-2)",
-            )
-          : statCellHTML("scrap", `Scrap${
-              opts.baysToRefit === null
-                ? ""
-                : opts.baysToRefit === 1
-                  ? " · refit next bay"
-                  : ` · refit in ${opts.baysToRefit}`
-            }`, String(opts.scrap), "var(--warn)")}
+        ${statCellHTML("scrap", `Scrap${
+          opts.baysToRefit === null
+            ? ""
+            : opts.baysToRefit === 1
+              ? " · refit next bay"
+              : ` · refit in ${opts.baysToRefit}`
+        }`, String(opts.scrap), "var(--warn)")}
       </div>
       <div class="draft__body">
         <div class="draft__cards" id="draft-cards">${cards}</div>
@@ -3569,7 +4475,7 @@ export function finalScreen(opts: {
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared · ${tierText(opts.tier)}</div>
       <h2 class="display">Final Inspection</h2>
       ${quotaHTML(ready ? 1 : 0, 1, opts.offers.length,
         ready ? [{ glyph: icon("check", 11), kind: "final" }] : [],
@@ -3661,6 +4567,56 @@ function sandboxEndRowHTML(
   </div>`;
 }
 
+/**
+ * What completing `tier` OPENED, as the clause both end cards drop into the
+ * same sentence.
+ *
+ * The floor comes from meta.ts (tierOpenedByCompleting) rather than from the
+ * progress snapshot each card already holds, because that snapshot is
+ * markUnlocked read AFTER the update and markUnlocked saturates — completing
+ * the last tier printed "Tier 10 is open" about the floor the player had just
+ * spent the tier flying, which is how an owner came to report a finished
+ * ladder as "all completed but not unlocked".
+ *
+ * The null branch is not a hole to fill with silence. The ladder ending is
+ * genuinely the biggest thing that happens on the save, and what is still open
+ * there is two things the player CAN act on: the Workshop shelf, which the
+ * tier-10 Contract loop keeps paying toward, and the seals the Skydeck asks
+ * for (meta.ts's skydeckOpen). Naming them is the difference between an
+ * endgame and a screen that has run out of things to say.
+ */
+function tierOpenedClause(tier: number): string {
+  const opened = tierOpenedByCompleting(tier);
+  return opened !== null
+    ? `Tier ${opened} is open`
+    // One dash, not two: the caller has already spent the sentence's dash on
+    // "cleared — ", so the second half is a sentence of its own.
+    : "the ladder is finished. Contracts still pay, and what's left is a maxed rig and every Mark sealed";
+}
+
+/**
+ * The end card's timing clause — "6 excellent · 4 good", or nothing at all.
+ *
+ * Exported so sim/systems.ts can pin the copy without rendering a whole modal,
+ * which is the same treatment every other piece of generated end-card text
+ * gets here: a clause that appears on one screen and is checked on none is a
+ * clause that goes stale silently.
+ *
+ * EMPTY WHEN NEITHER BAND WAS EARNED, and that is the editorial decision rather
+ * than a null guard. The clause's job is to tell a player that a better row
+ * exists and that they got some; a run that got none is being shown a game-over
+ * screen, and "0 excellent · 0 good" on it is a scold. The callout in the bay
+ * (theme.ts's GRADE_CALLOUT) is where that player meets the mechanic, in the
+ * moment they can still act on it.
+ */
+export function gradeBreakdownClause(grades?: GradeTally): string {
+  if (!grades) return "";
+  const parts: string[] = [];
+  if (grades.excellent > 0) parts.push(`${grades.excellent} excellent`);
+  if (grades.good > 0) parts.push(`${grades.good} good`);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
 export function endModal(opts: {
   won: boolean;
   /** Composite final run score (run.ts's finalRunScore) — bays + lines +
@@ -3708,14 +4664,76 @@ export function endModal(opts: {
    *  "salvage": that word is the Workshop's permanent currency, and the two
    *  sitting on the same foot line would read as one number counted twice. */
   salvagedFunds: number;
+  /** Funds volatile detonations took for the live cargo they destroyed across
+   *  the run (run.ts's RunState.volatileLosses). Worded as FUNDS for the same
+   *  reason salvagedFunds is, and printed in the breakdown row rather than on
+   *  the sandbox foot beside it — see the `volatileFoot` note below. */
+  volatileLosses: number;
+  /** Funds the Incinerator saved across the run (run.ts's
+   *  RunState.incineratedFunds). Worded as FUNDS for the same reason its two
+   *  neighbours are, and printed in the same breakdown row — it is the only
+   *  ship system on the shelf whose whole effect is invisible while the bay is
+   *  being played, so this line is where the purchase gets settled up. */
+  incineratedFunds: number;
+  /** Rows the run sold at each TIMING GRADE (run.ts's RunState.grades). Optional
+   *  so every caller that predates the mechanic — the uifit fixtures included —
+   *  renders exactly the card it rendered before, with no clause at all. */
+  grades?: GradeTally;
   tiers: UpgradeTiers;
   /** The board this score posts to — the RUN's own Mark (RunState.mark), never
    *  `progress.tier`: a run that completed its tier has already advanced the
    *  Mark by the time this renders, and the score belongs to the tier it was
    *  actually flown at. */
   /** The board this run's score lands on (lib/api.ts's BoardId): the run's own
-   *  Tier, or BOARD_SANDBOX for Tier S. */
+   *  Tier, BOARD_SANDBOX for Tier S, or BOARD_SKYDECK for the roof. */
   boardTier: number;
+  /** The day half of that key on the Skydeck's board (lib/api.ts's BoardDay),
+   *  absent on every board that has no day. */
+  boardDay?: number;
+  /** TODAY'S CONTRACT BOARD, as the end card needs to know it: how many of the
+   *  three are still uncleared, and whether Contracts are the loop's ONE next
+   *  step right now (meta.ts's nextStep — the same call the home screen's
+   *  button asks, so the two surfaces can never point at different doors).
+   *
+   *  Absent means "no board to speak of" and the route is not drawn — which is
+   *  what every caller that predates it gets, uifit fixtures included. */
+  contracts?: { remaining: number; next: boolean };
+  /** The bay the run died in can be handed back (main.ts's retryBay). Drawn on
+   *  a ladder run only — Tier S has its bench one tap away and the Skydeck is
+   *  the day's single attempt, which is the whole of what the mode sells.
+   *
+   *  `seal` is run.ts's SealState — the SAME read requestBayRetry gates its
+   *  confirmation on, so the button's face and the panel that press opens can
+   *  never disagree. It selects between three states of the button rather than
+   *  switching a warning on and off, and that is the change playtest asked
+   *  for: the button "should hold the mark of whether the seal has been broken
+   *  or not". Absence is not a state a player can read — a button with nothing
+   *  on it looks like a button nobody finished — so every answer is drawn.
+   *
+   *  THE GLYPH MEANS WHAT IT MEANS ON THE TOWER: a stamp is a seal you hold, a
+   *  struck stamp is one that is gone. The WASH carries the other axis, which
+   *  is whether anything is at risk right now.
+   *
+   *   - at-stake: the stamp, in the danger wash, over a line saying a retry
+   *     breaks it. This press costs something.
+   *   - spent: the same stamp struck through and muted, over a line saying so.
+   *     This run's seal is already gone and further retries are free, which is
+   *     a thing worth being able to read at a glance rather than remember.
+   *   - held: the stamp again, solid but muted — you HOLD this Mark's stamp
+   *     and no press on this screen can take it (run.ts's sealStateFor; found
+   *     in review, codex PR #135). Solid rather than struck because nothing is
+   *     gone, muted rather than danger because nothing is at risk. Its line is
+   *     the one that has to be worded most carefully: it is a fact about the
+   *     MARK, and must not be read as this run having sealed anything. */
+  retryBay?: {
+    seal: SealState;
+    /** The MARK being flown — named by the "held" line, which is a statement
+     *  about that floor's stamp rather than about this run. Passed rather than
+     *  read off `boardTier`: those two agree on every ladder run today, and
+     *  leaning on that would make this copy quietly wrong the first time they
+     *  stop agreeing. */
+    mark: number;
+  };
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
   // Demolition recovery, appended to whichever foot line the branch below
@@ -3723,6 +4741,41 @@ export function endModal(opts: {
   // draft pick most runs never make, so the line would be dead weight on the
   // majority of end screens — and the foot is already the densest row here.
   const demoFoot = opts.salvagedFunds > 0 ? ` · $${opts.salvagedFunds} recovered by demolition` : "";
+  // What volatile took, on the run's own tally row. Suppressed at zero for the
+  // same reason demoFoot is — most runs never ratchet the axis, and the
+  // breakdown is not a place to print a $0 for a hazard the player never met.
+  //
+  // IN THE BREAKDOWN, not on demoFoot's line, and the difference matters. That
+  // foot renders on Tier S runs only (sandboxEndRowHTML is the sole caller), so
+  // a charge parked there would be invisible on every ladder run — which is the
+  // whole of what this readout is for. A cost the player is never shown reads
+  // exactly the way it read to the sim before it was billed: as free pile
+  // relief (lineClear.ts's volatileLossFor). The breakdown is already the row
+  // that reconciles the run's money, and this belongs beside "$N left".
+  const volatileFoot = opts.volatileLosses > 0
+    ? ` · $${opts.volatileLosses} lost to detonations` : "";
+  // What the hood saved, beside what the bay lost, and suppressed at zero on
+  // the same rule as its two neighbours. It sits AFTER volatileFoot rather than
+  // before it because the order is the order the money moved: the bill first,
+  // then what was taken off it. "saved by the Incinerator" and not "burned" —
+  // the number is money that stayed in the bankroll, and the breakdown row's
+  // whole job is reconciling the bankroll.
+  const incinFoot = opts.incineratedFunds > 0
+    ? ` · $${opts.incineratedFunds} saved by the Incinerator` : "";
+  // HOW THE ROWS WERE SOLD (grades.ts), on the breakdown row that already
+  // reconciles the run rather than as a fifth stat tile.
+  //
+  // The breakdown is the honest home for it: every other clause there is "what
+  // the run produced and what it cost", and a timing tally is the same kind of
+  // fact read one level down — WHY the money came out the way it did. A stat
+  // tile would have made it a headline beside Score and Lines, and the grade is
+  // not a score, it is the reason the score is what it is.
+  //
+  // Only the two bands that pay a PREMIUM are named, and only when a run earned
+  // some. A run that swept everything is not told it swept everything: the
+  // clause exists to teach that a better row is available, and printing
+  // "0 excellent" on the losing screen is a scold rather than a lesson.
+  const gradeFoot = gradeBreakdownClause(opts.grades);
   const eyebrow = opts.runComplete
     ? `All ${RUN_LEVELS} bays cleared`
     : opts.won
@@ -3783,7 +4836,7 @@ export function endModal(opts: {
       <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
-        · $${Math.max(0, opts.funds)} left
+        · $${Math.max(0, opts.funds)} left${gradeFoot}${volatileFoot}${incinFoot}
       </div>
       <!-- AWARDS ONLY. The "Tier N progress" banner that used to sit here —
            ✓/○ pips in prose, "finish both to open Tier N+1", a foot of scrap
@@ -3802,7 +4855,13 @@ export function endModal(opts: {
         <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
-          <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
+          <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — ${
+            // The same saturation question the Contract card asks, answered in
+            // the same place — see tierOpenedClause. Either half of a tier can
+            // be the one that lands second, so both cards can be the one that
+            // announces the ladder's last rung.
+            tierOpenedClause(opts.tierCompleted)
+          }. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
@@ -3822,7 +4881,13 @@ export function endModal(opts: {
         // changes — truthfully. A Mark no longer scales the ladder's numbers
         // (level.ts's zeroed MARK_*_STEP), so what a tier opens is a hazard
         // axis and a bigger build budget, and that is what the line says.
+        //
+        // AND ONLY WHEN THERE IS A NEXT RUNG. Completing the last tier opens
+        // no floor, so this promised a hazard axis Mark 10 does not have and a
+        // budget rise that had already happened — the same saturation the
+        // salvage row above just stopped printing.
         !opts.sandbox && opts.runComplete && opts.tierCompleted !== null
+          && tierOpenedByCompleting(opts.tierCompleted) !== null
           ? `<p class="muted end__next">Tier ${opts.progress.tier}: ${
               (() => {
                 const opened = HAZARDS.find((h) => h.mark === opts.progress.tier);
@@ -3833,7 +4898,14 @@ export function endModal(opts: {
       }
       </div>
       <div class="end__side">
-        <div class="eyebrow">${opts.boardTier === BOARD_SANDBOX ? "Tier S" : `Tier ${opts.boardTier}`} board</div>
+        <div class="eyebrow">${boardText(opts.boardTier)} board${
+          // The day, on the one board that has one — this modal is where a
+          // Skydeck score is actually filed, and it files under the day the run
+          // was DEALT rather than the day it landed (lib/api.ts's BoardDay).
+          opts.boardTier === BOARD_SKYDECK && opts.boardDay
+            ? ` · ${dayText(opts.boardDay)}`
+            : ""
+        }</div>
         <div class="submit-row" id="submit-row">
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
             value="${opts.name}" autocomplete="off" spellcheck="false" />
@@ -3845,6 +4917,41 @@ export function endModal(opts: {
         <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
+        ${
+          // THE PRICE OF THE MERCY, spelled out over the button that charges
+          // it. The glyph on that button is the tower's own seal with a bar
+          // through it, and a glyph is not a sentence — this is the sentence,
+          // and it is the half that says the thing a player most needs to hear:
+          // the seal is what breaks, NOT the tier. A player who thinks a retry
+          // costs them the tier will quit a run they could still win.
+          //
+          // INSIDE the row, as a full-width flex item that pushes the buttons
+          // onto the next line, rather than as a sibling above it. The landscape
+          // grid places .end__actions by AREA (app.css: "main side" / "actions
+          // side"), so a paragraph beside it is an unplaced grid child and lands
+          // in an implicit row under the whole panel — which is where this line
+          // first rendered, three inches below the button it prices.
+          //
+          // BOTH STATES, like the button under it. It used to be drawn only
+          // while the seal was on the table, on the argument that a warning
+          // outliving its cost is a line people learn to stop reading — which
+          // is true of a WARNING and not of a READOUT. The second line is not
+          // the first one repeated; it is the opposite news, and it is news the
+          // player can act on: the price has been paid, and every further retry
+          // in this run is free.
+          // THREE READINGS, one per state. The "held" line is a fact about the
+          // MARK — its stamp is on the tower and this screen cannot take it —
+          // and is worded so it cannot be read as this RUN having sealed
+          // something: a re-fly seals nothing until it is won clean, and the
+          // player is looking at a loss.
+          opts.retryBay
+            ? opts.retryBay.seal === "at-stake"
+              ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
+              : opts.retryBay.seal === "held"
+                ? `<p class="muted end__seal">Mark ${opts.retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
+                : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
+            : ""
+        }
         <button class="btn btn--primary" data-action="restart">${
           // A15: the bay-10 primary carries the tier plate (the 26px size of
           // the one component) and names the rung it flies next.
@@ -3852,12 +4959,59 @@ export function endModal(opts: {
           // A sandbox run's primary re-flies the SAME configuration, which is
           // what practice is: main.ts's restart routes on RunState.sandbox, so
           // this button never has to know which mode it is in.
+          //
+          // "Retry Run" rather than "Play Again" on a loss with the bay retry
+          // beside it: the two are now a PAIR and the pair only reads if both
+          // halves say what they hand back. It stays the primary, and that is a
+          // decision rather than an inheritance — see the retry button below.
           opts.sandbox
             ? "Fly it again"
             : opts.runComplete
               ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
-              : "Play Again"
+              : opts.retryBay
+                ? "Retry Run"
+                : "Play Again"
         }</button>
+        ${
+          // RETRY BAY — the forgiving half, and deliberately NOT the primary.
+          //
+          // Three reasons, in the order they decided it. (1) The Deep Run is
+          // the permadeath exam (docs/DESIGN.md); the mode's own answer to a
+          // loss is another run, and the retry is a mercy offered beside it
+          // rather than the default the screen assumes. (2) padnav's
+          // focusInitial lands a pad on `.btn--primary`, so whichever button
+          // wears it is what a stray A after a loss presses — and this is the
+          // only button on the screen that can spend something permanent. A
+          // mis-press must never cost the seal. (3) The fresh start keeps the
+          // slot "Play Again" already held, so no player's muscle memory is
+          // repurposed into a cost they did not ask for.
+          //
+          // It sits FIRST after the primary all the same: it is the thing that
+          // hands back the bay they just lost, and burying it under Menu would
+          // be hiding the feature this row exists to add.
+          //
+          // BOTH SEAL STATES ARE DRAWN, and the glyph means the same thing on
+          // this button that it means on the tower: a stamp is a seal you have,
+          // a struck stamp is one that is gone. It used to wear the struck
+          // stamp while the seal was still INTACT — the glyph was predicting
+          // the press rather than reporting the run — and then nothing at all
+          // once the seal was actually spent, which is the one state a player
+          // most wants to be able to read back.
+          //
+          // THE GLYPH AND THE WORDS BOTH COME FROM sealFaceHTML/sealFaceLabel
+          // now, which is where the pause modal's Restart Bay gets them too.
+          // They were written here and nowhere else for one release, and the
+          // pause modal went out with a bare button as a result — so the rule
+          // moved out to be shared rather than being copied to the second
+          // caller. Nothing about this button's face changed in the move.
+          opts.retryBay
+            ? `<button class="btn btn--secondary" data-action="retry-bay"
+              aria-label="${
+                sealNameWith(`Retry Bay ${opts.bayNum}`, opts.retryBay.seal, opts.retryBay.mark)
+              }"
+            >${sealFaceHTML(opts.retryBay.seal)}Retry Bay</button>`
+            : ""
+        }
         ${
           // Back to the bench, not to the menu — the thing a player wants
           // after a practice run is almost always the next configuration, and
@@ -3867,7 +5021,137 @@ export function endModal(opts: {
             ? `<button class="btn btn--secondary" data-action="sandbox">Tier S</button>`
             : ""
         }
+        ${
+          // THE CONTRACTS ROUTE (playtest feedback: the end card is where a
+          // player decides what to do next, and the only thing it offered was
+          // the run again or the menu).
+          //
+          // Drawn when today's board still has an uncleared card, which is the
+          // honest reading of "there is something here to do" — a board of
+          // three ticks is a door onto free practice, and the end of a run is
+          // not where to advertise that.
+          //
+          // The BADGE is meta.ts's nextStep and nothing else, so the rule that
+          // exactly one surface carries it holds across the screen boundary
+          // too: the badge appears here only when the loop's one next step
+          // really is Contracts, which is precisely when the tier still owes
+          // them and salvage cannot yet buy anything. When salvage CAN buy
+          // something the Workshop is the next step, and it already has a
+          // button on this modal — inside the salvage row that just paid out.
+          // Two badges on one card would be the screen arguing with itself.
+          opts.contracts && opts.contracts.remaining > 0
+            ? `<button class="btn btn--secondary${opts.contracts.next ? " btn--next" : ""}" data-action="contracts">${
+                icon("contracts")
+              }Contracts${opts.contracts.next ? nextBadgeHTML() : ""}</button>`
+            : ""
+        }
         <button class="btn btn--ghost" data-action="menu">Menu</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * THE SEAL-BREAK NOTICE — said once, ever, and then never again.
+ *
+ * A bay retry has always cost the run's seal (meta.ts's recordRunEnd) and has
+ * always cost it SILENTLY: the pause modal's Restart Bay, the held pause
+ * button and now the game-over card's Retry Bay all hand the bay back without
+ * mentioning that the stamp on the tower floor has just gone. That was
+ * survivable while the seal was decoration. It is not survivable now that the
+ * seals are the Skydeck's key (meta.ts's skydeckOpen) — a cost that opens a
+ * door has to be quoted before it is charged.
+ *
+ * ONE PANEL, ONCE, ON A WATERMARK (MetaState.sealBreakSeen), rather than a
+ * confirmation every time. A dialog in front of a retry is a toll: the player
+ * who has understood the trade pays it on every restart for the rest of their
+ * life with the game, and the tenth one is read by nobody. What survives after
+ * this panel is the glyph on the button and the line above it (endModal), which
+ * is the right permanent weight for a cost the player now knows.
+ *
+ * THE SECOND PARAGRAPH IS THE WHOLE POINT. The first says what breaks; the
+ * second says what does NOT, and it is the half a player will otherwise get
+ * wrong. A retried run still counts, still banks its salvage share, still ticks
+ * the tier — the seal is a record of HOW a Mark fell, not a condition on
+ * whether it fell. Without that sentence the panel reads as "restarting forfeits
+ * your tier", and a player who believes that will abandon runs they could win.
+ */
+export function sealBreakModal(opts: {
+  /** The 1-based bay about to be handed back. */
+  bayNum: number;
+  /** The MARK being flown (RunState.mark) — whose stamp is on the table. Not
+   *  the player's high-water tier: a re-fly of Mark 3 puts Mark 3's seal at
+   *  stake and nothing else, and naming the wrong floor here is naming the
+   *  wrong cost. */
+  mark: number;
+  /** The tier this run can still open (meta.ts's tierOpenableBy), or null when
+   *  it can open none — a re-fly of a beaten Mark, or a run at the top of a
+   *  finished ladder. The promise is only made where it is true; see the
+   *  branch below for what is said instead. */
+  tier: number | null;
+  /** Marks sealed so far, out of the ladder — the price of the roof, stated in
+   *  the same numbers the tower draws. */
+  sealed: number;
+  /** Draw the LONG form: the paragraph that teaches what a seal is and what
+   *  the whole set opens (meta.ts's sealBreakSeen, once per save).
+   *
+   *  The watermark used to decide whether this panel appeared at all. It does
+   *  not any more — the confirmation is asked every time the seal is genuinely
+   *  at stake — so what is left for it to gate is the LESSON, which is the only
+   *  part that is worth exactly one reading. Every later confirmation drops
+   *  that paragraph and keeps the decision. */
+  explain: boolean;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal seal-note pop">
+      <div class="eyebrow" style="color:var(--danger)">Seal</div>
+      <h2 class="display">Retrying breaks the seal</h2>
+      ${
+        // ONE TITLE FOR BOTH FORMS. The short panel is a confirmation and a
+        // question ("Break Mark 4's seal?") would read more naturally on it —
+        // but the panel is doing the same job both times, the buttons under it
+        // already ask the question, and two titles is two strings to keep true
+        // of the same moment.
+        opts.explain
+          ? `<p class="seal-note__body">A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
+      in one run without retrying a single one. The tower stamps that floor, and the
+      <b>Skydeck opens when all ${MARK_COUNT} Marks carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>`
+          : ""
+      }
+      <p class="seal-note__body">Retry bay ${opts.bayNum} and <b>Mark ${opts.mark}</b> cannot be
+      sealed by this run. ${
+        // THE PROMISE, ONLY WHERE IT IS TRUE. On the frontier the thing a
+        // player most fears losing is the tier, so the tier is named. On a
+        // re-fly of a beaten Mark — or at the top of a finished ladder — there
+        // is no tier to open, and naming one would be a lie told to reassure.
+        // What is true on every run is the rest of the sentence, so that is
+        // what the fallback keeps: the run is not wasted, only the stamp is.
+        opts.tier !== null
+          ? `<b>Tier ${opts.tier} still opens.</b> The run counts, the salvage banks, and the`
+          : `<b>Everything else this run can earn, it still earns</b> — the run counts and its`
+            + ` salvage banks. The`
+      }
+      seal can be taken on any later run — including a re-fly of a Mark you have
+      already beaten.</p>
+      <!-- KEEPING THE SEAL IS THE PRIMARY, on the same reasoning the run-end
+           card's own row uses: padnav's focusInitial lands a pad on the
+           primary button, and the button a stray press finds must never be
+           the one that spends something permanent. It is also the honest
+           default for a panel the player did not ask to see — they pressed a
+           retry, they are being told what it costs, and the answer the panel
+           assumes should be the reversible one. -->
+      <div class="row">
+        <button class="btn btn--primary" data-action="seal-break-back">Keep the seal</button>
+        <!-- The fourth name that speaks the price, and it goes through the same
+             rule as the other three. It was a hand-written copy of the at-stake
+             words, which is precisely the drift this feature moved the face out
+             to prevent: the moment those words gained a subject, this button
+             would have been the one still saying the old ones. The panel only
+             ever opens on an at-stake seal (requestBayRetry), so the state is
+             a constant here rather than a prop. -->
+        <button class="btn btn--secondary" data-action="seal-break-go"
+          aria-label="${sealNameWith(`Retry Bay ${opts.bayNum}`, "at-stake", opts.mark)}"
+        ><span class="btn__seal" aria-hidden="true"></span>Retry Bay</button>
       </div>
     </div>
   </div>`;
@@ -3915,6 +5199,17 @@ export function contractsScreen(opts: {
   progress?: TierProgress;
   /** The cheapest installable system, for the WHY strip's target price (A9). */
   nextInstall?: { name: string; cost: number } | null;
+  /** The board's floor, when it is not one of the ladder's — "Skydeck".
+   *
+   *  A NAME rather than a flag, and passed rather than derived from `tier`, for
+   *  the reason every other cross-module label on this screen is: the sentinel
+   *  belongs to the tower (SKYDECK_TIER) and the tier number belongs to the
+   *  generator (contracts.ts's SKYDECK_CONTRACT_TIER), and a screen that
+   *  compared one against the other would be a third place those two have to
+   *  agree. The eyebrow is the only thing it changes — a board that is not on
+   *  the ladder cannot say "Tier N", and saying nothing at all would leave the
+   *  player no way to tell the roof's board from the tier-10 one. */
+  floor?: string;
 }): string {
   // Whether a first clear still banks anything. A tier pays its milestone share
   // for only the first TIER_CONTRACTS_REQUIRED Contracts (meta.ts), so once the
@@ -3998,7 +5293,11 @@ export function contractsScreen(opts: {
           <!-- The tier lives in the chip opposite when there is one, so the
                eyebrow does not repeat it — it only names the thing the chip
                cannot, which is that the board is regenerated every day. -->
-          <div class="eyebrow">${opts.progress ? "Resets daily" : `Tier ${opts.tier} · resets daily`}</div>
+          <div class="eyebrow">${
+            opts.floor
+              ? `${opts.floor} · resets daily`
+              : opts.progress ? "Resets daily" : `Tier ${opts.tier} · resets daily`
+          }</div>
           <h2 class="display">Contracts</h2>
           <p class="contracts__sub muted">No rush, do it right.</p>
         </div>
@@ -4145,6 +5444,23 @@ export function contractEndModal(opts: {
    *  exits back at the sandbox — a practice Contract has no board to return
    *  to, and the daily board is not it. */
   sandbox?: boolean;
+  /** The attempt came off the SKYDECK's board (contracts.ts's
+   *  SKYDECK_CONTRACT_TIER), which is not a tier.
+   *
+   *  Same shape as `sandbox` above and for the same reason, which is the
+   *  precedent this file already set: a mode whose clear banks nothing gets a
+   *  row that SAYS so, rather than borrowing the ladder's. Without it a first
+   *  roof clear arrives here with `award.firstClear` true and takes the ladder
+   *  branch below — captioning a clear that moved nothing as "Tier 10 ·
+   *  Contracts 0/3" with three more owed and a Deep Run to fly. The settlement
+   *  was never wrong (recordContractClear banks and ticks nothing off the
+   *  ladder); the card was. It is the third time in this repo that the
+   *  celebration has outrun the state it was celebrating.
+   *
+   *  It differs from `sandbox` in exactly one way, and the difference is real:
+   *  a Tier S Contract has no board to go back to, and a Skydeck one does. So
+   *  the exits are untouched here. */
+  skydeck?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
@@ -4213,12 +5529,40 @@ export function contractEndModal(opts: {
         </div>
         <button class="btn btn--secondary" data-action="sandbox">Tier S</button>
       </div>`
+      : opts.skydeck
+      // THE ROOF'S OWN WIN, ahead of every award branch below rather than
+      // folded into one of them. All three of those read `progress`, which is
+      // markUnlocked's tier — a number this clear cannot move and therefore
+      // cannot honestly caption. The quiet "Already logged" replay row is no
+      // safer: its one claim is that the Contract "counted on your first
+      // clear", and off the ladder it never counted for anything.
+      //
+      // So the roof gets one row for both the first clear and every replay,
+      // because on this floor there is no difference between them worth
+      // drawing — nothing banked either time. It reuses `--quiet`'s styling
+      // (nothing moved, so nothing shouts) and the tower's own ★, which is the
+      // face the plate already wears for this floor.
+      ? `<div class="salvage-row salvage-row--quiet">
+        <div class="salvage-row__amt">★</div>
+        <div class="salvage-row__body">
+          <b>Skydeck · logged</b>
+          <span class="muted">The roof's board is not a rung, so this clear banks nothing and
+            moves no quota — the ladder is already behind you. It is on the day's record, and
+            it stays replayable.</span>
+        </div>
+      </div>`
       : opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">
         <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.award.completedTier} complete!</b>
-          <span class="muted">Run beaten and ${p.needed} Contracts cleared — Tier ${p.tier} is open. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
+          <span class="muted">Run beaten and ${p.needed} Contracts cleared — ${
+            // NOT `p.tier`. That is markUnlocked read after the update, and it
+            // saturates: on the last rung it named the floor the player had
+            // just finished flying as the one that had opened, which is how
+            // "all completed but not unlocked" gets reported.
+            tierOpenedClause(opts.award.completedTier)
+          }. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`

@@ -1,7 +1,9 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
 import { BOARD_SANDBOX, type BoardId } from "./api";
-import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
-import { newTiers, type UpgradeTiers } from "../game/upgrades";
+import {
+  newMeta, ownedTracks, refundRetiredUnlocks, SLOT_BASE, SLOT_CAP, type MetaState,
+} from "../game/meta";
+import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
 
 export interface Settings {
   sound: boolean;
@@ -77,6 +79,30 @@ export interface Settings {
    *  would turn a hidden door into a chore. Off by default, so a save written
    *  before Tier S existed opens exactly as it did. */
   devMode: boolean;
+  /** Give the pointer back to the operating system (styles/cursors.css).
+   *
+   *  false (default) — the game draws its own four cursors on a fine pointer:
+   *  a reticle over the bay, an arrow over the chrome, a hand on anything
+   *  clickable and a barred disc on anything refusing.
+   *  true — every one of those reverts to the plain CSS keyword, so the
+   *  player's own pointer is drawn by their OS at whatever size and colour
+   *  they have set it to.
+   *
+   *  WHY THIS IS A SETTING AND NOT A MEDIA QUERY. cursors.css already stands
+   *  down for `forced-colors: active` and `prefers-contrast: more`, and those
+   *  cover the players whose accessibility needs the platform bothers to
+   *  announce. They are not the whole set. Windows' pointer size/colour and
+   *  macOS's pointer size are standalone preferences: a player can triple
+   *  their cursor and tint it yellow without turning on high contrast, and NO
+   *  media query in any engine reports that they did. A 26px bitmap would
+   *  silently override the one accommodation they had made, and the only
+   *  honest way to detect it is to ask. Hence a switch, and hence it reverts
+   *  ALL FOUR cursors rather than only the two this build added — a player
+   *  who wants their own pointer wants it over the bay too.
+   *
+   *  Off by default: the game's cursors are the intended look, and a player
+   *  who has not asked for anything gets it. */
+  systemCursor: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
@@ -88,6 +114,7 @@ const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
   seenKeyHints: false,
   leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
+  systemCursor: false,
 };
 
 /** Keys a save may still carry that this build no longer answers to. Dropped
@@ -235,6 +262,22 @@ export function loadMeta(): MetaState {
     meta.celebratedMark = typeof rawCelebrated === "number" && Number.isFinite(rawCelebrated)
       ? Math.min(meta.mark, Math.max(0, Math.floor(rawCelebrated)))
       : meta.mark;
+    // THE TWO NEW WATERMARKS (meta.ts's sealBreakSeen / skydeckCelebrated), and
+    // they migrate the OPPOSITE way to the one above — the note there says why
+    // that difference is deliberate rather than an oversight.
+    //
+    // `sealBreakSeen` false on a save that predates it: the message has never
+    // been shown to anyone, and a returning player who retries a bay should get
+    // it exactly once, like everybody else. It costs them one panel.
+    //
+    // `skydeckCelebrated` false for the same reason, and it buys something: a
+    // save that already holds every seal (they have been recorded since the
+    // seal shipped) opens the roof the moment this build loads it, and gets the
+    // ride to it on the next menu instead of finding the floor silently open.
+    // A save that does NOT hold every seal gets no ceremony until it earns one,
+    // which is the flag doing its job rather than a migration.
+    meta.sealBreakSeen = meta.sealBreakSeen === true;
+    meta.skydeckCelebrated = meta.skydeckCelebrated === true;
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.
@@ -259,6 +302,36 @@ export function loadMeta(): MetaState {
       }
       meta.loadout = tiers;
     }
+    /* THE RACK, and the one migration in this file that hands something out.
+     *
+     * `slots` is read AFTER the loadout above, because the grandfather rule is
+     * a function of it. Like `celebratedMark`, the field's ABSENCE cannot be
+     * allowed to read as its default: a save written before slots existed flew
+     * every system it owned, and defaulting it to SLOT_BASE would confiscate
+     * the fifth, sixth and seventh system a player had already paid salvage
+     * for. So a save that predates the field gets a slot for every system it
+     * owns — its rig is byte-identical to the one it undocked with yesterday,
+     * which is the whole promise (meta.ts's SYSTEM SLOTS header, and
+     * sim/systems.ts pins it as an equality against the pre-slot rig).
+     *
+     * It is a ONE-TIME migration and not a floor: the value is written back on
+     * the next save, so buying an eighth system later does not quietly hand out
+     * an eighth slot with it. A rig grandfathered at six pays SLOT_PRICES for
+     * the seventh exactly like everybody else.
+     *
+     * `stowed` needs no migration at all, which is the point of storing the
+     * SHED rather than the rack (meta.ts's field note): absent reads as empty
+     * reads as "fly everything you own". It gets the same fail-closed
+     * validation as every other list here — a corrupt value stows nothing,
+     * which flies MORE systems rather than fewer, and the slot count is still
+     * enforced at the point of use by mountedIds. */
+    const rawSlots = (raw as Record<string, unknown>).slots;
+    meta.slots = typeof rawSlots === "number" && Number.isFinite(rawSlots)
+      ? Math.max(SLOT_BASE, Math.min(SLOT_CAP, Math.floor(rawSlots)))
+      : Math.max(SLOT_BASE, Math.min(SLOT_CAP, ownedTracks(meta).length));
+    if (!Array.isArray(meta.stowed)) meta.stowed = [];
+    meta.stowed = meta.stowed.filter((s): s is UpgradeId =>
+      typeof s === "string" && s in meta.loadout);
     // Last: hand back the salvage any RETIRED unlock took (meta.ts's note on
     // UnlockDef.retired — the mod-pool cards sold no-ops once the hazard
     // ratchet replaced the modifier draft). Pure and idempotent, so a save

@@ -33,7 +33,7 @@
  */
 
 import {
-  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost,
+  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost, UPGRADES,
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 
@@ -279,10 +279,24 @@ export const INSTALLS: InstallDef[] = [
   //
   // Everything past the on-ramp is priced against the day it takes to earn:
   // 30 is most of a tier's contracts, 50 is a tier, 70 is a tier plus its run
-  // win. The shelf now totals 445 — these seven installs at 300, plus the two
+  // win. The shelf now totals 495 — these eight installs at 350, plus the two
   // live unlocks below (Weather Survey 60, Scrap Cache 85) — against 600 of
   // income: slack enough to make a wrong purchase survivable, tight enough
   // that the choice is a choice.
+  //
+  // THE EIGHTH IS THE ONE THAT HAD TO ARGUE FOR ITS PRICE, and the counter
+  // proposal put the question this way: two more installs at 70 each is 585
+  // against 600, which closes the slack to nothing. One shipped, not two, and
+  // it is priced a band BELOW the two systems it sits beside rather than with
+  // them. The band is what the system is: Bond Emitter and Demolition Rack are
+  // 70 because they answer every build — an emitter flattens any pile, a rack
+  // is the only exit for dead cargo of any kind. The Thaw Lance answers ONE
+  // axis, and the measurement says so at both ends: it lands exactly on a
+  // clean bay's win rate for one notch of cryo, and it buys back two wins in
+  // twenty-four at three (upgrades.ts's THAW_CHARGES_PER_TIER has the tables).
+  // A counter with a measured ceiling is worth a tier of Contracts, not a tier
+  // plus its run win — so 50, beside Bay Extension and Press Hydraulics, and
+  // the shelf keeps 105 salvage of slack instead of 15.
   { id: "reactor", cost: 15 },
   { id: "launcher", cost: 15 },
   { id: "magazine", cost: 30 },
@@ -296,6 +310,79 @@ export const INSTALLS: InstallDef[] = [
   // Marks behind its hazard, which is strictly worse than today. Raise this to
   // 3 in the same change that moves materials off the schedule.
   { id: "demolition", cost: 70, requiresMark: 1 },
+  // GATED AT THE MARK CRYO ARRIVES, not one behind it. hazards.ts opens the
+  // cryo axis at Mark 4, and `requiresMark` counts Marks BEATEN — so 3 means
+  // the lance is on the shelf for exactly the player who is flying the first
+  // Mark that can deal them a frozen belt. The Demolition entry above records
+  // what the other choice costs: a counter shipped two Marks behind its hazard
+  // is "strictly worse than today", and the winnability sweep localised the
+  // damage cryo does to the rung where MATERIAL_DRAFT_BAYS stops being
+  // dodgeable (Mark 5). Buyable at 4, forced at 5 — the shop opens one Mark
+  // before the bay that makes it mandatory, which is the pattern
+  // MATERIAL_DRAFT_BAYS itself is built on ("meet the problem, play a bay
+  // against it, walk into the shop that answers it").
+  { id: "thaw", cost: 50, requiresMark: 3 },
+  // THE NINTH, and it is priced a band ABOVE the eighth for a measured reason
+  // rather than because it arrived later. The band is what the system is: 70 is
+  // "answers every build" (Bond Emitter, Demolition Rack) and 50 is "answers
+  // one axis with a measured ceiling" (the Thaw Lance above). The cushion
+  // answers TWO — it is volatile's counter, and because its subject is the
+  // speed cargo arrives at, it is also the only thing on the shelf that helps
+  // a bay full of crosswind, where a blown shipment lands hard and sets off
+  // whatever it hits. upgrades.ts's CUSHION_TIERS carries both tables. Two
+  // axes for one purchase is the 70 band's own definition read honestly, and
+  // the alternative — pricing it at 50 beside a strictly narrower system —
+  // would make the shelf's bands mean nothing.
+  //
+  // The shelf now totals 565 against 600 of tier income, i.e. 35 of slack
+  // where the lance left 105. That is the tightest this shelf has been and it
+  // is the reason this is the LAST install the roster can absorb at these
+  // prices: a tenth system needs either a re-priced shelf or a second income,
+  // and the note above ("slack enough to make a wrong purchase survivable")
+  // is the line it would cross.
+  //
+  // TWO CORRECTIONS, made when the tenth arrived and had to argue against this
+  // paragraph. The 565 was arithmetic on a price that changed: the nine installs
+  // come to 400 and the two live unlocks (Weather Survey 60, Scrap Cache 85) to
+  // 145, so the shelf was 545 and the slack 55, not 35. Everything the sentence
+  // concludes still stands at the true number — 55 of slack on 600 is tight —
+  // and it is left in place rather than quietly restated, because the paragraph
+  // below is the answer it demanded.
+  { id: "cushion", cost: 50, requiresMark: 6 },
+  // THE TENTH, and the note directly above is the bar it had to clear: a tenth
+  // system needs "either a re-priced shelf or a second income". It gets
+  // neither. What it gets is the BAND BELOW the ones every argument on this
+  // shelf has been about, and the band is — as always here — what the system
+  // is:
+  //
+  //   70  answers every build (Bond Emitter, Demolition Rack)
+  //   50  answers one axis, with a measured ceiling (Thaw Lance, Impact Cushion)
+  //   30  answers no axis at all (Loader Magazine, and now this)
+  //
+  // The Incinerator does not remove a hazard, soften one, or open a slot. It
+  // discounts a BILL — the spill fine and the detonation charge, for cargo
+  // destroyed above the plant's roofline (chute.ts's INCINERATOR_Y) — and a
+  // bill is only ever met by a player who is already losing cargo. That makes
+  // its ceiling the weakest guarantee on the shelf, and the harness put a
+  // number on exactly how weak: with a pilot that never aims into the hood,
+  // NOTHING in a Tier-10 bay dies above the roofline, so the hood is worth
+  // literally zero (design/balance/winnability-sweep-findings.md). A system
+  // whose floor is nothing and whose value is entirely the player's to earn is
+  // a 30, and pricing it beside the two 50s — both of which do something the
+  // moment they are bolted on — would make the shelf's bands mean nothing.
+  //
+  // That puts the shelf at 575 against 600. 25 of slack is less than the 55 the
+  // cushion left and it is the honest floor of the note above: this is the last
+  // system that fits, at any band, and the eleventh needs the re-price or the
+  // second income that note asked for.
+  //
+  // GATED AT THE TIER THE WRITE-OFF BECOMES COMPULSORY, on the same rule the
+  // lance's gate states: hazards.ts's MATERIAL_DRAFT_BAYS is merely OFFERED at
+  // Mark 4 and FORCED from Mark 5, so `requiresMark: 4` puts the hood on the
+  // shelf for exactly the player flying the first tier that can hand them cargo
+  // they have no choice but to write off. Buyable at 5, and the axis that makes
+  // it necessary is unavoidable at 5.
+  { id: "incinerator", cost: 30, requiresMark: 4 },
 ];
 
 export function installById(id: string): InstallDef | undefined {
@@ -320,7 +407,7 @@ export const UPRATE_MAX_TIER = 2;
  *  tier of a permanent system — and the thing that makes one harder to afford
  *  than the other is the build budget, not a second price table nobody can see.
  *  It also keeps the arithmetic checkable by hand: the shelf is exactly twice
- *  the installs (300 -> 600) plus the two live unlocks. */
+ *  the installs (350 -> 700) plus the two live unlocks. */
 export function uprateCost(def: InstallDef): number {
   return def.cost;
 }
@@ -332,13 +419,20 @@ export function uprateCost(def: InstallDef): number {
  *  from a gated one.
  *
  *  This used to reject any track already owned, and that one line is what made
- *  the build budget inert. `budgetForMark` runs 77 -> 770, but a loadout capped
- *  at tier 1 of seven tracks tops out at 140 points — under budgetForMark(2) —
- *  so the budget bound at Mark 1 and never again, and 630 of Mark 10's 770
- *  points could not be spent by any sequence of purchases. DESIGN.md's arc
+ *  the build budget inert. `budgetForMark` runs 88 -> 880, but a loadout capped
+ *  at tier 1 of eight tracks tops out at 160 points — under budgetForMark(2) —
+ *  so the budget bound at Mark 1 and never again, and the rest of Mark 10's
+ *  allowance could not be spent by any sequence of purchases. DESIGN.md's arc
  *  "from you can afford one system to you can afford everything" ended at Mark
- *  2. Selling tier 2 restores it: seven tracks at tier 2 is 7 x 55 = 385 points
- *  = exactly budgetForMark(5), so the gate is real for Marks 1 through 5. */
+ *  2. Selling tier 2 restores it: eight tracks at tier 2 is 8 x 55 = 440 points
+ *  = exactly budgetForMark(5), so the gate is real for Marks 1 through 5.
+ *
+ *  THAT EQUALITY IS NOT A COINCIDENCE AND DOES NOT NEED RE-DERIVING when a
+ *  track is added — which is worth stating, because adding the eighth (the Thaw
+ *  Lance) moved every number in the paragraph above and not the conclusion. The
+ *  Workshop ceiling is TRACKS x (20+35) and the budget is TRACKS x 110 x M/10,
+ *  so the two meet at M = 10 x 55/110 = 5 for ANY roster size. Grow the shelf
+ *  and the gate still binds through Mark 5, exactly. */
 export function installAvailable(meta: MetaState, def: InstallDef): boolean {
   if (def.requiresMark !== undefined && meta.mark < def.requiresMark) return false;
   if ((meta.loadout[def.id] ?? 0) >= UPRATE_MAX_TIER) return false;
@@ -392,7 +486,25 @@ export function buyInstall(meta: MetaState, id: UpgradeId): MetaState | null {
   // here touches meta.mark, and safeLoadout re-validates at run start.
   const loadout = buyLoadoutTier(meta.loadout, id, markUnlocked(meta));
   if (!loadout) return null;
-  return { ...meta, salvage: meta.salvage - cost, loadout };
+  // A NEW system lands in the SHED when the rack is already full, and the
+  // purchase still goes through. Both halves matter.
+  //
+  // Going through matters because a slot is not an ownership gate (see the
+  // SYSTEM SLOTS header): refusing the sale would make the fifth install
+  // unbuyable rather than unmounted, which is the trap that model was rejected
+  // for. Landing in the shed matters because the alternative is
+  // `mountedIds`'s slice quietly deciding which four of five fly — a rack that
+  // silently drops the thing you just paid for. Stowed, the player is told
+  // where it went and swaps it in themselves.
+  //
+  // Only a track going 0 -> 1 can be stowed by this: an UPRATE of something
+  // already aboard leaves the shed exactly as it was.
+  const isNewInstall = (meta.loadout[id] ?? 0) === 0;
+  const rackFull = mountedIds(meta).length >= slotsFor(meta);
+  const stowed = isNewInstall && rackFull && !(meta.stowed ?? []).includes(id)
+    ? [...(meta.stowed ?? []), id]
+    : (meta.stowed ?? []);
+  return { ...meta, salvage: meta.salvage - cost, loadout, stowed };
 }
 
 export interface MetaState {
@@ -413,8 +525,28 @@ export interface MetaState {
   mark: number;
   /** The permanent loadout — the upgrade tiers a Deep Run STARTS from, bought
    *  against the current Mark's build budget (upgrades.ts's budgetForMark).
-   *  In-run scrap still refits on top of this at the usual stops. */
+   *  In-run scrap still refits on top of this at the usual stops.
+   *
+   *  What is OWNED. What is FLOWN is this masked to the rack — see safeLoadout
+   *  and the SYSTEM SLOTS block above. */
   loadout: UpgradeTiers;
+  /** Slots in the rack: how many owned systems a run may carry (SLOT_BASE up to
+   *  SLOT_CAP, bought with salvage — see buySlot).
+   *
+   *  Read through `slotsFor` rather than directly, which is also what makes the
+   *  field's ABSENCE meaningful: a save written before slots existed has no
+   *  value here, and lib/store.ts's loadMeta grandfathers it to the number of
+   *  systems that save already owns rather than to SLOT_BASE. Nobody's rig
+   *  shrinks on the first launch after an update. */
+  slots: number;
+  /** Systems owned but left in the SHED — not aboard for the next run.
+   *
+   *  THE EXCLUSION, not the inclusion, and that choice is the whole migration:
+   *  an empty shed means "fly everything you own", which is what every save
+   *  written before this field existed did. A `mounted` list would have had to
+   *  be back-filled for every save in the world, and any save it missed would
+   *  have undocked with an empty rack. */
+  stowed: UpgradeId[];
   /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
    *  time the Mark advances). One half of tier completion — see recordRunEnd. */
   tierRunDone: boolean;
@@ -430,18 +562,22 @@ export interface MetaState {
    *  Contract once keeps the subscription buying throughput rather than power,
    *  and leaves replaying a cleared Contract as free practice. */
   claimedContracts: string[];
-  /** Marks beaten in a single run with ZERO bay restarts — the seal, drawn on
+  /** Marks beaten in a single run with ZERO bay retries — the seal, drawn on
    *  that floor of the tower.
    *
    *  A list rather than a flag because `mark` is a high-water number and the
    *  tower draws every floor: each one needs its own answer, and a player who
    *  sealed Mark 3 keeps that after Mark 4 falls messily.
    *
-   *  Cosmetic by construction. It must never feed salvage, a loadout budget or
-   *  `mark` — docs/DESIGN.md's mode table prints "Purchasable power: none" for
-   *  both modes, and a seal that paid out would be a second progression axis
-   *  wearing a badge. The sim guards that with an explicit check rather than
-   *  trusting anyone to read this paragraph. */
+   *  IT PAYS NOTHING, and that has not changed. The seal must never feed
+   *  salvage, a loadout budget or `mark` — docs/DESIGN.md's mode table prints
+   *  "Purchasable power: none" for both modes, and a seal that paid out would
+   *  be a second progression axis wearing a badge. What it now decides is
+   *  ACCESS to one mode and nothing else (skydeckOpen below): the Skydeck is
+   *  the game's only permanent, unrefittable, un-retryable run, so the thing
+   *  that opens it is the record that says you can fly one. The sim guards the
+   *  payout rule with an explicit check rather than trusting anyone to read
+   *  this paragraph. */
   sealedMarks: number[];
   /** The highest Mark whose UNLOCK has already been celebrated on the home
    *  screen — the tower's ceremonial ride to the newly opened floor (main.ts's
@@ -464,15 +600,196 @@ export interface MetaState {
    *  long ago, and replaying nine ceremonies at once on the first launch after
    *  an update would be a bug wearing a party hat. */
   celebratedMark: number;
+  /** The player has been told, once, that retrying a bay breaks the run's seal
+   *  — and that the tier still opens anyway.
+   *
+   *  A WATERMARK, the same shape and for the same reason as celebratedMark
+   *  above: the thing being remembered is "this has been said", and the surface
+   *  that says it (main.ts's seal-break notice) must be able to answer "is it
+   *  owed" from the save alone, without the three doors into a bay retry — the
+   *  pause modal, the held pause button, the game-over card — each keeping
+   *  their own copy of the answer.
+   *
+   *  FALSE on a fresh save, and false on a save written before the field
+   *  existed, which is the opposite of celebratedMark's migration and is
+   *  deliberate. A returning player has never seen this message; showing it
+   *  once on their next bay retry is the whole point, and it costs them one
+   *  panel. celebratedMark migrates the other way because replaying a ceremony
+   *  per tier is nine panels for something that already happened. */
+  sealBreakSeen: boolean;
+  /** The Skydeck's own opening has been celebrated (main.ts's tower ride).
+   *
+   *  A SECOND watermark rather than a value folded into celebratedMark,
+   *  because the roof no longer opens on the same event the ladder does. It
+   *  used to: beating Mark 10 was the last unlock, so `mark > celebratedMark`
+   *  covered the roof as well, and armUnlockCelebration simply redirected that
+   *  one ride upward. Now the roof opens on the last SEAL (skydeckOpen), which
+   *  can land many runs after the Mark did — or, for a save that already holds
+   *  every seal, on the first launch after this build. Those are two different
+   *  events on two different axes, and one number cannot remember both. */
+  skydeckCelebrated: boolean;
 }
 
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
-    loadout: newTiers(), claimedContracts: [], sealedMarks: [],
-    celebratedMark: 0,
+    loadout: newTiers(), slots: SLOT_BASE, stowed: [],
+    claimedContracts: [], sealedMarks: [],
+    celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
   };
+}
+
+/* -------------------------------------------------------------------------
+ * THE SEAL, AND WHAT IT NOW OPENS.
+ *
+ * A Mark is SEALED by a run that was won, tracked the ladder (run.ts's
+ * tracksLadder — never Tier S, never the Skydeck) and retried no bay. That
+ * rule is recordRunEnd's and is unchanged; what changed is that the seals are
+ * now the Skydeck's key rather than a stamp on a plate.
+ *
+ * WHY THE ROOF ASKS FOR THEM. The Skydeck is the one run in the game with no
+ * yard, no chosen difficulty and no second chance (skydeck.ts) — everyone flies
+ * the same day's rules and the board ranks the flying. "You beat the ladder"
+ * was the wrong ticket for that door, because the ladder can be beaten with a
+ * retry on every bay: a player could hold the roof's key without ever having
+ * flown a bay they could not restart. A full set of seals is the same ten bays
+ * again with the retry taken away, which is exactly the thing the roof is going
+ * to ask for on the day.
+ *
+ * IT PAYS NOTHING STILL. Access is not power: the Skydeck banks no salvage,
+ * ticks no tier and raises no Mark (run.ts's tracksLadder), so a seal remains
+ * unable to make any future run numerically stronger. sim/systems.ts pins that.
+ * ---------------------------------------------------------------------- */
+
+/** Marks the player has NOT sealed, low to high — what the roof is still
+ *  waiting for, and what the tower draws an empty socket on.
+ *
+ *  Derived from the ladder's length rather than from the save, so a build that
+ *  lengthens the ladder asks for the new floors' seals without anyone
+ *  remembering this function exists. */
+export function unsealedMarks(meta: MetaState): number[] {
+  return Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
+    .filter((m) => !meta.sealedMarks.includes(m));
+}
+
+/**
+ * Is the Skydeck open?
+ *
+ * TWO CONDITIONS, and the second is not redundant. Every seal implies a win at
+ * that Mark, so a full set very nearly implies a beaten ladder — but not
+ * quite: a Mark-10 win seals Mark 10 the moment it lands, while `mark` only
+ * reaches MARK_COUNT once that tier's Contracts land too (advanceTier). A
+ * player sitting on ten seals and two owed Contracts has not finished the
+ * ladder, and the mode's whole premise ("the floor above the ladder") says the
+ * ladder comes first. The ladder half is also what markUnlocked's saturation
+ * depends on — finishRun's Skydeck gate is argued on the roof only being
+ * reachable from the top of the ladder — so keeping it stated here keeps that
+ * argument true by construction rather than by coincidence.
+ */
+export function skydeckOpen(meta: MetaState): boolean {
+  return meta.mark >= MARK_COUNT && unsealedMarks(meta).length === 0;
+}
+
+/** True while the seal-break notice is still owed — the one-time panel that
+ *  says a retry costs the seal and not the tier. Asked at every door into a
+ *  bay retry, answered from the save, so no screen keeps its own copy. */
+export function sealBreakOwed(meta: MetaState): boolean {
+  return !meta.sealBreakSeen;
+}
+
+/**
+ * The tier a run at `runMark` can still OPEN, or null when it can open none.
+ *
+ * The seal-break notice's second sentence is a promise — "Tier N still opens" —
+ * and a promise has to be true of the run in front of the player, not of their
+ * high-water mark. It first read `tierProgressFor(meta).tier`, which is
+ * markUnlocked: on a re-fly of Mark 3 by a player who has reached Mark 10 that
+ * printed "Tier 10 still opens" about a run that cannot move Tier 10 or
+ * anything else. (Found in review, codex PR #134.)
+ *
+ * TWO CONDITIONS, because there are two ways for a run to have no tier to open.
+ *
+ *  - **It is not the frontier.** recordRunEnd's tier bookkeeping is gated on
+ *    `runMark === markUnlocked(meta)`, so a re-fly of an already-beaten Mark
+ *    ticks nothing by construction. The predicate is written against that same
+ *    comparison rather than beside it, so the copy cannot promise something the
+ *    recorder refuses.
+ *  - **The ladder is finished.** At `mark === MARK_COUNT` markUnlocked
+ *    saturates, so a Mark-10 run passes the frontier test — but there is no
+ *    Tier 11 for it to open, and naming Tier 10 would name a floor that is
+ *    already open. Such a run still banks salvage, which is what the notice's
+ *    fallback sentence says instead.
+ *
+ * Returning the TIER rather than a boolean so the caller has nothing left to
+ * derive: null is "say the fallback", a number is "name this one".
+ */
+export function tierOpenableBy(meta: MetaState, runMark: number): number | null {
+  if (meta.mark >= MARK_COUNT) return null;
+  const tier = markUnlocked(meta);
+  return runMark === tier ? tier : null;
+}
+
+/**
+ * The floor that COMPLETING `tier` opens, or null when it opens none.
+ *
+ * A tier completion has always been reported by naming the floor it opened,
+ * and every screen derived that name the same way: read `markUnlocked` after
+ * the update and print it. Nine times out of ten that is right, because
+ * completing tier N leaves markUnlocked at N+1. On the tenth it is a lie —
+ * markUnlocked SATURATES at MARK_COUNT, so completing the last tier printed
+ * "Tier 10 is open" about the floor the player had just spent the tier flying,
+ * while nothing on the menu changed. An owner reported exactly that shape
+ * ("all completed but not unlocked") from a save sitting at mark 10.
+ *
+ * This is the THIRD site of one question. #134 answered it for the seal-break
+ * notice (tierOpenableBy) and for the ceremony (pendingLadderRide); the two
+ * end cards were still asking it in arithmetic of their own. So it is a
+ * function now, of the completed tier alone — no meta, no snapshot that has
+ * already moved — and a fourth site can only get the answer by asking here.
+ *
+ * Null is a real answer, not an error: the last rung has no successor, and the
+ * card's job at that point is to say the ladder is finished rather than to
+ * invent a floor to name.
+ */
+export function tierOpenedByCompleting(tier: number): number | null {
+  return tier < MARK_COUNT ? tier + 1 : null;
+}
+
+/**
+ * Does the ladder owe the tower a RIDE — a floor that was not flyable before?
+ *
+ * `pendingUnlockMark` answers a different question: whether the Mark has moved
+ * somewhere the ceremony has not followed. Below saturation the two agree,
+ * because every Mark that moves opens `mark + 1`. At the top they come apart,
+ * and that gap was a bug: completing Tier 10 leaves `mark > celebratedMark`
+ * with markUnlocked already sitting at MARK_COUNT, so the ceremony armed a
+ * ~4.5s ride to the floor the car was already parked on and the player was
+ * already allowed to fly. (Found in review, codex PR #134.)
+ *
+ * The roof is deliberately NOT part of this. It opens on the seals now
+ * (pendingSkydeck), which is a different axis and a different watermark;
+ * main.ts asks both and either one arms the same ride.
+ */
+export function pendingLadderRide(meta: MetaState): boolean {
+  return pendingUnlockMark(meta) !== null && meta.mark < MARK_COUNT;
+}
+
+/** Burn the seal-break watermark. Idempotent, so the three doors can each call
+ *  it without checking first. */
+export function sealBreakShown(meta: MetaState): MetaState {
+  return meta.sealBreakSeen ? meta : { ...meta, sealBreakSeen: true };
+}
+
+/** True when the roof has opened and the car has not yet ridden to it —
+ *  pendingUnlockMark's twin, on the seal axis. */
+export function pendingSkydeck(meta: MetaState): boolean {
+  return skydeckOpen(meta) && !meta.skydeckCelebrated;
+}
+
+/** Burn the roof's ceremony watermark. Idempotent, same as the Mark's. */
+export function skydeckCelebrated(meta: MetaState): MetaState {
+  return meta.skydeckCelebrated ? meta : { ...meta, skydeckCelebrated: true };
 }
 
 /** The Mark the player may currently attempt: one above their best clear, held
@@ -486,12 +803,253 @@ export function markBudget(meta: MetaState): number {
   return budgetForMark(markUnlocked(meta));
 }
 
-/** The loadout to actually fly, with an illegal one (a stale save from before a
- *  re-price, or a hand-edited localStorage entry) falling back to stock rather
- *  than being flown as-is. Cheating the budget is the one thing that would make
- *  a Mark clear mean nothing, so it's checked at the point of use. */
+/* -------------------------------------------------------------------------
+ * SYSTEM SLOTS — how many of the systems you own can be ABOARD at once.
+ *
+ * The roster is ten systems and the Workshop will eventually sell all of them.
+ * Owning ten and flying ten are now different things: the rack has a fixed
+ * number of slots, salvage buys more, and which systems occupy the ones you
+ * have is a decision made before every run.
+ *
+ * WHY THE SLOT GATES THE LOADOUT AND NOT THE PURCHASE. The owner's ask —
+ * "limit the amounts of systems a rig can have and pay salvage to get more
+ * system slots" — reads two ways, and only one of them is a decision.
+ *
+ *  - GATING OWNERSHIP (the Workshop refuses an eleventh purchase) makes every
+ *    install irreversible and unbuyable-back. A player who bought the Thaw
+ *    Lance before meeting a volatile tier would be locked out of the Impact
+ *    Cushion by a purchase made three tiers earlier with no way to know. That
+ *    is not an identity, it is a trap; and it duplicates the build budget's
+ *    job — capping how strong a rig may be — at the one layer DESIGN.md says
+ *    salvage must never touch ("Contracts unlock what you may spend it on.
+ *    Only beating Mark N raises the budget").
+ *  - GATING THE LOADOUT costs nothing already paid for. Everything you own
+ *    stays owned; what a slot rations is how many answers you can carry INTO
+ *    one run. Choosing four of ten before a cryo-heavy tier is a real decision
+ *    with a real cost and no permanent loser, and it is where "rigs that can
+ *    have certain systems and not others" starts.
+ *
+ * SLOTS CANNOT OUTRUN THE MARK, which is the invariant that makes them safe to
+ * sell for a grindable currency. A mounted rig is a SUBSET of the owned one, so
+ * `tiersCost(mounted) <= tiersCost(owned) <= budgetForMark(mark)` by
+ * construction: a slot can only ever move a rig back UP toward the ceiling the
+ * Mark already granted, never past it. Salvage still buys which systems exist
+ * to spend budget on; the Mark still caps how much can be spent at all.
+ *
+ * WHAT A SLOT IS WORTH, and why the ladder is priced the way it is, is
+ * `SLOT_PRICES`. What a slot COSTS in bays is measured, not asserted — see
+ * design/balance/system-slots.md.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Slots a rig starts with.
+ *
+ * DERIVED FIRST, then measured, and the derivation is what makes it four rather
+ * than three or five.
+ *
+ * The build budget promises that a Mark's whole allowance can be SPENT
+ * (docs/DESIGN.md). The Workshop's ceiling is `slots x 55` ladder points —
+ * UPRATE_MAX_TIER of `slots` tracks — against an allowance of `110 x mark`, so
+ * a rack of K spends every point a Mark grants exactly while `K x 55 >= 110M`,
+ * i.e. through Mark K/2. Four is therefore the NARROWEST rack that never
+ * strands a point at the two Marks a new player flies: 4 x 55 = 220 =
+ * budgetForMark(2) exactly, and the rack starts leaving points on the table at
+ * Mark 3 — which is also the first tier whose shelf holds more systems than a
+ * climbing player's salvage can buy. Three would strand budget from Mark 2,
+ * which is the one thing the budget's own promise forbids.
+ *
+ * MEASURED, and the measurement's job was to catch the derivation being wrong
+ * (design/balance/system-slots.md). It is not: across Tiers 7 and 10, four
+ * contents, 8 paired seeds each, no slot count walls a tier the wider rack
+ * survives — a four-slot rack's best seeds still reach bays 8 and 9 at Tier 10,
+ * which is deeper than the widest measurable rack reached on some of the same
+ * rows. What the width buys is a fraction of a bay per slot, not a cliff.
+ *
+ * It is also one narrower than the rig every existing table in design/balance/
+ * was flown on: `builds.ts`'s priority orders run five to seven tracks, so the
+ * record this design must not break is itself a five-slot record.
+ */
+export const SLOT_BASE = 4;
+
+/**
+ * The widest rack there is.
+ *
+ * Ten because the roster is ten and the owner's standing ruling is that "for
+ * now we leave the endgame to max out all the systems" — the last slot has to
+ * be able to hold the last system. It is ALSO the widest rack the device matrix
+ * fits: app.css's compact clamp records that ten plates at 19px against an
+ * iPhone 13 mini's 209px "ends the clamp… there is no growth left in it".
+ *
+ * Those two facts are equal today and are not the same fact, which is the whole
+ * point of stating both. When an eleventh system lands, the roster grows and
+ * this does not: the rack stays ten slots wide, the eleventh system competes
+ * for one of them, and that is the "different rack" PR #156 asked for — the
+ * rack is sized by the RIG, not by the catalogue. Nothing here needs to change
+ * for that to happen, which is why nothing pins the two together.
+ */
+export const SLOT_CAP = 10;
+
+/**
+ * What the 5th, 6th … SLOT_CAP-th slot costs in salvage.
+ *
+ * PRICED IN THE SHELF'S OWN CURRENCY, which INSTALLS states as days: "30 is
+ * most of a tier's contracts, 50 is a tier, 70 is a tier plus its run win". A
+ * tier pays 60 (TIER_SALVAGE_BASE), so the ladder below reads
+ *
+ *   50   a tier                 the fifth slot
+ *   70   a tier and its win     the sixth
+ *   100  most of two tiers      the seventh
+ *   140  more than two          the eighth
+ *   180  three                  the ninth
+ *   240  four                   the tenth
+ *
+ * ESCALATING, and the shape is measured rather than assumed. Mean bays cleared
+ * per extra slot, over Tiers 7 and 10, four contents, 8 paired seeds a cell
+ * (design/balance/system-slots.md):
+ *
+ *   slot 4   +0.39     slot 6   +0.23
+ *   slot 5   +0.44     slots 7-8  0.00
+ *
+ * The curve is flat by the seventh slot, so the back half of this ladder is
+ * priced as a SINK and not as power, and the copy says so in the player's own
+ * words ("dearer as each buys less" — game/guide.ts). What the last slots
+ * actually buy is not being made to re-plan the rack before every run, and no
+ * harness that flies one stationary draft policy per run can price that. A flat
+ * ladder would have made exactly the slots that buy the least the cheapest ones
+ * on the shelf.
+ *
+ * 780 IN TOTAL, AGAINST 600 OF LADDER INCOME, and that inequality is the
+ * feature rather than an oversight. The ten-tier ladder pays 600 once; the
+ * shelf it has to cover is already 575 (INSTALLS' own arithmetic), which left
+ * "25 of slack… the eleventh needs the re-price or the second income that note
+ * asked for". This is the second income's other half: a full rack is NOT
+ * affordable inside one climb of the ladder, and it is not meant to be. It is
+ * what the endgame faucet — a finished ladder still paying 60 a cycle for three
+ * Contracts and a run win (advanceTier at MARK_COUNT) — finally has to buy.
+ * Thirteen cycles for the whole thing, and the first two slots inside the climb.
+ */
+export const SLOT_PRICES: readonly number[] = [50, 70, 100, 140, 180, 240];
+
+/** Slots the save actually has, clamped. Read through this rather than off the
+ *  field: `meta.slots` round-trips through localStorage like everything else
+ *  here, and a rack of -3 or of 40 must read as a rack. */
+export function slotsFor(meta: MetaState): number {
+  const n = Number.isFinite(meta.slots) ? Math.floor(meta.slots) : SLOT_BASE;
+  return Math.max(SLOT_BASE, Math.min(SLOT_CAP, n));
+}
+
+/** Salvage price of the NEXT slot for a rig that has `slots`, or null at the
+ *  cap. Indexed off SLOT_BASE so the ladder is stated once and a re-based rack
+ *  cannot silently re-price it. */
+export function slotPrice(slots: number): number | null {
+  const i = Math.max(SLOT_BASE, Math.min(SLOT_CAP, Math.floor(slots))) - SLOT_BASE;
+  return i < SLOT_PRICES.length ? SLOT_PRICES[i] : null;
+}
+
+/** Buy one more slot. Null when the rack is already at the cap or the salvage
+ *  is short. Never mutates.
+ *
+ *  Deliberately UNGATED by Mark, unlike every install past the on-ramp. A slot
+ *  grants no power on its own — it is room for a system the player has already
+ *  bought against the Mark's own budget — so gating it would be gating the
+ *  same purchase twice. The monetization invariant survives because of the
+ *  subset argument in the header: a wider rack cannot fly a rig the Mark has
+ *  not already paid for. */
+export function buySlot(meta: MetaState): MetaState | null {
+  const price = slotPrice(slotsFor(meta));
+  if (price === null || meta.salvage < price) return null;
+  return { ...meta, salvage: meta.salvage - price, slots: slotsFor(meta) + 1 };
+}
+
+/** Every system the player OWNS, in rack order (UPGRADES). */
+export function ownedTracks(meta: MetaState): UpgradeId[] {
+  return UPGRADES.filter((u) => (meta.loadout[u.id] ?? 0) > 0).map((u) => u.id);
+}
+
+/**
+ * The systems actually ABOARD — what a run flies and what the rack draws.
+ *
+ * Owned, minus whatever is in the shed, capped at the slot count. The cap is a
+ * `slice` rather than a validation error on purpose: `stowed` round-trips
+ * through localStorage, so "owned six, stowed none, four slots" is a state a
+ * hand-edited save can reach and a state an OLD BUILD's save reaches honestly.
+ * Both have to fly something sensible, and rack order is the one answer that is
+ * the same on every device and every load.
+ *
+ * Kept ordered by UPGRADES rather than by when the player mounted them, for the
+ * reason shipPlatesHTML gives for fixed slots: "a readout whose items move is
+ * one the eye has to re-find rather than glance at".
+ */
+export function mountedIds(meta: MetaState): UpgradeId[] {
+  const shed = new Set(meta.stowed ?? []);
+  return ownedTracks(meta).filter((id) => !shed.has(id)).slice(0, slotsFor(meta));
+}
+
+/** Owned but not aboard — the shed. Derived from mountedIds rather than from
+ *  `stowed` directly, so a system the slice dropped reads as stowed on every
+ *  surface instead of appearing owned-and-flying on one and missing on another. */
+export function stowedIds(meta: MetaState): UpgradeId[] {
+  const aboard = new Set(mountedIds(meta));
+  return ownedTracks(meta).filter((id) => !aboard.has(id));
+}
+
+/** True when `id` is aboard. */
+export function isMounted(meta: MetaState, id: UpgradeId): boolean {
+  return mountedIds(meta).includes(id);
+}
+
+/**
+ * Move one owned system between the rack and the shed.
+ *
+ * Returns null when the move is impossible: the system is not owned, or the
+ * rack is full and this would be an eleventh thing in ten slots. A FULL RACK
+ * REFUSES rather than evicting something to make room — the evicted system
+ * would be chosen by this function and not by the player, which is the one
+ * thing a loadout screen must never do.
+ *
+ * `stowed` is written as the EXCLUSION rather than the inclusion, and that is
+ * what makes this feature free to ship over every existing save: a save with no
+ * shed flies everything it owns, which is exactly what it flew yesterday.
+ */
+export function toggleMount(meta: MetaState, id: UpgradeId): MetaState | null {
+  if ((meta.loadout[id] ?? 0) <= 0) return null;
+  const shed = (meta.stowed ?? []).filter((s) => s !== id);
+  if (isMounted(meta, id)) return { ...meta, stowed: [...shed, id] };
+  if (mountedIds(meta).length >= slotsFor(meta)) return null;
+  return { ...meta, stowed: shed };
+}
+
+/** `tiers` with everything not in `aboard` set to 0 — the rig a run actually
+ *  gets.
+ *
+ *  A MASK RATHER THAN A DELETE, and the difference is what keeps the rest of
+ *  the game from having to learn that slots exist. A stowed system reads as
+ *  tier 0 everywhere downstream, which is already the vocabulary for "the ship
+ *  does not carry this": run.ts's buyUpgrade refuses to raise a tier-0 track,
+ *  so a refit stop cannot sell scrap rungs on a system that is not aboard;
+ *  applyUpgrades skips it, so it grants nothing; and the rack draws it dark.
+ *  Not one of those three had to be taught the rule. */
+export function maskLoadout(tiers: UpgradeTiers, aboard: readonly UpgradeId[]): UpgradeTiers {
+  const set = new Set(aboard);
+  const out = newTiers();
+  for (const u of UPGRADES) out[u.id] = set.has(u.id) ? Math.max(0, tiers[u.id] ?? 0) : 0;
+  return out;
+}
+
+/** The loadout to actually fly: the owned tiers MASKED to what is aboard, with
+ *  an illegal one (a stale save from before a re-price, or a hand-edited
+ *  localStorage entry) falling back to stock rather than being flown as-is.
+ *  Cheating the budget is the one thing that would make a Mark clear mean
+ *  nothing, so it's checked at the point of use.
+ *
+ *  Legality is asked of the OWNED loadout, not of the masked one, and that
+ *  ordering is deliberate: masking only ever removes tiers, so a masked rig is
+ *  never more expensive than the rig it came from. Asking the mask would let a
+ *  hand-edited over-budget save fly, simply by stowing enough of itself to duck
+ *  under the cap. */
 export function safeLoadout(meta: MetaState): UpgradeTiers {
-  return loadoutLegal(meta.loadout, markUnlocked(meta)) ? { ...meta.loadout } : newTiers();
+  if (!loadoutLegal(meta.loadout, markUnlocked(meta))) return newTiers();
+  return maskLoadout(meta.loadout, mountedIds(meta));
 }
 
 /* -------------------------------------------------------------------------
@@ -605,14 +1163,25 @@ function advanceTier(meta: MetaState): TierResult {
  * the run was flown at (RunState.mark) — a stale save replaying an
  * already-beaten Mark cannot tick the current tier.
  *
- * A run flown with zero restarts also SEALS its Mark (`sealedMarks`) — a badge
- * on the tower floor and nothing else. `restarts` defaults to 0 so a caller
- * that predates the field reads as a clean run rather than throwing; the only
- * caller that can actually seal anything is main.ts's finishRun, which threads
- * RunState.restarts through.
+ * A run flown with zero retries also SEALS its Mark (`sealedMarks`) — a badge
+ * on the tower floor, and the Skydeck's key (skydeckOpen). `restarts` defaults
+ * to 0 so a caller that predates the field reads as a clean run rather than
+ * throwing; the only caller that can actually seal anything is main.ts's
+ * finishRun, which threads RunState.restarts through.
+ *
+ * `refiled` IS THE GAME-OVER RETRY, and it exists because a run can now end
+ * twice. Retrying a bay from the loss card resumes the very same RunState
+ * (main.ts's retryBay), so the run that dies at bay 7, retries, and dies again
+ * at bay 9 reaches this function twice — and every field here is already
+ * idempotent under that except `runs`, which is a count of RUNS and not of
+ * endings. So the second filing says so, and the counter stays honest. Nothing
+ * else is skipped: bestBay is a max, the salvage share and the tier tick are
+ * false→true edges, and the seal is gated on `restarts` being 0, which a
+ * retried run's never is again.
  */
 export function recordRunEnd(
   meta: MetaState, runMark: number, won: boolean, bayReached: number, restarts = 0,
+  refiled = false,
 ): TierResult {
   const tier = markUnlocked(meta);
   const newlyDone = !meta.tierRunDone && won && runMark === tier;
@@ -626,7 +1195,7 @@ export function recordRunEnd(
     : meta.sealedMarks;
   const next: MetaState = {
     ...meta,
-    runs: meta.runs + 1,
+    runs: meta.runs + (refiled ? 0 : 1),
     bestBay: Math.max(meta.bestBay, bayReached),
     salvage: meta.salvage + share,
     tierRunDone: meta.tierRunDone || newlyDone,
@@ -750,10 +1319,22 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * picks it, stated once so the menu, the Workshop and the fail card can
  * never point at different doors:
  *   salvage covers an installable system  -> Workshop (spend it)
+ *   ladder finished, Marks still unsealed -> seal one (a Deep Run, clean)
  *   contracts still owed this tier        -> Contracts (earn it)
  *   otherwise                             -> Deep Run (the exam)
+ *
+ * THE SEAL STEP IS WHAT THE ENDGAME WAS MISSING. The Contracts branch reads
+ * "this tier still owes clears", which is a live objective for nine tiers
+ * because completing a tier MOVES the tier. At MARK_COUNT it moves nothing:
+ * markUnlocked saturates onto the tier just finished and advanceTier has
+ * cleared its counters, so the rule answered "Contracts" forever and sent a
+ * player who had beaten the entire ladder back to a board that could no longer
+ * open anything. Meanwhile the thing that IS still owed — the seals the
+ * Skydeck asks for — was stated on no surface at all outside the tower's
+ * sockets. So the finished ladder gets its own answer, and it names the only
+ * objective left: fly a Mark clean.
  * ---------------------------------------------------------------------- */
-export type NextStepId = "workshop" | "contracts" | "run";
+export type NextStepId = "workshop" | "contracts" | "run" | "seal";
 
 /** The cheapest system the player could install right now, or null. */
 export function cheapestInstall(meta: MetaState): InstallDef | null {
@@ -765,6 +1346,21 @@ export function cheapestInstall(meta: MetaState): InstallDef | null {
 export function nextStep(meta: MetaState): NextStepId {
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
+  // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame
+  // faucet a door. The rule's first line is "salvage covers something you can
+  // spend it on -> spend it", and until slots existed that could only ever mean
+  // an install — so a player who owned the whole shelf and kept earning 60 a
+  // cycle (advanceTier at MARK_COUNT) was never pointed at the Workshop again,
+  // however much they banked. Asked AFTER the install so the on-ramp still
+  // wins: a first system beats a wider rack with nothing to put in it.
+  const slot = slotPrice(slotsFor(meta));
+  if (slot !== null && meta.salvage >= slot) return "workshop";
+  // Asked BEFORE the Contracts branch, because at MARK_COUNT that branch is
+  // answering a question the ladder has stopped asking — see the header. A
+  // finished ladder with every Mark sealed falls through to the run, which is
+  // the Skydeck by then: the roof is open (skydeckOpen), the tower draws it,
+  // and the primary flies whatever floor the car is parked on.
+  if (meta.mark >= MARK_COUNT) return unsealedMarks(meta).length > 0 ? "seal" : "run";
   if (meta.tierContracts < TIER_CONTRACTS_REQUIRED) return "contracts";
   return "run";
 }

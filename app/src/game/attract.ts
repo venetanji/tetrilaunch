@@ -316,6 +316,12 @@ export class AttractDemo {
       reload: g.cannon.reloadRatio(cycle.clock),
       settling: g.settling,
       strandWarning: g.strandWarning,
+      // The demo runs the same accumulator main.ts's loop does (see frame
+      // above), so it interpolates on the same terms — and it should, because
+      // the menu is the FIRST thing a 120Hz panel draws. A demo stuttering at
+      // 60Hz behind a game that no longer does would advertise the opposite of
+      // what the change bought.
+      alpha: this.acc / STEP,
     }, fitViewport(w, h));
 
     if (cycle.clock < cycle.fadeUntil) {
