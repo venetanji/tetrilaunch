@@ -1,14 +1,14 @@
-// Bakes the game's two pixel-art cursors into src/styles/cursors.css.
+// Bakes the game's four pixel-art cursors into src/styles/cursors.css.
 //
 //   node scripts/make-cursors.mjs
 //
-// WHY A GENERATOR AND NOT TWO COMMITTED PNGs. The art here is 16x16 and 12x17
+// WHY A GENERATOR AND NOT FOUR COMMITTED PNGs. The art here is a few hundred
 // pixels of flat colour taken straight from the design tokens, and a binary
 // blob is the one form in which that is neither readable nor reviewable: a
 // palette change (tokens.css moving --accent) would mean re-drawing in an
 // image editor and trusting the diff of a base64 wall. The grids below ARE the
-// art, in the same repository as the token they are coloured from, and the
-// outline is derived rather than drawn so the two cursors cannot disagree
+// art, in the same repository as the tokens they are coloured from, and the
+// outline is derived rather than drawn so the four cursors cannot disagree
 // about how thick their border is.
 //
 // WHY DATA URIs AND NOT FILES IN public/. A cursor that arrives late is a
@@ -39,6 +39,7 @@ const C = {
   "#": [0x04, 0x04, 0x0a, 255], // --bg-deep, the outline
   "C": [0x00, 0xf0, 0xff, 255], // --accent
   "Y": [0xff, 0xe5, 0x00, 255], // --piece-o, the reticle arms' inner tips
+  "R": [0xff, 0x2d, 0x55, 255], // --danger, the barred disc and nothing else
 };
 
 /** A grid of characters -> {w, h, at(x,y)}. */
@@ -137,6 +138,133 @@ const ARROW = grid([
   ".......CC...",
 ]);
 
+// THE HAND, for anything clickable. Same 12x17-ish footprint as the arrow (13
+// wide, because a hand needs a thumb) so the two chrome cursors are the same
+// weight on screen and swapping between them at a button's edge is a change of
+// SHAPE, not a change of size.
+//
+// THE SEAMS ARE TRANSPARENT PIXELS, NOT DRAWN LINES. The three 1px gaps at
+// columns 3, 6 and 9 are '.' in the art and come back as '#' from `outlined()`
+// — a gap one pixel wide is claimed by the dilation from both sides, which is
+// the failure mode the reticle's six-pixel hole exists to avoid and is exactly
+// what is wanted here: four fingers separated by a dark seam. One grid, one
+// border thickness, no second set of numbers to keep in step.
+//
+// The one-pixel margin on every side is the arrow's rule, for the arrow's
+// reason: the fingertip is the hotspot, it is the part that overlaps whatever
+// it is pointing at, and a shape flush against the grid edge has nowhere to put
+// its outline.
+const HAND = grid([
+  ".............",
+  "....CC.......",
+  "....CC.......",
+  "....CC.......",
+  "....CC.......",
+  "....CC.......",
+  "....CC.......",
+  "....CC.CC....",
+  "....CC.CC.CC.",
+  ".CC.CC.CC.CC.",
+  ".CCCCCCCCCCC.",
+  ".CCCCCCCCCCC.",
+  ".CCCCCCCCCCC.",
+  ".CCCCCCCCCCC.",
+  "..CCCCCCCCCC.",
+  "..CCCCCCCCC..",
+  ".............",
+]);
+/** The index fingertip: the art column the finger's right half sits in, so the
+ *  hotspot lands on the seam between its two pixels rather than inside one of
+ *  them. Times SCALE, that is a whole CSS pixel on the finger's centre line. */
+const HAND_TIP_COL = 5;
+
+// THE BARRED DISC, for anything refusing the click. Road-sign "no entry",
+// because that is the one refusal glyph that survives being 22 CSS pixels
+// across and needs no reading: a filled disc in --danger with a bar straight
+// through it. Two inks, like every other cursor here — the disc and the
+// outline colour, which does double duty as the bar.
+//
+// GENERATED FROM THE CIRCLE, NOT TYPED. Sixteen hand-typed rows of a disc is
+// the kind of art an edit puts one pixel out of true — the same argument the
+// reticle's symmetry makes — and the radius and bar proportions below are the
+// reviewable form. r = 5.2 is the radius that fills an 11px disc without the
+// stair-stepped "rounded square" a flat 5.5 produces; the bar is 3 rows of 7,
+// i.e. 27% of the diameter tall and 64% wide, which is the real sign's.
+//
+// THE BAR IS DRAWN AS '#' RATHER THAN LEFT TRANSPARENT. `outlined()` only
+// converts a '.' that has an ink NEIGHBOUR, so a three-pixel-tall hole would
+// come back with a transparent core and a dark fringe — a slot you can see the
+// HUD through, not a bar. Writing the outline colour into the art states the
+// intent and does not depend on the dilation's reach.
+//
+// IT IS THE ONE CURSOR IN THE SET THAT IS NOT CYAN, and that is the point:
+// refusal is red everywhere else in this app (.tower__floor.is-denied, the
+// tower's owed-seal flare), so the cursor that says "no" says it in the colour
+// the rest of the refusal vocabulary already uses.
+const BLOCKED_ART = (() => {
+  const N = 13;              // 11px of disc plus the 1px outline margin
+  const MID = (N - 1) / 2;   // 6 — the disc's centre, and the hotspot
+  const R = 5.2;             // disc radius, art px
+  const BAR_HALF_H = 1;      // -> a 3px-tall bar
+  const BAR_HALF_W = 3;      // -> a 7px-wide bar, red left on both ends
+  const rows = [];
+  for (let y = 0; y < N; y++) {
+    let row = "";
+    for (let x = 0; x < N; x++) {
+      const dx = x - MID;
+      const dy = y - MID;
+      if (dx * dx + dy * dy > R * R) { row += "."; continue; }
+      row += Math.abs(dy) <= BAR_HALF_H && Math.abs(dx) <= BAR_HALF_W ? "#" : "R";
+    }
+    rows.push(row);
+  }
+  return grid(rows);
+})();
+
+// --- The selectors ----------------------------------------------------------
+// WHAT COUNTS AS CLICKABLE, in the vocabulary the rest of the app already uses:
+// padnav.ts's FOCUSABLE (what a gamepad may land on) and main.ts's click
+// delegation (which resolves a handler by closest("[data-action]") /
+// closest("[data-toggle]")). Stated by BEHAVIOUR rather than by looks on
+// purpose — .menu__entitlement is a <div class="btn" role="status"> that is not
+// a control, and a rule keyed on .btn would have handed it a hand.
+//
+// No `input`/`textarea`: this app has none, and a text field's I-beam is a
+// signal about where the caret will land, not decoration to restyle. If one
+// ever appears it should keep its caret.
+//
+// #app, AND THE ID IS LOAD-BEARING. app.css sets `cursor: pointer` on some
+// thirty individual classes and `cursor: default` / `not-allowed` on the
+// disabled variants of them, and it is @imported AFTER this file — so a rule
+// here at class specificity would lose every one of those ties on source order.
+// One id (the app's own root, index.html) outranks any stack of classes, which
+// is what lets those thirty declarations stay exactly where they are, doing
+// what they have always done: being the keyword the browser falls back to.
+const CONTROL =
+  ':is(button, a[href], [role="button"], [role="switch"], [tabindex="0"], [data-action], [data-toggle])';
+const INTERACTIVE_SEL = `#app ${CONTROL}`;
+// …and what refuses it: a control, AND refusing. `:disabled` covers the native
+// ones; the two ARIA spellings cover the ones that stay clickable on purpose —
+// a locked .tower__floor is aria-disabled and still takes the click, because
+// tapping it is how the tower shakes its head (screens.ts's floorHTML).
+//
+// IT REPEATS THE CONTROL LIST, and the repetition is the point. The first cut
+// of this leaned on source order — "the two match at the same specificity, so
+// emit blocked second and let the tie break" — and it was simply not true.
+// `:is()` takes the weight of its MOST specific argument: the clickable side
+// contains the compound `a[href]` (0,1,1), the blocked side was all lone
+// attributes (0,1,0), so clickable outranked blocked by a single element name
+// and every locked floor in the tower wore a pointing hand. A browser reading
+// getComputedStyle on the real screens caught it; no amount of staring at the
+// selectors did. Chaining makes blocked (0,2,1) against clickable's (0,1,1):
+// it wins on merit rather than on where it sits in the file, and it can never
+// again be one selector edit away from losing.
+//
+// It also narrows the rule to the truth. "Blocked" is a thing a CONTROL does;
+// an inert div that merely looks disabled (.guide__drill--locked) is not
+// refusing a click, it is a card, and it keeps the chrome arrow.
+const BLOCKED_SEL = `#app ${CONTROL}:is(:disabled, [disabled], [aria-disabled="true"])`;
+
 // --- PNG encoding -----------------------------------------------------------
 // Hand-rolled rather than pulled from sharp: the images are a few hundred
 // bytes of flat colour, the encoder is thirty lines, and a build asset that
@@ -213,26 +341,54 @@ function decls(g, scale, hotX, hotY, fallback) {
 
 const reticle = outlined(RETICLE_ART);
 const arrow = outlined(ARROW);
-// Scale 2: one art pixel is two CSS pixels, so the reticle is 32x32 CSS and
-// the arrow 22x32 — chunky on purpose, and inside every engine's cursor size
-// cap (Blink refuses anything over 128 device px, which the 2x assets reach at
-// 64 and 44 respectively).
+const hand = outlined(HAND);
+const blocked = outlined(BLOCKED_ART);
+// Scale 2: one art pixel is two CSS pixels, so the reticle is 32x32 CSS, the
+// arrow 24x34, the hand 26x34 and the barred disc 26x26 — chunky on purpose,
+// and inside every engine's cursor size cap (Blink refuses anything over 128
+// device px, which the largest 2x asset reaches at 68).
 const SCALE = 2;
 // The reticle's hotspot is the centre of the hole its four arms point at:
-// dead centre of a 16x16 grid at 2x is CSS 16,16. The arrow's is its tip —
-// art (1,1) after the margin, so CSS 2,2.
+// dead centre of a 16x16 grid at 2x is CSS 16,16. The barred disc's is its own
+// centre for the same reason — it is a symbol, not a pointer, and the thing it
+// is refusing is under the middle of it. The arrow's is its tip (art (1,1)
+// after the margin, so CSS 2,2) and the hand's is its fingertip.
 const css = `/* GENERATED by scripts/make-cursors.mjs — do not edit by hand.
    Re-run that script after changing the art or the palette it reads from
    tokens.css. See its header for why these are baked data URIs, why there are
    two of each size, and why each cursor is declared twice. */
 
-/* THE BAY GETS A RETICLE, THE CHROME GETS AN ARROW, and the buttons keep the
-   system hand. That last one is the deliberate part: \`cursor: pointer\` is the
-   only cursor in the app that carries INFORMATION ("this is clickable"), it is
-   the one users configure at the OS level for size and contrast, and replacing
-   it with a second piece of neon art would cost a real affordance to buy a
-   consistent look on a surface nobody looks at. Decoration gets restyled;
-   signals do not.
+/* FOUR CURSORS, ONE IDENTITY. The bay gets a reticle, the chrome gets an
+   arrow, anything clickable gets a hand, and anything refusing the click gets
+   a barred disc in --danger.
+
+   THE LAST TWO ARE A REVERSAL, and the argument they overturned is worth
+   keeping written down. This file used to hand buttons and disabled controls
+   straight back to the OS, on the grounds that \`pointer\` and \`not-allowed\`
+   are the only cursors in the app that carry INFORMATION rather than
+   decoration, and that a player who has sized or recoloured their system
+   pointer has done it precisely on those. It was wrong twice over. It was
+   wrong about the cost: the pointer spends most of its life ON the chrome, so
+   the swap happened at every button edge — the owner's report is "the custom
+   cursor does not show up on buttons", which is what a split identity looks
+   like from outside. And it was wrong about the benefit, because the
+   affordance is in the SHAPE: a pointing hand says "clickable" and a barred
+   disc says "no" whoever drew them, and the accessibility block at the bottom
+   of this file already gives the system cursors back to exactly the players
+   whose settings the custom bitmaps would ignore. The signal is kept; only the
+   pixels changed hands.
+
+   BLOCKED OUTRANKS CLICKABLE BY SPECIFICITY, not by source order — see the
+   generator's note on why the two selectors chain. A disabled button matches
+   both, and which one it wears is not allowed to depend on where in this file
+   they landed.
+
+   EVERY DECLARATION KEEPS ITS KEYWORD. \`, pointer\` / \`, not-allowed\` /
+   \`, crosshair\` after the image is not punctuation: a data URI that fails to
+   decode, an engine that rejects the size, a printing context — any of them
+   drop the image and land on the keyword, and the keyword is chosen so what
+   is left is still the RIGHT cursor for that element rather than an arrow
+   everywhere.
 
    ONLY ON A REAL POINTER. Under \`pointer: coarse\` there is no cursor to draw
    and the rules would be dead weight on the device that can least afford it —
@@ -245,16 +401,33 @@ ${decls(arrow, SCALE, 2, 2, "default")}
   #game {
 ${decls(reticle, SCALE, (reticle.w * SCALE) / 2, (reticle.h * SCALE) / 2, "crosshair")}
   }
+
+  ${INTERACTIVE_SEL} {
+${decls(hand, SCALE, HAND_TIP_COL * SCALE, SCALE, "pointer")}
+  }
+
+  ${BLOCKED_SEL} {
+${decls(blocked, SCALE, (blocked.w * SCALE) / 2, (blocked.h * SCALE) / 2, "not-allowed")}
+  }
 }
 
 /* ACCESSIBILITY OVERRIDE. A player who has asked their OS for a high-contrast
    or enlarged pointer has asked for it everywhere, and a custom bitmap ignores
    both settings — forced-colors and prefers-contrast are the two signals that
    say so. They get the system cursors back, with \`crosshair\` over the bay so
-   the surface still says what it is. */
+   the surface still says what it is.
+
+   THE INTERACTIVE AND BLOCKED RULES ARE RESTATED HERE, in keywords, and they
+   have to be: this block outranks nothing by specificity, it wins on source
+   order, and \`body { cursor: auto }\` alone would leave the two id-scoped
+   rules above still holding their bitmaps on every button in the app — the
+   one audience that must never see them would be the only one that always
+   did. */
 @media (forced-colors: active), (prefers-contrast: more) {
   body { cursor: auto; }
   #game { cursor: crosshair; }
+  ${INTERACTIVE_SEL} { cursor: pointer; }
+  ${BLOCKED_SEL} { cursor: not-allowed; }
 }
 `;
 
@@ -268,4 +441,6 @@ const show = (name, g) => {
 };
 show("reticle", reticle);
 show("arrow", arrow);
+show("hand", hand);
+show("blocked", blocked);
 console.log(`\nwrote ${OUT} (${(css.length / 1024).toFixed(1)} kB)`);
