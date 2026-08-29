@@ -5581,7 +5581,39 @@ body.crt-off #app::after { display: none; }
    — the flex item is refusing the bounded height the modal is offering it.
    .end itself needs the same treatment as the grid between them. */
 .end { min-height: 0; }
-.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; min-height: 0; }
+.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* …AND THE HEIGHT HALF BELONGS TO THE SIDE COLUMN ONLY. It was on both, and
+   that is the whole of the Tier S banner bug: the two columns are not
+   symmetric. `.end__side` has somewhere to put a squeeze — #lb-body is on the
+   scroll allowlist, so shrinking the column below its content turns rows into
+   scrolled rows, which is the trade this rule was written to make.
+   `.end__main` has NO scroller in it and never will (the no-scroll product
+   rule owns that column), so `min-height: 0` there bought nothing and cost the
+   only thing keeping the layout honest: with its automatic minimum disabled,
+   the `1fr` track is free to resolve SHORTER than the column's content, and a
+   flex column with `overflow: visible` answers that by simply drawing past its
+   own bottom edge — over `.end__actions`, which is the `auto` track directly
+   beneath it.
+   Measured on the OnePlus 12 row (792x360, the device the report came in
+   from): the main column asked for 218px, the track gave it 186px, and the
+   last 32px of it — the Tier S banner's closing line and its bottom border —
+   were painted under FLY IT AGAIN and TIER S. It was never one device. With
+   the column made to report its real height, the same Tier S card overflowed
+   its track by 32px on the iPhone 13 mini, 57px on the iPhone SE 3, 58px on
+   the Galaxy S8+, 102px in an 800x600 window, 142px on the 640x360 budget
+   Android — and 16px at 1280x720, the size the whole game is laid out for.
+   Invisible to every assertion the harness had: `.end` measured exactly at its
+   cap because the 1fr track had absorbed the difference (`fit` green), nothing
+   scrolled (`scrollers` green), nothing left the viewport (`offscreen` green),
+   and the buttons kept their 44px (`tap` green). The overflow only existed
+   between two boxes. run.ts now asks the column the same question `fit` asks a
+   screen, and pairs it with `.end__actions` in NO_OVERLAP.
+   With the automatic minimum back, the track cannot resolve below the
+   column's content: the banner takes its natural height whatever the
+   description wraps to, the actions row starts under it, and if the two
+   together genuinely do not fit the panel then `.end` overflows and `fit`
+   says so — a failure that can be seen instead of one that is painted over. */
+.end__side { min-height: 0; }
 /* Tall viewports keep the original single-column reading order (outcome,
    submit, board, actions) purely from DOM order — no grid areas needed. */
 
@@ -5601,16 +5633,32 @@ body.crt-off #app::after { display: none; }
        width to the side that does not need it. */
     grid-template-columns: 1.15fr 0.85fr;
     grid-template-rows: 1fr auto;
-    grid-template-areas: "main side" "actions side";
+    grid-template-areas: "main side" "actions actions";
     column-gap: var(--sp-4);
     width: min(920px, 94vw);
     text-align: left;
   }
   .end__main { grid-area: main; }
   .end__side { grid-area: side; }
-  /* Bottom-left rather than spanning the panel: a full-width action row costs
+  /* SPANS THE PANEL. It used to be bottom-left — "a full-width action row costs
      its 39px out of BOTH columns' budget, which pushes the board back into
-     scrolling. It also lands at the end of the natural reading order. */
+     scrolling" — and that arithmetic was right about a THIRTY-NINE PIXEL row.
+     The row is not 39px any more. Four exits and a seal line have been added to
+     it since, and confined to the 1.15fr column it wraps: measured on the
+     OnePlus 12 (792x360) the sandbox card's four buttons want 450px of a 404px
+     column, so they take two 44px lines and the row bills the outcome column
+     106px. The lost-run card, which also carries the seal sentence, bills 145px
+     — and at 640x360 it bills 201.
+     Across the full panel the same four buttons are one line: 106px -> 50px on
+     the OnePlus row, and the 56px that buys is exactly what the Tier S banner
+     needed (the column wanted 218px of a 186px track). Spending it out of BOTH
+     columns is the right trade now precisely because of what the old note said
+     — the side column's overflow is #lb-body, which is on the scroll allowlist
+     and was designed to give, while the outcome column has no scroller in it
+     and can only overflow.
+     It still lands at the end of the natural reading order, and it still reads
+     as the row you leave by; what changes is that the room it takes comes off
+     the board's rows instead of off the banner that explains the run. */
   .end__actions { grid-area: actions; align-self: end; }
   .end .stat-row { justify-content: flex-start; gap: var(--sp-5); }
   .end .end__actions { justify-content: flex-start; }
@@ -5630,6 +5678,38 @@ body.crt-off #app::after { display: none; }
   .end .lb__row { padding: 5px 12px; grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 6px; }
   .end .lb__score { font-size: 15px; }
   .end .lb__gap { font-size: 10px; padding: 0; }
+  /* THE SPLIT MOVES ONE MORE NOTCH ON A NARROW PANEL, for the reason the
+     1.15/0.85 note gives and then stops short of following: width bought at
+     the banner's expense is bought in HEIGHT, and the banner is the only block
+     on the card that pays for narrowness by growing.
+     760px is the LAST row that needs it, and the threshold is written that way
+     round on purpose. The panel is 94vw here, so at 1.15/0.85 the outcome
+     column runs 322px at 640, 336px at 667, 376px at 740 — and 404px at 792,
+     which is where the card starts closing its panel on its own. Those first
+     three are exactly the three device rows still over after the action row
+     moved to the panel's full width, so the notch is spent on them and on
+     nobody else. At 640 the Tier S sentence was being set in the 130px left
+     beside a 134px button and took six lines; 1.3/0.7 gives the column 364px,
+     the sentence 172px and four lines, and the whole card lands inside its
+     panel on the budget Android for the first time. The iPhone SE 3 and the
+     Galaxy S8+ close the same way.
+     Stopping at 760 rather than reaching further up is the same measurement
+     read from the other side: at 780 and 792 the split costs the board ~50px
+     of column and starts ellipsising a twelve-character name for a banner that
+     already fits. What the three rows below 760 give up instead is ~34px of a
+     column whose rows are one line each — and one of those tracks pays for it
+     rather than the name. At 196px the row's four tracks want 30 (rank) + 18
+     (three gaps) + ~65 (the lines count) + ~60 (score), which is 173 of the
+     196 and leaves 23px of name: every board entry ellipsised to "P…". Drop
+     the lines count and the name has ~88px, which sets PILOT1 and LONGESTNAME
+     in full. It is the right track to lose, too: this board is answering
+     "where did that score land", and the rank, the name and the score are the
+     whole of that answer — the lines a rival cleared is trivia, and it is
+     still on the standalone Leaderboard, which has a full screen for it. */
+  @media (max-width: 760px) {
+    .end { grid-template-columns: 1.3fr 0.7fr; }
+    .end .lb__lines { display: none; }
+  }
 }
 
 /* ---------- Draft modal (mod cards) ---------- */
@@ -8682,7 +8762,45 @@ button.panel { color: var(--text); }
    side. The two lines still both appear in full; only the box around them
    gives up its slack, which is enough (58px of overflow against ~44px
    reclaimed here plus the tighter leading). */
-@media (max-height: 480px) {
+/* SHORT **OR NARROW**, and the second half is the same wrong-axis correction
+   the `.end` grid above already had to make once. Every rule in this block is
+   a height budget for the outcome column, and the thing that actually spends
+   that column's height is its WIDTH: the salvage banner "nearly doubles in
+   height as it narrows" (the grid's own note), because the sentence beside a
+   fixed 134px button rewraps. An 800x600 desktop window is 120px too tall for
+   `max-height: 480px` and still lays the banner out in a 384px column — the
+   narrowest this card ever gets on a row that gets none of these savings, and
+   it measured 102px over its panel with the Tier S banner in it.
+   999px, because that is where the panel stops growing: `.end` is
+   `min(920px, 94vw)`, so at 979px and up the outcome column is a flat ~471px
+   and this card demonstrably fits (1280x720, 1024x768, 1000x760 all measure 0
+   over). It is also the threshold `.salvage-row`'s full typography step
+   already uses, so the card has ONE width at which it stops being tight rather
+   than two.
+   AND THE WIDTH ARM CARRIES `min-aspect-ratio: 1/1`, which is not belt and
+   braces — it is the whole premise of the arm. Narrow costs the outcome column
+   height only while that column is HALF the panel, and the card is two columns
+   under exactly this query (see `.end`'s grid above; the condition is copied
+   from it verbatim so the two cannot drift). Below 1/1 the grid has already
+   collapsed to one 560px column with the full window's height under it, which
+   is a different card with a different budget — and this arm was never
+   measured against it. Ungated it reached in and changed it: a 900x1000 window
+   is single-column with 829px of panel holding 795px of card, and the arm was
+   hiding the payout footnote that the note below promises back on a taller
+   viewport, while its 1000x1000 neighbour showed that footnote in a panel of
+   551px. Widening a window by 100px must not restore a line that twice the
+   height could not. (Found by review on the PR that added the arm.)
+   With the gate the tall single-column shape measures exactly as it did before
+   this whole change — 0 over at 950x1100, 11px at 900x1000, 94px at 800x900,
+   footnote drawn in all three, identical to staging. That last number is a
+   real single-column overflow and it is NOT this arm's to fix: it predates
+   this work, `.end__main` sits inside its track there (mainOver 0, so it is
+   not the bug this file's `.end__main` note is about), and buying it back by
+   dropping the run's payout line on a window with 861px of panel is not a
+   trade anyone made deliberately. Left as it was found, visible.
+   The height arm stays unqualified: a genuinely short window is short whatever
+   shape it is. */
+@media (max-height: 480px), (max-width: 999px) and (min-aspect-ratio: 1/1) {
   /* The box becomes a rule. A tinted panel costs 12px of padding and 2px of
      border to group two sentences that a left accent groups just as well. */
   .end__why {
@@ -8713,6 +8831,21 @@ button.panel { color: var(--text); }
      the award — so on a narrow landscape phone the footnote goes and Play
      Again stays on screen. It returns in full on any taller viewport. */
   .end .salvage-row__foot { display: none; }
+  /* THE EXITS STAY ON ONE LINE, and they buy that with padding rather than
+     with a smaller target. A wrapped action row bills the card a whole extra
+     44px line, and it bills it out of the same column the banner is trying to
+     fit in — which is how the Tier S banner came to be drawn underneath it.
+     The arithmetic, measured on the two rows that were still wrapping after
+     the row moved to the panel's full width: the Tier S card's four exits want
+     168+106+236+85 = 595px plus three 12px gaps = 631px, and the 640x360
+     budget Android hands the row 576px. Ten a side instead of twenty takes the
+     buttons to 515px and the eight-pixel gap takes the row to 539px — 37px of
+     margin — and the lost-run card, whose Retry Bay and Contracts exits are
+     the widest set the screen ever draws, lands at 560px with 16px to spare.
+     Nothing here touches the 44px floor: the shortest button on the row is
+     MENU, and at 10px a side it is still 65px wide and its full height. */
+  .end .end__actions { column-gap: var(--sp-2); }
+  .end .end__actions .btn { padding-left: 10px; padding-right: 10px; }
   /* BACKSTOP, inert unless the panel actually overflows. Every rule above is a
      height budget, and a budget can be blown by something none of them
      anticipated — a longer bay name, a four-digit bankroll, a translation, or
