@@ -7,6 +7,7 @@ import {
   quitLosesProgress, bayRetryable,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
+import { addGradeTally } from "./game/grades";
 import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -303,6 +304,25 @@ const HOLD_CLICK_MS = 400;
  *  tick — sub-millisecond — so this only has to be comfortably above that and
  *  comfortably below any deliberate second press. */
 const PAD_WAKE_MS = 50;
+
+/** Whether a button sits inside something that actually scrolls, so a touch
+ *  press on it is ambiguous — it may be the first millimetre of a scroll, not
+ *  a press at all (see pressFeedback). Walks ancestors and tests REAL
+ *  scrollability rather than `closest("[data-scroll]")`, because app.css also
+ *  hands drags to scrollers that never opted into the attribute (`.modal`,
+ *  `.draft__body`, the horizontal `.pl-mods` and `.guide__tabs`) — and a new
+ *  scroller should not be able to reintroduce the scrolled-shelf blip by
+ *  forgetting an attribute. Runs once per touch press over a handful of
+ *  ancestors, so the getComputedStyle cost is not worth caching. */
+function inScroller(el: HTMLElement): boolean {
+  for (let n: HTMLElement | null = el; n && n !== document.body; n = n.parentElement) {
+    const s = getComputedStyle(n);
+    const yes = (o: string) => o === "auto" || o === "scroll";
+    if (yes(s.overflowY) && n.scrollHeight > n.clientHeight) return true;
+    if (yes(s.overflowX) && n.scrollWidth > n.clientWidth) return true;
+  }
+  return false;
+}
 
 /**
  * The screens the pad's Controls shortcut (padnav.ts's PAD_CONTROLS) may be
@@ -825,6 +845,11 @@ class App {
     // The rail's edge (Controls → left-handed rail) has to be set before the
     // first solve too — snug mode reserves the band on the rail's side.
     this.applyRailSide(false);
+    // …and the pointer's, before the first paint. A player who has asked for
+    // their own cursor must not see the game's for the frame it takes to get
+    // here — the whole point of baking the bitmaps as data URIs is that they
+    // arrive with no load, and that cuts both ways.
+    this.applySystemCursor();
     // The starting input family: fine pointer means keyboard+mouse until an
     // input says otherwise (D2 — the profile follows the last input seen).
     this.setProfile(this.finePointer() ? "keyboard" : "touch");
@@ -1146,6 +1171,28 @@ class App {
     setRailSide(side);
     document.documentElement.dataset.railSide = side;
     if (resize) this.onResize();
+  }
+
+  /** Settings → System Pointer: hand the cursor back to the OS.
+   *
+   *  Published as <html data-system-cursor> and read by ONE block in
+   *  styles/cursors.css, which restates all four surfaces in plain keywords —
+   *  the same list the forced-colors override uses, emitted from the same
+   *  place in the generator. Nothing here decides which cursor anything gets;
+   *  it only says which of the two vocabularies the stylesheet is speaking.
+   *
+   *  A WRITTEN "off" RATHER THAN A DELETED ATTRIBUTE. `[data-system-cursor]`
+   *  as a bare presence test would work, but the app already publishes three
+   *  root hooks this way (data-profile, data-rail-side, data-layout) and every
+   *  one of them names its state — a hook you can read in devtools and know
+   *  the answer to, rather than one you have to know the absence convention
+   *  for. It also costs nothing: the CSS matches on the value.
+   *
+   *  No resize, no re-render: a cursor is not layout, and the switch is flipped
+   *  from a Settings pane whose other rows must not be rebuilt under a pointer
+   *  that is still resting on them (see onToggle). */
+  private applySystemCursor(): void {
+    document.documentElement.dataset.systemCursor = this.settings.systemCursor ? "on" : "off";
   }
 
   /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
@@ -2672,6 +2719,10 @@ class App {
               sandbox: this.run.sandbox,
               sandboxSetup: this.run.sandbox ? this.sandboxSetupLine() : undefined,
               salvageTotal: this.meta.salvage,
+              // Banked tallies plus the bay still on screen, added here for the
+              // same reason `scrapEarned` and `lines` above are: the current bay
+              // has not been through advanceRun, and on a loss never will be.
+              grades: addGradeTally(this.run.grades, g.gradeTally),
               scrapEarned: this.run.scrapEarned + g.scrapEarned,
               // Banked bays plus the one still on screen. The current bay has
               // not been through advanceRun — and on a loss never will be — so
@@ -2972,8 +3023,8 @@ class App {
         telemetry.shot(info); void tapHaptic(); playFx("shoot");
         this.dismissDragHint(); this.dismissKeyHints(); this.coachOnShoot();
       },
-      onLineClear: (n) => {
-        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+      onLineClear: (n, g) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
         void successHaptic(); playLineClear(n); this.flashGoal(); this.coachOnLineClear();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
@@ -3477,8 +3528,8 @@ class App {
         telemetry.shot(info); void tapHaptic(); playFx("shoot");
         this.dismissDragHint(); this.dismissKeyHints();
       },
-      onLineClear: (n) => {
-        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+      onLineClear: (n, g) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
         void successHaptic(); playLineClear(n); this.flashGoal();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
@@ -3807,6 +3858,11 @@ class App {
       // salvagedFunds and volatileLosses above: the discount was already taken
       // when each cube was billed, so this only ever accumulates a readout.
       g.incineratedFunds,
+      // ...and HOW the bay was played (grades.ts). The last of the tail's
+      // stats, and the only one that is a judgement rather than a sum of money:
+      // the end card is where a run gets told what its rows were actually
+      // worth, and a judgement nobody is shown is one that was never made.
+      g.gradeTally,
     );
     // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1. Still asked of the RUN rather than
@@ -5613,7 +5669,18 @@ class App {
     // (play, buy, undock, confirm) says so to the ear as well as the eye, and
     // the variant class is the rule, so a new screen gets the right sound by
     // styling its buttons honestly.
-    if (e.detail === 0 && !(e as PointerEvent).pointerType) this.actionFeedback(el);
+    //
+    // ONE pointer press is deferred to here: a touch press inside a scroller,
+    // whose pointerdown may be the start of a scroll rather than a press, so
+    // pressFeedback holds its tongue and the genuine tap's click pays instead
+    // (a touch tap's click carries pointerType "touch", detail 0 — see the
+    // data-game comment above). `deferred` must be the SAME predicate
+    // pressFeedback skips on, or a tap in a scroller goes silent or blips
+    // twice.
+    const deferred = (e as PointerEvent).pointerType === "touch" && inScroller(el);
+    if ((e.detail === 0 && !(e as PointerEvent).pointerType) || deferred) {
+      this.actionFeedback(el);
+    }
     switch (action) {
       // The primary button flies the parked floor — and on the roof, "flying
       // it" is opening the level select, because Tier S is the one floor that
@@ -6083,6 +6150,14 @@ class App {
     if (e.button !== 0) return; // a right/middle press produces no click
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
     if (!el || (el as HTMLButtonElement).disabled) return;
+    // A touch that starts inside a scroller may be the first millimetre of a
+    // SCROLL, not a press — a drag through the refit shelf must not blip like
+    // a purchase. Its feedback waits for the click, which only a real tap
+    // produces: a drag is taken over by the browser and clicks nothing.
+    // onClick's [data-action] branch pays the deferred feedback with the SAME
+    // predicate — change one and you must change the other, or a tap in a
+    // scroller goes silent (or sounds twice).
+    if (e.pointerType === "touch" && inScroller(el)) return;
     this.actionFeedback(el);
   }
 
@@ -6313,6 +6388,11 @@ class App {
     // The rail mirror re-solves the layout on the spot; stickAssist is read
     // live by the gamepad poller and needs nothing here.
     if (key === "leftHandRail") this.applyRailSide();
+    // The pointer's own switch. One attribute write, no re-render: the CSS
+    // does the rest, and the cursor under the player's hand changes on the
+    // same frame they let go of the switch — which is the only feedback this
+    // particular toggle can give.
+    if (key === "systemCursor") this.applySystemCursor();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
     // has to redraw the screen saying it. stickSling is the only one: the
     // gamepad pane's aim row describes the mode that is on, so leaving the old

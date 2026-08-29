@@ -62,6 +62,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 const SETTINGS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
   leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
+  systemCursor: false,
 };
 
 const STORE = { available: true, unlimited: false };
@@ -1358,6 +1359,18 @@ function endModal(won: boolean, sandbox = false): string {
     // and the bound is the same one: the hood can never remit more than the
     // bills beside it charged.
     incineratedFunds: 10_240,
+    // ...and the TIMING TALLY, which lands on that same breakdown row ahead of
+    // both of them (screens.ts's gradeBreakdownClause). Present for exactly the
+    // reason its two neighbours are non-zero: the clause only renders for a
+    // band the run actually earned, so an omitted tally would measure the row
+    // without the segment rather than with it.
+    //
+    // Three digits in each named band, which is the widest this can honestly
+    // read against the 240 lines above — a run cannot earn more excellent rows
+    // than it cleared rows, and the two bands that print are a subset of that
+    // total. The two that do NOT print are still filled in, so the fixture is a
+    // tally a real run could produce rather than an arithmetic impossibility.
+    grades: { excellent: 148, good: 62, swept: 24, lucky: 6 },
     tiers: HUD_BASE.tiers,
   });
 }

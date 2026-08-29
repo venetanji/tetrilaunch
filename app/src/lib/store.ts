@@ -79,6 +79,30 @@ export interface Settings {
    *  would turn a hidden door into a chore. Off by default, so a save written
    *  before Tier S existed opens exactly as it did. */
   devMode: boolean;
+  /** Give the pointer back to the operating system (styles/cursors.css).
+   *
+   *  false (default) — the game draws its own four cursors on a fine pointer:
+   *  a reticle over the bay, an arrow over the chrome, a hand on anything
+   *  clickable and a barred disc on anything refusing.
+   *  true — every one of those reverts to the plain CSS keyword, so the
+   *  player's own pointer is drawn by their OS at whatever size and colour
+   *  they have set it to.
+   *
+   *  WHY THIS IS A SETTING AND NOT A MEDIA QUERY. cursors.css already stands
+   *  down for `forced-colors: active` and `prefers-contrast: more`, and those
+   *  cover the players whose accessibility needs the platform bothers to
+   *  announce. They are not the whole set. Windows' pointer size/colour and
+   *  macOS's pointer size are standalone preferences: a player can triple
+   *  their cursor and tint it yellow without turning on high contrast, and NO
+   *  media query in any engine reports that they did. A 26px bitmap would
+   *  silently override the one accommodation they had made, and the only
+   *  honest way to detect it is to ask. Hence a switch, and hence it reverts
+   *  ALL FOUR cursors rather than only the two this build added — a player
+   *  who wants their own pointer wants it over the bay too.
+   *
+   *  Off by default: the game's cursors are the intended look, and a player
+   *  who has not asked for anything gets it. */
+  systemCursor: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
@@ -90,6 +114,7 @@ const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
   seenKeyHints: false,
   leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
+  systemCursor: false,
 };
 
 /** Keys a save may still carry that this build no longer answers to. Dropped

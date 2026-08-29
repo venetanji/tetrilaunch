@@ -30,9 +30,18 @@ import {
   skydeckLaunchCost, skydeckStartingFunds,
   skydeckTargetScoreFor,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
+  precisionPremium, PRECISION_PREMIUM_FROM_RUNG, PRECISION_PREMIUM_PER_RUNG,
+  SKYDECK_ENDGAME_LINES_PER_BAY, skydeckScrapAtFirstStop, SKYDECK_SCRAP_SHARE,
   type LevelConfig, type MaterialMix, type PileTier,
 } from "../src/game/level";
 import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
+import {
+  addGradeTally, awardedGrade, CONGESTION_GRADE_CAP, GRADE_PAY, gradedLinePay,
+  gradeForRow, GRADES, gradeTallyTotal,
+  EXCELLENT_WINDOW_MS, EXCELLENT_WINDOW_STEPS, STEP_MS,
+  LUCKY_SWEEPS, newGradeTally, timedShare, type ClearClock, type ClearContext,
+  type ClearGrade, type LandingStamp, type RowParticipation,
+} from "../src/game/grades";
 import { BOTS } from "./bots";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
@@ -52,7 +61,8 @@ import { ADAPTIVE_BOTS, aimBot, aimCandidates } from "./bots";
 import {
   cushionStrategy, incineratorAware, lanceStrategy, linerTriggerSpeed,
   naiveStrategy, slotCenterX, slotIsLined, slotOf, STRATEGIES, strategyHands, strategyPilot,
-  strikeStrategy,
+  strikeStrategy, pressPhaseAfter, shouldHoldForPress,
+  TIMED_FLIGHT_STEPS, TIMED_PRESS_MARGIN_STEPS,
 } from "./aim-strategies";
 import { loadoutFor, loadoutWithoutTrack, PRIORITY_ORDERS } from "./builds";
 import {
@@ -79,6 +89,9 @@ import {
   markLostPieces, slagBountyFor, nextColdCryo,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
+  stampLandings, landingOf, newestLanding, headlineGrade, headlineRow,
+  rowParticipation, IMPACT_ASSIST_X_TOL, IMPACT_ASSIST_Y_MAX, IMPACT_ASSIST_Y_MIN,
+  type GradedRow,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -164,7 +177,9 @@ import {
   UI_SCALE_MIN,
 } from "../src/game/layout";
 import {
-  BAY_GLYPH_MATERIALS, glyphInk, MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
+  BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
+  glyphInk, GRADE_CALLOUT, GRADE_COLOR,
+  MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
   PIECE_COLORS, PIECE_TYPES, type PieceSize,
 } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
@@ -531,37 +546,100 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // formula at all.
   const t1 = tierDemands(1);
   const top = tierDemands(MARK_COUNT);
-  check("Tier 1 opens at $600, 180s, $20 a shot",
-    t1.targetScore === 600 && t1.timeLimitSec === 180 && t1.launchCost === 20,
+  check("Tier 1 opens at $1080, 180s, $20 a shot",
+    t1.targetScore === 1080 && t1.timeLimitSec === 180 && t1.launchCost === 20,
     `$${t1.targetScore}/${t1.timeLimitSec}s/$${t1.launchCost}`);
-  check("the top tier opens at $780, 144s, $30 a shot",
-    top.targetScore === 780 && top.timeLimitSec === 144 && top.launchCost === 30,
+  check("the top tier opens at $1544, 144s, $30 a shot",
+    top.targetScore === 1544 && top.timeLimitSec === 144 && top.launchCost === 30,
     `$${top.targetScore}/${top.timeLimitSec}s/$${top.launchCost}`);
   // Where a run ENDS is the tier's opening plus the ladder's own per-bay climb
   // (TARGET_PER_BAY, steepened a little by the tier) — the two curves compose,
-  // and this is the number that says by how much.
-  check("the last bay of a run climbs from $1500 at Tier 1 to $1842 at the top",
-    makeBaseLevel(9, 1).targetScore === 1500 && makeBaseLevel(9, MARK_COUNT).targetScore === 1842,
+  // and this is the number that says by how much. $3348 at the top becomes
+  // $3683 with the PRECISION PREMIUM (level.ts): Tier 10 sits two rungs above
+  // where the premium starts, so every one of its targets carries x1.10. Both
+  // figures are the RECALIBRATED curve (level.ts's 2026-08-28 note) — 1.8x the
+  // ladder that shipped before graded payouts made a bay end in a quarter of
+  // its own clock.
+  check("the last bay of a run climbs from $2700 at Tier 1 to $3683 at the top",
+    makeBaseLevel(9, 1).targetScore === 2700 && makeBaseLevel(9, MARK_COUNT).targetScore === 3683,
     `${makeBaseLevel(9, 1).targetScore}/${makeBaseLevel(9, MARK_COUNT).targetScore}`);
 
+  /* THE PRECISION PREMIUM'S BLAST RADIUS — pinned as an ABSENCE first.
+   *
+   * The brief the premium answers is explicit that only the top of the ladder
+   * moves ("the boredom is the maxed-out endgame, not the ladder's middle"),
+   * and level.ts's measured table is what chose rung 8 as the last quiet one.
+   * That claim is worth more than any number in this section, because it is the
+   * one a future retune breaks by accident: widening the premium by one rung
+   * silently re-prices a tier a hundred players are already standing on.
+   *
+   * So it is checked EXHAUSTIVELY — every tier at or below the threshold, every
+   * bay — against the ladder's own linear curve with no premium term in it,
+   * which is exactly the formula that shipped before this change. */
+  {
+    const linear = (rung: number, i: number): number =>
+      (TARGET_BASE + TARGET_PER_TIER * (rung - 1))
+      + (TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (rung - 1)) * i;
+    const moved: string[] = [];
+    for (let m = 1; m <= PRECISION_PREMIUM_FROM_RUNG; m++) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        if (targetScoreFor(i, m) !== linear(m, i)) moved.push(`T${m}b${i + 1}`);
+      }
+    }
+    check(
+      `every tier up to ${PRECISION_PREMIUM_FROM_RUNG} is byte-identical to the pre-premium ladder`,
+      moved.length === 0, moved.slice(0, 6).join(","),
+    );
+    check("...and the premium is exactly 1 there, so the quiet is structural rather than lucky",
+      precisionPremium(PRECISION_PREMIUM_FROM_RUNG) === 1 && precisionPremium(1) === 1);
+    // ...and the tiers ABOVE it do move, or the premium is a dead constant and
+    // the check above passes for the wrong reason.
+    check("the tiers above it DO move, by exactly one premium step each",
+      targetScoreFor(0, PRECISION_PREMIUM_FROM_RUNG + 1)
+        === Math.round(linear(PRECISION_PREMIUM_FROM_RUNG + 1, 0)
+          * (1 + PRECISION_PREMIUM_PER_RUNG))
+      && targetScoreFor(0, MARK_COUNT)
+        === Math.round(linear(MARK_COUNT, 0) * (1 + 2 * PRECISION_PREMIUM_PER_RUNG)),
+      `${targetScoreFor(0, MARK_COUNT)}`);
+    // The premium rides the per-bay ramp, which is the shape the design wants:
+    // a later bay is where the swept player's grades are worst (measured: 30%
+    // LUCKY at Tier 10 bay 10 against 0% at bay 1), so it gains the most.
+    check("...and it is a SHARE, so a late bay gains more of it than an early one",
+      targetScoreFor(9, MARK_COUNT) - linear(MARK_COUNT, 9)
+        > targetScoreFor(0, MARK_COUNT) - linear(MARK_COUNT, 0),
+      `bay10 +$${targetScoreFor(9, MARK_COUNT) - linear(MARK_COUNT, 9)}`
+      + ` vs bay1 +$${targetScoreFor(0, MARK_COUNT) - linear(MARK_COUNT, 0)}`);
+  }
+
   // Every rung has to move, or a tier is a no-op the player still paid for.
+  // The target's step is checked EXACTLY only across the ladder's quiet band,
+  // where the linear curve is the whole story; the premium band has its own
+  // check above, and folding it in here would put two claims on one boolean.
   let barRises = true;
   let stepRises = true;
   for (let m = 2; m <= MARK_COUNT; m++) {
     const lo = makeBaseLevel(0, m - 1);
     const hi = makeBaseLevel(0, m);
-    if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+    if (m <= PRECISION_PREMIUM_FROM_RUNG) {
+      if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+      const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
+      if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
+    } else {
+      // Above the threshold the target still has to RISE, and by strictly MORE
+      // than the quiet band's step — the premium is a raise, not a re-shuffle.
+      if (hi.targetScore - lo.targetScore <= TARGET_PER_TIER) barRises = false;
+      if (makeBaseLevel(1, m).targetScore <= hi.targetScore) stepRises = false;
+    }
     if (hi.timeLimitSec - lo.timeLimitSec !== -TIME_PER_TIER) barRises = false;
     if (hi.launchCost < lo.launchCost) barRises = false;
-    const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
-    if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
   }
   check("each tier raises the target and shortens the clock by exactly one step", barRises);
   check("each tier steepens the per-bay target climb", stepRises);
   check("the tier ladder's endpoints match its named constants",
     t1.targetScore === TARGET_BASE && t1.timeLimitSec === TIME_BASE
       && t1.launchCost === LAUNCH_COST_BASE && top.launchCost === LAUNCH_COST_TOP
-      && top.targetScore === TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1));
+      && top.targetScore === Math.round(
+        (TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1)) * precisionPremium(MARK_COUNT)));
 
   // A hand-edited save (or a sim caller) must never be able to walk the curve
   // off either end — level.ts's tierOf clamps, and nothing else does.
@@ -5062,12 +5140,26 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
+    systemCursor: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
     BINDABLE_ACTIONS.every((a) => kb.includes(`data-bind="${a}"`)));
   check("the keyboard tab carries the wheel-rotates toggle",
     kb.includes('data-toggle="wheelRotates"'));
+  // …and the pointer's own switch, beside it. The keyboard tab IS the
+  // fine-pointer family's pane (its comment in screens.ts says so, and the
+  // mouse rows above the toggles are the proof), which makes it the one pane
+  // in the app where a switch about the mouse cursor is not an orphan. It is
+  // also the pane that can afford a row: #controls-grid is on sim/uifit's
+  // scroll allowlist and the Settings toggle column is not.
+  check("the keyboard tab carries the system-pointer toggle",
+    kb.includes('data-toggle="systemCursor"'));
+  check("...and no OTHER tab does — a touch or pad pane has no cursor to hand back",
+    !controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-toggle="systemCursor"')
+      && !controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null })
+        .includes('data-toggle="systemCursor"'));
   check("a capturing row says so",
     controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
       .includes("Press a key…"));
@@ -8034,13 +8126,23 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     return { phys, compactor, cubes };
   };
 
+  /* These material pins ask whether a row CLEARS, never what it is worth, so
+   * the timing context is incidental to every one of them — but updateLineClear
+   * requires it (lineClear.ts says why: a defaulted clock is what produced
+   * PR #168's fencepost). MATERIAL_CLOCK names that indifference once, so an
+   * argument that means nothing here does not read as a number to decode. A
+   * shipment of 0 caps every band it produces at SWEPT, which is exactly right
+   * for rows nothing was ever launched at. */
+  const MATERIAL_CLOCK: ClearContext = {
+    clock: { stroke: 0, halfCycle: 0, step: 0 }, congested: false, shipment: 0,
+  };
   const need = rowLevel.compactorMinLineCells;
   const allStd: Material[] = Array.from({ length: need }, () => "standard" as Material);
 
   const good = buildRow(allStd);
   check(
     "a full row of standard shipments still clears (the baseline is intact)",
-    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
+    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   // ---- The penalty path reports WHERE the cargo was lost ------------------
@@ -8225,19 +8327,19 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   alignMagnetic(magnets.cubes, WORLD.height - CELL / 2);
   check(
     "a magnetic row survives the align pass and still clears",
-    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, []).lines === 1,
+    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   const withSlag = buildRow(allStd.map((m, i) => (i === 3 ? "slag" : m)));
   check(
     "one slag cube denies the whole row",
-    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, []).lines === 0,
+    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 0,
   );
 
   const withCold = buildRow(allStd.map((m, i) => (i === 5 ? "cryo" : m)));
   check(
     "one COLD cryo cube denies the row",
-    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, []).lines === 0,
+    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 0,
   );
 
   // ...and the same row clears once it has been struck. This is the pair that
@@ -8246,7 +8348,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   for (const c of thawed.cubes) if (c.material === "cryo") c.struck = true;
   check(
     "striking the cryo cube makes the identical row clear",
-    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, []).lines === 1,
+    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, [], MATERIAL_CLOCK).lines === 1,
   );
 
   // ---- Striking ------------------------------------------------------------
@@ -10058,17 +10160,62 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // stop is earned rather than arrived at, and that the run can shop from the
     // second on — stated at the ~10 lines a bay an endgame pilot actually
     // clears, since income here is a function of lines and nothing else.
+    // The SELLING rate, not the clearing one: a bay's income is lines x the
+    // rate, and the PRECISION PREMIUM raised what a roof bay has to sell before
+    // its door opens (level.ts's skydeckScrapAtFirstStop carries the argument).
+    // Scrap is ungraded by design — skill pays funds, volume pays scrap
+    // (grades.ts) — so the extra rows a raised target demands are extra scrap
+    // at exactly the flat rate, and the yard's arithmetic moves with the bar.
     const banked = (lines: number, bays: number): number =>
-      bays * (lines * skyBay.scrapPerLine + skyBay.scrapPerBay);
-    check("ten lines a bay does not reach a rung by the first stop",
+      Math.floor(bays * (
+        lines * precisionPremium(SKYDECK_RUNG) * skyBay.scrapPerLine + skyBay.scrapPerBay
+      ));
+    /* THE OWNER'S ASK, AS AN INEQUALITY — "refit of some systems's third tier
+     * should be possible".
+     *
+     * Before the premium the roof's first stop was a DEAD STOP: 3 x (12 x 1 + 5)
+     * = 51 against a rung priced at 55, so the pilot docked at the only yard the
+     * mode has, was shown a shelf on which nothing was affordable, and undocked.
+     * level.ts's SKYDECK_SCRAP_SHARE note describes that stop as "reachable only
+     * by an opening that really dismantled its three bays" — which was its
+     * stated intent and was four scrap short of being true.
+     *
+     * BOTH HALVES ARE PINNED, and the second is the one that makes this a design
+     * rather than a giveaway: the stop reaches ONE rung and never two. Every
+     * rung the roof's yard can still sell costs the same TIER_COSTS[2] (the
+     * Workshop stops at UPRATE_MAX_TIER), so "how many rungs" IS "how many
+     * systems get chosen", and one is a decision the pilot can get wrong. */
+    check("an endgame run reaches a tier-3 rung by the roof's FIRST stop",
+      banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY) >= TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...and exactly ONE, so the stop is a choice and not a shopping trip",
+      banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY) < 2 * TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`);
+    check("...and a WEAKER run still does not — the first stop is earned",
       banked(10, REFIT_EVERY) < TIER_COSTS[UPRATE_MAX_TIER],
       `${banked(10, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
-    check("...and does reach one by the second",
+    check("...which is the arithmetic level.ts states, in the module that owns it",
+      skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)
+        === banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY),
+      `${skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`
+      + ` vs ${banked(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY)}`);
+    check("...and level.ts's copy of REFIT_EVERY is run.ts's, since it cannot import it",
+      skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY)
+        === skydeckScrapAtFirstStop(SKYDECK_ENDGAME_LINES_PER_BAY, REFIT_EVERY));
+    check("the weaker run does reach a rung by the SECOND stop",
       banked(10, REFIT_EVERY * 2) >= TIER_COSTS[UPRATE_MAX_TIER],
       `${banked(10, REFIT_EVERY * 2)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
     check("...where the LADDER's own payout would have bought one at the first",
       REFIT_EVERY * (10 * ladderBay.scrapPerLine + ladderBay.scrapPerBay)
         >= TIER_COSTS[UPRATE_MAX_TIER]);
+    // The roof's rate is still exactly the SHARE it was — the premium moved the
+    // DEMAND, not the price of a row. Pinned because "raise the target until the
+    // yard works" and "pay more scrap per row" produce the same stop-1 total and
+    // are completely different designs: one makes the pilot play more bay, the
+    // other hands them the rung.
+    check("the roof's scrap RATE is untouched — the premium moved the demand, not the price",
+      skyBay.scrapPerLine === Math.round(ladderBay.scrapPerLine * SKYDECK_SCRAP_SHARE)
+        && skyBay.scrapPerBay === Math.round(ladderBay.scrapPerBay * SKYDECK_SCRAP_SHARE));
     // …and a whole run can never buy out the shelf, which is the difference
     // between tightening the yard and simply reopening the ladder's.
     check("a whole run cannot buy half the shelf",
@@ -10093,15 +10240,31 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
   {
     const sky = skyRun();
     const ladderTop = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    // EXTRAPOLATED FROM THE QUIET BAND, which is what the PRECISION PREMIUM
+    // forced and improved. The ladder's target is now two composed curves — a
+    // linear climb and a multiplicative premium above rung 8 — so a step read
+    // off Marks 9 and 10 would carry the premium in it and comparing it against
+    // a roof that ALSO carries the premium would prove nothing about either.
+    //
+    // Rungs 7 and 8 are premium-free by construction (checked exhaustively in
+    // the tier-ladder section), so the linear curve's per-rung step is exact
+    // integer arithmetic there. The roof then has to be that line carried to
+    // SKYDECK_RUNG and multiplied by the roof's own premium — one more rung of
+    // BOTH curves, which is the whole discipline of the step.
+    const quiet = PRECISION_PREMIUM_FROM_RUNG;
     const offBy: string[] = [];
     for (let i = 0; i < RUN_LEVELS; i++) {
-      const step = targetScoreFor(i, MARK_COUNT) - targetScoreFor(i, MARK_COUNT - 1);
-      if (skydeckTargetScoreFor(i) !== targetScoreFor(i, MARK_COUNT) + step) {
+      const step = targetScoreFor(i, quiet) - targetScoreFor(i, quiet - 1);
+      const line = targetScoreFor(i, quiet) + step * (SKYDECK_RUNG - quiet);
+      if (skydeckTargetScoreFor(i) !== Math.round(line * precisionPremium(SKYDECK_RUNG))) {
         offBy.push(`bay${i + 1}`);
       }
     }
-    check("the roof's target is the ladder's last step taken once more",
+    check("the roof's target is the ladder's line carried one rung on, premium and all",
       offBy.length === 0, offBy.join(","));
+    check("...so the roof pays a premium step the capstone does not",
+      precisionPremium(SKYDECK_RUNG) > precisionPremium(MARK_COUNT),
+      `${precisionPremium(SKYDECK_RUNG)} vs ${precisionPremium(MARK_COUNT)}`);
     check("...and its launch price is that line's next point",
       skydeckLaunchCost() === 2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1),
       `${skydeckLaunchCost()} vs ${2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1)}`);
@@ -15275,6 +15438,40 @@ section("The Incinerator's flue (chute.ts / upgrades.ts / lineClear.ts / game.ts
       advanceRun(after, 900, 600, 4, 10, [], after.bondCharges, 0, 0, after.thawCharges, 23)
         .incineratedFunds === 800);
     check("a fresh run has burned nothing", run.incineratedFunds === 0);
+
+    /* THE TWELFTH ARGUMENT — the bay's TIMING TALLY (grades.ts).
+     *
+     * The tail's newest entry, on the end for the reason run.ts's own note
+     * gives: regrouping the arguments would silently re-point every positional
+     * caller, which for a bare value is a bug no type checker can see.
+     *
+     * Pinned the way the three stats before it are — with values nothing else in
+     * the call could produce, each band DISTINCT from the others, so a
+     * transposition inside the tally is as visible as a transposition of the
+     * tally itself. */
+    const tally = { excellent: 3, good: 5, swept: 7, lucky: 11 };
+    const graded = advanceRun(
+      run, 900, 600, 4, 10, [], run.bondCharges, 111, 222, run.thawCharges, 777, tally,
+    );
+    check("advanceRun takes the bay's grade tally as argument 12",
+      graded.grades.excellent === 3 && graded.grades.good === 5
+      && graded.grades.swept === 7 && graded.grades.lucky === 11,
+      JSON.stringify(graded.grades));
+    check("...without disturbing the three stats in front of it",
+      graded.salvagedFunds === 111 && graded.volatileLosses === 222
+      && graded.incineratedFunds === 777);
+    check("...and it accumulates across bays like the stats it sits with",
+      advanceRun(graded, 900, 600, 4, 10, [], graded.bondCharges, 0, 0, graded.thawCharges, 0,
+        { excellent: 1, good: 0, swept: 2, lucky: 0 }).grades.excellent === 4);
+    check("...defaulting to an empty tally, so a caller that forgets under-reports ONE bay",
+      advanceRun(graded, 900, 600, 4, 10).grades.excellent === 3,
+      String(advanceRun(graded, 900, 600, 4, 10).grades.excellent));
+    check("a fresh run has been judged on nothing",
+      gradeTallyTotal(run.grades) === 0);
+    // The default is a FRESH object every call — a shared one would let a
+    // forgetful caller alias the run's own tally and then mutate it.
+    check("...and that default is not a shared object two runs could both hold",
+      advanceRun(run, 900, 600, 4, 10).grades !== advanceRun(run, 900, 600, 4, 10).grades);
   }
 
   /* -------------------------------------------------------------------------
@@ -16981,6 +17178,78 @@ section("Aiming strategies — three holes review found (sim/ — winnability, l
   }
 }
 
+section("Aiming strategies — the timed pilot reads the press (sim/aim-strategies.ts)");
+{
+  /* The `timed` arm is what makes design/balance/timed-clears.md a comparison
+   * rather than an assertion, so its one rule is pinned the way every other
+   * instrument here is. Both halves are exported FOR this — `pressPhaseAfter`
+   * takes a Game, `shouldHoldForPress` takes the phase it returns — so the rule
+   * can be checked against numbers instead of against a flown bay.
+   *
+   * The bar is a triangle wave between two stops at one speed, and the
+   * prediction is closed form rather than a simulated loop. A loop would be a
+   * second copy of `Compactor.update`'s stop-and-flip logic living in the
+   * harness; this checks the closed form against the REAL bar, driven step by
+   * step, which is the only comparison that can catch the copy drifting. */
+  const lvl = makeBaseLevel(0);
+  const phys = createPhysics(lvl);
+  const bar = new Compactor(phys.world, lvl);
+  const fake = { compactor: bar } as unknown as Parameters<typeof pressPhaseAfter>[0];
+
+  check("with no time elapsed the prediction is the bar's own state",
+    pressPhaseAfter(fake, 0)?.advancing === bar.pressing);
+
+  // Walk the bar and ask, at every step, where it will be N steps out — then
+  // walk it N steps and look. Two disagreements are two different bugs and the
+  // detail says which: a phase error shows as `advancing` flipping.
+  let wrong = 0;
+  let sampled = 0;
+  const LOOK = 40;
+  for (let i = 0; i < 900; i++) {
+    const predicted = pressPhaseAfter(fake, LOOK);
+    const probe = new Compactor(createPhysics(lvl).world, lvl);
+    // Put the probe where the real bar is, then let IT do the walking.
+    Matter.Body.setPosition(probe.body, { x: bar.x, y: probe.yCenter });
+    probe.dir = bar.dir;
+    for (let k = 0; k < LOOK; k++) probe.update();
+    if (predicted && predicted.advancing !== probe.pressing) wrong += 1;
+    sampled += 1;
+    bar.update();
+  }
+  check("the closed-form phase agrees with the bar actually walked forward",
+    wrong === 0, `${wrong} of ${sampled} steps disagreed`);
+
+  // THE RULE. Hold unless the shipment lands on an advance with room left.
+  check("a landing into a retreat is held for",
+    shouldHoldForPress({ advancing: false, advanceLeft: 0 }));
+  check("a landing at the very end of an advance is held for — the press cannot crush it",
+    shouldHoldForPress({ advancing: true, advanceLeft: 1 }));
+  check("a landing with a whole margin of advance ahead of it is taken",
+    !shouldHoldForPress({ advancing: true, advanceLeft: TIMED_PRESS_MARGIN_STEPS }));
+  check("...and one step under the margin is not",
+    shouldHoldForPress({ advancing: true, advanceLeft: TIMED_PRESS_MARGIN_STEPS - 1 }));
+  // A timing rule that cannot read the clock must NOT become a rule against
+  // firing — a degenerate bar would otherwise starve the pilot outright.
+  check("an unreadable bar holds nothing", !shouldHoldForPress(null));
+
+  // The flight constant is a MEASUREMENT (see its note: 71/74/75 steps median
+  // at bays 1/5/10). What is pinned is the relationship that makes the rule
+  // mean anything — the estimate has to be shorter than the stroke it is being
+  // timed into, or the pilot can never land inside one.
+  const half = (bar.rightX - bar.leftX) / bar.speed;
+  check("the flight estimate fits inside a stroke, or no shot could ever be EXCELLENT",
+    TIMED_FLIGHT_STEPS + TIMED_PRESS_MARGIN_STEPS < 2 * half,
+    `${TIMED_FLIGHT_STEPS} + ${TIMED_PRESS_MARGIN_STEPS} vs cycle ${(2 * half).toFixed(0)}`);
+  check("...and the arm is a NAMED policy a sweep can ask for by name",
+    STRATEGIES.timed !== undefined && STRATEGIES.timed.build(1).name === "timed");
+  check("...whose only hook is the hold, so it changes WHEN and never WHERE",
+    STRATEGIES.timed.build(1).target === undefined
+    && STRATEGIES.timed.build(1).select === undefined
+    && STRATEGIES.timed.build(1).abilities !== undefined);
+
+  Matter.Engine.clear(phys.engine);
+}
+
 section("Aiming strategies — the missing one is loud (sim/aim-strategies.ts)");
 {
   // The Incinerator is not on staging. A stub that behaved like `naive` would
@@ -17001,6 +17270,1117 @@ section("Aiming strategies — the missing one is loud (sim/aim-strategies.ts)")
     "...and says where the follow-up lives",
     threw.includes("incinerator-system"), threw,
   );
+}
+
+// ===========================================================================
+// THE TIMING GRADE — the clock, the ladder, and the money that rides them
+//
+// `src/game/grades.ts` puts a MULTIPLIER on the one number the whole economy is
+// denominated in, so the pins here are not "does the enum exist". Three claims
+// are load-bearing and each is checked against a case that can actually break:
+//
+//  1. THE CLOCK IS THE PRESS. The grade is a function of two integer counters
+//     and of nothing else — not `now`, not `stepCount`, not the frame rate.
+//     Checked by driving one hand-built row through the REAL `updateLineClear`
+//     at explicit clocks and reading the band back, and by re-clearing the same
+//     row at a different wall clock and getting the same money.
+//  2. SWEPT IS THE ANCHOR. A swept row pays byte-identically to what a row paid
+//     before grades existed. This is the promise that keeps the mid-ladder
+//     still, and it is one multiplication away from being silently broken.
+//  3. THE LADDER IS STRICT AND ORDERED, so no play can ever be graded up by
+//     waiting.
+// ===========================================================================
+section("The timing grade — the clock is the press (src/game/grades.ts)");
+{
+  /** A landing, and the step it happened on. `step` is the fixed-step clock the
+   *  EXCELLENT window is measured in; the two bar counters are the rest. */
+  const land = (stroke: number, halfCycle: number, step: number): LandingStamp =>
+    ({ stroke, halfCycle, step });
+  const clock = (stroke: number, halfCycle: number, step: number): ClearClock =>
+    ({ stroke, halfCycle, step });
+  /** A step far enough past a landing that the window cannot possibly be open —
+   *  used everywhere a pin is about the BAR rather than about the window. */
+  const LATER = EXCELLENT_WINDOW_STEPS * 10;
+
+  // ---- 0. The step is the engine's step, and the window is the owner's -----
+  check("the grade's step and the physics step are the same number",
+    STEP_MS === 1000 / 60, String(STEP_MS));
+  check("the EXCELLENT window is the owner's 100ms",
+    EXCELLENT_WINDOW_MS === 100, String(EXCELLENT_WINDOW_MS));
+  check("...which is exactly 6 fixed steps, so the threshold needs no rounding argument",
+    EXCELLENT_WINDOW_STEPS === 6
+    && Math.abs(EXCELLENT_WINDOW_STEPS * STEP_MS - EXCELLENT_WINDOW_MS) < 1e-9,
+    `${EXCELLENT_WINDOW_STEPS} steps = ${(EXCELLENT_WINDOW_STEPS * STEP_MS).toFixed(1)}ms`);
+
+  // ---- 1. The four bands, as derivations rather than as a table ----------
+  //
+  // Each case names the PLAY it is, because that is what the boundary means; a
+  // pin that only said `gradeForRow(...) === "excellent"` would pass just as
+  // happily against a ladder read upside down.
+  check(
+    "a row that closed on the step its cargo landed is EXCELLENT",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 500)) === "excellent",
+  );
+  // THE WINDOW'S OWN EDGE, both sides of it. The owner's number is inclusive:
+  // "within 100ms" is "no more than", so 100ms exactly is still the top band.
+  check(
+    `...still EXCELLENT at exactly ${EXCELLENT_WINDOW_MS}ms — the window is inclusive`,
+    gradeForRow(land(4, 9, 500), clock(4, 9, 500 + EXCELLENT_WINDOW_STEPS)) === "excellent",
+  );
+  check(
+    "...and ONE STEP past it is not, however good the bar's phase looks",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 501 + EXCELLENT_WINDOW_STEPS)) === "good",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 501 + EXCELLENT_WINDOW_STEPS)),
+  );
+  // GOOD is the owner's second sentence: landed while the bar was moving right,
+  // cleared on that same rightward stroke. Equal half-cycles say both halves.
+  check(
+    "a row that landed on the advance and cleared on that same stroke is GOOD",
+    gradeForRow(land(4, 9, 500), clock(4, 9, 500 + LATER)) === "good",
+  );
+  // ...and the case that used to be GOOD and is not any more: a RETREAT landing
+  // the next press sold. The owner's GOOD asks for a rightward landing.
+  check(
+    "a landing on the RETREAT, sold by the very next press, is SWEPT — the press brought it in",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 500 + LATER)) === "swept",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 500 + LATER)),
+  );
+  check(
+    "one completed sweep since the landing is SWEPT",
+    gradeForRow(land(4, 8, 500), clock(5, 10, 500 + LATER)) === "swept",
+  );
+  check(
+    `...and so is ${LUCKY_SWEEPS - 1}, the last band before the owner's "definitely lucky"`,
+    gradeForRow(land(4, 8, 500), clock(4 + LUCKY_SWEEPS - 1, 20, 500 + LATER)) === "swept",
+  );
+  check(
+    `${LUCKY_SWEEPS} sweeps is LUCKY`,
+    gradeForRow(land(4, 8, 500), clock(4 + LUCKY_SWEEPS, 22, 500 + LATER)) === "lucky",
+  );
+  check(
+    "a row whose cargo has never rested grades LUCKY, never EXCELLENT",
+    gradeForRow(null, clock(0, 0, 0)) === "lucky",
+  );
+  // THE WINDOW IS THE PRIMARY DEFINITION, and this is the case that says so: a
+  // slam that lands on the tail of a retreat and is crushed inside the window
+  // is EXCELLENT even though the bar was moving LEFT when it landed. Checked
+  // first in gradeForRow for exactly this reason.
+  check(
+    "a leftward landing crushed inside the window is EXCELLENT — the window outranks the phase",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 503)) === "excellent",
+    gradeForRow(land(4, 8, 500), clock(4, 9, 503)),
+  );
+  // ...and the same landing one sweep later is not, so the window is doing the
+  // work rather than the half-cycle.
+  check(
+    "...and the same landing after a whole sweep is not",
+    gradeForRow(land(4, 8, 500), clock(5, 10, 500 + LATER)) === "swept",
+  );
+  // The ladder can only ever fall as the clock runs on. A grade that could rise
+  // by waiting would make holding fire and doing nothing a strategy.
+  {
+    let monotone = true;
+    let prev = 0;
+    for (let steps = 0; steps <= 40; steps++) {
+      // One landing, one bar walking on: every 8 steps the bar reverses, every
+      // 16 it completes a sweep. The ladder must never step back up.
+      const halfCycle = Math.floor(steps / 8);
+      const rank = GRADES.indexOf(
+        gradeForRow(land(0, 0, 0), clock(Math.floor(halfCycle / 2), halfCycle, steps)),
+      );
+      if (rank < prev) monotone = false;
+      prev = rank;
+    }
+    check("the ladder never improves with age — waiting cannot upgrade a row", monotone);
+  }
+
+  // ---- 2. The compactor's two counters ------------------------------------
+  //
+  // `halfCycles` is a NEW counter and the grade's whole Excellent/Good split
+  // rests on it ticking at both stops and exactly once per stop. The bar sits
+  // pinned at a stop for one step before reversing, which is precisely where a
+  // naive increment double-counts.
+  {
+    const lvl = makeBaseLevel(0);
+    const phys = createPhysics(lvl);
+    const bar = new Compactor(phys.world, lvl);
+    check("a fresh bar opens at zero on both counters",
+      bar.strokes === 0 && bar.halfCycles === 0);
+    // Drive two whole round trips and watch the pair.
+    const seen: Array<{ s: number; h: number; d: number }> = [];
+    for (let i = 0; i < 4000 && bar.halfCycles < 4; i++) {
+      bar.update();
+      seen.push({ s: bar.strokes, h: bar.halfCycles, d: bar.dir });
+    }
+    check("two round trips are 4 half-cycles and 2 strokes",
+      bar.halfCycles === 4 && bar.strokes === 2, `${bar.halfCycles}/${bar.strokes}`);
+    // Never more than one tick per step, in either counter — the double-count
+    // this guard exists for would show up here as a step that jumped by 2.
+    let jumped = false;
+    for (let i = 1; i < seen.length; i++) {
+      if (seen[i].h - seen[i - 1].h > 1 || seen[i].s - seen[i - 1].s > 1) jumped = true;
+    }
+    check("...and neither counter ever ticks twice in one step", !jumped);
+    // The right stop advances BOTH; the left stop advances only halfCycles.
+    // That is the identity `gradeForRow` leans on when it checks halfCycle
+    // equality first and never special-cases the sweep count.
+    let leftStopsMovedStrokes = false;
+    for (let i = 1; i < seen.length; i++) {
+      const bumpedHalf = seen[i].h > seen[i - 1].h;
+      // dir is +1 AFTER a left-stop flip, -1 after a right-stop flip.
+      if (bumpedHalf && seen[i].d === 1 && seen[i].s !== seen[i - 1].s) {
+        leftStopsMovedStrokes = true;
+      }
+    }
+    check("the OPEN stop advances the half-cycle and never the stroke count",
+      !leftStopsMovedStrokes);
+    check("...so equal half-cycles imply equal strokes, which is why EXCELLENT is checked first",
+      seen.every((p, i) => i === 0 || p.h !== seen[i - 1].h || p.s === seen[i - 1].s));
+    Matter.Engine.clear(phys.engine);
+  }
+
+  // ---- 3. Landings are stamped ONCE, at the row scan's own threshold -------
+  {
+    const lvl = makeBaseLevel(0);
+    const phys = createPhysics(lvl);
+    const body = Matter.Bodies.rectangle(WALL_INNER - CELL / 2, WORLD.height - CELL / 2, CELL, CELL);
+    Matter.Composite.add(phys.world, body);
+    const cube: Cube = {
+      body, type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+    };
+    Matter.Body.setVelocity(body, { x: 20, y: 0 });
+    stampLandings([cube], clock(3, 7, 40));
+    check("a cube still moving is not stamped", landingOf(cube) === null);
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    stampLandings([cube], clock(3, 7, 40));
+    check("...and is stamped the first step it comes to rest",
+      landingOf(cube)?.stroke === 3 && landingOf(cube)?.halfCycle === 7
+      && landingOf(cube)?.step === 40);
+    // THE RULE THE GRADE RESTS ON: knocked loose and re-settled keeps the
+    // ORIGINAL landing, so a stale pile cannot have its clock reset.
+    Matter.Body.setVelocity(body, { x: 30, y: -10 });
+    stampLandings([cube], clock(9, 19, 400));
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    stampLandings([cube], clock(9, 19, 400));
+    check("cargo knocked loose and re-settled keeps its ORIGINAL landing",
+      landingOf(cube)?.stroke === 3 && landingOf(cube)?.halfCycle === 7
+      && landingOf(cube)?.step === 40,
+      `${landingOf(cube)?.stroke}/${landingOf(cube)?.halfCycle}/${landingOf(cube)?.step}`);
+    Matter.Engine.clear(phys.engine);
+  }
+
+  // ---- 4. A row is graded on its NEWEST cargo, order-independently ---------
+  {
+    const stamp = (s: number, h: number): Cube => ({
+      body: Matter.Bodies.rectangle(0, 0, CELL, CELL),
+      type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+      landedStroke: s, landedHalfCycle: h, landedStep: h * 8,
+    });
+    const old = stamp(1, 2);
+    const fresh = stamp(4, 9);
+    check("the newest landing wins whichever order the row is walked",
+      newestLanding([old, fresh])?.halfCycle === 9
+      && newestLanding([fresh, old])?.halfCycle === 9);
+    check("...and a row of cargo that never rested reports no landing at all",
+      newestLanding([
+        {
+          ...stamp(0, 0),
+          landedStroke: undefined, landedHalfCycle: undefined, landedStep: undefined,
+        },
+      ]) === null);
+  }
+
+  // ---- 5. The pay ladder is a SPREAD around today's economy ---------------
+  //
+  // The anchor is the whole "mid ladder stays approachable" claim, and it is one
+  // typo away from being an inflation instead.
+  check("SWEPT pays exactly the base rate — the anchor the mid-ladder rests on",
+    GRADE_PAY.swept === 1);
+  {
+    const base = makeBaseLevel(4, 5).scorePerLine;
+    check("...so a swept row is byte-identical to a row before grades existed",
+      gradedLinePay(base, "swept") === base, `${gradedLinePay(base, "swept")} vs ${base}`);
+  }
+  check("the ladder is strictly descending — every band is worth less than the one above",
+    GRADE_PAY.excellent > GRADE_PAY.good
+    && GRADE_PAY.good > GRADE_PAY.swept
+    && GRADE_PAY.swept > GRADE_PAY.lucky);
+  check("LUCKY pays BELOW the base rate, which is what makes volume cost something",
+    GRADE_PAY.lucky < 1);
+  {
+    // The arithmetic the ladder was sized against (grades.ts's table): at the
+    // top of the tier ladder a row takes ~2.9 launches, so a LUCKY row must not
+    // pay for the shots that made it while an EXCELLENT one comfortably does.
+    // Bay 1 is the thin-margin bay the sizing was done on — the scorePerLine
+    // ramp makes later bays kinder, which is a fact about the ramp and is why
+    // the claim is pinned where it is tightest.
+    // level.ts's economy note carries the measurement this quotes: "the
+    // measured ~2.9 launches/line". Restated as a local rather than imported
+    // because it is a MEASUREMENT the note records, not a constant the game
+    // reads — nothing in src/ has an opinion about it, and exporting one would
+    // create a number the ladder could be re-tuned against by accident.
+    const LAUNCHES_PER_LINE = 2.9;
+    const b1 = makeBaseLevel(0, TIER_COUNT);
+    const perRow = LAUNCHES_PER_LINE * b1.launchCost;
+    check("at Tier 10 bay 1 a LUCKY row does not pay for the launches that made it",
+      gradedLinePay(b1.scorePerLine, "lucky") < perRow,
+      `$${gradedLinePay(b1.scorePerLine, "lucky")} vs $${perRow.toFixed(0)} of launches`);
+    check("...and an EXCELLENT one pays for them nearly twice over",
+      gradedLinePay(b1.scorePerLine, "excellent") > 1.7 * perRow,
+      `$${gradedLinePay(b1.scorePerLine, "excellent")} vs $${perRow.toFixed(0)}`);
+  }
+
+  // ---- 6. Tallies ---------------------------------------------------------
+  {
+    const a = { excellent: 2, good: 1, swept: 3, lucky: 0 };
+    const b = { excellent: 0, good: 4, swept: 1, lucky: 2 };
+    const sum = addGradeTally(a, b);
+    check("tallies add field by field without mutating either side",
+      sum.excellent === 2 && sum.good === 5 && sum.swept === 4 && sum.lucky === 2
+      && a.good === 1 && b.good === 4);
+    check("...and the timed share counts the two bands the economy pays a premium for",
+      Math.abs(timedShare(sum) - 7 / 13) < 1e-9, `${timedShare(sum)}`);
+    check("an empty tally reports a 0 share, never a NaN that would print as a measurement",
+      timedShare(newGradeTally()) === 0);
+    check("newGradeTally hands out a FRESH object, so a bay's count cannot leak into a run's",
+      newGradeTally() !== newGradeTally());
+  }
+
+  /* ---- 7. THE TWO GATES (grades.ts's awardedGrade) ------------------------
+   *
+   * The clock says when a row closed. Two further facts decide whether the bay
+   * is allowed to SELL that band, and both cap at the same rung.
+   * --------------------------------------------------------------------- */
+  {
+    const open = { congested: false, participation: "in-row" as RowParticipation };
+    // The gates are OPEN by default, or the ladder would not exist.
+    check("an uncongested row the shipment took part in is sold at the clock's own band",
+      GRADES.every((g) => awardedGrade(g, open) === g));
+
+    // CONGESTION. The owner's rule: no excellent, no good, while congested.
+    const congested = { congested: true, participation: "in-row" as RowParticipation };
+    check("a congested bay cannot sell EXCELLENT",
+      awardedGrade("excellent", congested) === CONGESTION_GRADE_CAP,
+      awardedGrade("excellent", congested));
+    check("...nor GOOD",
+      awardedGrade("good", congested) === CONGESTION_GRADE_CAP,
+      awardedGrade("good", congested));
+    check("...and the cap is SWEPT, the anchor — a withdrawn premium, not an invented fine",
+      CONGESTION_GRADE_CAP === "swept" && GRADE_PAY[CONGESTION_GRADE_CAP] === 1);
+    // THE RUNG BELOW STAYS REACHABLE. A ceiling, never a value: a stale row in a
+    // congested bay is still LUCKY and still costs money. A gate that clamped
+    // every congested row TO swept would be a pay RISE for the worst play in
+    // the game, which is the exact inversion this whole file exists to remove.
+    check("a stale row in a congested bay still falls to LUCKY — the cap is a ceiling",
+      awardedGrade("lucky", congested) === "lucky");
+    check("...and SWEPT is untouched by the gate it caps at",
+      awardedGrade("swept", congested) === "swept");
+
+    // PARTICIPATION. Same ceiling, different failure.
+    const absent = { congested: false, participation: "none" as RowParticipation };
+    check("a row the launched shipment had no part in cannot sell a timed band",
+      awardedGrade("excellent", absent) === CONGESTION_GRADE_CAP
+      && awardedGrade("good", absent) === CONGESTION_GRADE_CAP);
+    check("...and still falls to LUCKY when the clock says so",
+      awardedGrade("lucky", absent) === "lucky");
+    check("an IMPACT-ASSIST row participates — the owner's case, paid",
+      awardedGrade("excellent", { congested: false, participation: "impact" }) === "excellent");
+    // The two gates are independent and either one alone is enough.
+    check("congestion caps an impact-assist row too — the gates do not cancel out",
+      awardedGrade("excellent", { congested: true, participation: "impact" })
+        === CONGESTION_GRADE_CAP);
+
+    // THE LADDER-SHAPED PIN. Whatever the gates are, the awarded band is never
+    // BETTER than the raw one — the property that makes "cap" the right word
+    // and that an inverted gate breaks on every input at once.
+    let everPromoted = false;
+    for (const g of GRADES) {
+      for (const congestedFlag of [false, true]) {
+        for (const part of ["in-row", "impact", "none"] as RowParticipation[]) {
+          const out = awardedGrade(g, { congested: congestedFlag, participation: part });
+          if (GRADES.indexOf(out) < GRADES.indexOf(g)) everPromoted = true;
+        }
+      }
+    }
+    check("no combination of gates can ever PROMOTE a row — a cap only ever costs",
+      !everPromoted);
+  }
+}
+
+section("The timing grade — through the real clear check (lineClear.ts / game.ts)");
+{
+  // Hand-built rows through the ACTUAL updateLineClear for the reason the
+  // material section states: the claim is that the SHIPPED code path prices a
+  // row by its landing, and a reimplementation of that path would prove nothing.
+  const rowLevel = makeBaseLevel(0);
+  /** The shipment every hand-built row below is stamped as, and the one every
+   *  context names as the latest. Any non-zero value would do; it is named so a
+   *  reader can see at a glance that these rows PARTICIPATE and that the clock
+   *  is therefore the only thing under test. */
+  const PIN_SHIPMENT = 7;
+  /** A context that isolates the CLOCK: nothing congested, the built row's own
+   *  shipment the latest. Both gates open, so the awarded band is the raw one.
+   *  The gates are pinned separately, below. */
+  const clockOnly = (clock: ClearClock): ClearContext =>
+    ({ clock, congested: false, shipment: PIN_SHIPMENT });
+  /** N stacked rows, each with its OWN landing stamp — row 0 is the floor row.
+   *  Multi-row is the case that matters and the single-row case is just N = 1:
+   *  a crush takes several rows at once and each is a separate sale, so a
+   *  builder that could only make one row could never catch a grade computed
+   *  across the whole crush. */
+  const buildGradedRows = (stamps: Array<[number, number, number]>) => {
+    const phys = createPhysics(rowLevel);
+    const compactor = new Compactor(phys.world, rowLevel);
+    while (compactor.x < compactor.rightX) compactor.update();
+    compactor.dir = 1; // the advancing stroke — the only one that clears
+    const cubes: Cube[] = [];
+    stamps.forEach(([landedStroke, landedHalfCycle, landedStep], r) => {
+      const rowY = WORLD.height - CELL / 2 - r * CELL;
+      for (let k = 0; k < rowLevel.compactorMinLineCells; k++) {
+        const body = Matter.Bodies.rectangle(
+          WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+        );
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Composite.add(phys.world, body);
+        cubes.push({
+          body, type: "O", color: "#fff", blinkStart: null,
+          material: "standard", struck: true, landedStroke, landedHalfCycle, landedStep,
+          // Every hand-built row is cargo from PIN_SHIPMENT, so the
+          // participation gate passes and these pins keep asking the question
+          // they were written to ask — what the CLOCK says. The gate has pins
+          // of its own further down.
+          shipment: PIN_SHIPMENT,
+        });
+      }
+    });
+    return { phys, compactor, cubes };
+  };
+  const buildGradedRow = (landedStroke: number, landedHalfCycle: number, landedStep: number) =>
+    buildGradedRows([[landedStroke, landedHalfCycle, landedStep]]);
+
+  const clearAt = (
+    landedStroke: number, landedHalfCycle: number, landedStep: number, clock: ClearClock,
+  ) => {
+    const r = buildGradedRow(landedStroke, landedHalfCycle, landedStep);
+    const out = updateLineClear(
+      r.phys.world, r.cubes, r.compactor, rowLevel, [], clockOnly(clock),
+    );
+    Matter.Engine.clear(r.phys.engine);
+    return out;
+  };
+
+  {
+    const out = clearAt(6, 13, 900, { stroke: 6, halfCycle: 13, step: 902 });
+    check("a row closed inside the window clears EXCELLENT through the real path",
+      out.lines === 1 && out.graded.length === 1 && out.graded[0].grade === "excellent",
+      out.graded.map((g) => g.grade).join(","));
+    check("...and every cleared row has a graded entry beside it, index for index",
+      out.graded.length === out.rows.length && out.graded[0].y === out.rows[0]);
+    check("...carrying the landing it was priced from, so the derivation is inspectable",
+      out.graded[0].landing?.stroke === 6 && out.graded[0].landing?.halfCycle === 13
+      && out.graded[0].landing?.step === 900);
+    // The same row, the same stroke, one step past the window: GOOD, through
+    // the real path. This is the pin the shortened window is FOR.
+    const late = clearAt(6, 13, 900, {
+      stroke: 6, halfCycle: 13, step: 901 + EXCELLENT_WINDOW_STEPS,
+    });
+    check("...and the same landing one step past the window clears GOOD instead",
+      late.graded[0].grade === "good", late.graded[0].grade);
+  }
+  check("the same row three sweeps stale clears LUCKY",
+    clearAt(6, 13, 900, { stroke: 6 + LUCKY_SWEEPS, halfCycle: 30, step: 2000 })
+      .graded[0].grade === "lucky");
+
+  /* A CRUSH IS SEVERAL SALES, and each row is priced on the cargo that filled
+   * ITS OWN slots.
+   *
+   * The pin that had to exist and did not: every check above builds ONE row, so
+   * a grade computed across the whole crush's removal set would pass all of
+   * them — proved by mutation, which came back 0 failures against a
+   * `newestLanding([...toRemove, ...filled])` that let a lower row's fresh
+   * shipment grade the stale rows above it.
+   *
+   * Two stacked rows with landings a run apart, cleared in one call. The floor
+   * row is FRESH (it is scanned first, while the removal set is still empty, so
+   * only the row above it can be corrupted) and the row above it is stale by a
+   * full LUCKY_SWEEPS. If the crush is graded as one thing, the stale row
+   * inherits the fresh one's landing and comes back EXCELLENT. */
+  {
+    const r = buildGradedRows([[9, 19, 1000], [2, 5, 200]]);
+    const out = updateLineClear(
+      r.phys.world, r.cubes, r.compactor, rowLevel, [],
+      clockOnly({ stroke: 9, halfCycle: 19, step: 1001 }),
+    );
+    Matter.Engine.clear(r.phys.engine);
+    check("one crush takes both rows", out.lines === 2 && out.graded.length === 2,
+      `${out.lines} lines / ${out.graded.length} graded`);
+    check("...the floor row, closed on the press, sells EXCELLENT",
+      out.graded[0].grade === "excellent", out.graded[0].grade);
+    check("...and the stale row above it sells LUCKY, on ITS OWN cargo",
+      out.graded[1].grade === "lucky", out.graded[1].grade);
+    check("...so the two rows in one crush are NOT priced the same",
+      out.graded[0].grade !== out.graded[1].grade);
+  }
+
+  /* ---- PARTICIPATION — was this row the player's shot? --------------------
+   *
+   * grades.ts's gate needs an answer from the FIELD, and this is the function
+   * that reads it. Built as geometry pins rather than as a table, because the
+   * impact-assist branch IS a geometry claim and a table of booleans would
+   * restate it rather than test it.
+   * --------------------------------------------------------------------- */
+  {
+    const NOW = 12;
+    /** One cube at (x, y) belonging to `shipment`, landed unless told not to. */
+    const loose = (x: number, y: number, shipment?: number, landed = true): Cube => ({
+      body: Matter.Bodies.rectangle(x, y, CELL, CELL),
+      type: "O", color: "#fff", blinkStart: null, material: "standard", struck: true,
+      shipment,
+      landedStroke: landed ? 1 : undefined,
+      landedHalfCycle: landed ? 2 : undefined,
+      landedStep: landed ? 20 : undefined,
+    });
+    const floorY = WORLD.height - CELL / 2;
+    const rowCubes = [loose(WALL_INNER - CELL / 2, floorY, 3), loose(WALL_INNER - CELL * 1.5, floorY, 3)];
+
+    check("a row holding a cube of the latest shipment is IN-ROW",
+      rowParticipation(rowCubes, rowCubes, 3) === "in-row");
+    check("...and the same row is NOT the current shot once a later shipment has flown",
+      rowParticipation(rowCubes, rowCubes, 4) === "none");
+    check("a bay that has launched nothing participates in nothing",
+      rowParticipation(rowCubes, rowCubes, 0) === "none");
+
+    // THE IMPACT ASSIST. The shipment is not in the row; it is sitting ON it.
+    // ONE cube in the row, deliberately: the tolerance edges below are about
+    // one cube's column and one cube's height, and a two-cube row would put a
+    // second column a cell away for an "off column" probe to land squarely on.
+    {
+      const row = [loose(WALL_INNER - CELL / 2, floorY, 1)];
+      const above = loose(WALL_INNER - CELL / 2, floorY - CELL, NOW);
+      check("a shipment resting directly on the row counts as taking part",
+        rowParticipation(row, [...row, above], NOW) === "impact");
+      // ...and the three ways it does not.
+      const tooHigh = loose(WALL_INNER - CELL / 2, floorY - CELL * 2, NOW);
+      check("...but a cube two cells up is resting on something else, not on this row",
+        rowParticipation(row, [...row, tooHigh], NOW) === "none");
+      const offColumn = loose(WALL_INNER - CELL / 2 - CELL, floorY - CELL, NOW);
+      check("...and a cube over the NEXT column along is not weight this row felt",
+        rowParticipation(row, [...row, offColumn], NOW) === "none");
+      const stillFlying = loose(WALL_INNER - CELL / 2, floorY - CELL, NOW, false);
+      check("...and cargo still arriving has not put its weight on anything yet",
+        rowParticipation(row, [...row, stillFlying], NOW) === "none");
+      // DIRECTION MATTERS. A shipment BELOW the row did not press it down.
+      const below = loose(WALL_INNER - CELL / 2, floorY + CELL, NOW);
+      check("...and a shipment UNDER the row is not an impact assist either",
+        rowParticipation(row, [...row, below], NOW) === "none");
+      // The tolerances are the named ones, checked at their own edges rather
+      // than at values a reader would have to trust.
+      const atEdgeIn = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MAX + 0.5, NOW);
+      const atEdgeOut = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MAX - 0.5, NOW);
+      check("the vertical band's far edge is IMPACT_ASSIST_Y_MAX and the rule changes across it",
+        rowParticipation(row, [...row, atEdgeIn], NOW) === "impact"
+        && rowParticipation(row, [...row, atEdgeOut], NOW) === "none");
+      const nearIn = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MIN - 0.5, NOW);
+      const nearOut = loose(WALL_INNER - CELL / 2, floorY - IMPACT_ASSIST_Y_MIN + 0.5, NOW);
+      check("...and its near edge is IMPACT_ASSIST_Y_MIN, likewise",
+        rowParticipation(row, [...row, nearIn], NOW) === "impact"
+        && rowParticipation(row, [...row, nearOut], NOW) === "none");
+      const sideIn = loose(WALL_INNER - CELL / 2 + IMPACT_ASSIST_X_TOL - 0.5, floorY - CELL, NOW);
+      const sideOut = loose(WALL_INNER - CELL / 2 + IMPACT_ASSIST_X_TOL + 0.5, floorY - CELL, NOW);
+      check("...and the column tolerance is IMPACT_ASSIST_X_TOL, likewise",
+        rowParticipation(row, [...row, sideIn], NOW) === "impact"
+        && rowParticipation(row, [...row, sideOut], NOW) === "none");
+    }
+  }
+
+  /* ---- THE GATES THROUGH THE REAL CLEAR CHECK ----------------------------
+   *
+   * Two stacked rows landing on the SAME tick with the SAME clock — so every
+   * band the clock can produce is identical between them — and the shipment in
+   * only one of them. Anything that fails to gate prices them the same.
+   * --------------------------------------------------------------------- */
+  {
+    const CLOCK: ClearClock = { stroke: 9, halfCycle: 19, step: 1001 };
+    /** Two fresh rows; `owner[r]` is the shipment stamped on row r's cubes. */
+    const twoRows = (owner: [number | undefined, number | undefined]) => {
+      const r = buildGradedRows([[9, 19, 1000], [9, 19, 1000]]);
+      const per = rowLevel.compactorMinLineCells;
+      r.cubes.forEach((c, i) => { c.shipment = owner[Math.floor(i / per)]; });
+      return r;
+    };
+    // The shipment is in the UPPER row, so the floor row below it is the
+    // impact-assist case and the upper row is the in-row one. Both sell.
+    {
+      const r = twoRows([undefined, 5]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a shipment in the upper row takes part in it directly",
+        out.graded[1].participation === "in-row", out.graded[1].participation);
+      check("...and presses the row beneath it, which is the impact assist",
+        out.graded[0].participation === "impact", out.graded[0].participation);
+      check("...so BOTH rows sell EXCELLENT — the owner's case, paid",
+        out.graded[0].grade === "excellent" && out.graded[1].grade === "excellent");
+    }
+    /* THE ASSIST HAS TO SUPPLY THE CLOCK TOO, or the owner's case cannot reach
+     * the top band at all under a 100ms window.
+     *
+     * A row whose OWN cargo is a run old, with the shipment landing on top of
+     * it this step. Measured from the row's own cubes the window is shut and
+     * the band is LUCKY; measured from the landing that actually closed it —
+     * the shipment resting on it — it is EXCELLENT. This is the pin that fails
+     * if `rowClaim`'s assist landing is dropped and only its verdict kept. */
+    {
+      const r = buildGradedRows([[2, 5, 200], [9, 19, 1000]]);
+      const per = rowLevel.compactorMinLineCells;
+      r.cubes.forEach((c, i) => { c.shipment = i < per ? 1 : 5; });
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a stale row the shipment landed ON is priced from the SHIPMENT's landing",
+        out.graded[0].landing?.step === 1000, String(out.graded[0].landing?.step));
+      check("...so the impact assist reaches the top band under the 100ms window",
+        out.graded[0].grade === "excellent", out.graded[0].grade);
+      // ...and the same stale row with nothing over it is exactly what it was.
+      const bare = buildGradedRows([[2, 5, 200]]);
+      bare.cubes.forEach((c) => { c.shipment = 1; });
+      const outBare = updateLineClear(
+        bare.phys.world, bare.cubes, bare.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(bare.phys.engine);
+      check("...while the same stale row with nothing resting on it is LUCKY and unpaid",
+        outBare.graded[0].raw === "lucky" && outBare.graded[0].participation === "none",
+        `${outBare.graded[0].raw}/${outBare.graded[0].participation}`);
+    }
+    // Nothing of the current shipment anywhere: identical clock, capped bands.
+    {
+      const r = twoRows([2, 2]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: false, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("rows built entirely of older cargo take no part in their own clear",
+        out.graded.every((g) => g.participation === "none"));
+      check("...so the clock's EXCELLENT is sold as SWEPT",
+        out.graded.every((g) => g.raw === "excellent" && g.grade === "swept"),
+        out.graded.map((g) => `${g.raw}->${g.grade}`).join(","));
+      check("...and every one of them is flagged capped, so the toast can say so",
+        out.graded.every((g) => g.capped));
+    }
+    // CONGESTION, through the same call. Same rows, same shipment, one flag.
+    {
+      const r = twoRows([5, 5]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        { clock: CLOCK, congested: true, shipment: 5 },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a congested clear is graded EXCELLENT by the clock and sold as SWEPT",
+        out.graded.every((g) => g.raw === "excellent" && g.grade === "swept"),
+        out.graded.map((g) => `${g.raw}->${g.grade}`).join(","));
+      check("...and every row carries the congestion that capped it",
+        out.graded.every((g) => g.congested && g.capped));
+    }
+    // ...and a LATE row in a congested bay is not "capped": it was already
+    // below the ceiling. The flag has to mean something or the tag lies.
+    {
+      const r = buildGradedRows([[2, 5, 200]]);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [],
+        {
+          clock: { stroke: 2 + LUCKY_SWEEPS, halfCycle: 20, step: 2000 },
+          congested: true, shipment: PIN_SHIPMENT,
+        },
+      );
+      Matter.Engine.clear(r.phys.engine);
+      check("a LUCKY row in a congested bay stays LUCKY and is not reported as capped",
+        out.graded[0].grade === "lucky" && out.graded[0].capped === false,
+        `${out.graded[0].grade}/${out.graded[0].capped}`);
+    }
+  }
+
+  /* ---- THE TICK BOUNDARIES (codex, PR #168) ------------------------------
+   *
+   * The grade's clock advances INSIDE `compactor.update()`, and the step reads
+   * it on both sides of that call — once to stamp landings, once to grade the
+   * clears. Reading it twice is reading two different clocks, and the tick the
+   * press completes is where they disagree: a row closed on that tick was
+   * stamped on stroke S and graded against S+1, i.e. charged a completed sweep
+   * it had not survived. EXCELLENT failing on the tick that earns it most
+   * literally.
+   *
+   * These replay game.ts's real order — sample, stamp, update, clear — with the
+   * REAL functions, because the bug lived in the order rather than in any one
+   * of them. `sim/_scratch-tickboundary.ts` is the same walk with a printed
+   * table, and design/balance/timed-clears.md §2c carries it.
+   *
+   * The bar is DRIVEN to each boundary, never teleported: `Compactor.update` is
+   * what decides where a stop is, and a hand-placed bar would be a test of the
+   * placement. */
+  {
+    /** One step of game.ts's order. `late` reads the clock AFTER the bar moved,
+     *  which is the bug; the shipped path samples once, before. */
+    const oneStep = (
+      bar: Compactor, phys: ReturnType<typeof createPhysics>, cubes: Cube[],
+      late: boolean, stampNow: boolean, stepNo: number,
+    ): { grade: string | null; completedStroke: boolean } => {
+      const clock: ClearClock = {
+        stroke: bar.strokes, halfCycle: bar.halfCycles, step: stepNo,
+      };
+      if (stampNow) stampLandings(cubes, clock);
+      const pressing = bar.pressing;
+      const before = bar.strokes;
+      bar.update();
+      const completedStroke = bar.strokes !== before;
+      if (!pressing) return { grade: null, completedStroke };
+      // The BUG's clock: the bar's counters read after `update()` moved them.
+      // The step is the same either way — nothing in `compactor.update()`
+      // touches the step counter — so this is precisely the fencepost and
+      // nothing else.
+      const live: ClearClock = {
+        stroke: bar.strokes, halfCycle: bar.halfCycles, step: stepNo,
+      };
+      const out = updateLineClear(
+        phys.world, cubes, bar, rowLevel, [], clockOnly(late ? live : clock),
+      );
+      return { grade: out.graded[0]?.grade ?? null, completedStroke };
+    };
+
+    /** A bay whose bar is ADVANCING and exactly `stepsBefore` steps short of
+     *  full advance, with a complete unstamped row on the floor. */
+    const approaching = (stepsBefore: number) => {
+      const phys = createPhysics(rowLevel);
+      const bar = new Compactor(phys.world, rowLevel);
+      // Two round trips first, so `strokes` is past zero and a sweep count of 1
+      // is distinguishable from "the bay just opened".
+      while (bar.halfCycles < 4) bar.update();
+      while (bar.dir !== 1) bar.update();
+      while (bar.rightX - bar.x > stepsBefore * bar.speed + 0.001) bar.update();
+      const r = buildGradedRows([[0, 0, 0]]);
+      // The row builder stamps; this walk needs cubes that have never rested.
+      for (const c of r.cubes) {
+        c.landedStroke = undefined; c.landedHalfCycle = undefined; c.landedStep = undefined;
+      }
+      // Re-home the row into THIS bay's world.
+      for (const c of r.cubes) Matter.Composite.add(phys.world, c.body);
+      Matter.Engine.clear(r.phys.engine);
+      return { phys, bar, cubes: r.cubes };
+    };
+
+    /** Land the row `before` steps short of the stop, then run until it clears. */
+    const landAndClear = (before: number, late: boolean) => {
+      const { phys, bar, cubes } = approaching(before);
+      let grade: string | null = null;
+      let onStopTick = false;
+      for (let i = 0; i < 600 && grade === null; i++) {
+        const s = oneStep(bar, phys, cubes, late, i === 0, i);
+        grade = s.grade;
+        if (grade !== null) onStopTick = s.completedStroke;
+      }
+      Matter.Engine.clear(phys.engine);
+      return { grade, onStopTick };
+    };
+
+    // THE FENCEPOST ITSELF. One step short of the stop: the landing and the
+    // clear both fall on the stroke that is still running, and the clear lands
+    // on the very tick that completes it.
+    const stopTick = landAndClear(1, false);
+    check("a row closed on the tick the press COMPLETES clears on that tick",
+      stopTick.onStopTick, "the case did not reach the stop tick");
+    check("...and grades EXCELLENT — it closed inside the stroke already running",
+      stopTick.grade === "excellent", String(stopTick.grade));
+    // ...and the same walk against the LATE clock. Under the FIRST ladder this
+    // was the pin that caught the fencepost: the bug charged this row a sweep.
+    // Under the owner's 100ms window it does not, and the reason is worth
+    // recording rather than deleting — a clear ON the stop tick is by
+    // construction about one step from its landing, so the window is open and
+    // the top band no longer depends on which clock the bar was read from at
+    // all. The fix stays (the stamp side still needs it — see acrossFlip below,
+    // and `gradeClock`'s pin in the real-Game block), and this line now pins
+    // the ROBUSTNESS rather than the bug: the shortened window makes the top
+    // band immune to the fencepost in either direction.
+    check("...and the window makes that tick immune to which clock the bar was read from",
+      landAndClear(1, true).grade === "excellent", String(landAndClear(1, true).grade));
+
+    // THE NEIGHBOURS, so the fix is not a one-tick patch that breaks the ticks
+    // either side of it. Post-update sampling would fix the row above and break
+    // these instead.
+    check("a landing two steps short of the stop still grades EXCELLENT",
+      landAndClear(2, false).grade === "excellent", String(landAndClear(2, false).grade));
+    check("...and five steps short, well inside the stroke, likewise",
+      landAndClear(5, false).grade === "excellent", String(landAndClear(5, false).grade));
+    // A landing on the tick the bar has ALREADY reversed on is a retreat
+    // landing. The next press sells it — a whole retreat, a flip and an advance
+    // later, so the window is long shut and the owner's GOOD sentence ("lands
+    // when the compactor is moving right") does not describe it either. SWEPT:
+    // the press brought it in.
+    check("a landing after the bar has turned is SWEPT — the press brought it in",
+      landAndClear(0, false).grade === "swept", String(landAndClear(0, false).grade));
+
+    // THE REVERSAL TICK at the OPEN stop — and under the new ladder this is
+    // where the fencepost's remaining bite lives. No clear is ever evaluated
+    // during a retreat (`pressing` is false), so that stop has no clear-side
+    // exposure at all; what it has is a STAMP-side one, and it now decides GOOD
+    // against SWEPT. Stamping from a post-update read would move the landing
+    // across the flip and hand a retreat landing the rightward band.
+    const acrossFlip = (ticksAfterFlip: number): string | null => {
+      const phys = createPhysics(rowLevel);
+      const bar = new Compactor(phys.world, rowLevel);
+      while (bar.halfCycles < 4) bar.update();
+      while (bar.dir !== -1) bar.update();
+      while (bar.x - bar.leftX > bar.speed + 0.001) bar.update();
+      const r = buildGradedRows([[0, 0, 0]]);
+      for (const c of r.cubes) {
+        c.landedStroke = undefined; c.landedHalfCycle = undefined; c.landedStep = undefined;
+      }
+      for (const c of r.cubes) Matter.Composite.add(phys.world, c.body);
+      Matter.Engine.clear(r.phys.engine);
+      for (let i = 0; i < ticksAfterFlip; i++) oneStep(bar, phys, r.cubes, false, false, i);
+      let grade: string | null = null;
+      for (let i = 0; i < 600 && grade === null; i++) {
+        grade = oneStep(bar, phys, r.cubes, false, i === 0, ticksAfterFlip + i).grade;
+      }
+      Matter.Engine.clear(phys.engine);
+      return grade;
+    };
+    check("cargo that landed while the bar was still RETREATING grades SWEPT",
+      acrossFlip(0) === "swept", String(acrossFlip(0)));
+    check("...and cargo that landed one tick later, on the advance, grades GOOD",
+      acrossFlip(1) === "good", String(acrossFlip(1)));
+    check("...so the band changes exactly at the flip, with no tick in between",
+      acrossFlip(0) !== acrossFlip(1));
+  }
+
+  /* ---- ...AND THE WIRING, through the REAL Game ---------------------------
+   *
+   * Everything above pins the RULE and none of it pins the WIRING, which a
+   * mutation pass proved rather than suspected: putting the fencepost back into
+   * game.ts — grading the clear against the bar's live post-update reading —
+   * left every check above green, because they replay the step order inside the
+   * test with their own helper instead of exercising game.ts's.
+   *
+   * A rule nothing connects to the game is a rule the game does not have. So
+   * this drives the REAL `Game.update` through the exact tick, and it is the
+   * check that actually fails when the fencepost comes back.
+   *
+   * The bar is walked to one step short of full advance and the row is injected
+   * unstamped, so the single `update()` below does the whole sequence the bug
+   * lived in: sample, stamp, move the bar onto its stop, clear.
+   *
+   * BOTH GATES RIDE THE SAME RIG, and they have to: congestion is sampled from
+   * `stepPileTier` and participation from `shipmentSeq`, and neither of those
+   * exists in a replay harness at all. A pure-function pin on `awardedGrade`
+   * cannot tell whether game.ts passes it the bay's real state or a literal
+   * `false`. This can. */
+  {
+    /** One bay, one step, one row — with the two gates as knobs.
+     *
+     *  `congest` piles loose cargo ABOVE the bar's reach (`compactor.top`), so
+     *  the row scan never sees it and the only thing it changes is
+     *  `cubes.length`, which is exactly what `pileTier` reads. Sized off the
+     *  level's own first knee rather than off a literal 32.
+     *
+     *  `launched` stamps the row as the current shipment and tells the Game so.
+     *  Left false, nothing was ever launched into this bay and the row is
+     *  cargo the press found — which is the participation gate's whole point. */
+    const oneTickBay = (opts: { congest?: boolean; launched?: boolean } = {}) => {
+      const cfg = makeBaseLevel(0);
+      const g = new Game(cfg, {}, 11);
+      // Two round trips first, so a sweep count of 1 is distinguishable from
+      // "the bay just opened" — the same reason the walks above take them.
+      while (g.compactor.halfCycles < 4) g.compactor.update();
+      while (g.compactor.dir !== 1) g.compactor.update();
+      while (g.compactor.rightX - g.compactor.x > g.compactor.speed + 0.001) {
+        g.compactor.update();
+      }
+      const preStroke = g.compactor.strokes;
+      const preHalf = g.compactor.halfCycles;
+
+      // A complete row on the floor, settled and never yet stamped.
+      for (const c of g.cubes.splice(0)) Matter.Composite.remove(g.phys.world, c.body);
+      const rowY = WORLD.height - CELL / 2;
+      const mk = (x: number, y: number, shipment?: number): void => {
+        const body = Matter.Bodies.rectangle(x, y, CELL, CELL, { label: "cube" });
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Composite.add(g.phys.world, body);
+        g.cubes.push({
+          body, type: "O", color: "#fff", blinkStart: null,
+          material: "standard", struck: true, shipment,
+        });
+      };
+      if (opts.launched) g.shipmentSeq = 1;
+      for (let k = 0; k < cfg.compactorMinLineCells; k++) {
+        mk(WALL_INNER - CELL / 2 - k * CELL, rowY, opts.launched ? 1 : undefined);
+      }
+      if (opts.congest) {
+        // One past the first knee, counting the row already on the floor.
+        const knee = cfg.pileTiers[0].cubes + cfg.pileAllowance;
+        const spare = knee + 1 - g.cubes.length;
+        // Two ranks well above the bar's top, spaced so nothing overlaps and
+        // nothing is inside a scannable row.
+        for (let i = 0; i < spare; i++) {
+          mk(WALL_INNER - CELL - (i % 12) * CELL * 1.4, g.compactor.top - CELL * (3 + Math.floor(i / 12) * 2));
+        }
+      }
+      const scoreBefore = g.score;
+      g.effects.length = 0;
+      g.update(1000);
+      const payout = g.effects.find((e) => e.kind === "payout");
+      return { cfg, g, preStroke, preHalf, scoreBefore, payout };
+    };
+
+    // ---- The shipped case: a threaded row in a clean bay ------------------
+    {
+      const { cfg, g, preStroke, preHalf, scoreBefore, payout } =
+        oneTickBay({ launched: true });
+      check("the real Game completes a stroke on this step",
+        g.compactor.strokes === preStroke + 1,
+        `${preStroke} -> ${g.compactor.strokes}`);
+      check("...and the step's clock is the one sampled BEFORE the bar moved",
+        g.gradeClock.stroke === preStroke && g.gradeClock.halfCycle === preHalf,
+        `${g.gradeClock.stroke}/${g.gradeClock.halfCycle} vs ${preStroke}/${preHalf}`);
+      check("...the row cleared on that very tick",
+        payout !== undefined && g.cubes.length === 0, `${g.cubes.length} cubes left`);
+      // THE ONE THAT CATCHES THE FENCEPOST. Grading against the live clock makes
+      // this SWEPT; sampling the step clock late makes it GOOD.
+      check("...and the REAL game grades it EXCELLENT, not SWEPT",
+        payout !== undefined && payout.kind === "payout" && payout.grade === "excellent",
+        payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+      // ...and the money followed the grade, not just the callout.
+      check("...and paid the EXCELLENT rate, so the callout and the ledger agree",
+        g.score - scoreBefore === gradedLinePay(cfg.scorePerLine, "excellent"),
+        `${g.score - scoreBefore} vs ${gradedLinePay(cfg.scorePerLine, "excellent")}`);
+      check("...with no congestion tag on a clean bay's toast",
+        payout !== undefined && payout.kind === "payout" && payout.congested === false);
+      g.destroy();
+    }
+
+    // ---- THE CONGESTION GATE, through the same tick ------------------------
+    //
+    // Identical bay, identical tick, identical row — the ONLY difference is
+    // loose cargo above the bar's reach pushing the field past its first knee.
+    // The row is still threaded into the running stroke, so anything that reads
+    // the clock alone still calls it EXCELLENT; the awarded band must be SWEPT.
+    {
+      const { cfg, g, scoreBefore, payout } = oneTickBay({ congest: true, launched: true });
+      check("a congested bay still clears the row on the same tick",
+        payout !== undefined, "no payout");
+      check("...and the REAL game refuses to award EXCELLENT while congested",
+        payout !== undefined && payout.kind === "payout" && payout.grade === "swept",
+        payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+      // THE MONEY, not just the word. `payoutMult` caps the combo at the tier's
+      // own payMult on top, so the sale is the SWEPT rate times that ceiling —
+      // both of congestion's payout taxes, from one reading of one moment.
+      const tier = cfg.pileTiers[0];
+      const expected = Math.round(
+        gradedLinePay(cfg.scorePerLine, "swept") * payoutMult(1, tier),
+      );
+      check("...and pays the SWEPT rate under the congestion ceiling, not the EXCELLENT one",
+        g.score - scoreBefore === expected,
+        `${g.score - scoreBefore} vs ${expected} (excellent would be `
+        + `${Math.round(gradedLinePay(cfg.scorePerLine, "excellent") * payoutMult(1, tier))})`);
+      check("...and the toast carries the CONGESTED tag, so the player learns why",
+        payout !== undefined && payout.kind === "payout" && payout.congested === true);
+      g.destroy();
+    }
+
+    /* ---- THE LAUNCHER STAMPS THE SHIPMENT, through the real shoot() -------
+     *
+     * The gap a mutation pass found rather than suspected: stopping
+     * `shipmentSeq` from ever advancing left every check above green, because
+     * every one of them either sets the counter by hand or passes a shipment id
+     * into `updateLineClear` directly. A rule the LAUNCHER does not implement is
+     * a rule the game does not have, so this fires the real cannon. */
+    {
+      const g = new Game(makeBaseLevel(0), {}, 5);
+      check("a fresh bay has launched nothing, and no cube can claim shipment 0",
+        g.shipmentSeq === 0);
+      g.cannon.aimFromDrag(-40, 40);
+      const fired = g.shoot(1000);
+      check("...the cannon fires", fired, "the shot was refused");
+      check("...and the launch advances the shipment counter to 1",
+        g.shipmentSeq === 1, String(g.shipmentSeq));
+      check("...stamping every cube of the shipment with it",
+        g.cubes.length > 0 && g.cubes.every((c) => c.shipment === 1),
+        g.cubes.map((c) => String(c.shipment)).join(","));
+      // A SECOND LAUNCH TAKES THE ID, which is what disowns the first: the
+      // participation gate compares against `shipmentSeq`, so cargo from the
+      // previous shot stops being "the piece that has just been launched" the
+      // moment the next one leaves the muzzle. (What that does to a ROW is
+      // pinned on `rowParticipation` above, where the cargo can be held still.)
+      for (let i = 0; i < 200 && !g.shoot(1000 + i * 20); i++) g.update(1000 + i * 20);
+      check("...and a second launch takes the id, so the first shipment is no longer the latest",
+        g.shipmentSeq === 2 && g.cubes.some((c) => c.shipment === 2),
+        `${g.shipmentSeq}: ${[...new Set(g.cubes.map((c) => c.shipment))].join("/")}`);
+      // A BOMB IS A SHOT AND IS NOT A SHIPMENT. Letting a charge advance the
+      // counter would disown cargo already in the air for a reason no player
+      // could see.
+      const seqBefore = g.shipmentSeq;
+      const shotsBefore = g.shotsFired;
+      g.bombCharges += 1;
+      g.armBomb();
+      for (let i = 0; i < 400 && g.shotsFired === shotsBefore; i++) {
+        g.shoot(2000 + i * 20);
+        g.update(2000 + i * 20);
+      }
+      check("...while a demolition charge advances the SHOT count and not the shipment",
+        g.shotsFired > shotsBefore && g.shipmentSeq === seqBefore,
+        `shots ${shotsBefore}->${g.shotsFired}, shipment ${seqBefore}->${g.shipmentSeq}`);
+      g.destroy();
+    }
+
+    // ---- THE PARTICIPATION GATE, through the same tick ---------------------
+    //
+    // Same clean bay, same threaded tick, but nothing was ever launched: the row
+    // is cargo the press found. The clock says EXCELLENT and the bay must not.
+    {
+      const { cfg, g, scoreBefore, payout } = oneTickBay({ launched: false });
+      check("a row the current shipment had no part in still clears",
+        payout !== undefined, "no payout");
+      check("...and the REAL game refuses it a timed band",
+        payout !== undefined && payout.kind === "payout" && payout.grade === "swept",
+        payout && payout.kind === "payout" ? String(payout.grade) : "no payout");
+      check("...paying the SWEPT rate for it",
+        g.score - scoreBefore === gradedLinePay(cfg.scorePerLine, "swept"),
+        `${g.score - scoreBefore} vs ${gradedLinePay(cfg.scorePerLine, "swept")}`);
+      check("...and does NOT tag it congested — the bay was clean, the shot was not there",
+        payout !== undefined && payout.kind === "payout" && payout.congested === false);
+      g.destroy();
+    }
+  }
+
+  // THE DETERMINISM CLAIM, checked the only way that means anything: the same
+  // sim state at two different wall clocks must produce the same money. The
+  // grade takes no `now` and no step count, so this is a pin on the SHAPE of
+  // the dependency rather than on a number.
+  {
+    const a = clearAt(6, 13, 900, { stroke: 7, halfCycle: 15, step: 1200 });
+    const b = clearAt(6, 13, 900, { stroke: 7, halfCycle: 15, step: 1200 });
+    check("two clears of identical sim state grade identically — the money is frame-rate free",
+      a.graded[0].grade === b.graded[0].grade);
+  }
+
+  // ---- The headline grade, which is what the callout says ------------------
+  {
+    /** A hand-built graded row. `raw` defaults to the awarded band and both
+     *  gates open, because these pins are about WHICH ROW the toast picks and
+     *  nothing else; the gate's own pins build capped rows explicitly. */
+    const row = (y: number, halfCycle: number, grade: ClearGrade,
+      extra: Partial<GradedRow> = {}): GradedRow => ({
+      y, landing: { stroke: Math.floor(halfCycle / 2), halfCycle, step: halfCycle * 8 },
+      raw: grade, grade, congested: false, participation: "in-row", capped: false,
+      ...extra,
+    });
+    const rows: GradedRow[] = [
+      row(10, 3, "lucky"), row(50, 9, "excellent"), row(90, 5, "swept"),
+    ];
+    check("a mixed crush is announced as the row the shot just CLOSED",
+      headlineGrade(rows) === "excellent");
+    check("...which is not simply the best grade present — an older EXCELLENT loses to a newer SWEPT",
+      headlineGrade([row(10, 3, "excellent"), row(50, 9, "swept")]) === "swept");
+    check("a clear with nothing in it announces nothing", headlineGrade([]) === null);
+    // THE CALLOUT MAY NEVER SHOUT A BAND THE LEDGER DID NOT PAY. headlineGrade
+    // reads `grade`, the AWARDED band, and a row whose raw band was better is
+    // exactly the case a leak would show up in.
+    {
+      const capped = row(50, 9, "swept", { raw: "excellent", congested: true, capped: true });
+      check("a congestion-capped row is announced at the band it was PAID, not the one it earned",
+        headlineGrade([capped]) === "swept", String(headlineGrade([capped])));
+      check("...and the row itself still carries the raw band, so the toast can say WHY",
+        headlineRow([capped])?.raw === "excellent" && headlineRow([capped])?.capped === true);
+    }
+  }
+
+  // ---- The money, end to end, through Game -------------------------------
+  //
+  // The one pin that proves the multiplier is actually APPLIED. Two identical
+  // fields, one row each, cleared at two different clocks: the scores have to
+  // differ by exactly the ladder.
+  {
+    const scoreFor = (
+      landedStroke: number, landedHalfCycle: number, landedStep: number, clock: ClearClock,
+    ) => {
+      const r = buildGradedRow(landedStroke, landedHalfCycle, landedStep);
+      const out = updateLineClear(
+        r.phys.world, r.cubes, r.compactor, rowLevel, [], clockOnly(clock),
+      );
+      Matter.Engine.clear(r.phys.engine);
+      return out.graded.reduce(
+        (sum, row) => sum + gradedLinePay(rowLevel.scorePerLine, row.grade), 0,
+      );
+    };
+    const exc = scoreFor(6, 13, 900, { stroke: 6, halfCycle: 13, step: 902 });
+    const lucky = scoreFor(6, 13, 900, { stroke: 9, halfCycle: 20, step: 2000 });
+    check("the SAME row is worth more when it was closed on the press",
+      exc > lucky, `$${exc} vs $${lucky}`);
+    check("...by exactly the ladder, not by an approximation of it",
+      exc === Math.round(rowLevel.scorePerLine * GRADE_PAY.excellent)
+      && lucky === Math.round(rowLevel.scorePerLine * GRADE_PAY.lucky));
+  }
+
+  /* ---- THE FEEDBACK SURFACE ----------------------------------------------
+   *
+   * A grade the player cannot see is a rule they cannot learn, so the two
+   * places it is said out loud are pinned like any other copy here: the bay's
+   * callout and the end card's clause.
+   * --------------------------------------------------------------------- */
+  {
+    // Every band has a word, the words are the GRADE NAMES uppercased, and only
+    // the top one shouts. theme.ts's note argues that at length; this is the
+    // half that fails when someone gives LUCKY an exclamation mark.
+    const missing = GRADES.filter((g) => !GRADE_CALLOUT[g] || !GRADE_COLOR[g]);
+    check("every grade has a callout word and a colour", missing.length === 0, missing.join(","));
+    check("...each one distinct, or two bands read as one",
+      new Set(GRADES.map((g) => GRADE_CALLOUT[g])).size === GRADES.length);
+    check("...the words ARE the grade names, so the bay and the end card teach one vocabulary",
+      GRADES.every((g) => GRADE_CALLOUT[g].startsWith(g.toUpperCase())));
+    check("...and only the best band celebrates",
+      GRADE_CALLOUT.excellent.endsWith("!")
+      && !GRADE_CALLOUT.good.includes("!")
+      && !GRADE_CALLOUT.swept.includes("!")
+      && !GRADE_CALLOUT.lucky.includes("!"),
+      GRADES.map((g) => GRADE_CALLOUT[g]).join(" / "));
+    // FOUR BANDS, FOUR COLOURS — the owner's ask, and the pin is the half that
+    // fails when a palette edit collapses two of them back together. Pinned as
+    // RELATIONS rather than as four hex literals: the palette is free to move,
+    // the mapping is not.
+    check("every band has a colour of its own — no two timing levels look alike",
+      new Set(GRADES.map((g) => GRADE_COLOR[g])).size === GRADES.length,
+      GRADES.map((g) => `${g}:${GRADE_COLOR[g]}`).join(" "));
+    check("...the top band wears the payout green, and it is the ONLY one that does",
+      GRADE_COLOR.excellent === COLORS.trajectory
+      && GRADES.filter((g) => GRADE_COLOR[g] === COLORS.trajectory).length === 1);
+    check("...GOOD wears the aiming colour — the band you placed, one beat late",
+      GRADE_COLOR.good === COLORS.aim);
+    check("...SWEPT is the neutral readout and LUCKY the dim one, in that order",
+      GRADE_COLOR.swept === COLORS.text && GRADE_COLOR.lucky === COLORS.textDim);
+    // The congestion tag is NOT a fifth band: it says something about the BAY,
+    // it wears the bar's own alarm colour, and it must never be mistakable for
+    // a grade.
+    check("the congestion tag is the bay's alarm colour and no band's",
+      CONGESTION_TAG_COLOR === COLORS.compactor
+      && !GRADES.some((g) => GRADE_COLOR[g] === CONGESTION_TAG_COLOR));
+    check("...and says the same word the guide and the HUD use for the state",
+      CONGESTION_TAG === "CONGESTED");
+
+    // THE END CARD'S CLAUSE. Named bands only, and only when earned.
+    check("the end card names the two bands that paid a premium",
+      S.gradeBreakdownClause({ excellent: 6, good: 4, swept: 9, lucky: 2 })
+        === " · 6 excellent · 4 good",
+      S.gradeBreakdownClause({ excellent: 6, good: 4, swept: 9, lucky: 2 }));
+    check("...and drops a band nobody earned rather than printing a zero",
+      S.gradeBreakdownClause({ excellent: 0, good: 4, swept: 9, lucky: 2 }) === " · 4 good");
+    check("...and says nothing at all to a run that earned neither",
+      S.gradeBreakdownClause({ excellent: 0, good: 0, swept: 9, lucky: 2 }) === "");
+    check("...or to a caller that predates the mechanic",
+      S.gradeBreakdownClause(undefined) === "");
+  }
 }
 
 // ===========================================================================
@@ -17212,6 +18592,237 @@ section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSe
   glob.document = prevDoc;
   glob.window = prevWin;
   glob.Path2D = prevPath;
+}
+
+// ---------------------------------------------------------------------------
+section("The cursor set covers the whole app (scripts/make-cursors.mjs → cursors.css)");
+// The owner's report was "the custom pointer does not show up on buttons or on
+// the blocked floors" — the app wore its own arrow over the chrome and handed
+// the OS its cursor back at the exact moments the pointer was doing something.
+// Four facts hold the fix together, and each one is a different file's job, so
+// none of them can be checked by looking at any single file:
+//
+//   1. cursors.css is GENERATED and gets overwritten wholesale, so the shape of
+//      what it emits is pinned here rather than trusted to survive an edit
+//      nobody is allowed to make by hand.
+//   2. The generated selectors are keyed on BEHAVIOUR (aria-disabled, role,
+//      data-action) — screens.ts has to keep spelling those attributes, and the
+//      blocked floors in particular are the report's own example.
+//   3. app.css is @imported after cursors.css, so specificity is the only thing
+//      standing between thirty `cursor: pointer` class rules and the bitmaps.
+//   4. The keyword after each url() is the whole degradation story.
+{
+  const readSrc = (...parts: string[]): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...parts),
+      "utf8",
+    );
+  const cursors = readSrc("src", "styles", "cursors.css");
+  const appCss = readSrc("src", "styles", "app.css");
+  const tokens = readSrc("src", "styles", "tokens.css");
+  const gen = readSrc("scripts", "make-cursors.mjs");
+
+  check("cursors.css still says it is generated, and by whom",
+    /GENERATED by scripts\/make-cursors\.mjs/.test(cursors));
+
+  // --- 1. all four cursors, and every one of them degrades ------------------
+  // Each declaration is `cursor: <image> <hx> <hy>, <keyword>;`. The keyword is
+  // not punctuation: a data URI the engine refuses (size cap, print context,
+  // a stripped inline asset) drops the image and lands there, and what is left
+  // has to be the RIGHT cursor for that element rather than an arrow on
+  // everything. Every declaration in the file, no exceptions.
+  // Line by line, because the generator emits exactly one declaration per line
+  // and a `[\s\S]*?;` would stop at the FIRST semicolon it met — which is the
+  // one inside `data:image/png;base64,…`, four characters in.
+  const decls = cursors.split("\n").filter((l) => /^\s*cursor:\s*(?:image-set\()?url\(/.test(l));
+  check("every image cursor is declared twice — plain url() first, image-set() second",
+    decls.length === 8, `${decls.length} image declarations`);
+  const FALLBACKS = new Set(["default", "crosshair", "pointer", "not-allowed"]);
+  const tails = decls.map((d) => d.trim().replace(/;$/, "").split(",").pop()!.trim());
+  check("...and every one of them ends in a bare keyword the browser can fall back to",
+    tails.length === 8 && tails.every((t) => FALLBACKS.has(t)),
+    tails.filter((t) => !FALLBACKS.has(t)).join(" | ") || "all keyworded");
+  check("...one of each: arrow -> default, bay -> crosshair, clickable -> pointer, blocked -> not-allowed",
+    [...FALLBACKS].every((k) => tails.filter((t) => t === k).length === 2),
+    tails.join(" "));
+
+  // --- 2. the two new rules, scoped, and blocked strictly the heavier --------
+  // A disabled button matches BOTH selectors, and which one it wears may not
+  // depend on where in the file they landed. The first cut of this leaned on
+  // source order with "equal specificity" — which was not true: `:is()` takes
+  // the weight of its most specific argument, the clickable list contains the
+  // compound `a[href]` and the blocked list was all bare attributes, so
+  // clickable outranked blocked by one element name and every locked floor in
+  // the tower wore a pointing hand. The blocked selector now repeats the
+  // control list and chains the refusal onto it, which makes it strictly
+  // heavier — and this pins that shape rather than the ordering it replaced.
+  const CONTROLS = '#app :is(button, a[href], [role="button"], [role="switch"],'
+    + ' [tabindex="0"], [data-action], [data-toggle])';
+  const iAt = cursors.indexOf(`${CONTROLS} {`);
+  const bAt = cursors.indexOf(`${CONTROLS}:is(:disabled, [disabled], [aria-disabled="true"])`);
+  check("the clickable rule is scoped to #app — one id, so it outranks app.css's class rules",
+    iAt >= 0);
+  check("the blocked rule is the SAME control list plus the refusal, so it can only ever outrank it",
+    bAt >= 0, `clickable @${iAt}, blocked @${bAt}`);
+  const fine = cursors.indexOf("@media (pointer: fine)");
+  const a11y = cursors.indexOf("@media (forced-colors: active)");
+  check("both live inside @media (pointer: fine) — a touch device is not asked to carry them",
+    fine >= 0 && fine < iAt && iAt < a11y && bAt < a11y,
+    `fine @${fine}, a11y @${a11y}`);
+  // The accessibility escape hatch is the reason it is defensible to take the
+  // system's pointer and not-allowed away from everyone else. `body { cursor:
+  // auto }` alone would not do it: the two id-scoped rules above would go on
+  // holding their bitmaps on every button, so the one audience that must never
+  // see a fixed-size bitmap would be the only one that always did.
+  const tail = cursors.slice(a11y);
+  check("...and the high-contrast override hands ALL FOUR surfaces back to the system, not just the body",
+    /body\s*\{\s*cursor:\s*auto/.test(tail)
+      && /#game\s*\{\s*cursor:\s*crosshair/.test(tail)
+      && tail.includes(`${CONTROLS} { cursor: pointer; }`)
+      && /aria-disabled="true"\]\)\s*\{\s*cursor:\s*not-allowed/.test(tail));
+
+  // --- 2b. the escape hatch no media query can offer ------------------------
+  // forced-colors and prefers-contrast are the only pointer-adjacent signals a
+  // browser exposes, and NEITHER is about the pointer. Windows' pointer
+  // size/colour and macOS's pointer size are standalone preferences: a player
+  // can triple their cursor and tint it yellow with both queries off, and no
+  // engine reports it. A 26px bitmap would silently override that. So the
+  // stylesheet also stands down for a SETTING (store.ts's systemCursor,
+  // published by main.ts as <html data-system-cursor>), and these pin that the
+  // two stand-downs are the same stand-down.
+  const KEYWORDS = /^(?<sel>[^{\n]+?)\s*\{\s*cursor:\s*(?<kw>[a-z-]+);\s*\}$/;
+  const keywordRules = (block: string): { sel: string; kw: string }[] =>
+    block.split("\n").map((l) => l.trim().match(KEYWORDS))
+      .filter((m): m is RegExpMatchArray => m !== null)
+      .map((m) => ({ sel: m.groups!.sel, kw: m.groups!.kw }));
+  const SWITCH = ':root[data-system-cursor="on"]';
+  const switchAt = cursors.indexOf(SWITCH);
+  const switchRules = keywordRules(cursors.slice(switchAt, a11y));
+  const a11yRules = keywordRules(tail);
+  check("the switch block exists, and is keyed on the root attribute main.ts publishes",
+    switchAt > 0);
+  // A top-level `}` between the media query and the switch is the media
+  // query's own close: the switch rules are not nested inside it.
+  check("...it is OUTSIDE @media (pointer: fine) — a mouse plugged into a tablet still gets it",
+    switchAt > fine && cursors.slice(fine, switchAt).includes("\n}\n"),
+    `fine @${fine}, switch @${switchAt}`);
+  check("...and it hands back the same FOUR surfaces the high-contrast block does",
+    switchRules.length === 4 && a11yRules.length === 4,
+    `switch ${switchRules.length}, a11y ${a11yRules.length}`);
+  // The two lists come out of one function in the generator, so this is a
+  // check that nobody has hand-edited the generated file into disagreement —
+  // which is the exact failure that leaves one surface wearing a bitmap for
+  // the one audience that must never see one.
+  check("...surface for surface, keyword for keyword, with only the scope differing",
+    switchRules.every((r, i) =>
+      r.kw === a11yRules[i].kw && r.sel === `${SWITCH} ${a11yRules[i].sel}`),
+    switchRules.map((r, i) => `${r.sel}=${r.kw} vs ${a11yRules[i]?.sel}=${a11yRules[i]?.kw}`).join(" | "));
+  check("...including the bay: the reticle goes too, and `crosshair` keeps saying what the surface is",
+    a11yRules.some((r) => r.sel === "#game" && r.kw === "crosshair")
+      && switchRules.some((r) => r.sel === `${SWITCH} #game` && r.kw === "crosshair"));
+  // Every scoped selector is its bitmap rule's selector with two extra simple
+  // selectors bolted on the front, so each one strictly outranks the rule it
+  // has to beat. Stated as a structural fact rather than as specificity
+  // arithmetic nobody can re-derive at review time.
+  //
+  // THE UNSCOPED FORM HAS TO BE FOUND AS A RULE HEAD, not as a substring, and
+  // the first cut of this check got that wrong in the one way that makes a
+  // check worthless: `:root[…] #app :is(…)` CONTAINS `#app :is(…)`, so a plain
+  // `includes` was asking whether the scoped rule contains itself. It passed
+  // against a deliberately mangled selector, which is how it was caught.
+  const asRuleHead = (sel: string): boolean =>
+    new RegExp(`^\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{`, "m").test(cursors);
+  check("...and each scoped selector is exactly its own bitmap rule's, prefixed — so it cannot lose",
+    switchRules.length === 4 && switchRules.every((r) =>
+      r.sel.startsWith(`${SWITCH} `) && asRuleHead(r.sel.slice(SWITCH.length + 1))),
+    switchRules.map((r) => r.sel.slice(SWITCH.length + 1)).join(" | "));
+
+  // The three ends of the wire, each in a different file and none of them able
+  // to see the others: the default, the publisher, and the flip. A stylesheet
+  // block keyed on an attribute nobody writes is the quietest possible way for
+  // this feature to be dead on arrival.
+  const store = readSrc("src", "lib", "store.ts");
+  const defaults = store.slice(store.indexOf("const DEFAULTS"));
+  check("System Pointer is OFF by default — the game's cursors are what you get unasked",
+    /systemCursor:\s*false/.test(defaults.slice(0, defaults.indexOf("}"))));
+  const mainSrc = readSrc("src", "main.ts");
+  check("...main.ts publishes the attribute the stylesheet reads, with the value it matches on",
+    /dataset\.systemCursor\s*=\s*this\.settings\.systemCursor\s*\?\s*"on"\s*:\s*"off"/.test(mainSrc));
+  check("...at boot, before the first paint, so nobody sees a bitmap they opted out of",
+    /this\.applySystemCursor\(\);/.test(mainSrc.slice(0, mainSrc.indexOf("private applySystemCursor"))));
+  check("...and on the flip, so the cursor changes under the hand that flipped it",
+    /key === "systemCursor"\) this\.applySystemCursor\(\)/.test(mainSrc));
+
+  // --- 3. the palette is still tokens.css's, in the generator ---------------
+  // The generator's own header promises the art is coloured "straight from the
+  // design tokens". Nothing enforces that but this: the grids are ASCII and the
+  // palette is four literals beside them, which drift silently the day a token
+  // moves.
+  const tok = (name: string): string =>
+    (tokens.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, "i"))?.[1] ?? "??").toLowerCase();
+  const litInGen = (hex: string): boolean => {
+    const b = hex.slice(1).match(/../g)!.map((h) => `0x${h}`).join(", ");
+    return gen.includes(b);
+  };
+  for (const [name, why] of [
+    ["--bg-deep", "the outline every cursor is legible by"],
+    ["--accent", "the arrow, the hand and the reticle's arms"],
+    ["--piece-o", "the reticle's inner tips"],
+    ["--danger", "the barred disc, and the app's refusal colour everywhere else"],
+  ] as const) {
+    check(`the generator's palette still mirrors tokens.css ${name} — ${why}`,
+      litInGen(tok(name)), `${name} is ${tok(name)}`);
+  }
+
+  // --- 4. what screens.ts has to keep spelling ------------------------------
+  // The report's own example. A locked floor is a real <button> that stays
+  // clickable on purpose (tapping it is how the tower shakes its head), so
+  // `:disabled` would never have caught it — aria-disabled is the attribute
+  // that both the accessibility tree and the blocked cursor read, and it is
+  // load-bearing for the cursor now as well as for the screen reader.
+  const tower = S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false });
+  const floors = [...tower.matchAll(/<button class="tower__floor[\s\S]*?>/g)].map((m) => m[0]);
+  check("every floor in the tower is a real button",
+    floors.length === S.SKYDECK_TIER, `${floors.length} floors`);
+  const locked = floors.filter((f) => f.includes("is-locked"));
+  check("...the ones above the unlock are locked, and say so with aria-disabled",
+    locked.length > 0 && locked.every((f) => f.includes('aria-disabled="true"')),
+    `${locked.length} locked floors`);
+  check("...and the floors you may fly carry no aria-disabled at all",
+    floors.filter((f) => !f.includes("is-locked")).every((f) => !f.includes("aria-disabled")));
+
+  // --- 5. the lookalikes that are not controls ------------------------------
+  // Two things in this app wear a control's face and take no click:
+  // .menu__entitlement (a <div class="btn" role="status">) and
+  // .guide__drill--locked (a <div>). Both are invisible to the clickable
+  // selector, which is correct — and both used to force `cursor: default`,
+  // which is the OS arrow, i.e. the exact bug the owner reported, surviving in
+  // two spots the selector can never reach. `inherit` is what puts them back on
+  // the game's own chrome arrow.
+  for (const sel of [".menu__entitlement", ".guide__drill--locked"]) {
+    // The class's OWN rule, not the first text match and not the last: both
+    // classes also head descendant rules (.guide__drill--locked
+    // .guide__drill-kind and friends), and .menu__entitlement shares a rule
+    // with .menu__unlock. Anchor on a line that is the whole selector.
+    const at = appCss.search(new RegExp(`^\\${sel} \\{`, "m"));
+    const rule = at < 0 ? "" : appCss.slice(at, appCss.indexOf("}", at));
+    const decl = rule.match(/cursor:\s*([a-z-]+)/)?.[1];
+    check(`${sel} is not a control, and does not fall back to the OS arrow`,
+      decl === "inherit", `cursor: ${decl ?? "unset"}`);
+  }
+  // …and the mirror image: a CHILD of a control may not declare a cursor at
+  // all. The settings pill is a picture of the switch that .setting carries
+  // (components.ts's toggleHTML), and its own `cursor: pointer` used to be
+  // harmless duplication — until the row started wearing a bitmap, at which
+  // point a class-weight keyword on the child beat the inherited value and put
+  // the OS hand back in the middle of the row. Inheritance is the only thing
+  // that tracks the parent through mouse, touch and forced-colors alike.
+  {
+    const at = appCss.search(/^\.toggle \{/m);
+    const rule = at < 0 ? "" : appCss.slice(at, appCss.indexOf("}", at));
+    check(".toggle declares no cursor — the pill inherits the switch row's",
+      at >= 0 && !/cursor:/.test(rule), rule.match(/cursor:[^;]*/)?.[0] ?? "no rule found");
+  }
 }
 
 console.log(

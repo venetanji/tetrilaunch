@@ -674,6 +674,288 @@ export function incineratorAware(): AimStrategy {
 }
 
 /* ---------------------------------------------------------------------------
+ * 5. TIMED — the pilot the TIMING GRADE is asking for
+ *
+ * `src/game/grades.ts` prices a row by WHEN it closed relative to the press,
+ * and every pilot in this harness fires the instant its cooldown and its purse
+ * allow. That is not a neutral default here, it is the SWEEP-RELIANT arm by
+ * construction: a shot fired at an arbitrary phase lands at an arbitrary phase,
+ * so its rows are graded by the bar's schedule rather than by the player's.
+ *
+ * The complaint this whole feature answers is about exactly that pilot — *"the
+ * maxed out systems carry you over and it's boring"* — so a table showing the
+ * new economy has to have both halves in it or it is measuring one player twice.
+ *
+ * THE ONE RULE, and it is one rule: hold fire unless this shipment will still
+ * be in the air when the press comes round, and will land with enough of an
+ * ADVANCE left in front of it for the row it closes to be crushed inside that
+ * same stroke. That is the EXCELLENT band's definition (grades.ts: the bar has
+ * not reversed since the landing) expressed as a decision the pilot can make
+ * two seconds early.
+ *
+ * WHAT IT COSTS, which is the reason this is a strategy and not a free lunch:
+ * shots. A held cooldown is a launch that never happened, the bay clock does
+ * not stop, and the bay's target is unchanged. So the arm trades VOLUME for
+ * GRADE, and whether that trade pays is precisely the question the sweep is
+ * asking rather than something this file asserts.
+ *
+ * WHAT IT DOES NOT MODEL, for the ledger. It predicts the bar with the bar's
+ * own nominal speed, so a bay labouring under rebar (`compactor.ts`'s
+ * `rigidPressDrag`) has a press slower than this arithmetic expects and the arm
+ * fires slightly early. And its flight estimate is a constant rather than a
+ * read of the arc it is about to fly — see TIMED_FLIGHT_STEPS. Both errors push
+ * the same way: they cost the arm grades it aimed for, so a timed row this arm
+ * reports is a timed row a human could also have got.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Physics steps this pilot assumes a shipment spends between leaving the muzzle
+ * and having FINISHED arriving — every cube of it at rest, which is the moment
+ * the grade's clock actually reads (a row is graded on its NEWEST landing, so
+ * the number to predict is the shipment's last cube down, not its first).
+ *
+ * MEASURED, over the aim search's own grid (15°-55° in 5° steps x four powers,
+ * on bays 1/5/10 at Mark 10, wind pinned off) — `sim/_scratch-flight.ts`:
+ *
+ *   bay    min  p25  median  p75  max
+ *   1       33   60    71     85  107
+ *   5       37   59    74     82  103
+ *   10      34   64    75     83  104
+ *
+ * 75 — the deep bays' median, and inside a step of the shallow one's. Flat
+ * across the ladder, which is worth stating because it is the reason ONE
+ * constant is defensible: `compactorSpeed` ramps per bay but gravity, drag and
+ * the muzzle range do not, so a bay's press gets faster while its flights stay
+ * the same length. That is also exactly why EXCELLENT gets rarer as the ladder
+ * climbs, which the arms table shows.
+ *
+ * A CONSTANT rather than a per-shot read of `g.trajectory`, deliberately: the
+ * preview arc ends where the cargo first CONTACTS something, and the clock
+ * starts several bounces later. The spread above (33-107) is the error this
+ * pilot carries, and it is what the margin below absorbs — badly, on purpose.
+ * A shot mistimed by the spread is a shot graded one band down, which is the
+ * arm losing grades it aimed for rather than being handed them.
+ *
+ * THE FIRST VALUE HERE WAS 120, PICKED FROM THE COOLDOWN RATHER THAN MEASURED,
+ * and the census caught it: at 120 the arm scored 0% EXCELLENT at bay 10 on
+ * every seed while the undisciplined control managed 7%, i.e. the "timed" pilot
+ * was systematically timing itself out of the band it exists to hit.
+ */
+export const TIMED_FLIGHT_STEPS = 75;
+
+/**
+ * How much of the advancing stroke has to be left ahead of the landing, in
+ * steps, before this pilot will take the shot.
+ *
+ * A landing needs the press to keep coming for two separate reasons and this
+ * one number buys both: `settleZoneCubes` grinds the cargo onto the slot grid
+ * only while the bar is advancing, and `updateLineClear` only ever runs on an
+ * advancing bar. A shipment that lands two steps before full advance is
+ * therefore a shipment graded GOOD at best, whatever the aim was worth.
+ *
+ * 40 steps is two thirds of a second at 60Hz, and it is sized off the grind
+ * rather than off the stroke: `X_RATE` is 0.5 px/step, so squaring a cube from
+ * the far edge of `SETTLE_SLOT_TOL` (half a cell, 20px) onto its slot centre
+ * takes 40 steps at stock Hydraulics. A refitted press does it faster, which is
+ * one of the things the arms table is measuring and not something to bake in.
+ */
+export const TIMED_PRESS_MARGIN_STEPS = 40;
+
+/**
+ * Clock (ms) under which the timing rule switches off entirely.
+ *
+ * `LANCE_DUMP_MS`'s argument verbatim, and the same number: discipline is a way
+ * of spending a resource better, and the resource here is the bay clock. A
+ * pilot still holding out for a perfect phase with twenty seconds left is
+ * holding out for a bay it has already lost — and the bays where that matters
+ * are exactly the deep ones this feature is aimed at, where the target is
+ * highest and the margin thinnest.
+ */
+export const TIMED_DUMP_MS = LANCE_DUMP_MS;
+
+/**
+ * Where the bar will be `steps` from now, as (advancing?, steps of advance left).
+ *
+ * Closed form rather than a simulated loop: the bar is a triangle wave between
+ * two fixed stops at one speed (`Compactor.update`), so its phase `n` steps out
+ * is arithmetic on one modulo. A loop would be a second copy of `update`'s
+ * stop-and-flip logic living in the harness, which is how a sweep ends up
+ * describing a compactor that no longer exists.
+ *
+ * Returns null when the bay's bar is degenerate (zero span or speed), which no
+ * shipped level produces and a hand-built config could — the caller then simply
+ * does not hold fire, which is the right failure: a timing rule that cannot
+ * read the clock must not become a rule against firing.
+ */
+export function pressPhaseAfter(
+  g: Game, steps: number,
+): { advancing: boolean; advanceLeft: number } | null {
+  const c = g.compactor;
+  const span = c.rightX - c.leftX;
+  if (span <= 0 || c.speed <= 0) return null;
+  const half = span / c.speed;
+  // Position along ONE round trip, measured in steps from the open stop at the
+  // start of an advance — the same origin `Compactor.reset` leaves the bar at.
+  const travelled = (c.x - c.leftX) / c.speed;
+  const nowPhase = c.dir === 1 ? travelled : 2 * half - travelled;
+  const then = ((nowPhase + steps) % (2 * half) + 2 * half) % (2 * half);
+  return then < half
+    ? { advancing: true, advanceLeft: half - then }
+    : { advancing: false, advanceLeft: 0 };
+}
+
+/** The rule itself, so the pin can call it with numbers instead of a Game. */
+export function shouldHoldForPress(
+  phase: { advancing: boolean; advanceLeft: number } | null,
+  margin = TIMED_PRESS_MARGIN_STEPS,
+): boolean {
+  if (!phase) return false;
+  return !(phase.advancing && phase.advanceLeft >= margin);
+}
+
+function timedAware(): AimStrategy {
+  return {
+    name: "timed",
+    // The HOLD lives in `abilities` because that is the only hook called
+    // outside the pilot's cooldown-and-funds gate, and returning true is
+    // exactly "spend the tick without acting" (see the interface). Nothing is
+    // actually spent — the point of this hook here is the tick, not a charge.
+    abilities(g) {
+      if (g.timeLeftMs < TIMED_DUMP_MS) return false;
+      return shouldHoldForPress(pressPhaseAfter(g, TIMED_FLIGHT_STEPS));
+    },
+  };
+}
+
+export const timedStrategy: AimStrategySpec = { name: "timed", build: timedAware };
+
+/* ---------------------------------------------------------------------------
+ * THE EXCELLENT PILOT — the calibration CEILING
+ *
+ * The owner's ask: *"can the aim bot only do excellent launches? I feel this
+ * mechanic is actually good to push the players in the right direction."*
+ *
+ * It is a different rule from `timed`, and the difference is the whole reason
+ * this is a second strategy rather than a tuned constant on the first. Under
+ * the owner's 100ms window (grades.ts's EXCELLENT_WINDOW_MS) the top band is
+ * reachable only by cargo that lands into a row the press can close IMMEDIATELY
+ * — and `updateLineClear` only accepts a row of `compactorMinLineCells` cubes
+ * when the zone has narrowed to that width, i.e. when the bar is at or very
+ * near full advance. So:
+ *
+ *   `timed`      wants the press still COMING — at least
+ *                TIMED_PRESS_MARGIN_STEPS of advance left, so the grind has
+ *                time to square the pile. That produces GOOD.
+ *   `excellent`  wants the press ARRIVING — the landing inside the last few
+ *                steps of the advance, so a completed row sells on the step the
+ *                cargo settles.
+ *
+ * The two rules are therefore in direct opposition on the same axis, which is
+ * the ladder's own tension made into two pilots: you can play for the grind or
+ * play for the crush, and only one of them pays the premium.
+ *
+ * WHAT THIS ARM CAN AND CANNOT SAY. Its flight estimate is the same constant
+ * `timed` uses (TIMED_FLIGHT_STEPS = 75) against a measured spread of 33-107
+ * steps, so it is aiming at a six-step window with a thirty-step error bar. It
+ * is a FLOOR on the band's reachability, and a hard one: a human watching the
+ * arc and the bar does far better than a pilot predicting both open-loop. The
+ * arms table in design/balance/timed-clears.md prints what it actually hits.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * HOW LATE IN THE ADVANCE THE ARM AIMS ITS LANDING — derived, not tuned.
+ *
+ * The first version of this arm used EXCELLENT_WINDOW_STEPS itself (6) and it
+ * measured as a HANDICAP rather than a ceiling: 0% EXCELLENT on every row and a
+ * win rate below the undisciplined control. The reason is the flight estimate —
+ * TIMED_FLIGHT_STEPS is one constant against a measured 33-107 step spread, so
+ * an arm aiming at a six-step window has a thirty-step error bar and mostly
+ * lands outside the advance altogether, which costs it a whole round trip.
+ *
+ * The right window is not the grade's; it is the CLEAR CHECK'S. A row of
+ * `compactorMinLineCells` cubes is only eligible at all while the zone has
+ * narrowed to that width: `zoneGrid` takes `needed = round(zoneW / CELL)`, so
+ * the row is eligible exactly while `zoneW <= (minCells + 0.5) * CELL`, i.e.
+ * while the face is within half a cell of full advance. In steps that is
+ *
+ *     0.5 * CELL / compactorSpeed
+ *
+ * — about 17 at stock Hydraulics, and shorter on a refitted press, which is why
+ * it is computed per bay rather than written down as a number. Landing inside
+ * it is the only way a completed row sells on the step the cargo settles, which
+ * is the only way to reach the owner's 100ms window. Landing before it means
+ * the press has to grind, and grinding blows the window by construction.
+ */
+export function crushWindowSteps(g: Game): number {
+  return (0.5 * CELL) / Math.max(0.01, g.compactor.speed);
+}
+
+/** The rule, callable with numbers so a pin does not need a Game. */
+export function shouldHoldForCrush(
+  phase: { advancing: boolean; advanceLeft: number } | null,
+  window: number,
+): boolean {
+  if (!phase) return false;
+  // `advanceLeft > 0` matters as much as the ceiling: a landing ON the stop tick
+  // has no press behind it at all, and the bar then retreats for a whole
+  // half-cycle before anything can clear.
+  return !(phase.advancing && phase.advanceLeft > 0 && phase.advanceLeft <= window);
+}
+
+/**
+ * How long the arm will hold out for a crush before settling for a grind.
+ *
+ * MEASURED, and the arm does not work without it: holding for the crush window
+ * alone, this pilot took SEVEN shots in a 180-second bay and lost it with zero
+ * lines, where the two control arms took 37 and 15 and both won
+ * (`sim/_scratch-excelprobe.ts`, seed 1000, Mark 1 bay 1). The reason is a
+ * beat rather than a probability — the reload is a fixed 1350ms and the bar's
+ * round trip is a fixed ~222 steps, so a pilot that can only fire in one
+ * seventeen-step slice of each round trip spends most of them ready and
+ * waiting for a slice that has already gone past.
+ *
+ * One full round trip of patience, expressed as one, so the fallback is "you
+ * have watched the press go all the way round and back without a chance —
+ * take the grind" rather than a step count someone would have to decode. After
+ * it, the arm relaxes to `timed`'s rule for that shot: the press still coming,
+ * which pays GOOD. A pilot that loses the bay holding out for the top band is
+ * not a ceiling, it is a cautionary tale.
+ */
+export function excellentPatienceSteps(g: Game): number {
+  const c = g.compactor;
+  return c.speed > 0 ? (2 * (c.rightX - c.leftX)) / c.speed : 0;
+}
+
+function excellentAware(): AimStrategy {
+  /** Ticks since this pilot last actually LAUNCHED. Counted against the shot
+   *  rather than against the hold, and that distinction is the whole of the
+   *  fallback: an earlier draft reset the counter every time the crush window
+   *  opened, which is most of what a starved pilot does — arrive at the window
+   *  with the cannon still cooling, reset, and starve again. Measured, that
+   *  version took the same 7 shots as no fallback at all. `shotsFired` is the
+   *  only honest witness that a shot happened. */
+  let waited = 0;
+  let lastShots = -1;
+  return {
+    name: "excellent",
+    abilities(g) {
+      if (lastShots !== g.shotsFired) { lastShots = g.shotsFired; waited = 0; }
+      waited += 1;
+      if (g.timeLeftMs < TIMED_DUMP_MS) return false;
+      const phase = pressPhaseAfter(g, TIMED_FLIGHT_STEPS);
+      if (!shouldHoldForCrush(phase, crushWindowSteps(g))) return false;
+      // Out of patience: take `timed`'s shot instead of no shot at all.
+      if (waited >= excellentPatienceSteps(g)) return shouldHoldForPress(phase);
+      return true;
+    },
+  };
+}
+
+export const excellentStrategy: AimStrategySpec = {
+  name: "excellent", build: excellentAware,
+};
+
+/* ---------------------------------------------------------------------------
  * THE REGISTRY
  * ------------------------------------------------------------------------- */
 
@@ -685,6 +967,8 @@ export const STRATEGIES: Record<string, AimStrategySpec> = {
   strike: strikeStrategy,
   lance: lanceStrategy,
   cushion: cushionStrategy,
+  timed: timedStrategy,
+  excellent: excellentStrategy,
 };
 
 /** Pair a draft policy with the strategy that flies it. */

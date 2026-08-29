@@ -4,6 +4,11 @@ import { removeConstraintsFor, type Cube } from "./pieces";
 import { MATERIAL_SPEC } from "./theme";
 import type { Compactor } from "./compactor";
 import type { LevelConfig } from "./level";
+import {
+  awardedGrade, gradeForRow,
+  type ClearClock, type ClearContext, type ClearGrade, type LandingStamp,
+  type RowParticipation,
+} from "./grades";
 
 const SETTLE = 3.2; // px/step below which a cube counts as compacted/at rest
 const SETTLE_SQ = SETTLE * SETTLE; // squared-speed compare avoids a sqrt per cube
@@ -660,6 +665,199 @@ export function resetLineClear(): void {
   /* no persistent state */
 }
 
+/**
+ * Stamp every cube that has just come to rest for the first time with the
+ * compactor's clock — the landing half of the timing grade (grades.ts).
+ *
+ * IT LIVES HERE, beside `updateLineClear`, because it has to use the SAME
+ * definition of "at rest" the row scan does. That threshold is `SETTLE`, it is
+ * private to this file, and a copy of it anywhere else is a copy free to drift:
+ * a stamping pass that called a cube settled a frame before the row scan did
+ * would hand out landings for cargo the clear check had already refused, and
+ * one that lagged behind would grade a row against a landing that had not
+ * happened yet. game.ts's own `isAtRest` (2.5 px/step) is a DIFFERENT question
+ * asked for the broke-loss and topout checks, and using it here would have been
+ * exactly that drift.
+ *
+ * FIRST REST ONLY — the `!== undefined` guard is the whole mechanic, not an
+ * optimisation. See `Cube.landedStroke`: cargo knocked loose and re-settled
+ * keeps its original landing, so a stale pile's clock cannot be reset by
+ * disturbing it.
+ *
+ * Called once per step, BEFORE the clear check, so every cube the row scan can
+ * accept is already stamped and `gradeForRow`'s null branch is unreachable in
+ * play.
+ */
+export function stampLandings(cubes: Cube[], clock: ClearClock): void {
+  for (const cube of cubes) {
+    if (cube.landedStroke !== undefined) continue;
+    const v = cube.body.velocity;
+    if (v.x * v.x + v.y * v.y >= SETTLE_SQ) continue;
+    cube.landedStroke = clock.stroke;
+    cube.landedHalfCycle = clock.halfCycle;
+    // ...and the fixed step, which is what the EXCELLENT window is measured in.
+    // From the SAME sampled clock the other two come from, so the difference the
+    // grade takes is exact by construction — there is no second reading of the
+    // step counter anywhere in a step, and therefore no fencepost of the kind
+    // §2c found in the bar's counters.
+    cube.landedStep = clock.step;
+  }
+}
+
+/** A cube's landing as the grade reads it, or null while it has never rested.
+ *  Exported so the sim can assert against the stamp a cube actually carries
+ *  rather than re-deriving the pair from two optional fields. */
+export function landingOf(cube: Cube): LandingStamp | null {
+  return cube.landedStroke === undefined || cube.landedHalfCycle === undefined
+    || cube.landedStep === undefined
+    ? null
+    : {
+      stroke: cube.landedStroke,
+      halfCycle: cube.landedHalfCycle,
+      step: cube.landedStep,
+    };
+}
+
+/**
+ * The NEWEST landing among the cubes that filled one row — the landing that
+ * actually closed it, which is what the grade is a grade OF.
+ *
+ * "Newest" is measured on `halfCycle` alone, and it is the right key precisely
+ * because it is the finer of the two: it advances at both stops where `stroke`
+ * advances at one, so two cubes that landed in the same round trip but on
+ * opposite sides of the turn are ordered correctly, where a stroke comparison
+ * would call them equal and pick whichever the row scan happened to walk first.
+ * Order-independence matters here — the slot array is filled by walking the
+ * candidate list, and a grade that depended on that walk would depend on cube
+ * spawn order.
+ *
+ * Null only when NO cube in the row has ever rested, which the row scan makes
+ * unreachable; `gradeForRow` still handles it, conservatively.
+ */
+export function newestLanding(row: readonly Cube[]): LandingStamp | null {
+  let best: LandingStamp | null = null;
+  for (const cube of row) {
+    const stamp = landingOf(cube);
+    if (!stamp) continue;
+    if (!best || stamp.halfCycle > best.halfCycle) best = stamp;
+  }
+  return best;
+}
+
+/* ---------------------------------------------------------------------------
+ * PARTICIPATION — was this row the player's shot, or one the press found?
+ *
+ * grades.ts's `RowParticipation` states the rule; this is what measures it, and
+ * the two constants below are the whole of the IMPACT-ASSIST branch's honesty
+ * budget, so they are named and derived rather than inlined.
+ * ------------------------------------------------------------------------ */
+
+/** How far off a row cube's column an assisting shipment cube may sit and still
+ *  count as resting ON it. 0.6 of a cell: wider than X_TOL (the slot grid's own
+ *  tolerance, 0.3) so a cube that is squarely on top of a slot still qualifies
+ *  after the grind has nudged the row, and narrower than a full cell so a cube
+ *  over the NEXT column along is never mistaken for weight on this one. */
+export const IMPACT_ASSIST_X_TOL = 0.6 * CELL;
+
+/** The vertical band a cube must sit in to be "directly on top of" a row cube:
+ *  between half a cell and one and a half above it. One cell is contact; the
+ *  half-cell either side is the same slop the row scan's own Y_TOL allows
+ *  twice over, which is what a pile still settling under an impact looks like.
+ *  Anything higher is a cube resting on something ELSE that happens to be above
+ *  the row, and that is not weight this row felt. */
+export const IMPACT_ASSIST_Y_MIN = 0.5 * CELL;
+export const IMPACT_ASSIST_Y_MAX = 1.5 * CELL;
+
+/**
+ * How the LATEST shipment took part in one cleared row.
+ *
+ * `"in-row"` is the plain reading of the owner's rule and needs no defence: a
+ * cube of the shipment fills one of the row's slots.
+ *
+ * `"impact"` is the case he asked for by name — the shipment landed ABOVE the
+ * row and the row closed anyway — and it is the one branch here that claims
+ * less than it looks like it does. **It is not a causal test and cannot be
+ * one.** matter-js has no counterfactual: nothing in the engine can answer
+ * "would this row have closed had the shipment not landed on it", because the
+ * only way to ask is to run the step twice with different worlds, and a physics
+ * step is not reversible. What IS decidable, and what this measures, is the
+ * CONFIGURATION plus the TIMING:
+ *
+ *   - a cube of the current shipment is resting directly over one of the row's
+ *     slot cubes (the two constants above), and
+ *   - it has come to rest — an unstamped cube is still arriving and its weight
+ *     is not yet on anything, and
+ *   - the row's own clock band is whatever it is: this gate never PROMOTES a
+ *     row, it only declines to cap one.
+ *
+ * The residual false positive is a shipment dropped onto a row that was going
+ * to close on that exact tick anyway. That is a coincidence of precisely the
+ * tightness the EXCELLENT band already demands of every other row it pays, so
+ * admitting it costs the ladder nothing it was not already paying — and the
+ * alternative (refusing the branch) throws away the play the owner singled out
+ * as the best thing the mechanic does. design/balance/timed-clears.md §2g
+ * carries the rejected detectors and why each one was worse.
+ *
+ * `shipment` of 0 — a bay that has not launched yet — matches no cube, so the
+ * answer is `"none"` and the opening pile cannot sell a premium.
+ */
+export interface RowClaim {
+  participation: RowParticipation;
+  /** The IMPACT-ASSISTING shipment cube's landing — the newest one over the
+   *  row — or null when nothing was resting on it.
+   *
+   *  This is the half the 100ms window needs. The row's own cubes are stale by
+   *  construction in the assist case (they had already settled; the shipment is
+   *  what came down on them), so measuring the window from their landings would
+   *  make the owner's slam permanently ineligible for the band it was described
+   *  as deserving. The landing that CLOSED the row is the one that arrived, and
+   *  `updateLineClear` takes the newer of the two. */
+  assist: LandingStamp | null;
+}
+
+export function rowClaim(
+  row: readonly Cube[],
+  all: readonly Cube[],
+  shipment: number,
+): RowClaim {
+  if (!shipment) return { participation: "none", assist: null };
+  for (const cube of row) {
+    if (cube.shipment === shipment) return { participation: "in-row", assist: null };
+  }
+  // IMPACT ASSIST. Walked over the whole field rather than over the row,
+  // obviously — the assisting cube is by definition NOT in the row. The NEWEST
+  // qualifying landing wins, on `halfCycle` for `newestLanding`'s reason.
+  let assist: LandingStamp | null = null;
+  for (const cube of all) {
+    if (cube.shipment !== shipment) continue;
+    if (cube.blinkStart !== null) continue;
+    // Still arriving: its weight is not on anything yet. `landedStroke` is the
+    // grade's own definition of "has come to rest" (stampLandings), reused here
+    // rather than re-tested against SETTLE_SQ so the two can never drift.
+    const stamp = landingOf(cube);
+    if (!stamp) continue;
+    const p = cube.body.position;
+    for (const under of row) {
+      const q = under.body.position;
+      const dy = q.y - p.y;
+      if (dy < IMPACT_ASSIST_Y_MIN || dy > IMPACT_ASSIST_Y_MAX) continue;
+      if (Math.abs(q.x - p.x) > IMPACT_ASSIST_X_TOL) continue;
+      if (!assist || stamp.halfCycle > assist.halfCycle) assist = stamp;
+      break;
+    }
+  }
+  return assist ? { participation: "impact", assist } : { participation: "none", assist: null };
+}
+
+/** Just the verdict, for callers that do not need the landing. */
+export function rowParticipation(
+  row: readonly Cube[],
+  all: readonly Cube[],
+  shipment: number,
+): RowParticipation {
+  return rowClaim(row, all, shipment).participation;
+}
+
 /** Normalize an angle (possibly negative, possibly many turns around) into [0, 2*PI). */
 function normalizeAngle(angle: number): number {
   const twoPi = Math.PI * 2;
@@ -831,6 +1029,83 @@ export interface ClearResult {
   cubes: { x: number; y: number; color: string }[];
   /** Center Y of each cleared row, for a row-flash effect. */
   rows: number[];
+  /** One entry per cleared row, in `rows` order — the row's TIMING GRADE and
+   *  the landing it was measured from (grades.ts).
+   *
+   *  A parallel array rather than a field on a richer row object, because
+   *  `rows` is consumed by the row-flash FX as a bare list of y coordinates and
+   *  nothing about a visual effect should have to know the money exists. The
+   *  two are index-aligned by construction — both are pushed in the same loop —
+   *  and sim/systems.ts pins the lengths equal. */
+  graded: GradedRow[];
+}
+
+/** One cleared row, priced. */
+export interface GradedRow {
+  /** Center Y — the same value at the matching index of `ClearResult.rows`. */
+  y: number;
+  /** The landing this row was PRICED from — the newest among the cubes that
+   *  filled its slots, or, in the impact-assist case, the shipment that came to
+   *  rest on top of it (`rowClaim`). Null only when nothing involved had ever
+   *  rested, which the row scan makes unreachable in play. */
+  landing: LandingStamp | null;
+  /** What the CLOCK alone said (grades.ts's `gradeForRow`) — before the two
+   *  gates. Carried so the derivation is inspectable and so `capped` is a fact
+   *  rather than a second opinion; NOTHING pays this. The money, the tally, the
+   *  callout and the end card all read `grade`. */
+  raw: ClearGrade;
+  /** The band the bay actually SELLS this row at — the raw band after
+   *  grades.ts's `awardedGrade`. The only field any consumer should price. */
+  grade: ClearGrade;
+  /** Was the bay congested at the top of the step this row cleared? */
+  congested: boolean;
+  /** How the latest shipment took part in the row (grades.ts). */
+  participation: RowParticipation;
+  /** Did a gate actually lower this row's band? `grade !== raw`, precomputed
+   *  because it is what the callout draws and a UI re-deriving it would be free
+   *  to re-derive it wrongly. False for a row that was already at or under the
+   *  cap — a LUCKY row in a congested bay is not "capped", it is just late. */
+  capped: boolean;
+}
+
+/**
+ * The grade one CLEAR is announced as — the grade of the row whose newest cargo
+ * landed most recently.
+ *
+ * The money is per row and this is not; the callout is one toast over a crush
+ * that may have taken four rows at four different grades, and it has to pick
+ * one. Three rules were on the table and this is the one that says something
+ * true about the PLAYER:
+ *
+ *  - THE BEST grade over-praises. One threaded row would brand a stack-and-
+ *    collapse "EXCELLENT!", which is the exact play the grade exists to price
+ *    down.
+ *  - THE WORST under-praises, and worse, contradicts the number beside it: a
+ *    player who threads a row perfectly and happens to also drop a stale one
+ *    would be paid for the Excellent and told they got lucky.
+ *  - THE ROW THE SHOT JUST CLOSED is what the toast is a verdict on. The rows
+ *    that came with it are still paid at their own rate — the ledger is per row
+ *    and stays per row — but the sentence over the pile is about the shipment
+ *    the player just placed, which is the thing they are being taught to aim.
+ *
+ * Null for an empty list, so a caller with nothing to announce has nothing to
+ * draw rather than a default grade.
+ */
+export function headlineRow(graded: readonly GradedRow[]): GradedRow | null {
+  let best: GradedRow | null = null;
+  for (const row of graded) {
+    if (!best) { best = row; continue; }
+    const a = row.landing?.halfCycle ?? -1;
+    const b = best.landing?.halfCycle ?? -1;
+    if (a > b) best = row;
+  }
+  return best;
+}
+
+/** The headline row's AWARDED band — never its raw one, so the toast can never
+ *  shout a grade the ledger did not pay. */
+export function headlineGrade(graded: readonly GradedRow[]): ClearGrade | null {
+  return headlineRow(graded)?.grade ?? null;
 }
 
 export function updateLineClear(
@@ -839,13 +1114,30 @@ export function updateLineClear(
   compactor: Compactor,
   level: LevelConfig,
   constraints: Matter.Constraint[],
+  /** Everything the timing grade needs about the STEP this clear is being
+   *  evaluated on (grades.ts's `ClearContext`): the sampled clock, the bay's
+   *  congestion at the top of the step, and which shipment is the latest.
+   *
+   *  REQUIRED, and the clock inside it used to be an optional argument that
+   *  defaulted to the bar's own live reading. That default was the trap that
+   *  produced PR #168's fencepost: `update()` advances the counters partway
+   *  through the step, so the default read a DIFFERENT clock from the one the
+   *  landing stamp had used moments earlier, and a row closed on the tick the
+   *  press completed was charged a sweep it had not survived. A caller that has
+   *  to name all three cannot make that mistake by omission, and there is no
+   *  honest value to default any of them to — "the bar right now" is precisely
+   *  the wrong answer inside a step that has already moved it, "not congested"
+   *  is the answer that pays the premium the gate exists to withhold, and
+   *  "shipment 0" would silently cap every row in the game. */
+  ctx: ClearContext,
 ): ClearResult {
+  const { clock } = ctx;
   // Zone narrower than the minimum-line stop shouldn't happen (the compactor's
   // own right stop is clamped there), but zoneGrid guards against it
   // defensively — the bar keeps ping-ponging between its stops, it never
   // teleports.
   const zone = zoneGrid(compactor, level);
-  if (!zone) return { lines: 0, cubes: [], rows: [] };
+  if (!zone) return { lines: 0, cubes: [], rows: [], graded: [] };
   // Dynamic threshold: compactorMinLineCells cubes at full advance, growing
   // toward compactorOpenCells as the compactor opens back up and the zone widens.
   const { needed } = zone;
@@ -870,6 +1162,7 @@ export function updateLineClear(
 
   const toRemove = new Set<Cube>();
   const rows: number[] = [];
+  const graded: GradedRow[] = [];
   const maxRow = Math.ceil(WORLD.height / CELL);
 
   for (let r = 0; r < maxRow; r++) {
@@ -895,7 +1188,40 @@ export function updateLineClear(
     if (duplicate) continue; // overlapping stack contending for a slot — not clean
     if (slots.some((s) => s === null)) continue; // hole in the row
 
-    for (const c of slots) toRemove.add(c!);
+    // GRADED FROM THE SLOT CUBES, not from the removal set. `toRemove` is a
+    // union across every row that cleared this step, so reading the newest
+    // landing off it would let one row's fresh shipment grade a row three
+    // levels down that the same crush happened to close. A row is priced on the
+    // cargo that filled ITS slots.
+    const filled = slots as Cube[];
+    const landing = newestLanding(filled);
+    // THE CLOCK, THEN THE GATES, in that order and never folded together. The
+    // raw band is a fact about the press; the awarded band is what the bay is
+    // allowed to sell it as. Keeping both on the row is what lets the callout
+    // say "this WOULD have been a timed row" without any consumer being able to
+    // pay the one that was withheld.
+    //
+    // PARTICIPATION IS MEASURED AGAINST `cubes`, THE WHOLE FIELD, and against
+    // the row's own slot cubes — never against `toRemove`. Same rule the grade
+    // itself follows two lines up and for the same reason: `toRemove` is a
+    // union across every row this crush takes, so an impact-assist over the
+    // FLOOR row would otherwise vouch for the stale row three levels above it.
+    const claim = rowClaim(filled, cubes, ctx.shipment);
+    const { participation } = claim;
+    // THE LANDING THAT CLOSED THE ROW. Normally the row's own newest; in the
+    // impact-assist case the shipment that came down ON the row, which is by
+    // construction not in it. The NEWER of the two rather than the assist
+    // outright, so a stale assist can never drag a fresh row down.
+    const closing = claim.assist && (!landing || claim.assist.halfCycle >= landing.halfCycle)
+      ? claim.assist
+      : landing;
+    const raw = gradeForRow(closing, clock);
+    const grade = awardedGrade(raw, { congested: ctx.congested, participation });
+    graded.push({
+      y: rowY, landing: closing, raw, grade,
+      congested: ctx.congested, participation, capped: grade !== raw,
+    });
+    for (const c of filled) toRemove.add(c);
     rows.push(rowY);
   }
 
@@ -917,7 +1243,7 @@ export function updateLineClear(
     // survivors around every removal so they fall, instead of sleeping on air.
     for (const r of removedCubes) wakeNear(cubes, r.x, r.y);
   }
-  return { lines: rows.length, cubes: removedCubes, rows };
+  return { lines: rows.length, cubes: removedCubes, rows, graded };
 }
 
 /** How close the bar's face must come to a cube's left edge to count as

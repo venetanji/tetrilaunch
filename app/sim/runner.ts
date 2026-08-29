@@ -4,6 +4,7 @@
 import { Game } from "../src/game/game";
 import type { LevelConfig } from "../src/game/level";
 import type { Bot } from "./bots";
+import type { GradeTally } from "../src/game/grades";
 
 const DT = 1000 / 60;
 
@@ -58,6 +59,17 @@ export interface BayOutcome {
    *  the absence of a charge, which is indistinguishable from never having been
    *  charged at all. */
   incineratedFunds: number;
+  /** Rows this bay sold at each TIMING GRADE (`Game.gradeTally`,
+   *  `src/game/grades.ts`).
+   *
+   *  The one outcome field that reports HOW the bay was played rather than what
+   *  it produced, and the reason every sweep in this directory can now separate
+   *  "this rig cleared the bay" from "this rig cleared the bay the way the
+   *  economy is asking it to". A win rate alone cannot: two pilots reaching the
+   *  same target with the same line count are indistinguishable in every other
+   *  field here, and under a graded payout they may have banked very different
+   *  money doing it. */
+  grades: GradeTally;
 }
 
 /**
@@ -114,6 +126,7 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     salvagedFunds: g.salvagedFunds,
     volatileLosses: g.volatileLosses,
     incineratedFunds: g.incineratedFunds,
+    grades: { ...g.gradeTally },
   };
 
   g.destroy();

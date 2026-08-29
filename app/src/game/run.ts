@@ -1,4 +1,5 @@
 import type { LevelConfig } from "./level";
+import { addGradeTally, newGradeTally, type GradeTally } from "./grades";
 import { applySkydeckEconomy, makeBaseLevel } from "./level";
 import { applyRatchets, picksPerBay, type Ratchets, type HazardId } from "./hazards";
 import { applyFinal, applyFinals, type FinalId } from "./finals";
@@ -89,6 +90,16 @@ export interface RunState {
   /** Total scrap earned this run, spent or not — a stat for the end screen, so
    *  a run that banked and never refitted still reads as having earned it. */
   scrapEarned: number;
+  /** Rows the run has sold at each TIMING GRADE (grades.ts), summed over every
+   *  bay it banked.
+   *
+   *  A READOUT in the same sense salvagedFunds and volatileLosses below are —
+   *  the money already landed in each bay's score as the row sold, so nothing
+   *  downstream may pay off this. It exists because the grade is the one
+   *  mechanic in the game whose whole content is a JUDGEMENT of how the player
+   *  played, and a judgement nobody is ever shown is indistinguishable from not
+   *  making one. The end card's breakdown is where the run gets told. */
+  grades: GradeTally;
   /** Funds demolition charges refunded across the run (Game.salvagedFunds per
    *  bay, summed here). Purely a READOUT: the money already landed in the bay's
    *  score the moment the charge blew, so this must never feed `carry` or the
@@ -513,6 +524,8 @@ export function newRun(
     filed: false,
     scrap: startingScrap,
     scrapEarned: startingScrap,
+    // Nothing has been cleared, so nothing has been judged.
+    grades: newGradeTally(),
     // No starting-scrap equivalent: nothing has been blown up yet, and
     // nothing has been blown up ON the player either.
     salvagedFunds: 0,
@@ -747,15 +760,25 @@ export const CARRY_CAP = 150;
  *  `incineratedFunds` is what the Incinerator saved the just-played bay
  *  (Game.incineratedFunds) — a STAT, defaulting to 0 like the other two.
  *
- *  The five trailing arguments are STOCKS and STATS mixed, which is worth
+ *  `grades` is the just-played bay's TIMING TALLY (Game.gradeTally) — a STAT,
+ *  and it defaults to an EMPTY tally for exactly the reason `salvagedFunds`
+ *  defaults to 0 rather than to the running total: a caller that forgets it
+ *  under-reports one bay, where carrying the run's own tally forward would
+ *  re-count every bay before it. A fresh object per call, never a shared
+ *  constant, so a forgetful caller cannot end up aliasing the run's own tally.
+ *
+ *  The six trailing arguments are STOCKS and STATS mixed, which is worth
  *  naming because it is the one way this signature can bite: a STOCK
  *  (`bondsLeft`, `thawLeft`) defaults to what the run already holds, and a STAT
- *  (`salvagedFunds`, `volatileLosses`, `incineratedFunds`) defaults to 0. They
- *  are in arrival order rather than grouped by kind on purpose — regrouping
- *  would move `salvagedFunds` and silently re-point every positional caller,
- *  which for a bare number is a bug no type checker can see. The newest one
- *  goes on the END for the same reason, even though it would read better
- *  beside the two stats it belongs with.
+ *  (`salvagedFunds`, `volatileLosses`, `incineratedFunds`, `grades`) defaults
+ *  to nothing. They are in arrival order rather than grouped by kind on purpose
+ *  — regrouping would move `salvagedFunds` and silently re-point every
+ *  positional caller, which for a bare number is a bug no type checker can see.
+ *  The newest one goes on the END for the same reason, even though it would
+ *  read better beside the three stats it belongs with. sim/systems.ts pins the
+ *  POSITION by handing every tail argument a distinct value and reading each
+ *  back off its own field, which is the only test that can fail when two of
+ *  them are transposed.
  *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
@@ -770,6 +793,7 @@ export function advanceRun(
   volatileLosses = 0,
   thawLeft: number = run.thawCharges,
   incineratedFunds = 0,
+  grades: GradeTally = newGradeTally(),
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -795,6 +819,7 @@ export function advanceRun(
     filed: run.filed,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
+    grades: addGradeTally(run.grades, grades),
     salvagedFunds: run.salvagedFunds + salvagedFunds,
     volatileLosses: run.volatileLosses + volatileLosses,
     incineratedFunds: run.incineratedFunds + incineratedFunds,

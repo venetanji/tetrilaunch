@@ -31,6 +31,43 @@ export interface Cube {
    *  materials that don't need striking, so the line-clear check can read this
    *  one field without also re-deriving the material's rules. */
   struck: boolean;
+  /** The compactor's `strokes` / `halfCycles` the FIRST time this cube was seen
+   *  at rest — its landing, in the timing grade's own clock (grades.ts, stamped
+   *  by lineClear.ts's `stampLandings`). Null while the cube has never settled.
+   *
+   *  Stamped ONCE and never refreshed, which is the property the grade rests on:
+   *  a cube a blast, a shatter kick or a neighbour knocked back into the air
+   *  re-settles still carrying the moment it originally arrived, so a stale pile
+   *  cannot have its clock reset by being disturbed. Written as two plain
+   *  numbers on the cube rather than a shared object so a cube can be copied
+   *  without two cubes coming to share one landing.
+   *
+   *  OPTIONAL, and absent means "has never been at rest" — the same stance
+   *  `framed` takes below. `stampLandings` is the only writer and it writes
+   *  lazily, so a spawn site does not have to know the grade exists; a cube it
+   *  forgets is a cube in flight, which is what an unstamped cube IS. */
+  landedStroke?: number;
+  landedHalfCycle?: number;
+  /** ...and `Game.stepCount` at the same instant — the engine's fixed step,
+   *  which is the only clock in the game that measures a DURATION and therefore
+   *  the only one the EXCELLENT window can be expressed in (grades.ts's
+   *  EXCELLENT_WINDOW_MS). Stamped by the same pass, from the same sample, and
+   *  under the same first-rest-only rule as the two above. */
+  landedStep?: number;
+  /** WHICH SHIPMENT this cube arrived in — game.ts's `shipmentSeq` at the
+   *  moment it was launched (grades.ts's `RowParticipation`).
+   *
+   *  Stamped by the LAUNCHER rather than by `createTetrisPiece`, and that is
+   *  deliberate: a shipment is a thing the cannon fires, and the only authority
+   *  on "which one is the latest" is the Game that counts them. A cube built by
+   *  a fixture, a drill wall or a hand-made row carries no shipment at all,
+   *  which is honest — nothing launched it — and reads as `"none"` at the
+   *  participation gate, i.e. list price rather than a premium.
+   *
+   *  A plain number and never a reference to the piece, for `landedStroke`'s
+   *  reason: the shipment comes apart the moment the press shatters its seams,
+   *  and the cubes must keep saying where they came from after it has. */
+  shipment?: number;
   /** Does this cube draw the shape-colour frame around its material (render.ts's
    *  getCubeSprite)? Undefined means yes — only createStandingWall opts out,
    *  because it assigns `type` for looks rather than from a real shipment, and a
