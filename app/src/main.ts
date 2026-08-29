@@ -305,6 +305,25 @@ const HOLD_CLICK_MS = 400;
  *  comfortably below any deliberate second press. */
 const PAD_WAKE_MS = 50;
 
+/** Whether a button sits inside something that actually scrolls, so a touch
+ *  press on it is ambiguous — it may be the first millimetre of a scroll, not
+ *  a press at all (see pressFeedback). Walks ancestors and tests REAL
+ *  scrollability rather than `closest("[data-scroll]")`, because app.css also
+ *  hands drags to scrollers that never opted into the attribute (`.modal`,
+ *  `.draft__body`, the horizontal `.pl-mods` and `.guide__tabs`) — and a new
+ *  scroller should not be able to reintroduce the scrolled-shelf blip by
+ *  forgetting an attribute. Runs once per touch press over a handful of
+ *  ancestors, so the getComputedStyle cost is not worth caching. */
+function inScroller(el: HTMLElement): boolean {
+  for (let n: HTMLElement | null = el; n && n !== document.body; n = n.parentElement) {
+    const s = getComputedStyle(n);
+    const yes = (o: string) => o === "auto" || o === "scroll";
+    if (yes(s.overflowY) && n.scrollHeight > n.clientHeight) return true;
+    if (yes(s.overflowX) && n.scrollWidth > n.clientWidth) return true;
+  }
+  return false;
+}
+
 /**
  * The screens the pad's Controls shortcut (padnav.ts's PAD_CONTROLS) may be
  * pressed on, each mapped to the `data-action` that returns to it — which is
@@ -5623,7 +5642,18 @@ class App {
     // (play, buy, undock, confirm) says so to the ear as well as the eye, and
     // the variant class is the rule, so a new screen gets the right sound by
     // styling its buttons honestly.
-    if (e.detail === 0 && !(e as PointerEvent).pointerType) this.actionFeedback(el);
+    //
+    // ONE pointer press is deferred to here: a touch press inside a scroller,
+    // whose pointerdown may be the start of a scroll rather than a press, so
+    // pressFeedback holds its tongue and the genuine tap's click pays instead
+    // (a touch tap's click carries pointerType "touch", detail 0 — see the
+    // data-game comment above). `deferred` must be the SAME predicate
+    // pressFeedback skips on, or a tap in a scroller goes silent or blips
+    // twice.
+    const deferred = (e as PointerEvent).pointerType === "touch" && inScroller(el);
+    if ((e.detail === 0 && !(e as PointerEvent).pointerType) || deferred) {
+      this.actionFeedback(el);
+    }
     switch (action) {
       // The primary button flies the parked floor — and on the roof, "flying
       // it" is opening the level select, because Tier S is the one floor that
@@ -6093,6 +6123,14 @@ class App {
     if (e.button !== 0) return; // a right/middle press produces no click
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
     if (!el || (el as HTMLButtonElement).disabled) return;
+    // A touch that starts inside a scroller may be the first millimetre of a
+    // SCROLL, not a press — a drag through the refit shelf must not blip like
+    // a purchase. Its feedback waits for the click, which only a real tap
+    // produces: a drag is taken over by the browser and clicks nothing.
+    // onClick's [data-action] branch pays the deferred feedback with the SAME
+    // predicate — change one and you must change the other, or a tap in a
+    // scroller goes silent (or sounds twice).
+    if (e.pointerType === "touch" && inScroller(el)) return;
     this.actionFeedback(el);
   }
 
