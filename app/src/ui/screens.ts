@@ -3888,6 +3888,12 @@ export function pauseModal(
    *  Defaults true so every caller that predates the argument — and every
    *  ladder run, Contract, drill and bench run — is unmoved. */
   restart = true,
+  /** Whether the retry this card offers is the whole RUN rather than the bay
+   *  (run.ts's retryIsWholeRun) — true only on the first bay of a ladder run.
+   *
+   *  Defaults false, so every caller that predates the argument draws the
+   *  Restart Bay it always did. */
+  runRetry = false,
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
@@ -3903,11 +3909,33 @@ export function pauseModal(
              rather than two that drift; the label carries the words, because
              the glyph is aria-hidden and a cost only half the audience can read
              is a cost half the audience is not told about. -->
+        <!-- …EXCEPT ON BAY 1, WHERE THE BAY AND THE RUN ARE THE SAME THING
+             and only one of them was free (owner playtest: "on the first bay
+             there's no point in retrying by breaking the seal"). The argument
+             is run.ts's retryIsWholeRun; the short version is that a bay-1
+             restart charges the run's seal to hand back a bay with nothing
+             behind it, while Quit → Start Run hands back the same offer with
+             the seal intact. So the card offers the free door instead, wearing
+             the loss card's name for it — one wording for one action, the same
+             rule sealFaceHTML follows for the priced one.
+
+             NO GLYPH AND NO PRICE IN THE NAME, because nothing is charged: the
+             action is "restart", which main.ts routes to a brand-new run
+             without ever reaching requestBayRetry's confirmation. A seal face
+             on a free press is the thing that teaches players to stop reading
+             seal faces.
+
+             THE HOLD KEEPS ITS OWN MEANING and the reference block below keeps
+             teaching it. It is not the workaround for a control removed here —
+             it hands back THIS seed, which no button on this card does — and
+             it quotes its own price at the moment of the press. -->
         ${
           restart
-            ? `<button class="btn btn--secondary" data-action="restart-bay"${
-              seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
-            }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>`
+            ? runRetry
+              ? `<button class="btn btn--secondary" data-action="restart">Retry Run</button>`
+              : `<button class="btn btn--secondary" data-action="restart-bay"${
+                seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
+              }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>`
             : ""
         }
         ${

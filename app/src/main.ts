@@ -4,7 +4,7 @@ import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
-  quitLosesProgress, bayRetryable,
+  quitLosesProgress, bayRetryable, retryIsWholeRun,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
 import { addGradeTally } from "./game/grades";
@@ -1245,6 +1245,21 @@ class App {
    */
   private bayRetryOffered(): boolean {
     return !this.run || bayRetryable(this.run);
+  }
+
+  /**
+   * …and whether the retry the pause card offers is the whole RUN rather than
+   * this bay (run.ts's retryIsWholeRun) — true only on the first bay of a
+   * ladder run, where a bay restart charges the seal to hand back a bay with
+   * nothing behind it and Quit → Start Run does the same job for free.
+   *
+   * FALSE WITH NO RUN, which is the opposite default to bayRetryOffered above
+   * and is the honest one: a Contract and a drill have no run to hand back at
+   * all, so their pause card keeps the bay retry (their own re-deal, free) that
+   * it always had.
+   */
+  private runRetryOffered(): boolean {
+    return !!this.run && retryIsWholeRun(this.run);
   }
 
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
@@ -2560,7 +2575,8 @@ class App {
               demo: g.level.bombCharges > 0,
               thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
-            }, this.sealFace(), this.quitFace(), this.bayRetryOffered());
+            }, this.sealFace(), this.quitFace(), this.bayRetryOffered(),
+            this.runRetryOffered());
         }
         break;
       case "bayclear":
@@ -5784,6 +5800,16 @@ class App {
       // configuration rather than dropping into a ladder run — the whole
       // reason to be in the mode is that the bay you just lost is one tap
       // away, and startGame() would silently hand back a different one.
+      //
+      // THE PAUSE CARD IS THE THIRD DOOR now, on bay 1 only (screens.ts's
+      // pauseModal, run.ts's retryIsWholeRun): there the bay and the run are
+      // the same thing and only the run is free, so the card offers this
+      // action instead of restart-bay. It arrives from "paused" rather than
+      // from a settled run, which needs nothing extra — startGame builds a
+      // fresh run and startLevel ends on setState("playing"), which is the
+      // same exit resetBay takes out of that state. The abandoned bay 1 banks
+      // nothing either way, which is the whole reason Quit is ungated there
+      // too (run.ts's quitLosesProgress).
       case "restart":
         if (this.run?.sandbox) this.launchSandbox();
         else this.startGame();

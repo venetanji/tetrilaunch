@@ -953,6 +953,15 @@ export const SCREENS: Record<string, () => string> = {
   // ghost it replaces. That widening lands on the row this fixture exists to
   // measure, which is why it belongs in the default pause and not only in the
   // armed one below.
+  // NO BAY-1 FIXTURE, for the reason there is no Skydeck one (see below): that
+  // card is a strict NARROWING of this one and cannot overflow anything this
+  // does not. Bay 1 swaps the priced Restart Bay for the free Retry Run
+  // (screens.ts's pauseModal, run.ts's retryIsWholeRun), which drops the 11px
+  // seal glyph and its margin and shortens the label by two characters, and it
+  // draws the UNGATED Quit — the bare ghost, ~34px narrower than the gated
+  // button this fixture reserves "QUIT ANYWAY" for. Same four controls, same
+  // reference block, less of both. What bay 1 removes is pinned in
+  // sim/systems.ts, where the question is which control is there.
   pause: () =>
     S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
     S.pauseModal(

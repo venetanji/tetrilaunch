@@ -421,6 +421,49 @@ export function bayRetryable(run: RunState): boolean {
 }
 
 /**
+ * On this run, is the honest retry the WHOLE RUN rather than this bay?
+ *
+ * Owner playtest: "on the first bay there's no point in retrying by breaking
+ * the seal." The arithmetic behind that is the arithmetic quitLosesProgress
+ * below already does, one button along the same row. A bay retry costs the
+ * run's seal (retryBreaksSeal above — and on a fresh run the seal is always at
+ * stake, so bay 1 is precisely where it is charged), and what the charge buys
+ * on bay 1 is the same bay from the same seed with NOTHING behind it: no carry,
+ * no scrap, no notch and no refit, because none of those exist until a bay has
+ * been cleared. Quitting to the menu and pressing Start Run hands back the
+ * identical offer with the seal intact — which is exactly why Quit goes
+ * straight through on bay 1. So the card was standing two doors onto one
+ * moment side by side and pricing the wrong one.
+ *
+ * On bay 1 the card therefore offers the RUN: a fresh run at the same Mark
+ * (main.ts's startGame, the same route the loss card's Retry Run takes), which
+ * charges nothing, confirms nothing, and re-rolls the seed. From bay 2 the two
+ * are genuinely different things — the bay hands the run's carried work back,
+ * the run throws it away — and Restart Bay is unmoved.
+ *
+ * IT DOES NOT ASK THE SEAL, deliberately. A Mark already sealed makes a bay-1
+ * retry free (sealStateFor's "held"), and so does a run that has already spent
+ * its seal to the ⏸ hold — but a button whose IDENTITY flips on state the
+ * player cannot see is a worse control than one that is the same on every bay
+ * 1. The player who wants this seed back still has the hold, which quotes its
+ * own price at the moment of the press.
+ *
+ * TIER S IS EXCLUDED for the reason quitLosesProgress excludes it: the bench
+ * starts at whatever bay was dialled in, so `levelIndex` there counts bays
+ * SKIPPED rather than bays cleared, and re-flying the dialled bay is the whole
+ * point of the mode. THE SKYDECK IS EXCLUDED because it hands nothing back at
+ * all (bayRetryable above): a "retry run" on the roof would be a second attempt
+ * at the day, which is the one thing permadeath exists to refuse.
+ *
+ * A predicate rather than a test at the call site, for the reason the three
+ * above are: the choice is made in main.ts's renderOverlay, which no harness
+ * can call, so what gets pinned is this.
+ */
+export function retryIsWholeRun(run: RunState): boolean {
+  return !run.sandbox && run.skydeck === null && run.levelIndex === 0;
+}
+
+/**
  * Would QUITTING to the menu throw away work this run has done?
  *
  * The pause card's Quit is the only control in the game that ends a live run

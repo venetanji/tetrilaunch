@@ -119,7 +119,7 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, retryBreaksSeal, sealStateFor, quitLosesProgress, bayRetryable,
+  tracksLadder, retryBreaksSeal, sealStateFor, quitLosesProgress, bayRetryable, retryIsWholeRun,
   thawChargesFor, type SealState,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
@@ -13088,6 +13088,84 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     check("...and another day's is a different one",
       JSON.stringify(levelForRun(day(27))) !== JSON.stringify(levelForRun(day(28))));
     check("the gate takes the run alone", bayRetryable.length === 1);
+  }
+
+  // ---- BAY 1'S RETRY IS THE RUN (run.ts's retryIsWholeRun) ----------------
+  // Owner playtest: "on the first bay there's no point in retrying by breaking
+  // the seal." The card had two doors onto one moment and priced the wrong one
+  // — a bay-1 restart charged the run's seal to hand back a bay with nothing
+  // behind it, while Quit → Start Run handed back the same offer with the seal
+  // intact. So on bay 1 the button becomes the free door, wearing the loss
+  // card's name for it.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    // THE COST THAT MADE THIS WORTH DOING, asserted rather than assumed — the
+    // whole change rests on bay 1 being exactly where the seal is charged.
+    check("a bay-1 restart really was the priced door",
+      ladder.levelIndex === 0 && retryBreaksSeal(ladder, []));
+    check("...while quitting the same bay was the free one",
+      !quitLosesProgress(ladder));
+    check("so bay 1 offers the run back", retryIsWholeRun(ladder));
+    check("...and every later bay offers the bay",
+      [1, 2, 5, 9].every((i) => !retryIsWholeRun({ ...ladder, levelIndex: i })));
+    // NOT ASKED OF THE SEAL, deliberately. A sealed Mark or a seal already
+    // spent makes a bay-1 retry free too, and the button still becomes Retry
+    // Run: a control whose identity flips on state the player cannot see is
+    // worse than one that is the same on every bay 1.
+    check("the swap does not depend on the seal",
+      retryIsWholeRun({ ...ladder, restarts: 3 }) && retryIsWholeRun.length === 1);
+    // TIER S IS EXCLUDED for quitLosesProgress's reason: its levelIndex counts
+    // bays SKIPPED, and re-flying the bay in front of it is the whole mode.
+    check("the bench keeps its bay retry", !retryIsWholeRun({ ...ladder, sandbox: true }));
+    check("...even dialled to bay 1, where a bare index test would swap it",
+      sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 1 } }).levelIndex === 0
+        && !retryIsWholeRun(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 1 } })));
+    // THE ROOF IS EXCLUDED because it hands nothing back at all, and a "retry
+    // run" there would be a second attempt at the day.
+    check("the roof's first bay is a retry of nothing",
+      roof.levelIndex === 0 && !retryIsWholeRun(roof));
+    check("...so the two refusals agree", !bayRetryable(roof) && !retryIsWholeRun(roof));
+    check("the gate takes the run alone", retryIsWholeRun.length === 1);
+  }
+
+  // ---- …AND THE CARD SAYS SO (screens.ts's pauseModal) --------------------
+  // One wording for one action: the name is the loss card's, because it is the
+  // loss card's action (main.ts's `restart`). A second name for the same route
+  // is how a player learns that two buttons which read differently might do
+  // the same thing — or that two that read alike might not.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const seal = { state: "at-stake" as SealState, mark: 4 };
+    const bayOne = S.pauseModal(true, "keyboard", abilities, seal, undefined, true, true);
+    const later =
+      S.pauseModal(true, "keyboard", abilities, seal, { armed: false, bayNum: 4 }, true, false);
+    check("bay 1's card offers the run", bayOne.includes(">Retry Run</button>"));
+    check("...in the loss card's own words",
+      end({ retryBay: { seal: "at-stake", mark: 4 } }).includes(">Retry Run<"));
+    check("...through the loss card's own action",
+      /data-action="restart"[^>]*>Retry Run</.test(bayOne));
+    check("...and not the bay",
+      !bayOne.includes('data-action="restart-bay"') && !/Restart Bay/.test(bayOne));
+    // NOTHING IS CHARGED, SO NOTHING IS PRICED. The seal face is still PASSED
+    // in — the ⏸ hold on the same bay still spends it — and this card is what
+    // decides not to draw a price onto a free press.
+    check("...and quotes no price for a free press",
+      !bayOne.includes("btn__seal") && !/breaks this run's seal/.test(bayOne));
+    // THE LATER BAYS ARE UNTOUCHED, which is the half of the change that has to
+    // be provable rather than assumed.
+    check("bay 4's card still offers the bay, priced",
+      later.includes('data-action="restart-bay"') && later.includes("btn__seal")
+        && !later.includes("Retry Run"));
+    // THE HOLD IS STILL TAUGHT on bay 1. It is not the workaround for a control
+    // removed here: it hands back THIS seed, which no button on this card does,
+    // and requestBayRetry quotes its price at the moment of the press.
+    check("bay 1 still teaches the hold", /hold pause to restart/.test(bayOne));
+    // The way out of the card is the way it always was — and Quit is ONE press
+    // there, which is the other half of the same argument: bay 1 banks nothing.
+    check("bay 1 still resumes, and still leaves on one press",
+      bayOne.includes('data-action="resume"') && bayOne.includes('data-action="menu"')
+        && !bayOne.includes('data-action="quit-run"'));
   }
 
   // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
