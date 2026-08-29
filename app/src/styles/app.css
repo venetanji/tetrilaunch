@@ -8740,8 +8740,31 @@ button.panel { color: var(--text); }
    and this card demonstrably fits (1280x720, 1024x768, 1000x760 all measure 0
    over). It is also the threshold `.salvage-row`'s full typography step
    already uses, so the card has ONE width at which it stops being tight rather
-   than two. */
-@media (max-height: 480px), (max-width: 999px) {
+   than two.
+   AND THE WIDTH ARM CARRIES `min-aspect-ratio: 1/1`, which is not belt and
+   braces — it is the whole premise of the arm. Narrow costs the outcome column
+   height only while that column is HALF the panel, and the card is two columns
+   under exactly this query (see `.end`'s grid above; the condition is copied
+   from it verbatim so the two cannot drift). Below 1/1 the grid has already
+   collapsed to one 560px column with the full window's height under it, which
+   is a different card with a different budget — and this arm was never
+   measured against it. Ungated it reached in and changed it: a 900x1000 window
+   is single-column with 829px of panel holding 795px of card, and the arm was
+   hiding the payout footnote that the note below promises back on a taller
+   viewport, while its 1000x1000 neighbour showed that footnote in a panel of
+   551px. Widening a window by 100px must not restore a line that twice the
+   height could not. (Found by review on the PR that added the arm.)
+   With the gate the tall single-column shape measures exactly as it did before
+   this whole change — 0 over at 950x1100, 11px at 900x1000, 94px at 800x900,
+   footnote drawn in all three, identical to staging. That last number is a
+   real single-column overflow and it is NOT this arm's to fix: it predates
+   this work, `.end__main` sits inside its track there (mainOver 0, so it is
+   not the bug this file's `.end__main` note is about), and buying it back by
+   dropping the run's payout line on a window with 861px of panel is not a
+   trade anyone made deliberately. Left as it was found, visible.
+   The height arm stays unqualified: a genuinely short window is short whatever
+   shape it is. */
+@media (max-height: 480px), (max-width: 999px) and (min-aspect-ratio: 1/1) {
   /* The box becomes a rule. A tinted panel costs 12px of padding and 2px of
      border to group two sentences that a left accent groups just as well. */
   .end__why {
