@@ -20,11 +20,12 @@ import Matter from "matter-js";
 import { Game } from "../../src/game/game";
 import { makeBaseLevel } from "../../src/game/level";
 import { CELL, WORLD } from "../../src/game/engine";
-import { PIECE_COLORS, shipmentColor, type Material, type PieceType } from "../../src/game/theme";
+import { MATERIAL_SPEC, PIECE_COLORS, shipmentColor, type Material, type PieceType } from "../../src/game/theme";
 import { mulberry32 } from "../../src/game/mods";
 import { JOINT_DAMPING, type Cube } from "../../src/game/pieces";
 import { render } from "../../src/game/render";
-import type { FxEvent } from "../../src/game/fx";
+import { BLAST_AMBER, FX_TTL, type FxEvent } from "../../src/game/fx";
+import { VOLATILE_BLAST_CELLS } from "../../src/game/lineClear";
 import { setBlitSkipper, startCensus, stopCensus, type DrawCensus } from "./probe";
 
 export interface RenderPerfOptions {
@@ -42,6 +43,16 @@ export interface RenderPerfOptions {
   dpr: number;
   /** Draw the aim arc + a live effects burst — the busiest a frame gets. */
   busy: boolean;
+  /**
+   * Swap the ordinary FX set for a sustained CHAIN DETONATION (boomEffects):
+   * five coloured blasts, permanently live at staggered ages, which is the
+   * frame render.ts's DEBRIS_FRAME_CAP was written for. Implies `busy`.
+   *
+   * Its own flag rather than a bigger busyEffects, because the busy set is the
+   * baseline every historical number in sim/results was measured against and
+   * quietly making it more expensive would invalidate all of them.
+   */
+  boom?: boolean;
   /**
    * Which scene layers this frame carries. Omitted = all of them, which is the
    * ordinary sweep. The breakdown mode fills it in one layer at a time and
@@ -207,6 +218,38 @@ function busyEffects(now: number): FxEvent[] {
   ];
 }
 
+/**
+ * THE CHAIN: five coloured detonations, all live, all at different ages, every
+ * frame. The stress case render.ts's debris layer was designed against — a
+ * volatile-heavy belt where one pop razes its neighbours, they land hard, and
+ * the field is spraying from four places at once with a charge going off in
+ * the middle of it.
+ *
+ * SUSTAINED rather than one-shot: each blast's t0 is derived from the frame
+ * clock modulo FX_TTL.explosion, so blast i is permanently `i * 170 + 30`ms
+ * old. Every timed frame therefore pays a full chain — a one-shot burst would
+ * be alive for 54 of 240 frames and the p50 would report a frame with no
+ * debris in it at all.
+ *
+ * The radii and colours are copied from game.ts's own spawners: 89.6 for a
+ * volatile pop (VOLATILE_BLAST_CELLS * CELL * 1.4), CELL * 2.4 for a charge.
+ */
+const CHAIN_STAGGER_MS = 170;
+function boomEffects(now: number): FxEvent[] {
+  const volatileHue = MATERIAL_SPEC.volatile.color ?? BLAST_AMBER;
+  const at: [number, number, number, string][] = [
+    [760, 600, VOLATILE_BLAST_CELLS * CELL * 1.4, volatileHue],
+    [880, 540, VOLATILE_BLAST_CELLS * CELL * 1.4, volatileHue],
+    [660, 500, VOLATILE_BLAST_CELLS * CELL * 1.4, volatileHue],
+    [940, 650, VOLATILE_BLAST_CELLS * CELL * 1.4, volatileHue],
+    [800, 430, CELL * 2.4, BLAST_AMBER],
+  ];
+  return at.map(([x, y, r, color], i) => ({
+    kind: "explosion" as const, x, y, r, color,
+    t0: now - ((i * CHAIN_STAGGER_MS + 30) % FX_TTL.explosion),
+  }));
+}
+
 function buildGame(variant: Variant, n: number): Game {
   const cfg = { ...makeBaseLevel(0), timeLimitSec: 0 };
   const g = new Game(cfg);
@@ -264,7 +307,7 @@ function prepare(opts: RenderPerfOptions): {
     g.update(now);
     forcePlaying(g);
   }
-  if (opts.busy) {
+  if (opts.busy || opts.boom) {
     g.aiming = true;
     g.updateTrajectory();
   }
@@ -280,9 +323,11 @@ function prepare(opts: RenderPerfOptions): {
       cubes: layers.cubes ? g.cubes : noCubes,
       constraints: layers.seams ? g.constraints : noConstraints,
       compactor: g.compactor, cannon: g.cannon,
-      trajectory: opts.busy && layers.trajectory ? g.trajectory : noTrajectory,
-      now: t, aiming: opts.busy,
-      effects: opts.busy && layers.effects ? busyEffects(t) : (layers.effects ? g.effects : noEffects),
+      trajectory: (opts.busy || opts.boom) && layers.trajectory ? g.trajectory : noTrajectory,
+      now: t, aiming: opts.busy || !!opts.boom,
+      effects: layers.effects
+        ? (opts.boom ? boomEffects(t) : (opts.busy ? busyEffects(t) : g.effects))
+        : noEffects,
       level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
       windNow: g.windNow, windAverage: g.windAverage,
       reload: g.cannon.reloadRatio(t), settling: g.settling,

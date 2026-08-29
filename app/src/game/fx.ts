@@ -14,6 +14,13 @@ import type { ClearGrade } from "./grades";
  *  spawns above the plant panel's lip and would otherwise sink behind it. */
 export const PENALTY_SINK_PX = 34;
 
+/** The amber a demolition charge burns in: the colour render.ts has always
+ *  stroked the shockwave ring with, named here because game.ts now stamps it
+ *  onto the event. A charge going off has a colour whether or not a renderer
+ *  is attached, and the ring and the wreckage it throws must be the same fire
+ *  — two literals would drift the moment one of them was retuned. */
+export const BLAST_AMBER = "#ffb347";
+
 export type FxEvent =
   | { kind: "shatter"; x: number; y: number; color: string; t0: number }
   /** A line clear selling. `grade` is the clear's headline TIMING GRADE
@@ -35,7 +42,29 @@ export type FxEvent =
     t0: number;
   }
   | { kind: "rowflash"; y: number; x0: number; x1: number; t0: number }
-  | { kind: "explosion"; x: number; y: number; r: number; t0: number }
+  | {
+    kind: "explosion"; x: number; y: number; r: number;
+    /**
+     * WHAT WENT OFF, IN ITS OWN COLOUR — and, by being present at all, the
+     * statement that something was DESTROYED here.
+     *
+     * render.ts's debris layer keys on exactly this. A blast that names a
+     * colour sprays pixel wreckage in it: the material's hazard hue for a
+     * volatile pop, the cargo's own colour for a shipment the intake ate,
+     * BLAST_AMBER for a demolition charge. A blast that names none is a
+     * SHOCKWAVE — a Bond Breaker discharge, a Thaw Lance strike — pressure
+     * with no wreckage behind it, and it throws nothing, exactly as it did
+     * before the debris layer existed.
+     *
+     * That is the whole reason this is optional rather than defaulted. The two
+     * shockwaves are the widest rings the game draws (a Bond Breaker's is
+     * CELL * 3.2), so a default would have put the biggest spray in the game
+     * on the two events with the least to show for themselves — on top of the
+     * dozens of `snap` puffs a discharge already spawns.
+     */
+    color?: string;
+    t0: number;
+  }
   /** Salvage refund from a demolition charge (see game.ts's detonate): the
    *  funds a blast paid back, rising from the blast center. Visually distinct
    *  from `payout` (which is a LINE selling) so the player can tell the two
@@ -77,7 +106,16 @@ export const FX_TTL: Record<FxEvent["kind"], number> = {
   shatter: 700,
   payout: 1100,
   rowflash: 450,
-  explosion: 600,
+  /** 600ms of this is the SHOCKWAVE — the ring, the flash and the orbiting
+   *  sparks, which keep their own EXPLOSION_RING_MS clock in render.ts so they
+   *  look exactly as they always did. The rest is the debris outliving the
+   *  bang it came out of, which is the entire difference between a blast that
+   *  pops and one that throws: the embers have to still be falling after the
+   *  ring has gone, or the eye reads the whole thing as a single frame's
+   *  flicker. 900 is where the last ember lands roughly two cells below a
+   *  cell-scale blast (see render.ts's DEBRIS_BANDS gravity) — long enough to
+   *  watch, short enough that a chain of pops does not leave a standing haze. */
+  explosion: 900,
   salvage: 1100,
   penalty: 1100,
   bayclear: 1400,
