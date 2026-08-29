@@ -70,13 +70,19 @@ import {
   dumpHands,
 } from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
+import {
+  callCount, installBrowserStubs, makeRecCtx, newRec, resetRec, setCount, setReducedMotion,
+  type Rec,
+} from "./canvasrec";
+import { debrisCount, DEBRIS_FRAME_CAP } from "../src/game/render";
+import { FX_TTL, BLAST_AMBER, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
   AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, dragLenForRatio, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
-  CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
+  CHUTE, CHUTE_BLAST_R, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
   INCINERATOR_Y, inIncinerator,
 } from "../src/game/chute";
 import { render, screenToWorld } from "../src/game/render";
@@ -86,7 +92,7 @@ import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
   volatileLossFor, settleBlast, chargeAfterRelief, reliefRealised, blastRelief,
-  markLostPieces, slagBountyFor, nextColdCryo,
+  markLostPieces, slagBountyFor, nextColdCryo, VOLATILE_BLAST_CELLS,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
   stampLandings, landingOf, newestLanding, headlineGrade, headlineRow,
@@ -18491,71 +18497,8 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
 // ===========================================================================
 section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSeams)");
 {
-  interface Rec { calls: string[]; sets: [string, unknown][] }
-
-  const makeCtx = (canvas: unknown, rec: Rec): Record<string, unknown> => {
-    const ctx: Record<string, unknown> = { canvas };
-    const method = (name: string, ret?: () => unknown) => {
-      ctx[name] = (...args: unknown[]) => { rec.calls.push(name); void args; return ret?.(); };
-    };
-    for (const m of [
-      "save", "restore", "translate", "rotate", "scale", "transform", "setTransform",
-      "resetTransform", "beginPath", "closePath", "moveTo", "lineTo", "arc", "arcTo",
-      "rect", "roundRect", "quadraticCurveTo", "bezierCurveTo", "ellipse",
-      "fill", "stroke", "clip", "fillRect", "strokeRect", "clearRect",
-      "fillText", "strokeText", "drawImage", "putImageData", "setLineDash",
-    ]) method(m);
-    method("measureText", () => ({ width: 10 }));
-    // A gradient is an object the caller keeps and feeds stops to; anything
-    // less and the first createLinearGradient in the frame throws.
-    const gradient = { addColorStop: () => {} };
-    method("createLinearGradient", () => gradient);
-    method("createRadialGradient", () => gradient);
-    method("createConicGradient", () => gradient);
-    method("createPattern", () => null);
-    // trimToInk reads its bake back to find the ink. All-zero alpha means "no
-    // ink anywhere", which sends it down its own early return — the same path a
-    // context that refused getImageData takes, and documented there as always
-    // correct. What this pin counts is the calls AROUND the sprites.
-    ctx.getImageData = (...args: unknown[]) => {
-      rec.calls.push("getImageData");
-      const w = (args[2] as number) || 1;
-      const h = (args[3] as number) || 1;
-      return { data: new Uint8ClampedArray(w * h * 4) };
-    };
-    for (const p of [
-      "fillStyle", "strokeStyle", "lineWidth", "lineCap", "lineJoin", "miterLimit",
-      "globalAlpha", "globalCompositeOperation", "shadowBlur", "shadowColor",
-      "shadowOffsetX", "shadowOffsetY", "font", "textAlign", "textBaseline",
-      "filter", "imageSmoothingEnabled", "imageSmoothingQuality", "lineDashOffset",
-    ]) {
-      let held: unknown;
-      Object.defineProperty(ctx, p, {
-        get: () => held,
-        set: (v: unknown) => { held = v; rec.sets.push([p, v]); },
-      });
-    }
-    return ctx;
-  };
-
-  const rec: Rec = { calls: [], sets: [] };
-  const glob = globalThis as unknown as Record<string, unknown>;
-  const prevDoc = glob.document;
-  const prevWin = glob.window;
-  const prevPath = glob.Path2D;
-  // Every offscreen bake goes through document.createElement("canvas"); those
-  // get their own recorder, so a sprite bake's commands never land in the count
-  // being asserted.
-  glob.document = {
-    createElement: () => {
-      const off: Record<string, unknown> = { width: 0, height: 0 };
-      const offRec: Rec = { calls: [], sets: [] };
-      off.getContext = () => makeCtx(off, offRec);
-      return off;
-    },
-  };
-  glob.window = { matchMedia: () => ({ matches: false }) };
-  glob.Path2D = class { constructor(_d?: string) { void _d; } };
+  const rec = newRec();
+  const stubs = installBrowserStubs();
 
   const g = new Game(makeBaseLevel(0), {}, 11);
   g.status = "playing";
@@ -18592,7 +18535,7 @@ section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSe
   const SEAMS = seamPairs.length;
 
   const canvas: Record<string, unknown> = { width: 1600, height: 900 };
-  const ctx = makeCtx(canvas, rec);
+  const ctx = makeRecCtx(canvas, rec);
   const paint = (cubes: typeof g.cubes, constraints: typeof g.constraints): Rec => {
     rec.calls.length = 0;
     rec.sets.length = 0;
@@ -18602,10 +18545,10 @@ section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSe
       level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
       reload: 1, settling: false, strandWarning: false,
     });
-    return { calls: [...rec.calls], sets: [...rec.sets] };
+    return { calls: [...rec.calls], sets: [...rec.sets], args: [] };
   };
-  const calls = (r: Rec, name: string): number => r.calls.filter((c) => c === name).length;
-  const sets = (r: Rec, p: string): number => r.sets.filter(([k]) => k === p).length;
+  const calls = callCount;
+  const sets = setCount;
 
   // Warm the sprite and background caches first: a cold frame pays for every
   // bake and would report the cache's cost as the pile's.
@@ -18667,9 +18610,243 @@ section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSe
   );
 
   g.destroy();
-  glob.document = prevDoc;
-  glob.window = prevWin;
-  glob.Path2D = prevPath;
+  stubs.restore();
+}
+
+// ===========================================================================
+// THE BLAST DEBRIS (render.ts's drawExplosionDebris).
+//
+// A detonation now throws a few hundred pixel squares, and every claim the
+// layer makes about itself is a claim about COMMANDS — how many rect()s a
+// frame issues, how many fills they are batched into, whether the layer stops
+// issuing them when it should. That is exactly what a recording context can
+// answer in node, and it is the only half of the effect that can be checked
+// without looking at it: sim/uifit/boom-shots.ts makes the pictures, and
+// sim/renderperf --boom prices the frame in a real rasteriser.
+//
+// FOUR PROMISES, and each one is a way the effect could quietly become a
+// standing cost rather than a burst:
+//
+//   1. IT SETTLES. Past FX_TTL.explosion the layer draws nothing, and an
+//      idle field draws nothing. A particle system whose embers never expire
+//      is the classic version of this bug and it is invisible until a profile.
+//   2. IT IS CAPPED. A chain detonation asks for more particles than the frame
+//      allows and gets DEBRIS_FRAME_CAP, with every blast scaled together.
+//   3. IT IS BATCHED. Hundreds of rect()s, a dozen fills — not one fill each.
+//   4. IT IS FRAME-RATE INDEPENDENT. The drawer holds no state, so the same
+//      elapsed produces the same frame whether the renderer reached it in one
+//      step or in two hundred. That is what makes 60Hz and 120Hz identical,
+//      and a pin is the only thing that would notice an integrator sneaking
+//      back in.
+// ===========================================================================
+section("A detonation's debris is a burst, not a standing cost (render.ts's drawExplosionDebris)");
+{
+  const rec = newRec();
+  // rect's ARGUMENTS are kept as well as its name: the frame-rate pin compares
+  // two frames particle for particle, and a count alone would pass on a drawer
+  // that had moved every square somewhere else.
+  const stubs = installBrowserStubs();
+  const canvas: Record<string, unknown> = { width: 2560, height: 1440 };
+  const ctx = makeRecCtx(canvas, rec, ["rect"]);
+
+  const g = new Game(makeBaseLevel(0), {}, 11);
+  g.status = "playing";
+
+  const paint = (effects: FxEvent[], now: number): Rec => {
+    resetRec(rec);
+    render(ctx as unknown as CanvasRenderingContext2D, 1280, 720, 2, {
+      cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now, aiming: false, effects,
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return {
+      calls: [...rec.calls], sets: [...rec.sets],
+      args: rec.args.map(([k, a]) => [k, [...a]] as [string, unknown[]]),
+    };
+  };
+
+  /** Every rect() the frame issued, argument for argument — one string, so two
+   *  frames can be compared as a whole rather than by their totals. */
+  const rectSig = (r: Rec): string =>
+    r.args.filter(([k]) => k === "rect").map(([, a]) => a.join(",")).join("|");
+
+  /**
+   * THE DEBRIS LAYER, ISOLATED BY DELTA — the same trick sim/renderperf
+   * --breakdown uses, and the same A/B its `--boom --reduced` mode runs in a
+   * real browser.
+   *
+   * The frame under the preference is not "an empty frame": it still carries
+   * the pile, the chrome, the world clip rect and every blast's shockwave ring
+   * and flash. It differs from the frame beside it in exactly one thing — the
+   * debris — so subtracting the two leaves the layer and nothing else. Counting
+   * a frame's raw rect() calls and hoping they were all particles would be
+   * counting the clip rectangle as one.
+   */
+  const debris = (effects: FxEvent[], now: number): {
+    rects: number; fills: number; saves: number; arcs: number; sig: string;
+  } => {
+    setReducedMotion(true);
+    const off = paint(effects, now);
+    setReducedMotion(false);
+    const on = paint(effects, now);
+    return {
+      rects: callCount(on, "rect") - callCount(off, "rect"),
+      fills: callCount(on, "fill") - callCount(off, "fill"),
+      saves: callCount(on, "save") - callCount(off, "save"),
+      arcs: callCount(on, "arc") - callCount(off, "arc"),
+      sig: rectSig(on),
+    };
+  };
+
+  // Every blast is spelled the way game.ts spells it: VOLATILE_BLAST_CELLS *
+  // CELL * 1.4 for a pop in the material's own hazard hue, CELL * 2.4 in
+  // BLAST_AMBER for a charge.
+  const VOLATILE_HUE = MATERIAL_SPEC.volatile.color ?? BLAST_AMBER;
+  const VOLATILE_R = VOLATILE_BLAST_CELLS * CELL * 1.4;
+  const CHARGE_R = CELL * 2.4;
+  const blast = (x: number, y: number, r: number, color: string, t0: number): FxEvent =>
+    ({ kind: "explosion", x, y, r, color, t0 });
+
+  // Warm the sprite and background caches: a cold frame pays for every bake and
+  // would report the cache's cost as the debris layer's.
+  paint([], 0);
+
+  const idle = debris([], 5000);
+  const pop = debris([blast(800, 500, VOLATILE_R, VOLATILE_HUE, 5000)], 5060);
+  check(
+    "a field with nothing going off draws no debris at all — the layer idles free",
+    idle.rects === 0 && idle.fills === 0 && idle.saves === 0,
+    `${idle.rects} rects / ${idle.fills} fills / ${idle.saves} saves on an idle frame`,
+  );
+  check(
+    "...and one volatile pop throws a spray you could not count by eye",
+    pop.rects > 100,
+    `${pop.rects} particles`,
+  );
+
+  // 1. IT SETTLES.
+  const spent = debris([blast(800, 500, VOLATILE_R, VOLATILE_HUE, 5000)], 5000 + FX_TTL.explosion);
+  check(
+    "past its TTL a blast draws nothing — the burst ends, it does not linger",
+    spent.rects === 0,
+    `${spent.rects} particles at elapsed=${FX_TTL.explosion}ms`,
+  );
+  // The embers are why FX_TTL.explosion was raised past the shockwave's own
+  // 600ms. If they stopped with the ring this would be 0 and the raise would be
+  // dead weight the pruner pays for.
+  const late = debris([blast(800, 500, VOLATILE_R, VOLATILE_HUE, 5000)], 5700);
+  check(
+    "...but embers are still falling after the shockwave ring has finished",
+    late.rects > 0 && late.rects < pop.rects,
+    `${late.rects} particles at 700ms vs ${pop.rects} at 60ms`,
+  );
+
+  // A ring with no colour is a SHOCKWAVE — a Bond Breaker discharge, a Thaw
+  // Lance strike — pressure with no wreckage behind it. fx.ts says so, and this
+  // is the pin that keeps a well-meaning default from putting the widest spray
+  // in the game on the two events with the least to show for themselves.
+  const shockwave = debris([{ kind: "explosion", x: 800, y: 500, r: CELL * 3.2, t0: 5000 }], 5060);
+  check(
+    "a colourless blast is a SHOCKWAVE and throws nothing (Bond Breaker, Thaw Lance)",
+    shockwave.rects === 0 && shockwave.arcs === 0,
+    `${shockwave.rects} particles from an uncoloured ring`,
+  );
+
+  // 2. IT IS CAPPED. Five blasts at once — the chain a volatile-heavy belt
+  // produces when one pop razes the neighbours that then land hard.
+  const chain: FxEvent[] = [
+    blast(700, 600, VOLATILE_R, VOLATILE_HUE, 5000),
+    blast(820, 560, VOLATILE_R, VOLATILE_HUE, 5000),
+    blast(640, 500, VOLATILE_R, VOLATILE_HUE, 5000),
+    blast(940, 640, VOLATILE_R, VOLATILE_HUE, 5000),
+    blast(800, 430, CHARGE_R, BLAST_AMBER, 5000),
+  ];
+  const wanted = chain.length * 0 + [VOLATILE_R, VOLATILE_R, VOLATILE_R, VOLATILE_R, CHARGE_R]
+    .reduce((n, r) => n + debrisCount(r), 0);
+  check(
+    "the chain-detonation stress case really does ask for more than the frame cap",
+    wanted > DEBRIS_FRAME_CAP,
+    `${wanted} wanted vs a ${DEBRIS_FRAME_CAP} cap — a ceiling that never binds proves nothing`,
+  );
+  const chained = debris(chain, 5020);
+  check(
+    "...and five blasts at once never draw more particles than that cap",
+    chained.rects <= DEBRIS_FRAME_CAP && chained.rects > DEBRIS_FRAME_CAP * 0.9,
+    `${chained.rects} particles against a ${DEBRIS_FRAME_CAP} cap`,
+  );
+  // SCALED TOGETHER, not truncated. Each blast opens one path per live band, so
+  // a blast the cap had starved would show up as missing fills — five blasts
+  // caught this early in their life owe five blasts' worth of bands.
+  check(
+    "...and every blast in the chain still sprays — the cap thins, it does not drop",
+    chained.fills === pop.fills * chain.length,
+    `${chained.fills} debris fills across ${chain.length} blasts, ${pop.fills} for one`,
+  );
+
+  // 3. IT IS BATCHED. One fill per live band per blast, whatever the count —
+  // this is the difference between 556 draws and 15.
+  check(
+    "a whole chain's particles are batched into a handful of fills, not one each",
+    chained.fills <= 3 * chain.length && chained.rects > chained.fills * 20,
+    `${chained.rects} particles in ${chained.fills} fills`,
+  );
+  check(
+    "...and the whole frame's debris costs exactly one save/restore pair",
+    chained.saves === 1,
+    `${chained.saves} extra saves`,
+  );
+
+  // 4. IT IS FRAME-RATE INDEPENDENT. The same instant, reached two ways:
+  // straight there, or after two hundred frames at 120Hz and a stall. Compared
+  // rect BY ARGUMENT, so a drawer that had kept state between frames — an
+  // integrator, a stashed velocity — would land its squares elsewhere and fail
+  // here even with the count unchanged.
+  const AT = 5333;
+  const straight = rectSig(paint(chain, AT));
+  for (let i = 0; i < 200; i++) paint(chain, 5000 + i * (1000 / 120));
+  paint(chain, 5880);
+  const viaFrames = rectSig(paint(chain, AT));
+  check(
+    "the same instant draws the same frame at 60Hz, at 120Hz and after a stall",
+    straight === viaFrames && straight.length > 0,
+    `${straight.length} vs ${viaFrames.length} chars of rect arguments`,
+  );
+
+  // REDUCED MOTION removes the layer outright rather than thinning it, because
+  // everything in it is motion. The delta above is already that measurement —
+  // this states the other half of it, that the blast the player is left with is
+  // the untouched shockwave rather than nothing at all.
+  setReducedMotion(true);
+  const calm = paint(chain, 5060);
+  setReducedMotion(false);
+  const loud = paint(chain, 5060);
+  check(
+    "prefers-reduced-motion removes the debris entirely — everything in it is motion",
+    callCount(calm, "rect") < callCount(loud, "rect") && chained.rects > 0,
+    `${callCount(calm, "rect")} rects under the preference, ${callCount(loud, "rect")} without`,
+  );
+  check(
+    "...and leaves the shockwave ring and flash it sits under completely untouched",
+    callCount(calm, "arc") === callCount(loud, "arc") && callCount(calm, "arc") > 0
+      && setCount(calm, "strokeStyle") === setCount(loud, "strokeStyle"),
+    `${callCount(calm, "arc")} arcs vs ${callCount(loud, "arc")}`,
+  );
+
+  // The budget's arithmetic, in the units game.ts spawns blasts in.
+  check(
+    "a demolition charge spends a full blast's allowance, and a volatile pop nearly one",
+    debrisCount(CHARGE_R) === debrisCount(1e6) && debrisCount(VOLATILE_R) > DEBRIS_FRAME_CAP / 4,
+    `charge ${debrisCount(CHARGE_R)}, volatile ${debrisCount(VOLATILE_R)}`,
+  );
+  check(
+    "...and the intake's much smaller per-cube blast spends proportionally less",
+    debrisCount(CHUTE_BLAST_R) < debrisCount(VOLATILE_R) / 2 && debrisCount(CHUTE_BLAST_R) > 0,
+    `chute ${debrisCount(CHUTE_BLAST_R)} vs volatile ${debrisCount(VOLATILE_R)}`,
+  );
+
+  g.destroy();
+  stubs.restore();
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,8 @@
  *   npx tsx sim/renderperf/run.ts --counts 100,200,300 --frames 240
  *   npx tsx sim/renderperf/run.ts --dpr 3 --css 844x390     # a phone's numbers
  *   npx tsx sim/renderperf/run.ts --breakdown               # cost per scene layer
+ *   npx tsx sim/renderperf/run.ts --breakdown --boom        # …on a chain detonation
+ *   npx tsx sim/renderperf/run.ts --breakdown --boom --reduced   # …the same, motion off
  *   npx tsx sim/renderperf/run.ts --probe                   # draw calls, not ms
  *   npx tsx sim/renderperf/run.ts --blit-ab                 # what the bg blit costs
  *   npx tsx sim/renderperf/run.ts --snapshot                # pixel digest only
@@ -78,6 +80,24 @@ const BREAKDOWN = argv.includes("--breakdown");
 const SNAPSHOT = argv.includes("--snapshot");
 const SHOTS = argv.includes("--shots");
 const PROBE = argv.includes("--probe");
+/**
+ * Swap the busy FX set for a sustained chain detonation (harness.ts's
+ * boomEffects). Additive with every other mode — the sweep, the breakdown and
+ * the probe all understand it — because the question the debris layer raises
+ * is "what does the WORST frame cost", and that is a different scene, not a
+ * different measurement.
+ */
+const BOOM = argv.includes("--boom");
+/**
+ * Tell the page it is running under prefers-reduced-motion.
+ *
+ * This is how the debris layer gets an honest A/B on ONE build. render.ts
+ * removes the whole layer under the preference and changes nothing else about
+ * a blast, so `--boom` against `--boom --reduced` is the same code drawing the
+ * same scene with and without the particles — no stashing, no second checkout,
+ * and no chance of a stray unrelated edit landing in the difference.
+ */
+const REDUCED = argv.includes("--reduced");
 const BLIT_AB = argv.includes("--blit-ab");
 
 interface Row {
@@ -110,6 +130,7 @@ const page = await browser.newPage({
   deviceScaleFactor: DPR,
 });
 page.on("pageerror", (err) => console.error("✗ page error:", err.message));
+if (REDUCED) await page.emulateMedia({ reducedMotion: "reduce" });
 await page.goto(`${base}harness.html`, { waitUntil: "networkidle" });
 // The faces are @font-face'd, so the first ctx.font that names one can still
 // resolve to a fallback if the file has not landed. Timed frames must all
@@ -223,7 +244,7 @@ if (PROBE) {
   for (const count of COUNTS) {
     const c = await page.evaluate(
       (o) => window.__renderperf.probe(o),
-      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
+      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM },
     );
     // THE CUBE LAYER, ISOLATED BY DELTA — the same ladder --breakdown walks.
     //
@@ -238,14 +259,14 @@ if (PROBE) {
     const bare = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       {
-        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true,
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM,
         layers: { cubes: false, seams: false, trajectory: true, effects: true },
       },
     );
     const cubesOnly = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       {
-        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true,
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM,
         layers: { cubes: true, seams: false, trajectory: true, effects: true },
       },
     );
@@ -341,7 +362,7 @@ if (BREAKDOWN) {
       (o) => window.__renderperf.run(o),
       {
         count, variant: PROBE_VARIANT, frames: FRAMES,
-        cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true,
+        cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM,
         layers: rung.layers as unknown as { cubes: boolean; seams: boolean; trajectory: boolean; effects: boolean },
       },
     );
@@ -349,7 +370,10 @@ if (BREAKDOWN) {
     prev = r.p50Ms;
   }
   console.log("# Tetrilaunch render-cost breakdown\n");
-  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} N=${count} variant=cliques busy=yes\n`);
+  console.log(
+    `css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} N=${count} variant=cliques busy=yes` +
+    `${BOOM ? " fx=chain-detonation" : ""}${REDUCED ? " prefers-reduced-motion=reduce" : ""}\n`,
+  );
   console.log("| Scene, cumulative | p50 ms | this layer costs |");
   console.log("|---|---|---|");
   for (const r of layerRows) {
@@ -362,7 +386,7 @@ if (BREAKDOWN) {
       for (const count of COUNTS) {
         const r = await page.evaluate(
           (o) => window.__renderperf.run(o),
-          { count, variant, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy },
+          { count, variant, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy, boom: BOOM && busy },
         );
         rows.push({ variant, busy, count, ...r });
       }
@@ -377,7 +401,8 @@ if (!BREAKDOWN) {
 console.log("# Tetrilaunch render-cost sweep\n");
 console.log(
   `css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} (60-frame warmup, not timed) ` +
-    `engine=chromium(headless)\n`,
+    `engine=chromium(headless)${BOOM ? " fx=chain-detonation" : ""}` +
+    `${REDUCED ? " prefers-reduced-motion=reduce" : ""}\n`,
 );
 console.log("| Variant | Busy | N | Avg ms | p50 ms | p95 ms | Worst ms | % over 16.67ms |");
 console.log("|---|---|---|---|---|---|---|---|");
