@@ -27,6 +27,7 @@ export type IconName =
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
+  | "thaw" | "cushion" | "incinerator"
   // One per option unlock (meta.ts's UNLOCKS). Same id-is-the-icon-name
   // convention as the tracks above: the shop card casts the id at the call
   // site, so there is no glyph field on UnlockDef and meta.ts never imports
@@ -34,11 +35,18 @@ export type IconName =
   // a hole where every other row has its mark.
   | "demo" | "bulk" | "survey" | "scrap-cache" | "micro"
   | "sturdy" | "overclock" | "short-lines" | "bond-breaker" | "auto"
-  // Direction of a value change on the refit buy button. These were the text
-  // glyphs ▲/▼, which sat off-centre against the pixel label beside them for
-  // exactly the reason in the header note: a font glyph carries the font's own
-  // metrics, and those do not line up with a different family at a different
-  // size. An SVG on a known 16x16 box does.
+  // Direction of a value change. These were the text glyphs ▲/▼, which sat
+  // off-centre against the pixel label beside them for exactly the reason in
+  // the header note: a font glyph carries the font's own metrics, and those do
+  // not line up with a different family at a different size. An SVG on a known
+  // 16x16 box does.
+  //
+  // They were drawn for the refit buy button, which no longer states a
+  // direction — it states a price (screens.ts's buy-button note). `up` outlived
+  // that: it marks a notched axis on a draft card and heads the bay-stat rows.
+  // `down` has no caller today and stays for the pair — a set with only half of
+  // an opposed pair is how the next surface that needs "worse" ends up
+  // improvising one.
   | "up" | "down"
   // The control glyphs (canvas B5): the touch rail — the PRIMARY control
   // surface on mobile — ran on ⛶⏸⟲⟳✕⚡💥, i.e. emoji and dingbats the
@@ -111,6 +119,47 @@ const PATHS: Record<IconName, string> = {
   // segments only — a curved fuse is the one shape in this set that would need
   // anti-aliasing to read, which is exactly what the pixel frame doesn't give.
   demolition: `<path d="M3 8h8v6H3z" fill="currentColor" stroke="none"/><path d="M9 8V5l3-2"/><path d="M12 3h2"/><path d="M12 3V1"/>`,
+  // Thaw Lance: a solid emitter at the left, a gap, and the frozen cube it is
+  // pointed at — the one glyph in this set that reads LEFT TO RIGHT, which is
+  // how it stays distinct at 13px from the three other things in the game that
+  // are also a bright mark on a dark box. `bonds` throws four axis-aligned
+  // spokes off a centre and `demo` throws four diagonal ones; neither has a
+  // direction, and this is nothing but direction.
+  //
+  // The cube keeps its own frost mark rather than being a plain square, so the
+  // glyph names its TARGET the way the belt does (theme.ts's cryo needles) —
+  // an outline square alone would read as the Bay Extension's zone.
+  thaw:
+    `<path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M5.5 8h2"/>`
+    + `<path d="M9 5h5v6H9z"/><path d="M11.5 6v4"/><path d="M9.8 6.8l3.4 2.4"/><path d="M9.8 9.2l3.4-2.4"/>`,
+  // Impact Cushion: the wall at the right, a solid liner banked against its
+  // foot, and a cube coming down onto it. The only glyph here built around the
+  // WALL — `bay` also draws it, and the two stay apart because bay's arrow
+  // points away from the wall along the floor while this one falls onto it.
+  //
+  // The liner is solid and the cube is an outline, not the reverse: the thing
+  // bought is the liner, and at 13px the filled shape is the one the eye reads
+  // first. Three chevrons rather than a flat bar so it reads as bedding rather
+  // than as a second floor — a plain rectangle at the wall's foot is what
+  // `hydraulics` already uses for the compactor face.
+  cushion:
+    `<path d="M14 2v12"/><path d="M4 11h9v3H4z" fill="currentColor" stroke="none"/>`
+    + `<path d="M5 11l1.5-2 1.5 2 1.5-2 1.5 2"/><path d="M7 2h4v4H7z"/><path d="M9 7v2"/>`,
+  // Incinerator: the hood's throat as a solid horizontal bar — the line the
+  // system IS (chute.ts's INCINERATOR_Y) — with a cube above it and flame
+  // tongues licking up off it. Built around a HORIZONTAL rule where `cushion`
+  // beside it is built around the VERTICAL wall, so at 13px the two counters
+  // separate on their axis before anything else about them has to be read.
+  //
+  // The cube sits ABOVE the bar and is an outline, the bar is filled: what is
+  // bought is the hood, and the cargo is what passes through it. Reversing that
+  // would draw the same picture `hydraulics` already draws (a solid face with
+  // something above it).
+  incinerator:
+    `<path d="M2 9h12v2H2z" fill="currentColor" stroke="none"/>`
+    + `<path d="M4 9c0-1.6 1-2 1-3 .8.6 1 1.2 1 2"/>`
+    + `<path d="M10 9c0-1.6 1-2 1-3 .8.6 1 1.2 1 2"/>`
+    + `<path d="M6 2h4v4H6z"/>`,
 
   // ---- Option unlocks (meta.ts's UNLOCKS) ---------------------------------
   // Demolition Licence: a detonation, not a charge — `demolition` above is the

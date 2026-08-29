@@ -41,6 +41,9 @@ problem with the same work.
 | Daily cap | yes (see below) | **never** |
 | Role | training, economy, the daily habit | the exam |
 
+(There is a third floor above both — **the Skydeck**, the daily fixed run. It is
+a Deep Run variant rather than a mode of its own; see its section below.)
+
 Contracts deliberately strip out time and money pressure. They are meant to be
 the *easy, positive, replayable* half — challenges you return to, not a thing
 that can beat you. A puzzle you can be rushed out of isn't a puzzle. What
@@ -86,7 +89,7 @@ and it is the build the Contracts half is least able to teach.
 
 ### What Contracts cannot teach
 
-Two of the seven tracks are invisible without a clock and a bankroll:
+Two of the ten tracks are invisible without a clock and a bankroll:
 
 - **Reactor** — no launch cost means the economy track does nothing.
 - **Magazine** — no clock means faster reload buys less waiting, not more
@@ -133,7 +136,7 @@ Mark N clear mean the same thing for every player who has one.
 
 This is the load-bearing rule of the whole design, so it goes first.
 
-> **Mark N grants a fixed upgrade budget, spent freely across the seven tracks.
+> **Mark N grants a fixed upgrade budget, spent freely across the ten tracks.
 > Contracts unlock what you may spend it *on*. Only completing tier N — its
 > Deep Run beaten and three of its Contracts cleared — raises the budget.**
 
@@ -160,13 +163,28 @@ There are only two escapes, and one is bad:
 ### How it works
 
 `MAX_TIER` stays 3 and the 20/35/55 ladder in `upgrades.ts` is unchanged, so
-seven tracks fully maxed is **770 points** (`FULL_BUILD_COST`, derived from
+ten tracks fully maxed is **1100 points** (`FULL_BUILD_COST`, derived from
 `UPGRADES.length` rather than written down, so adding a track can never leave the
-budget behind). The Mark sets how many of those you get. First-pass: Mark 1 = 77
-(three tracks opened at tier 1, or one to tier 2 with a second opened alongside),
-scaling to 770 at Mark 10 — the arc from "you can afford one system" to "you can
+budget behind). The Mark sets how many of those you get. First-pass: Mark 1 = 110
+(four tracks opened at tier 1, or one system built out entirely),
+scaling to 1100 at Mark 10 — the arc from "you can afford one system" to "you can
 afford everything" *is* the ladder, which is FTL's own shape. One number per
 Mark, no second cap to reason about.
+
+**The total moved when the eighth track (Thaw Lance) landed, again for the
+ninth (Impact Cushion) and again for the tenth (Incinerator), and that is the
+rule working rather than a side effect to be pinned out.** The promise is "a
+fully-kitted rig at Mark 10"; freezing the budget while the roster grows would
+quietly leave Mark 10 a system short of everything. Every Mark's allowance rose
+in step (Mark 1 77 → 88 → 99 → 110, Mark 10 770 → 880 → 990 → 1100). At ten
+tracks Mark 1's allowance is **exactly one whole system**, which is the first
+time the arithmetic has matched the sentence this section opens with; before the
+tenth track it was nine tenths of one, and `sim/systems.ts` pins the
+relationship rather than the number so an eleventh moves it correctly. The relationship that makes the budget a real gate survives
+the move exactly: the Workshop's own ceiling is `TRACKS × (20+35)` and the
+budget is `TRACKS × 110 × M/10`, so they meet at **M = 5 for any roster size**
+(`meta.ts`'s `installAvailable`, pinned in `sim/systems.ts` as the relationship
+rather than as a number).
 
 What it buys:
 
@@ -180,6 +198,89 @@ What it buys:
 
 Stated in the product's own words, and worth saying out loud in the UI: **you
 can pay to progress faster, never to rank higher.**
+
+## System slots — the second axis
+
+> **The build budget says how DEEP a rig may go. Slots say how WIDE.**
+> A rig mounts `SLOT_BASE` of the systems it owns; salvage buys more room, up to
+> the roster. Everything you buy stays bought — a slot rations what you can
+> carry into one run, never what you may own.
+
+The budget above normalizes total power, and it does that job completely: two
+rigs at Mark 5 are worth the same number of ladder points however they spend
+them. What it cannot do is make a rig a SHAPE. Once the roster reached ten
+systems, the arc it promises — "you can afford everything" at Mark 10 — meant
+every endgame rig converged on the same rack, and the counter systems the last
+three PRs added (`design/balance/aim-strategy-findings.md`) all fitted on it at
+once. A counter that is always aboard is a passive.
+
+Slots price the choice the budget cannot. Mounting the Thaw Lance means not
+mounting something else, so a cryo-heavy tier is answered by a decision made
+before undocking rather than by a purchase made three tiers ago.
+
+### Why the loadout and not the purchase
+
+The owner's ask reads two ways. Gating **ownership** — the Workshop refuses an
+eleventh sale — makes every install irreversible and unbuyable-back: a player
+who bought the lance before ever meeting volatile cargo would be locked out of
+the cushion by a decision they could not have priced. That is a trap rather than
+an identity, and it duplicates the budget's job at the one layer this document
+says salvage must never touch. Gating the **loadout** costs nothing already paid
+for, is remade free before every run, and is where "rigs that can have certain
+systems and not others" actually starts.
+
+### Slots cannot outrun the Mark
+
+This is the integrity rule above, re-checked against the new purchase, and it
+holds by construction rather than by tuning. A mounted rig is a SUBSET of the
+owned one, so
+
+    tiersCost(mounted) <= tiersCost(owned) <= budgetForMark(mark)
+
+— a slot can only ever move a rig back up toward the ceiling the Mark already
+granted, never past it. Salvage still buys which systems exist to spend budget
+on; only beating Mark N raises how much may be spent. `sim/systems.ts` pins the
+inequality across the whole ladder rather than at one Mark.
+
+### The ladder, and what it is for
+
+`SLOT_BASE` is 4, `SLOT_CAP` is 10, and the six slots between them cost 50, 70,
+100, 140, 180 and 240 salvage — 780 in total, against 600 for a whole climb of
+the tier ladder. **That is deliberately not affordable inside one climb.** The
+shelf was already 575 against 600 when the Incinerator landed, and `meta.ts`
+recorded that the eleventh system would need "the re-price or the second income
+that note asked for". A finished ladder keeps paying 60 a cycle forever (three
+Contracts and a run win at `MARK_COUNT`, where `advanceTier` saturates), and
+until now that faucet ran into nothing. The back half of the slot ladder is what
+it fills.
+
+The prices escalate because the slots do not pay equally, and that is measured
+rather than assumed: `design/balance/system-slots.md` puts the marginal value of
+a slot at roughly a bay for the fourth, half of one for the fifth, and inside the
+noise from the seventh on. A flat price would make the last slots the obvious
+buy for the least reason.
+
+### The rack is the rig, not the catalogue
+
+The HUD's build rack draws one plate per SLOT. `app.css`'s compact clamp records
+that the tenth system "ends the clamp… there is no growth left in it" and that
+"the eleventh system needs a different rack" — and a rack sized by the rig is
+that rack. The roster can grow past ten without the row growing at all: an
+eleventh system competes for a slot rather than for 19 more pixels on the
+narrowest phone in the matrix.
+
+### Migration: nobody's rig shrinks
+
+A save written before slots existed gets **one slot for every system it already
+owns**, once, on load. Its next run undocks with a rig byte-identical to the one
+it flew yesterday, which `sim/systems.ts` pins as an equality rather than as
+"it still works". The grant is spent at that moment and is not a floor — the
+eighth system a grandfathered six-slot rig buys goes to the shed like anybody
+else's.
+
+Tier S is exempt entirely: the sandbox builds its rig from `sandbox.ts` rather
+than from the loadout, so the slot economy is not in the room. It is the free
+lab, and a lab that made you shop first would not be one.
 
 ### It layers over the existing refit stops
 
@@ -252,7 +353,7 @@ it's a different set of problems.
 
 | Rig | Identity | Trade |
 |---|---|---|
-| **Standard Hauler** | balanced, all seven tracks available | the tutorial rig |
+| **Standard Hauler** | balanced, all ten tracks available | the tutorial rig |
 | **Scrapper** | starts with Demolition; bombs refund more | weak launcher — plays the salvage economy |
 | **Overpressure** | huge hydraulics and settle assist | brutal cooldown; few shots, each flattens |
 | **Swarm** | micro payloads native, fast cooldown | can't run bulk; Bond Breaker dependent |
@@ -362,6 +463,191 @@ Beyond the tier ladder above and the existing `makeBaseLevel(i)` ramp:
 - **Launch budgets** — see below.
 - **Materials** — one new type per Mark, in both pools.
 - **Hazards** — lowering ceiling, tilted floor, drifting conveyor, two-sided press.
+
+## The seal — and what it opens
+
+A Mark is **sealed** by a run that was won, tracked the ladder, and retried no
+bay (`meta.ts`'s `sealedMarks`, written in `recordRunEnd`). The tower stamps
+that floor; floors that still owe one draw an empty socket in the same glyph, so
+the building states its own bill without a sentence anywhere on the menu.
+
+**A retry costs the seal and nothing else.** The run still counts, the salvage
+still banks, the tier still opens. This is the half a player gets wrong on their
+own — someone who believes a restart forfeits the tier will abandon runs they
+could win — so it is said in as many words the first time a bay is ever retried
+(a one-time panel on a watermark, `MetaState.sealBreakSeen`) and then carried by
+a struck-through seal glyph on the button and one line above it. Retries are
+counted at one place, `main.ts`'s `resetBay`, which every door into a bay retry
+goes through: the pause modal, the held ⏸, the tutorial's failure card and the
+game-over card's **Retry Bay**.
+
+**The seals are the Skydeck's key.** They pay nothing and raise nothing — the
+mode table above prints "Purchasable power: none" for both modes and that is
+unchanged, because the Skydeck itself banks no salvage and ticks no tier. What
+they buy is *access*, and the argument is that the roof asks for exactly what a
+seal records. The Skydeck flies a rung above the ladder's last on money, takes
+the difficulty out of the player's hands, and gives one attempt at each bay;
+"you beat the ladder" was the wrong ticket for that door, because the ladder can
+be beaten with a retry on every bay. A full set of seals is the same ten bays
+with the retry taken away.
+
+**The roof's yard, and the rule that was reversed.** The Skydeck shipped with no
+refit stops at all — "the rig that undocks is the rig that lands" — and an
+owner's playtest reversed it: ten bays whose only decision is the notch is a
+long run with one lever, and the scrap readout the mode had to carry could only
+ever read 0. The stops are back on the ladder's schedule (after bays 3, 6 and 9)
+and the bays pay **half** the ladder's scrap for them (`level.ts`'s
+`SKYDECK_SCRAP_SHARE`), because the pilot who can open this floor arrives with a
+finished Workshop and every rung the yard can still sell them is a tier-3 rung at
+one flat price. At the ladder's own payout that yard would hand over half a ship
+across three stops; the measurement is in
+[`design/balance/skydeck-yard.md`](../design/balance/skydeck-yard.md). What
+survives of the old rule is the half that was load-bearing: consumables are still
+never resupplied there — a stop sells a bigger rack, never a refill.
+
+**And the endgame says so.** A key nobody is told about is a locked door. Until
+an owner reported a finished ladder as "all completed but not unlocked", the
+seals were stated only as sockets on the tower and one `aria-label` — while the
+loop's single NEXT STEP badge (`meta.ts`'s `nextStep`) still pointed at the
+Contract board, because its "this tier owes clears" branch is a live objective
+for nine tiers and a treadmill on the tenth: at `MARK_COUNT` `markUnlocked`
+saturates onto the tier just finished and `advanceTier` has already cleared its
+counters, so the board it points at can no longer open anything. The finished
+ladder gets its own answer now — **seal** — and it lands on the primary, which
+names the price in words ("*N* Marks left to seal · win with no bay retried")
+because sealing is flown and never bought. Once every seal is in, the roof is
+open and the primary flies it.
+
+The same saturation was lying on the way out of the last tier. A completion is
+reported by naming the floor it opened, and both end cards derived that name by
+reading `markUnlocked` after the update — true nine times, false on the tenth,
+where it announced the floor the player had just spent the tier flying. The
+question is answered once now (`tierOpenedByCompleting`), and its null branch is
+the ladder's own ending: Contracts keep paying (the tier-10 loop is a faucet by
+decision, not by accident), so what is left to fly for is a maxed rig and every
+Mark sealed, and the card says exactly that.
+
+**Migration.** The gate tightened; nothing was erased. `sealedMarks` has been
+recorded since the seal shipped, so a player who beat the ladder with clean runs
+already holds those seals and the roof opens on their first launch — with the
+tower's ride to it, since the roof now has its own ceremony watermark
+(`skydeckCelebrated`, false on every existing save precisely so that ride is
+not skipped). A player who beat the ladder messily finds the roof shut, and
+every seal it wants is re-earnable at any time: a clean win on an
+already-beaten Mark seals it (`recordRunEnd`'s `sealed` is deliberately not
+gated on the Mark being current), and the tower flies any beaten floor. No run,
+no salvage, no loadout and no Mark is touched.
+
+## The Skydeck — the day's run
+
+The floor above the ladder (`src/game/skydeck.ts`), open once every Mark is
+beaten **and every Mark is sealed** (see *The seal* below). It is a Mark-10 Deep
+Run with three rules changed, and each of the three takes away a lever the rest
+of the game hands the player:
+
+| | **Deep Run** | **Skydeck** |
+|---|---|---|
+| Seed | a fresh roll every run | **the date** — one run a day, shared by everyone |
+| Refit stops | after bays 3 / 6 / 9 | **none** — you fly the rig you brought |
+| Notches | 1 a bay, 2 at the capstone | **1 a bay**, at that same capstone Mark |
+| Final Inspection | one clause, drafted, bay 10 | **three clauses, dealt, standing** from bays 4 / 7 / 10 |
+| Board | the Mark's own, all time | **its own, and one per day** (see below) |
+
+The seed is `contracts.ts`'s own daily key put through a salt, so the Skydeck
+and the Contract board roll over at the same instant and share a date without
+sharing a stream. The point is the point the Contract board already makes: a
+daily means nothing unless everyone flew the same thing.
+
+**The clauses are dealt, not drafted**, and that is the decision most worth
+arguing. Dealing the tier's pair at each stop and letting the player sign one is
+the obvious shape and it loses twice over: three of the nine drafts would ask
+for a clause *instead* of a notch (so six bays would ratchet and three would
+not, and the mode's whole promise is that the ratchet never stops and never
+doubles), and two players who signed differently did not fly the same run, which
+is exactly what the daily seed exists to prevent. The day writes the contract;
+the player flies it. What stays theirs is every notch and every shot.
+
+**The stops are the yard's own schedule read backwards.** Refits land after bays
+3 / 6 / 9, so bays 4 / 7 / 10 are precisely the bays a Deep Run opens on a fresh
+rig. Those are the three the Skydeck opens on a fresh clause instead — one line
+of the loop deleted and the other written in its place, at the same three
+places. `CLAUSE_STOPS` is derived from `REFIT_EVERY` so a re-spaced yard
+re-spaces the inspections with it.
+
+**Bands are ordered by exposure**, because a Final clause is priced against ONE
+bay and a standing clause is that cost times the bays it rides. Stop 1 stands
+for seven bays and draws from Tiers 2–3, the *conditions* tiers — none of them
+touches the bay's books, which is what makes them safe to repeat. Tier 1 is
+excluded on arithmetic: Rush Order's flat +$750 is a 66% quota raise on Mark
+10's bay 4 and still 41% on bay 10. Stop 2 stands for four bays and draws from
+Tiers 4–9. Stop 3 rides one bay and is the capstone pair, on exactly the bay
+`finals.ts` reserves the full-belt clauses for.
+
+**Dead cargo is never dealt as a standing rule.** Slag is the one material with
+no passive counter, and `hazards.ts` already refuses to *force* it; a dealt
+clause is a forced pick with no seat to dodge into. The rule is derived by
+applying the clause and reading the belt (`schedulesDeadCargo`), not by listing
+ids, so a clause added later is covered without anyone remembering.
+
+**Measured** (`npx tsx sim/skydeck.ts --stops all --rigs economy --seeds 3`, aim
+bot, bays 1/4/7/10, carry $150; every combination the bands can deal). Priced at
+**Mark 6**, because Mark 10 already reads 0% run-clear on this instrument and a
+control on the floor cannot show a change — the Mark-10 rows give the sign, the
+Mark-6 rows give the size. Mean per-bay win rate:
+
+| | ladder control | Skydeck bare | worst day | median day | best day |
+|---|---|---|---|---|---|
+| Mark 6 | 59% | 84% | 25% | 50% | 92% |
+| Mark 10 | 25% | 58% | 17% | 33% | 67% |
+
+So the three clauses cost about 34 points of mean per-bay rate off the bare
+mode, landing the median day either side of the shipped ladder run it sits
+above, with a real day-to-day spread — which is what a daily wants. **No single
+clause is a wall**: the per-clause report card runs 37–64% at Mark 6 and 24–47%
+at Mark 10, none at zero. The slag pair *was* a wall (bays 7 and 10 to 0%,
+every seed) and is the measurement the dead-cargo rule above came from.
+
+**It moves no ladder state.** `recordRunEnd` ticks the tier at
+`markUnlocked(meta)`, which *saturates* at `MARK_COUNT` — and the Skydeck opens
+only once the ladder is beaten, so every player who can reach the roof is parked
+on that saturated tier. Unguarded, a daily win would set `tierRunDone`, bank a
+tier milestone's salvage and print Tier 10 completion copy *every day*, and
+would claim the Mark-10 seal besides (`sealed` is deliberately not gated on the
+Mark being current — which is also what lets a beaten Mark be re-sealed, see
+*The seal* above). So a Skydeck ending skips the bookkeeping entirely —
+`run.ts`'s `tracksLadder` is the one statement of it, shared with Tier S — and
+keeps only the score. Its telemetry is tagged `mode: "skydeck"` for the same
+class of reason: a Skydeck bay carries mark 10 and a clock, so nothing else
+about the record tells it apart from an ordinary Mark-10 bay, and pooled into
+`sim/playtest.ts` it would corrupt the medians the tier ladder is tuned against.
+
+**It files to a board of its own, and that board is a day.** The first cut sent
+a Skydeck run to the **Mark-10 board** and recorded the reason: a per-day board
+needs a schema column the leaderboard did not have, and a mixed all-time board
+would rank days rather than players. The column exists now
+(`migrations/0003_daily_boards.sql`), so the key is `(BOARD_SKYDECK, day)` —
+`lib/api.ts`'s `boardForRun`/`boardDayForRun`. Two reasons the pooling had to
+end rather than stay safe-in-direction: the roof reads level.ts's curves a rung
+past the capstone and carries three standing clauses, so a Mark-10 pilot and a
+Skydeck pilot on one list are not being compared at anything; and the mode whose
+entire argument is that everyone flies the same day had a board that was not one.
+The **day is the run's**, stamped at undock from `SkydeckRules.day` — the same
+`dailySeed` the Contract board rolls on — so a run undocked at 23:50Z and landed
+after midnight ranks against the seed it actually flew. The board id is negative
+for the reason Tier S's is: `SKYDECK_TIER` is `MARK_COUNT + 1` and any server
+that knows only Marks clamps it straight back onto Mark 10, which is the pooling
+arrived at through the key meant to end it. Scores already pooled onto Tier 10
+stay there — a Skydeck row carries mark 10, its bay and its lines, which is
+exactly an honest Mark-10 row, so there is nothing to filter on and a cleanup
+would be a guess applied to other people's scores.
+
+One thing is still deliberately NOT in the cut, recorded rather than forgotten.
+The run is **replayable all day** — the seed is the date, so a retry deals the
+identical run, which is the daily's whole texture (you learn today's run) and
+needs no new persistence. The board follows that rule rather than fighting it:
+only **today** is browsable on the leaderboard, since a history control needs a
+second axis on a screen that already carries a tab strip, to serve a board
+nobody can still post to.
 
 ### Uncapping Deep Run
 
@@ -496,9 +782,32 @@ Two more facts from that sweep are worth carrying:
   exactly that shape, which is why it read as impossible before it was one.
 
 **Exactness constrains piece size, arithmetically.** A queue is exact only if
-`goal * 8` divides by the piece's cube count. 4 always divides it; bulk's 5 only
-does at goals that are multiples of 5, putting the smallest legal bulk pattern at
-40 cubes. So pattern Contracts are std-only — not a preference, a consequence.
+`goal * lineCells` divides by the piece's cube count. 4 always divides an 8-wide
+line; bulk's 5 only does at goals that are multiples of 5, putting the smallest
+legal bulk pattern at 40 cubes. So pattern Contracts are std-only on the
+ladder — not a preference, a consequence.
+
+**…and the consequence names its own exit, which the Skydeck took.** Widen the
+line to 10 and `goal * 10` divides by 5 at *every* goal, so the tier's ladder
+decides the size of the puzzle instead of arithmetic doing it. That is **Wide
+Gauge** (`contracts.ts`'s `PENTOMINO_LINE_CELLS`), the pattern variant on
+`SKYDECK_CONTRACT_TIER` — a rung the ladder cannot reach, since `markUnlocked`
+saturates at `MARK_COUNT`. Divisibility is necessary and not sufficient (the
+`[I, O, J, J]` bug was an area that counted perfectly and tiled nothing), so it
+was **measured** on the shipped `PENTA_SHAPES` table: 30 seeds a goal at four
+distinct shapes, a tiling found 30/30 at goals 2–6 with the independent checker
+agreeing on every one, against nothing tileable below goal 5 at eight cells. The
+bay already passes through ten — the press opens at 12 and closes to 8 — so the
+width costs the compactor two cells of travel and nothing else.
+
+Its goal is **4 rows**, and that number was measured against the cautious guess
+rather than chosen. Three rows of ten (30 cubes, 6 shipments) reads like the
+right first cut and is unshippable for a reason difficulty would never surface:
+a 3×10 rectangle has almost no distinct pentomino tilings — 30 seeds produced
+**four** inventories in total, a "daily" board dealing the same puzzle every
+third day forever. At four rows the same sweep gives 24 of 30 distinct, which is
+the ladder's own figure (tier-9 Standard: 27 of 30). Area is what buys a
+generated board its variety, and 30 cells is below the knee.
 
 **Zero waste needs a fail-fast signal or it is dead-man-walking.** With an exact
 manifest, one cube lost off the deck makes the attempt unwinnable *immediately*,
@@ -597,8 +906,8 @@ introduction order:
 | Material | Behaviour | Answers with |
 |---|---|---|
 | **Slag** ✅ | occupies a slot, can never count toward a line | Demolition, or shove it out — and blowing it up **pays a bounty** (ECONOMY.md) |
-| **Cryo** ✅ | must be struck before it will compact; pressed cold it shatters the line | sequencing |
-| **Rebar** ✅ | joints never break — a rigid anchor | building around it |
+| **Cryo** ✅ | must be struck before it will compact; pressed cold it shatters the line | sequencing — or a **Thaw Lance** charge, which pays for the strike but never for the shatter |
+| **Rebar** ✅ | joints never break — a rigid anchor, and the press **labours** against every bar it cannot crush | building around it, or a **Bond Breaker** — which frees the press as well as the shape |
 | **Volatile** ✅ | detonates on hard impact, taking neighbours | soft landings, or deliberate chains |
 | **Tar** ✅ | bonds permanently on contact; Bond Breaker won't split it | avoidance |
 | **Magnetic** ✅ | self-aligns to neighbours — a *helpful* blocker | pairs with loose builds |
@@ -651,14 +960,74 @@ Two things the build settled that this table could not:
   reintroduce the defect class that once made 35% of Contracts unwinnable.
   **Pattern Contracts stay clean altogether** — their queue is an exact tiling,
   and a material that changes what a landed cube does would un-prove it.
-- **The pentomino Contract is gone** (playtest, 2026-08-09). Bulk pieces pack
-  visibly worse than tetrominoes, so a bulk Contract read as a dice roll rather
-  than a puzzle — the one failure the mode cannot carry. Its complication slot
-  is what the materials above now occupy; a material is priceable where a
-  worse-packing shape is not, because it is a per-shipment risk with a per-cube
-  cost rather than a change to the geometry of every landing. Bulk itself is
-  untouched in Deep Run, where it is a draft choice with a payout attached
-  rather than a roll inflicted by the board.
+- **The pentomino Contract is gone from the ladder** (playtest, 2026-08-09).
+  Bulk pieces pack visibly worse than tetrominoes, so a bulk Contract read as a
+  dice roll rather than a puzzle — the one failure the mode cannot carry. Its
+  complication slot is what the materials above now occupy; a material is
+  priceable where a worse-packing shape is not, because it is a per-shipment
+  risk with a per-cube cost rather than a change to the geometry of every
+  landing. Bulk itself is untouched in Deep Run, where it is a draft choice with
+  a payout attached rather than a roll inflicted by the board.
+
+  **The Skydeck is where it came back, and the exception is argued rather than
+  carved out.** Every clause of the removal is an *on-ramp* clause — "deals it
+  to you", "reads as a dice roll" — and the roof is the one floor where nothing
+  is an on-ramp: the door needs all ten Marks beaten *and* every one of them
+  sealed, the run's rules are dealt rather than drafted, and there is no yard.
+  Packing badly is the exam there, not the accident. Tiers 1–`MARK_COUNT` ship
+  no pentomino and `sim/systems.ts` pins it at every one of them.
+
+  The dice-roll half is also answered mechanically, because "a Contract the
+  budget cannot see" is what a dice roll actually means. Two things close it and
+  neither existed when the removal was argued: **Wide Gauge** gives the pattern
+  slot a width where the exact inventory is *proven* to tile, and
+  **`SIZE_EFFICIENCY`** prices the worse packing in the same closed form the
+  material factor uses. That factor is measured, on a bay-10 Contract bay
+  stripped the way `levelForContract` strips one, 40 launches a bay over 12
+  seeds a condition, reading cubes-landing-in-a-line over cubes-fired:
+
+  | bot | std | bulk | bulk/std |
+  |---|---|---|---|
+  | `aim` | 0.738 | 0.620 | 0.841 |
+  | `lob-flat` | 0.554 | 0.610 | 1.101 |
+
+  The pentomino is *not* uniformly worse: the fixed-arc bot does better with it,
+  because a bulk shipment lands at ×1.35 density and ×1.60 joint strength and
+  its weight squares the pile under it — worth more to a bot that cannot aim
+  than the packing costs it. The aiming bot loses 16%, and that is the number a
+  budget has to believe. `SIZE_EFFICIENCY.bulk` is 0.85, the worse ratio rounded
+  pessimistic; `tiny` measured 0.717/0.683 against std's 0.738/0.554 and stays
+  at 1, and std is 1 by definition — the two being 1 is what makes the table a
+  provable no-op for every ladder tier. Usual pessimism: no bot fires a Bond
+  Breaker, only `demo` fires a charge, fixed arcs never read the pile.
+
+  **Board shape.** The roof deals its own board when the car is parked on it
+  (`main.ts`'s `contractsTier`): all three cards ship pentominoes as standing
+  cargo rather than a rolled complication — what the floor *is*, the way the
+  Skydeck run has no refits — and the pattern slot is dealt Wide Gauge every
+  day, the way the standing clauses are dealt rather than drafted. Because
+  `SKYDECK_CONTRACT_TIER` is off the ladder, `recordContractClear` banks no
+  milestone and ticks no half for it, which is the same rule that already stops
+  a Skydeck *run* paying scrap. All three cards land on **bay 5's bed** — 5/4,
+  five cubes — by `contractBed`'s existing pentomino rule, which was written
+  before anything in the game could satisfy it.
+
+  **Measured** (`npm run sim:patterns -- --seeds 60 --tiers 9,11 --orders 40
+  --per-variant 25`; 900 Contracts, 283 distinct inventories):
+
+  | variant | inventories | all pack | min drop% | mean drop% | dealable | worst deal |
+  |---|---|---|---|---|---|---|
+  | Standard (t9) | 25 | yes | 2.5% | 53.0% | 25/25 | 54ms |
+  | Narrow Gauge (t9) | 25 | yes | 0.0% | 34.3% | 25/25 | 12ms |
+  | Full Rebar (t9) | 25 | yes | 7.5% | 41.3% | 25/25 | 11ms |
+  | Guided (t9) | 25 | yes | 5.0% | 61.7% | 25/25 | 678ms |
+  | **Wide Gauge** | 25 | yes | **2.5%** | **30.8%** | **25/25** | 492ms |
+
+  Wide Gauge sits below Narrow Gauge on the mean and *above* it on the worst
+  case, on the deepest board in the game — and 0 inventories that do not pack,
+  0 deals that could not be proven finishable, across the whole sweep. A player
+  is never handed a random arrival order (`dealPatternQueue` proves one before
+  the bay opens), so `drop%` is a difficulty reading, not a feasibility one.
 
 The same vocabulary has a **shape** axis, and one system now answers it. S and Z
 are the delivery-hard tetrominoes — the ones that tip, wedge and strand cubes

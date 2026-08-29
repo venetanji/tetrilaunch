@@ -1,9 +1,14 @@
 import type { LevelConfig } from "./level";
-import { makeBaseLevel } from "./level";
-import { applyRatchets, type Ratchets, type HazardId } from "./hazards";
-import { applyFinal, type FinalId } from "./finals";
+import { applySkydeckEconomy, makeBaseLevel } from "./level";
+import { applyRatchets, picksPerBay, type Ratchets, type HazardId } from "./hazards";
+import { applyFinal, applyFinals, type FinalId } from "./finals";
+// TYPE ONLY, and load-bearing: skydeck.ts imports newRun and this file's
+// spacing constants at RUNTIME, so a value import here would close a cycle.
+// `import type` is erased, which keeps the dependency one-directional — the
+// mode knows about the run, the run knows only the SHAPE of the mode's rules.
+import type { SkydeckRules } from "./skydeck";
 import {
-  applyUpgrades, newTiers, nextTierCost, orderRungs, UPGRADES,
+  applyUpgrades, newTiers, nextTierCost, orderRungs, THAW_CHARGES_PER_TIER, UPGRADES,
   type RefitOrder, type UpgradeTiers,
 } from "./upgrades";
 
@@ -39,10 +44,11 @@ export interface RunState {
   ratchets: Ratchets;
   /** Cumulative cleared lines across all completed levels. */
   linesTotal: number;
-  /** Bay restarts taken this run. Written by main.ts's resetBay — the pause
-   *  modal's "Restart Bay", the held pause button, AND the tutorial failure
-   *  card's retry, which all route through that one call — and read once at
-   *  the end (meta.ts's recordRunEnd) to decide the seal.
+  /** Bay retries taken this run. Written by main.ts's resetBay — the pause
+   *  modal's "Restart Bay", the held pause button, the tutorial failure card's
+   *  retry AND the game-over card's "Retry Bay", which all route through that
+   *  one call — and read once at the end (meta.ts's recordRunEnd) to decide the
+   *  seal.
    *
    *  It lives on the run rather than being derived, because a restart leaves
    *  no other trace: resetBay rebuilds the bay from the same un-advanced
@@ -57,6 +63,24 @@ export interface RunState {
    *  boundary and seal every run that only ever restarted a bay it went on to
    *  clear — i.e. very nearly all of them. */
   restarts: number;
+  /** This run's end has already been FILED against the ladder (meta.ts's
+   *  recordRunEnd), and the next filing must not count it as a second run.
+   *
+   *  It exists because a Deep Run can now end twice. The game-over card's
+   *  "Retry Bay" hands the same RunState back at the same un-advanced
+   *  levelIndex (main.ts's retryBay), so a run that dies at bay 7 and goes on
+   *  to win at bay 10 reaches recordRunEnd once as a loss and once as a win.
+   *  Every consequence there is already idempotent under that — bestBay is a
+   *  max, the salvage share and the tier tick are false→true edges, and the
+   *  seal is gated on `restarts` — except the lifetime run COUNT, which is a
+   *  count of runs and not of endings.
+   *
+   *  A field on the run rather than a set in main.ts, because it has to survive
+   *  advanceRun's field-by-field rebuild for the same reason `restarts` does:
+   *  a rebuild that dropped it would re-count the run at the next bay boundary.
+   *  Never true on a run the ladder does not track — those are never filed at
+   *  all (run.ts's tracksLadder, main.ts's finishRun). */
+  filed: boolean;
   /** UNSPENT scrap — the in-run upgrade currency (level.ts's SCRAP_PER_LINE /
    *  SCRAP_PER_BAY earn it, refit stops spend it). Distinct from `carry`:
    *  carry is operating cash that funds the next bay's launches, scrap is
@@ -73,6 +97,32 @@ export interface RunState {
    *  reasoning about, and a total nobody ever prints is a trade the player
    *  never gets to settle. */
   salvagedFunds: number;
+  /** Funds volatile detonations took for the LIVE cargo they obliterated
+   *  (Game.volatileLosses per bay, summed here) — the exact mirror of
+   *  salvagedFunds above, and a READOUT for the same reason: the money already
+   *  left the bay's score the moment the blast settled, so this must never
+   *  touch `carry` or the player would be charged twice.
+   *
+   *  It exists for the reason salvagedFunds does, read the other way round. A
+   *  bomb's refund is the whole reason its price is worth reasoning about, and
+   *  a volatile ratchet's charge is the whole reason that notch is a cost and
+   *  not a bargain (lineClear.ts's volatileLossFor carries the measurement).
+   *  Priced and never printed, the notch reads to the player exactly the way it
+   *  read to the sim before it was billed: as free pile relief. */
+  volatileLosses: number;
+  /** Funds the Incinerator saved across the run (Game.incineratedFunds per bay,
+   *  summed here) — the third of these READOUTS and the only one that totals
+   *  money that never moved.
+   *
+   *  It is here for the reason its two neighbours are, stated by salvagedFunds
+   *  and inverted: a bomb's refund is why its price is worth reasoning about,
+   *  and a hood's relief is why ITS price is. Every other ship system shows its
+   *  work while the bay is being played — the liner is drawn on the floor, the
+   *  lance counts down in the rail, the reactor is in the float. A passive
+   *  discount shows nothing at all: the bill simply arrives smaller than a bill
+   *  the player never saw. Without this line the tenth system is the only one on
+   *  the shelf a player cannot tell they own. */
+  incineratedFunds: number;
   /** Bond Breaker charges left in the run's magazine — the rare CONSUMABLE.
    *
    *  It lives here, beside carry and scrap, because it is exactly that kind of
@@ -86,6 +136,26 @@ export interface RunState {
    *  that tier is refitted mid-run (see buyUpgrade), and decremented by
    *  advanceRun from what the just-played bay actually had left. */
   bondCharges: number;
+  /** Thaw Lance charges the run has IN HAND — cryo's bought counter
+   *  (upgrades.ts's `thaw` track, game.ts's useThawLance).
+   *
+   *  It lives here rather than being derived per bay for one reason, and the
+   *  reason is a mode: a LADDER run's lance is resupplied between bays, so this
+   *  is refilled to the tier's allowance at every bay boundary and the field is
+   *  little more than "what is left in this bay's rack"; a SKYDECK run's is
+   *  not, so the same field is a run-long magazine that only ever falls. Both
+   *  rules are in advanceRun, one line apart, and sim/systems.ts pins each.
+   *
+   *  Derived-per-bay was the shape this ALMOST shipped as — the Demolition
+   *  Rack's, where applyUpgrades writes `bombCharges` onto a fresh base every
+   *  level and the refill is a side effect of the config being rebuilt. That
+   *  cannot express "and not on the Skydeck", which is exactly what the mode's
+   *  no-yard rule asks for (skydeck.ts). A run-scoped field can express both.
+   *
+   *  Seeded in newRun from the loadout's tier, topped up by the DIFFERENCE when
+   *  that tier is refitted mid-run (buyUpgrade), and written back by advanceRun
+   *  from what the just-played bay actually had left. */
+  thawCharges: number;
   /** Ship upgrade tier per system (see upgrades.ts). Seeded at run start from
    *  the player's permanent LOADOUT (meta.ts's safeLoadout, bought against the
    *  Mark's build budget), then raised further by in-run scrap at refit stops.
@@ -123,6 +193,271 @@ export interface RunState {
    *  a one-off clause on one bay, so it is stored as one — a single id, written
    *  once, read only by levelForRun and only on the final bay. */
   final: FinalId | null;
+  /** The day's Skydeck rules (skydeck.ts), or null for every ladder run.
+   *
+   *  ONE FIELD, not a `skydeck: boolean` beside a list of clauses, and the
+   *  reason is the same one RunState.sandbox states for being required rather
+   *  than optional: the two states nothing should be able to construct are "a
+   *  Skydeck run with no clauses" and "a ladder run carrying them", and a
+   *  single nullable object cannot express either.
+   *
+   *  Set at construction (skydeck.ts's skydeckRunFor) and never changed, again
+   *  exactly like `mark` and `sandbox`: it decides which board the run files
+   *  to, what the bays cost to open (levelForRun's economy step) and how many
+   *  notches a bay charges — a run that could switch modes halfway through is a
+   *  run whose score means nothing.
+   *
+   *  Everything downstream reads it through the predicates below rather than
+   *  testing it directly, so each of the roof's rules is stated once. */
+  skydeck: SkydeckRules | null;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE RUN'S SCHEDULE, asked of the RUN.
+ *
+ * isRefitBay, baysUntilRefit, isFinalDraft and hazards.ts's picksPerBay each
+ * state a rule of the LADDER, as a function of a bay index or a Mark. The
+ * Skydeck answers two of the four differently (skydeck.ts) — no drafted
+ * inspection, one notch a bay at a Mark whose ladder rule is two — and each of
+ * those differences is a place where a caller that forgot to ask would silently
+ * fly the wrong mode: a Final Inspection dealt on top of three standing
+ * clauses, a capstone draft demanding two notches the mode does not charge for.
+ *
+ * So the four run-aware readings live here, together, next to the ladder rules
+ * they defer to. Callers hold a RunState; these are what they ask. sim/systems.ts
+ * pins each one against its ladder twin.
+ *
+ * TWO OF FOUR, where it used to be three. The yard was the third: the Skydeck
+ * shipped with refitAfterBay hard-false, on the argument that "the rig that
+ * undocks is the rig that lands" was the mode's identity. The owner ruled that
+ * in, played it, and ruled it back out — a ten-bay run at the top of the ladder
+ * with no purchase in it turned the mode's one long-form decision into a
+ * spectator sport, and the scrap readout it forced onto every screen could only
+ * ever say 0. The yard is open on the roof now. What survives of the old rule
+ * is the half that was never about the yard at all: consumables are still not
+ * resupplied there (see thawChargesFor and advanceRun), so a stop sells a
+ * bigger rack and never a refill.
+ *
+ * The stop is not the ladder's stop, either — the roof pays HALF the ladder's
+ * scrap for the same work (level.ts's SKYDECK_SCRAP_SHARE), because the player
+ * who can open it arrives with a maxed Workshop and every rung still on the
+ * shelf costs one flat price. The argument and the table are there.
+ * ------------------------------------------------------------------------- */
+
+/** True when clearing bay `levelIndex` in THIS run opens a refit stop — the
+ *  ladder's own schedule, on the roof as on the ladder. The mode's difference
+ *  is what the stop can AFFORD, not whether it opens (see the note above).
+ *
+ *  The run is still ASKED, and still the thing every caller holds, even though
+ *  today every mode answers with the ladder's schedule: this is the one place
+ *  the yard's shape is stated, and the reversal above is exactly the kind of
+ *  edit that wants one line to change rather than five call sites. Underscored
+ *  because it is genuinely unread right now, which is a fact worth being able
+ *  to see. */
+export function refitAfterBay(_run: RunState, levelIndex: number): boolean {
+  return isRefitBay(levelIndex);
+}
+
+/** Bay-clears until this run's next refit stop, or null when none remains. */
+export function baysUntilRefitFor(run: RunState): number | null {
+  return baysUntilRefit(run.levelIndex);
+}
+
+/** True when the draft dealt after clearing this run's current bay is the Final
+ *  Inspection. Never in a Skydeck run: its clauses are the DAY's, dealt at
+ *  three stops and standing from each (skydeck.ts's header says why they are
+ *  dealt rather than drafted), so the last draft there is an ordinary notch. */
+export function finalDraftFor(run: RunState): boolean {
+  return run.skydeck === null && isFinalDraft(run.levelIndex);
+}
+
+/** Notches this run charges after a cleared bay. hazards.ts's picksPerBay asks
+ *  two at the capstone Mark; the Skydeck asks one at that same Mark, because
+ *  the pressure the second notch exists to carry is carried by the standing
+ *  clauses instead and charging both would charge twice for one rung. */
+export function picksForRun(run: RunState): number {
+  return run.skydeck ? SKYDECK_PICKS_PER_BAY : picksPerBay(run.mark);
+}
+
+/** Notches the Skydeck charges a bay. Stated here rather than imported from
+ *  skydeck.ts for the cycle reason at the top of this file; sim/systems.ts pins
+ *  the two together so they cannot drift. */
+export const SKYDECK_PICKS_PER_BAY = 1;
+
+/**
+ * Does this run's ENDING move the ladder — the tier's Deep Run milestone, its
+ * salvage share, the Mark's seal, the lifetime counters (meta.ts's
+ * recordRunEnd)?
+ *
+ * Two modes say no, for two different reasons, and they are stated together
+ * because the question a caller has is one question.
+ *
+ *  - **Tier S** flies a Mark it never earned, on a rig nobody paid for, from a
+ *    bay it never reached. It has said no since it shipped.
+ *  - **The Skydeck** is the one that needed finding (PR #124 review).
+ *    recordRunEnd ticks the tier at markUnlocked(meta), and markUnlocked
+ *    SATURATES at MARK_COUNT — while the Skydeck opens only once the whole
+ *    ladder is beaten. So every player who can reach the roof is parked on that
+ *    saturated tier, and an unguarded daily win set tierRunDone, banked a tier
+ *    milestone's salvage and printed Tier 10 completion copy EVERY DAY. A daily
+ *    that pays a once-per-tier reward on repeat is a salvage faucet, and the
+ *    seal is worse: recordRunEnd's `sealed` is deliberately not gated on the
+ *    Mark being current, so a daily clean run would have claimed the Mark-10
+ *    badge for a run flown under rules Mark 10 does not have.
+ *
+ * A predicate rather than two tests at the call site, because it is the rule
+ * and sim/systems.ts has to be able to reach it: the gate lives in main.ts's
+ * finishRun, which no harness can call, so what gets pinned is this.
+ */
+export function tracksLadder(run: RunState): boolean {
+  return !run.sandbox && run.skydeck === null;
+}
+
+/**
+ * What the seal is DOING on this run, or null when the run has no seal question
+ * at all (Tier S, the Skydeck — recordRunEnd never seals either).
+ *
+ * Three states, because there are three truths and the button that reports them
+ * had only two. The third was found in review (codex, PR #135): a re-fly of a
+ * Mark the player has ALREADY sealed answered "at stake" on a fresh run, so the
+ * confirmation claimed a price that cannot be charged and the end card drew an
+ * intact seal about to be spent. It cannot be spent. meta.ts's recordRunEnd
+ * only ever APPENDS to sealedMarks — a Mark's stamp, once pressed, survives
+ * every later run however messy — so on that re-fly a bay retry is free.
+ *
+ *  - **held** — this Mark's stamp is already on the tower. Nothing this run
+ *    does can take it, so a retry costs nothing. Checked FIRST, because it
+ *    outranks whatever this run has done: a retried re-fly of a sealed Mark is
+ *    still a sealed Mark.
+ *  - **at-stake** — the Mark is unsealed and this run has retried no bay, so
+ *    the run is still able to seal it and a retry would end that. The only
+ *    state that charges anything, and the one the confirmation exists for.
+ *  - **spent** — the Mark is unsealed and this run has already retried, so the
+ *    chance is gone until the next run. Free from here on.
+ *
+ * THE RUN'S SEAL AND THE MARK'S STAMP ARE DIFFERENT THINGS, which is the
+ * distinction this function exists to keep straight and the one the copy has to
+ * respect: "held" is a fact about the MARK and says nothing about this run,
+ * while "at-stake" and "spent" are facts about this RUN and say nothing about
+ * whether the Mark has ever been sealed. A surface that blurred them would tell
+ * a player their re-fly had sealed something.
+ *
+ * `sealedMarks` is passed rather than reached for — a plain number list, so
+ * this module still imports nothing from meta.ts and sim/systems.ts can call it
+ * with a literal.
+ */
+export type SealState = "held" | "at-stake" | "spent";
+
+export function sealStateFor(
+  run: RunState, sealedMarks: readonly number[],
+): SealState | null {
+  if (!tracksLadder(run)) return null;
+  if (sealedMarks.includes(run.mark)) return "held";
+  return run.restarts === 0 ? "at-stake" : "spent";
+}
+
+/**
+ * Would retrying a bay of THIS run spend its seal?
+ *
+ * The question every door into a bay retry asks (main.ts's requestBayRetry —
+ * the pause modal's Restart Bay, the held ⏸, the game-over card's Retry Bay).
+ * Defined on sealStateFor rather than beside it so the gate and the button
+ * cannot disagree about whether a cost is being charged.
+ *
+ * TRUE AT MOST ONCE PER RUN, which is the property that makes confirming EVERY
+ * seal-breaking retry cheap rather than nagging: after the first retry
+ * `restarts` is no longer 0, so every later one answers false and goes straight
+ * through. The panel therefore appears at most once in a run, exactly at the
+ * moment the irreversible thing happens.
+ *
+ * …and NEVER on a Mark already sealed, which is the half review caught. A
+ * confirmation for a free action is worse than none: it teaches the player to
+ * click past the panel, and the press it exists to stop is the one that spends
+ * something.
+ */
+export function retryBreaksSeal(run: RunState, sealedMarks: readonly number[]): boolean {
+  return sealStateFor(run, sealedMarks) === "at-stake";
+}
+
+/**
+ * May this run hand a bay back at all?
+ *
+ * THE SKYDECK IS PERMADEATH. Its bays are the day's seeded, single attempt —
+ * one rules set, one shot, one score on one board — and a bay retry there is
+ * free in every sense that matters: the roof keeps no seal (sealStateFor
+ * returns null), so requestBayRetry's confirmation never fires, and resetBay
+ * rebuilds the SAME bay from the same run seed at the same levelIndex with the
+ * score back at zero. A run could grind bay 6 until it went perfectly and file
+ * the result against everyone who flew it once. That is not a hard mode, it is
+ * a leaderboard nobody can read.
+ *
+ * The run-end card already refused it for exactly this reason (main.ts's
+ * `retryBay` gate: "the Skydeck is the day's single attempt, and a retryable
+ * daily is a leaderboard nobody can read") — but it refused it on
+ * `sealStateFor !== null`, which is a question about the SEAL, and the pause
+ * card and the held ⏸ never asked anything at all. So the rule moves out to be
+ * its own predicate, asked by every door, and stops being a side effect of a
+ * different mode's bookkeeping.
+ *
+ * TIER S KEEPS ITS RETRY. The bench also fails tracksLadder and also keeps no
+ * seal, and it is the case that proves this cannot ride on either of those: it
+ * files to its own board, it is FOR re-flying the same bay, and its run-end
+ * card puts the re-fly on the primary. What separates the two modes is
+ * permadeath, not bookkeeping, so that is what the predicate reads.
+ */
+export function bayRetryable(run: RunState): boolean {
+  return run.skydeck === null;
+}
+
+/**
+ * Would QUITTING to the menu throw away work this run has done?
+ *
+ * The pause card's Quit is the only control in the game that ends a live run
+ * without settling it. Nothing is filed on that path — main.ts's finishRun is
+ * never reached, so meta.ts's recordRunEnd never runs and the run banks no
+ * score, no bestBay, no run count, no tier tick. A run PLAYED OUT banks those
+ * even when it loses, which is why the warning this gate opens is worth
+ * printing at all: the loss is not "the bay", it is everything behind the bay.
+ *
+ * THE STAKES TEST, written the same way requestBayRetry's is and for the same
+ * reason — a confirmation on a press that costs nothing teaches the player to
+ * click past the one that costs something (see retryBreaksSeal above).
+ *
+ *  - **bay 1 goes straight through.** `levelIndex === 0` means no bay has been
+ *    cleared, so there is no carry, no scrap, no notch and no refit to lose —
+ *    and the menu's Start Run hands back the same offer the player is walking
+ *    away from. The in-flight bay's own funds and lines go either way; they are
+ *    not banked until the bay is cleared, and a bay nobody cleared is a bay the
+ *    ladder never hears about. Gating it would put a warning in front of the
+ *    single most common "I opened the wrong thing" exit in the game.
+ *  - **Tier S goes straight through.** The bench is not a run to protect: it
+ *    files to its own board, climbs no ladder (see tracksLadder and finishRun's
+ *    first gate), and starts at whatever bay was dialled in — so `levelIndex`
+ *    there counts bays SKIPPED, not bays cleared. Its whole value is that the
+ *    next configuration is one tap away, which is why even the run-end card
+ *    routes back to the bench rather than the menu.
+ *
+ * The Skydeck is deliberately NOT excluded even though it too fails
+ * tracksLadder. That gate is about the ladder's BOOKKEEPING; this one is about
+ * a player's work, and the roof is ten real bays flown from a cold start.
+ *
+ * A predicate rather than two tests at the call site, for the reason
+ * tracksLadder is one: the gate itself lives in main.ts, which no harness can
+ * call, so what gets pinned is this.
+ */
+export function quitLosesProgress(run: RunState): boolean {
+  return !run.sandbox && run.levelIndex > 0;
+}
+
+/** Every standing clause in force on this run's current bay, in arm order.
+ *  Empty for a ladder run, which carries its single clause in `final` instead.
+ *
+ *  A question about a RUN, so it lives here rather than in skydeck.ts — which
+ *  is also what lets that module import this one at runtime instead of the
+ *  other way round. */
+export function standingClauses(run: RunState): FinalId[] {
+  if (!run.skydeck) return [];
+  return run.skydeck.clauses.filter((c) => c.from <= run.levelIndex).map((c) => c.id);
 }
 
 /** Bond Breaker charges a Bond Emitter of `tier` ships for the WHOLE run —
@@ -131,6 +466,33 @@ export interface RunState {
  *  start and buyUpgrade tops it up at a refit, and those two had to agree. */
 export function bondChargesFor(tier: number): number {
   return Math.max(0, Math.floor(tier));
+}
+
+/** Thaw Lance charges a rack of `tier` issues in ONE grant —
+ *  THAW_CHARGES_PER_TIER a tier (upgrades.ts sizes it against the belt).
+ *
+ *  WHAT A GRANT IS depends on the mode, and that is the whole of the Skydeck
+ *  difference: on the ladder a grant is a BAY's rack, re-issued at every bay
+ *  boundary; on the Skydeck it is the RUN's, issued once at undock and never
+ *  again. One number, two horizons — see advanceRun, where the fork is written.
+ *
+ *  THE YARD DOES NOT CHANGE THIS, which is the ruling the roof's refit stops
+ *  had to make when they came back (see the schedule note at the top of this
+ *  file). A stop there sells a BIGGER RACK, never a refill: buyUpgrade issues
+ *  the DIFFERENCE between two tiers' grants on top of what is left, so a
+ *  Skydeck pilot who has spent the lot and then buys the Thaw Lance's last rung
+ *  undocks with THAW_CHARGES_PER_TIER charges — the ones the rung adds — and
+ *  not with a full new-tier rack. That is the half of "the rig you brought is
+ *  the rig you have" worth keeping: a consumable that could be topped up three
+ *  times a run is a supply line, and buying one is a build decision priced in
+ *  scrap like every other rung. sim/systems.ts pins the spent-then-refitted
+ *  case, which is the one where a refill and a delta look different.
+ *
+ *  A function rather than an inline multiply for bondChargesFor's exact reason:
+ *  three callers had to agree — newRun's grant, buyUpgrade's mid-run top-up and
+ *  advanceRun's ladder refill. */
+export function thawChargesFor(tier: number): number {
+  return Math.max(0, Math.floor(tier)) * THAW_CHARGES_PER_TIER;
 }
 
 export function newRun(
@@ -147,14 +509,23 @@ export function newRun(
     ratchets: {},
     linesTotal: 0,
     restarts: 0,
+    // Nothing has ended yet, so nothing has been filed.
+    filed: false,
     scrap: startingScrap,
     scrapEarned: startingScrap,
-    // No starting-scrap equivalent: nothing has been blown up yet.
+    // No starting-scrap equivalent: nothing has been blown up yet, and
+    // nothing has been blown up ON the player either.
     salvagedFunds: 0,
+    volatileLosses: 0,
+    // ...and nothing has been burned in the hood either.
+    incineratedFunds: 0,
     // The whole run's Bond Breaker magazine, granted once. bondChargesFor is
     // the single place the tier-to-charges rule lives, so the refit top-up in
     // buyUpgrade cannot drift from the run-start grant.
     bondCharges: bondChargesFor(loadout.bonds ?? 0),
+    // The first grant. On a ladder run advanceRun re-issues this at every bay
+    // boundary; on a Skydeck run it is the only one the run will ever get.
+    thawCharges: thawChargesFor(loadout.thaw ?? 0),
     // The permanent loadout is where the ship STARTS, not a bonus on top of a
     // stock one: in-run scrap refits from here at the usual stops. Copied, not
     // aliased — a run must never write back into saved meta state.
@@ -168,6 +539,10 @@ export function newRun(
     sandbox: false,
     // Nothing is inspected until the run reaches its last draft.
     final: null,
+    // A ladder run unless the caller says otherwise, the same shape and the
+    // same reason as `sandbox` above: skydeck.ts's skydeckRunFor is the one
+    // caller that overrides it.
+    skydeck: null,
   };
 }
 
@@ -288,6 +663,14 @@ export function bayMusic(levelIndex: number): BayTrack {
  *  the same reason the carry is: it is stock in hand, not a rate. */
 export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
+  // THE ROOF'S OPENING TERMS, before anything is layered on them. A Skydeck bay
+  // is a Mark-10 bay with the ladder's own target and launch curves read one
+  // rung further along, plus the roof's scrap rate (level.ts's
+  // applySkydeckEconomy). It lands HERE — on the base, ahead of the ship —
+  // because that is what "opening terms" means: the Reactor's float bonus, a
+  // Fuel Levy notch and a Rate Cut clause all price the roof's numbers rather
+  // than the ladder's, exactly as they price the ladder's on the ladder.
+  if (run.skydeck) applySkydeckEconomy(base, run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
   const cfg = applyRatchets(base, run.ratchets);
   // The Final Inspection's clause, on the LAST bay only (finals.ts). After the
@@ -298,8 +681,21 @@ export function levelForRun(run: RunState): LevelConfig {
   // the bay rather than on `final` being set, so a clause can never leak
   // backwards into a replayed earlier bay.
   if (run.levelIndex === RUN_LEVELS - 1) applyFinal(cfg, run.final);
+  // …and the Skydeck's STANDING clauses, on every bay from the one each armed
+  // on (skydeck.ts). Same seam as the line above and deliberately after it —
+  // both are the last layer of conditions, and the two are mutually exclusive
+  // by construction (a Skydeck run's `final` is never written, a ladder run's
+  // `skydeck` is null), so neither guard has to know about the other.
+  applyFinals(cfg, standingClauses(run));
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
   cfg.bondBreakerCharges = Math.max(0, run.bondCharges);
+  // The Thaw Lance's rack, same seam and the same reason: applyUpgrades already
+  // wrote the tier's grant onto this fresh config, and what the RUN has in hand
+  // is the number that counts. On the ladder the two agree at every bay start
+  // (advanceRun refilled it); on the Skydeck they diverge from the first charge
+  // spent, which is the mode's rule and the whole reason this is overwritten
+  // rather than left to the config.
+  cfg.thawCharges = Math.max(0, run.thawCharges);
   return cfg;
 }
 
@@ -338,6 +734,29 @@ export const CARRY_CAP = 150;
  *  stock, so a caller that forgets it under-reports a single bay, where
  *  defaulting to the running total would re-count every bay before it.
  *
+ *  `volatileLosses` is what volatile detonations charged the just-played bay
+ *  for its live cargo (Game.volatileLosses), and defaults to 0 for exactly the
+ *  reason salvagedFunds does — same kind of number, same failure mode.
+ *
+ *  `thawLeft` is the Thaw Lance stock the just-played bay ENDED with
+ *  (Game.thawCharges), and it matters on exactly one mode — see the field
+ *  below. It takes `bondsLeft`'s defensive default for `bondsLeft`'s reason: a
+ *  caller that forgets to thread it leaves a Skydeck pilot's charges alone
+ *  rather than silently confiscating them.
+ *
+ *  `incineratedFunds` is what the Incinerator saved the just-played bay
+ *  (Game.incineratedFunds) — a STAT, defaulting to 0 like the other two.
+ *
+ *  The five trailing arguments are STOCKS and STATS mixed, which is worth
+ *  naming because it is the one way this signature can bite: a STOCK
+ *  (`bondsLeft`, `thawLeft`) defaults to what the run already holds, and a STAT
+ *  (`salvagedFunds`, `volatileLosses`, `incineratedFunds`) defaults to 0. They
+ *  are in arrival order rather than grouped by kind on purpose — regrouping
+ *  would move `salvagedFunds` and silently re-point every positional caller,
+ *  which for a bare number is a bug no type checker can see. The newest one
+ *  goes on the END for the same reason, even though it would read better
+ *  beside the two stats it belongs with.
+ *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
@@ -348,6 +767,9 @@ export function advanceRun(
   pickedAxes: HazardId[] = [],
   bondsLeft: number = run.bondCharges,
   salvagedFunds = 0,
+  volatileLosses = 0,
+  thawLeft: number = run.thawCharges,
+  incineratedFunds = 0,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -365,12 +787,41 @@ export function advanceRun(
     // `sandbox` below is — this function names every field, so anything it
     // omits is zeroed rather than carried.
     restarts: run.restarts,
+    // Carried for the same reason, and it is the field a resumed run depends
+    // on: a run that lost bay 7, retried it and cleared it has already been
+    // filed once, and every bay it clears after that rebuilds it through here.
+    // Dropping the flag would re-count the run in the lifetime total the moment
+    // it cleared the bay it came back from.
+    filed: run.filed,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,
+    volatileLosses: run.volatileLosses + volatileLosses,
+    incineratedFunds: run.incineratedFunds + incineratedFunds,
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),
+    /* THE THAW LANCE'S ONE FORK, and the only place in the file where the two
+     * modes are handed different arithmetic on the same field.
+     *
+     * A LADDER run docks. Its rack is resupplied between bays, so crossing a
+     * bay boundary re-issues the tier's whole grant — the per-bay unit the
+     * charges were SIZED in (upgrades.ts's THAW_CHARGES_PER_TIER measures each
+     * tier against one bay's worth of frozen shipments), and the same shape the
+     * Demolition Rack already has by construction.
+     *
+     * A SKYDECK run does not. skydeck.ts's yard bullet is the rule verbatim —
+     * "the rig that undocks is the rig that lands" — and a lance that quietly
+     * refilled itself ten times would be a resupply line the mode does not
+     * have. So there the grant is the RUN's: it falls as it is spent and it
+     * never comes back, exactly like the Bond Breaker magazine above.
+     *
+     * The clamp is that magazine's, for the same defensive reason: a bay cannot
+     * hand back more charges than it was issued, however it reports its ending
+     * count. */
+    thawCharges: run.skydeck === null
+      ? thawChargesFor(run.tiers.thaw ?? 0)
+      : Math.max(0, Math.min(run.thawCharges, Math.floor(thawLeft))),
     // Carried, obviously — but worth stating why it is spelled out in a
     // function that rebuilds the run field by field: a run that stopped being
     // a sandbox run at bay 2 would spend the other nine bays quietly earning
@@ -382,6 +833,14 @@ export function advanceRun(
     unlocks: [...run.unlocks],
     mark: run.mark,
     final: run.final,
+    // Carried for exactly the reason `sandbox` above is spelled out: this
+    // function rebuilds the run field by field, so a rebuild that dropped this
+    // one would turn a Skydeck run into a ladder run at the first bay boundary
+    // — the yard would open, the notch quota would double, and the clauses the
+    // day wrote would stop applying. The field is required on RunState (not
+    // optional) so this line cannot be forgotten here or in any future
+    // rebuilder.
+    skydeck: run.skydeck,
   };
 }
 
@@ -414,6 +873,26 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
     bondCharges: id === "bonds"
       ? run.bondCharges + (bondChargesFor(tier + 1) - bondChargesFor(tier))
       : run.bondCharges,
+    // The Thaw Lance's top-up, the emitter's rule verbatim: the DIFFERENCE
+    // between the two tiers' grants, on top of what is left.
+    //
+    // It is not redundant on the ladder, which is where it is easy to talk
+    // oneself out of it: advanceRun refilled the rack to the OLD tier before
+    // this screen opened, so without the delta a player who bought a rung at
+    // the yard would undock and fly the next bay on the rack they walked in
+    // with. And it must be a delta rather than the new total, so a refit at bay
+    // 9 buys the charges the rung ADDS instead of resetting the ones the
+    // Skydeck's magazine already spent.
+    //
+    // That last clause was written against a mode this path could not reach —
+    // the roof had no yard when this line shipped, and the rule was written so
+    // it would stay true if one ever opened. One did. It is now the ONLY way a
+    // Skydeck run gains a charge after undock, which is exactly the shape the
+    // ruling wanted (thawChargesFor): the yard sells a bigger rack, never a
+    // refill.
+    thawCharges: id === "thaw"
+      ? run.thawCharges + (thawChargesFor(tier + 1) - thawChargesFor(tier))
+      : run.thawCharges,
   };
 }
 

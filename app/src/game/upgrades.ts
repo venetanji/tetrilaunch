@@ -1,6 +1,7 @@
 import {
   DEMO_BLAST_MULT, DEMO_RESUPPLY_LINES, DEMO_SALVAGE_MULT, type LevelConfig,
 } from "./level";
+import { VOLATILE_TRIGGER_SPEED } from "./lineClear";
 
 /**
  * SHIP UPGRADES — the FTL layer of the run.
@@ -27,9 +28,169 @@ import {
  * whatever ship you're flying.
  */
 export type UpgradeId =
-  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition";
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
+  | "thaw" | "cushion" | "incinerator";
 
 export const MAX_TIER = 3;
+
+/**
+ * Thaw Lance charges per tier, PER BAY on the ladder.
+ *
+ * Sized against the belt, not against a feel, and the sizing is the reason the
+ * unit is a bay rather than a run. hazards.ts puts cryo's first notch at
+ * MATERIAL_BASE (0.07 of the belt) and belt.ts caps the belt at one special in
+ * three, so a cryo run meets frozen shipments in EVERY bay, forever — 3-4 of
+ * them a bay at one notch. Cryo is not an emergency, it is a TAX, and a
+ * once-a-run answer to a per-bay tax is not an answer. That is this track's one
+ * real disagreement with the Bond Emitter it sits beside, whose charge IS an
+ * emergency reset and is therefore rightly a run-long magazine of three.
+ *
+ * THREE A TIER, AND THE PROPOSAL SAID TWO. The proposal's own belt arithmetic
+ * is what overruled it: one notch puts "3-4 frozen cubes a bay" on the floor,
+ * and a rung that covers half of them covers nothing. Measured at Tier 5 bay 5,
+ * 48 paired seeds, against a 46/48 clean control and 29/48 at cryo:1:
+ *
+ *            2 / 4 / 6 a tier      3 / 6 / 9 a tier
+ *   tier 1   29/48  (+0)           35/48  (+6)
+ *   tier 2   38/48                 42/48
+ *   tier 3   42/48                 43/48
+ *
+ * At two a tier the FIRST RUNG BUYS NOTHING — 29/48 against an un-lanced
+ * 29/48, and upgrades.ts's own refit-projection note is about exactly that
+ * failure ("a shop where a purchase projects nothing teaches that the purchase
+ * does nothing"). At three it buys six bay-wins, and every rung above it still
+ * pays: shots fall 33.3 → 32.6 → 28.0 → 26.9 against the clean bay's 25.6, and
+ * ending funds climb $776 → $962 → $1149 → $1201 against its $1260. A ladder
+ * that converges on the control without reaching it is the shape hazards.ts
+ * asks a counter to have — the hazard survives it.
+ *
+ * (An earlier 24-seed pass read the first rung as actively HARMFUL, 15/24
+ * against 17/24. It is flat, not harmful; that comparison was two wins wide on
+ * a sample whose standard error is two. The findings doc's own rule applies —
+ * no number read at 24 seeds where a 48-seed one exists.)
+ *
+ * WHERE IT STOPS, stated because it is the number a play pass will want to
+ * raise. At three notches of cryo (17% of the belt) on a late bay, 48 paired
+ * seeds: 21/48 un-lanced, 34/48 with the lance MAXED, against a 45/48 clean
+ * control. So the capstone buys back a little over half of what a three-notch
+ * stack costs and leaves the bay eleven wins short of a clean one; at 24 seeds
+ * the lower two tiers stay inside the noise there (10/24 and 9/24 against
+ * 9/24). The lance therefore scales PARTIALLY into a cryo build and never
+ * erases one, which is the shape it should have — it is an answer to the
+ * FORCED first notch (hazards.ts's MATERIAL_DRAFT_BAYS, from Mark 5), and a
+ * player who pours every notch into cryo has bought a problem no system on the
+ * shelf is sized to undo. If a cryo BUILD should be survivable, this constant
+ * is the wrong lever and the material's rate is the right one.
+ *
+ * (This is the one place the shipped system reads STRONGER than the prototype
+ * that priced it: counters.ts's rig thawed the first eligible cube in the field
+ * list, and the real lance takes the cube the press is about to reach — a
+ * strictly better target, and worth more the more cryo there is to choose
+ * between. The proposal's "buys back two, inside the noise" was an honest
+ * reading of a naive rig.)
+ */
+export const THAW_CHARGES_PER_TIER = 3;
+
+/**
+ * The Impact Cushion's ladder: how deep the liner runs and how soft it lands.
+ *
+ * A liner at the DEEP END of the bay, so the two numbers are not one knob split
+ * in two — `cells` is how much of the floor is protected and `mult` is how hard
+ * a shot the protected part will take. A tier buys both, and the sizing of each
+ * comes from a different measurement.
+ *
+ * DEPTH, from where volatile actually goes off. Instrumented over 24 bays at
+ * Tier 7 bay 10 with the belt at the volatile cap, across three pilot profiles
+ * — 41,393 volatile first-contacts, of which 731 cleared the stock trigger.
+ * The ones that DETONATE are far more tightly clustered than arrivals in
+ * general, because a detonating arrival is a hard shot and a hard shot carries
+ * deep:
+ *
+ *   depth from wall (cells)   p25    median   p75    p90    max
+ *   all first-contacts        2.19   4.49     6.66   8.45   16.61
+ *   detonating ones           3.81   5.24     6.37   7.34    9.10
+ *
+ * so a liner N cells deep covers this share of detonations: 4 cells 27%,
+ * 6 cells 69%, 8 cells 98%, 10 cells 100%. The three rungs are placed on that
+ * curve — a quarter, two thirds, effectively all of it — and the top rung is
+ * `compactorMinLineCells` (8) rather than the round 10 the data would also
+ * allow, because that is the landmark it should be: THE LINER COVERS THE SLOTS
+ * A LINE IS MADE IN. Past it a cushion is protecting cargo that is not yet
+ * being sold, and the 2% of detonations beyond the line zone are the deep,
+ * hardest shots this system is not meant to make free.
+ *
+ * SOFTNESS, from the arrival distribution lineClear.ts's VOLATILE_TRIGGER_SPEED
+ * was placed against: "first-contact relative speed runs 17.3 to 30.8", median
+ * 19.5 on the softest lob and 25.5 at full power, threshold 22. Softening a
+ * blow by a factor and raising the threshold by that factor are the same
+ * arithmetic on the same comparison, so:
+ *
+ *   x1.15 -> 25.3, a hair under the full-power MEDIAN: inside the liner, a hard
+ *            shot becomes a coin flip instead of a detonation.
+ *   x1.30 -> 28.6, inside the top decile of the range.
+ *   x1.40 -> 30.8, the measured MAXIMUM: inside the liner, no launch the cannon
+ *            can produce sets a cube off ON ARRIVAL.
+ *
+ * The capstone stops exactly at the top of the range and not past it, and
+ * pairing it with a liner that stops at the line zone is what keeps it a
+ * counter rather than a delete button. hazards.ts's rule is that a system makes
+ * one hazard cheap for you, it does not erase it — and after a maxed cushion
+ * volatile still detonates when something lands hard ON it (the neighbour case,
+ * which is the material's whole identity), still detonates outside the liner,
+ * and still bills the bay for every live cube it takes.
+ */
+export const CUSHION_TIERS = [
+  { cells: 4, mult: 1.15 },
+  { cells: 6, mult: 1.30 },
+  { cells: 8, mult: 1.40 },
+] as const;
+
+/**
+ * THE INCINERATOR'S LADDER — the share of a loss the hood remits for cargo
+ * destroyed inside the flue (chute.ts's INCINERATOR_Y).
+ *
+ * A QUARTER A RUNG, and the round numbers are the specification rather than a
+ * placeholder: the owner asked for 25 / 50 / 75, and unusually for a number in
+ * this file that request is already the right shape for a reason the shelf can
+ * state. A relief ladder has a hard ceiling nothing else here has — 100% would
+ * make writing cargo off FREE, which is not a counter but a second, cheaper
+ * disposal economy, and hazards.ts's rule ("a system makes one specific hazard
+ * cheap for you", never free) forbids it. Three even steps that stop one step
+ * short of the ceiling is the only ladder that reaches "most of it" without
+ * ever reaching "all of it", and the capstone's remaining quarter is what keeps
+ * a dumped shipment a decision instead of a reflex.
+ *
+ * WHAT A RUNG IS WORTH, in the currency the player actually feels. The two
+ * bills it discounts both ride the tier ladder, so one rung is worth more the
+ * deeper the run goes — which is the whole point, since this was asked for
+ * about Tier 10 bay 10. At Tier 10's last bay a spilled shipment is
+ * `penaltyPerLostPieceFor` x 4 cubes and a detonation bills `volatileLoss` per
+ * live cube; the tiers turn those into three quarters, a half and a quarter of
+ * themselves. See design/balance/winnability-sweep-findings.md for the measured
+ * table, and for the finding that licensed the flue's position: with a pilot
+ * that never aims into the hood, NOTHING in a Tier-10 bay dies above the
+ * roofline, so this system is worth exactly zero to a player who does not fly
+ * it. That is the shape a skill-expressive counter should have and it is also
+ * the reason the ladder is a share rather than a flat sum — there is no
+ * passive floor here to be generous with.
+ */
+export const INCINERATOR_TIERS = [0.25, 0.5, 0.75] as const;
+
+/** The share of a loss a hood at `tier` remits inside the flue. Tier 0 is a
+ *  bare bay, which remits nothing — derived rather than typed beside the copy
+ *  so the shop card, the guide and the config all quote one ladder. */
+export function incineratorRelief(tier: number): number {
+  const t = Math.max(0, Math.min(INCINERATOR_TIERS.length, Math.floor(tier)));
+  return t === 0 ? 0 : INCINERATOR_TIERS[t - 1];
+}
+
+/** The trigger speed a cushion tier produces inside its liner on a stock bay.
+ *  Derived so the shop copy, the guide and the docs quote the constants rather
+ *  than a number typed beside them. Tier 0 is the bare threshold. */
+export function cushionThreshold(tier: number): number {
+  const t = Math.max(0, Math.min(CUSHION_TIERS.length, Math.floor(tier)));
+  return VOLATILE_TRIGGER_SPEED * (t === 0 ? 1 : CUSHION_TIERS[t - 1].mult);
+}
 
 /** Scrap cost to go from tier t-1 to tier t, for every track. One shared
  *  ladder rather than per-track pricing: the tracks are meant to be balanced
@@ -54,11 +215,6 @@ export interface UpgradeDef {
    *  stock). The card used to show only deltas, which meant a player could see
    *  "+2 open cells" without ever being told the bay was 12 to begin with. */
   current(tier: number): string;
-  /** The step from `tier` to `tier + 1`, for the buy button: which way the
-   *  number moves and by how much. `dir` is the direction of the NUMBER, not a
-   *  judgement — a shorter cooldown is an improvement that reads "down". Never
-   *  called at MAX_TIER, where there is no next step to describe. */
-  step(tier: number): { dir: "up" | "down"; text: string };
   /** Mutate `cfg` for a track sitting at `tier` (1..MAX_TIER). Never called
    *  with tier 0 — applyUpgrades skips unbought tracks entirely, so each
    *  implementation can assume it has work to do. */
@@ -80,7 +236,6 @@ export const UPGRADES: UpgradeDef[] = [
     // only thing that moves it is this track — so the reading is exact rather
     // than an estimate that a draft could silently invalidate.
     current: (t) => `${12 + 2 * t} open cells`,
-    step: () => ({ dir: "up", text: "+2 cells" }),
     apply(cfg, tier) {
       // 12 stock -> 14/16/18. This is the "extend to 18" lever, now EARNED
       // capital instead of a random Wide Bay offer: a wide bay is the standard
@@ -116,7 +271,6 @@ export const UPGRADES: UpgradeDef[] = [
       "+18% muzzle speed · 60% wind cancelled",
     ],
     current: (t) => (t === 0 ? "stock coils" : `+${6 * t}% speed · ${20 * t}% wind`),
-    step: () => ({ dir: "up", text: "+6% power" }),
     apply(cfg, tier) {
       // The wind counter. A stock launcher at max power lands at x~1228 (see
       // cannon.ts's SPEED_MAX note); a strong steady headwind can pull that
@@ -139,7 +293,6 @@ export const UPGRADES: UpgradeDef[] = [
       "×2.8 settle assist · +24% stroke speed",
     ],
     current: (t) => (t === 0 ? "stock press" : `×${(1 + 0.6 * t).toFixed(1)} assist · +${8 * t}% stroke`),
-    step: () => ({ dir: "up", text: "+0.6 assist" }),
     apply(cfg, tier) {
       // Settle assist is what converts "nearly a line" into a payout (see
       // lineClear.ts's settleZoneCubes) — the direct upgrade for a build that
@@ -157,9 +310,6 @@ export const UPGRADES: UpgradeDef[] = [
     blurb: "Faster reload — more shots inside the same clock.",
     tiers: ["−15% cooldown", "−30% cooldown", "−45% cooldown"],
     current: (t) => (t === 0 ? "stock reload" : `−${15 * t}% cooldown`),
-    // The one track whose number falls. The arrow reports the number, so this
-    // reads "down" even though a shorter cooldown is the improvement.
-    step: () => ({ dir: "down", text: "−15% reload" }),
     apply(cfg, tier) {
       cfg.cooldownMs = Math.max(120, Math.round(cfg.cooldownMs * (1 - 0.15 * tier)));
     },
@@ -175,7 +325,6 @@ export const UPGRADES: UpgradeDef[] = [
       "+$180 float · +$45 per line",
     ],
     current: (t) => (t === 0 ? "stock reactor" : `+$${60 * t} float · +$${15 * t}/line`),
-    step: () => ({ dir: "up", text: "+$60 float" }),
     apply(cfg, tier) {
       cfg.startingFunds += 60 * tier;
       cfg.scorePerLine += 15 * tier;
@@ -196,7 +345,6 @@ export const UPGRADES: UpgradeDef[] = [
       const charges = `${t} charge${t === 1 ? "" : "s"} for the run`;
       return t >= 2 ? `${charges} · S/Z ${t >= 3 ? 50 : 30}% weaker` : charges;
     },
-    step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose
@@ -242,9 +390,6 @@ export const UPGRADES: UpgradeDef[] = [
       : t >= MAX_TIER
         ? `+${2 * t}/bay · +1 per ${DEMO_RESUPPLY_LINES} lines · ×${DEMO_BLAST_MULT} blast`
         : `+${2 * t} charges/bay`),
-    step: (t) => (t + 1 >= MAX_TIER
-      ? { dir: "up", text: "+2 charges, resupply, a wider blast and a better rate" }
-      : { dir: "up", text: "+2 charges" }),
     apply(cfg, tier) {
       // Twice the old size, and deliberately more generous than the bond
       // track: a bomb is a SALVAGE tool (it refunds what it vaporizes) rather
@@ -279,12 +424,95 @@ export const UPGRADES: UpgradeDef[] = [
       }
     },
   },
+  {
+    id: "thaw",
+    name: "Thaw Lance",
+    glyph: "THW",
+    blurb: "Thaw charges every bay — melt the frozen cube the press is about to reach.",
+    tiers: [
+      `+${THAW_CHARGES_PER_TIER} charges per bay`,
+      `+${THAW_CHARGES_PER_TIER * 2} charges per bay`,
+      `+${THAW_CHARGES_PER_TIER * 3} per bay — a cryo-heavy build, and still not a Cold Chain final`,
+    ],
+    current: (t) => (t === 0 ? "no charges" : `+${THAW_CHARGES_PER_TIER * t} charges/bay`),
+    apply(cfg, tier) {
+      // The config-layer half of the same rule run.ts's thawChargesFor states
+      // for a run — one grant, `THAW_CHARGES_PER_TIER` a tier — exactly as the
+      // Bond Emitter's `+= tier` line mirrors bondChargesFor. In a RUN this is
+      // then overwritten by levelForRun with what the run actually has left,
+      // because the two modes disagree about resupply (a ladder run's rack is
+      // refilled at every bay boundary, a Skydeck run's never is). Outside a
+      // run — a single bay flown headlessly — this line is the whole story.
+      //
+      // NOTHING ELSE. No passive rides the higher tiers, which is the
+      // difference between this track and the Bond Emitter's Seam Splitter, and
+      // it is deliberate rather than unfinished: the emitter's charges are RARE
+      // (three for ten bays), so its tiers 2-3 needed something else to be
+      // paying for. Charges that renew every bay are already a ladder — the
+      // measurement above prices each rung on its own — and a passive bolted on
+      // top would make the tier buy two things and price neither.
+      cfg.thawCharges += THAW_CHARGES_PER_TIER * tier;
+    },
+  },
+  {
+    id: "cushion",
+    name: "Impact Cushion",
+    glyph: "CSH",
+    blurb: "A shock liner across the deep slots — volatile lands there without going off.",
+    tiers: [
+      `${CUSHION_TIERS[0].cells} cells of liner · sets off at ${cushionThreshold(1).toFixed(0)} instead of ${VOLATILE_TRIGGER_SPEED}`,
+      `${CUSHION_TIERS[1].cells} cells · ${cushionThreshold(2).toFixed(0)}`,
+      `${CUSHION_TIERS[2].cells} cells — the whole line zone · ${cushionThreshold(3).toFixed(0)}, above any launch`,
+    ],
+    current: (t) => (t === 0
+      ? "bare floor"
+      : `${CUSHION_TIERS[t - 1].cells} cells lined · sets off at ${cushionThreshold(t).toFixed(0)}`),
+    apply(cfg, tier) {
+      if (tier <= 0) return;
+      const rung = CUSHION_TIERS[Math.min(CUSHION_TIERS.length, tier) - 1];
+      cfg.cushionCells = rung.cells;
+      // ASSIGNED, not multiplied onto what is there. Nothing else writes these
+      // two fields — finals.ts's Hair Trigger drives volatileTriggerMult, which
+      // is the field-wide seam and stays separate on purpose (see the config
+      // field's own note) — so a tier states the liner the rig has rather than
+      // compounding with a liner nobody sold. The two meet at the collision
+      // side, in lineClear.ts's cushionedTrigger, which is also where the floor
+      // that stops a maxed cushion walking past Hair Trigger lives.
+      cfg.cushionMult = rung.mult;
+    },
+  },
+  {
+    id: "incinerator",
+    name: "Incinerator",
+    glyph: "INC",
+    blurb: "A flare hood over the plant — cargo destroyed above the power bar burns off cheap.",
+    tiers: [
+      `${Math.round(INCINERATOR_TIERS[0] * 100)}% off every loss charged above the roofline`,
+      `${Math.round(INCINERATOR_TIERS[1] * 100)}% off — half of what a written-off shipment costs`,
+      `${Math.round(INCINERATOR_TIERS[2] * 100)}% off — a quarter price, and never free`,
+    ],
+    current: (t) => (t === 0
+      ? "no hood"
+      : `${Math.round(incineratorRelief(t) * 100)}% off losses in the flue`),
+    apply(cfg, tier) {
+      if (tier <= 0) return;
+      // ASSIGNED, like the cushion's two fields directly above and for the same
+      // reason: nothing else in the game writes this seam, so a tier states the
+      // hood the rig HAS rather than compounding with one nobody sold. If a
+      // Final clause ever drives it the other way, the composition rule belongs
+      // beside cushionedTrigger's floor, not here.
+      cfg.incineratorRelief = incineratorRelief(tier);
+    },
+  },
 ];
 
 export type UpgradeTiers = Record<UpgradeId, number>;
 
 export function newTiers(): UpgradeTiers {
-  return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 };
+  return {
+    bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0,
+    thaw: 0, cushion: 0, incinerator: 0,
+  };
 }
 
 /**
@@ -488,9 +716,33 @@ export function clearTrack(order: RefitOrder, id: UpgradeId): RefitOrder {
  * leaderboard.
  * ------------------------------------------------------------------------- */
 
-/** Ladder cost of every track maxed: 7 tracks x (20+35+55) = 770. Derived, not
- *  typed in, so re-pricing TIER_COSTS or adding an eighth system can't leave a
- *  stale constant behind. */
+/** Ladder cost of every track maxed: 10 tracks x (20+35+55) = 1100. Derived, not
+ *  typed in, so re-pricing TIER_COSTS or adding a system can't leave a stale
+ *  constant behind — and the eighth track this note used to anticipate (the
+ *  Thaw Lance) arrived and moved it from 770 without a line changing here.
+ *
+ *  THAT MOVE IS THE DESIGN, not a side effect to be frozen out. budgetForMark
+ *  is defined as "one system's money at Mark 1, a fully-kitted rig at Mark 10";
+ *  pinning the total while the roster grows would quietly break the second half
+ *  of that promise, leaving Mark 10 one track short of everything. Every Mark's
+ *  allowance therefore rose by an eighth (Mark 1 77 → 88, Mark 5 385 → 440,
+ *  Mark 10 770 → 880). MEASURED rather than assumed harmless: the winnability
+ *  sweep's Tier-5 `material` rig is the same six tracks at tier 2 (330 pts) at
+ *  both budgets, because the Workshop's own ceiling — not the allowance — is
+ *  what binds there, so the counter table below is paired against an unchanged
+ *  control. See meta.ts's installAvailable for the relationship that survives
+ *  the move exactly.
+ *
+ *  IT HAS MOVED AGAIN, twice, on the same rule and with the same check: the
+ *  Impact Cushion took it to 880 and the Incinerator takes it to 1100 (Mark 1
+ *  88 → 110, Mark 5 440 → 550, Mark 10 880 → 1100). The check is the one that
+ *  matters and it still holds — `builds.ts`'s `loadoutFor` walks breadth-first
+ *  through `ownableTracks`, and every rig the winnability sweep flies is bound
+ *  by what the Workshop will SELL at that Mark (installs are `requiresMark`
+ *  gated and uprates stop at tier 2), not by the allowance. So the paired
+ *  tables in the findings doc are paired against unchanged controls. The day a
+ *  sweep's rig stops being install-bound and starts being budget-bound, this
+ *  paragraph is the one that has to be re-measured rather than re-read. */
 export const FULL_BUILD_COST = UPGRADES.length * TIER_COSTS.reduce((a, b) => a + b, 0);
 
 /** Marks in the ladder. Placeholder that rhymes with RUN_LEVELS; the real

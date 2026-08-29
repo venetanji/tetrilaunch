@@ -175,6 +175,50 @@ export interface LevelConfig {
    *  18.7) leaves only the softest lob safe where stock leaves two thirds of
    *  launches safe. finals.ts's Hair Trigger is the only thing that writes it. */
   volatileTriggerMult: number;
+  /** How deep the Impact Cushion's liner runs from the wall, in cells. 0 = no
+   *  liner, which is every bay until the track is aboard.
+   *
+   *  CELLS FROM THE WALL rather than an absolute x, for the reason every other
+   *  geometry field here is in cells: the bay's landmarks are all derived from
+   *  CELL and WALL_INNER (compactorOpenCells, compactorMinLineCells,
+   *  bayWidthCells), and a pixel here would be a second copy of a relationship
+   *  free to drift out of it. lineClear.ts's volatileBlast resolves it against
+   *  the cube that would detonate. */
+  cushionCells: number;
+  /** What the liner multiplies the volatile trigger speed by for cargo landing
+   *  INSIDE it — the same seam volatileTriggerMult drives, pushed the other
+   *  way. 1 = no softening.
+   *
+   *  Two fields rather than one because the system ladders on both and they
+   *  answer different halves of the hazard: depth decides how much of the bay
+   *  is protected, softening decides how hard a shot the protected part will
+   *  take. upgrades.ts's CUSHION_TIERS carries the measurement that sized each.
+   *
+   *  Kept separate from volatileTriggerMult rather than multiplied into it at
+   *  config time, and this is not tidiness: that field is FIELD-WIDE and this
+   *  one is positional, so folding them together at build time would silently
+   *  make the rig's liner cover the whole bay — which is precisely the gap the
+   *  prototype that priced this system declared it could not close. */
+  cushionMult: number;
+  /** The share of a loss the INCINERATOR remits for cargo destroyed inside the
+   *  flue — chute.ts's `inIncinerator`, i.e. at or above the plant's roofline.
+   *  0 = no hood, which is every bay until the track is aboard; 0.75 is the
+   *  capstone. upgrades.ts's INCINERATOR_TIERS carries the ladder.
+   *
+   *  ONE RATE FOR BOTH BILLS, and that is the design rather than a saving. The
+   *  bay charges for wasted cargo in two places — `penaltyPerLostPiece` for a
+   *  shipment that never reached the press, `volatileLoss` for live cargo a
+   *  detonation took — and they are the same economic event told twice (cargo
+   *  the player paid to launch and will get no line out of). A hood that
+   *  discounted one and not the other would be teaching the player that where a
+   *  cube died matters sometimes.
+   *
+   *  A SHARE, not a per-cube price, because it has to compose with two ladders
+   *  it does not own: both bills already ride the tier (penaltyPerLostPieceFor,
+   *  VOLATILE_LOSS_SHARE), so a flat discount would be worth a quarter as much
+   *  at Tier 10 as at Tier 1 — the exact inversion of the case it was asked
+   *  for. */
+  incineratorRelief: number;
   /** Funds paid per DEAD cube (one that can never count toward a line — slag)
    *  removed by a VOLATILE detonation, and only by one. See lineClear.ts's
    *  slagBountyFor for why this is not the payout resolveVolatile refuses, and
@@ -182,6 +226,17 @@ export interface LevelConfig {
    *  that they run out, not that they underpay, and bombResupplyLines answers
    *  that directly. */
   slagBounty: number;
+  /** Funds charged per LIVE cube a VOLATILE detonation destroys (lineClear.ts's
+   *  volatileLossFor). The mirror of `slagBounty` directly above: that pays for
+   *  the dead cargo a blast clears, this charges for the live cargo it wastes,
+   *  and the two share a test, a unit and a currency.
+   *
+   *  A FIELD rather than a constant read at the call site because it is the
+   *  seam the same things move that move slagBounty — a Final clause, a future
+   *  ship system — and because it rides the tier ladder: it is derived from the
+   *  bay's own penaltyPerLostPiece (see VOLATILE_LOSS_SHARE), so one number
+   *  scales across ten tiers instead of being right at one of them. */
+  volatileLoss: number;
   /** Lines per demolition charge returned mid-bay; 0 = no resupply. Written
    *  only by the MAXED Demolition Rack (upgrades.ts), which is what turns that
    *  capstone from another +2 into a change in kind. A bay can out-last six
@@ -281,6 +336,22 @@ export interface LevelConfig {
    *  (targetScore), which is the Deep Run condition. Contracts carry no
    *  bankroll, so funds can't be their objective. */
   objectiveLines: number;
+  /** Thaw Lance charges available in THIS BAY — the "thaw one settled frozen
+   *  cube" ability (see game.ts's useThawLance). Cryo's bought counter: it pays
+   *  strikeCryo's sequencing cost ("land it, then spend a second shot hitting
+   *  it") out of a charge instead of out of a launch.
+   *
+   *  Written by run.ts's levelForRun from RunState.thawCharges, exactly as
+   *  bondBreakerCharges is, and for a reason the two modes disagree about: a
+   *  LADDER run's rack is resupplied between bays, so the field is refilled to
+   *  the tier's allowance at every bay boundary; a SKYDECK run never docks, so
+   *  what it launched with is what it has (run.ts's advanceRun, skydeck.ts's
+   *  yard bullet). upgrades.ts's `apply` writes the same rule at the config
+   *  layer for a single bay outside a run.
+   *
+   *  0 = the ship carries no lance, which is every bay until the track is
+   *  installed and every Contract (contracts.ts never calls applyUpgrades). */
+  thawCharges: number;
   /** Bond Breaker charges granted at the START of this RUN — the "shatter
    *  every joint on the field into loose cubes" special ability (see game.ts's
    *  useBondBreaker). Consumable and rare by design: the run's total stock is
@@ -496,9 +567,20 @@ function tierOf(mark: number): number {
  *  target carries into the next bay's float (run.ts's RunState.carry /
  *  CARRY_CAP), never the whole ending score. */
 export function targetScoreFor(i: number, mark = 1): number {
-  const tier = tierOf(mark);
-  const first = TARGET_BASE + TARGET_PER_TIER * (tier - 1);
-  const perBay = TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (tier - 1);
+  return targetAtRung(tierOf(mark), i);
+}
+
+/** The target curve itself, asked of a RUNG instead of a Mark — i.e. with no
+ *  clamp on either end.
+ *
+ *  Split out of targetScoreFor rather than copied into the Skydeck's step
+ *  below, which is the whole discipline of that step: the roof does not get a
+ *  curve of its own, it gets THIS curve evaluated one rung further along. Every
+ *  caller that holds a Mark still goes through the clamped function above, so
+ *  nothing but the roof can reach off the end of the ladder. */
+function targetAtRung(rung: number, i: number): number {
+  const first = TARGET_BASE + TARGET_PER_TIER * (rung - 1);
+  const perBay = TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (rung - 1);
   return first + perBay * Math.max(0, i);
 }
 
@@ -511,9 +593,16 @@ export function timeLimitFor(mark = 1): number {
 
 /** The per-shot launch cost at `mark`. Flat across a run — see LAUNCH_COST_BASE. */
 export function launchCostFor(mark = 1): number {
-  const tier = tierOf(mark);
+  return launchCostAtRung(tierOf(mark));
+}
+
+/** The launch-price line, asked of a RUNG — targetAtRung's twin, split out for
+ *  the same reason and used by the same one caller past the ladder's top. The
+ *  SLOPE is the ladder's own (its two endpoints over its nine gaps), so a rung
+ *  past the top is the tenth gap and not a new decision. */
+function launchCostAtRung(rung: number): number {
   const span = (LAUNCH_COST_TOP - LAUNCH_COST_BASE) / (TIER_COUNT - 1);
-  return Math.round(LAUNCH_COST_BASE + span * (tier - 1));
+  return Math.round(LAUNCH_COST_BASE + span * (rung - 1));
 }
 
 /** The bay's opening float at `mark`: LAUNCH_BUDGET_SHOTS shots' worth, so the
@@ -698,6 +787,148 @@ export const WIND_GUST_FRACTION = 0.015;
  */
 export const SCRAP_PER_LINE = 2;
 export const SCRAP_PER_BAY = 10;
+
+/* ---------------------------------------------------------------------------
+ * THE SKYDECK'S STEP — the eleventh rung of a ten-rung ladder.
+ *
+ * The roof (game/skydeck.ts) flies Mark 10's bays, and the owner's playtest
+ * verdict on those bays was that the day's run reads like a Deep Run rather
+ * than like the exam above one: "the numbers for target and launch cost should
+ * bump up one more step in skydeck". So it gets ONE more step, and the step is
+ * the ladder's own — the curves above evaluated at SKYDECK_RUNG rather than a
+ * second set of numbers written next to them:
+ *
+ *   target  $780 -> $1842  becomes  $800 -> $1880   (targetAtRung)
+ *   launch  $30, float $240 becomes $31, float $248 (launchCostAtRung)
+ *
+ * WHY ONLY THOSE TWO. They are the two the owner named, and they are also the
+ * two whose curve says something at a rung nobody has to survive being new at:
+ * the CLOCK would extrapolate to 140s and the SPILL FINE past $43 a cube, and
+ * neither was measured or asked for. The roof is a money exam; a shorter shift
+ * is a different exam and belongs to whoever measures it.
+ *
+ * WHY THE FLOAT MOVES WITH THE SHOT. LAUNCH_BUDGET_SHOTS is the ladder's rule
+ * that every tier opens on the same RUNWAY and only the price of it changes
+ * (see its note). Holding the float at Mark 10's $240 while the shot went to
+ * $31 would have quietly handed the roof seven launches where every rung below
+ * it gets eight — moving the one number the sweeps pinned, as a side effect of
+ * a target change. So the float is derived here exactly as it is there.
+ * ------------------------------------------------------------------------ */
+
+/** The rung the Skydeck prices its bays at: ONE PAST the Mark it is flown at.
+ *
+ *  Stated against the mark rather than as the bare number 11, because "one
+ *  step above the floor below it" is the rule and 11 is only what the rule
+ *  evaluates to at the shipped SKYDECK_MARK (= MARK_COUNT). Two things depend
+ *  on that generality: a ladder that grows an eleventh Mark takes the roof up
+ *  with it, and sim/skyyard.ts can fly the mode's whole shape at a Mark where
+ *  the bots still have resolution (sim/skydeck.ts's `--mark 6` argument) rather
+ *  than measuring a control already on the floor.
+ *
+ *  At MARK_COUNT it is ui/screens.ts's SKYDECK_TIER, the TOWER's sentinel for
+ *  the floor above the Marks — not imported from there (this module is
+ *  import-free of the UI); sim/systems.ts pins the two equal, because the floor
+ *  the car parks on and the rung its bays are priced at have to be one place. */
+export function skydeckRungFor(mark: number): number {
+  return tierOf(mark) + 1;
+}
+
+/** The shipped rung: what skydeckRungFor answers for the Mark the roof is
+ *  actually flown at. Named so screens and pins can quote it without repeating
+ *  the "+1". */
+export const SKYDECK_RUNG = TIER_COUNT + 1;
+
+/** Bay `i`'s funding target on the Skydeck, at the Mark it is flown at. */
+export function skydeckTargetScoreFor(i: number, mark = TIER_COUNT): number {
+  return targetAtRung(skydeckRungFor(mark), i);
+}
+
+/** The Skydeck's launch price, and the float that buys the ladder's eight
+ *  launches of it. */
+export function skydeckLaunchCost(mark = TIER_COUNT): number {
+  return launchCostAtRung(skydeckRungFor(mark));
+}
+export function skydeckStartingFunds(mark = TIER_COUNT): number {
+  return LAUNCH_BUDGET_SHOTS * skydeckLaunchCost(mark);
+}
+
+/**
+ * THE ROOF'S SCRAP RATE — half the ladder's, on both halves of it.
+ *
+ * The Skydeck earned no scrap at all while it had no yard (the currency had
+ * nowhere to go). The yard is back — run.ts's refitAfterBay carries the design
+ * history — and the rate it comes back at is not the ladder's, for a reason
+ * that is entirely about WHO is flying. The roof opens only to a player holding
+ * every Mark's seal (meta.ts's skydeckOpen), and that player's Workshop is
+ * FINISHED: every rung the yard can still sell them is a tier-3 rung — the
+ * Workshop sells to UPRATE_MAX_TIER and stops, so the yard is the only place
+ * tier 3 exists — and every one of them costs the same TIER_COSTS[2]. That flat
+ * price is what collapses the owner's two levers ("more expensive or less scrap
+ * given") into one: with every purchasable rung at a single price, charging more
+ * for a rung and paying less for a bay are the same arithmetic, and the honest
+ * place to spend the one lever is the number this mode already owns rather than
+ * a second price table that would give one rung two prices.
+ *
+ * SO THE ROOF PAYS HALF, ON BOTH RATES — and the size of that cut is the one
+ * number here that was argued from a table rather than from a principle,
+ * because purchasing power is not a matter of opinion: income and price are both
+ * deterministic, so what a run can buy is arithmetic once you fix how many lines
+ * a bay clears. design/balance/skydeck-yard.md carries it in full. The short
+ * version, for the endgame player this floor is for (~12 lines a bay):
+ *
+ *   ladder payout   34/bay   stop 1 at 102   FIVE of the eight rungs, a run
+ *   HALF (shipped)  17/bay   stop 1 at  51   TWO, and the first stop is
+ *                                            reachable only by an opening that
+ *                                            really dismantled its three bays
+ *   lines only      24/bay   stop 1 at  72   THREE for an expert and ONE for a
+ *                                            weak run — the same tightening
+ *                                            aimed at the wrong player
+ *
+ * The last row is the one worth recording as REJECTED, because it was the
+ * design-nicer idea. Withholding SCRAP_PER_BAY alone ("the roof pays for lines,
+ * not for arriving") reads beautifully and taxes exactly the wrong pilot: a
+ * player who clears twelve lines a bay barely notices it, while a rough run
+ * loses most of its income — and the owner's brief is that the EXPECTED
+ * Skydeck player, the one with the finished Workshop, is the one arriving with
+ * too much. Halving both rates cuts the strong run and the weak one by the same
+ * fraction, which is what "tighten the endgame" actually asks for.
+ *
+ * A SHARE rather than a second pair of typed numbers, so re-pricing a line on
+ * the ladder moves the roof with it — the same discipline the step above keeps
+ * with the target and launch curves. Both halves come out whole at the shipped
+ * rates (2 -> 1, 10 -> 5); sim/systems.ts pins that they are EXACTLY half, so a
+ * future rate that halves untidily fails a check and asks for a decision rather
+ * than rounding one silently.
+ */
+export const SKYDECK_SCRAP_SHARE = 0.5;
+export const SKYDECK_SCRAP_PER_LINE = Math.round(SCRAP_PER_LINE * SKYDECK_SCRAP_SHARE);
+export const SKYDECK_SCRAP_PER_BAY = Math.round(SCRAP_PER_BAY * SKYDECK_SCRAP_SHARE);
+
+/**
+ * Write the Skydeck's economy onto a bay — the roof's opening terms, in the
+ * slot the ladder's own terms occupy.
+ *
+ * Called by run.ts's levelForRun on the BASE config, before the ship, the
+ * ratchets and the clauses land on it, because that is what the step IS. A
+ * notch on the cost axis then scales $31 rather than $30, and a Rate Cut clause
+ * takes its quarter out of the roof's rate — the ordering every other layer
+ * already relies on (see levelForRun's note).
+ *
+ * `mark` is the Mark the bay was built at, so the step is always one rung above
+ * the floor below it (skydeckRungFor). It defaults to the top of the ladder,
+ * which is the only value the shipped mode ever passes.
+ *
+ * Mutates rather than returning a copy, matching applyUpgrades' shape at the
+ * same seam; the config it is handed is always a fresh makeBaseLevel.
+ */
+export function applySkydeckEconomy(cfg: LevelConfig, i: number, mark = TIER_COUNT): void {
+  cfg.targetScore = skydeckTargetScoreFor(i, mark);
+  cfg.launchCost = skydeckLaunchCost(mark);
+  cfg.startingFunds = skydeckStartingFunds(mark);
+  cfg.scrapPerLine = SKYDECK_SCRAP_PER_LINE;
+  cfg.scrapPerBay = SKYDECK_SCRAP_PER_BAY;
+}
+
 
 /**
  * MARK SCALING — how much harder bay `i` gets per Mark above the first.
@@ -962,6 +1193,60 @@ export function payoutMult(combo: number, tier: PileTier | null): number {
  */
 export const SLAG_BOUNTY = 20;
 
+/**
+ * What share of the bay's own SPILL FINE a volatile detonation is billed, per
+ * live cube it destroys (lineClear.ts's volatileLossFor).
+ *
+ * A SHARE OF AN EXISTING PRICE, not a new ladder. The bay already knows what
+ * losing a cube of cargo is worth — penaltyPerLostPieceFor, billed per cube
+ * (game.ts bills `lostCubes.length * penaltyPerLostPiece`) and already ramped
+ * across the tiers and along the bays. A second price for the same event would
+ * be a number free to drift out of the first and would have to be re-derived at
+ * every tier; riding the fine means volatile costs what losing cargo costs,
+ * wherever the player is standing. Across the axis's whole life — it opens at
+ * Mark 7 — that is $22 a cube at Tier 7 bay 5 and $43 at Tier 10 bay 10.
+ *
+ * WHY A SHARE AND NOT THE WHOLE FINE. The two losses are not the same loss. A
+ * spilled shipment leaves the bay entirely and takes its slot with it; a
+ * detonation destroys cargo that was already ON the pile and hands back the
+ * space it occupied — space the measurement below showed is worth having. The
+ * player is billed for the cargo and credited, implicitly, with the room.
+ *
+ * 0.25, AND THE SWEEP THAT PICKED IT. Measured at Tier 7 bay 10, 16 paired
+ * seeds, on the material rig, against an 88% clean control — the `demo` pilot
+ * (adaptive, re-aims every shot) and `lob-flat` (a fixed high arc), because the
+ * two detonate at very different rates and a price that only works for one is
+ * not a price:
+ *
+ *            volatile:1        volatile:3        volatile:6 (belt cap)
+ *   share    demo / lob-flat   demo / lob-flat   demo / lob-flat
+ *   0.00      94% /  88%       100% /  94%       100% /  94%   <- the defect
+ *   0.25      94% /  88%       100% /  94%        63% /  63%
+ *   0.30      94% /  88%       100% /  94%        56% /  69%
+ *   0.35      94% /  88%       100% /  94%        38% /  56%
+ *   0.40      94% /  81%        94% /  94%        25% /  50%
+ *   0.50        -               88% /  88%        19% /  50%
+ *
+ * Two things that table settles. First, 0.25 is the SMALLEST share that removes
+ * the defect, and it removes it for both pilots by the same amount — 63% each,
+ * against 88% clean. Anything above it buys no extra symmetry and spends the
+ * cap: by 0.4 the adaptive pilot is at 25% while the fixed-arc one is still at
+ * 50%, which is a price that depends on how you fly rather than on what you
+ * took. Second, the shallow notches barely move at any share, and that is a
+ * property of the mechanic rather than a gap in the pricing: one notch fires
+ * ~2.5 detonations a bay against the cap's ~19.4, so there is very little to
+ * bill. 94% against an 88% control is one seed in sixteen — inside this
+ * instrument's noise, which is why sim/systems.ts pins the CAP and says so.
+ *
+ * WHY THE COST GROWS FASTER THAN THE BENEFIT, deliberately. Live cubes caught
+ * per detonation is flat (~5, whatever the notch), so the bill scales with the
+ * detonation COUNT and therefore with the notch; the relief saturates instead
+ * (mean pile 31.4 clean -> 27.4 at one notch -> 20.2 at the cap). A hazard that
+ * hurts more the deeper it is taken is the right shape, and it is the shape
+ * hazards.ts's Fibonacci ladders already give the number axes.
+ */
+export const VOLATILE_LOSS_SHARE = 0.25;
+
 /** Lines per returned charge at a MAXED Demolition Rack. A clean bay clears ~8
  *  lines, so the capstone runs ~8 charges instead of 6 and a long grinding bay
  *  keeps paying — which is the case this exists for, since a bay can out-last
@@ -1163,7 +1448,17 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // Stock priming. Inert-by-default, the same stance windMax 0 and
     // autoLaunchMs 0 take.
     volatileTriggerMult: 1,
+    // No liner. Inert-by-default like the two above, and stated as two fields
+    // so a rig that buys depth without softening (or the reverse) is a
+    // representable state rather than an accident of one packed number.
+    cushionCells: 0,
+    cushionMult: 1,
+    // No hood. Inert-by-default like the liner above: a bay with no Incinerator
+    // remits nothing, so every bay played before the track existed prices its
+    // losses byte-identically.
+    incineratorRelief: 0,
     slagBounty: SLAG_BOUNTY,
+    volatileLoss: Math.round(penaltyPerLostPieceFor(i, mark) * VOLATILE_LOSS_SHARE),
     bombResupplyLines: 0,
     launchPower: 1,
     windAssist: 0,
@@ -1181,6 +1476,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // other one-off does.
     windLock: null,
     bondBreakerCharges: 0,
+    thawCharges: 0,
     // ON. sim/pile.ts measured it, the bay now SHOWS it (render.ts's
     // congestion rows light the bay floor-up and the plant's Launch price
     // glows with them), and Bay Extension buys relief from it — the three
@@ -1257,10 +1553,19 @@ export interface BaseBaySummary {
   unbreakableCapstone: boolean;
 }
 
-export function baseBayFor(mark: number): BaseBaySummary {
+/** `skydeck` quotes the ROOF's bays instead of the Mark's: the same ten bays
+ *  with the economy step applied (applySkydeckEconomy), which is exactly what
+ *  levelForRun will build when the run starts. The menu panel passes it when
+ *  the tower's car is parked on the roof — a floor whose whole pitch is "the
+ *  numbers are a step past the ladder" cannot quote the ladder's. */
+export function baseBayFor(mark: number, skydeck = false): BaseBaySummary {
   const m = Math.max(1, Math.floor(mark));
   const first = makeBaseLevel(0, m);
   const last = makeBaseLevel(LEVELS.length - 1, m);
+  if (skydeck) {
+    applySkydeckEconomy(first, 0);
+    applySkydeckEconomy(last, LEVELS.length - 1);
+  }
   return {
     targetFrom: first.targetScore,
     targetTo: last.targetScore,

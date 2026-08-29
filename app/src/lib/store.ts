@@ -1,7 +1,9 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
 import { BOARD_SANDBOX, type BoardId } from "./api";
-import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
-import { newTiers, type UpgradeTiers } from "../game/upgrades";
+import {
+  newMeta, ownedTracks, refundRetiredUnlocks, SLOT_BASE, SLOT_CAP, type MetaState,
+} from "../game/meta";
+import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
 
 export interface Settings {
   sound: boolean;
@@ -38,8 +40,25 @@ export interface Settings {
    *  true — PULL BACK like a slingshot: the stick vector is the touch drag,
    *  so the barrel swings opposite the thumb. The expressive mode — one
    *  gesture carries angle and power together — kept for the players who
-   *  like it, demoted for being the tiring one. */
-  stickPull: boolean;
+   *  like it, demoted for being the tiring one.
+   *
+   *  A NEW FIELD RATHER THAN THE OLD `stickPull`, and that rename is the whole
+   *  fix for a play-test report ("the gamepad controls still reset the aim
+   *  when the stick goes to the center"). `stickPull` asked a DIFFERENT
+   *  QUESTION: before the rate dials existed, both of its answers were
+   *  absolute vector aiming and the flag only chose WHICH WAY — false pushed
+   *  the barrel toward the stick, true pulled it back like the touch drag.
+   *  Promoting the dials rewrote what `false` means without touching what a
+   *  save already held, so every player who had answered "I prefer pulling
+   *  back" — the natural answer to the old question, and the reporter's — had
+   *  that answer silently re-read as "I prefer the slingshot to the dials",
+   *  and never saw the dials at all. The mode they were left on is precisely
+   *  the one where letting go of the stick rewrites the aim: aimFromDrag maps
+   *  deflection to power absolutely, so a spring-back through the deadzone
+   *  drops a pinned 100% pull to 25% on its way past (measured, sim pin
+   *  below). One question, one key: a save that answered the old one answers
+   *  nothing here and lands on the new default. */
+  stickSling: boolean;
   /** The MOUSE WHEEL's job (game/input.ts).
    *
    *  false (default) — the wheel is the ARC-HEIGHT dial: a click solves the
@@ -70,12 +89,20 @@ const META_KEY = "tetrilaunch.meta";
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
   seenKeyHints: false,
-  leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+  leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
 };
+
+/** Keys a save may still carry that this build no longer answers to. Dropped
+ *  on load so they stop riding along in every subsequent write — a dead flag
+ *  that keeps being re-saved is a trap for the next reader, who has no way to
+ *  tell it from a live one. See stickSling for what retired stickPull. */
+const RETIRED_SETTINGS = ["stickPull"];
 
 export function loadSettings(): Settings {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Record<string, unknown>;
+    for (const k of RETIRED_SETTINGS) delete saved[k];
+    return { ...DEFAULTS, ...saved };
   } catch {
     return { ...DEFAULTS };
   }
@@ -210,6 +237,22 @@ export function loadMeta(): MetaState {
     meta.celebratedMark = typeof rawCelebrated === "number" && Number.isFinite(rawCelebrated)
       ? Math.min(meta.mark, Math.max(0, Math.floor(rawCelebrated)))
       : meta.mark;
+    // THE TWO NEW WATERMARKS (meta.ts's sealBreakSeen / skydeckCelebrated), and
+    // they migrate the OPPOSITE way to the one above — the note there says why
+    // that difference is deliberate rather than an oversight.
+    //
+    // `sealBreakSeen` false on a save that predates it: the message has never
+    // been shown to anyone, and a returning player who retries a bay should get
+    // it exactly once, like everybody else. It costs them one panel.
+    //
+    // `skydeckCelebrated` false for the same reason, and it buys something: a
+    // save that already holds every seal (they have been recorded since the
+    // seal shipped) opens the roof the moment this build loads it, and gets the
+    // ride to it on the next menu instead of finding the floor silently open.
+    // A save that does NOT hold every seal gets no ceremony until it earns one,
+    // which is the flag doing its job rather than a migration.
+    meta.sealBreakSeen = meta.sealBreakSeen === true;
+    meta.skydeckCelebrated = meta.skydeckCelebrated === true;
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.
@@ -234,6 +277,36 @@ export function loadMeta(): MetaState {
       }
       meta.loadout = tiers;
     }
+    /* THE RACK, and the one migration in this file that hands something out.
+     *
+     * `slots` is read AFTER the loadout above, because the grandfather rule is
+     * a function of it. Like `celebratedMark`, the field's ABSENCE cannot be
+     * allowed to read as its default: a save written before slots existed flew
+     * every system it owned, and defaulting it to SLOT_BASE would confiscate
+     * the fifth, sixth and seventh system a player had already paid salvage
+     * for. So a save that predates the field gets a slot for every system it
+     * owns — its rig is byte-identical to the one it undocked with yesterday,
+     * which is the whole promise (meta.ts's SYSTEM SLOTS header, and
+     * sim/systems.ts pins it as an equality against the pre-slot rig).
+     *
+     * It is a ONE-TIME migration and not a floor: the value is written back on
+     * the next save, so buying an eighth system later does not quietly hand out
+     * an eighth slot with it. A rig grandfathered at six pays SLOT_PRICES for
+     * the seventh exactly like everybody else.
+     *
+     * `stowed` needs no migration at all, which is the point of storing the
+     * SHED rather than the rack (meta.ts's field note): absent reads as empty
+     * reads as "fly everything you own". It gets the same fail-closed
+     * validation as every other list here — a corrupt value stows nothing,
+     * which flies MORE systems rather than fewer, and the slot count is still
+     * enforced at the point of use by mountedIds. */
+    const rawSlots = (raw as Record<string, unknown>).slots;
+    meta.slots = typeof rawSlots === "number" && Number.isFinite(rawSlots)
+      ? Math.max(SLOT_BASE, Math.min(SLOT_CAP, Math.floor(rawSlots)))
+      : Math.max(SLOT_BASE, Math.min(SLOT_CAP, ownedTracks(meta).length));
+    if (!Array.isArray(meta.stowed)) meta.stowed = [];
+    meta.stowed = meta.stowed.filter((s): s is UpgradeId =>
+      typeof s === "string" && s in meta.loadout);
     // Last: hand back the salvage any RETIRED unlock took (meta.ts's note on
     // UnlockDef.retired — the mod-pool cards sold no-ops once the hazard
     // ratchet replaced the modifier draft). Pure and idempotent, so a save

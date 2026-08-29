@@ -2,12 +2,15 @@ import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
-  newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
-  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
+  newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
+  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
+  quitLosesProgress, bayRetryable,
+  buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
+import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
-  hazardOffers, hazardById, isMaterialDraft, picksPerBay, togglePick, HAZARDS,
+  hazardOffers, hazardById, isMaterialDraft, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
 } from "./game/hazards";
 import { previewRows } from "./game/preview";
@@ -42,6 +45,18 @@ function drillSeed(id: string): number {
   return h;
 }
 
+/** The 1-based BAY the run's next standing clause arms on, or null when they
+ *  are all signed (and on every ladder run, which has none).
+ *
+ *  A function rather than an expression at the one call site because
+ *  StandingClause.from is a 0-based levelIndex and the cell that reads this
+ *  prints a bay NUMBER — an off-by-one that is invisible in review and glaring
+ *  in play, which is the same reason run.ts states isFinalDraft as a predicate. */
+function nextClauseBay(run: RunState): number | null {
+  const next = run.skydeck?.clauses.find((c) => c.from > run.levelIndex);
+  return next ? next.from + 1 : null;
+}
+
 /** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
  *  so two runs with the same build produce byte-identical strings. */
 function axisNotchList(ratchets: Ratchets): string[] {
@@ -55,13 +70,16 @@ import {
 } from "./game/upgrades";
 import {
   INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked,
-  markUnlockCelebrated, nextStep, pendingUnlockMark,
-  recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
-  unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
+  markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
+  recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
+  skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
+  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, SLOT_CAP,
+  type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
-  PATTERN_SLOT, type Contract, type ContractBed, type ContractVariant,
+  dailyContracts, dailySeed, generateContract, levelForContract, contractBed, variantSpec,
+  PATTERN_SLOT, SKYDECK_CONTRACT_TIER, isSkydeckBoard,
+  type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
 import {
   GUIDE_TOPICS, topicById, topicsIn, drillUnlocked, type ChapterId, type GuideTopic,
@@ -99,12 +117,14 @@ import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import {
-  focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV,
+  armActivate, armRelease, DISARMED, focusInitial, moveFocus,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, type ArmState,
 } from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
-  BOARD_SANDBOX, fetchLeaderboard, isLadderBoard, submitScore,
-  type BoardId, type ScoreEntry,
+  BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForView, boardForView, DAY_NONE,
+  fetchLeaderboard, isLadderBoard, submitScore,
+  type BoardDay, type BoardId, type BoardView,
 } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
 import {
@@ -132,6 +152,12 @@ type AppState =
   | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail"
+  // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
+  // state rather than a flag on "paused" or "lost" because it is reachable
+  // from BOTH of those and has to know which one to hand back — and because
+  // the game loop's gate is `state === "playing"`, so a state of its own is
+  // also what freezes the bay behind it.
+  | "seal-break"
   // A guide drill's result card (game/drills.ts). Its own state rather than a
   // flag on "contract-end": the two settle different things, and sharing a
   // state would mean every branch in that card asking which mode it is in.
@@ -356,6 +382,30 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** The screen the seal-break notice was opened from, and the one "Keep the
+   *  seal" hands back (see requestBayRetry). Only ever one of the two the
+   *  panel can be reached from, so it is typed as those two rather than as an
+   *  AppState — a notice that could return to the menu would be a way out of a
+   *  live run with no run end filed. */
+  private sealBreakBack: "paused" | "lost" = "paused";
+  /** Whether the seal panel currently up is the LONG first-time explainer
+   *  (screens.ts's sealBreakModal `explain`).
+   *
+   *  Held rather than re-derived at render time, and that is load-bearing:
+   *  requestBayRetry burns the watermark on show, so by the time renderOverlay
+   *  runs `sealBreakOwed` is already false and asking it again would draw the
+   *  short panel on the one occasion the long one is owed. */
+  private sealBreakExplain = false;
+  /** The pause card's Quit, mid-arming (ui/padnav.ts's arm machine): whether
+   *  the first activation has landed, and whether it has been released yet.
+   *  A second, DISTINCT press is what ends the run — see requestQuitRun.
+   *
+   *  Reset on the way out of "paused" (setState), which is what keeps the arm
+   *  and the warning that explains it on screen together. */
+  private quitArm: ArmState = DISARMED;
+  /** Removes the one-shot release listeners armQuitRelease installed, or null
+   *  when none are pending. Held so a re-arm cannot leave a second set behind. */
+  private quitReleaseOff: (() => void) | null = null;
   /** Consecutive taps on the tower's headhouse beacon — the Tier S gesture
    *  (lib/devmode.ts). Held on the app rather than in the DOM because the
    *  menu's markup is rewritten wholesale by renderOverlay, and a counter
@@ -454,14 +504,11 @@ class App {
    *  onCongestion fires on crossings only, so a bay paused while congested and
    *  then resumed would come back silent until the pile happened to move. */
   private congestion = 0;
-  /** The crest's beat (see syncHud): the music envelope currently painted
-   *  onto the plant as --crest-beat, its running peak (for normalisation, so
-   *  a quiet bed pulses as visibly as a loud one), and the last value
-   *  actually written — style writes are skipped while the quantised value
-   *  holds still. */
-  private crestBeat = 0;
+  /** The music envelope's running peak, kept for normalisation so a quiet bed
+   *  drives the crest's COLOUR as far as a loud one does. It no longer feeds a
+   *  per-frame height: see syncHud's THE BEAT for what that cost and why it
+   *  went. */
   private crestPeak = 0.05;
-  private crestBeatShown = -1;
   /** The crest's COLOUR drive (see syncHud) — the slow half of the same tap
    *  the beat comes off. crestHeat is how hot app.css's ramp is mixed (0..1,
    *  a ~1s follower, so it tracks how loud the passage is rather than the
@@ -478,6 +525,66 @@ class App {
    *  LOADED"). null means "nothing written yet" — the remount sentinel, since
    *  "standard" is itself a value the ring can be sitting on. */
   private crestMatShown: Material | null = null;
+  /**
+   * The HUD nodes syncHud patches, found once per overlay mount.
+   *
+   * syncHud runs once per DRAWN frame, and it used to open a querySelector for
+   * every readout it touched — twenty-five call sites, around twenty of them
+   * reached on any given frame, re-answered sixty times a second against a
+   * document that had not changed. On a 120Hz panel that is a hundred and
+   * twenty times a second, and the answer is identical every one of them until
+   * renderOverlay rewrites the overlay wholesale.
+   *
+   * So it is answered once and remembered, on exactly the same terms as the
+   * crest caches above and dropped in exactly the same place — renderOverlay,
+   * whose innerHTML rewrite is the ONLY thing that detaches these nodes. The
+   * three HUD writes that set innerHTML on a node (#hud-queue's manifest,
+   * #hud-next, #hud-loaded) replace that node's CHILDREN, not the node, so a
+   * remembered reference survives them.
+   *
+   * A MISS IS REMEMBERED TOO, which is why the map holds `Element | null` and
+   * the lookup tests for `undefined`: half these readouts genuinely do not
+   * exist on half the bays (a Contract renders no #hud-combo, a pattern
+   * Contract no #hud-lost), and a cache that only remembered hits would go on
+   * paying full price for precisely the absent ones.
+   */
+  private hudNodes = new Map<string, Element | null>();
+  /**
+   * What each guarded HUD write LAST PUT ON THE DOM, keyed by the same
+   * selector that keys hudNodes above.
+   *
+   * hudNodes killed the per-frame querySelector; this kills the per-frame
+   * WRITE, which is the half the device could actually feel. Measured on the
+   * CPH2573 at a confirmed 120Hz and recorded in
+   * docs/superpowers/specs/2026-08-27-background-layer-split-design.md: the
+   * HUD's per-frame repaint is worth about 33fps of the frame, and gating this
+   * whole function to every eighth frame recovered 21.3 of them. A flat gate is
+   * not the fix — it also throttles the reload bar, which genuinely moves every
+   * frame — so the split is by KIND rather than by clock: a value that has not
+   * changed writes nothing at all, and the handful that change every frame
+   * write `transform`, which composites.
+   *
+   * A CACHE RATHER THAN A DOM READ, unlike `set` below, which guards by
+   * comparing against textContent. Both are correct; this one is cheaper (no
+   * tree walk, no string materialised off the DOM) and it is the only option
+   * for a style property, where reading back what was written means reading a
+   * re-serialised value that may not match the string handed in. The price is
+   * the same discipline hudNodes already carries: it is dropped in
+   * forgetHudCache, and forgetting to drop it would leave a fresh element on
+   * the stylesheet defaults for as long as its value held still.
+   */
+  private hudShown = new Map<string, string>();
+  /** Whole seconds left on the bay clock, as last shown. #hud-time renders
+   *  mm:ss (components.ts's formatMMSS, which ceils), so it owes the DOM one
+   *  write a second — this is what stops the other 119 frames of that second
+   *  from even building the string to find out it is the same one. */
+  private timeSecShown = -1;
+  /** Each ability's `charges:armed` as last pushed to its pair of triggers
+   *  (see syncAbility). The triggers are found by querySelectorAll rather than
+   *  by id — there are two of them per ability and either can be absent — so
+   *  this guard is what keeps six live selector queries off every frame, not
+   *  just six writes. */
+  private abilityShown = new Map<string, string>();
   /** Cached once: the beat is decoration in motion, so it is never driven
    *  under prefers-reduced-motion — the same call the crest's jiggle and
    *  spark animations make in app.css. */
@@ -518,13 +625,19 @@ class App {
    *  which gates the arrival animation (see syncHud's queue block). */
   private lastNext: string | null = null;
   private lastNextId: string | null = null;
-  /** Last fetched rows PER BOARD (lib/api.ts's BoardId). Two boards means two
-   *  caches: switching tabs on the leaderboard must not blank the rows the
-   *  other tab already had while a fetch is in flight, and the run-end modal
-   *  reads whichever board the run it just ended belongs to. */
-  private boards: Record<BoardId, ScoreEntry[]> = {};
+  /** Last fetched rows PER BOARD AND DAY (lib/api.ts's BoardCache). Several
+   *  boards means several caches: switching tabs on the leaderboard must not
+   *  blank the rows the other tab already had while a fetch is in flight, and
+   *  the run-end modal reads whichever board the run it just ended belongs to.
+   *  The DAY is in the key because it is in the board's key — see BoardCache. */
+  private boards = new BoardCache();
   /** Which board the standalone Leaderboard screen is showing. */
   private lbBoard: BoardId = 1;
+  /** …and which DAY of it, on the one board that has days. Always TODAY on the
+   *  screen (see leaderboardScreen's note on why history is not browsable); the
+   *  run-end modal is the only surface that can show another day, and it takes
+   *  it from the run rather than from here. */
+  private lbDay: BoardDay = DAY_NONE;
   private submitted = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
@@ -650,7 +763,19 @@ class App {
       <div id="overlay"></div>
       ${S.rotateGuardHTML()}`;
     this.canvas = root.querySelector("#game")!;
-    this.ctx = this.canvas.getContext("2d")!;
+    // NOT A TRANSPARENT CANVAS. render.ts's background layer opens every frame
+    // by filling all of cssW*dpr x cssH*dpr with COLORS.bg — letterbox bars
+    // included — so there has never been a pixel of this canvas for anything
+    // behind it to show through. Saying so lets the compositor skip blending
+    // the whole surface against the page on every present, which is a cost
+    // paid per frame and therefore paid twice as often on a 120Hz panel.
+    //
+    // The one place the canvas is not painted by that layer is the no-game
+    // branch of loop() (splash and menu, before the first bay exists), and an
+    // opaque canvas clears to black rather than to nothing there. Both states
+    // are in COVERS_CANVAS with an opaque screen over them, and body's own
+    // --bg-deep is #04040a, so what is behind the screen is black either way.
+    this.ctx = this.canvas.getContext("2d", { alpha: false })!;
     this.overlay = root.querySelector("#overlay")!;
     this.guard = root.querySelector("#rotate-guard")!;
 
@@ -694,7 +819,7 @@ class App {
     // conservative default (a full seven-slot draft) could pick the
     // bottom-strip layout on a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({
-      bond: false, demo: false, auto: false,
+      bond: false, demo: false, thaw: false, auto: false,
       finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
     }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
@@ -733,7 +858,7 @@ class App {
       },
       onUiButton: (button) => this.onPadUiButton(button),
       assist: () => this.settings.stickAssist,
-      pull: () => this.settings.stickPull,
+      sling: () => this.settings.stickSling,
     });
 
     // Fire-and-forget: nothing downstream waits on it, and on web it is a
@@ -836,6 +961,17 @@ class App {
     // below can arm a fresh one, so a pending modal can never land on top of
     // whatever screen replaced the one it was meant for.
     this.clearEndScrimHold();
+    // AN ARMED QUIT DIES WITH THE CARD THAT ARMED IT. The arm is a fact about
+    // one visit to the pause modal: it is only ever legible while the note
+    // under the row is on screen, so carrying it out of the state would leave a
+    // later Quit press ending the run with no warning at all — which is exactly
+    // the press this feature exists to stop. Resume, Restart Bay and the seal
+    // notice all leave "paused" and so all disarm here. Fullscreen deliberately
+    // does not: it keeps the player on the card, with the warning still up and
+    // still true. No timeout, either — the bay is frozen and the card has no
+    // clock, so an arm that expired under a reader's eyes would only make the
+    // visible warning a lie about what the next press does.
+    if (s !== "paused") this.disarmQuit();
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -871,8 +1007,21 @@ class App {
       // celebration you get is the run's own milestone logic: isRefitBay is
       // true on bays 3, 6 and 9 — the ones that open the shop — so the bigger
       // refit theme marks a checkpoint and the shorter one marks a bay.
+      //
+      // Asked of the RUN (run.ts's refitAfterBay), so the Skydeck — which has
+      // no yard — does not ring the shop's fanfare over a door that will not
+      // open. Its checkpoint is the same three bays wearing the other coat: a
+      // clause arms on each of them, and the bay-clear card announces it.
       case "bayclear":
-        playStinger(this.run && isRefitBay(this.run.levelIndex) ? "refit" : "bayClear");
+        playStinger(
+          this.run
+            && (refitAfterBay(this.run, this.run.levelIndex)
+              // +1 because the run has NOT advanced yet at this state (see
+              // afterBayClear): the clause about to arm is the next bay's.
+              || this.clauseAt(this.run.levelIndex + 1) !== null)
+            ? "refit"
+            : "bayClear",
+        );
         return;
 
       // …and keeps ringing across the refit and the hazard draft, which follow
@@ -905,8 +1054,14 @@ class App {
       // game-over sting: the run has not ended, the bay is about to be handed
       // straight back, and a funeral cue would tell the player the opposite of
       // what the card in front of them says.
+      // The seal notice joins them, from either side. Opened over a paused bay
+      // it IS the pause; opened over the loss card it cuts the game-over sting
+      // short, deliberately — the run is not what the player is listening to
+      // any more, they are reading a price, and a funeral playing under a
+      // decision is the game arguing for one of the answers.
       case "paused":
       case "coach-fail":
+      case "seal-break":
         stopStinger();
         playMusic("menu");
         return;
@@ -959,16 +1114,25 @@ class App {
     const owned = {
       bond: g.bondCharges > 0,
       demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
+      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
+      // from the run's stock at bay start, so a ladder bay that spends its rack
+      // still shows a "x0" trigger it knows will refill, while a Skydeck run
+      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
+      // for the rest of the run.
+      thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
     };
     const strip = this.overlay.querySelector(".kbd-hint");
     // The fade state rides across the swap: a profile flip mid-bay re-labels
     // the hints, it does not re-earn them screen time.
-    if (strip) strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed);
+    if (strip) {
+      strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed, this.bayRetryOffered());
+    }
     // The pause modal's reference block re-labels the same way — a pad picked
     // up while paused should read pad hints before play resumes.
     const pauseKeys = this.overlay.querySelector("#pause-keys");
-    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned);
+    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned, this.bayRetryOffered());
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
@@ -1000,7 +1164,7 @@ class App {
     this.railKey = null;
     this.railSlotsLatch = RAIL_SLOTS_BASE;
     const slots = railSlotsFor({
-      bond: false, demo: false, auto: false,
+      bond: false, demo: false, thaw: false, auto: false,
       finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
     });
     if (slots !== getRailSlots()) {
@@ -1026,6 +1190,62 @@ class App {
     return this.contract !== null || (this.drill !== null && g.level.objectiveLines > 0);
   }
 
+  /**
+   * The seal state the bay-retry controls wear, or null where the run has no
+   * seal question (run.ts's sealStateFor: Tier S, the Skydeck) and on every
+   * screen with no run behind it at all (a Contract, a drill).
+   *
+   * ONE READ FOR EVERY DOOR. Three controls can start a bay retry — the pause
+   * modal's Restart Bay, the held ⏸ and the loss card's Retry Bay — and the
+   * gate that confirms the press reads the same function (requestBayRetry via
+   * retryBreaksSeal). Routing all of them through this getter is what keeps a
+   * button from advertising a price the gate will not charge, which is the
+   * class of bug review has already caught once here (the sealed-Mark re-fly,
+   * codex PR #135).
+   */
+  private sealFace(): { state: SealState; mark: number } | undefined {
+    if (!this.run) return undefined;
+    const state = sealStateFor(this.run, this.meta.sealedMarks);
+    return state ? { state, mark: this.run.mark } : undefined;
+  }
+
+  /**
+   * The Quit gate the pause card wears, or undefined where quitting costs
+   * nothing — bay 1, Tier S (run.ts's quitLosesProgress), and every screen with
+   * no run behind it at all (a Contract, whose failure is free and whose retry
+   * is free; a drill, which is a lesson).
+   *
+   * ONE READ FOR ONE DOOR, written as a getter for the reason sealFace above
+   * is: the button's face and the gate that decides whether a press is
+   * swallowed (requestQuitRun) have to answer the same question, and a second
+   * copy of the test is how a card ends up armed against a press nothing stops.
+   */
+  private quitFace(): { armed: boolean; bayNum: number } | undefined {
+    const run = this.run;
+    if (!run || !quitLosesProgress(run)) return undefined;
+    return { armed: this.quitArm.armed, bayNum: run.levelIndex + 1 };
+  }
+
+  /**
+   * Whether a bay retry is offered on this screen at all (run.ts's
+   * bayRetryable) — false only on the Skydeck, which is permadeath.
+   *
+   * ONE READ FOR EVERY DOOR, the same discipline sealFace keeps for the price.
+   * Three surfaces show the gesture (the pause card's Restart Bay, the ⏸ hold's
+   * accessible name, the hint strip's "hold pause to restart") and two perform
+   * it (startPauseHold, restartBay), and all five read this. A control that
+   * advertises a retry requestBayRetry will refuse is the same class of bug as
+   * a control that advertises a price the gate will not charge — and that one
+   * has already been shipped here once (codex PR #135).
+   *
+   * TRUE WITH NO RUN. A Contract and a drill both re-deal from their own seed
+   * (resetBay's branches) and neither is permadeath, so absence of a run is not
+   * absence of a retry.
+   */
+  private bayRetryOffered(): boolean {
+    return !this.run || bayRetryable(this.run);
+  }
+
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
    *  bay/time/next-piece fields consistent across playing/paused/draft/end.
    *  Also the one choke point where the rail's button set is decided, so it
@@ -1035,6 +1255,13 @@ class App {
     const slots = railSlotsFor({
       bond: g.bondCharges > 0,
       demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
+      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
+      // from the run's stock at bay start, so a ladder bay that spends its rack
+      // still shows a "x0" trigger it knows will refill, while a Skydeck run
+      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
+      // for the rest of the run.
+      thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
       finePointer: this.finePointer(),
       fullscreen: fullscreenSupported(),
@@ -1067,7 +1294,11 @@ class App {
         hidden: false,
         material: g.cannon.currentMaterial,
       },
-      tier: this.run?.mark ?? null,
+      // The Skydeck flies Mark 10's numbers but is not Tier 10 to the player —
+      // the banner's plate and its accessible label follow the tower's naming
+      // (tierPlateHTML wears the Sky face for this sentinel), not the run's
+      // internal mark.
+      tier: this.run ? (this.run.skydeck ? S.SKYDECK_TIER : this.run.mark) : null,
       profile: this.profile,
       // The strip's transience (armKeyHints): every HUD mount has to carry the
       // current fade state, or a pause/draft round-trip would resurrect it.
@@ -1092,6 +1323,8 @@ class App {
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
+      thawOwned: g.level.thawCharges > 0,
+      thawCharges: g.thawCharges,
       ratchets: this.run?.ratchets ?? {},
       // Only on the bay the clause actually applies to (run.ts's levelForRun
       // guards the same boundary): it is banked at the draft BEFORE that bay,
@@ -1099,6 +1332,22 @@ class App {
       // the bay on screen is not under.
       final: this.run && this.run.levelIndex === RUN_LEVELS - 1 ? this.run.final : null,
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
+      // THE RACK'S WIDTH (game/meta.ts's slotsFor) — how many boxes the row
+      // draws, mounted systems first and open slots after.
+      //
+      // Read off META rather than off the run, which is worth a line because
+      // every other run-shaped fact in this object is read off the run. The
+      // slot count is not a run-shaped fact: it is a property of the RIG, it
+      // cannot change while a run is in flight (the Workshop is a menu screen
+      // and every door out of a run to the menu ends the run), and it is only
+      // ever a FLOOR on the width — shipPlatesHTML draws every mounted system
+      // whatever this says. So there is nothing for the run to remember, and
+      // no field on RunState to forget to carry through advanceRun.
+      //
+      // Tier S is the exception the sandbox is entitled to: it builds its own
+      // rig from sandbox.ts rather than from the loadout, so its rack is as
+      // wide as the rig it was handed and the slot economy is not in the room.
+      slots: this.run?.sandbox ? SLOT_CAP : slotsFor(this.meta),
       // False in the native shells and on iPhone Safari — no fullscreen
       // button is rendered there at all (see screens.ts / platform.ts).
       fullscreenSupported: fullscreenSupported(),
@@ -1121,6 +1370,14 @@ class App {
       // A drill names itself in the banner and drops the tier row and the ship
       // rack (see screens.ts's `drill` opt for why all three go together).
       drill: this.drill?.drill ? { name: this.drill.drill.name } : null,
+      // The ⏸ hold restarts the bay, so the price of that gesture rides its
+      // accessible name — the same words the two retry BUTTONS wear, from the
+      // same read (sealFace). Null on a Contract or a drill, where this.run is
+      // null and no seal is in play.
+      seal: this.sealFace(),
+      // …and on a run that may not restart a bay at all, the gesture goes out
+      // of the name and out of the hint strip with it. See bayRetryOffered.
+      restart: this.bayRetryOffered(),
       contract: this.drill
         ? // A LINES-shaped drill fills the Contract block, because it is that
           // bay: a line goal and a launch budget, read out of exactly the same
@@ -1201,11 +1458,43 @@ class App {
     };
   }
 
-  /** The day's Contracts at the player's current tier. Tier tracks the Mark
+  /**
+   * The tier the Contracts board is dealt at — THE PARKED FLOOR's, not the
+   * ladder's high-water mark.
+   *
+   * Everywhere below the roof those are the same number, because every ladder
+   * floor deals `markUnlocked`'s board: a Contract tier is the Mark it teaches,
+   * and parking the car on Tier 2 for a practice run must not hand back Tier
+   * 2's Contracts, which earn nothing (meta.ts's recordContractClear gates its
+   * milestone on `contract.tier === markUnlocked`).
+   *
+   * The SKYDECK is the one floor with a board of its own, and it is the one
+   * floor where reading the parking is right rather than merely harmless. The
+   * roof is not a rung — its Contracts pay no salvage and tick no tier by the
+   * same rule quoted above, so there is nothing for a wrong board to cost the
+   * player — and what it deals instead is the pentomino board (contracts.ts's
+   * SKYDECK_CONTRACT_TIER). That is the owner's ask read literally: the
+   * pentomino Contracts are AT this floor, reached by riding to it, the same
+   * way the floor's run and its standing clauses are.
+   *
+   * Read through `towerState()` rather than off `pickedTier`, exactly as
+   * runMark() is and for the same reason: towerState is the only thing that
+   * clamps a stale or locked pick, so a save that went backwards cannot open
+   * the roof's board through here. The `skydeck` half is belt-and-braces on top
+   * of that clamp.
+   */
+  private contractsTier(): number {
+    const state = this.towerState();
+    return state.selected === S.SKYDECK_TIER && state.skydeck
+      ? SKYDECK_CONTRACT_TIER
+      : markUnlocked(this.meta);
+  }
+
+  /** The day's Contracts at the parked floor's tier. Tier tracks the Mark
    *  ladder, so clearing a Mark opens harder Contracts — the loop's other half
-   *  (see docs/DESIGN.md). */
+   *  (see docs/DESIGN.md) — and the roof deals its own board (contractsTier). */
   private todaysContracts(): Contract[] {
-    return dailyContracts(markUnlocked(this.meta));
+    return dailyContracts(this.contractsTier());
   }
 
   private storeState(): S.StoreState {
@@ -1232,13 +1521,13 @@ class App {
    * next Deep Run at the OLD Mark — so an out-of-range pick is dropped rather
    * than carried, and the default is always the exam.
    *
-   * The Skydeck opens on `mark >= MARK_COUNT`, i.e. once the whole ladder
-   * has actually been beaten — not on `markUnlocked`, which saturates at
-   * MARK_COUNT one clear early.
+   * The Skydeck opens on meta.ts's skydeckOpen — the whole ladder beaten AND
+   * every Mark sealed. It used to be `mark >= MARK_COUNT` alone; the seal half
+   * is new, and the argument for it is in meta.ts beside the predicate.
    */
   private towerState(): S.TowerState {
     const unlocked = markUnlocked(this.meta);
-    const skydeck = this.meta.mark >= MARK_COUNT;
+    const skydeck = skydeckOpen(this.meta);
     const state: S.TowerState = {
       unlocked, selected: unlocked, skydeck,
       // Tier S is a SETTING, not progress — it is drawn under the tower for
@@ -1304,17 +1593,46 @@ class App {
    * them when they choose; the tower is what greets them when they do.
    */
   private armUnlockCelebration(): void {
-    if (pendingUnlockMark(this.meta) === null) return;
-    // THE LAST UNLOCK IS NOT A MARK. Beating Mark 10 opens the Skydeck, and
-    // markUnlocked has nowhere left to go — it saturates at MARK_COUNT, which
-    // is the floor the car is already parked on. So for that one unlock the
-    // pick is moved to the roof, and the ceremony rides there: the ride must
-    // end where the car RESTS (screens.ts's tierTowerHTML draws the two as one
-    // number by construction), and a ceremony that celebrated the floor the
-    // player was already standing on would be celebrating nothing.
+    // TWO EVENTS, ONE RIDE. The ladder moving is one (pendingUnlockMark); the
+    // ROOF opening is now the other (pendingSkydeck), and they came apart the
+    // moment the Skydeck started asking for seals instead of for the last
+    // Mark. A player can beat Mark 10 with seals still owed — no roof — and
+    // can land the last seal on a re-flown Mark 3 weeks later, with the ladder
+    // long since finished and `mark` unmoved. Neither event can be expressed
+    // in the other's watermark, so both are asked here and either arms the
+    // same ride.
+    const roof = pendingSkydeck(this.meta);
+    // A LADDER RIDE NEEDS A FLOOR THAT WAS NOT FLYABLE BEFORE, which is not the
+    // same question as "has the Mark moved" — see meta.ts's pendingLadderRide.
+    // The two part company at the top: completing Tier 10 leaves the watermark
+    // owing while markUnlocked has already been sitting at MARK_COUNT, so this
+    // used to arm a four-and-a-half-second ride to the floor the car was
+    // already parked on and the player was already allowed to fly. (Codex
+    // review, PR #134.)
+    const rung = pendingLadderRide(this.meta);
+    if (!rung && !roof) {
+      // THE WATERMARK IS STILL BURNED. The ladder really did move — there is
+      // simply no floor to ride to — and leaving it unburned would re-ask this
+      // question on every visit to the menu for the rest of the save, which is
+      // the state that comes back the day the last seal lands and turns one
+      // ceremony into two.
+      if (pendingUnlockMark(this.meta) !== null) {
+        this.meta = markUnlockCelebrated(this.meta);
+        saveMeta(this.meta);
+      }
+      return;
+    }
+    // THE ROOF IS NOT A MARK, so the ride is redirected to it. This used to be
+    // `mark >= MARK_COUNT` on the argument that beating Mark 10 IS the roof
+    // opening; that argument has been replaced by the seals, so the test is
+    // simply whether the floor the ceremony would celebrate has actually
+    // opened. Without it a Mark-10 completion with seals owed would ride to a
+    // locked floor — towerState's clamp would refuse the pick and park the car
+    // back on Mark 10, i.e. a ceremony for the floor the player was already
+    // standing on, which is exactly what this branch exists to prevent.
     //
     // Stamped like any other pick, so towerState's freshness clamp accepts it.
-    if (this.meta.mark >= MARK_COUNT) {
+    if (roof) {
       this.pickedTier = S.SKYDECK_TIER;
       this.pickedAtMark = this.meta.mark;
     }
@@ -1322,7 +1640,12 @@ class App {
     // player who closes the app halfway up the shaft has seen their tier open;
     // the alternative is a ceremony that replays on every launch until it is
     // watched all the way through, which turns a reward into a toll.
+    //
+    // BOTH watermarks, whichever event armed the ride: a Mark completion that
+    // also lands the last seal is one ride, not one now and another on the next
+    // visit to a menu that has nothing left to announce.
     this.meta = markUnlockCelebrated(this.meta);
+    if (roof) this.meta = skydeckCelebrated(this.meta);
     saveMeta(this.meta);
     this.celebrating = true;
     // The clock every later render measures its offset against, set before
@@ -1383,6 +1706,44 @@ class App {
     return t;
   }
 
+  /** The bay-clear card's third stat when a Skydeck clear has something more
+   *  urgent to say there than the scrap payout — or undefined, which leaves the
+   *  payout in place on the ladder and on seven of the roof's ten bays.
+   *
+   *  ONE FACE now, where it had two. It used to take the slot on every Skydeck
+   *  clear, because the payout it displaced was a permanent 0 there; with the
+   *  yard back (run.ts's refitAfterBay) that payout is a real number the card
+   *  ought to quote, and the running "2/3 clauses standing" tally it printed on
+   *  the other seven bays is one tap away on the draft's bank cell. What cannot
+   *  wait is a clause ARMING: this card is the one screen between the bay that
+   *  earned it and the projection whose numbers it has already moved. */
+  private baySlot(): { value: string; label: string } | undefined {
+    const run = this.run;
+    if (!run?.skydeck) return undefined;
+    // +1: the run has not advanced yet at the bayclear state (afterBayClear).
+    const arming = this.clauseAt(run.levelIndex + 1);
+    return arming
+      ? { value: arming.name, label: `clause \u00b7 from Bay ${arming.bay}` }
+      : undefined;
+  }
+
+  /** The Skydeck clause that ARMS on the bay at `levelIndex`, or null — for
+   *  every other run and for a bay no clause starts on.
+   *
+   *  Takes the index explicitly rather than reading the run's, because the two
+   *  callers are on opposite sides of advanceRun: the bay-clear card asks about
+   *  the bay it is about to hand over to (levelIndex + 1, the run not yet
+   *  advanced) and anything after the draft asks about the bay it is projecting
+   *  (levelIndex, already advanced). An implicit answer would be right on
+   *  exactly one of them. */
+  private clauseAt(levelIndex: number): { name: string; desc: string; bay: number } | null {
+    const rules = this.run?.skydeck;
+    if (!rules) return null;
+    const arming = clauseArmingAt(rules, levelIndex);
+    const def = arming ? finalById(arming.id) : undefined;
+    return def ? { name: def.name, desc: def.desc, bay: levelIndex + 1 } : null;
+  }
+
   /** Whether Tier S can be entered at all. The setting is the door; the build
    *  flag is a second, independent way in that only exists where the cheats
    *  do, so a developer never has to perform the gesture to reach the tool. */
@@ -1402,17 +1763,49 @@ class App {
     return run && !run.sandbox && RUN_STATES.has(this.state) ? run.mark : markUnlocked(this.meta);
   }
 
+  /**
+   * What the board question is being asked WITH. Asking the STATE rather than
+   * just `this.run` is the load-bearing half: the finished run object outlives
+   * the run on screen (returning to the menu clears `contract`, not `run`), so
+   * a rule that reads the run alone answers for a run the player has left —
+   * it opened the roof's board for someone who had since parked the car back
+   * on a Mark (codex review, PR #166). `skydeckParked` goes through towerState
+   * so a stale or locked pick is clamped first, the same gate runMark() and
+   * contractsTier() use.
+   */
+  private boardView(): BoardView {
+    return {
+      run: this.run,
+      inRun: this.run !== null && RUN_STATES.has(this.state),
+      skydeckParked: this.skydeckParked(),
+      mark: markUnlocked(this.meta),
+    };
+  }
+
   private runBoard(): BoardId {
-    // Tier S first: a sandbox run flies a Mark it never earned, so its `mark`
-    // is not a claim about the ladder and must not be filed as one.
-    if (this.run?.sandbox) return BOARD_SANDBOX;
-    // Otherwise the board IS the Tier the run was flown at. Asking the STATE
-    // rather than just `this.run` matters: the finished run object outlives the
-    // run on screen (returning to the menu clears `contract`, not `run`), so
-    // reading run.mark from the menu would open board N for a player whose
-    // tower, Deep Run button and next run had all moved on to N+1.
-    const run = this.run;
-    return run && RUN_STATES.has(this.state) ? run.mark : markUnlocked(this.meta);
+    return boardForView(this.boardView());
+  }
+
+  /** The car is parked on the roof AND the roof is open to this save. Two
+   *  conditions because `selected` survives a save that went backwards; the
+   *  same pairing contractsTier() makes. */
+  private skydeckParked(): boolean {
+    const state = this.towerState();
+    return state.selected === S.SKYDECK_TIER && state.skydeck;
+  }
+
+  /**
+   * The DAY half of a board key (lib/api.ts's BoardDay). DAY_NONE on every
+   * all-time board, so only the roof ever answers with a date.
+   *
+   * The run in hand answers with the day it was DEALT (skydeck.ts's
+   * SkydeckRules.day) while that run is on screen: a run undocked at 23:50Z and
+   * landed at 00:10Z belongs to the seed it flew. Off it — the standalone
+   * screen, a board opened from the menu — the day is TODAY'S, from the same
+   * dailySeed the run was stamped from, so the two can never drift apart.
+   */
+  private boardDay(): BoardDay {
+    return boardDayForView(this.boardView(), dailySeed());
   }
 
   /** One line naming what a Tier S run was set to — for the end modal, which
@@ -1496,6 +1889,20 @@ class App {
     // is parked on. The old branch that navigated from here is gone.
     const floor = shaft.querySelector<HTMLElement>(`[data-tier="${tier}"]`);
     if (!S.tierOpen(state, tier)) {
+      // THE ROOF'S REFUSAL ANSWERS "WHICH ONES". Every other locked floor is
+      // refused by one number the player can read off the tower already — the
+      // Mark above their unlock — so a shake is the whole answer. The Skydeck
+      // is refused by a SET, and "all ten seals" is not a thing a shaking plate
+      // can say. So the tap flares the empty sockets on every floor that still
+      // owes one (screens.ts's .tower__seal--owed), and the bill is itemised in
+      // the building the player is already looking at rather than in a toast
+      // over it — the same argument the shake itself has always made.
+      const owed = tier === S.SKYDECK_TIER
+        ? Array.from(shaft.querySelectorAll<HTMLElement>(".tower__seal--owed"))
+          .map((s) => s.parentElement)
+          .filter((f): f is HTMLElement => f !== null && f !== floor)
+        : [];
+      for (const f of owed) f.classList.remove("is-owed");
       if (floor) {
         floor.classList.remove("is-denied");
         // Force a reflow so a second tap on the same locked floor replays the
@@ -1503,8 +1910,14 @@ class App {
         // one frame is a no-op to the animation engine otherwise.
         void floor.offsetWidth;
         floor.classList.add("is-denied");
+      }
+      for (const f of owed) f.classList.add("is-owed");
+      if (floor || owed.length) {
         window.clearTimeout(this.denyTimer);
-        this.denyTimer = window.setTimeout(() => floor.classList.remove("is-denied"), 620);
+        this.denyTimer = window.setTimeout(() => {
+          floor?.classList.remove("is-denied");
+          for (const f of owed) f.classList.remove("is-owed");
+        }, 620);
       }
       return;
     }
@@ -1569,12 +1982,39 @@ class App {
     // the plate's width and made the primary button grow and shrink for the
     // length of the trip (reported from a device).
     this.rollPlate(state.selected, tier, dur);
+    // ...and the destination panel rolls with it, on the same clock and in the
+    // same direction, so the screen makes ONE move when the car does. Only on a
+    // ride: the panel is also built at menu mount and rebuilt on the way back
+    // from a run, and neither of those is a change the player made — an
+    // odometer spinning on arrival would be the screen animating its own
+    // initial state.
+    this.rollBayStats(state.selected, tier, dur);
+    // ARM THE FIVE TOGETHER, and do it BEFORE the landing timer is registered.
+    // Both halves matter. Arming synchronously is what puts the tracks on the
+    // same clock as the car (see armRolls); registering the timeout after it is
+    // what guarantees the teardown can only ever be LATE — `setTimeout(dur)`
+    // fires no earlier than `dur` after this line, and the transitions are
+    // already running by the time it is written, so completion cannot fall on
+    // the far side of it.
+    this.armRolls();
     this.setPlaySub(null);
     window.clearTimeout(this.towerTravel ?? undefined);
-    this.towerTravel = window.setTimeout(() => {
+    // The car's clock decides WHEN the screen lands; the rolls get to say the
+    // last word on whether they are done. `rollRemainingMs` is normally a frame
+    // or less (see armRolls and rollRemainingMs for why it is never quite
+    // zero), so this re-arms at most once and the ride does not get visibly
+    // longer — it just stops ending early.
+    const land = (): void => {
+      const left = this.rollRemainingMs();
+      if (left > 0) {
+        this.towerTravel = window.setTimeout(land, Math.ceil(left));
+        return;
+      }
       this.towerTravel = null;
+      this.rollArmed = [];
       this.setSelectedTier(tier);
-    }, dur);
+    };
+    this.towerTravel = window.setTimeout(land, dur);
   }
 
   /**
@@ -1591,27 +2031,209 @@ class App {
     if (!n) return;
     const face = (t: number): string =>
       t === S.SKYDECK_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
-    // A HIGHER tier is a higher floor — SKYDECK_TIER is above every Mark, so
-    // the same comparison covers the Skydeck with no special case. Tier S is the
-    // one floor whose id does NOT order with its height (it is -1 and sits on
-    // the roof), so the direction is taken from the shaft index instead, which
-    // is the number the car is actually moving through.
-    const up = S.towerIndexOf(to) < S.towerIndexOf(from);
-    const cells = up ? [from, to] : [to, from];
-    n.style.setProperty("--roll-dur", `${dur}ms`);
-    n.style.setProperty("--roll-from", up ? "0" : "-1em");
-    n.style.setProperty("--roll-to", up ? "-1em" : "0");
-    n.innerHTML = `<span class="tier-plate__roll">${cells.map((t) => `<b>${face(t)}</b>`).join("")}</span>`;
+    this.roll(n, face(from), face(to), this.ridingUp(from, to), dur);
+  }
+
+  /**
+   * Is the car travelling UP the shaft from `from` to `to`?
+   *
+   * A HIGHER tier is a higher floor — SKYDECK_TIER is above every Mark, so the
+   * same comparison covers the Skydeck with no special case. Tier S is the one
+   * floor whose id does NOT order with its height (it is -1 and sits on the
+   * roof), so the direction is taken from the shaft index instead, which is the
+   * number the car is actually moving through.
+   *
+   * Its own method because everything that rolls has to agree about it: the
+   * plate and the four destination readouts roll TOGETHER, and one of them
+   * deciding "up" while the others decided "down" would read as the panel
+   * arguing with itself.
+   */
+  private ridingUp(from: number, to: number): boolean {
+    return S.towerIndexOf(to) < S.towerIndexOf(from);
+  }
+
+  /**
+   * Roll one readout from `fromHTML` to `toHTML` over `dur`, in the direction
+   * the car is going.
+   *
+   * Two cells in a track, ordered so the incoming value enters from the side
+   * the car is heading towards: riding UP the tower the old value leaves
+   * through the top, riding down it leaves through the bottom.
+   *
+   * `cellH` is the height of ONE cell and defaults to the 1em the tier plate's
+   * `line-height: 1` number box already is. The destination panel's readouts
+   * inherit `line-height: normal` instead, which is 13px against their 11px
+   * font — so they measure their resting box and pass it in rather than being
+   * cropped by two pixels for the length of the ride. See app.css's odometer
+   * block for why that number cannot be hard-coded.
+   */
+  private roll(el: HTMLElement, fromHTML: string, toHTML: string, up: boolean, dur: number,
+    cellH?: number): void {
+    const h = cellH === undefined ? "1em" : `${cellH}px`;
+    const cells = up ? [fromHTML, toHTML] : [toHTML, fromHTML];
+    el.style.setProperty("--roll-h", h);
+    el.style.setProperty("--roll-dur", `${dur}ms`);
+    el.style.setProperty("--roll-from", up ? "0px" : `calc(-1 * ${h})`);
+    el.style.setProperty("--roll-to", up ? `calc(-1 * ${h})` : "0px");
+    el.innerHTML = `<span class="roll">${cells.map((c) => `<b>${c}</b>`).join("")}</span>`;
     // Cleared before the new track is armed. A second tap while the first roll
     // is still running would otherwise find `is-rolled` already set, so the
-    // fresh track would render at its END offset immediately and the rAF pair
-    // below would have nothing left to transition — the number would snap.
-    n.classList.remove("is-rolled");
-    n.classList.add("is-rolling");
-    // Two frames, not one: the track has to be laid out AT the start offset
-    // before the end offset can transition from it, and a single rAF still
-    // lands inside the same style flush on WebKit.
-    requestAnimationFrame(() => requestAnimationFrame(() => n.classList.add("is-rolled")));
+    // fresh track would render at its END offset immediately and `armRolls`
+    // would have nothing left to transition — the value would snap.
+    el.classList.remove("is-rolled");
+    el.classList.add("is-rolling");
+    // Prepared, not armed. Every track built in one tick is armed together by
+    // armRolls below, which is what puts all five on the car's own clock.
+    this.rollPending.push(el);
+  }
+
+  /** Tracks built by `roll` this tick, waiting to be armed together. */
+  private rollPending: HTMLElement[] = [];
+
+  /**
+   * Start every prepared roll, synchronously, in this task.
+   *
+   * THIS IS THE LIFT'S CLOCK, and getting the five onto it is the whole job.
+   * `pickTier` starts the car's transition and registers the landing timeout
+   * (`setSelectedTier` after `dur`) in one tick; the tracks used to arm two
+   * `requestAnimationFrame`s later. A transition that starts late finishes
+   * late, and the timeout does not know that — so the teardown landed on the
+   * tracks BEFORE they finished, by exactly the arming delay, every single
+   * ride. Measured on the built app, riding four floors at `--roll-dur: 640ms`:
+   * the transitions began at t+64.6ms and would have ended at t+704.6, while
+   * the panel was rebuilt at t+649.0. The last 56ms of travel never happened —
+   * and it is the part that matters, because the curve
+   * (`--roll-ease`, cubic-bezier(0.34, 1.28, 0.64, 1)) spends its tail settling
+   * back out of the overshoot. `transitionend` never fired at all; removal
+   * cancels it. On a 60Hz display the theft is ~33ms and on 120Hz ~17ms, but it
+   * is never zero and it is never in the player's favour.
+   *
+   * Two forced reflows, and both are load-bearing:
+   *
+   *  - the first commits every prepared track AT its start offset, which is
+   *    what the old rAF pair was really for — a transition needs a committed
+   *    "before" value to move away from, and a single rAF still lands inside
+   *    the same style flush on WebKit. A synchronous layout read is strictly
+   *    stronger than either: it IS the flush, and it happens now.
+   *  - the second commits the end offset, which creates the transitions inside
+   *    this task rather than at the next frame. Without it the tracks would
+   *    still start one frame after the car, and the teardown would still be one
+   *    frame early.
+   *
+   * One flush for all five rather than one each, so "the plate and the four
+   * readouts start on the same tick" is a property of the mechanism rather than
+   * something that happens to be true — and so a ride costs two layouts instead
+   * of ten.
+   */
+  private armRolls(): void {
+    if (this.rollPending.length === 0) return;
+    void this.overlay.offsetHeight;
+    for (const el of this.rollPending) el.classList.add("is-rolled");
+    void this.overlay.offsetHeight;
+    this.rollArmed = this.rollPending;
+    this.rollPending = [];
+  }
+
+  /** The tracks armed for the ride in flight — what `rollRemainingMs` asks. */
+  private rollArmed: HTMLElement[] = [];
+
+  /**
+   * How much travel the armed rolls still owe, in ms. 0 when nothing is moving.
+   *
+   * The last frame of the race, and the one synchronous arming cannot win. A
+   * CSS transition created inside a task does not START in that task: it is
+   * assigned a start time at the next rendering update, so its clock begins up
+   * to one frame after `setTimeout(dur)` began counting and it finishes that
+   * much after the timer fires. Measured after arming was made synchronous, the
+   * rolls were still cut off at 0.937 of their travel — 599.9ms of a 640ms ride
+   * — because the timer's 640ms was spent from a moment 40ms before the
+   * transitions' own zero.
+   *
+   * So the landing ASKS rather than assumes. This is read at the moment the
+   * timer fires, off the animations themselves, and `pickTier` waits out
+   * whatever is left. That makes "the teardown never precedes completion" true
+   * by construction at any refresh rate, rather than true at 60Hz and false on
+   * a 120Hz phone.
+   *
+   * Only RUNNING animations count, which is what keeps the two states that have
+   * no travel from waiting for one: under `prefers-reduced-motion` the track
+   * has `transition: none` and there is no animation to find, and a transition
+   * cancelled by a second tap is no longer running either. Both answer 0 and
+   * land on time.
+   */
+  private rollRemainingMs(): number {
+    let most = 0;
+    for (const el of this.rollArmed) {
+      for (const a of el.getAnimations()) {
+        if (a.playState !== "running") continue;
+        const end = Number(a.effect?.getComputedTiming().endTime ?? 0);
+        const now = Number(a.currentTime ?? 0);
+        most = Math.max(most, end - now);
+      }
+    }
+    return most;
+  }
+
+  /**
+   * Roll the destination panel's four readouts alongside the plate.
+   *
+   * The panel answers "what is this floor like to fly", and riding the tower
+   * changes every word of that answer — but the panel used to sit still for the
+   * whole trip and then swap instantly when `setSelectedTier` rebuilt it, while
+   * the plate one column over rolled the whole way. Same event, two different
+   * accounts of it.
+   *
+   * BOTH SIDES ARE RENDERED, rather than the current values being read back out
+   * of the DOM. `baseBayPanelHTML` is the one place these four strings are
+   * formatted — the dollar signs, the arrow, the mm:ss, the ×N and the
+   * capstone's ∞ — and re-deriving them here would be a second copy to keep in
+   * step. Rendering the FROM side too (instead of reading the live elements)
+   * also makes this re-entrant for free: a second tap mid-ride finds elements
+   * whose innerHTML is a half-finished roll track, where `state.selected` is
+   * still the floor the car actually left. That is the same number rollPlate
+   * takes, which is what keeps the five in sync when a player taps twice.
+   *
+   * UNCHANGED VALUES ARE LEFT ALONE, and this is not an optimisation. A track
+   * of two identical cells does not look still while it moves — at any offset
+   * between them you see the bottom of one copy above the top of the other, so
+   * an unchanged readout would spend the ride visibly torn in half and land on
+   * the number it started with. It is not a hypothetical: every adjacent Mark
+   * step changes all four, but the Skydeck reads MARK_COUNT's bays, so riding
+   * between Mark 10 and the roof changes NONE of them — the one trip where the
+   * uniform sweep would tear all four readouts at once, in exchange for saying
+   * nothing. A readout that did not change is a fact worth showing, and holding
+   * still is how this panel says it.
+   */
+  private rollBayStats(from: number, to: number, dur: number): void {
+    const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
+    if (!panel) return;
+    const values = (tier: number): Map<string, string> => {
+      const box = document.createElement("div");
+      box.innerHTML = S.baseBayPanelHTML({ tier, best: 0 });
+      const out = new Map<string, string>();
+      for (const cell of box.querySelectorAll<HTMLElement>(".bay-stat")) {
+        const label = cell.querySelector(".bay-stat__lbl")?.textContent?.trim();
+        const value = cell.querySelector(".bay-stat__val")?.innerHTML;
+        if (label && value !== undefined) out.set(label, value);
+      }
+      return out;
+    };
+    // Paired by LABEL rather than by position: the two panels are built by
+    // different functions (the Skydeck and the Marks share one, Tier S has its
+    // own) and a future reorder of either would otherwise roll Clock's value
+    // into the Bonds cell with nothing to catch it.
+    const before = values(from);
+    const after = values(to);
+    const up = this.ridingUp(from, to);
+    for (const cell of panel.querySelectorAll<HTMLElement>(".bay-stat")) {
+      const label = cell.querySelector(".bay-stat__lbl")?.textContent?.trim();
+      const el = cell.querySelector<HTMLElement>(".bay-stat__val");
+      if (!label || !el) continue;
+      const was = before.get(label);
+      const now = after.get(label);
+      if (was === undefined || now === undefined || was === now) continue;
+      this.roll(el, was, now, up, dur, el.getBoundingClientRect().height);
+    }
   }
 
   /**
@@ -1640,12 +2262,46 @@ class App {
     // NEXT STEP badge comes off with it: the guide is pointing at the ladder,
     // and Tier S is not on it.
     const ttl = this.overlay.querySelector<HTMLElement>("#menu-play-ttl");
-    if (ttl) ttl.textContent = sbx ? "Sandbox" : "Deep Run";
+    if (ttl) ttl.textContent = sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
     btn?.classList.toggle("btn--sbx", sbx);
-    if (sbx) btn?.classList.remove("btn--next");
+    // THE BADGE IS PER-FLOOR, so the ride has to carry it rather than only
+    // strip it on the way to Tier S. The seal step is what made it per-floor
+    // (screens.ts's menuPlayBadged): a floor that already holds its stamp
+    // cannot be sealed by flying it again, so riding onto one has to take the
+    // claim off the button and riding off one has to put it back. The chip
+    // moves with the class — it is the visible half, and removing only the
+    // glow left a "Next step" label sitting on a button that was no longer the
+    // next step (visible on the old Tier S path, which this replaces).
+    if (btn) {
+      const badged = S.menuPlayBadged(
+        nextStep(this.meta), tier, this.meta.sealedMarks.includes(tier),
+      );
+      btn.classList.toggle("btn--next", badged);
+      const chip = btn.querySelector(".next-badge");
+      if (badged && !chip) btn.insertAdjacentHTML("beforeend", S.nextBadgeHTML());
+      else if (!badged && chip) chip.remove();
+    }
+    // THE CONTRACTS DOOR IS PER-FLOOR TOO, since the board behind it became
+    // per-floor (contractsTier). The roof deals pentomino cargo and banks no
+    // salvage, so riding onto it has to take the milestone claim and the tier
+    // pips off this button, and riding away has to put them back — the same
+    // shape as the badge above, and for the same reason: the ride patches the
+    // menu instead of re-rendering it, so a rule left only in the markup stops
+    // applying the moment the player taps a floor.
+    const cprog = tierProgressFor(this.meta);
+    const pips = this.overlay.querySelector<HTMLElement>("#menu-contracts-pips");
+    if (pips) pips.innerHTML = S.menuContractsPips(tier, cprog);
+    const csub = this.overlay.querySelector<HTMLElement>("#menu-contracts-sub");
+    if (csub) csub.innerHTML = S.menuContractsSub(tier, cprog);
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
+    // The extras strip carries straight across now. It used to need a filter:
+    // the roof's clause list lived in this slot, so a ride down from the
+    // Skydeck had to drop it and a ride up had to add it, or Tier 6's recap
+    // would advertise tonight's inspection schedule. The list is gone (the
+    // day's clauses are discovered at their stops, not read off the menu), so
+    // what remains in here is the dev door — the same row on every floor.
     const extras = panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
     // Tier S reads its OWN board's best — the panel is the recap of the floor
     // the car is on, and a ladder best printed over a sandbox panel would be
@@ -1659,13 +2315,18 @@ class App {
   private setPlaySub(tier: number | null): void {
     const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
     if (!sub) return;
-    sub.textContent = tier === null
-      ? "Elevator moving…"
-      : tier === S.SANDBOX_TIER
-        ? "Any Mark, bay or Contract · own board"
-        : tier === S.SKYDECK_TIER
-          ? "All ten marks at once · no mercy"
-          : `Clear ${RUN_LEVELS} bays in one run`;
+    // The rule is screens.ts's, not a second copy of it. This method used to
+    // restate the three-way ternary the menu's markup builds, which held only
+    // while the two never diverged — and the seal step diverges them: it gives
+    // an ordinary ladder floor a subtitle of its own, so a player riding the
+    // car at the finished ladder watched their one stated objective turn back
+    // into "Clear 10 bays in one run".
+    sub.textContent = S.menuPlaySub(
+      tier, CLAUSE_COUNT,
+      tier !== null && nextStep(this.meta) === "seal"
+        ? { owed: unsealedMarks(this.meta).length, sealed: this.meta.sealedMarks.includes(tier) }
+        : null,
+    );
   }
 
   private renderOverlay(): void {
@@ -1677,18 +2338,22 @@ class App {
     // per-action attribute, so the place is recorded here and restored below.
     const focusedBind = (document.activeElement as HTMLElement | null)
       ?.closest("[data-bind]")?.getAttribute("data-bind") ?? null;
-    // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
-    // screen is about to be replaced by a fresh one carrying none of the crest
-    // variables syncHud wrote inline. Those writes are guarded by a "last value
-    // shown" cache, so without this the next value landing in the same
-    // quantised bin would skip the write and leave the new element on the
-    // stylesheet defaults — indefinitely, if the music holds steady. Cheaper to
-    // drop the cache here than to make three guards each track the element they
-    // were applied to.
-    this.crestBeatShown = -1;
-    this.crestHeatShown = -1;
-    this.crestStepShown = -1;
-    this.crestMatShown = null;
+    // TOGGLES need the same treatment, and needed it the moment one of them
+    // started causing a re-render (onToggle's stickSling branch). A pad player
+    // flipping Slingshot stick presses A on a row that this rewrite is about to
+    // detach; without the restore below, focus falls back to the screen's
+    // primary action and the thumb that meant to flip one switch is suddenly
+    // hovering Back. Recorded by KEY, which is stable across the rewrite in
+    // exactly the way the row element is not.
+    const focusedToggle = (document.activeElement as HTMLElement | null)
+      ?.closest("[data-toggle]")?.getAttribute("data-toggle") ?? null;
+    // Every arm below rewrites overlay.innerHTML wholesale, so the HUD syncHud
+    // has been patching is about to stop existing. See forgetHudCache.
+    this.forgetHudCache();
+    // WAS THE SCREEN BEING REPLACED ALREADY DIMMED? Asked of the outgoing DOM
+    // rather than of a list of states, so a new modal cannot forget to join the
+    // list. See app.css .modal-scrim--continued for what this suppresses.
+    const hadScrim = this.overlay.querySelector(".modal-scrim") !== null;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
@@ -1708,6 +2373,15 @@ class App {
             firstLaunch: !this.settings.seenTutorial,
           },
           this.towerState(),
+          // HOW MANY standing clauses the roof's run carries, for the primary
+          // button's subtitle. The count and not the list: the menu used to be
+          // handed today's clauses by name so the recap panel could print them,
+          // and the day's schedule is now something the player meets at the
+          // stops instead (screens.ts, above baseBayPanelHTML). CLAUSE_COUNT is
+          // derived from the schedule itself (skydeck.ts), so the number on the
+          // button cannot disagree with the run that produces it — and it is
+          // date-independent, which the names never were.
+          CLAUSE_COUNT,
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
@@ -1732,22 +2406,39 @@ class App {
             })
           : "";
         break;
-      case "contracts":
+      case "contracts": {
+        // The roof's board is not on the ladder, so it carries neither of the
+        // two things a tier board does: no `progress` (nothing here banks a
+        // milestone or ticks a half — see contractsTier), and a floor NAME in
+        // place of a tier number the eyebrow could not truthfully print. Both
+        // are the absence of a claim rather than a new one, which is why the
+        // screen needed one optional prop and no branch of its own.
+        const sky = this.contractsTier() === SKYDECK_CONTRACT_TIER;
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
-          tier: markUnlocked(this.meta),
+          tier: this.contractsTier(),
+          floor: sky ? "Skydeck" : undefined,
           // The PERSISTED clear list, not a session one. A Contract id embeds
           // the daily seed and tier, so today's board only ever matches today's
           // clears and the ticks reset themselves at the rollover — while a
           // tick that lived in memory vanished on any reload, which is exactly
           // when the player comes back to see what they'd already done.
           cleared: this.meta.claimedContracts,
-          progress: tierProgressFor(this.meta),
-          nextInstall: this.nextInstall(),
+          progress: sky ? undefined : tierProgressFor(this.meta),
+          nextInstall: sky ? null : this.nextInstall(),
         });
         break;
+      }
       case "contract-end":
         if (g && this.contract) {
+          // THE SETTLEMENT'S OWN IDENTITY, carried to the card that reports it.
+          // Read off the CONTRACT rather than off the parked floor: the
+          // Contract is the thing that was settled, its tier is baked into the
+          // id recordContractClear logged, and the tower is a control the
+          // player could in principle have moved while the bay was open. Every
+          // "no salvage, no tier" claim the card makes has to be the same claim
+          // the recorder acted on, or the two disagree the moment either moves.
+          const skyContract = isSkydeckBoard(this.contract.tier);
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
             S.contractEndModal({
@@ -1774,6 +2465,13 @@ class App {
                   }
                 : null,
               sandbox: this.sandboxContract,
+              // ONE field, deliberately, and everything below it left alone.
+              // The obvious second edit is `nextInstall: sky ? null : …`, and
+              // it is the wrong instinct: the roof's award row never reads it,
+              // so the guard would be dead code — and a call site with two
+              // things to remember is one that will eventually remember one.
+              // The mode is stated once; the modal decides what it means.
+              skydeck: skyContract,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
               nextInstall: this.nextInstall(),
@@ -1823,8 +2521,19 @@ class App {
         break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
-          S.leaderboardRowsHTML(S.fullBoard(this.boards[this.lbBoard] ?? [])),
-          { board: this.lbBoard, tier: this.ladderBoard(), sandbox: this.settings.devMode },
+          S.leaderboardRowsHTML(
+            S.fullBoard(this.boards.get(this.lbBoard, this.lbDay)), undefined, this.lbBoard,
+          ),
+          {
+            board: this.lbBoard,
+            tier: this.ladderBoard(),
+            sandbox: this.settings.devMode,
+            // The roof's board arrives with the roof itself (meta.ts's
+            // skydeckOpen), on the same rule Tier S's tab follows: a board for
+            // a mode this save cannot fly is a tab that answers nothing.
+            skydeck: skydeckOpen(this.meta),
+            day: this.lbDay,
+          },
         );
         break;
       case "playing":
@@ -1848,8 +2557,9 @@ class App {
             S.pauseModal(fullscreenSupported(), this.profile, {
               bond: g.bondCharges > 0,
               demo: g.level.bombCharges > 0,
+              thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
-            });
+            }, this.sealFace(), this.quitFace(), this.bayRetryOffered());
         }
         break;
       case "bayclear":
@@ -1862,7 +2572,16 @@ class App {
               funds: g.score,
               target: g.target,
               lines: g.linesTotal,
+              // What the bay actually paid, on both modes — the roof's rate is
+              // half the ladder's and it is already in g.level (level.ts's
+              // applySkydeckEconomy), so the card quotes the bay rather than
+              // second-guessing the mode.
               scrap: g.scrapEarned + g.level.scrapPerBay,
+              // …unless a clause is ARMING on the next bay, which is the one
+              // thing worth displacing a real payout for. Three of the roof's
+              // ten clears; undefined everywhere else, including every ladder
+              // clear (see baySlot).
+              slot: this.baySlot(),
             });
         }
         break;
@@ -1882,9 +2601,45 @@ class App {
           this.mountEndScrim(S.coachFailHTML(g.lossReason, g.level, g.level.name));
         }
         break;
+      // The one-time seal notice, over whichever bay it was called from — the
+      // same placement the tutorial's failure card uses, and for the same
+      // reason: the thing being priced is THIS bay, and it is right there
+      // behind the panel.
+      case "seal-break":
+        if (g && this.run) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.sealBreakModal({
+              bayNum: this.run.levelIndex + 1,
+              // THE RUN'S OWN MARK, not the player's high-water tier. It is
+              // this floor's stamp the retry spends, and on a re-fly of a
+              // beaten Mark those two numbers are different.
+              mark: this.run.mark,
+              // …and the tier this run can actually open, which on that same
+              // re-fly is none at all. It used to be tierProgressFor().tier,
+              // i.e. markUnlocked, so a Mark-3 re-fly by a Mark-10 player was
+              // promised "Tier 10 still opens" about a run that can move
+              // nothing. (Codex review, PR #134.)
+              tier: tierOpenableBy(this.meta, this.run.mark),
+              // Counted off the ladder rather than off the list's length: a
+              // save can hold a Mark the ladder no longer has (lib/store.ts
+              // clamps values, not range), and "11 of 10 sealed" is the kind
+              // of number that makes a player distrust every other one.
+              sealed: MARK_COUNT - unsealedMarks(this.meta).length,
+              // Long the first time ever, short every time after — held on the
+              // app rather than re-asked here, because requestBayRetry has
+              // already burned the watermark by now (see sealBreakExplain).
+              explain: this.sealBreakExplain,
+            });
+        }
+        break;
       case "won":
       case "lost":
         if (g && this.run) {
+          // Read once, above the modal: the end card needs it twice (whether
+          // to draw the retry at all, and which of its three faces), and it is
+          // the same read the retry's own gate makes.
+          const seal = sealStateFor(this.run, this.meta.sealedMarks);
           this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
           this.mountEndScrim(
             S.endModal({
@@ -1896,8 +2651,11 @@ class App {
               best: loadBest(this.runBoard()),
               name: loadName(),
               rows: S.leaderboardRowsHTML(
-                S.endBoard(this.boards[this.runBoard()] ?? [], loadName() || undefined),
+                S.endBoard(
+                  this.boards.get(this.runBoard(), this.boardDay()), loadName() || undefined,
+                ),
                 loadName() || undefined,
+                this.runBoard(),
               ),
               reason: g.lossReason,
               bayNum: this.run.levelIndex + 1,
@@ -1919,20 +2677,55 @@ class App {
               // not been through advanceRun — and on a loss never will be — so
               // it has to be added here, exactly as scrapEarned above.
               salvagedFunds: this.run.salvagedFunds + g.salvagedFunds,
+              volatileLosses: this.run.volatileLosses + g.volatileLosses,
+              incineratedFunds: this.run.incineratedFunds + g.incineratedFunds,
               tiers: this.run.tiers,
-              // runBoard(), not run.mark: a Tier S run's board is Tier S, and
-              // labelling it with the Mark it borrowed would say the practice
-              // score is on the ladder.
+              // runBoard(), not run.mark: a Tier S run's board is Tier S and a
+              // Skydeck run's is the roof's, and labelling either with the Mark
+              // it borrowed would say the score is on the ladder.
               boardTier: this.runBoard(),
+              boardDay: this.boardDay(),
+              // THE CONTRACTS ROUTE. Both halves come from the same places the
+              // home screen asks — today's board and meta.ts's nextStep — so
+              // the two surfaces cannot disagree about whether there is
+              // anything to do or about which door is the next step.
+              contracts: {
+                remaining: this.todaysContracts()
+                  .filter((c) => !contractClaimed(this.meta, c.id)).length,
+                next: nextStep(this.meta) === "contracts",
+              },
+              // THE BAY, OFFERED BACK — on a lost ladder run only. Tier S has
+              // its bench one tap away and re-flies the same configuration
+              // from the primary; the Skydeck is the day's single attempt, and
+              // a retryable daily is a leaderboard nobody can read.
+              //
+              // ONE CALL ANSWERS BOTH QUESTIONS. sealStateFor returns null for
+              // exactly the runs tracksLadder refuses, so "is there a seal
+              // question here" and "which of the three is it" are the same
+              // read — and the button's face comes from the SAME function
+              // requestBayRetry gates its confirmation on (retryBreaksSeal is
+              // defined on it), so the face and the panel that press opens can
+              // never disagree about whether anything is being spent.
+              retryBay:
+                this.state === "lost" && seal !== null
+                  ? { seal, mark: this.run.mark }
+                  : undefined,
             }),
           );
         }
         break;
     }
+    // A scrim that replaced another scrim starts at full strength rather than
+    // fading up from the live field: the field behind it was never bright.
+    if (hadScrim) {
+      this.overlay.querySelector(".modal-scrim")?.classList.add("modal-scrim--continued");
+    }
     if (focusedBind) {
       this.overlay
         .querySelector<HTMLElement>(`[data-action="rebind"][data-bind="${focusedBind}"]`)
         ?.focus();
+    } else if (focusedToggle) {
+      this.overlay.querySelector<HTMLElement>(`[data-toggle="${focusedToggle}"]`)?.focus();
     }
     this.syncPadFocus();
     this.syncFullscreenButtons();
@@ -2114,23 +2907,36 @@ class App {
     // change this run's draft pool, and the run never has to reach back into
     // localStorage.
     const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
-    this.run = newRun(
-      Date.now() >>> 0,
-      this.meta.unlocks,
-      startingScrap,
-      safeLoadout(this.meta),
-      // The floor the tower's car is parked on, not simply the unlocked Mark.
-      // Flying a Mark already beaten earns nothing and advances nothing —
-      // meta.ts's recordRunEnd gates its tier bookkeeping on
-      // `runMark === markUnlocked(meta)` — so the lower floors are practice
-      // and no rule had to change to make them safe.
-      //
-      // The LOADOUT stays the one bought against the unlocked Mark's budget
-      // (safeLoadout above). Re-validating it against the picked floor would
-      // mean dropping to a stock rig to fly an easier tier, which is the
-      // opposite of what picking one is for.
-      this.runMark(),
-    );
+    // THE SKYDECK IS A DIFFERENT RUN, not a Mark-10 run with a flag on it —
+    // the day writes its clauses, the yard never opens and a bay costs one
+    // notch (game/skydeck.ts). Built by that module for the same reason a Tier
+    // S run is built by sandbox.ts: newRun states what a run IS, and a mode is
+    // a small set of overrides on top of it.
+    //
+    // The LOADOUT is the one thing it shares with the ladder — safeLoadout,
+    // bought against Mark 10's build budget. That is the whole of "you play
+    // with the rig you have".
+    if (this.towerState().selected === S.SKYDECK_TIER) {
+      this.run = skydeckRunFor(safeLoadout(this.meta), this.meta.unlocks);
+    } else {
+      this.run = newRun(
+        Date.now() >>> 0,
+        this.meta.unlocks,
+        startingScrap,
+        safeLoadout(this.meta),
+        // The floor the tower's car is parked on, not simply the unlocked Mark.
+        // Flying a Mark already beaten earns nothing and advances nothing —
+        // meta.ts's recordRunEnd gates its tier bookkeeping on
+        // `runMark === markUnlocked(meta)` — so the lower floors are practice
+        // and no rule had to change to make them safe.
+        //
+        // The LOADOUT stays the one bought against the unlocked Mark's budget
+        // (safeLoadout above). Re-validating it against the picked floor would
+        // mean dropping to a stock rig to fly an easier tier, which is the
+        // opposite of what picking one is for.
+        this.runMark(),
+      );
+    }
     this.contract = null;
     this.contractMusic = null;
     this.drill = null;
@@ -2174,6 +2980,20 @@ class App {
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
       },
+      // …and the lance, ON THE EVENT rather than at the button. Every input
+      // path converges on Game.useThawLance — the rail, the plant chip, the
+      // keyboard's C and the pad's LT — so a record wired to onGameAction
+      // counted only the two that go through the DOM and quietly under-reported
+      // every keyboard and gamepad use. That is the exact contract the event
+      // exists for (see game.ts's onBombArmed note), and it is why bond is
+      // recorded here and not at its own four call sites.
+      //
+      // The cue is a TAP, not the Bond Breaker's thump: one cube changed state,
+      // and a field-wide impact for it would tell the player something bigger
+      // happened than did.
+      onThawLance: () => {
+        telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
+      },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
@@ -2186,7 +3006,11 @@ class App {
       bay: this.run.levelIndex + 1,
       mark: this.run.mark,
       seed: this.run.seed,
-      mode: "run",
+      // The Skydeck is its own mode to the analyser, not a Mark-10 Deep Run
+      // with different numbers: fixed daily seed, no refit behind it, standing
+      // clauses on it. sim/playtest.ts groups on this, and pooling the two
+      // would move the medians the ladder is tuned against.
+      mode: telemetry.runMode(this.run),
       target: cfg.targetScore,
       timeLimitSec: cfg.timeLimitSec,
       cooldownMs: cfg.cooldownMs,
@@ -2603,6 +3427,7 @@ class App {
       onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => { void impactHaptic(); playBondBreak(); },
+      onThawLance: () => { void tapHaptic(); },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
@@ -2659,6 +3484,20 @@ class App {
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
+      },
+      // …and the lance, ON THE EVENT rather than at the button. Every input
+      // path converges on Game.useThawLance — the rail, the plant chip, the
+      // keyboard's C and the pad's LT — so a record wired to onGameAction
+      // counted only the two that go through the DOM and quietly under-reported
+      // every keyboard and gamepad use. That is the exact contract the event
+      // exists for (see game.ts's onBombArmed note), and it is why bond is
+      // recorded here and not at its own four call sites.
+      //
+      // The cue is a TAP, not the Bond Breaker's thump: one cube changed state,
+      // and a field-wide impact for it would tell the player something bigger
+      // happened than did.
+      onThawLance: () => {
+        telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
@@ -2792,7 +3631,7 @@ class App {
         // player accepts. A ratchet taken here would be a permanent commitment
         // one bay before permanence expires, which is the whole reason the last
         // draft deals something else.
-        if (isFinalDraft(this.run.levelIndex)) {
+        if (finalDraftFor(this.run)) {
           this.pendingFinals = finalsForTier(this.run.mark);
           this.pendingOffers = [];
         } else {
@@ -2925,7 +3764,7 @@ class App {
 
   /** End of the bay-clear celebration: bank the bay into the run, then route to
    *  a REFIT stop if this clear earned one (every REFIT_EVERY-th bay — see
-   *  run.ts's isRefitBay), otherwise straight to the modifier draft. Both paths
+   *  run.ts's refitAfterBay), otherwise straight to the modifier draft. Both paths
    *  end at the draft, so the refit is an extra stop rather than a replacement:
    *  ship upgrades and drafted contracts are different decisions and the player
    *  makes both. Idempotent — a tap-through and the timer both land here. */
@@ -2946,20 +3785,38 @@ class App {
       g.score,
       g.target,
       g.linesTotal,
+      // The bay's payout, banked WHATEVER THE MODE. This line used to zero the
+      // Skydeck's scrap outright, because the roof had no yard to spend it in;
+      // the yard is back (run.ts's refitAfterBay carries the history) and the
+      // roof's tighter rate is now a property of the BAY instead — level.ts's
+      // applySkydeckEconomy halves g.level.scrapPerLine/scrapPerBay before the
+      // bay is ever played. Which is the right seam for it: the run banks what
+      // the bay paid, and only one place decides what a bay pays.
       g.scrapEarned + g.level.scrapPerBay,
       [],
       // What the bay ENDED with: Bond Breakers are the run's consumable, so
       // whatever this bay did not spend is what the next one opens with.
       g.bondCharges,
       g.salvagedFunds,
+      g.volatileLosses,
+      // And what the bay left in the LANCE. advanceRun ignores this on the
+      // ladder — the rack is resupplied between bays there — and it is the
+      // whole of the magazine on the Skydeck, where nothing resupplies.
+      g.thawCharges,
+      // ...and what the hood took off this bay's loss bills. A STAT, like
+      // salvagedFunds and volatileLosses above: the discount was already taken
+      // when each cube was billed, so this only ever accumulates a readout.
+      g.incineratedFunds,
     );
-    // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
-    // already stepped past — hence the -1.
+    // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
+    // already stepped past — hence the -1. Still asked of the RUN rather than
+    // of the bay number: the predicate is the one place the schedule is stated,
+    // and it is the seam a future mode with its own yard hangs on.
     // A fresh yard ticket every stop: an order is tentative by construction, so
     // one that survived a bay would be scrap queued against a rig and a bankroll
     // that have both moved since.
     this.refitOrder = {};
-    this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
+    this.setState(refitAfterBay(this.run, this.run.levelIndex - 1) ? "refit" : "draft");
   }
 
   /** Common run-end path for both a bay-10 win and any loss: record the run
@@ -2987,9 +3844,56 @@ class App {
       this.setState(won ? "won" : "lost");
       return;
     }
+    // THE SKYDECK: a real run, a real score, and NO LADDER BOOKKEEPING — the
+    // same gate Tier S gets above, for a different reason and with a different
+    // exception.
+    //
+    // The reason. recordRunEnd ticks the tier whose Deep Run half is not yet
+    // done, and the tier it asks about is markUnlocked(meta), which SATURATES
+    // at MARK_COUNT (meta.ts). The Skydeck opens only once the whole ladder is
+    // beaten, so every player who can reach it is already parked on that
+    // saturated tier — which means an unguarded Skydeck win would set
+    // tierRunDone, bank a salvage milestone and print Tier 10 completion copy,
+    // EVERY DAY, forever. A daily that pays the ladder's once-per-tier reward
+    // on repeat is a salvage faucet, and it would also quietly claim the
+    // Mark-10 seal (recordRunEnd's `sealed` is deliberately NOT gated on the
+    // Mark being current) for a run flown under rules Mark 10 does not have.
+    //
+    // The SCORE is filed apart too, now, exactly as Tier S's is. This run used
+    // to go to the Mark-10 board on the argument that it flies Mark 10's bays
+    // on a Mark-10 loadout, so a harder run could only under-rank itself — safe
+    // in direction, but it made the Tier 10 board a mix of two different runs
+    // and gave the day's run no board of its own to be a day on. The roof now
+    // has one, keyed by (BOARD_SKYDECK, the day it was dealt) — see runBoard
+    // and lib/api.ts. Scores pooled onto Tier 10 before this build stay where
+    // they are: nothing on the row distinguishes them, so filtering them would
+    // be a guess applied to other people's scores.
+    //
+    // lastTier stays null so the end modal prints no tier line at all — the
+    // completion copy is the visible half of the bug above, and the modal
+    // already renders nothing when there is no result to render.
+    if (!tracksLadder(this.run)) {
+      this.lastTier = null;
+      telemetry.endRun(won, 0);
+      saveBest(score);
+      void this.refreshBoard();
+      this.setState(won ? "won" : "lost");
+      return;
+    }
     const result = recordRunEnd(
       this.meta, this.run.mark, won, this.run.levelIndex + 1, this.run.restarts,
+      // A run can end twice now: the game-over card's Retry Bay hands this same
+      // RunState back (retryBay), so a run that dies at bay 7 and wins at bay
+      // 10 files here as a loss and again as a win. The flag is what keeps the
+      // lifetime counter a count of RUNS rather than of endings — see
+      // meta.ts's recordRunEnd, which explains why every other consequence
+      // needs no such guard.
+      this.run.filed,
     );
+    // Stamped BEFORE the modal so the retry that reads it cannot race the
+    // write, and on the run rather than on `this` so advanceRun carries it
+    // through every bay the resumed run goes on to clear.
+    this.run = { ...this.run, filed: true };
     this.lastTier = result;
     this.meta = result.meta;
     telemetry.endRun(won, result.salvage);
@@ -3038,8 +3942,14 @@ class App {
       // answer with context has failed at the job it exists for. Left as
       // ordinary context rows they still show wherever there is height for
       // them and drop only at compact density, which is the existing rule
-      // doing exactly what it was written for.
-      preview: previewRows(levelForRun(run), levelForRun(installed)),
+      // doing exactly what it was written for. (The belt tile is the one
+      // exemption a landscape phone makes, and app.css states why: its
+      // breakdown is the only account of the cargo this screen has.)
+      //
+      // The run's notches still travel, as the `tally` the belt breakdown
+      // quotes beside each material's share (preview.ts) — that argument is
+      // about PROMOTING rows, and quoting a count promotes nothing.
+      preview: previewRows(levelForRun(run), levelForRun(installed), {}, run.ratchets),
     });
   }
 
@@ -3191,6 +4101,42 @@ class App {
     this.renderOverlay();
   }
 
+  /** Workshop: buy one more rack slot (meta.ts's buySlot). Same three lines as
+   *  every other purchase on this screen, and the same silent return on a
+   *  refusal — the button is already disabled when the salvage is short, so
+   *  reaching here with too little means a stale DOM attribute rather than a
+   *  player decision. */
+  private onBuySlot(): void {
+    const next = buySlot(this.meta);
+    if (!next) return;
+    this.meta = next;
+    saveMeta(this.meta);
+    void successHaptic();
+    this.renderOverlay();
+  }
+
+  /** Workshop: move one owned system between the rack and the shed.
+   *
+   *  PERSISTED, unlike the refit yard's staged order, and the difference is
+   *  which side of the run the decision lives on. The yard stages because it is
+   *  spending scrap inside a run and a plan you cannot revise before committing
+   *  is "just a run of irreversible taps" (upgrades.ts's REFIT ORDER note).
+   *  Mounting spends nothing at all and is revised by tapping again, so there
+   *  is no commit to stage toward — the rack simply IS what the next run
+   *  undocks with, and it should still be that after the app is closed.
+   *
+   *  A refusal (unowned id, or a full rack) leaves the save untouched and
+   *  re-renders nothing, which is what the player sees when they tap a shed
+   *  system with every slot taken: they have to stow something first. */
+  private onMount(id: string): void {
+    const next = toggleMount(this.meta, id as UpgradeId);
+    if (!next) return;
+    this.meta = next;
+    saveMeta(this.meta);
+    void tapHaptic();
+    this.renderOverlay();
+  }
+
   /** Workshop: switch shop halves. Anything other than the two known ids is
    *  ignored rather than defaulted, so a stale attribute cannot silently park
    *  the player on Systems forever. */
@@ -3201,7 +4147,7 @@ class App {
    *  under each candidate before the player spends the notch.
    *
    *  The toggle rules themselves live in hazards.ts's togglePick, next to the
-   *  picksPerBay quota they depend on and where the sim can reach them.
+   *  picksForRun quota they depend on and where the sim can reach them.
    *
    *  There is still no skip: confirming is gated on a full hand (see
    *  onConfirmHazards), so the ratchet remains the mandatory price of the bay
@@ -3213,7 +4159,7 @@ class App {
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
     this.pendingPicks = togglePick(
-      this.pendingPicks, id as HazardId, picksPerBay(this.run.mark),
+      this.pendingPicks, id as HazardId, picksForRun(this.run),
       // A forced-material hand caps its partner card at one seat — see
       // togglePick. The draft edits the hand dealt after clearing
       // run.levelIndex, the same index pendingOffers was dealt from.
@@ -3252,7 +4198,10 @@ class App {
       // afterBayClear, so it IS the just-cleared bay's 1-based number, and
       // makeBaseLevel(levelIndex) is the bay about to be played.
       bayNum: run.levelIndex,
-      tier: run.mark,
+      // The sentinel, not the mark, for the same reason as hudOpts: the
+      // eyebrow names the floor being flown, and a Skydeck run's floor is the
+      // Skydeck (screens.ts's tierText), not the Mark it borrows numbers from.
+      tier: run.skydeck ? S.SKYDECK_TIER : run.mark,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
       // what's displayed can't drift from what the next bay's float is really
@@ -3264,7 +4213,7 @@ class App {
       offers: this.pendingOffers,
       ratchets: run.ratchets,
       selected: this.pendingPicks,
-      picksNeeded: picksPerBay(run.mark),
+      picksNeeded: picksForRun(run),
       // Both sides of the projection come from levelForRun, so what the player
       // reads here is the config the bay is actually built from — run.ts stays
       // the single source of a bay's numbers, and a notch's effect is never
@@ -3281,7 +4230,19 @@ class App {
       // Bay-CLEARS until the next refit stop, counting the bay about to be
       // played; 1 means "clear this one and you dock". Null late in a run when
       // no stop remains.
-      baysToRefit: baysUntilRefit(run.levelIndex),
+      baysToRefit: baysUntilRefitFor(run),
+      // The Skydeck's tally, which takes the scrap cell's slot (screens.ts).
+      // Counted off the run's own schedule rather than kept as a second
+      // number, so it cannot disagree with what levelForRun is applying.
+      standing: run.skydeck
+        ? {
+            active: standingClauses(run).length,
+            total: run.skydeck.clauses.length,
+            // +1 because StandingClause.from is a 0-based levelIndex and the
+            // cell prints a BAY. The one place this off-by-one is invisible.
+            nextBay: nextClauseBay(run),
+          }
+        : undefined,
     });
   }
 
@@ -3370,7 +4331,7 @@ class App {
       this.startLevel();
       return;
     }
-    if (this.pendingPicks.length < picksPerBay(this.run.mark)) return;
+    if (this.pendingPicks.length < picksForRun(this.run)) return;
     this.run = { ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) };
     this.pendingPicks = [];
     this.startLevel();
@@ -3386,6 +4347,12 @@ class App {
     this.game.paused = false;
     this.last = performance.now();
     this.acc = 0;
+    // Zeroing the accumulator on a bay that is already running means the next
+    // frame is handed alpha 0, which reads as "one step ago" — so the bay would
+    // resume by walking everything in flight backwards by the part-step the
+    // pause froze it mid-way through. Collapsing the window first makes alpha
+    // moot for that one frame. See Game.collapseStepWindow.
+    this.game.collapseStepWindow();
     this.setState("playing");
   }
 
@@ -3425,11 +4392,25 @@ class App {
    *  carried surplus and drafted mods exactly as they were at this bay's entry.
    *
    *  Every caller has its OWN, narrower guard — restartBay: paused; the held
-   *  pause button: playing; coachRetry: coach-fail. This list is the floor
-   *  under all three, so no future caller can rebuild a bay from a screen the
-   *  player is not standing in. */
+   *  pause button: playing; coachRetry: coach-fail; retryBay: lost; and the
+   *  seal-break notice's confirm, which fires from its own screen with the
+   *  first three already behind it. This list is the floor under all of them,
+   *  so no future caller can rebuild a bay from a screen the player is not
+   *  standing in.
+   *
+   *  "lost" IS THE NEW ONE, and it is the same rebuild seen from the far side
+   *  of a run end. `this.run` was never advanced past the bay that killed it —
+   *  advanceRun runs on a CLEAR (afterBayClear), never on a loss — so the
+   *  carry, scrap, ratchets and Bond magazine sitting on it are still that
+   *  bay's entry values, and startLevel below hands back exactly the bay the
+   *  pause modal would have. The run's END has already been filed against the
+   *  ladder by then (RunState.filed); the run itself has not ended. */
   private resetBay(): void {
-    if (this.state !== "playing" && this.state !== "paused" && this.state !== "coach-fail") return;
+    if (
+      this.state !== "playing" && this.state !== "paused"
+      && this.state !== "coach-fail" && this.state !== "lost"
+      && this.state !== "seal-break"
+    ) return;
     // A hold that restarted the bay must not leave its own meter counting on a
     // button the rebuild is about to replace, and the Autoloader must not stay
     // held down through a bay that no longer exists. setState does NOT do the
@@ -3452,6 +4433,22 @@ class App {
     if (this.run && !this.run.sandbox) {
       this.run = { ...this.run, restarts: this.run.restarts + 1 };
     }
+    // …and the ONE place a FILED run is un-filed for the recorder. A retry that
+    // arrives here on a run finishRun already closed (RunState.filed — only the
+    // game-over card's Retry Bay can produce that) is the run carrying on, so
+    // the recorder has to carry on with it: telemetry.endRun nulled its
+    // module-level run, which makes startBay's `!run` guard silently drop the
+    // retried bay and every bay after it, and makes the run's real ending
+    // no-op. Found in review (codex, PR #134).
+    //
+    // resumeRun rather than startRun, and the reason is the same one `refiled`
+    // exists for one layer up: the continuation is the SAME run, so it must be
+    // the same record. A second startRun would file it as a second run and put
+    // the analyser's count at odds with meta.runs. Idempotent and self-gating —
+    // a resumed run that later restarts a bay from the pause modal comes back
+    // through here with nothing left to re-open — so it needs no test beyond
+    // the field itself, and none at all when recording is off.
+    if (this.run?.filed) telemetry.resumeRun();
     // A drill restarts from its own fixed seed (drillSeed), so pausing and
     // restarting hands back the identical lesson — same reasoning as the
     // Contract below.
@@ -3480,7 +4477,245 @@ class App {
    *  makes against this one. */
   private restartBay(): void {
     if (this.state !== "paused") return;
+    this.requestBayRetry();
+  }
+
+  /** The game-over card's "Retry Bay" — the bay handed back after the run has
+   *  already been filed as a loss. Its own guard, same split as above. */
+  private retryBay(): void {
+    if (this.state !== "lost") return;
+    this.requestBayRetry();
+  }
+
+  /**
+   * EVERY DOOR INTO A BAY RETRY THAT CAN CHARGE THE SEAL passes through here,
+   * and its only job is to make sure the charge is quoted once before it is
+   * ever made (screens.ts's sealBreakModal says why once and not every time).
+   *
+   * Three doors: the pause modal's Restart Bay, the held ⏸, and the loss
+   * card's Retry Bay. The tutorial's failure card is deliberately NOT one of
+   * them — coachRetry goes straight to resetBay. That retry happens on bay 1
+   * of a first-ever run, to a player who has not yet been told what a Mark is,
+   * let alone a seal; the panel would be a lecture about a record they cannot
+   * yet read, delivered in the middle of the lesson that teaches them to aim.
+   * It still counts as a retry and still breaks the seal — the cost is the
+   * same, it is the NOTICE that is held back until the player is somewhere it
+   * can mean something.
+   *
+   * THE STAKES TEST is what stops the panel firing where there is nothing to
+   * charge: a run the ladder does not track keeps no seal at all (Tier S never
+   * increments `restarts`, and the Skydeck is never offered a retry), a run
+   * that has already retried a bay has already spent it, and a run re-flying a
+   * Mark whose stamp is ALREADY on the tower can never spend anything at all.
+   * Quoting a price that has been paid — or one that cannot be charged — is how
+   * a warning teaches itself to be ignored.
+   */
+  private requestBayRetry(): void {
+    const run = this.run;
+    // PERMADEATH IS REFUSED AT THE DOOR, not hidden behind one (run.ts's
+    // bayRetryable). The Skydeck's bays are the day's seeded single attempt,
+    // and a retry there was free in every sense: no seal to charge, so the
+    // panel below never fired, and resetBay rebuilds the SAME bay from the same
+    // run seed with the score back at zero — a run could grind bay 6 until it
+    // went perfectly and file the result against everyone who flew it once.
+    //
+    // The run-end card had already refused it (renderOverlay's `retryBay`), but
+    // on `sealStateFor !== null`, which is a question about the seal that
+    // happens to answer this one — and the pause card and the ⏸ hold asked
+    // nothing at all. The refusal belongs here, under every door, so removing
+    // the three affordances above is a matter of not showing a dead control
+    // rather than the only thing standing between the mode and a retry.
+    if (run && !bayRetryable(run)) return;
+    // A RETRY THAT BREAKS NOTHING GOES STRAIGHT THROUGH, and that is the half
+    // of this rule that protects the other half. Confirming a free action would
+    // train the player to click past the panel, and the one press it has to
+    // stop is the press that spends something. Tier S, the Skydeck, every retry
+    // after the first in a run, and every re-fly of an already-sealed Mark all
+    // land here (run.ts's retryBreaksSeal).
+    //
+    // THE SEALED-MARK CASE was found in review (codex, PR #135) and is the one
+    // this test could not see on its own: recordRunEnd only ever APPENDS to
+    // sealedMarks, so a Mark's stamp survives any later run however messy, and
+    // a fresh re-fly of one was being charged for something no retry can take.
+    // The saved record is what the run alone cannot know, so it is passed in.
+    if (!run || !retryBreaksSeal(run, this.meta.sealedMarks)) {
+      this.resetBay();
+      return;
+    }
+    // …and one that DOES break something is confirmed every time, not just the
+    // first time ever (playtest: "we can also keep the confirmation on breaking
+    // the seal"). retryBreaksSeal is true at most once per run, so this costs a
+    // player at most one panel per run — asked at the moment the irreversible
+    // thing happens, which is the only moment a confirmation is worth anything.
+    //
+    // THE WATERMARK NO LONGER DECIDES WHETHER THE PANEL EXISTS, only how much
+    // of it there is: the long explainer is a first-session lesson and is shown
+    // once, and every later confirmation is the short form. Burned on SHOW
+    // rather than on confirm, as before — the player who reads it and backs out
+    // has been taught, and making the lesson depend on which button they
+    // pressed would replay it until they finally agreed.
+    const explain = sealBreakOwed(this.meta);
+    this.sealBreakExplain = explain;
+    if (explain) {
+      this.meta = sealBreakShown(this.meta);
+      saveMeta(this.meta);
+    }
+    // Where "Keep the seal" hands them back. From play (the held ⏸) that is
+    // the pause modal rather than the live bay: the gesture had already taken
+    // the bay away from them, and dropping them back into a field mid-flight
+    // after reading two paragraphs is worse than dropping them on the menu
+    // that offers the same choice again. `game.paused` is set for the same
+    // reason resume() sets it back — the loop's gate is the state, but the
+    // Game's own flag has to agree or the bay resumes on a stale clock.
+    this.sealBreakBack = this.state === "lost" ? "lost" : "paused";
+    if (this.game) this.game.paused = true;
+    this.setState("seal-break");
+  }
+
+  /** The notice's two answers. "Keep the seal" returns to whichever screen
+   *  asked; "Retry Bay" does what the button that opened the panel meant. */
+  private onSealBreak(go: boolean): void {
+    if (this.state !== "seal-break") return;
+    if (!go) {
+      this.setState(this.sealBreakBack);
+      return;
+    }
+    // Straight to resetBay rather than back through requestBayRetry: the
+    // watermark is already burned, so the round trip would be a no-op with one
+    // more chance to get a state guard wrong. Asked from THIS screen rather
+    // than by restoring the one behind it first — a setState back to "lost"
+    // would replay the game-over stinger and re-arm the end scrim's collapse
+    // hold for a card nobody is going to see, which is a whole second of
+    // ceremony for a frame.
     this.resetBay();
+  }
+
+  /** Back to the home screen, with the mode state the trip invalidates cleared.
+   *  Every back/close/Menu button in the app is this call; the pause card's
+   *  Quit reaches it through requestQuitRun's gate. */
+  private toMenu(): void {
+    this.contract = null; this.contractMusic = null; this.drill = null;
+    this.setState("menu");
+  }
+
+  /**
+   * THE ONE DOOR THAT ABANDONS A LIVE RUN, and the arming that stands in it.
+   *
+   * A run leaves through here without being settled: finishRun is never
+   * reached, so recordRunEnd never runs and the run banks no score, no bay
+   * record and no place in the lifetime count. Every OTHER exit from a run
+   * files it first — bay 10 wins it, a loss files it, and a bay retry hands
+   * the same run back. This is the only press in the game that throws the work
+   * away, and it used to be one tap on a ghost button beside Resume.
+   *
+   * So the FIRST press arms and the second press quits. The gate is
+   * quitLosesProgress (bay 1 and Tier S go straight through, on the same
+   * reasoning requestBayRetry lets a free retry through: a confirmation on a
+   * press that costs nothing teaches the player to click past the one that
+   * does), and it is asked here as well as at render time because a stale card
+   * must not be able to talk this method into skipping it.
+   *
+   * …AND THE SECOND PRESS HAS TO BE A SECOND PRESS. Two ACTIVATIONS is not the
+   * promise this control makes: with the button keyboard-focused, a held Enter
+   * makes Chromium dispatch a native click per keydown repeat, so one physical
+   * press armed and then immediately confirmed — the warning flashing under the
+   * player's own finger, which is worse than no warning. The arm machine
+   * (ui/padnav.ts) therefore refuses every activation until the one that armed
+   * has been RELEASED; armQuitRelease below is what tells it. Found in review
+   * (codex, PR #167) and reproduced on a real run, Enter and Space both.
+   *
+   * ARMING PATCHES THE MOUNTED CARD rather than re-rendering it. renderOverlay
+   * would rebuild `.panel.modal.pop` and replay the card's entrance for a state
+   * change that is not an entrance — and it would destroy the button the pad
+   * or the keyboard is focused on, which on a two-press control means the
+   * second press has nothing to land on. Same reason renderBoardRows patches.
+   */
+  private requestQuitRun(): void {
+    if (this.state !== "paused") return;
+    const run = this.run;
+    if (!run || !quitLosesProgress(run)) {
+      this.toMenu();
+      return;
+    }
+    const was = this.quitArm;
+    const step = armActivate(was);
+    this.quitArm = step.state;
+    if (step.confirmed) {
+      this.toMenu();
+      return;
+    }
+    // A refused repeat leaves the card exactly as it is — no re-patch, no
+    // sound of its own, nothing that would read as "something happened". The
+    // player is holding a key down; the honest answer is that the button is
+    // already saying what the next real press will do.
+    if (was.armed) return;
+    this.armQuitRelease();
+    this.syncQuitArm();
+  }
+
+  /** Waits for the arming activation to END, and tells the machine when it has.
+   *
+   *  One-shot and capture-phase, on the window rather than the button, because
+   *  the release that matters may not be delivered to the button at all — a
+   *  keyup after focus has moved, a pointer that drifted off before lifting.
+   *  `pointercancel` counts as a release for the same reason it does for the
+   *  Bond hold: a gesture the browser takes over has ended as far as the player
+   *  is concerned.
+   *
+   *  A POINTER HAS ALREADY RELEASED by the time its click runs, so this looks
+   *  like it would strand a mouse or a thumb — it does not. These listeners are
+   *  installed DURING that click, and the next tap's pointerup arrives before
+   *  the next click, so two distinct taps pass however fast they are. What a
+   *  pointer cannot do is repeat, which is the whole reason the gate exists.
+   *
+   *  THE PAD RELEASES ELSEWHERE (onPadUiButton): it emits no release event at
+   *  all, so a pad player would sit armed forever waiting for one. */
+  private armQuitRelease(): void {
+    this.quitReleaseOff?.();
+    const release = (): void => {
+      this.quitArm = armRelease(this.quitArm);
+      this.quitReleaseOff?.();
+    };
+    const off = (): void => {
+      window.removeEventListener("keyup", release, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      this.quitReleaseOff = null;
+    };
+    window.addEventListener("keyup", release, true);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    this.quitReleaseOff = off;
+  }
+
+  /** Back to a card whose Quit takes two presses again, with no listener left
+   *  waiting on a release nobody is going to care about. */
+  private disarmQuit(): void {
+    this.quitArm = DISARMED;
+    this.quitReleaseOff?.();
+  }
+
+  /** Writes the arm onto the mounted pause card: the button's face and
+   *  accessible name (screens.ts's quitArmLabel), and the note that names the
+   *  loss (quitArmNoteHTML), inserted after the button row.
+   *
+   *  The note is created and removed as a whole node rather than being mounted
+   *  empty and filled: `role="alert"` announces on INSERTION, which is the
+   *  behaviour that does not depend on a hidden live region having been
+   *  registered with the screen reader first.
+   *
+   *  Both strings come from screens.ts so the patched card and the rendered one
+   *  say the same thing — the split the seal face already makes for its three
+   *  doors, made here for two. */
+  private syncQuitArm(): void {
+    const btn = this.overlay.querySelector<HTMLElement>('[data-action="quit-run"]');
+    const face = this.quitFace();
+    if (!btn || !face) return;
+    btn.dataset.armed = String(face.armed);
+    btn.setAttribute("aria-label", S.quitArmLabel(face.armed, face.bayNum));
+    const row = btn.parentElement;
+    row?.parentElement?.querySelector(".pause__quit-note")?.remove();
+    if (face.armed && row) row.insertAdjacentHTML("afterend", S.quitArmNoteHTML(face.bayNum));
   }
 
   /** Patches the currently-mounted #lb-body in place (no full overlay
@@ -3502,18 +4737,35 @@ class App {
     // Which board's rows: the screen shows the tab you are on, and every modal
     // shows the board the run it is reporting was flown on (runBoard) — never
     // the tab, which belongs to a screen that is not up.
-    const board = this.state === "leaderboard" ? this.lbBoard : this.runBoard();
-    const cached = this.boards[board] ?? [];
-    const rows = this.state === "leaderboard"
-      ? S.fullBoard(cached)
-      : S.endBoard(cached, highlight);
-    body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
+    // …and which DAY of it, by the same rule: the screen is on a day (lbDay,
+    // always today), the modal is on the run's. Both parts of the key travel
+    // together, so a cached day can never be drawn under another day's heading.
+    const screen = this.state === "leaderboard";
+    const board = screen ? this.lbBoard : this.runBoard();
+    const day = screen ? this.lbDay : this.boardDay();
+    const cached = this.boards.get(board, day);
+    const rows = screen ? S.fullBoard(cached) : S.endBoard(cached, highlight);
+    body.innerHTML = S.leaderboardRowsHTML(rows, highlight, board);
+  }
+
+  /** Point the standalone screen at a board and start its fetch. The DAY is set
+   *  here rather than by the caller because the screen has exactly one rule for
+   *  it — today, always — and a tab tap that could land on another day would be
+   *  a history control nothing on this screen offers. */
+  private openBoard(board: BoardId): void {
+    this.lbBoard = board;
+    this.lbDay = board === BOARD_SKYDECK ? dailySeed() : DAY_NONE;
+    void this.refreshBoard(board, this.lbDay);
   }
 
   /** Fetch one board and repaint whatever is showing it. Defaults to the board
-   *  the current run belongs to, which is the Deep Run board outside a run. */
-  private async refreshBoard(board: BoardId = this.runBoard()): Promise<void> {
-    this.boards[board] = await fetchLeaderboard(board, 10);
+   *  the current run belongs to, which is the Deep Run board outside a run —
+   *  and to that board's own day, which is DAY_NONE anywhere but the roof. */
+  private async refreshBoard(
+    board: BoardId = this.runBoard(),
+    day: BoardDay = this.boardDay(),
+  ): Promise<void> {
+    this.boards.set(board, day, await fetchLeaderboard(board, 10, day));
     // A fetch that landed after the player moved on must not repaint over a
     // screen showing the other board.
     if (this.state === "leaderboard" && board !== this.lbBoard) return;
@@ -3585,6 +4837,15 @@ class App {
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
         strandWarning: g.strandWarning,
+        // WHERE THIS FRAME SITS BETWEEN TWO STEPS. Whatever the accumulator
+        // still holds after the while loop above is, by construction, less
+        // than one STEP — it is the time the simulation has not caught up to
+        // yet — so acc/STEP is 0..1 and needs no clamp. On a 60Hz panel it is
+        // ~0 every frame and every body draws exactly where it always did; on
+        // a 120Hz one it alternates ~0 and ~0.5, and the frame that used to be
+        // a duplicate of its predecessor becomes the half-step between two
+        // states. See engine.ts's markPrevStep.
+        alpha: this.acc / STEP,
       });
     } else if (!g) {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3598,9 +4859,121 @@ class App {
     if (el) { el.style.filter = "brightness(1.8)"; setTimeout(() => (el.style.filter = ""), 180); }
   }
 
+  /**
+   * Drop everything syncHud remembers about the HUD currently on screen.
+   *
+   * ONE CALL, because every cache here is remembering the same thing: which
+   * elements exist and what is already painted on them. A renderOverlay rewrite
+   * invalidates all of it at once, and splitting the reset across call sites is
+   * how one of them gets forgotten when a fourth cache is added.
+   *
+   * The failure mode is silent and long-lived rather than loud, which is why it
+   * is worth a method of its own: every guard here skips a write when the value
+   * matches what it last wrote, so a stale cache does not throw or flicker — it
+   * leaves the NEW element sitting on the stylesheet's default, indefinitely,
+   * for as long as the value it is guarding holds still. A crest whose music
+   * has settled, a launch quote in an uncongested bay and a reload bar on a
+   * loaded cannon are all values that hold still for a long time.
+   */
+  private forgetHudCache(): void {
+    this.hudNodes.clear();
+    this.hudShown.clear();
+    this.abilityShown.clear();
+    this.crestHeatShown = -1;
+    this.crestStepShown = -1;
+    this.crestMatShown = null;
+    this.timeSecShown = -1;
+  }
+
+  /**
+   * One HUD node, found on first ask and remembered until the overlay is
+   * rebuilt (see hudNodes). Drop-in for `overlay.querySelector` — same
+   * selector, same `null` for an absent node — so every reader below reads
+   * exactly as it did.
+   */
+  private hudEl<T extends Element>(sel: string): T | null {
+    const hit = this.hudNodes.get(sel);
+    // `undefined` is "never looked up"; a stored `null` is "looked up, absent"
+    // and is a perfectly good answer to hand back without asking again.
+    if (hit !== undefined) return hit as T | null;
+    const el = this.overlay.querySelector<T>(sel);
+    this.hudNodes.set(sel, el);
+    return el;
+  }
+
+  /**
+   * Scale one bar fill along its own length — the goal bar, the reload bar and
+   * the PWR meter (app.css's "THE THREE BAR FILLS").
+   *
+   * A TRANSFORM RATHER THAN A WIDTH. Each fill is a full-width element scaled
+   * about its left edge, which paints identically (a scaled element's
+   * background scales with it) and costs the layout engine nothing. That is the
+   * whole point: the reload bar is written on essentially every frame of a bay,
+   * and as a width it was a layout re-solve of the plant panel at the frame
+   * rate. Chromium's own Layout counter over a ten-second live bay fell from
+   * 152.4ms to 16.3ms when these three stopped being widths, and over an idle
+   * bay from 132.3ms to 3.3ms (sim/hudperf).
+   *
+   * QUANTISED TO FOUR PLACES, and the guard compares the STRING that would be
+   * written rather than the number behind it, so a value that rounds to where
+   * it already sits costs nothing at all. Four places is 1e-4 of the fill's own
+   * length; the widest bar track this panel produces across the device matrix
+   * measures 739 CSS px, where one step is 0.07px — a small fraction of a
+   * device pixel at any dpr, so nothing the quantum drops was ever going to be
+   * a different picture.
+   */
+  private barFill(sel: string, ratio: number): void {
+    const v = `scaleX(${ratio.toFixed(4)})`;
+    if (this.hudShown.get(sel) === v) return;
+    const el = this.hudEl<HTMLElement>(sel);
+    // Not cached on a miss: a bay that renders no such bar should keep asking
+    // hudEl (which remembers the miss for free) rather than recording a value
+    // it never wrote, which would then suppress the first real write after a
+    // remount that DOES have the bar.
+    if (!el) return;
+    el.style.transform = v;
+    this.hudShown.set(sel, v);
+  }
+
+  /**
+   * Patch the live HUD from the live Game, once per DRAWN frame.
+   *
+   * THE SPLIT THIS FUNCTION IS BUILT AROUND. Painting the DOM HUD is worth
+   * about 33fps of a 120Hz frame on the CPH2573 — measured, interleaved, in a
+   * live bay, and written up in
+   * docs/superpowers/specs/2026-08-27-background-layer-split-design.md, which
+   * also recorded that gating this call to every eighth frame recovers 21.3 of
+   * them. That gate is not what shipped, because a flat clock throttles the
+   * reload bar and the bay clock along with everything else, and the two
+   * readouts that genuinely move are the two a player would notice stuttering.
+   *
+   * So the split is by KIND:
+   *
+   *  - THINGS THAT MOVE EVERY FRAME move through `transform` (see barFill),
+   *    which the compositor applies without repainting and without asking the
+   *    layout engine anything.
+   *  - EVERYTHING ELSE — funds, combo, scrap, launches, the launch quote, the
+   *    belt, the abilities — is written only when its value actually changes.
+   *    Change-driven rather than time-driven on purpose: a payout is on screen
+   *    the next frame, where an eight-frame gate would have shown it up to 66ms
+   *    late at 120Hz.
+   *  - THINGS THAT CHANGE EVERY FRAME BUT ARE READ ONCE A SECOND — the clock —
+   *    are bucketed at the resolution they are displayed at, so the other 119
+   *    frames of that second do not even build the string.
+   *
+   * A NO-OP WRITE IS NOT FREE, which is what makes the guards worth having and
+   * is not obvious. Measured in Blink (sim/hudperf, an idle bay, 600 frames):
+   * assigning `textContent` a string identical to the one already there
+   * produced a childList mutation on all 600 frames — the text node is
+   * replaced, not compared — while assigning `style.width` a string identical
+   * to the one already there produced none, because inline style DOES compare
+   * first. The one unguarded text write on this panel therefore cost a DOM
+   * mutation, a style recalc and a layout of the meta line on every frame of
+   * every bay, for a number that changes when congestion re-prices a launch.
+   */
   private syncHud(g: Game): void {
     const set = (id: string, v: string) => {
-      const el = this.overlay.querySelector(id);
+      const el = this.hudEl(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
     // The plant's crest (app.css's .plant__crest — the spike ring around the
@@ -3613,7 +4986,7 @@ class App {
     //  - the strand warning (game.ts's trajectoryStrands), which is what the
     //    canvas teeth wore before the crest took the spikes over — the crest
     //    turns maw-red for exactly the frames drawChute heats the mouth.
-    const plant = this.overlay.querySelector<HTMLElement>(".plant");
+    const plant = this.hudEl<HTMLElement>(".plant");
     if (plant) {
       const crestTier = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
       plant.classList.toggle("plant--congest-warn", crestTier === 0);
@@ -3651,22 +5024,45 @@ class App {
         if (loaded === "standard") plant.style.removeProperty("--crest-mat");
         else plant.style.setProperty("--crest-mat", shipmentAura(g.cannon.currentType, loaded));
       }
-      // THE BEAT — the crest breathes with the soundtrack (app.css's
-      // --crest-beat brightness and cube depth). One tap, two signals, split
-      // by timescale below: the beat is the transient, --crest-heat is the
-      // passage's loudness driving the palette. There used to be a third off
-      // the same tap — the --h0..--h6 rotation — and it is a launch's job
-      // now; see THE MARCH further down.
+      // THE BEAT IS GONE, and this is the note that used to argue for it.
       //
-      // musicLevel is the raw RMS off the audio graph's tap; everything that
-      // makes it read as a PULSE happens here:
-      // normalised against its own decaying peak (so every bed uses the full
-      // range regardless of mastering), scaled up as the bay congests (the
-      // machine beats harder, on top of the tier recolour), and shaped by a
-      // fast-rise/slow-fall follower so hits snap and decays trail. Written
-      // only on real change at a 1/40 quantum — the style write is the only
-      // cost, so silence and steady passages cost nothing. Never driven
-      // under reduced motion; the var stays 0 and the CSS line is inert.
+      // The crest breathed with the soundtrack: musicLevel()'s RMS, normalised
+      // against its own decaying peak, shaped by a fast-rise/slow-fall follower,
+      // quantised to 1/40 and written to --crest-beat. app.css fed that into
+      // --crest-h, the HEIGHT of twelve absolutely-positioned crest strips, so
+      // every change re-solved the plant panel's layout and repainted it.
+      //
+      // The old note here said it was "left alone on evidence rather than on
+      // principle", on a headless count of 49 writes in 600 frames, and admitted
+      // that what it would cost against a live bed was unmeasured. It has been
+      // measured now, on a CPH2573 in a live bay with music playing, three
+      // states rotating every 400ms inside ONE window so they share the panel's
+      // state (every arm medianing an 8.3ms rAF gap, so the panel held 120Hz):
+      //
+      //   crest breathing        84.9fps   65.3% of frames on time
+      //   beat not written      108.5fps   89.9%
+      //   crest hidden entirely 115.2fps   95.7%
+      //
+      // +23.6fps for not writing one custom property, and 78% of everything
+      // hiding the crest outright would buy. The headless count was not wrong,
+      // it was measuring the wrong thing: a write is the INPUT to a repaint,
+      // and the repaint here was twelve strips and a layout re-solve.
+      //
+      // What survives is what a player can point at. THE HEAT below still
+      // colours the ring by the passage's loudness on a ~1s follower, and THE
+      // MARCH still steps it one cell per shot fired. That march comment already
+      // made this argument once — it moved off the live music level because
+      // "the bands moved whenever the track happened to get loud, so the border
+      // changed at moments with no relationship to anything the player had
+      // done". The beat was the last thing on the panel still doing that, and
+      // it was the most expensive.
+      //
+      // Owner played both on the device before this landed and reported the
+      // still crest feels "just as snappy" as no crest at all.
+      //
+      // Nothing in app.css changed: it reads var(--crest-beat, 0), so an unwritten
+      // property IS the resting crest. Re-enabling it is one setProperty call,
+      // and the numbers above are what it would cost.
       if (!this.motionMQ?.matches) {
         const raw = musicLevel();
         // A dead tap and a silent one both read 0 (see audio.ts's musicTapLive).
@@ -3675,12 +5071,10 @@ class App {
         const tapLive = musicTapLive();
         this.crestPeak = Math.max(raw, this.crestPeak * 0.998, 0.02);
         const target = (raw / this.crestPeak) * (0.55 + 0.45 * this.congestion);
-        this.crestBeat += (target - this.crestBeat) * (target > this.crestBeat ? 0.5 : 0.12);
-        const q = Math.round(this.crestBeat * 40) / 40;
-        if (q !== this.crestBeatShown) {
-          this.crestBeatShown = q;
-          plant.style.setProperty("--crest-beat", String(q));
-        }
+        // THE BEAT IS NOT WRITTEN. `target` is computed because THE HEAT below
+        // needs it; nothing paints it per frame any more. app.css reads
+        // `var(--crest-beat, 0)`, so leaving it unwritten is the resting crest
+        // exactly as before — no CSS change is required to turn this off.
         // THE HEAT — the same envelope on a much slower follower (~1s here
         // against the beat's ~2 frames). Loudness rather than transients, so
         // it answers "how hard is this machine running", and that is the
@@ -3763,13 +5157,13 @@ class App {
       // later: a Contract's supply is an exact countdown rather than an
       // estimate of what the bankroll still buys, and it starts small. See
       // screens.ts's LOW_SUPPLY_WARN for why the two thresholds differ.
-      this.overlay
-        .querySelector("#hud-launches-chip")
+      this
+        .hudEl("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", supply <= S.LOW_SUPPLY_WARN);
       // The remaining manifest, re-rendered only when it actually changes —
       // it's HTML (colored per piece type), so this can't go through `set`.
       if (pattern) {
-        const tally = this.overlay.querySelector<HTMLElement>("#hud-queue");
+        const tally = this.hudEl<HTMLElement>("#hud-queue");
         const html = S.queueTallyHTML(g.piecesRemaining);
         if (tally && tally.innerHTML !== html) tally.innerHTML = html;
       }
@@ -3801,32 +5195,40 @@ class App {
       // is the same three-step the bay floor is lit in (render.ts's congestion
       // rows): list price plain, first tier amber, second red.
       const tierIdx = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
-      const launchEl = this.overlay.querySelector("#hud-launch");
+      const launchEl = this.hudEl("#hud-launch");
       if (launchEl) {
-        launchEl.textContent = `Launch $${g.launchCostNow}`;
+        // THROUGH `set`, and it is the whole reason this branch was rewritten.
+        // This was the one readout on the panel assigning its text
+        // unconditionally, and per the "a no-op write is not free" note over
+        // syncHud that cost a DOM mutation on 600 of 600 frames of an idle bay
+        // — the entire per-frame DOM traffic of a bay where nothing was
+        // happening, spent re-writing "Launch $20" over "Launch $20". The
+        // classList toggles beside it were always free: DOMTokenList.toggle
+        // with an explicit force is specified to skip its update steps when
+        // the class is already in the state asked for.
+        set("#hud-launch", `Launch $${g.launchCostNow}`);
         launchEl.classList.toggle("pl-meta__launch--warn", tierIdx === 0);
         launchEl.classList.toggle("pl-meta__launch--danger", tierIdx >= 1);
       }
-      this.overlay
-        .querySelector("#hud-launches-chip")
+      this
+        .hudEl("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
       // B7: the funds block joins the one urgency treatment at the same
       // threshold — the goal bar is the biggest funds surface on screen, and
       // it stayed serenely cyan while the number beside it flashed.
-      this.overlay
-        .querySelector(".pl-funds")
+      this
+        .hudEl(".pl-funds")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
     }
 
     // objectiveProgress reads whichever win condition this bay is running, so
     // the bar works for a Contract's line goal and a Deep Run's funds target
     // without the HUD needing to know which mode it's in.
-    const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
-    if (goal) goal.style.width = Math.min(100, g.objectiveProgress * 100) + "%";
+    this.barFill("#hud-goal", Math.min(1, g.objectiveProgress));
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
-    this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
+    this.hudEl("#hud")?.classList.toggle("hud--aiming", g.aiming);
     // A hold on ⏸ cannot outlive the button. Mid-drag the rail swaps the aim ✕
     // into the pause button's slot (app.css hides [data-action="pause"] under
     // .hud--aiming on coarse pointers), so a thumb that was holding ⏸ while a
@@ -3844,15 +5246,18 @@ class App {
     const liveRatio = this.input.liveDragRatio;
     const ratio = liveRatio ?? g.cannon.powerRatio;
     const powerPct = Math.round(ratio * 100);
-    const power = this.overlay.querySelector<HTMLElement>("#hud-power");
-    if (power) power.style.width = powerPct + "%";
+    // The meter and its figure move together but not at the same resolution:
+    // the fill carries the ratio to four places, the readout beside it rounds
+    // to a whole percent. Both are guarded, so a drag that has stalled between
+    // two percent stops still writes nothing.
+    this.barFill("#hud-power", ratio);
     set("#hud-power-val", powerPct + "%");
     // Below the floor, mid-drag: the pull as it stands would be discarded as an
     // accidental touch. Shown WHILE the finger is down, which is the only time
     // it can still be acted on — the post-release cue is a consolation prize by
     // comparison. Scoped to a live drag so a freshly loaded cannon sitting at
     // its minimum doesn't wear a warning about a gesture nobody is making.
-    this.overlay.querySelector("#hud-pwr")?.classList.toggle(
+    this.hudEl("#hud-pwr")?.classList.toggle(
       "pl-pwr--weak", liveRatio !== null && liveRatio < MIN_FIRE_RATIO,
     );
 
@@ -3860,11 +5265,23 @@ class App {
     // (render.ts's drawReloadRing). Two views of one number on purpose: the
     // ring is what you read mid-aim with your eyes on the cannon, this is what
     // you catch in peripheral vision while looking at the pile.
+    //
+    // THE ONE READOUT THAT REALLY DOES MOVE EVERY FRAME, and the reason the
+    // fix here is a split rather than a throttle: measured over 600 frames of
+    // live play, this fill's inline style changed on 563 of them (sim/hudperf).
+    // As a `width` that was a layout re-solve of the panel at the frame rate;
+    // as a scaleX on a promoted fill it is the compositor's problem, which is
+    // where a smooth thing belongs.
+    //
+    // The 60ms width transition that used to smooth it is gone with the width.
+    // A transition on a value rewritten every frame from a continuous source
+    // was never a smoothing — it was 60ms of lag, retargeted before it could
+    // finish — and the one thing it did change, the snap back to empty on a
+    // launch, reads better instant.
     const reload = g.cannon.reloadRatio(performance.now());
-    const load = this.overlay.querySelector<HTMLElement>("#hud-load");
-    if (load) load.style.width = Math.round(reload * 100) + "%";
+    this.barFill("#hud-load", reload);
     const ready = reload >= 1;
-    this.overlay.querySelector("#hud-load-row")?.classList.toggle("ready", ready);
+    this.hudEl("#hud-load-row")?.classList.toggle("ready", ready);
     // Audible AND felt, on the RISING edge only. syncHud runs every frame, so
     // testing `ready` alone would retrigger ~60x/sec for as long as the player
     // takes to aim — which, per the telemetry note in cannon.ts, is most of the
@@ -3879,8 +5296,20 @@ class App {
     this.reloadWasReady = ready;
 
     if (g.timeLeftMs !== Infinity) {
-      set("#hud-time", formatMMSS(g.timeLeftMs));
-      this.overlay.querySelector("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
+      // BUCKETED AT THE RESOLUTION IT IS READ AT. The clock moves every frame
+      // and is displayed to the whole second, which is the third class in the
+      // split over syncHud: 119 of every 120 frames at 120Hz have nothing to
+      // say here. `set` would already have caught the duplicate — this catches
+      // it one step earlier, before formatMMSS builds a string to be thrown
+      // away. The bucket is formatMMSS's own arithmetic (components.ts: a ceil
+      // over a floor at zero), copied rather than inferred so the two can
+      // never disagree about which frame the readout turns over on.
+      const sec = Math.max(0, Math.ceil(g.timeLeftMs / 1000));
+      if (sec !== this.timeSecShown) {
+        this.timeSecShown = sec;
+        set("#hud-time", formatMMSS(g.timeLeftMs));
+      }
+      this.hudEl("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
     }
 
     // The transport's two-deep queue (canvas A5): the piece the cannon is
@@ -3898,7 +5327,7 @@ class App {
     const nextKey = `${idKey}|${g.cannon.quarterTurns}:${bp.quarterTurns}`;
     if (this.lastNext !== nextKey) {
       const arrived = this.lastNextId !== idKey;
-      const next = this.overlay.querySelector<HTMLElement>("#hud-next");
+      const next = this.hudEl<HTMLElement>("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
@@ -3909,7 +5338,7 @@ class App {
               : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
         next.classList.toggle("belt-piece--still", !arrived);
       }
-      const held = this.overlay.querySelector<HTMLElement>("#hud-loaded");
+      const held = this.hudEl<HTMLElement>("#hud-loaded");
       if (held) {
         held.innerHTML = g.bombArmed
           ? beltBombHTML()
@@ -3930,7 +5359,7 @@ class App {
       // orange for a sealed crate would name the L inside it and the Blackout
       // variant would be over — the crate would be a lid on a box with the
       // answer painted down the side of it.
-      this.overlay.querySelector<HTMLElement>("#hud-belt")?.style.setProperty(
+      this.hudEl<HTMLElement>("#hud-belt")?.style.setProperty(
         "--belt-c",
         bp.bomb
           ? "var(--danger)"
@@ -3946,6 +5375,9 @@ class App {
     // together via shared classes instead of hardcoded ids per trigger.
     this.syncAbility("bond", g.bondCharges, false);
     this.syncAbility("demo", g.bombCharges, g.bombArmed);
+    // Never armed: the lance fires on the tap rather than riding the next
+    // launch, so it has no armed state for a trigger to reflect.
+    this.syncAbility("thaw", g.thawCharges, false);
 
     if (this.tutorialStep !== null) this.syncCoach(g);
   }
@@ -3954,8 +5386,20 @@ class App {
    *  the live count into both badges, and mark both `armed` when the ability is
    *  currently armed (only Demolition Charges use that — the armed state is what
    *  tells the player their next launch will fire a bomb, and it has to be
-   *  unmistakable since it changes what the trigger pull does). */
+   *  unmistakable since it changes what the trigger pull does).
+   *
+   *  GUARDED ON THE WHOLE STATE, before the selectors run. hudEl's cache does
+   *  not reach here — an ability has TWO triggers on screen at once (the plant
+   *  chip and the rail button) and either can be absent — so this ran six live
+   *  querySelectorAll calls per frame across the three abilities, plus a text
+   *  write per badge, to re-state a count that changes when a charge is spent.
+   *  One string compare answers all of it, and a charge count with an armed
+   *  flag is small enough to be that string. Dropped in forgetHudCache with
+   *  everything else, so a remounted rail is repainted on its first frame. */
   private syncAbility(name: string, charges: number, armed: boolean): void {
+    const state = `${charges}:${armed ? 1 : 0}`;
+    if (this.abilityShown.get(name) === state) return;
+    this.abilityShown.set(name, state);
     this.overlay.querySelectorAll<HTMLButtonElement>(`.${name}-trigger`).forEach((b) => {
       b.disabled = charges <= 0 && !armed;
       b.classList.toggle("armed", armed);
@@ -4007,6 +5451,10 @@ class App {
   private padBackTarget(): string | null {
     switch (this.state) {
       case "paused": return '[data-action="resume"]';
+      // The seal notice DOES have a back, unlike the end modals above: it is
+      // not a choice between exits, it is one action being priced, and the
+      // reversible answer is the one B should give.
+      case "seal-break": return '[data-action="seal-break-back"]';
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
       case "settings": case "workshop": case "contracts":
@@ -4029,6 +5477,15 @@ class App {
    *  every screen — including the draft's focus-restoring re-render, which is
    *  what lets pad selection survive a card toggle. */
   private onPadUiButton(button: number): boolean {
+    // A PAD PRESS EDGE IS A RELEASE, for the arm machine's purposes. The pad
+    // emits no release event of its own (the Gamepad API is a state snapshot),
+    // so an armed Quit would sit waiting for a keyup or a pointerup that a pad
+    // player is never going to produce. What it does emit is EDGES, and only
+    // edges: game/gamepad.ts arms autorepeat for directions and nothing else,
+    // precisely so a held confirm cannot fire its screen twice. So every press
+    // that reaches here is already a distinct one, which is the fact the
+    // machine is trying to establish — see ui/padnav.ts's armRelease.
+    this.quitArm = armRelease(this.quitArm);
     // The press that flipped the profile to gamepad already did its job —
     // landing focus (see setProfile, which stamped padWokeAt in this same
     // poll tick). Consuming it here is what keeps "wake the pad" and "press
@@ -4273,8 +5730,7 @@ class App {
         this.renderOverlay();
         break;
       case "leaderboard":
-        this.lbBoard = this.runBoard();
-        void this.refreshBoard();
+        this.openBoard(this.runBoard());
         this.setState("leaderboard");
         break;
       // A leaderboard tab. Re-renders from the cache immediately and refreshes
@@ -4282,10 +5738,9 @@ class App {
       // and never shows the OTHER board's rows while the fetch is in flight.
       case "lb-board": {
         const board = Number(el.getAttribute("data-board"));
-        if (board === BOARD_SANDBOX || isLadderBoard(board)) {
-          this.lbBoard = board;
+        if (board === BOARD_SANDBOX || board === BOARD_SKYDECK || isLadderBoard(board)) {
+          this.openBoard(board);
           this.renderOverlay();
-          void this.refreshBoard();
         }
         break;
       }
@@ -4306,10 +5761,12 @@ class App {
         if (this.nextContract) this.startContract(this.nextContract);
         else this.setState("contracts");
         break;
-      case "menu":
-        this.contract = null; this.contractMusic = null; this.drill = null;
-        this.setState("menu");
-        break;
+      case "menu": this.toMenu(); break;
+      // The pause card's Quit on a run with bays behind it — its own action
+      // rather than a branch on "menu", so the eight other back buttons that
+      // carry that action cannot accidentally inherit (or route around) the
+      // gate. See screens.ts's pauseModal.
+      case "quit-run": this.requestQuitRun(); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
@@ -4322,6 +5779,13 @@ class App {
         else this.startGame();
         break;
       case "restart-bay": this.restartBay(); break;
+      // The loss card's Retry Bay — the same bay the pause modal would hand
+      // back, from the far side of a run end. It is the only action on that
+      // card that spends something permanent, which is why it is not the
+      // card's primary (screens.ts's endModal argues the placement).
+      case "retry-bay": this.retryBay(); break;
+      case "seal-break-go": this.onSealBreak(true); break;
+      case "seal-break-back": this.onSealBreak(false); break;
       // Retry from the tutorial's failure card. startLevel rebuilds this bay
       // from the run (which never advanced, so its seed, funds and Bond
       // Breaker stock are untouched) and re-arms the coach at step 0 — the
@@ -4354,6 +5818,8 @@ class App {
       case "refit-done": this.onRefitDone(); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
+      case "buy-slot": this.onBuySlot(); break;
+      case "mount": this.onMount(el.getAttribute("data-mount") ?? ""); break;
       // Tier S, from the tower's basement door, the run-end modal, the
       // leaderboard's own tab, or the sandbox build's menu chip. Gated on the
       // door being open rather than on the build, and re-checked here because
@@ -4639,6 +6105,11 @@ class App {
     // press produces no click, so it can start no gesture either — and this
     // gesture throws the bay away.
     if (e.button !== 0 || this.state !== "playing") return false;
+    // …and never on a run that may not hand a bay back (run.ts's bayRetryable —
+    // the Skydeck). requestBayRetry would refuse the hold anyway, but a meter
+    // that fills and then does nothing is a worse answer than a tap: the whole
+    // affordance of this gesture is the countdown promising something.
+    if (!this.bayRetryOffered()) return false;
     const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="pause"]');
     if (!btn) return false;
     // A new press means any earlier hold's pending click is water under the
@@ -4649,7 +6120,10 @@ class App {
       // A three-beat notification, not the tap the press already got: the bay
       // is being thrown away, which is worth a different answer than "counted".
       void successHaptic();
-      this.resetBay();
+      // Through the shared door, so the gesture cannot be the one route into a
+      // bay retry that never quotes the seal. On every hold after the first it
+      // is the same immediate rebuild it always was.
+      this.requestBayRetry();
     });
     return true;
   }
@@ -4815,6 +6289,11 @@ class App {
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
     else if (a === "demo") { if (g.armBomb()) telemetry.ability("bomb-arm", g.elapsedMs); }
+    // No telemetry here: the record rides onThawLance (see startLevel), which
+    // every input path reaches. Recording at this one call site was the defect
+    // codex caught on the first push — it counted the rail and the chip and
+    // missed the keyboard and the pad.
+    else if (a === "thaw") g.useThawLance(performance.now());
     else if (a === "cancel") this.input.cancelAim();
   }
 
@@ -4834,6 +6313,16 @@ class App {
     // The rail mirror re-solves the layout on the spot; stickAssist is read
     // live by the gamepad poller and needs nothing here.
     if (key === "leftHandRail") this.applyRailSide();
+    // A toggle that changes what a SCREEN SAYS, not only what the game does,
+    // has to redraw the screen saying it. stickSling is the only one: the
+    // gamepad pane's aim row describes the mode that is on, so leaving the old
+    // row up would have the pane contradict the switch the player just flipped
+    // (see screens.ts). Everything else here is read live by whatever consumes
+    // it and the in-place aria-checked write above is the whole update, which
+    // is why this is one named key rather than a blanket re-render — the
+    // Settings screen's toggles must not rebuild their pane out from under a
+    // pointer that is still on them.
+    if (key === "stickSling" && this.state === "controls") this.renderOverlay();
     void tapHaptic();
     // After syncAudioSettings on purpose: switching Sound OFF clicks into
     // silence (playFx already gates on the new state) and switching it ON
@@ -4886,15 +6375,20 @@ class App {
     row?.classList.add("done");
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
     // The board the RUN was flown on. A Tier S score never touches the Deep
-    // Run board — see lib/api.ts's board note for why that is the one thing
-    // this call must not get wrong.
+    // Run board, and a Skydeck score never touches Tier 10's — see lib/api.ts's
+    // board note for why that is the one thing this call must not get wrong.
     const board = this.runBoard();
+    // …and the day, which only the roof has. Off the RUN (its dealt day), so a
+    // run that crossed UTC midnight is still filed against the seed it flew.
+    const day = this.boardDay();
     // `level` is the bay the run actually reached. Every client sent a literal 1
     // until tier boards landed, which is what made the column look like a free
     // partition key to three separate branches at once.
     const bay = (this.run?.levelIndex ?? 0) + 1;
-    const res = await submitScore(name, this.finalScore(g, this.state === "won"), board, bay, lines);
-    this.boards[board] = res?.scores ?? (await fetchLeaderboard(board, 10));
+    const res = await submitScore(
+      name, this.finalScore(g, this.state === "won"), board, bay, lines, day,
+    );
+    this.boards.set(board, day, res?.scores ?? (await fetchLeaderboard(board, 10, day)));
     this.renderBoardRows(name);
     void successHaptic();
   }

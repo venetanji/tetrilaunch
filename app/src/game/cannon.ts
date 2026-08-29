@@ -6,6 +6,37 @@ import { SIZE_SPEC } from "./pieces";
 import { BeltSchedule } from "./belt";
 import type { LevelConfig } from "./level";
 
+/**
+ * ONE 60Hz FRAME, in ms — the unit Cannon's nudge steps are authored in.
+ *
+ * `angle + 0.035` and `power + 0.4` were tuned as per-frame amounts on a 60Hz
+ * display, back when every held control charged one step per rendered frame.
+ * That made the trim rate a property of the PANEL: the same pinned stick
+ * crossed the whole aim cone in a second at 60Hz and in half of one at 120Hz.
+ * A control whose speed depends on the screen it is drawn to is not a tuned
+ * control, so the held paths charge TIME and divide it by this. At a 16.667ms
+ * cadence the quotient is 1 and every nudge is exactly the step it always was,
+ * to the bit.
+ *
+ * Lives here rather than in either caller because it is a property of the
+ * STEP, not of the device driving it — gamepad.ts's dials and input.ts's held
+ * keys must scale by the same number or the two devices drift apart, which is
+ * the one thing sharing the step constant exists to prevent.
+ */
+export const NUDGE_FRAME_MS = 1000 / 60;
+/**
+ * The longest gap a single tick may charge a held control for.
+ *
+ * A backgrounded tab, a garbage-collection stall or a tabbed-away TV hands the
+ * next timestamp seconds after the last one, and an unclamped dt would spend
+ * all of it in one step — the player comes back to a barrel pinned at the cone
+ * limit by a key or a stick they were merely still holding. Six frames' worth
+ * is long enough that ordinary jank is charged honestly (nothing a 120Hz
+ * display does comes close) and short enough that the worst case is a nudge
+ * that can be watched happening rather than a jump that can only be undone.
+ */
+export const NUDGE_MAX_STEP_MS = 100;
+
 // Launch speeds in px/step (matter velocity units). Drag distance maps here.
 export const SPEED_MIN = 9;
 // 28, not 26: reach analysis (sim/ tuning) showed max-power landings topped
@@ -14,10 +45,68 @@ export const SPEED_MIN = 9;
 // (see engine.ts's SKY doc comment for the resulting apex height check).
 export const SPEED_MAX = 28;
 
-// Drag distance (px, world space) that maps to full power. Kept short so a
-// modest pull-back already reaches max power.
+/**
+ * Where the barrel pivots, in world px. Declared HERE, above the drag
+ * constants, rather than beside the class it configures: DRAG_MAX below is
+ * derived from `CANNON.x` and a `const` cannot be read before its own line.
+ * The dependency is the point — see DRAG_MAX.
+ */
+export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, barrel: 64 };
+
+/**
+ * Drag distance (px, world space) that maps to full power — the slingshot's
+ * whole span, from the dead zone below which a pull reads as nothing to the
+ * pull that asks for everything.
+ *
+ * DRAG_MAX IS DERIVED, NOT CHOSEN, and the derivation is the bug fix. It used
+ * to be a flat 220, which is 70 px MORE than the cannon's entire distance from
+ * the left wall: a player who put a finger on the cannon and pulled straight
+ * back — the literal gesture the control is named for — was asking the pull to
+ * end at world x = −70. There is no such place, so a horizontal full-power
+ * pull from the cannon was geometrically impossible on every device at every
+ * viewport. It appeared to work only because `screenToWorld` does not clamp
+ * and the canvas is full-bleed, so the stroke ran out through the letterbox
+ * bars — inert black the game gives no affordance to — and off the world.
+ *
+ * That accident is not available everywhere, and where it is missing the
+ * control is simply broken. On an exact 16:9 viewport there are no bars at
+ * all: measured at 1280x720, a pull from the cannon to the very edge of the
+ * glass topped out at 58%, and the arithmetic ceiling is 63%. On a OnePlus 7T
+ * (854x384 CSS, letterboxed) 100% needed the finger to reach CSS x≈48, and
+ * that panel's outer band delivers no touches below CSS x≈95 — the kernel
+ * stream never reports past it — so the pull died with a genuine `pointerup`
+ * partway up the ramp. See docs/superpowers/specs/2026-08-28-full-power-pull-
+ * needs-offscreen-room.md for the capture.
+ *
+ * THE RULE: a full pull that starts at the cannon ends on the playfield, a
+ * cube's width clear of the wall. `CANNON.x - CELL` is that sentence. The
+ * clearance is a CELL because a cube is this game's unit of "not touching",
+ * and because it is measured to be enough: on the 7T's letterbox the field
+ * scales by 0.533, so a cube of clearance is 21 CSS px, while the panel's dead
+ * band eats only the outer 17 world px (9 CSS px) of the field. The full pull
+ * lands 12 CSS px inside live glass with the margin still to spare.
+ *
+ * WHAT IT COSTS. Full power is now a 110 px pull instead of a 220 px one, so
+ * the same finger travel buys twice the power and the ramp is half as fine —
+ * 2.3% of power per CSS px on a phone where it used to be 1.0%. That is a real
+ * feel change and it is the price of the control being possible at all; the
+ * alternative considered (normalising the ramp against the room actually left
+ * in front of the finger) preserves today's feel in the middle of the field
+ * but puts full power at the LAST PIXEL of the screen for exactly the player
+ * this fixes — the same gesture meaning different power in different places,
+ * to arrive somewhere still unreachable.
+ *
+ * DRAG_MIN stays 28: it is a property of a THUMB (the travel below which a
+ * touch is a graze, not a pull), not of the field, so it does not scale with
+ * the span. It is now 25% of the full pull rather than 13% — and that number is
+ * not decorative. Because the foot does not scale, ANY caller that reaches this
+ * mapping by rescaling its own input gets a different curve, not a rescaled
+ * one: the pad's stick did exactly that and lost 9 points of power at half
+ * deflection plus a fresh dead band at the bottom of its throw. That is what
+ * `dragLenForRatio` below exists to prevent.
+ */
 const DRAG_MIN = 28;
-const DRAG_MAX = 220;
+const DRAG_MAX = CANNON.x - CELL;
 
 /**
  * Power ratio a drag has to reach before a release counts as a SHOT rather than
@@ -32,11 +121,15 @@ const DRAG_MAX = 220;
  *
  * 0.30 rather than a raw pixel distance because the whole point is intent, and
  * intent is what the pull-back MEANS, not how far a finger moved on a
- * particular screen. It works out to 85.6 world px (DRAG_MIN + 0.3 * the span),
- * which scales with the field — about 43 CSS px on an 800x360 phone viewport.
- * Comfortably past touch jitter, comfortably short of a deliberate slingshot
- * pull, and normalized against the ship: the LAUNCHER track scales speedMin and
- * speedMax together, so 30% is 30% of whatever this hull can do.
+ * particular screen. A FRACTION OF THE SPAN, which is why it survived the span
+ * itself changing: it works out to DRAG_MIN + 0.3 * (DRAG_MAX - DRAG_MIN), now
+ * 52.6 world px where it used to be 85.6, and it scales with the field —
+ * measured at 28 CSS px on the 854x384 phone viewport this file's DRAG_MAX
+ * note is written against, down from 46. Still an order of magnitude past
+ * touch jitter (a resting thumb wanders 1-2 CSS px), still short of any
+ * deliberate slingshot pull, and normalized against the ship: the LAUNCHER
+ * track scales speedMin and speedMax together, so 30% is 30% of whatever this
+ * hull can do.
  *
  * Deliberately NOT enforced in Game.shoot. Keyboard and gamepad players sit at
  * speedMin (ratio 0) and press Fire on purpose; gating the shared path would
@@ -49,6 +142,31 @@ export const MIN_FIRE_RATIO = 0.3;
  *  whether to fire and the mapping that decides how hard cannot disagree. */
 export function powerRatioForDrag(len: number): number {
   return Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
+}
+
+/**
+ * The exact inverse: the pull-back length, in world px, that asks for ratio `t`.
+ *
+ * EXISTS FOR CALLERS THAT ALREADY KNOW WHAT RATIO THEY WANT — which today means
+ * gamepad.ts's slingshot stick, and should mean nothing else. A thumbstick is
+ * not a finger on glass: its power curve is a function of DEFLECTION, owned by
+ * the pad, and it only reaches the cannon through `aimFromDrag` because that is
+ * where the aim-and-power pair is applied. Handing it a length instead of the
+ * span lets it say what it means without knowing DRAG_MIN or DRAG_MAX, which is
+ * the whole reason both stay module-private.
+ *
+ * The alternative — exporting DRAG_MAX and multiplying a deflection by
+ * something "past" it — is what the first draft of the pull-room fix did, and
+ * it is subtly wrong: `powerRatioForDrag` subtracts a FIXED DRAG_MIN that does
+ * not scale with the span, so rescaling the input rescales the ramp but not its
+ * foot. Halving the span turned a half-deflected stick from 48% into 39% and
+ * pushed the deadzone edge (0.22 deflection) from 13% to exactly zero — a dead
+ * band grown at the bottom of the stick's throw by a change that was supposed
+ * to be about a thumb on a phone. Caught in review, pinned in sim/systems.ts as
+ * curve equality rather than as endpoints.
+ */
+export function dragLenForRatio(t: number): number {
+  return DRAG_MIN + Math.max(0, Math.min(1, t)) * (DRAG_MAX - DRAG_MIN);
 }
 
 /**
@@ -66,8 +184,6 @@ export function powerRatioForDrag(len: number): number {
  * separate module that models the cone rather than enforcing it.)
  */
 export const AIM_CONE = Math.PI / 3;
-
-export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, barrel: 64 };
 
 export class Cannon {
   x = CANNON.x;
@@ -252,12 +368,23 @@ export class Cannon {
   aimDown() { this.angle = Math.max(-AIM_CONE, this.angle - 0.035); }
   powerUp() { this.power = Math.min(this.speedMax, this.power + 0.4); }
   powerDown() { this.power = Math.max(this.speedMin, this.power - 0.4); }
-  /** Analog variants of the four nudges above, for the gamepad's direct
-   *  mode (gamepad.ts): the same per-frame steps the keyboard takes, scaled
-   *  by stick deflection (-1..1) so a half-tilt trims at half rate. Sharing
-   *  the step constant is the point — a pinned stick and a held key move the
-   *  barrel at exactly the same speed, so switching devices never re-teaches
-   *  the hand. */
+  /** Analog variants of the four nudges above — the rate path BOTH held
+   *  controls now take: the gamepad's stick dials (gamepad.ts) and the
+   *  keyboard's held aim/power keys (input.ts's tickKeys). Same per-frame
+   *  steps the discrete nudges take, scaled by `f`. Sharing the step constant
+   *  is the point — a pinned stick and a held key move the barrel at exactly
+   *  the same speed, so switching devices never re-teaches the hand.
+   *
+   *  `f` IS NOT A DEFLECTION, it is a deflection times ELAPSED FRAMES
+   *  (NUDGE_FRAME_MS). Both callers multiply by the time since their last
+   *  tick, so the factor exceeds 1 on a stalled frame and sits below 1 on
+   *  anything faster than 60Hz — which is why both methods clamp rather than
+   *  assume a bounded input. A held key passes a deflection of exactly 1 and
+   *  is therefore the same trim rate on a 60Hz phone and a 120Hz TV, which it
+   *  was not until this took the keyboard over: tickKeys used to charge a
+   *  whole step per rAF, so a held W trimmed twice as fast on a 120Hz panel.
+   *  The pad was fixed first and this comment carried the keyboard's half as a
+   *  known defect; it is now closed on the same terms. */
   nudgeAngle(f: number) {
     this.angle = Math.max(-AIM_CONE, Math.min(AIM_CONE, this.angle + 0.035 * f));
   }
@@ -477,6 +604,59 @@ const SOLVE_POWER_ITERS = 22;
  *  12 iterations shrink the ±2.5° bracket by (2/3)^12 to ~0.02°. */
 const SOLVE_ANGLE_ITERS = 12;
 
+/**
+ * Where the arc-height dial STARTS, per bay (game.ts's Game.aimLoft).
+ *
+ * 1 — the steepest arc the speed band affords through the point clicked — and
+ * this is a reversal. The dial shipped at 0, the minimum-power drive, on the
+ * argument written into solveAimForTarget's header below: least power is least
+ * impact energy, it sits in the middle of the preview window, and it makes the
+ * PWR meter read as "how close to your limit this spot is". All three are still
+ * true and none of them survived contact with the bay.
+ *
+ * What the owner's play pass reported, twice: the flat default ploughs through
+ * the compactor bar (the loft param's own doc records the first sighting), and
+ * "i don't need to scroll up every time" is what the fix has to buy. A dial
+ * whose useful position is one end of its range, reached by five notches of
+ * wheel, is a dial that is wrong by default — the flat arc is the SPECIAL case
+ * (drive into the face of a stack), the arc that comes down onto the spot is
+ * the ordinary one, and the ordinary one belongs on the default.
+ *
+ * The obvious objection is the power, and it does not price anything: more
+ * loft always costs more px/step and the launch is billed FLAT (level.ts's
+ * launchCost — congestion prices the bay's clutter, nothing prices the shot's
+ * energy), so the steep default costs the player exactly what the flat one did.
+ *
+ * WHAT IT DOES COST, measured across a 20x40px sweep of the reachable bay at
+ * stock trim (493 of 546 sampled points, identical at both ends of the dial):
+ *
+ *   - REACH: nothing. The same 493 points are hit at loft 1 as at loft 0 —
+ *     the lob branch only ever searches inside the band it was already handed,
+ *     and degrades to the minimum-power answer where the band is too thin to
+ *     loft inside. Defaulting high does not shrink what the player can hit.
+ *   - THE PWR METER: most of its range. Median reading 57% -> 85%, and the
+ *     meter pins on 38% of reachable points instead of 3%. That is the real
+ *     trade, and it is a genuine loss: pinned-at-the-limit used to mean "you
+ *     are at the edge of your reach" and now mostly means "you asked for the
+ *     steep one". The arc is still the honest reachability channel — it stops
+ *     short of the cursor when the point is out of range — but the meter is no
+ *     longer the quick read it was.
+ *   - ARRIVAL: +13% (18.2 -> 20.5 px/step at the target). The shipment comes
+ *     down harder, which scatters a landing slightly more; small enough that
+ *     no ladder number moves, and the shot that arrives from ABOVE is landing
+ *     where the flat one could not land at all.
+ *   - THE CONE, not the speed band, is what usually stops the climb: 66% of
+ *     these aims come back sitting exactly on AIM_CONE. The steep default is
+ *     therefore mostly "barrel at maximum elevation, power solved for the
+ *     range", which is a coherent thing for a launcher to look like.
+ *
+ * The function's OWN default stays 0. Every non-player caller (sim/bots.ts, the
+ * autopilot, anything that just wants "can this be reached") wants the cheapest
+ * answer, and none of them should inherit a preference that belongs to a human
+ * with a mouse and a compactor bar in the way.
+ */
+export const AIM_LOFT_DEFAULT = 1;
+
 /** How far in front of the pivot a target has to sit before the solver will
  *  take it seriously. The cone opens forward, so nothing behind the cannon is
  *  reachable at any angle or power; rather than return a nonsense aim for a
@@ -638,8 +818,8 @@ function powerForAngle(
  * Aim + power whose predicted arc passes through `target`.
  *
  * WHICH SOLUTION, of the two. Almost every reachable point has both a flat
- * drive and a high lob, and this returns neither by name: it returns the one
- * that needs the LEAST POWER. That is a unique answer rather than a coin toss
+ * drive and a high lob, and this returns neither by name: at loft 0 it returns
+ * the one that needs the LEAST POWER. That is a unique answer rather than a coin toss
  * — required power as a function of angle is a smooth U, and its minimum is a
  * single angle — and it earns the default three ways.
  *
@@ -659,6 +839,13 @@ function powerForAngle(
  * how close to the cannon's limit the point you chose is, which you cannot
  * otherwise see: a target that pins it at 100% is one you are on the edge of
  * reaching, and the readout says so before you spend the launch.
+ *
+ * Those three paragraphs are why this function's own `loft` defaults to 0, and
+ * they are no longer what the PLAYER gets: the game's dial now starts at the
+ * other end of the family (AIM_LOFT_DEFAULT above). The reasoning did not turn
+ * out to be wrong so much as outranked by the compactor bar. Read the two
+ * together — this is the case for the cheap arc, that is the case for the arc
+ * a human wants first.
  *
  * The player is not stuck with that arc, and this is the part worth
  * understanding: the solver matches the arc to the POINT, not to the column

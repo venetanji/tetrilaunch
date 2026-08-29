@@ -16,7 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
-import { BOARD_SANDBOX, type ScoreEntry } from "../../src/lib/api";
+import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
 import { makeBaseLevel } from "../../src/game/level";
@@ -25,13 +25,14 @@ import { makeBaseLevel } from "../../src/game/level";
  *  ladder means "the bay" is a function of the Mark being flown (level.ts).
  *  Was the BAY_1 alias, which could only ever describe one tier. */
 const BAY_1 = makeBaseLevel(0);
-import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
+import { newMeta, SLOT_BASE, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
-import { MARK_COUNT, MAX_TIER, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
+import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
-import { dailyContracts } from "../../src/game/contracts";
+import { CLAUSE_STOPS, skydeckRunFor } from "../../src/game/skydeck";
+import { dailyContracts, dailySeed } from "../../src/game/contracts";
 import { DRILLS } from "../../src/game/drills";
 import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
 
@@ -60,10 +61,30 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 
 const SETTINGS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
-  leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+  leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
 };
 
 const STORE = { available: true, unlimited: false };
+
+/** A FIXED Skydeck day.
+ *
+ *  Everything about the mode is a function of the date (game/skydeck.ts), and a
+ *  fixture that read the clock would measure a different screen every morning —
+ *  which is fine in the app and useless in a harness whose whole output is a
+ *  budget compared against a baseline. One day, chosen and pinned, exactly the
+ *  way every other fixture pins its seed. */
+const SKY_DAY = new Date(Date.UTC(2026, 7, 27));
+/** Every Mark sealed — what the roof now costs (meta.ts's skydeckOpen), and
+ *  therefore what any fixture drawing an OPEN Skydeck has to hold. A roof open
+ *  over unsealed floors is a state the app can no longer produce, and a fixture
+ *  measuring one would be measuring a screen nobody sees. */
+const ALL_SEALED = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
+/** The tower with the roof OPEN and the car parked on it — the one state that
+ *  renders the clause list. */
+const SKY_TOWER: S.TowerState = {
+  unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2,
+  sealed: ALL_SEALED,
+};
 
 /** The bay-clear ratchet at a given tentative selection. Both sides of the
  *  projection come from levelForRun, exactly as main.ts builds them, so the
@@ -91,6 +112,106 @@ function draft(selected: HazardId[]): string {
     ),
     scrap: 340,
     baysToRefit: 2,
+  });
+}
+
+/** The SKYDECK's draft (game/skydeck.ts) — the ratchet screen the daily run
+ *  actually shows.
+ *
+ *  Two things about it are not reachable through `draft` above and both can
+ *  overflow: the bank's NOTCH cell carries the clause tally beside the notch
+ *  count ("Notches · clause Bay 10" over "7 · 2/3", the longest label that row
+ *  can deal), and the projection is drawn on a bay that already carries
+ *  standing clauses, so more of its rows are pinned than a ladder bay's at the
+ *  same notch count.
+ *
+ *  Bay 7, the second stop, deliberately: it is the one draft where a clause has
+ *  just armed AND another is still coming, so the cell carries its longest
+ *  copy. A FIXED day (2026-08-27) rather than today's, because a fixture that
+ *  re-rolled its own clauses every morning would make this harness's budget a
+ *  function of the calendar — see screens.ts's skydeckRulesHTML.
+ */
+function skydeckDraft(selected: HazardId[]): string {
+  const run = { ...skydeckRunFor(newTiers(), [], SKY_DAY), levelIndex: 6, carry: 120 };
+  const withPicks: Ratchets = { ...HUD_BASE.ratchets };
+  for (const id of selected) withPicks[id] = (withPicks[id] ?? 0) + 1;
+  return S.draftScreen({
+    bayNum: 6,
+    tier: run.mark,
+    funds: 1_820,
+    carry: 120,
+    offers: hazardOffers(run.seed, 6, run.mark, undefined, HUD_BASE.ratchets),
+    ratchets: HUD_BASE.ratchets,
+    selected,
+    picksNeeded: 1,
+    preview: previewRows(
+      levelForRun({ ...run, ratchets: HUD_BASE.ratchets }),
+      levelForRun({ ...run, ratchets: withPicks }),
+      HUD_BASE.ratchets,
+    ),
+    // The roof earns and spends scrap again (run.ts's refitAfterBay), so the
+    // widest case is a bank row carrying BOTH: a three-figure scrap total with
+    // the refit countdown on its label, and the clause tally in the notch cell.
+    scrap: 104,
+    baysToRefit: 3,
+    standing: { active: 2, total: CLAUSE_STOPS.length, nextBay: RUN_LEVELS },
+  });
+}
+
+/**
+ * The FORCED-MATERIAL ratchet (hazards.ts's MATERIAL_DRAFT_BAYS) at Tier 10 —
+ * the draft's worst case for the CARD TITLE, which is a different worst case
+ * from `draft()`'s and needs its own fixture.
+ *
+ * Every material axis is named "<Substance> Contract", and the substances run
+ * to eight letters, so a materials-only hand is the only hand that can deal
+ * TWO seventeen-character names at once. The ordinary hand cannot: it deals at
+ * most one content card, and the number axes are all short ("Fuel Levy",
+ * "Shift Cut"). A player's report is what found this — on a 792x360 phone the
+ * two cards sit side by side, and "Volatile Contract" was rendering as
+ * "Volatile Contrac" with the tail clipped away.
+ *
+ * Seed 25 rather than the file's usual 20_260_815, asked of the generator
+ * rather than asserted: it is the lowest seed whose bay-8 hand at Tier 10 is
+ * Volatile + Magnetic, the two longest names in HAZARDS. Bay 8 because
+ * MATERIAL_DRAFT_BAYS forces one there, and Tier 10 because `forced` only
+ * matters where picksPerBay is 2 — the partner card is capped at one seat, so
+ * its footer says "undo" where the material's says "double".
+ *
+ * This does NOT replace `draft()`, which is the worst case for the PROJECTION
+ * (four banked axes, every row pinned ACTIVE) and stays the fixture that
+ * measures the modal's height. Two different worst cases, two fixtures.
+ *
+ * Nor does the Skydeck one above replace it, and the three are worth reading
+ * as a set: `draft` is the tallest projection, `materialDraft` the longest
+ * titles, `skydeckDraft` the widest bank label on a clause-loaded bay. A
+ * forced-material Skydeck hand is a real state and is deliberately NOT a fourth
+ * fixture — its cards are this fixture's, at one pick instead of two, so the
+ * title row it measures is already measured here.
+ */
+function materialDraft(selected: HazardId[]): string {
+  const SEED = 25;
+  const LEVEL_INDEX = 7;
+  const run = { ...newRun(SEED, [], 400, undefined, 10), levelIndex: LEVEL_INDEX, carry: 120, scrap: 340 };
+  const withPicks: Ratchets = { ...HUD_BASE.ratchets };
+  for (const id of selected) withPicks[id] = (withPicks[id] ?? 0) + 1;
+  return S.draftScreen({
+    bayNum: LEVEL_INDEX + 1,
+    tier: 10,
+    funds: 1_820,
+    carry: 120,
+    offers: hazardOffers(SEED, LEVEL_INDEX, 10, 2, HUD_BASE.ratchets),
+    ratchets: HUD_BASE.ratchets,
+    selected,
+    picksNeeded: 2,
+    preview: previewRows(
+      levelForRun({ ...run, ratchets: HUD_BASE.ratchets }),
+      levelForRun({ ...run, ratchets: withPicks }),
+      HUD_BASE.ratchets,
+    ),
+    scrap: 340,
+    baysToRefit: 1,
+    forced: true,
   });
 }
 
@@ -129,25 +250,27 @@ function inspection(selected: string | null): string {
  *  side exactly as main.ts's refitHTML does — the same call Undock makes — so
  *  the harness measures the real number of projection rows an order can grow
  *  rather than a hand-written guess at them. */
-function refit(order: RefitOrder): string {
+function refit(order: RefitOrder, over: { tiers?: UpgradeTiers; ratchets?: Ratchets; mark?: number } = {}): string {
   const run = {
-    ...newRun(20_260_815, [], 400, HUD_BASE.tiers as UpgradeTiers, 6),
+    ...newRun(20_260_815, [], 400, (over.tiers ?? HUD_BASE.tiers) as UpgradeTiers, over.mark ?? 6),
     levelIndex: 6,
     carry: 120,
     scrap: 340,
-    ratchets: HUD_BASE.ratchets,
+    ratchets: over.ratchets ?? HUD_BASE.ratchets,
   };
   return S.refitScreen({
     bayNum: 6,
     nextBayName: "Cryo Vault",
     scrap: run.scrap,
     tiers: run.tiers,
-    mark: 6,
+    mark: over.mark ?? 6,
     order,
     // No banked ratchets — main.ts's refitHTML passes none, and the reason it
     // does is a layout one, so a fixture that passed them would measure a
-    // screen the app never renders.
-    preview: previewRows(levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run)),
+    // screen the app never renders. The run's notches travel as the `tally`
+    // the belt breakdown quotes, exactly as they do there.
+    preview: previewRows(
+      levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run), {}, run.ratchets),
   });
 }
 
@@ -189,6 +312,18 @@ function ownedMeta(): MetaState {
 
 /** Four digits of funds against a four-digit target — the readout width that
  *  regressed before (see sim/systems.ts's "$1000+ wrap regression"). */
+/** The seal state a paused Deep Run is really in (run.ts's sealStateFor), for
+ *  the pause fixtures' Restart Bay and the rail's ⏸. `at-stake` because that is
+ *  what a run that has retried nothing answers, and the Mark is one the save
+ *  has not sealed — the state the owner's screenshot was taken in. */
+const PAUSE_SEAL = { state: "at-stake" as const, mark: 4 };
+
+/** The quit gate a paused Deep Run past bay 1 is really in (run.ts's
+ *  quitLosesProgress), for the pause fixtures' Quit button. Unarmed, which is
+ *  how the card mounts; `pause-armed` measures the other state. The bay matches
+ *  the seal's story above — one run, one screenshot. */
+const PAUSE_QUIT = { armed: false, bayNum: 4 };
+
 const HUD_BASE = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "cryo" as const },
   // The transport's held slot (canvas A5's two-deep queue) — a bulk-adjacent
@@ -207,12 +342,39 @@ const HUD_BASE = {
   demoOwned: true,
   autoloaderOwned: true,
   bombCharges: 3,
+  // NO LANCE HERE, and it is a deliberate omission rather than an oversight.
+  // Turning it on would re-measure all nineteen rows of every screen built on
+  // this object for a state the app cannot produce: HUD_BASE already carries
+  // the AUTOLOADER, and nothing in a shipped run writes level.autoLaunchMs any
+  // more (mods.ts is the only writer, and the ratchet draft replaced the mod
+  // draft), so bond + demo + auto is legacy chrome kept for its WIDTH. Adding
+  // a fourth ability on top of a third that cannot occur measures a rail no
+  // player will ever hold. The reachable worst case gets its own screen
+  // instead — see `hud-lance`, which is the same seven-slot rail with the
+  // legacy trigger swapped for the real one.
+  thawOwned: false,
+  thawCharges: 0,
   // A full run's pick history — the mods row is the plant panel's widest child.
   // Typed, because `spill` and `drift` were sitting here: ids no HazardId ever
   // had, so two of the four chips the "widest child" is supposed to be measured
   // at were never rendered. Ratchets is a weak type, so the pair typechecked.
   ratchets: { wind: 2, sweeper: 1, cryo: 1, slag: 2 } as Ratchets,
-  tiers: { bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0 },
+  tiers: {
+    bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0,
+    thaw: 0, cushion: 0, incinerator: 0,
+  },
+  // THE WIDEST RACK THE GAME CAN PRODUCE, stated explicitly now that it is no
+  // longer implied.
+  //
+  // The rack used to draw one plate per track in UPGRADES, so this fixture
+  // measured a ten-slot row whatever `tiers` said — six lit plates and four
+  // unbought ones. With system slots the row is the RIG (components.ts's
+  // shipPlatesHTML), so the same `tiers` would draw six boxes and the fit
+  // budget the compact clamp was written against would stop being measured by
+  // anything. SLOT_CAP restores it: six mounted plus four OPEN, the same ten
+  // boxes at the same widths, which is the case app.css's "the tenth slot ends
+  // the clamp" arithmetic is about.
+  slots: SLOT_CAP,
 };
 
 const PROGRESS = tierProgressFor(midMeta());
@@ -225,7 +387,10 @@ const SANDBOX_BAY: SandboxState = {
   ...newSandbox(),
   tier: MARK_COUNT,
   target: { kind: "bay", bay: RUN_LEVELS },
-  tiers: { bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3 },
+  tiers: {
+    bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3,
+    thaw: 3, cushion: 3, incinerator: 3,
+  },
   material: "all",
   ratchets: { wind: 3, sweeper: 2, cryo: 1, slag: 3 } as Ratchets,
 };
@@ -243,16 +408,23 @@ const SANDBOX_CONTRACT: SandboxState = {
  *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
  *  save, so this is the only fixture that reaches it.
  *
- *  SEALED AT MARK 10, and that Mark specifically: the seal is stamped in the
- *  slack between the plate's number and its windows, and 10 is the only
- *  two-digit number the ladder has — i.e. the narrowest that slack ever gets.
- *  Without this the seal renders nowhere in the whole matrix and every "no new
- *  violations" run is measuring a floor that has no stamp on it. */
+ *  FULLY SEALED, which includes Mark 10 and that Mark specifically: the seal is
+ *  stamped in the slack between the plate's number and its windows, and 10 is
+ *  the only two-digit number the ladder has — i.e. the narrowest that slack
+ *  ever gets. Without a stamp there the seal renders nowhere in the whole
+ *  matrix and every "no new violations" run is measuring a floor that has no
+ *  stamp on it.
+ *
+ *  It used to hold Mark 10 ALONE, which was the narrowest case and is no longer
+ *  a state: the roof it draws open now costs every seal (meta.ts's
+ *  skydeckOpen). The narrow case survives inside the full set; what is lost is
+ *  a tower mixing stamps and empty sockets, and `menu`'s Tier-1 fallback tower
+ *  draws sockets on every run of the matrix, so that half is still measured. */
 const TOWER_TOP: S.TowerState = {
   unlocked: MARK_COUNT,
   selected: S.SKYDECK_TIER,
   skydeck: true,
-  sealed: [MARK_COUNT],
+  sealed: ALL_SEALED,
 };
 
 /** The same tower with Tier S open — the tallest the column ever gets, because
@@ -291,8 +463,11 @@ const HUD_TUTORIAL = {
   demoOwned: false,
   autoloaderOwned: false,
   bombCharges: 0,
+  // A tutorial bay grants no systems at all, the lance included.
+  thawOwned: false,
+  thawCharges: 0,
   ratchets: {} as Ratchets,
-  tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+  tiers: newTiers(),
 };
 
 /** main.ts's mountCoach puts the card INSIDE .plant as its first child, and
@@ -327,6 +502,24 @@ export const SCREENS: Record<string, () => string> = {
   // reduced-motion / no-2D-context fallback, not an artificial state: it is what
   // a player with "reduce motion" on actually sees.
   menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
+  // THE ROOF PARKED: the tower's top floor selected, the primary button
+  // re-labelled, and its subtitle counting the day's standing clauses.
+  //
+  // The recap panel used to grow a three-row clause list in its extras slot
+  // here, which made this the tallest the menu's tightest column ever got. The
+  // list is gone — the day's clauses are met at the stops that arm them, not
+  // read off the home screen — so what this row now measures is the roof's
+  // BUTTON copy against the ladder's, which is a different and still real worst
+  // case: the roof's subtitle is the longest the primary carries, and it got
+  // longer again when the yard reopened — "no refits" was replaced by the term
+  // that actually separates the floor now that it has one, "a step above Mark
+  // 10" (screens.ts's menuPlaySub, level.ts's SKYDECK_RUNG). The clause COUNT is
+  // all the screen is given, and it is date-independent, so this fixture no
+  // longer needs a pinned day at all.
+  "menu-skydeck": () =>
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length),
+  "menu-skydeck-live": () =>
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length)),
   "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE)),
   // The entitled state swaps the upsell chip for the ★ badge; both have to fit.
   "menu-unlimited": () =>
@@ -387,9 +580,10 @@ export const SCREENS: Record<string, () => string> = {
   //                    topic, since that is where the gate actually bites.
   //   guide-art        the widest art strip the screen can produce (seven shape
   //                    tiles) under a body.
-  //   guide-rig        the deepest chapter — ten rows, so the index really
-  //                    scrolls — on a PROGRESSED save, where the tab counts are
-  //                    non-zero and nothing is gated.
+  //   guide-rig        the deepest chapter — fourteen rows since the rack-slot
+  //                    topic landed, so the index really scrolls — on a
+  //                    PROGRESSED save, where the tab counts are non-zero and
+  //                    nothing is gated.
   //   guide-worst      the tallest pane the catalogue can build, computed.
   //   guide-worst-art  the same, among the topics that also carry art.
   guide: () => S.guideScreen({ chapter: "basics", topicId: "tutorial", meta: newMeta() }),
@@ -463,14 +657,25 @@ export const SCREENS: Record<string, () => string> = {
       rebinding: null,
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
-  // The two-board state: the tab strip only exists once Tier S is open, and it
-  // takes a row off the board's own height, so both boards get a fixture.
+  // The multi-board states: the tab strip only exists once a second board does,
+  // and it takes a row off the board's own height, so each board gets a fixture.
   "leaderboard-tabs": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: 7, tier: 7, sandbox: true }),
   "leaderboard-sandbox": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: BOARD_SANDBOX, sandbox: true }),
+  // THE WIDEST STRIP the screen can render: a save with the roof open AND Tier
+  // S found carries three tabs, which is the state to measure — the Skydeck's
+  // own tab is the longest of the three, and the heading it sits under is the
+  // only one that carries a date. A Mark-10 ladder tab beside it, since the
+  // roof opens only on a beaten ladder.
+  "leaderboard-skydeck": () =>
+    S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
+      {
+        board: BOARD_SKYDECK, tier: 10, sandbox: true, skydeck: true,
+        day: dailySeed(new Date(Date.UTC(2026, 7, 27))),
+      }),
 
   // TWO fixtures, because the screen has two shapes and only one of them was
   // ever measured. `workshop` is the early save: nothing owned, so there are no
@@ -495,7 +700,7 @@ export const SCREENS: Record<string, () => string> = {
   // A STOCK RIG at the top of a run: nothing installed, nothing ratcheted, no
   // abilities. This is the state the build rack's fixed slots exist for — it
   // used to render as an empty row, so the one moment the harness measured
-  // (HUD_BASE, six of seven tracks bought) told it nothing about the moment
+  // (HUD_BASE, six of the eight tracks bought) told it nothing about the moment
   // every run actually starts in. The rack is at its WIDEST here in slot terms
   // and its emptiest in content, which is exactly the pair worth asserting.
   "hud-stock": () =>
@@ -512,7 +717,69 @@ export const SCREENS: Record<string, () => string> = {
       autoloaderOwned: false,
       bombCharges: 0,
       ratchets: {} as Ratchets,
-      tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+      tiers: newTiers(),
+    }),
+  // THE LANCE'S OWN SCREEN, and the reachable ability worst case.
+  //
+  // HUD_BASE's three abilities are bond + demo + AUTOLOADER, and the third has
+  // had no writer since the mod draft was replaced (mods.ts is the only thing
+  // that sets level.autoLaunchMs; hazards.ts deals notches now). So the widest
+  // rail the harness measured was one no run can build. This is the widest one
+  // a run CAN build: the two consumables a Deep Run really carries, plus the
+  // Thaw Lance, at the four-digit charge-count-free state both badges render
+  // in. Same seven slots, so the column arithmetic the 360dp phone lives on
+  // (7x44 + 6x6 + 16 = 360) is unchanged and still exact.
+  //
+  // What is new here and nowhere else: the lance's chip in the plant's ability
+  // row (a third 88px chip on the row that already leads with a vertical BUILD
+  // tag and two of them) and its rail button with the charge badge. Both are
+  // the states syncHud patches every frame, so a fixture that never rendered
+  // them would leave the app's third ability trigger unmeasured on all
+  // nineteen rows.
+  "hud-lance": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      autoloaderOwned: false,
+      thawOwned: true,
+      // Two digits, which is what a maxed rack shows for most of a bay and the
+      // wider of the two badge states — THAW_CHARGES_PER_TIER x MAX_TIER is 6,
+      // so a live badge never exceeds one digit today; 12 measures the badge at
+      // a width a re-tuned notch size could actually produce rather than at
+      // today's exact ceiling.
+      thawCharges: 12,
+      tiers: { ...HUD_BASE.tiers, thaw: 2 },
+    }),
+  // THE RIG AS IT UNDOCKS: four slots, which is meta.ts's SLOT_BASE and the
+  // rack every run starts and most runs finish with. `hud-lance` above is the
+  // ten-slot CAP, and it stayed the only rack this harness measured while the
+  // plate was one flat width — a coefficient measured for ten is a coefficient
+  // measured for every count.
+  //
+  // It stopped being one: app.css's --plate-w divides the rack's row budget by
+  // its own slot count, so the common rack is now a DIFFERENT width from the
+  // worst-case one and the widest plate in the app is the one this fixture
+  // draws, not the one above. Same three abilities, same row, so the only thing
+  // that moves between the two is the count — which is exactly the variable
+  // under test.
+  //
+  // The TIERS have to come down with the slot count, not just `slots`:
+  // shipPlatesHTML treats the count as a floor rather than a truncation (a
+  // system aboard always gets a plate), so HUD_BASE's six mounted tracks would
+  // draw a six-slot rack whatever this said. Four mounted, four slots, no open
+  // boxes — the rig at the top of the ladder.
+  "hud-rig4": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      autoloaderOwned: false,
+      thawOwned: true,
+      thawCharges: 12,
+      tiers: {
+        bay: 2, launcher: 1, hydraulics: 3, magazine: 0, reactor: 0, bonds: 1,
+        demolition: 0, thaw: 0, cushion: 0, incinerator: 0,
+      },
+      slots: SLOT_BASE,
     }),
   // The HUD as every bay PAST the first shot mounts it (main.ts's
   // armKeyHints): the hint strip faded, the bay floor clear. The strip's
@@ -577,6 +844,13 @@ export const SCREENS: Record<string, () => string> = {
       demoOwned: false,
       autoloaderOwned: false,
       bombCharges: 0,
+      // ...and the lance, which levelForContract cannot grant either: it never
+      // calls applyUpgrades, so level.thawCharges stays at makeBaseLevel's 0
+      // and hudOpts derives thawOwned from exactly that zero. Stated rather
+      // than inherited, so this list stays the full account of what a Contract
+      // does not carry.
+      thawOwned: false,
+      thawCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -617,6 +891,13 @@ export const SCREENS: Record<string, () => string> = {
       demoOwned: false,
       autoloaderOwned: false,
       bombCharges: 0,
+      // ...and the lance, which levelForContract cannot grant either: it never
+      // calls applyUpgrades, so level.thawCharges stays at makeBaseLevel's 0
+      // and hudOpts derives thawOwned from exactly that zero. Stated rather
+      // than inherited, so this list stays the full account of what a Contract
+      // does not carry.
+      thawOwned: false,
+      thawCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Foundry Overrun",
@@ -655,9 +936,29 @@ export const SCREENS: Record<string, () => string> = {
   // list the block can render and therefore the tallest this modal gets on the
   // fine-pointer rows (the block is display:none on coarse ones, exactly like
   // the strip it replaces).
+  //
+  // RESTART BAY CARRIES ITS SEAL FACE, because a paused Deep Run always has
+  // one — a fixture that passed none measured a button the app does not draw,
+  // and the glyph is 11px plus its margin inside a row that already holds four
+  // controls. `at-stake` is the state a fresh run pauses in; all three faces
+  // are the same box, so the row's width is the same in each and this measures
+  // the widest the row can get either way.
+  //
+  // …AND ITS QUIT CARRIES THE GATE, for the same reason Restart Bay carries its
+  // seal face: a paused Deep Run past bay 1 always has one (run.ts's
+  // quitLosesProgress), so a fixture passing none measured a button the app
+  // does not draw. The gated button is the WIDER of the two — app.css stacks
+  // both faces in one grid cell so the row cannot reflow when it arms, which
+  // means the idle button reserves "QUIT ANYWAY" and is ~34px past the bare
+  // ghost it replaces. That widening lands on the row this fixture exists to
+  // measure, which is why it belongs in the default pause and not only in the
+  // armed one below.
   pause: () =>
-    S.hudHTML({ ...HUD_BASE, contract: null }) +
-    S.pauseModal(true, "keyboard", { bond: true, demo: true, auto: true }),
+    S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
+    S.pauseModal(
+      true, "keyboard", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, PAUSE_QUIT,
+    ),
   // The PAD's reference card, which stopped being a shorter version of the
   // keyboard's the moment it took on the menu gestures (screens.ts's hintParts
   // — D-pad, A, B and the Controls button, four hints no keyboard arm has).
@@ -672,12 +973,52 @@ export const SCREENS: Record<string, () => string> = {
   // fixture over known-defective chrome inherits that chrome's known list; the
   // card itself measures clean on all nineteen rows.
   "pause-pad": () =>
-    S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad" }) +
-    S.pauseModal(true, "gamepad", { bond: true, demo: true, auto: true }),
+    S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad", seal: PAUSE_SEAL }) +
+    S.pauseModal(
+      true, "gamepad", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, PAUSE_QUIT,
+    ),
+  // THE ARMED QUIT (screens.ts's quitArmNoteHTML) — the one state of this card
+  // that adds a row, and therefore the only one worth a fixture of its own.
+  //
+  // The note is two lines of prose between the button row and the control
+  // reference, which makes this the TALLEST the pause card ever gets: the
+  // keyboard arm with the full loadout (the longest hint list the block
+  // renders) plus the warning above it, measured on the fine-pointer rows where
+  // both are visible at once. A landscape phone draws no reference block at all
+  // (coarse pointer), so the note there costs the card nothing it did not
+  // already have room for — the desktop rows are the binding case and the
+  // reason this fixture exists.
+  //
+  // Bay 10 deliberately: the copy interpolates the bay number twice (the button
+  // name and the note), and two digits is the widest either can get.
+  //
+  // NO SKYDECK FIXTURE. The roof's card is a strict SUBSET of `pause` — the
+  // same panel with Restart Bay and one hint line removed (run.ts's
+  // bayRetryable) — so it cannot overflow anything `pause` does not, and a
+  // fixture for it would buy the matrix nothing but two more inherited HUD
+  // entries. What it removes is pinned in sim/systems.ts, where the question is
+  // whether the control is there rather than whether it fits.
+  "pause-armed": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
+    S.pauseModal(
+      true, "keyboard", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, { armed: true, bayNum: RUN_LEVELS },
+    ),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
       bayNum: 7, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 96,
+    }),
+  // The same card on a Skydeck stop, where the third stat names the clause that
+  // just armed instead of the scrap payout. "Bled Hydraulics" deliberately: the
+  // longest clause NAME any standing stop can deal, so a row that fits this
+  // fits every stop.
+  "bayclear-clause": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) +
+    S.bayClearScreen({
+      bayNum: 6, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 28,
+      slot: { value: "Bled Hydraulics", label: "clause \u00b7 from Bay 7" },
     }),
 
   refit: () => refit({}),
@@ -692,13 +1033,59 @@ export const SCREENS: Record<string, () => string> = {
   // one track it cannot stage is the Demolition Rack, which is not installed,
   // so the fixture also holds the shelf's longest foot copy throughout.
   "refit-staged": () => refit({ bay: 1, launcher: 2, magazine: 1, reactor: 1, bonds: 2 }),
+  // THE STATE NO FIXTURE REACHED: a rig sitting at tier 2 on every track, and a
+  // belt carrying all six materials.
+  //
+  // Tier 2 is the only rung whose button offers the CAPSTONE, and the capstone
+  // is where the tracks' effect copy stopped being a phrase — "+2 charges,
+  // resupply, a wider blast and a better rate" on the Demolition Rack, "a
+  // deeper liner, and no launch sets one off inside it" on the Impact Cushion.
+  // HUD_BASE's rig is at 0, 1, 2 or 3 on each track and never at 2 on any of
+  // the three that carry that copy, so the shelf's widest button was measured
+  // nowhere on nineteen devices — which is how it reached a player's screenshot
+  // bursting out of the card with the description column beside it wrapped to
+  // one word per line. The buttons carry a price now (screens.ts's buy-button
+  // note); this is the fixture that holds them to it.
+  //
+  // Six material axes for the same reason on the panel beside the shelf: the
+  // belt tile's per-material breakdown is as wide as the run has materials, and
+  // HUD_BASE banks two. Mark 10, where all six axes are open, is where a rig
+  // this built actually is.
+  "refit-capstone": () => refit({}, {
+    tiers: Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers,
+    ratchets: { wind: 2, sweeper: 1, slag: 2, cryo: 1, rebar: 1, volatile: 1, tar: 1, magnetic: 1 },
+    mark: 10,
+  }),
 
   draft: () => draft([]),
+  // The Skydeck's own draft, both states, for the same reason the ladder's
+  // ships both — and because its bank cell and its clause-loaded projection
+  // are not reachable through the fixtures above.
+  //
+  // THE FIVE SKYDECK FIXTURES ARRIVE CARRYING 26 BASELINE ENTRIES between them,
+  // which is not the usual direction of travel and is worth stating (the same
+  // statement "pause-pad" makes below, for the same reason). Every one of them
+  // is byte-identical to an entry its LADDER twin already records — the tower's
+  // undersized floor plates under `menu`, `.draft__body`'s 800x600 scroll under
+  // `draft`, the HUD's chips and badge air under `bayclear`. A new fixture over
+  // known-defective chrome inherits that chrome's known list; the Skydeck's own
+  // markup (the recap panel's clause rows, the draft's clause cell, the
+  // bay-clear card's swapped stat) measures clean on all nineteen rows.
+  "draft-skydeck": () => skydeckDraft([]),
+  "draft-skydeck-picked": () => skydeckDraft(["cost"]),
   // The draft with a notch SELECTED is the taller state — the projection grows
   // a struck-through old value on every row the pick moves, and the capstone's
   // two-pick hand moves the most rows at once. Measured as its own screen so a
   // projection that fits empty and overflows selected cannot pass.
   "draft-picked": () => draft(["cost", "sweeper"]),
+
+  // The forced-material hand, PICKED — one fixture, not the pair the ordinary
+  // draft ships. This one measures the card's title row, and after the badge
+  // and the box moved to the footer that row is name-and-glyph in every state:
+  // an unpicked twin would measure the same geometry twice. Picked rather than
+  // empty because it is the state the player reported, and the state whose
+  // footer carries the most (a lit box AND the level badge the pick created).
+  "draft-material-picked": () => materialDraft(["volatile", "magnetic"]),
 
   // The Final Inspection, both states, for the same reason the draft ships
   // both: accepting a clause grows a struck-through old value on every row it
@@ -741,9 +1128,54 @@ export const SCREENS: Record<string, () => string> = {
   "end-won": () => endModal(true),
   "end-lost": () => endModal(false),
   // Tier S's end. The progress row is replaced wholesale (no tier, no salvage,
-  // no Workshop invitation) and the action row grows a third button, which is
-  // the widest that row ever gets.
+  // no Workshop invitation) and the action row carries the bench button in
+  // place of the bay retry the mode does not offer.
   "end-sandbox": () => endModal(false, true),
+
+  // THE ONE-TIME SEAL NOTICE (screens.ts's sealBreakModal), over the paused bay
+  // it is priced against — the placement main.ts renders it in. Two paragraphs
+  // and a two-button row: the whole panel is prose, so it is the copy budget
+  // rather than a control that decides whether it fits, and it is the only
+  // panel in the game a player is expected to read every word of.
+  //
+  // The widest numbers it can hold: a two-digit bay, a two-digit Mark, and a
+  // seal count one short of the ladder — with `tier: null`, which is the LONGER
+  // of the two second paragraphs the panel can print and therefore the one this
+  // fixture has to measure.
+  //
+  // MEASURED, not assumed. The obvious guess is the other way round — the
+  // frontier branch adds a whole "Tier N still opens." sentence the re-fly
+  // branch drops — and it is wrong: stripped of tags, the frontier paragraph
+  // runs 457 characters against the fallback's 487, because what replaces that
+  // sentence ("Everything else this run can earn, it still earns — the run
+  // counts and its salvage banks.") is longer than it is. This comment shipped
+  // asserting the opposite for exactly one commit, which is why the number is
+  // written down here instead of the claim.
+  //
+  // It is also the branch a Mark-10 save really produces (meta.ts's
+  // tierOpenableBy returns null on a finished ladder), so the worst case and
+  // the honest case are the same panel here.
+  //
+  // …and `explain: true`, the LONG form, for the same reason and on the same
+  // kind of measurement. The panel now has two lengths as well as two branches
+  // — the first-time explainer and the confirmation every seal-breaking retry
+  // after it — and all four combinations were measured rather than reasoned
+  // about: 457 / 487 chars with the lesson, 263 / 293 without it. The long
+  // re-fly panel is the maximum of the four, and the short form is a strict
+  // subset of it (the same panel with one paragraph removed, the same width,
+  // the same button row), so measuring the maximum covers both and a second
+  // fixture would buy the matrix nothing.
+  //
+  // It arrives carrying two baseline entries, exactly as `pause-pad` did and
+  // for the identical reason: they are the 800x600 window's undersized ability
+  // chips and tight rig badges, byte-for-byte the ones `pause` already records,
+  // because the HUD UNDER the modal is the same HUD. A new fixture over
+  // known-defective chrome inherits that chrome's known list; the panel itself
+  // measures clean on all nineteen rows.
+  "seal-break": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) + S.sealBreakModal({
+      bayNum: RUN_LEVELS, mark: MARK_COUNT, tier: null, sealed: MARK_COUNT - 1, explain: true,
+    }),
 
   // TIER S itself, in all three of the shapes it takes. The mode ships, so
   // these are shipping screens and are held to the same fit budget as every
@@ -780,6 +1212,63 @@ export const SCREENS: Record<string, () => string> = {
       nextInstall: { name: "Demolition Rack", cost: 40 },
     }),
 
+  // THE LAST RUNG. A tier completion that opens no floor says so, and says
+  // what is still open instead (screens.ts's tierOpenedClause) — which makes
+  // this the LONGEST the salvage row's body ever gets: the same three-part
+  // sentence as any completion, with a clause naming the shelf and the seals
+  // where the other states print "Tier N is open". Measured rather than
+  // assumed, because that row wraps inside a fixed-height modal.
+  "contract-end-ladder": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "pattern",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: ["I", "O", "T", "L", "J", "S", "Z", "I"] as PieceType[],
+      cubesWasted: 6,
+      award: { firstClear: true, completedTier: MARK_COUNT, salvage: 15 },
+      progress: tierProgressFor({ ...newMeta(), mark: MARK_COUNT }),
+      salvageTotal: 1_700,
+      nextInstall: { name: "Demolition Rack", cost: 40 },
+    }),
+
+  // THE STATE MOST CLEARS LAND IN, and until this fixture the only one of the
+  // Contract end's five payout banners that nothing measured. Two of every
+  // three clears in a tier tick the quota rather than complete it, so this is
+  // the row a player reads most and the two fixtures above are the rare ends.
+  //
+  // It is also the banner's WIDEST HEADING: a completion heads it "Tier 10
+  // complete!", a quota tick "Tier 2 · Contracts 0/3" — 22 characters against
+  // 17, in --font-pixel, whose advance is a full em. Measured at the roomy
+  // 11px that heading is ~256px against the 290px column the 1280x720 row
+  // gives it, which is the closest this row's heading comes to wrapping
+  // anywhere in the matrix; a point more and it costs a line of modal height.
+  //
+  // The body is the sentence at its longest reachable shape: an award to
+  // announce, a quota still open, and a target price to walk toward, with the
+  // inline pixel-face emphasis mid-sentence rather than at its end (where the
+  // completion states put it). 0/3 rather than 1/3 because "3 more Contracts"
+  // is the plural, and the Deep Run clause rides along while runDone is false.
+  "contract-end-progress": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "pattern",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: ["I", "O", "T", "L", "J", "S", "Z", "I"] as PieceType[],
+      cubesWasted: 6,
+      award: { firstClear: true, completedTier: null, salvage: 15 },
+      progress: { tier: 2, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+      salvageTotal: 1_700,
+      nextInstall: { name: "Demolition Rack", cost: 40 },
+    }),
+
   // The Tier S variant of the same modal: the award row is replaced and the
   // actions point back at the bench, so it is a different row count and a
   // different widest string.
@@ -803,6 +1292,27 @@ export const SCREENS: Record<string, () => string> = {
 
 function endModal(won: boolean, sandbox = false): string {
   return S.endModal({
+    // THE EXITS AT THEIR WIDEST. A lost ladder run is the only shape that draws
+    // all four — Retry Run, Retry Bay with its broken-seal glyph, Contracts
+    // with the NEXT STEP badge, and Menu — over the sentence that prices the
+    // retry, which is the row's real worst case and the one line above it that
+    // can wrap. A win draws three (no bay to hand back) and Tier S draws its
+    // own three, so both of those states are still measured by the other two
+    // fixtures rather than being replaced by this one.
+    contracts: { remaining: 3, next: !won },
+    // …and the seal line at ITS widest, which is now the "held" state — a
+    // re-fly of an already-sealed Mark (run.ts's sealStateFor, added for the
+    // #135 P2). MEASURED, not guessed, because the last fixture in this file
+    // shipped a wrong guess about exactly this: stripped of tags the three
+    // lines run 113 (held) / 96 (at-stake) / 69 (spent) characters, so the
+    // state this row has to be measured against is the one that names a Mark
+    // and explains why the press is free. Two digits in the Mark for the same
+    // reason the bay number is a worst case.
+    //
+    // The glyph is the same box in all three (same clip, same 11px), so this
+    // choice moves the line and nothing else — which is why one fixture still
+    // covers the row rather than three.
+    retryBay: !won && !sandbox ? { seal: "held" as const, mark: 10 } : undefined,
     // The board a run posts to is its own Mark (main.ts's boardTier).
     boardTier: 1,
     won,
@@ -834,6 +1344,20 @@ function endModal(won: boolean, sandbox = false): string {
     // value buys is the row at its real height, which is what the fit,
     // offscreen and tap assertions measure the rest of the modal against.
     salvagedFunds: 12_480,
+    // Non-zero for the same reason, and on the row that actually constrains:
+    // the detonation segment lands in the end card's BREAKDOWN (screens.ts's
+    // volatileFoot), which is a one-line muted row under the stat trio rather
+    // than the wrapping sandbox foot above. Five digits is the widest this can
+    // plausibly read — a Tier-10 bay's charge is a quarter of a spill fine that
+    // tops out around $43/cube (level.ts), so a run that ate detonations all
+    // the way down is in this range and nothing is above it.
+    volatileLosses: 10_240,
+    // ...and the Incinerator's saving, which lands on the SAME breakdown row
+    // immediately after it — so this fixture measures the row at its widest
+    // realistic content rather than at one segment of it. Five digits again,
+    // and the bound is the same one: the hood can never remit more than the
+    // bills beside it charged.
+    incineratedFunds: 10_240,
     tiers: HUD_BASE.tiers,
   });
 }
@@ -885,13 +1409,39 @@ export const SCREEN_IDS = Object.keys(SCREENS);
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,
   demo: HUD_BASE.demoOwned,
+  thaw: HUD_BASE.thawOwned,
   auto: HUD_BASE.autoloaderOwned,
 };
-const NO_RAIL = { bond: false, demo: false, auto: false };
-export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
+/** The rail `hud-lance` and `hud-rig4` render: the REACHABLE three-ability
+ *  worst case, where HUD_LOADOUT above is the legacy one. Same slot count (7
+ *  with a fullscreen toggle), different third button — see the fixture, and
+ *  HUD_BASE's `thawOwned` note for why the two are separate objects rather than
+ *  one object carrying four abilities at once. The two screens differ in their
+ *  RACK, not in their rail, so they share this. */
+const LANCE_RAIL = { bond: true, demo: true, thaw: true, auto: false };
+const NO_RAIL = { bond: false, demo: false, thaw: false, auto: false };
+export function railLoadoutFor(
+  id: string,
+): { bond: boolean; demo: boolean; thaw: boolean; auto: boolean } {
+  if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
-    || id === "bayclear"
+    // …and "pause-armed", which is `pause` with one more row on the card and
+    // the SAME HUD behind it. It reproduced the identical eleven `offscreen`
+    // findings the two entries below record, from the identical cause.
+    || id === "pause-armed"
+    // "bayclear-clause" is the same card over the same HUD, so it needs the
+    // same rail: without it the harness sizes the rail for a bare loadout
+    // while the markup still renders three ability buttons, and they overflow
+    // the bottom of every phone in the matrix — twelve `offscreen` findings
+    // that are the fixture's own doing rather than the screen's.
+    || id === "bayclear" || id === "bayclear-clause"
+    // …and "seal-break" for the identical reason, which it reproduced exactly:
+    // the notice is a modal over the same HUD as `pause`, and without this the
+    // harness sized a bare rail under three rendered ability buttons and
+    // reported twelve `offscreen` findings that belong to the fixture rather
+    // than to the panel.
+    || id === "seal-break"
     ? HUD_LOADOUT
     : NO_RAIL;
 }

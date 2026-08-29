@@ -36,6 +36,52 @@ const ANGLE_RATE = 0.02; // rad/step (~0.6 rad/sec @ 60fps) — grinds, doesn't 
 const SETTLE_SLOT_TOL = 0.5 * CELL; // only pull cubes already this close to a slot center
 const X_RATE = 0.5; // px/step positional pull toward the nearest slot center
 
+/**
+ * THE RIGID SHIPMENT'S SHARE OF THE PRESS'S GRIND.
+ *
+ * A rigid material's card (hazards.ts's Rebar Contract) sells one cost and one
+ * only: *"what lands is what you keep"* — theme.ts spells it out as **"a bad
+ * landing cannot be squeezed, shoved or shattered into a better one, and the row
+ * has to be built around it."** Two of those three verbs were already true.
+ * `pieces.ts` gives the joints an Infinity break stretch so nothing SHATTERS
+ * them, and `breakJointsInBand` exempts them so the press cannot shatter them
+ * either — but `settleZoneCubes` went right on SQUEEZING and SHOVING them, at
+ * full strength, because it reads cubes and never asked what was holding them
+ * together.
+ *
+ * Worse than merely not costing anything: it made rigid cargo *better* than
+ * ordinary cargo. A shipment whose joints will not break is a four-cube stamp
+ * whose cubes sit at exact CELL spacing forever, so every cube in it carries the
+ * same correction and the press grinds the whole piece onto the slot grid in one
+ * coherent motion. An ordinary shipment shatters on landing and each loose cube
+ * has to find its own slot. Measured at Tier 8 bay 10 on the material rig, a
+ * belt one third rebar cleared MORE lines in FEWER shots than a clean belt (see
+ * design/balance/winnability-sweep-findings.md §8). "A notch is pure cost" is
+ * hazards.ts's founding rule, and rebar was breaking it exactly the way volatile
+ * was before `VOLATILE_LOSS_SHARE`.
+ *
+ * So the press's assist reaches a still-bonded rigid shipment at this fraction
+ * of its strength. Not zero, deliberately: a cube the press can never square is
+ * a lose button rather than a difficulty knob (hazards.ts's floor argument), and
+ * the honest reading of a hydraulic press against a welded cage is that it
+ * *works* — slowly, over several strokes, buying its row in press time and
+ * launches instead of getting it for free.
+ *
+ * The exit is the one theme.ts already promises: *"The answer is the Bond
+ * Emitter: a Bond Breaker charge is the one thing that splits it."* A charge
+ * removes the joints, and the moment they are gone these cubes are loose cubes
+ * and grind at full rate. Before this the emitter's only job on a rebar belt was
+ * slumping the pile; now it is the difference between a rebar row that squares
+ * up and one that does not.
+ *
+ * Gated on the MATERIAL rather than on `breakStretch === Infinity`, which is the
+ * same test `breakJointsInBand` uses. That test would also catch every joint on
+ * an unbreakable-bonds bay (finals.ts's clause, level.ts's `breakStretch`), and
+ * quietly re-pricing a Final Inspection clause while re-pricing a material is
+ * the collateral this change is specifically avoiding.
+ */
+export const RIGID_SETTLE_ASSIST = 0.3;
+
 function clamp(v: number, limit: number): number {
   return Math.max(-limit, Math.min(limit, v));
 }
@@ -145,6 +191,93 @@ export const VOLATILE_TRIGGER_SPEED = 22;
  *  cube itself — volatile takes its NEIGHBOURS, not a crater. */
 export const VOLATILE_BLAST_CELLS = 1.6;
 
+/** A bay with no Impact Cushion aboard: no liner, no softening. Passed by every
+ *  caller that does not have a rig, so the positional branch below is exercised
+ *  identically whether or not the track exists. */
+export const NO_CUSHION: CushionSpec = { cells: 0, mult: 1 };
+
+/** The Impact Cushion as the collision side sees it: a liner `cells` deep
+ *  measured from the wall, softening arrivals inside it by `mult`. */
+export interface CushionSpec {
+  /** Depth of the liner from WALL_INNER, in cells. 0 = no liner. */
+  cells: number;
+  /** Multiplier on the trigger speed for cargo landing inside it. 1 = none. */
+  mult: number;
+}
+
+/**
+ * Which body of a colliding pair ARRIVED — the one that carried the impact in,
+ * rather than the one that stood there and took it. Null when neither did: two
+ * cubes of a settling pile touching as it grinds flat.
+ *
+ * strikeCryo's rule read the other way round, and its one-line comment is the
+ * whole idea: "Settled = it is the target, not the projectile." Cryo must be at
+ * rest to count as struck, so the arriving body is the one that is NOT at rest
+ * — and, where a churning pile has both of them moving, the faster of the two,
+ * because a landing is asymmetric even when nothing in it is still.
+ *
+ * Speed rather than a flag on the cube, because the physics world is the only
+ * thing that knows: a cube a blast threw across the bay is arriving at whatever
+ * it lands on next exactly as much as a fresh shipment is, and nothing marked
+ * it as launched.
+ */
+export function arrivingBody(a: Matter.Body, b: Matter.Body): Matter.Body | null {
+  const aSq = a.velocity.x * a.velocity.x + a.velocity.y * a.velocity.y;
+  const bSq = b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y;
+  if (Math.max(aSq, bSq) <= SETTLE_SQ) return null;
+  return aSq >= bSq ? a : b;
+}
+
+/**
+ * The x a cushion liner's near edge sits at — the boundary cargo is softened
+ * ACROSS.
+ *
+ * Lives here rather than at each of its two readers for exactly the reason
+ * Compactor.strandCutoffX does, and that note says it best: the readers "all
+ * have to agree on it exactly", because "a warning drawn against one number and
+ * a penalty charged against another is a game lying about its own rules". This
+ * one has two readers and they are the two halves of that sentence —
+ * volatileBlast decides whether an impact was softened, and render.ts's
+ * drawCushion draws the line the player aims against.
+ */
+export function cushionEdgeX(cells: number): number {
+  return WALL_INNER - cells * CELL;
+}
+
+/**
+ * The trigger multiplier one arrival actually meets.
+ *
+ * Two independent things write it and they compose by multiplication, which is
+ * the arithmetic softening a blow and raising a threshold already share: the
+ * comparison is `rel < VOLATILE_TRIGGER_SPEED * mult`, so a liner that takes
+ * 30% off an impact and a liner that lifts the threshold 30% are the same
+ * statement. `clauseMult` is finals.ts's Hair Trigger, field-wide and below 1;
+ * `cushionMult` is the rig's liner, positional and above 1.
+ *
+ * THE FLOOR IS THE WHOLE REASON THIS IS A FUNCTION. A clause is an exam: the
+ * Tier-7 pair is what a Tier-7 rig is asked to answer, and Hair Trigger asks it
+ * by priming volatile finer than stock. A cushion should be able to SIT that
+ * exam — buy the bay back up to an ordinary one, which is a real purchase and
+ * exactly the trade the clause is offering — but a maxed cushion multiplies
+ * 0.85 by 1.40 and lands at 1.19, walking past the exam into a bay *safer than
+ * one with no clause at all*. The proposal that specified this system found the
+ * overshoot in its own prototype and called the arithmetic unavoidable, because
+ * it is: any cushion that reaches its stated job (30.8/22 = 1.40, no arrival
+ * detonates) clears 1/0.85 = 1.176 on the way there.
+ *
+ * So the fix goes on the clause side, as a FLOOR rather than a re-sizing:
+ * where something has primed the bay finer than stock, a cushion may lift it
+ * back to stock and no further. Under Hair Trigger a maxed cushion is worth
+ * exactly the clause — 0.85 → 1.00 — and the bay is ordinary, never gentle.
+ * Written as a rule about any sub-stock multiplier rather than about Hair
+ * Trigger by name, so a second clause that primes volatile inherits it.
+ */
+export function cushionedTrigger(clauseMult: number, cushionMult: number): number {
+  const clause = clauseMult > 0 ? clauseMult : 1;
+  const combined = clause * (cushionMult > 0 ? cushionMult : 1);
+  return clause < 1 ? Math.min(1, combined) : combined;
+}
+
 /**
  * Which cubes a volatile impact destroys, if any.
  *
@@ -173,13 +306,49 @@ export function volatileBlast(
    *  before the knob existed. Below 1 the material is primed finer — see the
    *  field's doc for why this is a multiplier rather than an absolute speed. */
   triggerMult = 1,
+  /** The rig's liner (level.ts's cushionCells / cushionMult). Defaults to none,
+   *  so every existing caller keeps the field-wide behaviour it had. */
+  cushion: CushionSpec = NO_CUSHION,
 ): Cube[] {
-  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
-  if (rel < VOLATILE_TRIGGER_SPEED * (triggerMult > 0 ? triggerMult : 1)) return [];
+  // WHICH CUBE, BEFORE HOW FAST — the order is load-bearing now and was not
+  // before. The threshold this impact has to clear depends on WHERE the
+  // volatile cube is, so the speed test cannot be made until the primed cube is
+  // known. A pair with nothing volatile in it still costs one find() and
+  // leaves, exactly as it did when the speed test came first.
   const primed = cubes.find(
     (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
   );
   if (!primed) return [];
+  // Inside the liner or outside it, measured on the volatile cube that ARRIVED
+  // — which is `primed` itself for every impact that has one moving body, and
+  // is only a different cube when a volatile shipment comes down on a volatile
+  // cube already lying there. A hard edge rather than a ramp: the player has to
+  // be able to look at the bay and know whether a slot is lined, and a soft
+  // falloff would make the same shot detonate or not for reasons nothing on
+  // screen explains.
+  //
+  // AND IT IS A LANDING THAT IS INSURED, NOT A CUBE. The liner is bedding a
+  // volatile shipment comes down ON — upgrades.ts sells exactly that ("the deep
+  // slots it lines are where volatile lands without going off") and ECONOMY.md
+  // spells out the other half ("a cube still goes off when something lands hard
+  // on top of it"). Ask this of `primed` alone and the second sentence is false
+  // in the code: a volatile cube AT REST in a lined slot reads its own position
+  // and softens an impact it played no part in, so ordinary cargo could be
+  // dropped on a bomb at full power and the bomb would sit there. A maxed liner
+  // would then make the material inert everywhere it lies deep, which is the
+  // one thing hazards.ts forbids outright — "a system does not DELETE a
+  // hazard". A landing happens once; this is the insurance on it.
+  const arriving = arrivingBody(a, b);
+  const landing = primed.body === arriving
+    ? primed
+    : cubes.find((c) => c.body === arriving && MATERIAL_SPEC[c.material].detonates);
+  const lined = cushion.cells > 0
+    && landing !== undefined
+    && landing.body.position.x >= cushionEdgeX(cushion.cells);
+  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+  if (rel < VOLATILE_TRIGGER_SPEED * cushionedTrigger(triggerMult, lined ? cushion.mult : 1)) {
+    return [];
+  }
   const r = VOLATILE_BLAST_CELLS * CELL;
   const p = primed.body.position;
   return cubes.filter((c) => {
@@ -217,6 +386,200 @@ export function slagBountyFor(destroyed: Cube[], perCube: number): number {
     if (!MATERIAL_SPEC[cube.material].countsForLines) n += 1;
   }
   return n * perCube;
+}
+
+/**
+ * What a VOLATILE detonation costs the bay for the LIVE cargo it obliterated.
+ *
+ * The exact mirror of slagBountyFor above, and the two are one rule read in
+ * both directions: **pay for the dead, charge for the live.** Same test, same
+ * unit, same funds-only stance — `countsForLines`, per cube, the bay's
+ * operating budget and never scrap.
+ *
+ * WHY THIS EXISTS, measured. slagBountyFor's own note already states the
+ * design's intent in one line — "Live cargo a hazard obliterated is still a
+ * pure loss" — and until now that sentence was true of the fiction and false of
+ * the economy. Nothing was billed. A detonation deleted cargo the player had
+ * paid to launch and the ledger did not notice.
+ *
+ * That is not a rounding error, because deleting cargo is worth something: it
+ * THINS THE PILE. Measured on the winnability harness at Tier 7 bay 10 over 16
+ * paired seeds, a belt at the volatile cap ran a mean pile of 20.2 cubes
+ * against a clean bay's 31.4, and won 16/16 where clean won 14/16 — a hazard
+ * notch that made the bay easier. hazards.ts states the contract it broke in
+ * the plainest words in that file: "It is mandatory and unrewarded. […] A notch
+ * is pure cost."
+ *
+ * So the charge is deliberately PROPORTIONAL TO THE RELIEF. A detonation in an
+ * empty bay catches nothing and costs nothing; one in a packed pile catches the
+ * most cargo, gives the most relief, and is billed the most. That inversion is
+ * the whole fix — it prices the benefit rather than suppressing the event, so
+ * volatile keeps its character (a hazard that goes off when you land hard, and
+ * whose cost lands on cubes that were already down) and stops being a bargain.
+ *
+ * NOT a second lever on how OFTEN it goes off. lineClear.ts's
+ * VOLATILE_TRIGGER_SPEED note sizes 22 against a measured arrival range and
+ * says why it sits "between the two halves of the dial"; moving it would make
+ * detonations MORE frequent, which — given the measurement above — amplifies
+ * the benefit while adding an unrelated cost, and would silently re-price both
+ * finals.ts's Hair Trigger and anything else reading volatileTriggerMult. One
+ * knob, aimed at the thing that was actually wrong.
+ */
+export function volatileLossFor(
+  destroyed: Cube[],
+  perCube: number,
+  /** The share of THIS cube's charge the Incinerator remits, 0..1 — read from
+   *  the cube's position at the moment the blast razed it (game.ts's
+   *  resolveVolatile calls this with the bodies still holding their last
+   *  position). Defaults to none, so every existing caller and every bay with
+   *  no hood aboard prices a blast byte-identically to before the track
+   *  existed.
+   *
+   *  PER CUBE, and that is a rule rather than a convenience. A blast can
+   *  straddle the flue plane — one cube caught in the air over the machine,
+   *  three down in the pile — and pricing the whole blast off its centroid
+   *  would let a single high cube buy the discount for everything under it,
+   *  which is the opposite of what a positional system is for. */
+  relief: (cube: Cube) => number = () => 0,
+): number {
+  let owed = 0;
+  for (const cube of destroyed) {
+    if (!MATERIAL_SPEC[cube.material].countsForLines) continue;
+    owed += chargeAfterRelief(perCube, relief(cube));
+  }
+  return owed;
+}
+
+/**
+ * One cube's loss charge after the Incinerator has taken its share.
+ *
+ * The single place the relief arithmetic happens, shared by both bills the hood
+ * discounts (this file's volatile charge and game.ts's spill fine), so the two
+ * can never round a quarter differently. Rounded per CUBE rather than on a
+ * batch total for the same reason the relief is applied per cube: a batch that
+ * straddles the flue has to be priced a cube at a time, and once it is, the
+ * batch total is just their sum.
+ *
+ * Clamped both ends. A relief above 1 would PAY the player for losing cargo,
+ * which is the income-strategy inversion `slagBountyFor` refuses in the
+ * neighbouring note; a negative one would surcharge it. Neither is a state the
+ * ladder can produce today — INCINERATOR_TIERS stops at 0.75 — and the clamp is
+ * here so that stays true of a saved loadout somebody hand-edited.
+ */
+export function chargeAfterRelief(perCube: number, relief: number): number {
+  const r = Math.max(0, Math.min(1, relief));
+  return Math.round(perCube * (1 - r));
+}
+
+/**
+ * What a relief actually SAVED the bay — the difference between the two charges
+ * after each has met the same clamp.
+ *
+ * THE DISTINCTION THIS EXISTS FOR, found in review (codex, PR #156). The
+ * discount is applied BEFORE the clamp, and settleBlast's own note argues at
+ * length why it must be: after the clamp it would remit money that never moved,
+ * and would be worth nothing to the near-broke player the hood was asked for.
+ * That is the right rule for what the bay is CHARGED, and the ledger then
+ * quietly inherited it for what the bay SAVED — which is a different question
+ * with a different answer.
+ *
+ * The case that separates them: a bay holding $10 meets a $40 gross fine, and a
+ * maxed hood cuts it to $10. Both bays lose the same $10 — the clamp was going
+ * to take everything either way — so the hood saved NOTHING, and the readout
+ * was reporting $30. Scaling the nominal discount by the share of the bill that
+ * landed (the old `saved * deducted / owed`) is exactly wrong here, because the
+ * discounted bill landed in FULL while the gross one would not have.
+ *
+ * So: clamp both, independently, and subtract. `ceiling` is whatever the caller's
+ * clamp is measured against — the bankroll for a spill fine, the bankroll plus
+ * the blast's own bounty for a detonation — and passing it in is what keeps this
+ * one rule usable by both bills without either re-deriving the other's clamp.
+ *
+ * Never negative by construction: min() is monotone and `discounted <= gross`
+ * whenever the relief is in range (chargeAfterRelief clamps it there).
+ */
+export function reliefRealised(ceiling: number, gross: number, discounted: number): number {
+  return Math.min(ceiling, gross) - Math.min(ceiling, discounted);
+}
+
+/**
+ * The same rule for a DETONATION: what the hood saved is the difference between
+ * what the same blast actually charged with and without it.
+ *
+ * A named function rather than a subtraction at the call site, because it is the
+ * one place the blast path can be pinned. It takes two SETTLEMENTS rather than
+ * two bills and a ceiling, and that is the whole reason it is not
+ * `reliefRealised` with different arguments: a blast's clamp is measured against
+ * `funds + bounty` (settleBlast's netting rule), so re-deriving the ceiling
+ * anywhere outside settleBlast would be a second copy of the formula most likely
+ * to move. Handed two settlements of the same blast at the same funds, the
+ * ceiling is identical by construction and cancels — this IS `reliefRealised`,
+ * evaluated by the function that owns the clamp.
+ */
+export function blastRelief(bare: BlastSettlement, hooded: BlastSettlement): number {
+  return bare.charged - hooded.charged;
+}
+
+/** What one detonation actually moves on the bay's ledger. */
+export interface BlastSettlement {
+  /** Paid for the dead cargo — the gross figure, before anything is taken. */
+  bounty: number;
+  /** Taken for the live cargo, AFTER the balance clamp. May be under `owed`. */
+  charged: number;
+  /** What `owed` would have been with unlimited funds. `charged` ≤ this. */
+  owed: number;
+  /** The single number to add to the bay's funds: `bounty - charged`. */
+  net: number;
+}
+
+/**
+ * Settle ONE detonation against the bay's funds — the dead cargo's payout and
+ * the live cargo's charge, netted, in a single statement.
+ *
+ * IT HAS TO BE ONE STATEMENT, and it is worth saying why, because the obvious
+ * version reads correctly and is not. Charging first and crediting afterwards
+ * clamps the charge against the balance *as it stood*, so a bay at $0 could
+ * take a blast that killed one standard cube and one slag cube, pay nothing —
+ * there was nothing to clamp against — and then collect the bounty in full. The
+ * near-broke player, which is precisely the player the charge is aimed at, got
+ * the relief for free and stepped around the broke path the clamp exists to
+ * route them into. Netting first closes it: the charge comes out of the bounty
+ * before either reaches the balance.
+ *
+ * The clamp itself stays, for the reason the spill fine has one (see
+ * Game.loseCubes): the bay's funds are its operating budget, a hazard may empty
+ * it, and a negative bankroll is not a state this economy has. Going broke is
+ * already a loss condition with a grace window attached, and that is the route
+ * a player who genuinely cannot pay should take.
+ */
+export function settleBlast(
+  destroyed: Cube[],
+  funds: number,
+  perLiveCube: number,
+  perDeadCube: number,
+  /** The Incinerator's per-cube relief (see volatileLossFor). */
+  relief: (cube: Cube) => number = () => 0,
+): BlastSettlement {
+  const bounty = slagBountyFor(destroyed, perDeadCube);
+  // THE HOOD TOUCHES THE CHARGE AND ONLY THE CHARGE, and it does it HERE —
+  // before the netting, before the clamp. Three rulings in one line, each of
+  // which the obvious alternative gets wrong:
+  //
+  //  - Not the BOUNTY. That is payment for dead cargo, and a hood that raised
+  //    it would make burning slag a way to earn — the exact income strategy
+  //    slagBountyFor's note refuses ("paying for one would make ratcheting the
+  //    volatile axis an income strategy").
+  //  - Before the NETTING, because this function's whole argument is that the
+  //    charge must meet the bounty before either reaches the balance. Relief
+  //    applied to `net` afterwards would silently discount the bounty too, and
+  //    on a mixed blast that is a different number.
+  //  - Before the CLAMP, because the clamp forgives what the player cannot pay.
+  //    Discounting after it would remit money that never moved — the same lie
+  //    the "−$" toast refuses to print — and would make the hood worth nothing
+  //    at all to the near-broke player, who is the one it was asked for.
+  const owed = volatileLossFor(destroyed, perLiveCube, relief);
+  const charged = Math.min(funds + bounty, owed);
+  return { bounty, charged, owed, net: bounty - charged };
 }
 
 /**
@@ -349,7 +712,17 @@ function zoneGrid(
  * owns Y. Safe to call every step while pressing — matter-js tolerates small
  * per-step kinematic corrections on near-resting bodies.
  */
-export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: LevelConfig): void {
+export function settleZoneCubes(
+  cubes: Cube[],
+  compactor: Compactor,
+  level: LevelConfig,
+  /** The field's live joints, so the grind can tell a rigid shipment that is
+   *  still a SHIPMENT from one a Bond Breaker has already taken apart. Optional
+   *  because every caller that has no joints to offer (a field of loose cubes —
+   *  a standing wall, a test) wants exactly today's behaviour, and a missing
+   *  argument should not silently soften a hazard. */
+  constraints?: Matter.Constraint[],
+): void {
   const zone = zoneGrid(compactor, level);
   const face = zone ? zone.face : compactor.x + compactor.width / 2;
   const minX = face - SETTLE_X_MARGIN;
@@ -362,9 +735,29 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
   const angleRate = ANGLE_RATE * assist;
   const xRate = X_RATE * assist;
 
+  // Body ids still held by a live joint. Built once per call rather than
+  // searched per cube: the press already walks this array every step
+  // (breakJointsInBand), and a per-cube scan would be O(cubes x constraints) on
+  // the hottest loop in the file. Empty when the caller passed no joints, which
+  // is the same thing as "every cube on this field is loose".
+  const bonded = new Set<number>();
+  if (constraints) {
+    for (const c of constraints) {
+      if (c.bodyA) bonded.add(c.bodyA.id);
+      if (c.bodyB) bonded.add(c.bodyB.id);
+    }
+  }
+
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
     const b = cube.body;
+    // A RIGID SHIPMENT RESISTS THE GRIND while its joints still hold — see
+    // RIGID_SETTLE_ASSIST. Read off the material and the joint together: a
+    // rebar cube a Bond Breaker has freed is a loose cube and grinds like one.
+    const rigidMult = MATERIAL_SPEC[cube.material].rigid && bonded.has(b.id)
+      ? RIGID_SETTLE_ASSIST
+      : 1;
+    if (rigidMult <= 0) continue;
     if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
     if (b.position.x <= minX) continue; // left of the compactor's reach — untouched
 
@@ -389,7 +782,7 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
     const angleDelta = target - b.angle;
     if (Math.abs(angleDelta) <= SETTLE_ANGLE_CAP && Math.abs(angleDelta) > 1e-4) {
       Matter.Sleeping.set(b, false);
-      Matter.Body.setAngle(b, b.angle + clamp(angleDelta, angleRate));
+      Matter.Body.setAngle(b, b.angle + clamp(angleDelta, angleRate * rigidMult));
     }
 
     // Slot pull: nudge slowly toward the nearest wall-anchored slot center,
@@ -401,7 +794,7 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
         const dx = slotXk - b.position.x;
         if (Math.abs(dx) <= SETTLE_SLOT_TOL && Math.abs(dx) > 0.5) {
           Matter.Sleeping.set(b, false);
-          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, xRate), y: b.position.y });
+          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, xRate * rigidMult), y: b.position.y });
         }
       }
     }
@@ -626,6 +1019,54 @@ export function shatterColdCryo(
   for (const r of removed) wakeNear(cubes, r.x, r.y);
 
   return { cubes: removed, rows };
+}
+
+/**
+ * The frozen cube the press will reach NEXT — the Thaw Lance's target
+ * (game.ts's useThawLance), or null when the bay has nothing to thaw.
+ *
+ * WHY THE LANCE AIMS ITSELF. The charge sits on the ability row beside the Bond
+ * Breaker, and the Bond Breaker takes no aim — a player learns one control and
+ * has learned both. A button that then thawed an ARBITRARY frozen cube would be
+ * unreadable, so the target is a rule the player can hold in their head and
+ * predict: the bar is coming, and the lance melts what it is about to hit.
+ *
+ * That is also the only target worth a charge, which is why this is a rule and
+ * not a convenience. shatterColdCryo is what happens to a frozen cube that
+ * reaches the advancing face — it breaks, and it knocks its whole row off the
+ * slot grid on the way out. The cube in front of the bar is therefore the one
+ * cube whose cost is about to be paid; a cube three slots deeper is a problem
+ * the player still has time to solve with a shipment, which is the counter-play
+ * cryo is supposed to be about (strikeCryo's note). The lance buys back the
+ * shot for the cube you ran out of time on, never the whole material.
+ *
+ * WHICH IS FIRST is the bar's own geometry: the face advances rightward
+ * (shatterColdCryo reads `compactor.x + width/2`), so the smallest x is next.
+ *
+ * THREE EXCLUSIONS, each of which is a wasted charge rather than a nicety:
+ *  - STRANDED cargo, left of compactor.strandCutoffX. The bar can never reach
+ *    it, so it is never pressed and never shatters — markLostPieces is what
+ *    happens to it instead. Without this line a stranded cube would have the
+ *    smallest x on the field and would swallow every charge in the rack.
+ *  - Cubes ABOVE the bar's reach (the same `position.y < compactor.top` test
+ *    shatterColdCryo makes), which the press does not touch either.
+ *  - Cubes still MOVING. strikeCryo refuses to thaw a cube that is not already
+ *    at rest — "it is the target, not the projectile" — and a lance that
+ *    thawed shipments in flight would delete the sequencing the material is,
+ *    rather than pay for it.
+ */
+export function nextColdCryo(cubes: Cube[], compactor: Compactor): Cube | null {
+  let best: Cube | null = null;
+  for (const cube of cubes) {
+    if (cube.blinkStart !== null || cube.struck) continue;
+    if (!MATERIAL_SPEC[cube.material].needsStrike) continue;
+    const b = cube.body;
+    if (b.position.y < compactor.top) continue;
+    if (b.position.x < compactor.strandCutoffX) continue;
+    if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
+    if (!best || b.position.x < best.body.position.x) best = cube;
+  }
+  return best;
 }
 
 /**

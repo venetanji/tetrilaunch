@@ -1,7 +1,8 @@
 import { HAZARDS, type HazardId, type Ratchets } from "./hazards";
-import { mixTotal } from "./belt";
+import { mixTotal, MATERIAL_ROLL_ORDER } from "./belt";
 import type { LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
+import { MATERIAL_SPEC, type Material } from "./theme";
 
 /**
  * NEXT-BAY PROJECTION — the numbers the ratchet screen shows changing.
@@ -23,6 +24,38 @@ import { SIZE_SPEC } from "./pieces";
  */
 
 export type PreviewTone = "worse" | "better" | "same";
+
+/**
+ * ONE LINE INSIDE A ROW that is a SUM rather than a measurement.
+ *
+ * The belt is the only such row today: "33% of shipments carry a material" is
+ * the number that prices the bay, and it is also six numbers added together.
+ * Which six was readable nowhere on this panel — the total said how much
+ * special cargo, never which — and the answer a player needs before pricing a
+ * demolition rack against a thaw lance is exactly that split.
+ *
+ * A part is NOT a row. It never becomes a tile of its own: the argument that
+ * kept the belt to one row (a Tier 10 material clause moving six tiles at once
+ * is two extra rows on the screen that overflows first) is about the GRID, and
+ * it still stands. The parts ride inside the one tile that already prices the
+ * belt, as a dense list — the tile count does not change.
+ */
+export interface PreviewPart {
+  /** The material this line is for. A Material id, because the surface drawing
+   *  it uses the belt's own glyph for the mark (ui/components' materialIconHTML)
+   *  — the mark a player learns on the belt is the mark they read here. */
+  id: Exclude<Material, "standard">;
+  label: string;
+  from: string;
+  to: string;
+  changed: boolean;
+  tone: PreviewTone;
+  /** BANKED notches on this material's own ratchet axis — the axis id and the
+   *  material id are the same string (hazards.ts's contentAxis). Read from
+   *  previewRows' `tally`, not from `banked`, so a caller can quote the bill
+   *  without pinning rows ACTIVE; 0 when neither was passed. */
+  notches: number;
+}
 
 export interface PreviewRow {
   id: string;
@@ -55,6 +88,10 @@ export interface PreviewRow {
    *  projection whenever the current pick didn't move press speed, so the
    *  player priced the next bay against numbers that hid its live pressure. */
   active: boolean;
+  /** The row's own breakdown, for a row whose value is a SUM — see PreviewPart.
+   *  Absent on every row that is a single measurement, which is all of them but
+   *  the belt. */
+  parts?: PreviewPart[];
 }
 
 const money = (v: number): string => `$${Math.round(v)}`;
@@ -95,6 +132,9 @@ interface Field {
    *  has banked notches never leaves the projection and is flagged active —
    *  see PreviewRow.active. */
   axis?: HazardId | readonly HazardId[];
+  /** The row's breakdown, for a row that is a SUM of named things — see
+   *  PreviewPart. Only the belt has one. */
+  parts?(base: LevelConfig, next: LevelConfig, tally: Ratchets): PreviewPart[];
 }
 
 const FIELDS: Field[] = [
@@ -297,6 +337,60 @@ const FIELDS: Field[] = [
     read: (c) => c.bombCharges, fmt: int, higherIsWorse: false,
   },
   {
+    // What is LEFT in the rack, for the same reason the Bond Breaker row reads
+    // the magazine rather than the grant: levelForRun overwrites the config's
+    // charges with RunState.thawCharges, so a refit projects the delta the
+    // rung issues on top of what the bay already spent. That distinction has
+    // one more consequence here than it does there — on the Skydeck the lance
+    // never resupplies (run.ts's advanceRun), so this row is the only place a
+    // player can see what a rung actually adds to a magazine that is not
+    // coming back. There is no yard on the Skydeck today, which makes the row
+    // a promise the mode cannot yet call in rather than a claim it disagrees
+    // with.
+    id: "thaw", label: "Thaw charges", short: "Thaw",
+    read: (c) => c.thawCharges, fmt: int, higherIsWorse: false,
+  },
+  {
+    // THE LINER'S DEPTH, not its softening, and one row rather than two. The
+    // cushion ladders on both (upgrades.ts's CUSHION_TIERS) and every rung
+    // moves both, so a second row would be a second copy of the same purchase
+    // — and depth is the half a player can look at the bay and check. The
+    // softening is quoted where a number belongs to a rule rather than to a
+    // projection: the shop card and the guide both print the speed it takes to
+    // set a cube off inside the liner.
+    //
+    // Cells, because that is the unit the config field is in and the unit the
+    // rest of the bay's geometry is quoted in. Zero prints as "bare floor" so
+    // an unbought track reads as a state rather than as a measurement of
+    // nothing.
+    id: "cushion", label: "Cushion liner", short: "Liner",
+    read: (c) => c.cushionCells,
+    fmt: (v) => (v > 0 ? `${Math.round(v)} cells` : "bare floor"),
+    higherIsWorse: false,
+  },
+  {
+    // THE HOOD'S RATE, printed as a percentage off rather than as the raw
+    // share, because "50% off" is the sentence the shop card, the guide and
+    // this tile all speak and a bare 0.5 would be the one number in the yard a
+    // player has to convert.
+    //
+    // This row exists for a reason the others do not have to argue: the
+    // Incinerator is the ONLY track whose effect never shows up in the bay
+    // while it is being played. A liner is drawn on the floor, a lance counts
+    // down in the rail, a reactor is in the float — the hood is the absence of
+    // a charge, which looks exactly like not having been charged. The yard is
+    // therefore the only place before the end card where the purchase can be
+    // read at all, and upgrades.ts's own refit note is the standard it has to
+    // meet: "a shop where a purchase projects nothing teaches that the purchase
+    // does nothing".
+    //
+    // Zero prints as a state, not as "0%", for the same reason the liner's does.
+    id: "incinerator", label: "Incinerator relief", short: "Flue",
+    read: (c) => c.incineratorRelief,
+    fmt: (v) => (v > 0 ? `${Math.round(v * 100)}% off` : "no hood"),
+    higherIsWorse: false,
+  },
+  {
     // The Demolition Rack's capstone is a CHANGE IN KIND rather than more
     // charges, so a projection that only counted charges would show its third
     // tier buying the same +2 the second one did. Three rows, because it moves
@@ -327,9 +421,16 @@ const FIELDS: Field[] = [
   // projection prices the BAY, and belt.ts's ceiling made the TOTAL the number
   // that prices it: past the ceiling, notches recompose the belt rather than
   // thicken it, and total density is what waste and congestion actually
-  // charge. WHICH materials make it up is the cards' own copy — the card the
-  // player is holding names its material, and the HUD's belt preview shows
-  // every shipment before it flies.
+  // charge.
+  //
+  // WHICH materials make it up is this row's own `parts` — a line each, inside
+  // the one tile. That used to be the cards' business ("the card the player is
+  // holding names its material"), i.e. it was answered nowhere on the panel,
+  // and it is the half of the belt this row cannot do without: past belt.ts's
+  // ceiling every further notch moves the SPLIT and leaves this total exactly
+  // where it was, so a tile printing only the total goes quiet on the pressure
+  // it exists to price. The six-tiles argument above is untouched — a part is
+  // not a tile, and the grid still gets one item for the belt.
   {
     id: "belt",
     label: "Special cargo on the belt",
@@ -341,6 +442,37 @@ const FIELDS: Field[] = [
     // Live whenever ANY content axis has banked notches — the belt row is
     // every material row's heir, so it inherits all of their axes.
     axis: HAZARDS.filter((h) => h.material).map((h) => h.id),
+    // EVERY MATERIAL THE BAY KNOWS, and only those: a share on either side of
+    // the comparison, or a banked notch on its own axis. A zero line for a
+    // material the run has never met would be five sixths of this list on an
+    // ordinary bay, on the panel that overflows first. MATERIAL_ROLL_ORDER
+    // rather than a fresh order, so the list reads in the belt's own sequence.
+    parts: (base, next, tally) => {
+      const parts: PreviewPart[] = [];
+      for (const id of MATERIAL_ROLL_ORDER) {
+        const a = base.materialMix?.[id] ?? 0;
+        const b = next.materialMix?.[id] ?? 0;
+        const notches = tally[id] ?? 0;
+        if (a <= 0.005 && b <= 0.005 && notches <= 0) continue;
+        const from = rate(a);
+        const to = rate(b);
+        const changed = from !== to;
+        parts.push({
+          id,
+          label: MATERIAL_SPEC[id].name,
+          from,
+          to,
+          changed,
+          // More of a material is worse news, which is the judgement the TOTAL
+          // above already makes for all six of them at once — not a second one
+          // invented here. Magnetic is the material that helps and it is still
+          // a notch the player spent a pick on.
+          tone: !changed ? "same" : b > a ? "worse" : "better",
+          notches,
+        });
+      }
+      return parts;
+    },
   },
 ];
 
@@ -356,11 +488,24 @@ const FIELDS: Field[] = [
  * active and promoted to core (the frame, not droppable context). Defaults to
  * none so callers without a run — the same config twice, a bare comparison —
  * keep the old behaviour exactly.
+ *
+ * `tally` is the run's notches FOR QUOTING, and it is a second parameter rather
+ * than a second use of `banked` because the two do different things. `banked`
+ * PROMOTES: an axis with notches pins its rows core and active, beyond the
+ * compact grid's reach. That is right on a draft, where the decision is the
+ * pressure, and wrong in the yard, where four unmoved pressure tiles push the
+ * rows the ORDER moved off the bottom of a landscape phone (main.ts's refitHTML
+ * has the measurement). The yard still wants the COUNTS — a belt breakdown that
+ * says a bay is 12% slag without saying the player took slag twice is half a
+ * sentence — so it passes them here and leaves `banked` empty. Defaults to
+ * `banked`, so a caller that wants both gets both from one argument and nothing
+ * that exists today changes.
  */
 export function previewRows(
   base: LevelConfig,
   next: LevelConfig,
   banked: Ratchets = {},
+  tally: Ratchets = banked,
 ): PreviewRow[] {
   const rows: PreviewRow[] = [];
   for (const f of FIELDS) {
@@ -387,6 +532,7 @@ export function previewRows(
           : (b > a) === f.higherIsWorse ? "worse" : "better",
       kind: f.always || active ? "core" : "context",
       active,
+      ...(f.parts ? { parts: f.parts(base, next, tally) } : {}),
     });
   }
   return rows;

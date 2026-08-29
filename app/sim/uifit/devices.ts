@@ -96,6 +96,28 @@ export const DEVICES: Device[] = [
   // exactly that much, on the most common window in the world, and invisible
   // on the ultrawide row where the gutters are symmetric.
   { name: "Web · 1280x720 laptop", platform: "web", w: 1280, h: 720, dpr: 1, insets: NONE, pointer: "fine" },
+  // A DESKTOP WINDOW, which is not the same thing as a desktop viewport.
+  //
+  // Every web row above is a viewport whose height is a round number, because
+  // that is how a fullscreen display or a maximised browser reports itself.
+  // The desktop shell (app/desktop) deliberately allows free resizing, and its
+  // default 1280x720 window minus the OS titlebar hands the page ~1269x663 —
+  // a height that is nobody's round number and therefore nobody's breakpoint.
+  //
+  // That is exactly why this row exists. The menu's demo panel used to be
+  // sized by a staircase of height media queries whose middle step (440px) was
+  // only reachable between box heights 621 and 699, and NOT ONE ROW IN THIS
+  // FILE lands there: the phones are 360-440, the 800x600 and 960x540 windows
+  // are under 620, and everything from the iPads up is magnified to a 720+ box.
+  // So the matrix measured the two steps either side of the bug and never the
+  // bug. The panel drew itself 440px wide in a 658px column and the shelf under
+  // it hit its per-row cap, which is the "large dead band on the home screen"
+  // a player reported from a windowed Electron build on Windows.
+  //
+  // dpr 1 and a fine pointer, because that is what the shell is: a Chromium
+  // window on a 100%-scaling display. Keep the odd numbers — a row rounded to
+  // 1280x664 would be a tidier row and a worse test.
+  { name: "Web · 1269x663 windowed", platform: "web", w: 1269, h: 663, dpr: 1, insets: NONE, pointer: "fine" },
   { name: "Web · 1512x945 MacBook", platform: "web", w: 1512, h: 945, dpr: 2, insets: NONE, pointer: "fine" },
   { name: "Web · 1920x1080 desktop", platform: "web", w: 1920, h: 1080, dpr: 1, insets: NONE, pointer: "fine" },
   { name: "Web · 2560x1080 ultrawide", platform: "web", w: 2560, h: 1080, dpr: 1, insets: NONE, pointer: "fine" },

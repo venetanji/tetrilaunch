@@ -40,10 +40,14 @@ import {
   applyRatchets,
 } from "../src/game/hazards";
 import {
-  applyUpgrades, budgetForMark, MARK_COUNT, newTiers, nextTierCost, tiersCost,
+  applyUpgrades, budgetForMark, MARK_COUNT, nextTierCost, tiersCost,
   UPGRADES, type UpgradeId, type UpgradeTiers,
 } from "../src/game/upgrades";
-import { installById, UPRATE_MAX_TIER } from "../src/game/meta";
+// loadoutFor/ownableTracks used to live here, privately. They moved to
+// sim/builds.ts when sim/winnability.ts needed the same "what could a Mark-M
+// pilot actually be flying" answer — a loadout builder copied into two places
+// is how a harness ends up describing a Workshop that no longer exists.
+import { loadoutFor } from "./builds";
 import { REFIT_EVERY, RUN_LEVELS } from "../src/game/run";
 import { BOTS } from "./bots";
 import { spreadRatchets } from "./ratchet-model";
@@ -68,11 +72,13 @@ import { runBay } from "./runner";
  *     It was tier 1 ONLY here, quoting buyInstall's old refusal to stack, and
  *     that refusal is what this harness was measuring the consequences of: the
  *     best build at every Mark from 3 to 10 came out as the same 100-point rig
- *     against a budget climbing to 770, because 140 points was the whole
- *     reachable space. With the Workshop selling tier 2 the ceiling is 385,
- *     so the budget binds again — but only through Mark 3. Measured across the
- *     ladder this function spends 75/77, 150/154, 205/231, then 275 flat
- *     against 308, 385, 462, 539, 616, 693 and 770. Above Mark 3 the binding
+ *     against a budget climbing to 880, because a tier-1-only loadout was the
+ *     whole reachable space. With the Workshop selling tier 2 the ceiling is
+ *     440, so the budget binds again — but only through Mark 3. The figures
+ *     below were measured on the seven-track roster (75/77, 150/154, 205/231,
+ *     then 275 flat against 308 … 770); the eighth track raised every budget by
+ *     an eighth without moving the shape, because the binding constraint above
+ *     Mark 3 is not the budget. Above Mark 3 the binding
  *     constraint is not the budget but the PRIORITY ORDER: each of the four
  *     orders names five tracks, and five at tier 2 is 275. The headroom above
  *     that is real and unmodelled — a property of the calibration vocabulary
@@ -91,27 +97,6 @@ import { runBay } from "./runner";
  * config — the harness needs ONE schedule, not a feedback loop.
  */
 const SCRAP_PER_CLEARED_BAY = 8 * SCRAP_PER_LINE + SCRAP_PER_BAY;
-
-/** Workshop phase: breadth first, then depth — tier 1 across the priority
- *  order, then tier 2 across it, each rung requiresMark-gated and budget-capped.
- *
- *  Breadth before depth because that is the purchase a player can actually make
- *  first: an install opens a system, an uprate deepens one they already own, so
- *  no amount of salvage reaches tier 2 of a track before tier 1 of it. Buying
- *  depth-first here would model a rig with a Mark-1 budget spent on one maxed
- *  track, which the Workshop will not sell. */
-function loadoutFor(order: UpgradeId[], mark: number): UpgradeTiers {
-  const tiers = newTiers();
-  for (let tier = 1; tier <= UPRATE_MAX_TIER; tier++) {
-    for (const id of ownableTracks(order, mark)) {
-      if ((tiers[id] ?? 0) !== tier - 1) continue;
-      const next = { ...tiers, [id]: tier };
-      if (tiersCost(next) > budgetForMark(mark)) continue;
-      tiers[id] = tier;
-    }
-  }
-  return tiers;
-}
 
 /** Spend `bank` scrap deepening installed tracks, in priority order.
  *  focused (breadthFirst=false) re-scans from the top after each buy, so it
@@ -184,25 +169,16 @@ function tiersForBay(
  * measurement to run deliberately, not a default to fold in here.
  *
  * Consequence for anything measured here: these builds top out at 550 of the
- * 770-point ladder (UPGRADES is seven tracks now, so FULL_BUILD_COST is
- * 7 x 110), so a Mark's difficulty is being judged against a rig missing TWO
- * tracks. That biases the result toward "too hard" — a human who spends tempo
+ * 880-point ladder (UPGRADES is eight tracks now, so FULL_BUILD_COST is
+ * 8 x 110), so a Mark's difficulty is being judged against a rig missing THREE
+ * tracks — the Thaw Lance is the third, and no priority order names it, which
+ * is deliberate: adding it would change the CONTROL rig every counter table is
+ * paired against. That biases the result toward "too hard" — a human who spends tempo
  * well, or who opens a jammed bay with a charge, will find a calibrated Mark
  * easier than the number suggests. What those two tracks are really worth needs
  * human playtesting; the sim cannot see it.
  */
 const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher", "bonds"];
-
-/** The tracks a Mark-M pilot can actually OWN: an install's requiresMark
- *  counts Marks BEATEN (meta.ts), and a player flying Mark M has beaten
- *  M - 1. Without this gate the Mark-1 row is judged against a rig no
- *  first-run player can build — measured: its "best" build put 75 of 77
- *  points into BAY2+HYD1, both requiresMark 1, i.e. locked until the Mark
- *  it was supposed to be measuring is already beaten. In-run refits cannot
- *  reach them either (run.ts's buyUpgrade refuses tier-0 tracks). */
-function ownableTracks(order: UpgradeId[], mark: number): UpgradeId[] {
-  return order.filter((id) => (installById(id)?.requiresMark ?? 0) <= mark - 1);
-}
 
 const ARCHETYPES: Record<string, (mark: number, bay: number) => UpgradeTiers> = {
   // The economy build: buy the rate, then the press that realises it.
