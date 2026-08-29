@@ -1571,7 +1571,22 @@ export function controlsScreen(opts: {
       ${infoRow("Arc height", "scroll · up comes down steeper")}
       ${infoRow("Mouse rotate", "right-click ⟳ · wheel press ⟲")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
-      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}`;
+      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}
+      ${
+        // THE POINTER, HANDED BACK (store.ts's systemCursor, styles/cursors.css).
+        //
+        // HERE AND NOT ON THE SETTINGS SCREEN, which is where it was first
+        // written. Two reasons, one of them measured. It BELONGS here: this is
+        // the fine-pointer family's pane by its own comment above, it is the
+        // one screen in the app that talks about a mouse, and the switch above
+        // it is the app's other mouse-behaviour switch. And the Settings pane
+        // has no room — its toggle column is not on sim/uifit's scroll
+        // allowlist, and a fourth row there overflowed .panel on nine of the
+        // nineteen devices (37px on an iPhone SE 3), which is 18 new
+        // violations for a row those devices have no cursor to spend it on.
+        // #controls-grid is allowlisted and already carries a taller pane.
+        toggleHTML("systemCursor", "System Pointer", "Draw the OS cursor instead of the game's, at whatever size and colour you have set it to", opts.settings.systemCursor)
+      }`;
   } else {
     // THE MENU BUTTONS ARE INFO ROWS, not bind rows, because they are not
     // bindings: ui/padnav.ts fixes them at their standard-mapping indices and
