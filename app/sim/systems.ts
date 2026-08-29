@@ -14149,6 +14149,93 @@ section("Gamepad focus navigation picks by geometry (ui/padnav.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("A pad names itself before anything renders its labels (gamepad.ts)");
+// ---------------------------------------------------------------------------
+// THE BUG THIS EXISTS FOR, in the order it actually happened. Browsers hide a
+// gamepad until its first button press, so the poll that first SEES a DualSense
+// is the same poll that fires onActivity — and onActivity is what flips the
+// profile to gamepad and re-renders the hint strip and the pause card. main.ts
+// used to derive the pad family after pad.poll() returned, one statement too
+// late, so every one of those labels rendered in the standard mapping's Xbox
+// default: a DualSense player read "A fire" and "LB/RB rotate" until some
+// unrelated render happened to repaint them. (Codex review, PR #174.)
+//
+// Asserted as an ORDER rather than as an end state, because the end state was
+// always right — a later render fixed it — and the whole defect was which of
+// two hooks ran first. The stub records what padLabel WOULD have said at the
+// instant onActivity fired, which is the only moment that can be wrong.
+{
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let buttons: number[] = [];
+  let padId = "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)";
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      getGamepads: () => [{
+        id: padId, connected: true, mapping: "standard",
+        axes: [0, 0],
+        buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
+      }],
+    },
+  });
+  /** What the FIRE button was called each time activity was announced. */
+  const spokenAt: string[] = [];
+  const seen: (string | null)[] = [];
+  const pad = new GamepadPoller({
+    game: () => null,
+    playing: () => false,
+    // main.ts's hook renders from here; this stands in for that render.
+    onActivity: () => spokenAt.push(padLabel(padFor("fire"))),
+    // ...and this stands in for main.ts's onPadIdentified.
+    onPad: (id) => { seen.push(id); setPadFamily(padFamilyFromId(id)); },
+    onPause: () => {},
+    onCapture: () => false,
+    onUiButton: () => false,
+    assist: () => false,
+    sling: () => false,
+  });
+
+  setPadFamily(null);
+  buttons = [0]; // A / Cross — the press that reveals the pad to the browser
+  pad.poll(0);
+  check("the pad is identified on the very poll that reveals it",
+    seen.length === 1 && seen[0] === padId, JSON.stringify(seen));
+  check("...and the first render after it already speaks the pad's own words",
+    spokenAt.length === 1 && spokenAt[0] === "Cross", JSON.stringify(spokenAt));
+
+  // ONE ANNOUNCEMENT PER IDENTITY. A pad that is merely still plugged in must
+  // not relabel three surfaces sixty times a second.
+  buttons = [];
+  for (let t = 1; t <= 20; t++) pad.poll(t * 16);
+  check("a pad that has not changed is not re-announced", seen.length === 1, String(seen.length));
+
+  // THE SWAP, which ordering alone does not cover: the profile is already
+  // gamepad by now, so nothing else in the app would repaint for this.
+  padId = "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)";
+  pad.poll(400);
+  check("swapping to the other family re-announces",
+    seen.length === 2 && padFamilyFromId(seen[1]) === "xbox", JSON.stringify(seen));
+  check("...and the labels follow the pad now in the player's hands",
+    padLabel(padFor("fire")) === "A", padLabel(padFor("fire")));
+
+  // A DISCONNECT is an identity change too — the labels fall back to the
+  // standard mapping's lettering rather than staying on a pad that has gone.
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { getGamepads: () => [] },
+  });
+  pad.poll(500);
+  check("a pad going away announces itself once",
+    seen.length === 3 && seen[2] === null, JSON.stringify(seen));
+  pad.poll(516);
+  check("...and an absent pad is not re-announced every frame",
+    seen.length === 3, String(seen.length));
+
+  setPadFamily(null);
+  if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+}
+
+// ---------------------------------------------------------------------------
 section("A held direction repeats into the menus (gamepad.ts)");
 // ---------------------------------------------------------------------------
 // The poller driven through a stub pad, the same admission the InputController
@@ -14179,6 +14266,7 @@ section("A held direction repeats into the menus (gamepad.ts)");
     game: () => null,
     playing: () => playing,
     onActivity: () => {},
+    onPad: () => {},
     onPause: () => {},
     onCapture: () => false,
     onUiButton: (b) => { ui.push(b); return true; },
@@ -14259,6 +14347,7 @@ section("The stick's rate dials hold the aim at centre (gamepad.ts)");
       game: () => g,
       playing: () => true,
       onActivity: () => {},
+      onPad: () => {},
       onPause: () => {},
       onCapture: () => false,
       onUiButton: () => false,

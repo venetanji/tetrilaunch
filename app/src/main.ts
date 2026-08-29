@@ -113,7 +113,7 @@ import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
   actionForKey, padFamilyFromId, resetKeyBindings, resetPadBindings, setKeyBinding,
   setPadBinding, setPadFamily,
-  type BindableAction, type InputProfile,
+  type BindableAction, type InputProfile, type PadFamily,
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
@@ -868,6 +868,9 @@ class App {
       game: () => this.game,
       playing: () => this.state === "playing",
       onActivity: () => this.setProfile("gamepad"),
+      // BEFORE onActivity can fire, by construction — the poller calls this the
+      // instant it reads a new pad identity. See onPadIdentified.
+      onPad: (id) => this.onPadIdentified(id),
       onPause: () => {
         if (this.state === "playing") this.pause();
         else if (this.state === "paused") this.resume();
@@ -1116,21 +1119,41 @@ class App {
     return window.matchMedia?.("(pointer: fine)").matches ?? false;
   }
 
-  /** The pad id the family hook was last published for — a `Gamepad.id` is a
-   *  driver string that never changes while a pad stays connected, so this is
-   *  a cheap identity check on a once-per-frame call. */
-  private padId: string | null = null;
+  /** The pad family currently published, so a swap between two pads of the SAME
+   *  family costs nothing (see onPadIdentified). Null until a pad announces
+   *  itself, which is also the disconnected state. */
+  private padFamily: PadFamily | null = null;
 
   /**
-   * Publish WHICH FAMILY of pad is connected, as <html data-pad>.
+   * A pad appeared, vanished or was swapped (GamepadHooks.onPad) — publish WHICH
+   * FAMILY it is, and re-letter anything already on screen that was drawn in the
+   * other one.
    *
-   * Two consumers, and they need it at different moments. bindings.ts's
-   * padLabel speaks the connected pad's own vocabulary from here, so the pause
-   * card and the Controls screen stop telling a DualSense owner to press LB;
-   * and app.css picks one of the two pad marks the rail's legends always carry
-   * (components.ts's railLegendHTML), so a pad announcing itself mid-bay
-   * re-letters the rail with no re-render — which matters because the HUD's
-   * instruments animate and a rebuilt element restarts its animation.
+   * Two consumers of the family, and they need it at different moments.
+   * bindings.ts's padLabel speaks the connected pad's own vocabulary from here,
+   * so the pause card and the Controls screen stop telling a DualSense owner to
+   * press LB; and app.css picks one of the two pad marks the rail's legends
+   * always carry (components.ts's railLegendHTML), so the rail re-letters with
+   * no re-render at all — which matters because the HUD's instruments animate
+   * and a rebuilt element restarts its animation.
+   *
+   * THE RE-LETTERING IS THE HALF THAT ORDERING ALONE DOES NOT BUY, and it is
+   * here because both failures are real. Called from inside the poll, this now
+   * runs before onActivity, so the FIRST render of a newly-announced pad is
+   * already in its own vocabulary. But a pad SWAPPED for one of the other
+   * family — unplug an Xbox pad, plug in a DualSense — arrives with the profile
+   * already "gamepad", and setProfile returns early on an unchanged profile, so
+   * nothing would repaint the strip, the card or the coach. Both paths now end
+   * in the same patch (relabelHintSurfaces), so the surfaces cannot be left
+   * speaking for a controller that is no longer attached. (Codex review, PR
+   * #174.)
+   *
+   * KEYED ON THE FAMILY, NOT THE ID. Two Xbox pads swapped for each other are a
+   * new `Gamepad.id` and the identical vocabulary; repainting three surfaces for
+   * that would be work nobody can see. A disconnect (family null) does repaint:
+   * bindings.ts falls back to the standard mapping's Xbox lettering, and leaving
+   * PlayStation marks on screen for a pad that has gone would be the same lie in
+   * the other direction.
    *
    * NO ATTRIBUTE AT ALL when nothing is connected, which is the one place this
    * hook departs from the app's "every root hook names its state" convention
@@ -1139,20 +1162,69 @@ class App {
    * reference not being drawn, and `[data-pad]` says exactly that in one
    * selector where a written "none" would need a :not() on every rule.
    */
-  private syncPadFamily(): void {
-    const id = this.pad.detected();
-    if (id === this.padId) return;
-    this.padId = id;
+  private onPadIdentified(id: string | null): void {
     const family = padFamilyFromId(id);
+    if (family === this.padFamily) return;
+    this.padFamily = family;
     setPadFamily(family);
     if (family) document.documentElement.dataset.pad = family;
     else delete document.documentElement.dataset.pad;
+    // Only the pad's own surfaces speak pad; a keyboard player with a
+    // controller plugged in behind them has nothing here to re-letter.
+    if (this.profile === "gamepad") this.relabelHintSurfaces(this.profile);
+    // The Controls screen is the one surface that is a full render rather than
+    // a patch: its Detected chip and every row of the gamepad tab's binding
+    // table are padLabel text. Never mid-capture — a re-render there would
+    // throw away the row that is waiting for a press (onCapture renders it
+    // itself, once the press has landed).
+    if (this.state === "controls" && !this.rebinding) this.renderOverlay();
+  }
+
+  /**
+   * Repaint every TEXTUAL surface that renders control labels, in place.
+   *
+   * Extracted from setProfile because two different events invalidate the same
+   * three nodes: the input family changing (keyboard -> gamepad) and the pad
+   * FAMILY changing under an unchanged input family (an Xbox pad swapped for a
+   * DualSense). Both end here so neither can grow its own half-copy of the
+   * list, which is exactly how one of them ends up missing the coach card.
+   *
+   * PATCHED, NEVER RE-MOUNTED: a HUD rebuilt wholesale restarts every animation
+   * in it, and the per-frame sync is holding live references into the panel.
+   * The rail's legends are deliberately NOT in this list — they carry both pad
+   * families in the markup and CSS picks one off <html data-pad>, so they need
+   * no repaint at all.
+   */
+  private relabelHintSurfaces(p: InputProfile): void {
+    const g = this.game;
+    if (!g) return;
+    const owned = {
+      bond: g.bondCharges > 0,
+      demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — see setProfile's note.
+      thaw: g.level.thawCharges > 0,
+      auto: g.level.autoLaunchMs > 0,
+    };
+    const strip = this.overlay.querySelector(".kbd-hint");
+    // The fade state rides across the swap: a relabel mid-bay re-letters the
+    // hints, it does not re-earn them screen time.
+    if (strip) {
+      strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed, this.bayRetryOffered());
+    }
+    // The pause modal's reference block re-labels the same way — a pad picked
+    // up while paused should read pad hints before play resumes.
+    const pauseKeys = this.overlay.querySelector("#pause-keys");
+    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned, this.bayRetryOffered());
+    if (this.tutorialStep !== null && this.state === "playing") {
+      this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
+    }
   }
 
   /** Flip the input family (D2) and refresh every surface that renders from
    *  it: the <html data-profile> hook, the HUD's hint strip, and the coach's
-   *  current card — all patched in place, because a profile flip mid-bay
-   *  must not re-mount the HUD the per-frame sync is patching. */
+   *  current card — all patched in place (relabelHintSurfaces), because a
+   *  profile flip mid-bay must not re-mount the HUD the per-frame sync is
+   *  patching. */
   private setProfile(p: InputProfile): void {
     const changed = this.profile !== p;
     this.profile = p;
@@ -1167,33 +1239,10 @@ class App {
       this.padWokeAt = performance.now();
       this.syncPadFocus();
     }
-    const g = this.game;
-    if (!g) return;
-    const owned = {
-      bond: g.bondCharges > 0,
-      demo: g.level.bombCharges > 0,
-      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
-      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
-      // from the run's stock at bay start, so a ladder bay that spends its rack
-      // still shows a "x0" trigger it knows will refill, while a Skydeck run
-      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
-      // for the rest of the run.
-      thaw: g.level.thawCharges > 0,
-      auto: g.level.autoLaunchMs > 0,
-    };
-    const strip = this.overlay.querySelector(".kbd-hint");
-    // The fade state rides across the swap: a profile flip mid-bay re-labels
-    // the hints, it does not re-earn them screen time.
-    if (strip) {
-      strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed, this.bayRetryOffered());
-    }
-    // The pause modal's reference block re-labels the same way — a pad picked
-    // up while paused should read pad hints before play resumes.
-    const pauseKeys = this.overlay.querySelector("#pause-keys");
-    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned, this.bayRetryOffered());
-    if (this.tutorialStep !== null && this.state === "playing") {
-      this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
-    }
+    // The BAY'S ability grant, the fade state and the three patched nodes all
+    // live in the shared relabel — a pad family change needs exactly the same
+    // repaint and must not carry a second copy of the list.
+    this.relabelHintSurfaces(p);
   }
 
   /** The left-handed rail (Controls → touch): the solver reserves its snug
@@ -3332,17 +3381,23 @@ class App {
    *  counter counts TOUCH bays too, and a fifty-bay phone veteran plugging in
    *  a pad for the first time is exactly the first-timer this strip is for.
    *
-   *  NOTHING TO ARM ON A FINE POINTER. The strip's desktop life ended when the
-   *  rail became the action surface there and took the keycaps onto its own
-   *  buttons (app.css's note where the `pointer: fine` display rule used to
-   *  be) — it is now drawn only for a GAMEPAD on a COARSE pointer, the Deck /
-   *  TV / phone-with-a-controller case. So on a mouse this whole lifecycle
-   *  would be a 15-second timer per bay whose only effect is to toggle a class
-   *  on a `display: none` node, which is not a cost worth paying and, worse, is
-   *  the kind of machinery that quietly outlives the thing it drove. */
+   *  NO POINTER GUARD HERE, and the attempt at one is worth recording. A draft
+   *  of the rail-legends change retired the strip on fine pointers outright and
+   *  put `if (this.finePointer()) return` at the top of this method, on the
+   *  reasoning that arming a 15-second timer to toggle a class on a
+   *  `display: none` node is machinery outliving the thing it drove. The strip
+   *  did not end up retired — it kept the half of the scheme the rail cannot
+   *  carry, the shot itself (screens.ts's hintParts) — and the guard then broke
+   *  the one player it was invisible to: `keyHintsDismissed` is written NOWHERE
+   *  else on the way into a bay, so a returning desktop player with
+   *  settings.seenKeyHints already true never had it copied across, hudHTML
+   *  mounted the strip shown, and onboarding they had finished with came back
+   *  every session until their first shot. (Codex review, PR #174.)
+   *
+   *  The general shape of the mistake: a lifecycle guard written for a surface
+   *  that was about to disappear, kept after the surface stayed. */
   private armKeyHints(): void {
     if (this.keyHintTimer !== null) { window.clearTimeout(this.keyHintTimer); this.keyHintTimer = null; }
-    if (this.finePointer()) return;
     this.keyHintsDismissed = this.settings.seenKeyHints;
     // Sync the mounted strip too: the callers run AFTER setState("playing")
     // rendered the HUD, and that render read the PREVIOUS bay's dismissed
@@ -4895,7 +4950,6 @@ class App {
     // in every state: the Controls screen needs the Detected chip and rebind
     // capture, and Start has to pause/resume from anywhere.
     this.pad.poll(now);
-    this.syncPadFamily();
     const g = this.game;
     if (g && this.state === "playing" && !g.paused) {
       this.acc += now - this.last;
