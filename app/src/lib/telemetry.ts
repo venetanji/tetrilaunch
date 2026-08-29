@@ -24,6 +24,7 @@
  * different consent requirements — do not quietly promote this one.
  */
 import type { ShotInfo } from "../game/game";
+import type { GradeTally } from "../game/grades";
 import type { RunState } from "../game/run";
 import type { UpgradeTiers } from "../game/upgrades";
 
@@ -79,7 +80,17 @@ export interface BayRecord {
   /** Sampled every SAMPLE_MS so a bay's funds curve can be plotted — "how close
    *  to broke did this get, and when" is invisible in an end-of-bay total. */
   funds: { t: number; v: number }[];
-  lineClears: { t: number; lines: number }[];
+  /** Each crush, with the TIMING BANDS it sold at (game/grades.ts).
+   *
+   *  `grades` is absent in every session recorded before the mechanic existed,
+   *  and the analyser skips those rather than guessing — the same stance the
+   *  compactor-geometry fields above take. It is here because the two tuning
+   *  questions this feature could not settle in sim are both about a human:
+   *  whether holding fire for the press reads as skill or as dead air, and
+   *  whether the premium is legible when the bay stops the moment it is paid
+   *  for. Neither is answerable from a win rate; both are answerable from a
+   *  band mix over a real session. */
+  lineClears: { t: number; lines: number; grades?: GradeTally }[];
   abilities: { t: number; kind: "bond" | "bomb-arm" | "thaw" }[];
   result: "won" | "lost" | null;
   reason: string | null;
@@ -262,9 +273,9 @@ export function shot(info: ShotInfo): void {
   bay.shots.push({ ...info, t: Math.round(info.t) });
 }
 
-export function lineClear(lines: number, t: number): void {
+export function lineClear(lines: number, t: number, grades?: GradeTally): void {
   if (!bay) return;
-  bay.lineClears.push({ t: Math.round(t), lines });
+  bay.lineClears.push({ t: Math.round(t), lines, ...(grades ? { grades } : {}) });
 }
 
 export function ability(kind: "bond" | "bomb-arm" | "thaw", t: number): void {

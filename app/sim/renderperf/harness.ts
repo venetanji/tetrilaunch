@@ -194,7 +194,10 @@ function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: num
 function busyEffects(now: number): FxEvent[] {
   return [
     { kind: "shatter", x: 900, y: 500, color: PIECE_COLORS.I, t0: now - 200 },
-    { kind: "payout", x: 700, y: 400, amount: 120, t0: now - 300 },
+    // Graded, not null: the callout is a second `fillText` with its own shadow
+    // on the busiest toast in the set, and a frame budget measured without it
+    // would be a budget for a payout the game no longer draws.
+    { kind: "payout", x: 700, y: 400, amount: 120, grade: "excellent", congested: false, t0: now - 300 },
     { kind: "rowflash", y: 640, x0: 0, x1: WORLD.width, t0: now - 100 },
     { kind: "explosion", x: 800, y: 560, r: 120, t0: now - 150 },
     { kind: "salvage", x: 820, y: 520, amount: 9, t0: now - 250 },

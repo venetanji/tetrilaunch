@@ -2,6 +2,7 @@ import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game
 import type { LossReason } from "../game/game";
 import { baseBayFor } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
+import type { GradeTally } from "../game/grades";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
   runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph, axisIconHTML,
@@ -4550,6 +4551,29 @@ function tierOpenedClause(tier: number): string {
     : "the ladder is finished. Contracts still pay, and what's left is a maxed rig and every Mark sealed";
 }
 
+/**
+ * The end card's timing clause — "6 excellent · 4 good", or nothing at all.
+ *
+ * Exported so sim/systems.ts can pin the copy without rendering a whole modal,
+ * which is the same treatment every other piece of generated end-card text
+ * gets here: a clause that appears on one screen and is checked on none is a
+ * clause that goes stale silently.
+ *
+ * EMPTY WHEN NEITHER BAND WAS EARNED, and that is the editorial decision rather
+ * than a null guard. The clause's job is to tell a player that a better row
+ * exists and that they got some; a run that got none is being shown a game-over
+ * screen, and "0 excellent · 0 good" on it is a scold. The callout in the bay
+ * (theme.ts's GRADE_CALLOUT) is where that player meets the mechanic, in the
+ * moment they can still act on it.
+ */
+export function gradeBreakdownClause(grades?: GradeTally): string {
+  if (!grades) return "";
+  const parts: string[] = [];
+  if (grades.excellent > 0) parts.push(`${grades.excellent} excellent`);
+  if (grades.good > 0) parts.push(`${grades.good} good`);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
 export function endModal(opts: {
   won: boolean;
   /** Composite final run score (run.ts's finalRunScore) — bays + lines +
@@ -4608,6 +4632,10 @@ export function endModal(opts: {
    *  ship system on the shelf whose whole effect is invisible while the bay is
    *  being played, so this line is where the purchase gets settled up. */
   incineratedFunds: number;
+  /** Rows the run sold at each TIMING GRADE (run.ts's RunState.grades). Optional
+   *  so every caller that predates the mechanic — the uifit fixtures included —
+   *  renders exactly the card it rendered before, with no clause at all. */
+  grades?: GradeTally;
   tiers: UpgradeTiers;
   /** The board this score posts to — the RUN's own Mark (RunState.mark), never
    *  `progress.tier`: a run that completed its tier has already advanced the
@@ -4691,6 +4719,20 @@ export function endModal(opts: {
   // whole job is reconciling the bankroll.
   const incinFoot = opts.incineratedFunds > 0
     ? ` · $${opts.incineratedFunds} saved by the Incinerator` : "";
+  // HOW THE ROWS WERE SOLD (grades.ts), on the breakdown row that already
+  // reconciles the run rather than as a fifth stat tile.
+  //
+  // The breakdown is the honest home for it: every other clause there is "what
+  // the run produced and what it cost", and a timing tally is the same kind of
+  // fact read one level down — WHY the money came out the way it did. A stat
+  // tile would have made it a headline beside Score and Lines, and the grade is
+  // not a score, it is the reason the score is what it is.
+  //
+  // Only the two bands that pay a PREMIUM are named, and only when a run earned
+  // some. A run that swept everything is not told it swept everything: the
+  // clause exists to teach that a better row is available, and printing
+  // "0 excellent" on the losing screen is a scold rather than a lesson.
+  const gradeFoot = gradeBreakdownClause(opts.grades);
   const eyebrow = opts.runComplete
     ? `All ${RUN_LEVELS} bays cleared`
     : opts.won
@@ -4751,7 +4793,7 @@ export function endModal(opts: {
       <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
-        · $${Math.max(0, opts.funds)} left${volatileFoot}${incinFoot}
+        · $${Math.max(0, opts.funds)} left${gradeFoot}${volatileFoot}${incinFoot}
       </div>
       <!-- AWARDS ONLY. The "Tier N progress" banner that used to sit here —
            ✓/○ pips in prose, "finish both to open Tier N+1", a foot of scrap

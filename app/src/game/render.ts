@@ -5,7 +5,9 @@ import { BASE_BREAK_STRETCH } from "./level";
 import { cushionEdgeX } from "./lineClear";
 import { computeLayout, skyTop } from "./layout";
 import {
-  BAY_GLYPH_MATERIALS, COLORS, glyphInk, MATERIAL_GLYPH, PIECE_COLORS,
+  BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
+  glyphInk, GRADE_CALLOUT, GRADE_COLOR,
+  MATERIAL_GLYPH, PIECE_COLORS,
   shade, shipmentAura, shipmentColor,
   type Material, type PieceSize, type PieceType,
 } from "./theme";
@@ -2627,6 +2629,34 @@ const PAYOUT_CLAMP_MARGIN = 80;
 const PAYOUT_FONT = "700 30px system-ui, sans-serif";
 const PAYOUT_GLOW = 16;
 
+/** The TIMING CALLOUT rides the same toast as the money it explains: same
+ *  motion, same fade, one line above the "+$" (theme.ts's GRADE_CALLOUT owns
+ *  the words and the colours).
+ *
+ *  A rider rather than its own FxEvent, which is the whole of the UI budget
+ *  this feature spends. Two floaters spawned on the same step at the same spot
+ *  would race each other up the field and the eye would read them as two
+ *  clears; one toast that says what was earned and how it was earned is the
+ *  idiom the payout/penalty pair already established. Smaller than the number
+ *  and set above it because the money is the headline — the callout is the
+ *  reason, and a bay full of shouted adjectives stops being readable. */
+const CALLOUT_FONT = "700 18px system-ui, sans-serif";
+/** Baseline-to-baseline, so the 18px word clears the 30px number's cap height
+ *  with air left over. 22 was drawn first and the shot showed the two rows
+ *  touching (sim/uifit/grade-shots.ts) — legible, but reading as one block
+ *  rather than as a label over a figure. */
+const CALLOUT_GAP_PX = 26;
+
+/** The congestion tag rides UNDER the money, where the callout rides over it —
+ *  so the toast reads verdict / price / reason, top to bottom, and the tag can
+ *  never be mistaken for the band. Smaller again than the callout for the same
+ *  reason the callout is smaller than the number: the further from the money,
+ *  the quieter. */
+const TAG_FONT = "700 14px system-ui, sans-serif";
+/** Baseline-to-baseline below the 30px number: enough to clear its descenders
+ *  with the same air CALLOUT_GAP_PX leaves above. */
+const TAG_GAP_PX = 20;
+
 function drawPayoutFx(
   ctx: CanvasRenderingContext2D,
   e: Extract<FxEvent, { kind: "payout" }>,
@@ -2658,6 +2688,18 @@ function drawPayoutFx(
   ctx.font = PAYOUT_FONT;
   ctx.textAlign = "center";
   ctx.fillText(`+$${e.amount}`, x, y);
+  if (e.grade) {
+    ctx.fillStyle = GRADE_COLOR[e.grade];
+    ctx.shadowColor = GRADE_COLOR[e.grade];
+    ctx.font = CALLOUT_FONT;
+    ctx.fillText(GRADE_CALLOUT[e.grade], x, y - CALLOUT_GAP_PX);
+  }
+  if (e.congested) {
+    ctx.fillStyle = CONGESTION_TAG_COLOR;
+    ctx.shadowColor = CONGESTION_TAG_COLOR;
+    ctx.font = TAG_FONT;
+    ctx.fillText(CONGESTION_TAG, x, y + TAG_GAP_PX);
+  }
   ctx.restore();
 }
 
