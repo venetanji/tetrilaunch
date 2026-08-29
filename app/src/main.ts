@@ -826,6 +826,11 @@ class App {
     // The rail's edge (Controls → left-handed rail) has to be set before the
     // first solve too — snug mode reserves the band on the rail's side.
     this.applyRailSide(false);
+    // …and the pointer's, before the first paint. A player who has asked for
+    // their own cursor must not see the game's for the frame it takes to get
+    // here — the whole point of baking the bitmaps as data URIs is that they
+    // arrive with no load, and that cuts both ways.
+    this.applySystemCursor();
     // The starting input family: fine pointer means keyboard+mouse until an
     // input says otherwise (D2 — the profile follows the last input seen).
     this.setProfile(this.finePointer() ? "keyboard" : "touch");
@@ -1147,6 +1152,28 @@ class App {
     setRailSide(side);
     document.documentElement.dataset.railSide = side;
     if (resize) this.onResize();
+  }
+
+  /** Settings → System Pointer: hand the cursor back to the OS.
+   *
+   *  Published as <html data-system-cursor> and read by ONE block in
+   *  styles/cursors.css, which restates all four surfaces in plain keywords —
+   *  the same list the forced-colors override uses, emitted from the same
+   *  place in the generator. Nothing here decides which cursor anything gets;
+   *  it only says which of the two vocabularies the stylesheet is speaking.
+   *
+   *  A WRITTEN "off" RATHER THAN A DELETED ATTRIBUTE. `[data-system-cursor]`
+   *  as a bare presence test would work, but the app already publishes three
+   *  root hooks this way (data-profile, data-rail-side, data-layout) and every
+   *  one of them names its state — a hook you can read in devtools and know
+   *  the answer to, rather than one you have to know the absence convention
+   *  for. It also costs nothing: the CSS matches on the value.
+   *
+   *  No resize, no re-render: a cursor is not layout, and the switch is flipped
+   *  from a Settings pane whose other rows must not be rebuilt under a pointer
+   *  that is still resting on them (see onToggle). */
+  private applySystemCursor(): void {
+    document.documentElement.dataset.systemCursor = this.settings.systemCursor ? "on" : "off";
   }
 
   /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
@@ -6323,6 +6350,11 @@ class App {
     // The rail mirror re-solves the layout on the spot; stickAssist is read
     // live by the gamepad poller and needs nothing here.
     if (key === "leftHandRail") this.applyRailSide();
+    // The pointer's own switch. One attribute write, no re-render: the CSS
+    // does the rest, and the cursor under the player's hand changes on the
+    // same frame they let go of the switch — which is the only feedback this
+    // particular toggle can give.
+    if (key === "systemCursor") this.applySystemCursor();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
     // has to redraw the screen saying it. stickSling is the only one: the
     // gamepad pane's aim row describes the mode that is on, so leaving the old

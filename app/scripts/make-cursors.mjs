@@ -138,45 +138,69 @@ const ARROW = grid([
   ".......CC...",
 ]);
 
-// THE HAND, for anything clickable. Same 12x17-ish footprint as the arrow (13
-// wide, because a hand needs a thumb) so the two chrome cursors are the same
-// weight on screen and swapping between them at a button's edge is a change of
-// SHAPE, not a change of size.
+// THE HAND, for anything clickable. 15x17 art px — 30x34 CSS, between the
+// arrow's 24 and the reticle's 32, so all three read as one set.
+//
+// FIVE DIGITS, AND WHICH ONE IS RAISED IS THE WHOLE DESIGN. The first cut drew
+// four — a raised finger, two folded knuckles to its right, a thumb bump to its
+// left — on the reasoning that a hand at this size is a silhouette and a
+// missing finger would never be counted. It was counted immediately, and the
+// failure was worse than a missing finger: a tall digit standing in the MIDDLE
+// of a fist is not a hand short of a pinky, it is a hand making a gesture.
+// (Owner's report, verbatim: "it kind of looks like someone is flipping the
+// middle finger lol".)
+//
+// The fix is anatomy, not detail. What separates POINTING from the other thing
+// is that the raised finger is at the EDGE of the fist: index first, then three
+// knuckles descending away from it, and the thumb as a step out of the palm's
+// left side BELOW the knuckle line — attached, not a fifth column with a seam
+// of its own, because a thumb that gets its own seam reads as one more finger
+// and puts the raised one back in the middle. This is the X11 `hand2`
+// arrangement and it is the arrangement for a reason.
+//
+// Columns, left to right: 1px margin, thumb (1-2, lower rows only), index
+// (3-4), middle (6-7), ring (9-10), pinky (12-13), 1px margin. The knuckles
+// enter on a descending staircase — middle at row 5, ring at 6, pinky at 7 —
+// so the fist has a profile rather than a flat top, and the descent runs AWAY
+// from the index, which is the second cue that says which finger is up.
 //
 // THE SEAMS ARE TRANSPARENT PIXELS, NOT DRAWN LINES. The three 1px gaps at
-// columns 3, 6 and 9 are '.' in the art and come back as '#' from `outlined()`
-// — a gap one pixel wide is claimed by the dilation from both sides, which is
-// the failure mode the reticle's six-pixel hole exists to avoid and is exactly
-// what is wanted here: four fingers separated by a dark seam. One grid, one
-// border thickness, no second set of numbers to keep in step.
+// columns 5, 8 and 11 are '.' in the art and come back as '#' from
+// `outlined()` — a gap one pixel wide is claimed by the dilation from both
+// sides, which is the failure mode the reticle's six-pixel hole exists to avoid
+// and is exactly what is wanted here: four fingers separated by a dark seam.
+// One grid, one border thickness, no second set of numbers to keep in step. At
+// SCALE 2 each seam is 2 CSS px, so they survive the 1x bake — a seam that
+// vanished at 1x would merge the fist into a mitten and take the finger count
+// with it.
 //
 // The one-pixel margin on every side is the arrow's rule, for the arrow's
 // reason: the fingertip is the hotspot, it is the part that overlaps whatever
 // it is pointing at, and a shape flush against the grid edge has nowhere to put
 // its outline.
 const HAND = grid([
-  ".............",
-  "....CC.......",
-  "....CC.......",
-  "....CC.......",
-  "....CC.......",
-  "....CC.......",
-  "....CC.......",
-  "....CC.CC....",
-  "....CC.CC.CC.",
-  ".CC.CC.CC.CC.",
-  ".CCCCCCCCCCC.",
-  ".CCCCCCCCCCC.",
-  ".CCCCCCCCCCC.",
-  ".CCCCCCCCCCC.",
-  "..CCCCCCCCCC.",
-  "..CCCCCCCCC..",
-  ".............",
+  "...............",
+  "...CC..........",
+  "...CC..........",
+  "...CC..........",
+  "...CC..........",
+  "...CC.CC.......",
+  "...CC.CC.CC....",
+  "...CC.CC.CC.CC.",
+  "...CC.CC.CC.CC.",
+  "...CCCCCCCCCCC.",
+  ".CCCCCCCCCCCCC.",
+  ".CCCCCCCCCCCCC.",
+  ".CCCCCCCCCCCCC.",
+  ".CCCCCCCCCCCCC.",
+  ".CCCCCCCCCCCCC.",
+  "..CCCCCCCCCCCC.",
+  "...............",
 ]);
 /** The index fingertip: the art column the finger's right half sits in, so the
  *  hotspot lands on the seam between its two pixels rather than inside one of
  *  them. Times SCALE, that is a whole CSS pixel on the finger's centre line. */
-const HAND_TIP_COL = 5;
+const HAND_TIP_COL = 4;
 
 // THE BARRED DISC, for anything refusing the click. Road-sign "no entry",
 // because that is the one refusal glyph that survives being 22 CSS pixels
@@ -339,12 +363,38 @@ function decls(g, scale, hotX, hotY, fallback) {
   ].join("\n");
 }
 
+/** THE STAND-DOWN, in keywords: the same four surfaces the block above dresses
+ *  in bitmaps, handed back to the browser. Written once and emitted twice —
+ *  once for the media queries that announce an accessibility preference, once
+ *  for the Settings switch that asks about the ones no media query announces
+ *  (store.ts's systemCursor). Two copies of this list that could disagree is
+ *  precisely how one surface gets left behind wearing a bitmap, so there is
+ *  one list.
+ *
+ *  `scope` prefixes every selector, which is also what makes the switch's copy
+ *  win: `:root[data-system-cursor="on"]` adds a pseudo-class and an attribute
+ *  to selectors that already outrank everything else in the file, so each of
+ *  these beats its own bitmap rule without depending on source order. Pass ""
+ *  for the media-query copy, where the @media does the winning. */
+function standDown(scope, indent = "") {
+  const at = (sel) => (scope ? `${scope} ${sel}` : sel);
+  return [
+    `${indent}${at("body")} { cursor: auto; }`,
+    // `crosshair`, not `auto`, over the bay: the surface still has to say what
+    // it is. Handing back the pointer is not the same as forgetting that the
+    // thing under it is a target.
+    `${indent}${at("#game")} { cursor: crosshair; }`,
+    `${indent}${at(INTERACTIVE_SEL)} { cursor: pointer; }`,
+    `${indent}${at(BLOCKED_SEL)} { cursor: not-allowed; }`,
+  ].join("\n");
+}
+
 const reticle = outlined(RETICLE_ART);
 const arrow = outlined(ARROW);
 const hand = outlined(HAND);
 const blocked = outlined(BLOCKED_ART);
 // Scale 2: one art pixel is two CSS pixels, so the reticle is 32x32 CSS, the
-// arrow 24x34, the hand 26x34 and the barred disc 26x26 — chunky on purpose,
+// arrow 24x34, the hand 30x34 and the barred disc 26x26 — chunky on purpose,
 // and inside every engine's cursor size cap (Blink refuses anything over 128
 // device px, which the largest 2x asset reaches at 68).
 const SCALE = 2;
@@ -373,10 +423,11 @@ const css = `/* GENERATED by scripts/make-cursors.mjs — do not edit by hand.
    cursor does not show up on buttons", which is what a split identity looks
    like from outside. And it was wrong about the benefit, because the
    affordance is in the SHAPE: a pointing hand says "clickable" and a barred
-   disc says "no" whoever drew them, and the accessibility block at the bottom
-   of this file already gives the system cursors back to exactly the players
-   whose settings the custom bitmaps would ignore. The signal is kept; only the
-   pixels changed hands.
+   disc says "no" whoever drew them, and the two blocks at the bottom of this
+   file give the system cursors back to every player whose own pointer matters
+   more than the look — the ones a media query can detect, and the ones who say
+   so with the Settings switch. The signal is kept; only the pixels changed
+   hands.
 
    BLOCKED OUTRANKS CLICKABLE BY SPECIFICITY, not by source order — see the
    generator's note on why the two selectors chain. A disabled button matches
@@ -411,6 +462,30 @@ ${decls(blocked, SCALE, (blocked.w * SCALE) / 2, (blocked.h * SCALE) / 2, "not-a
   }
 }
 
+/* THE SWITCH: Settings → System Pointer (store.ts's systemCursor, published by
+   main.ts as <html data-system-cursor>).
+
+   THE MEDIA QUERIES BELOW ARE NOT ENOUGH, and that gap is the whole reason
+   this block exists. forced-colors and prefers-contrast are the only two
+   signals a browser gives about a player's pointer, and neither one is ABOUT
+   the pointer: Windows' pointer size/colour and macOS's pointer size are
+   standalone accessibility preferences, and a player can triple their cursor
+   and tint it yellow without turning either query on. No engine reports that
+   they did. So a 26px bitmap would quietly override the one accommodation
+   they had made, and the only honest way to find out is to ask — which is a
+   switch, not a query.
+
+   IT REVERTS ALL FOUR, the bay's reticle and the chrome's arrow included, not
+   just the two cursors that prompted it. A player who has asked for their own
+   pointer has asked for it everywhere; giving it back on the buttons and
+   keeping a bitmap over the field would answer half the request.
+
+   OUTSIDE \`@media (pointer: fine)\` on purpose. The rules it overrides are all
+   inside it, so this one is dead weight on a touch device either way — and
+   leaving it unconditional means the switch works the moment a mouse is
+   plugged into a tablet, without a second copy of the block. */
+${standDown(':root[data-system-cursor="on"]')}
+
 /* ACCESSIBILITY OVERRIDE. A player who has asked their OS for a high-contrast
    or enlarged pointer has asked for it everywhere, and a custom bitmap ignores
    both settings — forced-colors and prefers-contrast are the two signals that
@@ -422,12 +497,10 @@ ${decls(blocked, SCALE, (blocked.w * SCALE) / 2, (blocked.h * SCALE) / 2, "not-a
    order, and \`body { cursor: auto }\` alone would leave the two id-scoped
    rules above still holding their bitmaps on every button in the app — the
    one audience that must never see them would be the only one that always
-   did. */
+   did. It is the same list the switch above hands back, emitted from the same
+   place in the generator so the two can never fall out of step. */
 @media (forced-colors: active), (prefers-contrast: more) {
-  body { cursor: auto; }
-  #game { cursor: crosshair; }
-  ${INTERACTIVE_SEL} { cursor: pointer; }
-  ${BLOCKED_SEL} { cursor: not-allowed; }
+${standDown("", "  ")}
 }
 `;
 

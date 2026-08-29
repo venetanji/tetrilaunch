@@ -18,10 +18,11 @@
    cursor does not show up on buttons", which is what a split identity looks
    like from outside. And it was wrong about the benefit, because the
    affordance is in the SHAPE: a pointing hand says "clickable" and a barred
-   disc says "no" whoever drew them, and the accessibility block at the bottom
-   of this file already gives the system cursors back to exactly the players
-   whose settings the custom bitmaps would ignore. The signal is kept; only the
-   pixels changed hands.
+   disc says "no" whoever drew them, and the two blocks at the bottom of this
+   file give the system cursors back to every player whose own pointer matters
+   more than the look — the ones a media query can detect, and the ones who say
+   so with the Settings switch. The signal is kept; only the pixels changed
+   hands.
 
    BLOCKED OUTRANKS CLICKABLE BY SPECIFICITY, not by source order — see the
    generator's note on why the two selectors chain. A disabled button matches
@@ -50,8 +51,8 @@
   }
 
   #app :is(button, a[href], [role="button"], [role="switch"], [tabindex="0"], [data-action], [data-toggle]) {
-    cursor: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAiCAYAAABBY8kOAAAAXklEQVR42u3XMQoAIAwDwAxO/v+h/kBnh1rEWAumkEWk59QiYFQpta8CVoVDaH2KIEGCBNkQbTSlgWgPoEPuhU3IPA+HaA3TQqwIEvQTdAuMh7y1cAq8h9jZ/g+dQgP/Qkqcwe9Q0AAAAABJRU5ErkJggg==") 10 2, pointer;
-    cursor: image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAiCAYAAABBY8kOAAAAXklEQVR42u3XMQoAIAwDwAxO/v+h/kBnh1rEWAumkEWk59QiYFQpta8CVoVDaH2KIEGCBNkQbTSlgWgPoEPuhU3IPA+HaA3TQqwIEvQTdAuMh7y1cAq8h9jZ/g+dQgP/Qkqcwe9Q0AAAAABJRU5ErkJggg==") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAABECAYAAADOWhYqAAAAi0lEQVR42u3bwQnAIAwF0Bw8df9Bu4HdQJAoxvIC/yYhL8eAEZPV2tMziWoFBHQYFG8fBggICAgICAgICAgICAgICGgFqNxRBQjoMlC5BQABJUHpBptB0++BgA6Dyg0IBPQzULUAAQEBAQEBAQEBAQGtAt0GBAI6Dcoe408DgICqg6pn++8TIKAx6APX6ip86bzCsgAAAABJRU5ErkJggg==") 2x) 10 2, pointer;
+    cursor: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAiCAYAAABIiGl0AAAAXUlEQVR42u3XQQoAIAgEwD106v8P7Qd1LiiCXDRZYY8yghgELFVK7aeAVe4wWp8iWHBemHZmYWHaQN/BzwOlga/PUjAN3i5/abBKHJgFCRYsWDD/ycwP335PreMGD5BFvF9zOjToAAAAAElFTkSuQmCC") 8 2, pointer;
+    cursor: image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAiCAYAAABIiGl0AAAAXUlEQVR42u3XQQoAIAgEwD106v8P7Qd1LiiCXDRZYY8yghgELFVK7aeAVe4wWp8iWHBemHZmYWHaQN/BzwOlga/PUjAN3i5/abBKHJgFCRYsWDD/ycwP335PreMGD5BFvF9zOjToAAAAAElFTkSuQmCC") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAABECAYAAADdjVbeAAAAiklEQVR42u3bsQ3AIAwEQBdU2X/QbEA2CEKhsJ2z9J0ldN8gCiIWM8Y1vySqDTBwc3Dc8zXAwMDAwMDAwMDAwGfA5R4bwMDAtQsCBgauXRAwMHDufWBgYGBg4ET72xf34oBsAQb+G7gaCBgYGBgYGBgYGBgYGBgYGBgYuFsBwMDdwac/V2YPMHCzPFri8ZcYaxG7AAAAAElFTkSuQmCC") 2x) 8 2, pointer;
   }
 
   #app :is(button, a[href], [role="button"], [role="switch"], [tabindex="0"], [data-action], [data-toggle]):is(:disabled, [disabled], [aria-disabled="true"]) {
@@ -59,6 +60,33 @@
     cursor: image-set(url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAaCAYAAACpSkzOAAAAW0lEQVR42mNgIABYWLj+E4MZKAU0swiXQf91Q7Fisi2muUXEGkwIE7SQ7haRawEuC+lvEbWCjGAQ0t0iYpMtIYwzCEctGrVo4JI3zS0afmXd8K2Phl+bYdi06wCyfs6CfZm7/gAAAABJRU5ErkJggg==") 1x, url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAA0CAYAAADFeBvrAAAAg0lEQVR42u3asQ3AMAgEQBeuskvGyf6jODMgsImUQ/re1yAEHiNZc16rMqO7gICaH7zuJ5TjYCCgzaDqB2eTBgIBNYNOA6JAIKBu0NeaQLpJAAE1g6qHyWzCTQIICAgICAgI6Mcg0zYQUG5PZ+sDBFQLcn0AAtp7c3UFBwLyGwsIKFEv7Oo6MnR2Zo8AAAAASUVORK5CYII=") 2x) 13 13, not-allowed;
   }
 }
+
+/* THE SWITCH: Settings → System Pointer (store.ts's systemCursor, published by
+   main.ts as <html data-system-cursor>).
+
+   THE MEDIA QUERIES BELOW ARE NOT ENOUGH, and that gap is the whole reason
+   this block exists. forced-colors and prefers-contrast are the only two
+   signals a browser gives about a player's pointer, and neither one is ABOUT
+   the pointer: Windows' pointer size/colour and macOS's pointer size are
+   standalone accessibility preferences, and a player can triple their cursor
+   and tint it yellow without turning either query on. No engine reports that
+   they did. So a 26px bitmap would quietly override the one accommodation
+   they had made, and the only honest way to find out is to ask — which is a
+   switch, not a query.
+
+   IT REVERTS ALL FOUR, the bay's reticle and the chrome's arrow included, not
+   just the two cursors that prompted it. A player who has asked for their own
+   pointer has asked for it everywhere; giving it back on the buttons and
+   keeping a bitmap over the field would answer half the request.
+
+   OUTSIDE `@media (pointer: fine)` on purpose. The rules it overrides are all
+   inside it, so this one is dead weight on a touch device either way — and
+   leaving it unconditional means the switch works the moment a mouse is
+   plugged into a tablet, without a second copy of the block. */
+:root[data-system-cursor="on"] body { cursor: auto; }
+:root[data-system-cursor="on"] #game { cursor: crosshair; }
+:root[data-system-cursor="on"] #app :is(button, a[href], [role="button"], [role="switch"], [tabindex="0"], [data-action], [data-toggle]) { cursor: pointer; }
+:root[data-system-cursor="on"] #app :is(button, a[href], [role="button"], [role="switch"], [tabindex="0"], [data-action], [data-toggle]):is(:disabled, [disabled], [aria-disabled="true"]) { cursor: not-allowed; }
 
 /* ACCESSIBILITY OVERRIDE. A player who has asked their OS for a high-contrast
    or enlarged pointer has asked for it everywhere, and a custom bitmap ignores
@@ -71,7 +99,8 @@
    order, and `body { cursor: auto }` alone would leave the two id-scoped
    rules above still holding their bitmaps on every button in the app — the
    one audience that must never see them would be the only one that always
-   did. */
+   did. It is the same list the switch above hands back, emitted from the same
+   place in the generator so the two can never fall out of step. */
 @media (forced-colors: active), (prefers-contrast: more) {
   body { cursor: auto; }
   #game { cursor: crosshair; }

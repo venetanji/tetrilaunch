@@ -5140,12 +5140,26 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
+    systemCursor: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
     BINDABLE_ACTIONS.every((a) => kb.includes(`data-bind="${a}"`)));
   check("the keyboard tab carries the wheel-rotates toggle",
     kb.includes('data-toggle="wheelRotates"'));
+  // …and the pointer's own switch, beside it. The keyboard tab IS the
+  // fine-pointer family's pane (its comment in screens.ts says so, and the
+  // mouse rows above the toggles are the proof), which makes it the one pane
+  // in the app where a switch about the mouse cursor is not an orphan. It is
+  // also the pane that can afford a row: #controls-grid is on sim/uifit's
+  // scroll allowlist and the Settings toggle column is not.
+  check("the keyboard tab carries the system-pointer toggle",
+    kb.includes('data-toggle="systemCursor"'));
+  check("...and no OTHER tab does — a touch or pad pane has no cursor to hand back",
+    !controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-toggle="systemCursor"')
+      && !controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null })
+        .includes('data-toggle="systemCursor"'));
   check("a capturing row says so",
     controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
       .includes("Press a key…"));
@@ -18666,6 +18680,78 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
       && /#game\s*\{\s*cursor:\s*crosshair/.test(tail)
       && tail.includes(`${CONTROLS} { cursor: pointer; }`)
       && /aria-disabled="true"\]\)\s*\{\s*cursor:\s*not-allowed/.test(tail));
+
+  // --- 2b. the escape hatch no media query can offer ------------------------
+  // forced-colors and prefers-contrast are the only pointer-adjacent signals a
+  // browser exposes, and NEITHER is about the pointer. Windows' pointer
+  // size/colour and macOS's pointer size are standalone preferences: a player
+  // can triple their cursor and tint it yellow with both queries off, and no
+  // engine reports it. A 26px bitmap would silently override that. So the
+  // stylesheet also stands down for a SETTING (store.ts's systemCursor,
+  // published by main.ts as <html data-system-cursor>), and these pin that the
+  // two stand-downs are the same stand-down.
+  const KEYWORDS = /^(?<sel>[^{\n]+?)\s*\{\s*cursor:\s*(?<kw>[a-z-]+);\s*\}$/;
+  const keywordRules = (block: string): { sel: string; kw: string }[] =>
+    block.split("\n").map((l) => l.trim().match(KEYWORDS))
+      .filter((m): m is RegExpMatchArray => m !== null)
+      .map((m) => ({ sel: m.groups!.sel, kw: m.groups!.kw }));
+  const SWITCH = ':root[data-system-cursor="on"]';
+  const switchAt = cursors.indexOf(SWITCH);
+  const switchRules = keywordRules(cursors.slice(switchAt, a11y));
+  const a11yRules = keywordRules(tail);
+  check("the switch block exists, and is keyed on the root attribute main.ts publishes",
+    switchAt > 0);
+  // A top-level `}` between the media query and the switch is the media
+  // query's own close: the switch rules are not nested inside it.
+  check("...it is OUTSIDE @media (pointer: fine) — a mouse plugged into a tablet still gets it",
+    switchAt > fine && cursors.slice(fine, switchAt).includes("\n}\n"),
+    `fine @${fine}, switch @${switchAt}`);
+  check("...and it hands back the same FOUR surfaces the high-contrast block does",
+    switchRules.length === 4 && a11yRules.length === 4,
+    `switch ${switchRules.length}, a11y ${a11yRules.length}`);
+  // The two lists come out of one function in the generator, so this is a
+  // check that nobody has hand-edited the generated file into disagreement —
+  // which is the exact failure that leaves one surface wearing a bitmap for
+  // the one audience that must never see one.
+  check("...surface for surface, keyword for keyword, with only the scope differing",
+    switchRules.every((r, i) =>
+      r.kw === a11yRules[i].kw && r.sel === `${SWITCH} ${a11yRules[i].sel}`),
+    switchRules.map((r, i) => `${r.sel}=${r.kw} vs ${a11yRules[i]?.sel}=${a11yRules[i]?.kw}`).join(" | "));
+  check("...including the bay: the reticle goes too, and `crosshair` keeps saying what the surface is",
+    a11yRules.some((r) => r.sel === "#game" && r.kw === "crosshair")
+      && switchRules.some((r) => r.sel === `${SWITCH} #game` && r.kw === "crosshair"));
+  // Every scoped selector is its bitmap rule's selector with two extra simple
+  // selectors bolted on the front, so each one strictly outranks the rule it
+  // has to beat. Stated as a structural fact rather than as specificity
+  // arithmetic nobody can re-derive at review time.
+  //
+  // THE UNSCOPED FORM HAS TO BE FOUND AS A RULE HEAD, not as a substring, and
+  // the first cut of this check got that wrong in the one way that makes a
+  // check worthless: `:root[…] #app :is(…)` CONTAINS `#app :is(…)`, so a plain
+  // `includes` was asking whether the scoped rule contains itself. It passed
+  // against a deliberately mangled selector, which is how it was caught.
+  const asRuleHead = (sel: string): boolean =>
+    new RegExp(`^\\s*${sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{`, "m").test(cursors);
+  check("...and each scoped selector is exactly its own bitmap rule's, prefixed — so it cannot lose",
+    switchRules.length === 4 && switchRules.every((r) =>
+      r.sel.startsWith(`${SWITCH} `) && asRuleHead(r.sel.slice(SWITCH.length + 1))),
+    switchRules.map((r) => r.sel.slice(SWITCH.length + 1)).join(" | "));
+
+  // The three ends of the wire, each in a different file and none of them able
+  // to see the others: the default, the publisher, and the flip. A stylesheet
+  // block keyed on an attribute nobody writes is the quietest possible way for
+  // this feature to be dead on arrival.
+  const store = readSrc("src", "lib", "store.ts");
+  const defaults = store.slice(store.indexOf("const DEFAULTS"));
+  check("System Pointer is OFF by default — the game's cursors are what you get unasked",
+    /systemCursor:\s*false/.test(defaults.slice(0, defaults.indexOf("}"))));
+  const mainSrc = readSrc("src", "main.ts");
+  check("...main.ts publishes the attribute the stylesheet reads, with the value it matches on",
+    /dataset\.systemCursor\s*=\s*this\.settings\.systemCursor\s*\?\s*"on"\s*:\s*"off"/.test(mainSrc));
+  check("...at boot, before the first paint, so nobody sees a bitmap they opted out of",
+    /this\.applySystemCursor\(\);/.test(mainSrc.slice(0, mainSrc.indexOf("private applySystemCursor"))));
+  check("...and on the flip, so the cursor changes under the hand that flipped it",
+    /key === "systemCursor"\) this\.applySystemCursor\(\)/.test(mainSrc));
 
   // --- 3. the palette is still tokens.css's, in the generator ---------------
   // The generator's own header promises the art is coloured "straight from the
