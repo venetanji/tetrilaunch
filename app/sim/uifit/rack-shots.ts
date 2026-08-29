@@ -86,8 +86,8 @@ for (const d of DEVICES) {
 
   for (const n of COUNTS) {
     await page.evaluate(
-      ([id, insets, fp]) => window.__uifit.render(id as string, insets as Insets, fp as boolean),
-      ["hud-lance", d.insets, d.fine] as [string, Insets, boolean],
+      ([id, insets]) => window.__uifit.render(id as string, insets as Insets),
+      ["hud-lance", d.insets] as [string, Insets],
     );
     // Edit the rack to the count under test. `--rack-slots` is what the
     // stylesheet divides by (components.ts's shipPlatesHTML writes it), so it

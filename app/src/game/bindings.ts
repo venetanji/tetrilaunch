@@ -155,15 +155,123 @@ export function resetPadBindings(): void {
   save(PADS_KEY, pads);
 }
 
-/** Standard-mapping button names, Xbox lettering (what the Detected chip
- *  reports; PlayStation players read positions, which match). */
-const PAD_NAMES = [
-  "A", "B", "X", "Y", "LB", "RB", "LT", "RT",
-  "Back", "Start", "L3", "R3", "D-Up", "D-Down", "D-Left", "D-Right", "Guide",
-];
+/* ---------------------------------------------------------------------------
+ * PAD FAMILIES — the same standard-mapping INDEX, said in two vocabularies.
+ *
+ * The Gamepad API's standard mapping is positional: button 0 is the bottom
+ * face button whatever is printed on it. Until now this module named those
+ * positions in Xbox lettering and left it there, on the reasoning that "a
+ * PlayStation player reads positions, which match". That is true of the FACE
+ * diamond and false of everything around it — a DualSense has no button
+ * labelled LB, RB, LT, RT or Start anywhere on it, so half of what the game
+ * told a PlayStation player to press was a name their hardware does not use.
+ *
+ * So the names are a table per family now, chosen by what the browser reports
+ * the connected pad to BE (padFamilyFromId), and every existing caller —
+ * padLabel, the hint table below, the Controls screen's rebind rows — follows
+ * the connected pad without asking. Xbox is the default and the fallback: it
+ * is the lettering the standard mapping is documented in, so an unknown pad
+ * gets the convention rather than a guess.
+ * ------------------------------------------------------------------------ */
+export type PadFamily = "xbox" | "playstation";
 
-export function padLabel(button: number): string {
-  return PAD_NAMES[button] ?? `B${button}`;
+const PAD_NAMES: Record<PadFamily, string[]> = {
+  xbox: [
+    "A", "B", "X", "Y", "LB", "RB", "LT", "RT",
+    "Back", "Start", "L3", "R3", "D-Up", "D-Down", "D-Left", "D-Right", "Guide",
+  ],
+  playstation: [
+    "Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2",
+    "Create", "Options", "L3", "R3", "D-Up", "D-Down", "D-Left", "D-Right", "PS",
+  ],
+};
+
+/**
+ * Which family a `Gamepad.id` belongs to, or null when nothing is connected.
+ *
+ * Pure and exported so sim/systems.ts can pin it against real reported ids
+ * rather than against the regex's own shape. The strings are what browsers
+ * actually hand back:
+ *
+ *   Chrome/Windows, DualSense: "DualSense Wireless Controller (STANDARD
+ *     GAMEPAD Vendor: 054c Product: 0ce6)"
+ *   Firefox/Linux, DualShock 4: "054c-09cc-Wireless Controller"
+ *   Chrome, Xbox Series pad:   "Xbox Wireless Controller (STANDARD GAMEPAD
+ *     Vendor: 045e Product: 0b13)"
+ *
+ * The VENDOR ID is the load-bearing half. Sony's 054c and Microsoft's 045e are
+ * in every one of those strings and cannot be spelled a second way, where the
+ * human-readable part can ("Wireless Controller" alone, which Firefox reports
+ * for a DualShock 4, is also what several third-party Xbox pads call
+ * themselves). The word tests are the fallback for drivers that report no
+ * vendor at all.
+ */
+export function padFamilyFromId(id: string | null | undefined): PadFamily | null {
+  if (!id) return null;
+  const s = id.toLowerCase();
+  if (/\b054c\b|dualsense|dualshock|playstation|\bps[345]\b/.test(s)) return "playstation";
+  return "xbox";
+}
+
+/** The family every unqualified padLabel/padChip call speaks. main.ts writes
+ *  it from the connected pad (setPadFamily); "xbox" until something says
+ *  otherwise, because that is the lettering the standard mapping is defined
+ *  in and the honest default for a pad nobody recognised. */
+let padFamily: PadFamily = "xbox";
+
+export function setPadFamily(f: PadFamily | null): void {
+  padFamily = f ?? "xbox";
+}
+
+export function getPadFamily(): PadFamily {
+  return padFamily;
+}
+
+export function padLabel(button: number, family: PadFamily = padFamily): string {
+  return PAD_NAMES[family][button] ?? `B${button}`;
+}
+
+/**
+ * THE RAIL'S form of a pad button — a glyph, not a word.
+ *
+ * The button rail's chips are ~20px wide inside a 60px control, so "Options"
+ * and "Triangle" are not available to it even though they are the right words
+ * on the pause card. This says what to DRAW instead, and it is a data
+ * description rather than markup so that bindings.ts stays the module that
+ * knows pads and ui/ stays the module that knows pixels (components.ts's
+ * padChipHTML renders it; icons.ts owns the four shapes).
+ *
+ * The three kinds are the three vocabularies the two families actually use:
+ *
+ *   "face"  — Xbox's coloured letters. A/B/X/Y are the only pad buttons in
+ *             either family that carry a COLOUR as part of their identity, and
+ *             dropping it would throw away the fastest read on the chip.
+ *   "shape" — PlayStation's four marks. They have no letters at all; a chip
+ *             saying "X" for button 2 would name the Xbox button that sits in
+ *             the OTHER position (2 is Square, and Xbox's X is 2 as well —
+ *             the one coincidence guaranteed to mislead).
+ *   "text"  — everything else, where both families use a short printed code
+ *             (LB/L1, RT/R2) that is already chip-sized.
+ *
+ * ...plus "menu" for button 9, which is Start on one pad and Options on the
+ * other and is three stacked bars on both. One glyph is the truth there.
+ */
+export type PadChip =
+  | { kind: "face"; letter: "A" | "B" | "X" | "Y" }
+  | { kind: "shape"; shape: "cross" | "circle" | "square" | "triangle" }
+  | { kind: "menu" }
+  | { kind: "text"; text: string };
+
+const PS_SHAPES = ["cross", "circle", "square", "triangle"] as const;
+
+export function padChip(button: number, family: PadFamily = padFamily): PadChip {
+  if (button === 9) return { kind: "menu" };
+  if (button >= 0 && button <= 3) {
+    return family === "playstation"
+      ? { kind: "shape", shape: PS_SHAPES[button] }
+      : { kind: "face", letter: PAD_NAMES.xbox[button] as "A" | "B" | "X" | "Y" };
+  }
+  return { kind: "text", text: padLabel(button, family) };
 }
 
 /* ---------------------------------------------------------------------------

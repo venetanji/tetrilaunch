@@ -197,7 +197,8 @@ import {
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
-  resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+  padChip, padFamilyFromId, resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+  setPadFamily,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
@@ -4718,8 +4719,16 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // rail in a build nobody measured.
   check("the deepest rail a RUN can build is seven slots",
     railSlotsFor({ bond: true, demo: true, thaw: true, auto: false }) === RAIL_SLOTS_MAX - 1);
-  check("fine pointers budget only fullscreen + pause",
-    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true, finePointer: true }) === 2);
+  // THE BUDGET IS POINTER-BLIND NOW, and this is the pin that says so. It used
+  // to read "fine pointers budget only fullscreen + pause", because app.css hid
+  // every game button on a mouse/trackpad and the desktop build taught its
+  // controls in a text strip along the foot of the field instead. The rail is
+  // the same column on every pointer since — wearing a keycap and a pad mark
+  // per button (components.ts's railLegendHTML) — so the loadout is the whole
+  // input, and a budget that still shed six slots would reserve a band for
+  // buttons that are on screen.
+  check("the rail budget is the loadout, whatever the pointer",
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true }) === RAIL_SLOTS_MAX - 1);
   // Where no fullscreen toggle mounts at all (the native shells, iPhone
   // Safari — platform.ts's fullscreenSupported), the budget must not reserve
   // its slot: screens.ts renders no button there, and an empty slot is field
@@ -4727,17 +4736,15 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   check("no fullscreen toggle (native shells) frees its slot",
     railSlotsFor({ bond: false, demo: false, thaw: false, auto: false, fullscreen: false }) === RAIL_SLOTS_BASE - 1 &&
     railSlotsFor({ bond: true, demo: true, thaw: true, auto: true, fullscreen: false }) === RAIL_SLOTS_MAX - 1);
-  check("a fine pointer without fullscreen budgets the pause button alone",
-    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true, finePointer: true, fullscreen: false }) === 1);
   check("the budget clamps to the eight-slot worst case",
     (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
-  // Floor of ONE: the pause-only rail (fine pointer, no fullscreen toggle) is
-  // a real budget and must survive the clamp — see setRailSlots.
+  // Floor of ONE. Nothing in the app asks for a one-slot rail any more — the
+  // smallest railSlotsFor can now return is three, the pause button and the
+  // rotate pair on a shell that mounts no fullscreen toggle — but the floor is
+  // there to keep the column arithmetic above zero for ANY caller, and a floor
+  // tuned to the current call sites is one that breaks when a call site moves.
   check("the budget clamps at the one-button floor",
     (setRailSlots(0), getRailSlots() === 1));
-  check("the pause-only budget survives the clamp",
-    (setRailSlots(railSlotsFor({ bond: false, demo: false, thaw: false, auto: false, finePointer: true, fullscreen: false })),
-      getRailSlots() === 1));
 
   // The reported device: a 360dp-tall Android phone (2376x1080 @3x) in
   // fullscreen Chrome. It must keep the vertical side rail at every loadout a
@@ -5144,7 +5151,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // D1: the Controls screen renders every binding as a rebindable row, says
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
-    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
     systemCursor: false,
   };
@@ -13397,9 +13404,10 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       railName(hudFor(false)) === "Pause", railName(hudFor(false)));
     check("...and every other run's ⏸ is the name it always had",
       railName(hudFor(true)) === S.PAUSE_HOLD_NAME, railName(hudFor(true)));
-    check("...and the field strip drops the line too",
-      !/hold pause to restart/.test(hudFor(false))
-        && /hold pause to restart/.test(hudFor(true)));
+    /* The HUD used to carry the same line in its hint strip and had to drop it
+       here too; there is no strip, so the accessible name above is the whole of
+       what the FIELD says about the gesture. The card's half is asserted at the
+       top of this block (roofCard / idle). */
   }
 
   // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------
@@ -13743,91 +13751,236 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
 }
 
 // ---------------------------------------------------------------------------
-section("The hint strip names the hold-to-restart gesture (screens.ts)");
+section("Rail legends: the keycap and the pad mark on the button (D2)");
 // ---------------------------------------------------------------------------
+// The desktop build used to have no game buttons at all — app.css hid the rail's
+// controls on a fine pointer and a text strip along the foot of the field named
+// the keys instead. The information was on a surface nothing could be pressed
+// on. The buttons are back on every pointer and the legends moved ONTO them
+// (components.ts's railLegendHTML), which makes each one a single object: the
+// thing you click, the key that does the same, and the pad button that does the
+// same.
+//
+// D2's rule is the thing these pins actually defend. A legend that says "Q"
+// because someone typed "Q" is the pre-D2 bug in a new place — the coach telling
+// desktop players to tap buttons that were display:none — so every check below
+// REBINDS and then asserts the markup followed.
 {
-  // BARE LOADOUT deliberately: with the Autoloader owned the strip already
-  // says "hold to autofire", and /hold.*restart/ would then match across two
-  // separate hints and pass for the wrong reason.
-  const bare = { bond: false, demo: false, thaw: false, auto: false };
-  // Keyboard and touch share one arm, and the strip is drawn on the
-  // fine-pointer path — where a MOUSE performs the same pointerdown hold. So
-  // the keyboard strip is the one that has to name it.
-  check(
-    "the strip names the hold-to-restart gesture",
-    /hold.*restart/i.test(S.hintStripHTML("keyboard", bare)),
-  );
-  check(
-    "touch renders the same strip content",
-    /hold.*restart/i.test(S.hintStripHTML("touch", bare)),
-  );
-  // GUARD, not a regression check — green before this hint existed and green
-  // after. The pad's Start button is a press, not a pointer hold: nothing binds
-  // a held pad button to resetBay, so the gamepad strip must not claim it.
-  check(
-    "the gamepad strip does not name a gesture the pad cannot make",
-    !/hold.*restart/i.test(S.hintStripHTML("gamepad", bare)),
-  );
-  // GUARD, same reason. Every .kbd chip in this strip is a LIVE BINDING
-  // (game/bindings.ts). A keycap around "Hold" would be the strip telling the
-  // player to press a key that does not exist — the exact class of bug the one
-  // hint table exists to make impossible.
-  check(
-    "the hold is not dressed as a keycap",
-    !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
-  );
+  const railHud = () => hudHTML({
+    beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+    tier: 2,
+    target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+    timeLeftMs: 150_000, pieceSize: "std",
+    bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+    thawOwned: true, thawCharges: 4,
+    autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+  });
+  const railOf = (hud: string) =>
+    hud.slice(hud.indexOf('class="side-rail"'), hud.indexOf('class="bay-banner"'));
+
+  // --- the pad's own vocabulary --------------------------------------------
+  // Real reported ids, not the regex's own shape — see padFamilyFromId. The
+  // DualShock 4 line is the one that matters most: Firefox reports it with no
+  // product name at all, so only the Sony vendor id 054c identifies it, and
+  // "Wireless Controller" on its own is a string several third-party XBOX pads
+  // also use.
+  check("a DualSense is read as the PlayStation family",
+    padFamilyFromId("DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)")
+      === "playstation");
+  check("a vendor-id-only DualShock 4 is still PlayStation",
+    padFamilyFromId("054c-09cc-Wireless Controller") === "playstation");
+  check("an Xbox pad is read as the Xbox family",
+    padFamilyFromId("Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)") === "xbox");
+  // An UNKNOWN pad falls back to Xbox rather than to nothing: that is the
+  // lettering the standard mapping is documented in, so it is the convention
+  // and not a guess. Nothing connected is the only null.
+  check("an unrecognised pad falls back to the standard mapping's lettering",
+    padFamilyFromId("Generic USB Joystick (STANDARD GAMEPAD)") === "xbox");
+  check("no pad is no family", padFamilyFromId(null) === null);
+
+  // Same INDEX, two vocabularies. Button 2 is the trap and the reason the PS
+  // half is drawn rather than lettered: it is Square on a DualSense and X on an
+  // Xbox pad, so a chip reading "X" for it would name the right button on one
+  // pad and the wrong one on the other.
+  check("button 2 is Xbox's X and PlayStation's square",
+    JSON.stringify(padChip(2, "xbox")) === JSON.stringify({ kind: "face", letter: "X" })
+    && JSON.stringify(padChip(2, "playstation")) === JSON.stringify({ kind: "shape", shape: "square" }));
+  check("the shoulders keep each family's printed code",
+    (padChip(4, "xbox") as { text: string }).text === "LB"
+    && (padChip(4, "playstation") as { text: string }).text === "L1"
+    && (padChip(7, "xbox") as { text: string }).text === "RT"
+    && (padChip(7, "playstation") as { text: string }).text === "R2");
+  // Start on one pad, Options on the other, the same stack of bars printed on
+  // both — so one glyph is the honest answer for button 9 rather than a word
+  // that is wrong for half the players.
+  check("Start and Options share one glyph",
+    padChip(9, "xbox").kind === "menu" && padChip(9, "playstation").kind === "menu");
+  // ...and the WORDS still differ, because the pause card has room for them.
+  check("the pause card can still say each family's word for button 9",
+    padLabel(9, "xbox") === "Start" && padLabel(9, "playstation") === "Options");
+
+  // --- the legends on the buttons ------------------------------------------
+  {
+    resetKeyBindings();
+    resetPadBindings();
+    setPadFamily(null);
+    const rail = railOf(railHud());
+    // One legend per BOUND control. Fullscreen is the exception and it is a
+    // deliberate one: it is a browser affordance with neither a key nor a pad
+    // button, so an empty legend row on it would be a hole under one button in
+    // a column whose whole argument is that the slots line up.
+    const fullscreenBtn = rail.slice(
+      rail.indexOf('id="fullscreen-btn"'),
+      rail.indexOf("</button>", rail.indexOf('id="fullscreen-btn"')),
+    );
+    check("every bound rail button carries a legend, and fullscreen does not",
+      (rail.match(/class="rail-legend"/g) ?? []).length === 7
+      && !fullscreenBtn.includes("rail-legend"));
+    // BOTH families in the markup, always. CSS picks one off <html data-pad>
+    // (main.ts's syncPadFamily), because a pad announcing itself mid-bay must
+    // re-letter the rail without re-rendering a HUD whose instruments are
+    // mid-animation — a rebuilt element restarts its animation.
+    check("both pad families ride in the markup for CSS to choose between",
+      rail.includes('data-pad-family="xbox"') && rail.includes('data-pad-family="playstation"'));
+    check("the rotate pair wears LB/RB and L1/R1",
+      rail.includes(">LB<") && rail.includes(">RB<")
+      && rail.includes(">L1<") && rail.includes(">R1<"));
+    check("Bond Breaker wears Xbox's X and PlayStation's square",
+      rail.includes("pad-chip--face pad-chip--x") && rail.includes("pad-chip--mark pad-chip--square"));
+  }
+
+  // THE REBIND TEST — the one that separates a legend from a hardcoded letter.
+  {
+    resetKeyBindings();
+    setKeyBinding("rotl", "z");
+    setKeyBinding("auto", "g");
+    setKeyBinding("bond", "n");
+    const hud = railHud();
+    const rail = railOf(hud);
+    check("a rebound rotate re-letters its rail button",
+      rail.includes(">Z</span>") && !rail.includes(">Q</span>"));
+    // The Autoloader is the specific regression: its badge was the literal
+    // string "F" in screens.ts for as long as the button existed, so a player
+    // who moved the Autoloader read the old key off the control that had moved.
+    check("the Autoloader's badge follows its binding",
+      rail.includes(">G</span>"));
+    // ...and the plant panel's ability chips, which carried hardcoded B/X/C.
+    check("the plant's ability chips follow their bindings too",
+      hud.includes('<span class="key">N</span>') && !hud.includes('<span class="key">B</span>'));
+    resetKeyBindings();
+  }
+
+  // The rail's own accessible surface is unchanged by any of this: the legend
+  // duplicates information the button's name already carries, so announcing
+  // "Rotate left Q L B" would be strictly worse than announcing "Rotate left".
+  check("legends are decoration to a screen reader",
+    /class="rail-legend" aria-hidden="true"/.test(railOf(railHud())));
+
+  // --- and the HUD keeps no prose at all ------------------------------------
+  // The other half of the move, and the half that makes it a move rather than
+  // an addition. There used to be a strip of hints along the foot of the field
+  // naming rotate, every drafted ability and pause — all six of which are
+  // buttons on the rail wearing those exact chips now — and after the first
+  // trim it still named the shot. The owner's verdict retired the rest of it:
+  // a live bay is not where shortcuts belong.
+  //
+  // So there are exactly TWO places a control instruction can live now, and
+  // this is the pin that says so: printed on the control itself, or on the
+  // pause card. A third would be a third thing to go stale, which is the whole
+  // reason D2's table exists.
+  {
+    resetKeyBindings();
+    resetPadBindings();
+    const owned = { bond: true, demo: true, thaw: true, auto: true };
+    const hud = railHud();
+    // Nothing in the HUD names a key except the rail's own legends and the
+    // plant panel's ability chips — both of which are ON the control they
+    // describe. `.kbd` is the keycap class every prose surface uses; the rail
+    // legend's keycap carries `rail-legend__key` alongside it, so a bare one
+    // anywhere in this markup would be a hint that had grown back.
+    const bareKbd = (hud.match(/<span class="kbd">/g) ?? []).length;
+    check("the HUD carries no loose keycaps — every legend is on its control",
+      bareKbd === 0, String(bareKbd));
+    // The ELEMENTS, not the words — this file's own comments name both, and so
+    // does the marker comment hudHTML leaves where the layer used to be.
+    check("...and no hint strip element survives in it",
+      !hud.includes('class="kbd-hint') && !hud.includes('class="hud__bottom'));
+    // The pause card is where the scheme went, and it has to carry ALL of it —
+    // including the parts no button anywhere can: the aim keys, the mouse
+    // wheel, and (on a pad) the stick.
+    const card = S.pauseModal(true, "keyboard", owned);
+    check("the card carries the controls the rail draws",
+      /rotate/.test(card) && /break bonds/.test(card)
+      && /arm charge/.test(card) && /autofire/.test(card));
+    check("...and the ones no button anywhere carries",
+      /aim/.test(card) && /power/.test(card) && /click to aim/.test(card)
+      && /scroll for arc height/.test(card)
+      && card.includes(`${keyLabel(keyFor("fire"))}</span> fire`));
+    check("the pad card names the stick, which can never become a button",
+      S.pauseModal(true, "gamepad", owned).includes("Stick"));
+  }
 }
 
 // ---------------------------------------------------------------------------
-section("The hint strip is transient; the pause modal is its reference (screens.ts)");
+section("The pause card is the whole input scheme (screens.ts)");
 // ---------------------------------------------------------------------------
+// These checks used to be split between the field strip and this card, because
+// the two rendered different subsets of one table. There is no strip; the card
+// is the only prose surface the scheme has, so every property that mattered
+// about either now has to hold here.
 {
   const bare = { bond: false, demo: false, thaw: false, auto: false };
   const full = { bond: true, demo: true, thaw: true, auto: true };
-  // The strip mounts in whichever fade state main.ts hands it — the HUD is
-  // re-rendered wholesale on every state change, so a pause round-trip on a
-  // dismissed strip must come back dismissed (see hudHTML's hintsDismissed).
-  check("the strip mounts shown by default",
-    !S.hintStripHTML("keyboard", bare).includes("kbd-hint--hidden"));
-  check("the strip can mount already dismissed",
-    S.hintStripHTML("keyboard", bare, true).includes("kbd-hint--hidden"));
-  // The pause modal carries the same hint table (one source: hintParts), so
-  // the strip a first-timer saw and the card a veteran pauses into can never
-  // disagree — including about a rebind, which is the LIVE-BINDING half.
-  const paused = S.pauseModal(true, "keyboard", full);
-  check("the pause modal carries the control reference", paused.includes('id="pause-keys"'));
+  resetKeyBindings();
+  resetPadBindings();
+
+  // BARE LOADOUT deliberately: with the Autoloader owned the card already says
+  // "hold to autofire", and /hold.*restart/ would then match across two
+  // separate hints and pass for the wrong reason.
+  const paused = S.pauseModal(true, "keyboard", bare);
+  // TAP pauses, HOLD restarts the bay (main.ts's startHold). A mouse makes that
+  // pointerdown hold as readily as a thumb, and the rail button's legend says
+  // which key reaches it, not what holding it does — so the card is the only
+  // surface that can teach the gesture to someone who can perform it.
+  check("the card names the hold-to-restart gesture",
+    /hold.*restart/i.test(paused));
+  // GUARD, not a regression check. The pad's Start button is a press, not a
+  // pointer hold: nothing binds a held pad button to resetBay, so the pad arm
+  // must not claim it.
+  check("the pad arm does not name a gesture the pad cannot make",
+    !/hold.*restart/i.test(S.pauseModal(true, "gamepad", bare)));
+  // GUARD, same reason. Every .kbd chip here is a LIVE BINDING
+  // (game/bindings.ts). A keycap around "Hold" would be the card telling the
+  // player to press a key that does not exist — the exact class of bug the one
+  // hint table exists to make impossible.
+  check("the hold is not dressed as a keycap",
+    !/<span class="kbd">Hold<\/span>/i.test(paused));
+
+  const full_kb = S.pauseModal(true, "keyboard", full);
+  check("the pause modal carries the control reference", full_kb.includes('id="pause-keys"'));
   check("the reference renders the live fire binding",
-    paused.includes(`<span class="kbd">${keyLabel(keyFor("fire"))}</span>`));
+    full_kb.includes(`<span class="kbd">${keyLabel(keyFor("fire"))}</span>`));
   check("the reference carries the full loadout's ability hints",
-    /break bonds/.test(paused) && /arm charge/.test(paused) && /autofire/.test(paused));
+    /break bonds/.test(full_kb) && /arm charge/.test(full_kb) && /autofire/.test(full_kb));
   check("the reference points at the Controls screen for the rest",
-    /Settings → Controls/.test(paused));
-  // The gamepad arm re-labels the whole table, exactly as the strip does —
-  // main.ts patches #pause-keys on a profile flip mid-pause.
+    /Settings → Controls/.test(full_kb));
+  // The gamepad arm re-labels the whole table — main.ts patches #pause-keys on
+  // a profile flip mid-pause, and on a pad-family change under an unchanged
+  // profile (relabelHintSurfaces).
   const padPaused = S.pauseModal(true, "gamepad", bare);
   check("the gamepad reference speaks pad, not keys",
     padPaused.includes(`<span class="kbd">${padLabel(padFor("fire"))}</span>`) &&
       padPaused.includes("Stick"));
-  // …and never names the pointer hold the pad cannot make (the pad restarts
-  // through this very modal's button, which pad navigation reaches).
-  check("the gamepad reference does not claim the hold gesture",
-    !/hold.*restart/i.test(padPaused));
   // THE MENU GESTURES (ui/padnav.ts). The pad's route through every screen in
-  // the game runs on four buttons that appear in no binding row and on no
-  // other surface, and the card a pad player is reading is itself being driven
-  // by them — so this is where they are written down.
+  // the game runs on four buttons that appear in no binding row and on no other
+  // surface, and the card a pad player is reading is itself being driven by
+  // them — so this is where they are written down.
   check("the gamepad reference names the menu gestures",
     /D-pad<\/span> move/.test(padPaused) &&
       padPaused.includes(`<span class="kbd">${padLabel(PAD_CONFIRM)}</span> select`) &&
       padPaused.includes(`<span class="kbd">${padLabel(PAD_BACK)}</span> back`));
   check("the gamepad reference names the way into Controls",
     padPaused.includes(`<span class="kbd">${padLabel(PAD_CONTROLS)}</span> opens Controls`));
-  // …and the FIELD strip does not. It is width-budgeted onboarding for the bay
-  // (four more hints wrapped it into the plant panel), and on a live field the
-  // D-pad is nudging aim while A is the trigger — naming menu gestures there
-  // would be naming controls the player does not have at that moment.
-  check("the field strip stays the bay's own scheme",
-    !/D-pad<\/span> move/.test(S.hintStripHTML("gamepad", full)));
 }
 
 // ---------------------------------------------------------------------------
@@ -13980,6 +14133,93 @@ section("Gamepad focus navigation picks by geometry (ui/padnav.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("A pad names itself before anything renders its labels (gamepad.ts)");
+// ---------------------------------------------------------------------------
+// THE BUG THIS EXISTS FOR, in the order it actually happened. Browsers hide a
+// gamepad until its first button press, so the poll that first SEES a DualSense
+// is the same poll that fires onActivity — and onActivity is what flips the
+// profile to gamepad and re-renders the hint strip and the pause card. main.ts
+// used to derive the pad family after pad.poll() returned, one statement too
+// late, so every one of those labels rendered in the standard mapping's Xbox
+// default: a DualSense player read "A fire" and "LB/RB rotate" until some
+// unrelated render happened to repaint them. (Codex review, PR #174.)
+//
+// Asserted as an ORDER rather than as an end state, because the end state was
+// always right — a later render fixed it — and the whole defect was which of
+// two hooks ran first. The stub records what padLabel WOULD have said at the
+// instant onActivity fired, which is the only moment that can be wrong.
+{
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let buttons: number[] = [];
+  let padId = "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)";
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      getGamepads: () => [{
+        id: padId, connected: true, mapping: "standard",
+        axes: [0, 0],
+        buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
+      }],
+    },
+  });
+  /** What the FIRE button was called each time activity was announced. */
+  const spokenAt: string[] = [];
+  const seen: (string | null)[] = [];
+  const pad = new GamepadPoller({
+    game: () => null,
+    playing: () => false,
+    // main.ts's hook renders from here; this stands in for that render.
+    onActivity: () => spokenAt.push(padLabel(padFor("fire"))),
+    // ...and this stands in for main.ts's onPadIdentified.
+    onPad: (id) => { seen.push(id); setPadFamily(padFamilyFromId(id)); },
+    onPause: () => {},
+    onCapture: () => false,
+    onUiButton: () => false,
+    assist: () => false,
+    sling: () => false,
+  });
+
+  setPadFamily(null);
+  buttons = [0]; // A / Cross — the press that reveals the pad to the browser
+  pad.poll(0);
+  check("the pad is identified on the very poll that reveals it",
+    seen.length === 1 && seen[0] === padId, JSON.stringify(seen));
+  check("...and the first render after it already speaks the pad's own words",
+    spokenAt.length === 1 && spokenAt[0] === "Cross", JSON.stringify(spokenAt));
+
+  // ONE ANNOUNCEMENT PER IDENTITY. A pad that is merely still plugged in must
+  // not relabel three surfaces sixty times a second.
+  buttons = [];
+  for (let t = 1; t <= 20; t++) pad.poll(t * 16);
+  check("a pad that has not changed is not re-announced", seen.length === 1, String(seen.length));
+
+  // THE SWAP, which ordering alone does not cover: the profile is already
+  // gamepad by now, so nothing else in the app would repaint for this.
+  padId = "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)";
+  pad.poll(400);
+  check("swapping to the other family re-announces",
+    seen.length === 2 && padFamilyFromId(seen[1]) === "xbox", JSON.stringify(seen));
+  check("...and the labels follow the pad now in the player's hands",
+    padLabel(padFor("fire")) === "A", padLabel(padFor("fire")));
+
+  // A DISCONNECT is an identity change too — the labels fall back to the
+  // standard mapping's lettering rather than staying on a pad that has gone.
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { getGamepads: () => [] },
+  });
+  pad.poll(500);
+  check("a pad going away announces itself once",
+    seen.length === 3 && seen[2] === null, JSON.stringify(seen));
+  pad.poll(516);
+  check("...and an absent pad is not re-announced every frame",
+    seen.length === 3, String(seen.length));
+
+  setPadFamily(null);
+  if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+}
+
+// ---------------------------------------------------------------------------
 section("A held direction repeats into the menus (gamepad.ts)");
 // ---------------------------------------------------------------------------
 // The poller driven through a stub pad, the same admission the InputController
@@ -14010,6 +14250,7 @@ section("A held direction repeats into the menus (gamepad.ts)");
     game: () => null,
     playing: () => playing,
     onActivity: () => {},
+    onPad: () => {},
     onPause: () => {},
     onCapture: () => false,
     onUiButton: (b) => { ui.push(b); return true; },
@@ -14090,6 +14331,7 @@ section("The stick's rate dials hold the aim at centre (gamepad.ts)");
       game: () => g,
       playing: () => true,
       onActivity: () => {},
+      onPad: () => {},
       onPause: () => {},
       onCapture: () => false,
       onUiButton: () => false,
@@ -14591,10 +14833,11 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
   check("the touch hint still teaches the pull-back",
     /pull back/i.test(hintAim("touch")) && !/click/i.test(hintAim("touch")),
     hintAim("touch"));
-  // The fine-pointer strip renders on the same surface and has to agree with it.
-  check("the fine-pointer strip names the click too",
+  // The pause card is the surface a mouse player reads it off, and it has to
+  // agree with the table above.
+  check("the card names the click too",
     /click to aim/i.test(
-      S.hintStripHTML("keyboard", { bond: false, demo: false, thaw: false, auto: false }),
+      S.pauseModal(true, "keyboard", { bond: false, demo: false, thaw: false, auto: false }),
     ));
 }
 

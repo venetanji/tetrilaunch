@@ -60,7 +60,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 }));
 
 const SETTINGS: Settings = {
-  sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
+  sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
   leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
   systemCursor: false,
 };
@@ -698,6 +698,21 @@ export const SCREENS: Record<string, () => string> = {
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
+  // THE SAME BAY WITH A CONTROLLER IN THE PLAYER'S HANDS, and the widest form
+  // of it. The rail's buttons now carry a legend row apiece — a keycap and the
+  // connected pad's own mark (components.ts's railLegendHTML) — and this is the
+  // only fixture that renders the pad half, because the harness stamps
+  // <html data-pad> for it (see padFamilyFor). PlayStation rather than Xbox:
+  // the marks are drawn glyphs where the Xbox chips are single letters, so the
+  // PS family is the taller and wider of the two chips on every button.
+  //
+  // A PAD IS THE ACTIVE INPUT — the state in which the rail draws pad marks and
+  // no keycaps at all (app.css's rail-legend block keys off <html data-profile>
+  // crossed with <html data-pad>, both stamped for this fixture by
+  // rootHooksFor). The `hud` fixture beside it is the other half of the same
+  // pair: same rail, same loadout, keycaps instead. Between them every rail
+  // button is measured in both of the two states it can be drawn in.
+  "hud-pad": () => S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad" }),
   // A STOCK RIG at the top of a run: nothing installed, nothing ratcheted, no
   // abilities. This is the state the build rack's fixed slots exist for — it
   // used to render as an empty row, so the one moment the harness measured
@@ -782,13 +797,11 @@ export const SCREENS: Record<string, () => string> = {
       },
       slots: SLOT_BASE,
     }),
-  // The HUD as every bay PAST the first shot mounts it (main.ts's
-  // armKeyHints): the hint strip faded, the bay floor clear. The strip's
-  // shown-state geometry is measured by every other HUD fixture; this one
-  // pins the mount-time dismissed path — the state the strip's transience
-  // exists to produce — through the real hudHTML plumbing rather than a
-  // class toggled in the harness.
-  "hud-hints-dismissed": () => S.hudHTML({ ...HUD_BASE, contract: null, hintsDismissed: true }),
+  /* NO "hud-hints-dismissed" fixture. It rendered the HUD as every bay past the
+     first shot mounted it — the key-hint strip already faded — which was a
+     state worth pinning while the strip had a transience to get wrong. The
+     strip is gone, the mount is unconditional, and the fixture was otherwise
+     `hud` spelled a second way. Its baseline entry went with it. */
   // Five figures against a four-figure target. A Reactor build carrying
   // overshoot between bays reaches this, and it is the widest the funds readout
   // can get — the case sim/systems.ts's width budget flags as short of slack.
@@ -1446,8 +1459,8 @@ export function railLoadoutFor(
   id: string,
 ): { bond: boolean; demo: boolean; thaw: boolean; auto: boolean } {
   if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
-  return id === "hud" || id === "hud-rich" || id === "hud-notched"
-    || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
+  return id === "hud" || id === "hud-pad" || id === "hud-rich" || id === "hud-notched"
+    || id === "pause" || id === "pause-pad"
     // …and "pause-armed", which is `pause` with one more row on the card and
     // the SAME HUD behind it. It reproduced the identical eleven `offscreen`
     // findings the two entries below record, from the identical cause.
@@ -1466,4 +1479,32 @@ export function railLoadoutFor(
     || id === "seal-break"
     ? HUD_LOADOUT
     : NO_RAIL;
+}
+
+/**
+ * The ROOT HOOKS a fixture needs stamped on <html> before it is measured.
+ *
+ * Two of app.css's structural switches are root attributes rather than media
+ * queries — the input profile (D2) and the connected pad's family — and until
+ * now the harness stamped neither, so every rule behind them was dark on every
+ * device row. Both are stamped now, and they have to be: the rail's legends are
+ * gated on the pair, so without them not one keycap or pad mark in the game
+ * would be measured anywhere.
+ *
+ * Returned as a pair rather than stamped by the fixture itself, because a
+ * fixture returns an HTML STRING for #overlay and cannot reach the document
+ * element. main.ts writes both hooks the same way (setProfile, syncPadFamily);
+ * this is the harness's copy of that hand-off. It is deliberately narrow — the
+ * fixtures written to pin gamepad COPY (pause-pad, coach-pad) keep rendering
+ * exactly what they always rendered — so this adds coverage without silently
+ * re-measuring anything.
+ */
+export function rootHooksFor(id: string): { profile: string | null; pad: string | null } {
+  // PlayStation rather than Xbox: the marks are drawn glyphs where the Xbox
+  // chips are single letters, so the PS family is the taller and wider of the
+  // two chips on every button — the worst case of the pair.
+  if (id === "hud-pad") return { profile: "gamepad", pad: "playstation" };
+  // Everything else takes the harness's boot default for its pointer type
+  // (keyboard on a mouse row, touch on a handset), which is what main.ts does.
+  return { profile: null, pad: null };
 }

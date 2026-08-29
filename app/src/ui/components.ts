@@ -7,6 +7,9 @@ import { HAZARDS, type HazardDef, type HazardId, type Ratchets } from "../game/h
 import { icon, type IconName } from "./icons";
 import { finalById, type FinalId } from "../game/finals";
 import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
+import {
+  keyFor, keyLabel, padChip, padFor, type BindableAction, type PadChip, type PadFamily,
+} from "../game/bindings";
 
 /**
  * One clockwise quarter-turn about the 4x4 preview grid's own center (y down):
@@ -556,4 +559,91 @@ export function shipPlatesHTML(tiers: UpgradeTiers, slots = 0): string {
   // otherwise poison the whole declaration (an invalid calc at computed-value
   // time takes `width` to `auto`, not to a fallback).
   return `<div class="ship-rack" style="--rack-slots:${Math.max(1, width)}">${plates}${open}</div>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE RAIL LEGEND — one button, three input families.
+ *
+ * The button rail is the game's action surface on every device: the same
+ * column, in the same order, whether it is thumbed on a phone, clicked with a
+ * mouse or walked with a pad. What differs between those players is not WHICH
+ * controls exist but what they press to reach them, so that is what rides on
+ * the button — a keycap for the keyboard and the connected pad's own mark for
+ * the pad, under the glyph that names the action.
+ *
+ * This is where the desktop key hints moved TO. They used to live in a strip
+ * along the foot of the field (.kbd-hint), which said "Q/E rotate" beside a
+ * machine that had no rotate button on it: the information was on a surface
+ * nothing could be pressed on, in a different place from the control it named.
+ * On the rail the three answers are one object — the thing you click, the key
+ * that does the same, and the pad button that does the same.
+ *
+ * EVERY LABEL RENDERS FROM game/bindings.ts (D2's rule), so a rebind on the
+ * Controls screen re-letters the rail with it and a legend cannot go stale.
+ *
+ * BOTH PAD FAMILIES ARE ALWAYS IN THE MARKUP and CSS picks one off <html
+ * data-pad>, the same treatment the profile hooks get (see screens.ts's
+ * pauseKeysHTML on why gating in markup is the wrong half): a pad that
+ * announces itself mid-bay must re-letter the rail without re-rendering a HUD
+ * whose instruments are mid-animation. With no pad connected the attribute is
+ * absent and NEITHER shows — the reference is for the device in the player's
+ * hands, not a catalogue of devices they might own.
+ *
+ * `aria-hidden` throughout: every one of these buttons already carries an
+ * accessible name, and a screen reader announcing "Rotate left Q L B" is
+ * worse than one announcing "Rotate left".
+ * ------------------------------------------------------------------------ */
+
+/** The glyph size the pad marks draw at — matched by eye to the 10px keycap
+ *  beside them rather than set equal to it: a stroked outline reads lighter
+ *  than a filled letter of the same box, so the shapes get the extra pixel. */
+const PAD_MARK_PX = 11;
+
+/**
+ * THE FAMILY RIDES IN A DATA ATTRIBUTE, not in a class, and that is worth one
+ * line: `pad-chip--xbox` would have `pad-chip--x` — the Xbox X button's own
+ * modifier — as a prefix of it, so any selector or assertion looking for the
+ * button would silently match the family on every chip in the rail. (It did,
+ * and the pin that was supposed to catch it passed for that exact reason.)
+ */
+function padChipHTML(chip: PadChip, family: PadFamily): string {
+  const attrs = `class="pad-chip%CLS%" data-pad-family="${family}"`;
+  const open = (extra: string) => `<span ${attrs.replace("%CLS%", extra)}>`;
+  switch (chip.kind) {
+    case "face":
+      // The letter carries the button's colour, which is the fastest read on
+      // an Xbox pad and the one thing a monochrome chip would throw away.
+      return `${open(` pad-chip--face pad-chip--${chip.letter.toLowerCase()}`)}${chip.letter}</span>`;
+    case "shape":
+      return `${open(` pad-chip--mark pad-chip--${chip.shape}`)}${icon(`pad-${chip.shape}`, PAD_MARK_PX)}</span>`;
+    case "menu":
+      return `${open(" pad-chip--mark pad-chip--menu")}${icon("pad-menu", PAD_MARK_PX)}</span>`;
+    default:
+      return `${open("")}${chip.text}</span>`;
+  }
+}
+
+/**
+ * The legend row under a rail button's glyph: its keycap, and its mark on
+ * each pad family.
+ *
+ * Returns "" for an action with no binding at all — the fullscreen toggle,
+ * which is a browser affordance rather than a game control and has neither a
+ * key nor a pad button. An empty legend row on it would be a 16px hole under
+ * one button in a column whose whole argument is that the slots line up.
+ */
+export function railLegendHTML(action: BindableAction | null): string {
+  if (!action) return "";
+  const button = padFor(action);
+  // Formatted with ordinary indentation rather than the `><` seam an inline
+  // row would need: .rail-legend is a flex container, and a whitespace-only
+  // anonymous flex item is not rendered at all, so the newlines cost nothing in
+  // layout and the markup stays greppable. (.kbd-hint's seams are a different
+  // case — the text between ITS chips is real content, "/" and words, which
+  // does become an item and does take the container's gap.)
+  return `<span class="rail-legend" aria-hidden="true">
+        <span class="kbd rail-legend__key">${keyLabel(keyFor(action))}</span>
+        ${padChipHTML(padChip(button, "xbox"), "xbox")}
+        ${padChipHTML(padChip(button, "playstation"), "playstation")}
+      </span>`;
 }

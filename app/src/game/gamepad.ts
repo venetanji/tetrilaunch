@@ -167,6 +167,26 @@ export interface GamepadHooks {
   playing(): boolean;
   /** Any button/stick activity — main.ts flips the input profile on it. */
   onActivity(): void;
+  /**
+   * The connected pad's `Gamepad.id` changed — a pad appeared, vanished (null)
+   * or was swapped for another. main.ts derives the pad FAMILY from it
+   * (bindings.ts's padFamilyFromId), which decides what every pad label in the
+   * game says and which of the two marks the rail's legends draw.
+   *
+   * FIRED FROM INSIDE poll(), THE INSTANT THE IDENTITY IS READ AND BEFORE ANY
+   * OTHER HOOK. That ordering is the whole reason this is a hook rather than
+   * something main.ts polls for itself, and it was found the hard way: main.ts
+   * used to call its own sync AFTER pad.poll() returned. Browsers hide a pad
+   * until its first button press, so the poll that first sees a DualSense is
+   * the same poll that fires onActivity — which flips the profile to gamepad
+   * and re-renders the hint strip and the pause card. With the sync trailing,
+   * every one of those labels rendered in the standard mapping's Xbox default
+   * and a DualSense player read "A fire" and "LB/RB rotate" until some
+   * unrelated render happened to repaint them. Derived here, the family is
+   * correct before anything can render, and no future hook can be ordered
+   * wrongly relative to it. (Codex review, PR #174.)
+   */
+  onPad(id: string | null): void;
   /** The pause binding's press edge — main toggles pause/resume. */
   onPause(): void;
   /** While the Controls screen is capturing a rebind: the next button press
@@ -239,14 +259,26 @@ export class GamepadPoller {
     const pads = navigator.getGamepads?.();
     const pad = pads ? Array.from(pads).find((p) => p && p.connected) : null;
     if (!pad) {
-      this.connected = null;
+      // Announced on the EDGE, not every frame: a game with no pad attached
+      // polls this branch sixty times a second for its whole life, and the hook
+      // relabels rendered surfaces.
+      if (this.connected !== null) {
+        this.connected = null;
+        this.hooks.onPad(null);
+      }
       this.prev = [];
       // A pad that vanishes mid-hold must not leave a direction repeating into
       // the menu, the same reasoning setAutoHeld follows for the trigger.
       this.navHeld = -1;
       return;
     }
-    this.connected = pad.id;
+    // BEFORE the button and stick work below, which is where onActivity and
+    // every other hook are reached from — see GamepadHooks.onPad for why that
+    // order is the point rather than an accident.
+    if (pad.id !== this.connected) {
+      this.connected = pad.id;
+      this.hooks.onPad(pad.id);
+    }
 
     const pressed = pad.buttons.map((b) => b.pressed);
     const ax = pad.axes[0] ?? 0;
