@@ -142,23 +142,39 @@ function createWindow() {
   return win;
 }
 
-app.whenReady().then(() => {
-  registerAppProtocol();
-  const win = createWindow();
-
-  // F11 is the fullscreen convention on Windows and Linux; Escape leaves it.
-  // Steam builds normally launch fullscreen, but a spike you are trying to
-  // observe is far easier to watch in a window.
-  win.webContents.on("before-input-event", (_event, input) => {
-    if (input.type !== "keyDown") return;
-    if (input.key === "F11") win.setFullScreen(!win.isFullScreen());
-    if (input.key === "Escape" && win.isFullScreen()) win.setFullScreen(false);
+// A second launch must hand focus to the window that already exists rather
+// than opening a rival one. Two instances share userData, and userData is
+// where localStorage — the save — lives, so the second writer silently wins.
+// Must run BEFORE whenReady: by the time the app is ready, the rival has
+// already opened its own cache handles.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const [win] = BrowserWindow.getAllWindows();
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
   });
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.whenReady().then(() => {
+    registerAppProtocol();
+    const win = createWindow();
+
+    // F11 is the fullscreen convention on Windows and Linux; Escape leaves it.
+    // Steam builds normally launch fullscreen, but a spike you are trying to
+    // observe is far easier to watch in a window.
+    win.webContents.on("before-input-event", (_event, input) => {
+      if (input.type !== "keyDown") return;
+      if (input.key === "F11") win.setFullScreen(!win.isFullScreen());
+      if (input.key === "Escape" && win.isFullScreen()) win.setFullScreen(false);
+    });
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
