@@ -6,6 +6,7 @@ import type { GradeTally } from "../game/grades";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
   runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph, axisIconHTML,
+  railLegendHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -2235,19 +2236,19 @@ export function hudHTML(opts: {
   // the whole truth for a keyboard.
   const bondChip = bondBreakerOwned
     ? `<button class="mod mod--bb bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — hold to shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
-        <span class="g">${icon("bond", 15)}</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
+        <span class="g">${icon("bond", 15)}</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">${keyLabel(keyFor("bond"))}</span>
       </button>`
     : "";
   const bondRailBtn = bondBreakerOwned
-    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — hold to shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>${icon("bond", 20)}<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
+    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — hold to shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>${icon("bond", 20)}${railLegendHTML("bond")}<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
   const demoChip = demoOwned
     ? `<button class="mod mod--demo demo-trigger" data-game="demo" id="demo-chip" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>
-        <span class="g">${icon("demo", 15)}</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">X</span>
+        <span class="g">${icon("demo", 15)}</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">${keyLabel(keyFor("demo"))}</span>
       </button>`
     : "";
   const demoRailBtn = demoOwned
-    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>${icon("demo", 20)}<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
+    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>${icon("demo", 20)}${railLegendHTML("demo")}<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
     : "";
   // The lance's pair. TAPPED, like Demolition and unlike Bond Breaker: it aims
   // itself, costs no launch and renews every bay on the ladder, so there is
@@ -2257,18 +2258,18 @@ export function hudHTML(opts: {
   // will fire it at the wrong moment and read the charge as wasted.
   const thawChip = thawOwned
     ? `<button class="mod mod--thaw thaw-trigger" data-game="thaw" id="thaw-chip" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>
-        <span class="g">${icon("thaw", 15)}</span><span class="nm">THAW</span><span class="stk">×<span class="thaw-trigger__count">${thawCharges}</span></span><span class="key">C</span>
+        <span class="g">${icon("thaw", 15)}</span><span class="nm">THAW</span><span class="stk">×<span class="thaw-trigger__count">${thawCharges}</span></span><span class="key">${keyLabel(keyFor("thaw"))}</span>
       </button>`
     : "";
   const thawRailBtn = thawOwned
-    ? `<button class="icon-btn thaw-btn thaw-trigger" data-game="thaw" id="thaw-btn" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>${icon("thaw", 20)}<span class="thaw-btn__count thaw-trigger__count">${thawCharges}</span></button>`
+    ? `<button class="icon-btn thaw-btn thaw-trigger" data-game="thaw" id="thaw-btn" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>${icon("thaw", 20)}${railLegendHTML("thaw")}<span class="thaw-btn__count thaw-trigger__count">${thawCharges}</span></button>`
     : "";
   // Held, not tapped: pointerdown starts the burst and pointerup ends it (see
   // main.ts's onGamePointerDown). Sits at the BOTTOM of the rail, nearest a
   // right thumb at rest, because it is the only rail control meant to be held
   // through a whole compactor window rather than jabbed.
   const autoRailBtn = autoloaderOwned
-    ? `<button class="icon-btn auto-btn" data-game="auto" id="auto-btn" aria-label="Autoloader — hold to fire">${icon("launcher", 17)}<span class="auto-btn__key">F</span></button>`
+    ? `<button class="icon-btn auto-btn" data-game="auto" id="auto-btn" aria-label="Autoloader — hold to fire">${icon("launcher", 17)}${railLegendHTML("auto")}</button>`
     : "";
   // The ship rack is a Deep Run readout. See the build row below for why a
   // Contract does not get one.
@@ -2320,18 +2321,30 @@ export function hudHTML(opts: {
          button's slot (a CSS order pair — it is last in the DOM but renders
          second), so nothing below it moves under a hovering thumb; a second
          finger taps it to abort the queued launch. Rotate taps mid-drag do NOT cancel (see input.ts).
-         Desktop hides the game buttons and uses Q/E + B/X instead (see the
-         @media (pointer: fine) rule in app.css), per the kbd-hint strip down
-         in .hud__bottom. -->
+
+         THE SAME RAIL ON EVERY POINTER. Desktop used to shed the game buttons
+         entirely (an @media (pointer: fine) rule hid all but fullscreen and
+         pause) and put the controls in a text strip along the foot of the
+         field instead, on the argument that a keyboard already covers Q/E and
+         B/X/C. It cost the desktop build the whole action surface: the strip
+         named controls that had no control on screen, so a mouse player could
+         READ "Q/E rotate" and had nothing to click, and the two platforms grew
+         two different shapes for the same game. The buttons are back for
+         everyone, and each one now carries its own keycap and pad mark
+         (components.ts's railLegendHTML) — one object saying what it does, what
+         key does it, and what pad button does it. The cancel ✕ stays
+         touch-only: a mouse mid-drag has no second finger to abort with, and
+         the fine pointer does not drag to aim at all (it clicks a spot). -->
     <div class="side-rail">
       ${fullscreenSupported ? `<button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">${icon("fullscreen", 22)}</button>` : ""}
       <!-- TAP pauses, HOLD restarts the bay (main.ts's startHold). The second
-           half is in the accessible name because it has nowhere else to go on
-           touch: the .kbd-hint strip that names it is display:none on a coarse
-           pointer and aria-hidden everywhere, and this rail carries no visible
-           labels. Costs no pixels on any device and is the only route an
-           assistive-technology user has to a gesture that is otherwise
-           undiscoverable. -->
+           half is in the accessible name because it has nowhere else to go: the
+           legend below says which KEY and which pad button reach this control,
+           which is not the same fact as "a long press does something else", and
+           the only surface that spells the gesture out (the pause card's
+           reference block) is behind the very button being described. Costs no
+           pixels on any device and is the only route an assistive-technology
+           user has to a gesture that is otherwise undiscoverable. -->
       <!-- …and the seal's price rides that same name when there is one, in the
            SAME words the two buttons wear (sealFaceLabel). NO GLYPH here, and
            that is a decision rather than an omission: this is a 22px icon
@@ -2368,9 +2381,9 @@ export function hudHTML(opts: {
             ? sealNameWith(PAUSE_HOLD_NAME, opts.seal.state, opts.seal.mark)
             : PAUSE_HOLD_NAME)
           : "Pause"
-      }">${icon("pause", 22)}</button>
-      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
-      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
+      }">${icon("pause", 22)}${railLegendHTML("pause")}</button>
+      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}${railLegendHTML("rotl")}</button>
+      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}${railLegendHTML("rotr")}</button>
       ${bondRailBtn}
       ${demoRailBtn}
       ${thawRailBtn}
@@ -2710,11 +2723,27 @@ export function hudHTML(opts: {
 function hintParts(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
-  /** The pause card asks for the FULL scheme; the field strip stays the lean
-   *  onboarding set — its two extra mouse lines wrapped it onto a second row
-   *  on a 1280x720 laptop, straight into the plant panel (caught by uifit's
-   *  overlap assertion). The strip is a subset of the card, never a
-   *  disagreement: shared parts render from the same lines. */
+  /** The pause card asks for the FULL scheme; the field strip carries only what
+   *  the RAIL CANNOT SAY.
+   *
+   *  That division is the whole shape of this function now, and it is the same
+   *  argument the rail legends were built on. Every rail button wears its own
+   *  keycap and pad mark (components.ts's railLegendHTML), so a strip hint for
+   *  rotate, an ability or pause would state one binding twice on one screen,
+   *  in two vocabularies, in two places — which is exactly what the move onto
+   *  the buttons was for. What is left has no button on any platform: the shot
+   *  is aimed by pointing (or by the angle/power keys, or by a stick) and fired
+   *  by a key, a release or a pad button, and none of those is a control the
+   *  rail draws on a phone or on a desktop.
+   *
+   *  It also answers, from the other end, the width problem the strip has
+   *  always had. It was a lean set because it had to be — two extra mouse lines
+   *  once wrapped it onto a second row on a 1280x720 laptop, straight into the
+   *  plant panel, and uifit's overlap assertion caught it. Now it is short
+   *  because there is genuinely less for it to say.
+   *
+   *  The strip is still a subset of the card, never a disagreement: shared
+   *  parts render from the same lines. */
   full = false,
   /** Whether the run may hand a bay back at all (run.ts's bayRetryable). False
    *  only on the Skydeck, which is permadeath — the hold-to-restart line below
@@ -2732,17 +2761,23 @@ function hintParts(
      than a 900px window. Grouped, a wrap can only break BETWEEN hints. */
   const part = (inner: string) => parts.push(`<span class="kbd-hint__part">${inner}</span>`);
   if (profile === "gamepad") {
-    part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
+    // CARD ONLY, all four of these: every button below is drawn on the rail
+    // wearing this exact pad mark (bindings.ts's padChip), so on the field the
+    // strip would be reading the rail back to the player.
+    if (full) part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
     // The rate-dial default (gamepad.ts): vertical trims the angle,
     // horizontal the power, centred holds. The slingshot opt-in changes what
     // the stick MEANS but not that it aims, so the hint stays true either way.
+    // A STICK HAS NO BUTTON, which is why this one stays on the field.
     part(`${kbd("Stick")} ↕ angle · ↔ power`);
     part(`${kbd(padLabel(padFor("fire")))} fire`);
-    if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
-    if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
-    if (owned.thaw) part(`${kbd(padLabel(padFor("thaw")))} thaw`);
-    if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
-    part(`${kbd(padLabel(padFor("pause")))} pause`);
+    if (full) {
+      if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
+      if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
+      if (owned.thaw) part(`${kbd(padLabel(padFor("thaw")))} thaw`);
+      if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
+      part(`${kbd(padLabel(padFor("pause")))} pause`);
+    }
     /* THE MENU GESTURES (ui/padnav.ts): the D-pad moves focus, A activates,
        B backs out, and Back opens Controls from any menu. Named here because
        a pad player's whole route through the game runs on them and nothing
@@ -2769,19 +2804,29 @@ function hintParts(
       part(`${kbd(padLabel(PAD_CONTROLS))} opens Controls`);
     }
   } else {
-    part(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
+    // CARD ONLY: the rotate pair is two buttons on the rail with Q and E
+    // printed on them.
+    if (full) part(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
+    // The three that stay. Aim, power and fire are the SHOT, and the shot has
+    // no button in this game on any device — a finger pulls the field back, a
+    // mouse points at a spot, and these keys are the third way to say the same
+    // thing. Nothing on the rail can carry them.
     part(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);
     part(`${kbd(keyLabel(keyFor("powerDown")))}/${kbd(keyLabel(keyFor("powerUp")))} power`);
     part(`${kbd(keyLabel(keyFor("fire")))} fire`);
-    if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
-    if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
-    // ONE WORD, and the shortest true one on the strip. The strip is
-    // width-budgeted — two extra mouse lines already wrapped it into the plant
-    // panel once (see `full` above) — and a fourth ability hint is the same
-    // pressure. "thaw" is what the verb is; which cube it takes is on the
-    // button's own accessible name and in the guide, where a sentence fits.
-    if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
-    if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
+    // CARD ONLY, all four: each of these is a rail button wearing this exact
+    // keycap, and a drafted ability's chip in the plant panel wears it a third
+    // time. Three statements of one binding on one screen was the state of
+    // things; one of them is the control itself, so the other two go.
+    if (full) {
+      if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
+      if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+      // ONE WORD, and the shortest true one on the card's ability run. "thaw"
+      // is what the verb is; which cube it takes is on the button's own
+      // accessible name and in the guide, where a sentence fits.
+      if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
+      if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
+    }
     /* "click to aim", not "drag to aim", and this strip is the one place the
        change is safe to state flatly. It renders only under `pointer: fine`
        (see the block below), where the pointer IS a mouse — and the mouse is
@@ -2912,9 +2957,11 @@ export function dragHintHTML(): string {
  * INTERACTIVE COACH — the first-run tutorial (issue #23). One instruction at a
  * time over the live first bay, each advancing when the player actually
  * performs the action (detection lives in main.ts's tutorial driver — this
- * module only renders the current step). Steps carry no keyboard talk: on
- * touch the rail buttons are the controls, and desktop players get the
- * kbd-hint strip anyway.
+ * module only renders the current step). Steps carry no keyboard talk beyond
+ * what the one hint table hands them (coachSteps renders hintAim/hintRotate per
+ * profile): the rail is the control surface on every device now and each of its
+ * buttons wears its own keycap and pad mark, so a card spelling the same keys
+ * out again would be repeating the machine back to the player.
  *
  * ONE CARD PER COMPLETABLE ACTION — this is why the deck is four steps and
  * not the playtest deck's six (aim, power, rotate, launch, row, resources).

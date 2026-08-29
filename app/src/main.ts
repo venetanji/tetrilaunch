@@ -111,7 +111,8 @@ import {
 import { InputController } from "./game/input";
 import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
-  actionForKey, resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+  actionForKey, padFamilyFromId, resetKeyBindings, resetPadBindings, setKeyBinding,
+  setPadBinding, setPadFamily,
   type BindableAction, type InputProfile,
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
@@ -833,14 +834,13 @@ class App {
 
     lockLandscape();
     // Before the first solve: the boot screens carry no abilities, so the rail
-    // budget is the base buttons (two on fine-pointer devices, where the
-    // CSS hides the game buttons; one fewer wherever no fullscreen toggle
+    // budget is the base buttons (one fewer wherever no fullscreen toggle
     // mounts — the native shells, iPhone Safari). Without this the solver's
     // conservative default (a full seven-slot draft) could pick the
     // bottom-strip layout on a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({
       bond: false, demo: false, thaw: false, auto: false,
-      finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenSupported(),
     }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
     // first solve too — snug mode reserves the band on the rail's side.
@@ -1116,6 +1116,39 @@ class App {
     return window.matchMedia?.("(pointer: fine)").matches ?? false;
   }
 
+  /** The pad id the family hook was last published for — a `Gamepad.id` is a
+   *  driver string that never changes while a pad stays connected, so this is
+   *  a cheap identity check on a once-per-frame call. */
+  private padId: string | null = null;
+
+  /**
+   * Publish WHICH FAMILY of pad is connected, as <html data-pad>.
+   *
+   * Two consumers, and they need it at different moments. bindings.ts's
+   * padLabel speaks the connected pad's own vocabulary from here, so the pause
+   * card and the Controls screen stop telling a DualSense owner to press LB;
+   * and app.css picks one of the two pad marks the rail's legends always carry
+   * (components.ts's railLegendHTML), so a pad announcing itself mid-bay
+   * re-letters the rail with no re-render — which matters because the HUD's
+   * instruments animate and a rebuilt element restarts its animation.
+   *
+   * NO ATTRIBUTE AT ALL when nothing is connected, which is the one place this
+   * hook departs from the app's "every root hook names its state" convention
+   * (see applySystemCursor). The rail's pad marks are gated on the attribute's
+   * PRESENCE because "no pad" is not a third vocabulary to draw — it is the
+   * reference not being drawn, and `[data-pad]` says exactly that in one
+   * selector where a written "none" would need a :not() on every rule.
+   */
+  private syncPadFamily(): void {
+    const id = this.pad.detected();
+    if (id === this.padId) return;
+    this.padId = id;
+    const family = padFamilyFromId(id);
+    setPadFamily(family);
+    if (family) document.documentElement.dataset.pad = family;
+    else delete document.documentElement.dataset.pad;
+  }
+
   /** Flip the input family (D2) and refresh every surface that renders from
    *  it: the <html data-profile> hook, the HUD's hint strip, and the coach's
    *  current card — all patched in place, because a profile flip mid-bay
@@ -1212,7 +1245,7 @@ class App {
     this.railSlotsLatch = RAIL_SLOTS_BASE;
     const slots = railSlotsFor({
       bond: false, demo: false, thaw: false, auto: false,
-      finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenSupported(),
     });
     if (slots !== getRailSlots()) {
       setRailSlots(slots);
@@ -1325,7 +1358,6 @@ class App {
       // for the rest of the run.
       thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
-      finePointer: this.finePointer(),
       fullscreen: fullscreenSupported(),
     });
     const key: object = this.run ?? g;
@@ -3298,9 +3330,19 @@ class App {
    *  veteran is never without the table — it just stops squatting the bay
    *  floor. No baysPlayed cap here, unlike the drag hint's D3 rule: the
    *  counter counts TOUCH bays too, and a fifty-bay phone veteran plugging in
-   *  a pad for the first time is exactly the first-timer this strip is for. */
+   *  a pad for the first time is exactly the first-timer this strip is for.
+   *
+   *  NOTHING TO ARM ON A FINE POINTER. The strip's desktop life ended when the
+   *  rail became the action surface there and took the keycaps onto its own
+   *  buttons (app.css's note where the `pointer: fine` display rule used to
+   *  be) — it is now drawn only for a GAMEPAD on a COARSE pointer, the Deck /
+   *  TV / phone-with-a-controller case. So on a mouse this whole lifecycle
+   *  would be a 15-second timer per bay whose only effect is to toggle a class
+   *  on a `display: none` node, which is not a cost worth paying and, worse, is
+   *  the kind of machinery that quietly outlives the thing it drove. */
   private armKeyHints(): void {
     if (this.keyHintTimer !== null) { window.clearTimeout(this.keyHintTimer); this.keyHintTimer = null; }
+    if (this.finePointer()) return;
     this.keyHintsDismissed = this.settings.seenKeyHints;
     // Sync the mounted strip too: the callers run AFTER setState("playing")
     // rendered the HUD, and that render read the PREVIOUS bay's dismissed
@@ -4853,6 +4895,7 @@ class App {
     // in every state: the Controls screen needs the Detected chip and rebind
     // capture, and Start has to pause/resume from anywhere.
     this.pad.poll(now);
+    this.syncPadFamily();
     const g = this.game;
     if (g && this.state === "playing" && !g.paused) {
       this.acc += now - this.last;

@@ -1111,17 +1111,24 @@ function measure(cfg: {
   }
 
   // --- kbdhint: the key-hint strip belongs to the FIELD ---------------------
-  // The strip replaces the whole touch rail on a fine pointer, so on desktop it
-  // is the only thing on screen that names a control. It is chrome of the
-  // MACHINE, not of the window, and every number below is measured against the
-  // solved field rather than the viewport — which is the entire point. It was
-  // written as `left: 50%` + `bottom: 2px`, and those coincide with the field's
-  // centre and foot only in "wide", where the letterbox gutters are symmetric
-  // and the world reaches the bottom of the screen. In "snug" — every ordinary
-  // 16:9/16:10 laptop window, because the solver reserves an 84px right band
-  // there — the strip sat 42px right of the machine and floated up to 69px
-  // below it, and no row in this matrix could see it because no row had a fine
-  // pointer.
+  // It is chrome of the MACHINE, not of the window, and every number below is
+  // measured against the solved field rather than the viewport — which is the
+  // entire point. It was written as `left: 50%` + `bottom: 2px`, and those
+  // coincide with the field's centre and foot only in "wide", where the
+  // letterbox gutters are symmetric and the world reaches the bottom of the
+  // screen. In "snug" — every ordinary 16:9/16:10 laptop window, because the
+  // solver reserves an 84px right band there — the strip sat 42px right of the
+  // machine and floated up to 69px below it.
+  //
+  // WHAT THE STRIP STILL CARRIES, which is much less than it did. It used to be
+  // the desktop control scheme entire: a fine pointer shed every game button off
+  // the rail and read its controls off this line instead. The rail is the action
+  // surface on every pointer now and each button wears its own keycap and pad
+  // mark, so the strip kept only what no button on it can say — how the shot is
+  // aimed and fired (screens.ts's hintParts). It is shorter than these numbers
+  // were ever measured against, which makes every bound below slacker rather
+  // than tighter; the `hud-pad` fixture is the new worst case for it, since a
+  // pad's stick line is the longest single hint the strip has.
   //
   // Skipped unless the strip is actually rendered: it is display:none on a
   // coarse pointer without a gamepad, which is most of this matrix.
@@ -1360,8 +1367,8 @@ for (const device of devices) {
       await page.setViewportSize(vp);
     }
     await page.evaluate(
-      ([id, insets, fp]) => window.__uifit.render(id as string, insets as Insets, fp as boolean),
-      [screen, device.insets, fine] as [string, Insets, boolean],
+      ([id, insets]) => window.__uifit.render(id as string, insets as Insets),
+      [screen, device.insets] as [string, Insets],
     );
     // Two frames: one for layout, one for the meter transitions to settle.
     await page.evaluate(

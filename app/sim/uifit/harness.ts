@@ -15,8 +15,9 @@
  */
 import "../../src/styles/app.css";
 import { computeLayout, railSlotsFor, setRailSlots, type Insets } from "../../src/game/layout";
+import { setPadFamily, type PadFamily } from "../../src/game/bindings";
 import { applySafeAreaInsets } from "../../src/lib/platform";
-import { railLoadoutFor, SCREENS, SCREEN_IDS } from "./fixtures";
+import { railLoadoutFor, rootHooksFor, SCREENS, SCREEN_IDS } from "./fixtures";
 
 const overlay = document.getElementById("overlay") as HTMLElement;
 
@@ -110,12 +111,13 @@ function publishLayout(): void {
 
 export interface UiFitApi {
   screens: string[];
-  /** `finePointer` mirrors main.ts's hudOpts: on a mouse/trackpad the rail
-   *  sheds its game buttons, so the solver must be budgeted for the two that
-   *  remain. Passing it is not optional decoration — budget the seven-slot
-   *  touch column on a desktop row and the solver reserves a band for buttons
-   *  that rule out of the DOM, i.e. it measures a layout no browser renders. */
-  render(id: string, insets: Insets, finePointer?: boolean): void;
+  /** NO POINTER ARGUMENT ANY MORE. It used to mirror main.ts's hudOpts, where a
+   *  fine pointer shed every game button off the rail and the budget came out
+   *  at fullscreen + pause. The rail is the same column on every pointer now
+   *  (it wears a keycap and a pad mark per button instead of handing its job to
+   *  a text strip), so the slot budget is a property of the LOADOUT alone and
+   *  the harness has nothing left to tell the solver about the device. */
+  render(id: string, insets: Insets): void;
   layout(): ReturnType<typeof computeLayout>;
 }
 
@@ -127,14 +129,34 @@ declare global {
 
 const api: UiFitApi = {
   screens: SCREEN_IDS,
-  render(id, insets, finePointer = false) {
+  render(id, insets) {
     const make = SCREENS[id];
     if (!make) throw new Error(`unknown screen "${id}"`);
     applyInsets(insets);
     // The same loadout -> slot budget hand-off main.ts's hudOpts performs, so
-    // the solver prices the rail this screen actually renders — including the
-    // fine-pointer branch, where only fullscreen and pause survive.
-    setRailSlots(railSlotsFor({ ...railLoadoutFor(id), finePointer }));
+    // the solver prices the rail this screen actually renders.
+    setRailSlots(railSlotsFor(railLoadoutFor(id)));
+    // ...and the same ROOT HOOKS main.ts publishes for the input family and the
+    // connected pad (setProfile / syncPadFamily). Written before the layout
+    // solve and the render because app.css keys structural rules off both, and
+    // a rule that only lights up after the measurement is a rule the harness
+    // cannot see. Cleared, never left over: these are per-fixture state on a
+    // document that renders every fixture in turn.
+    const hooks = rootHooksFor(id);
+    const root = document.documentElement;
+    if (hooks.profile) root.dataset.profile = hooks.profile;
+    else delete root.dataset.profile;
+    if (hooks.pad) root.dataset.pad = hooks.pad;
+    else delete root.dataset.pad;
+    // BOTH HALVES of the pad hand-off, not just the CSS one. main.ts's
+    // syncPadFamily writes the root attribute AND tells bindings.ts which
+    // vocabulary to speak, and the second half is what puts the pad's real
+    // words into every string the screens render — "Cross fire" rather than
+    // "A fire" on the hint strip, which is six characters wider and therefore
+    // the measurement that matters. Reset (to the standard mapping's Xbox
+    // lettering) for every other fixture, since this is module state on a
+    // document that renders all 79 in turn.
+    setPadFamily((hooks.pad as PadFamily | null) ?? null);
     publishLayout();
     overlay.innerHTML = make();
   },

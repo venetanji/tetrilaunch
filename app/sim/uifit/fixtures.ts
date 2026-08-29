@@ -698,6 +698,24 @@ export const SCREENS: Record<string, () => string> = {
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
+  // THE SAME BAY WITH A CONTROLLER IN THE PLAYER'S HANDS, and the widest form
+  // of it. The rail's buttons now carry a legend row apiece — a keycap and the
+  // connected pad's own mark (components.ts's railLegendHTML) — and this is the
+  // only fixture that renders the pad half, because the harness stamps
+  // <html data-pad> for it (see padFamilyFor). PlayStation rather than Xbox:
+  // the marks are drawn glyphs where the Xbox chips are single letters, so the
+  // PS family is the taller and wider of the two chips on every button.
+  //
+  // The HUD renders the gamepad PROFILE too, so on the fine-pointer rows the
+  // key-hint strip comes out in its pad form — the desktop-with-a-controller
+  // state, which nothing measured before. The root <html data-profile> hook is
+  // deliberately NOT stamped: the strip's coarse-pointer life (a Deck, a TV, a
+  // phone with a controller clipped to it) is a real state and a badly broken
+  // one — measured here once, it wrapped three rows deep and covered the plant
+  // panel on six handsets — but it is a defect this change neither caused nor
+  // fixes, and dragging six baseline entries for it into a desktop rail PR
+  // would bury the thing under review. Left where it was found.
+  "hud-pad": () => S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad" }),
   // A STOCK RIG at the top of a run: nothing installed, nothing ratcheted, no
   // abilities. This is the state the build rack's fixed slots exist for — it
   // used to render as an empty row, so the one moment the harness measured
@@ -1446,7 +1464,7 @@ export function railLoadoutFor(
   id: string,
 ): { bond: boolean; demo: boolean; thaw: boolean; auto: boolean } {
   if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
-  return id === "hud" || id === "hud-rich" || id === "hud-notched"
+  return id === "hud" || id === "hud-pad" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
     // …and "pause-armed", which is `pause` with one more row on the card and
     // the SAME HUD behind it. It reproduced the identical eleven `offscreen`
@@ -1466,4 +1484,31 @@ export function railLoadoutFor(
     || id === "seal-break"
     ? HUD_LOADOUT
     : NO_RAIL;
+}
+
+/**
+ * The ROOT HOOKS a fixture needs stamped on <html> before it is measured.
+ *
+ * Two of app.css's structural switches are root attributes rather than media
+ * queries — the input profile (D2) and the connected pad's family — and until
+ * now the harness stamped neither, so every rule behind them was dark on all 19
+ * device rows. This closes half of that: the rail's pad marks are drawn only
+ * under <html data-pad>, so without the hook the whole reference would ship
+ * unmeasured on every device in the matrix.
+ *
+ * Returned as a pair rather than stamped by the fixture itself, because a
+ * fixture returns an HTML STRING for #overlay and cannot reach the document
+ * element. main.ts writes both hooks the same way (setProfile, syncPadFamily);
+ * this is the harness's copy of that hand-off. It is deliberately narrow — the
+ * fixtures written to pin gamepad COPY (pause-pad, coach-pad) keep rendering
+ * exactly what they always rendered — so this adds coverage without silently
+ * re-measuring anything. `profile` is carried but unused today, and that is on
+ * purpose rather than speculative: it is the other half of the same hand-off,
+ * it is what the coarse-pointer strip needs to become measurable, and a
+ * function that returns one hook would have to be rewritten rather than
+ * extended on the day someone takes that on.
+ */
+export function rootHooksFor(id: string): { profile: string | null; pad: string | null } {
+  if (id === "hud-pad") return { profile: null, pad: "playstation" };
+  return { profile: null, pad: null };
 }

@@ -55,6 +55,14 @@ export type IconName =
   // and their metrics wobble the buttons. Emoji survive only in flavour copy
   // now, never in a control.
   | "pause" | "fullscreen" | "rotl" | "rotr" | "close" | "check" | "bond" | "retry"
+  // THE PAD REFERENCE (bindings.ts's padChip): the four PlayStation face marks
+  // and the menu bar-stack both families print on their Start/Options button.
+  // These are the ONE set here that is not our own invention — they are a
+  // hardware vocabulary a player already reads — so they are drawn as the
+  // shapes themselves and nothing else. No trademark, no logo: a cross, a
+  // circle, a square and a triangle are the marks, and the Xbox half of the
+  // reference is a coloured letter that needs no glyph at all.
+  | "pad-cross" | "pad-circle" | "pad-square" | "pad-triangle" | "pad-menu"
   // The bay clock, for the home screen's base-bay panel. A READOUT glyph, not a
   // control — nothing about it is pressable — so it sits with the currencies
   // below rather than with the rail's control set above.
@@ -275,6 +283,25 @@ const PATHS: Record<IconName, string> = {
     `<path d="M4 8h9l-2 5H2z" fill="currentColor" stroke="none"/>`,
   // The retry arrow (was the ↻ dingbat on Try/Play Again buttons).
   retry: `<path d="M3.4 11.2A5.6 5.6 0 1 0 3.4 4.8"/><path d="M2.6 1.6v3.8h3.8"/>`,
+
+  // ---- pad reference (bindings.ts's padChip) ------------------------------
+  // Drawn to one shared optical size rather than to one bounding box: a
+  // triangle inscribed in the same square as a circle reads visibly smaller,
+  // which on a chip row of four marks is the only thing the eye is comparing.
+  // So the square is inset to 4.5..11.5 and the triangle and circle are pushed
+  // out past it to match its ink.
+  "pad-cross": `<path d="M4 4l8 8"/><path d="M12 4l-8 8"/>`,
+  // THE ONE CIRCLE IN THIS FILE, and it is a deliberate exception to the
+  // pixel-grid rule the `clock` glyph states from the other side. Every other
+  // shape here is ours to draw and can therefore be built out of straight runs;
+  // this one is a mark printed on hardware in the player's hands, and an
+  // octagon "circle" would simply be the wrong button.
+  "pad-circle": `<circle cx="8" cy="8" r="4.6"/>`,
+  "pad-square": `<path d="M4.5 4.5h7v7h-7z"/>`,
+  "pad-triangle": `<path d="M8 3.4l5 8.4H3z"/>`,
+  // Start / Options — one glyph for both families, because both print the same
+  // stack of bars on that button whatever the word beside it is.
+  "pad-menu": `<path d="M3 5h10"/><path d="M3 8h10"/><path d="M3 11h10"/>`,
   // The bay clock: a square face crossed by its own axes, one hand short of
   // vertical, and two ears on top. Deliberately NOT a circle — every other
   // glyph in this table is built out of straight runs on the pixel grid, and a

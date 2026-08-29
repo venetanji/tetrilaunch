@@ -102,9 +102,23 @@ export interface RailLoadout {
   demo: boolean;
   thaw: boolean;
   auto: boolean;
-  /** Fine-pointer devices hide the game buttons entirely (app.css's
-   *  `@media (pointer: fine)` rule) — only fullscreen + pause remain. */
-  finePointer?: boolean;
+  /* NO `finePointer` HERE ANY MORE. It used to shed every game button on a
+   * mouse/trackpad — the budget came out at fullscreen + pause — because
+   * app.css hid them there and the desktop build taught its controls in a text
+   * strip instead. That is gone: the rail is the action surface on every
+   * pointer now, wearing a keycap and a pad mark per button, so the column a
+   * desktop window has to stack is the same column a phone stacks and the
+   * budget is a property of the LOADOUT alone.
+   *
+   * It cost nothing at any desktop size that has ever been measured, which is
+   * the part worth writing down. "snug" reserves RAIL_MAX + 2*RAIL_PAD (84px)
+   * for the band whatever the slot count, and railColumnCap only bites when
+   * the column is taller than the window: at eight slots that needs 410px of
+   * height, and the shortest browser row in the matrix is 600. Every web row
+   * solves to the same mode, the same band and the same 60px button before and
+   * after. A browser window dragged under ~410px tall does now take the
+   * bottom-strip fallback — the same answer, for the same reason, that a
+   * 360dp phone already gets. */
   /** Whether a fullscreen toggle is mounted at all. Defaults to true (the
    *  browser case); main.ts passes platform.ts's fullscreenSupported(), which
    *  is false in the native shells and on iPhone Safari — there screens.ts
@@ -114,7 +128,6 @@ export interface RailLoadout {
 
 export function railSlotsFor(l: RailLoadout): number {
   const fs = l.fullscreen === false ? 0 : 1;
-  if (l.finePointer) return 1 + fs;
   return RAIL_SLOTS_BASE - 1 + fs
     + (l.bond ? 1 : 0) + (l.demo ? 1 : 0) + (l.thaw ? 1 : 0) + (l.auto ? 1 : 0);
 }
@@ -136,11 +149,13 @@ const RAIL_EDGE = 16;
  *  set it (headless checks, first paint) stay conservative. */
 let railSlots = RAIL_SLOTS_MAX;
 
-/** Floor of ONE, not two: the smallest real rail is the pause button alone —
- *  a fine-pointer device with no fullscreen toggle (railSlotsFor returns 1
- *  there), and clamping it back to 2 would keep reserving an empty slot the
- *  budget exists to reclaim. The floor's only job is to keep the column math
- *  above zero. */
+/** Floor of ONE, not two. The smallest budget railSlotsFor can now return is
+ *  three (pause + the rotate pair, on a shell that mounts no fullscreen
+ *  toggle), so nothing in the app asks for one — but the floor's job is to keep
+ *  the column arithmetic above zero for ANY caller, and a floor set to the
+ *  smallest number the current call sites happen to produce is a floor that
+ *  breaks the next time a call site changes. It was one when a fine pointer
+ *  budgeted the pause button alone; it stays one now that nothing does. */
 export function setRailSlots(n: number): void {
   railSlots = Math.max(1, Math.min(RAIL_SLOTS_MAX, Math.round(n)));
 }

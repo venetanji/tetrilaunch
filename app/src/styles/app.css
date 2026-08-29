@@ -2204,8 +2204,9 @@ body.crt-off #app::after { display: none; }
 }
 /* Autoloader trigger. The only rail control that is HELD rather than tapped, so
    it says so: a persistent :active state that stays lit for the whole burst,
-   and a key badge instead of a charge count because it has no charges — it
-   spends funds for as long as you hold it. */
+   and no charge count because it has none — it spends funds for as long as you
+   hold it. (It used to carry a hardcoded "F" badge of its own; that is the rail
+   legend below now, rendered from the live binding like every other button's.) */
 .auto-btn {
   position: relative;
   color: var(--accent);
@@ -2218,15 +2219,115 @@ body.crt-off #app::after { display: none; }
   color: var(--accent-ink); background: var(--accent);
   box-shadow: 0 0 18px rgba(0, 240, 255, 0.85);
 }
-.auto-btn__key {
-  position: absolute; bottom: -5px; right: -5px;
-  font-family: var(--font-pixel); font-size: 7px; line-height: 1;
-  padding: 2px 3px; border-radius: var(--r-sm);
-  background: var(--surface-3); color: var(--text-muted);
-  border: var(--bw) solid var(--line);
+
+/* ---------- Rail legends: the keycap and the pad mark on the button ----------
+   See components.ts's railLegendHTML for WHY these are here rather than in a
+   strip along the foot of the field. The short version: the rail is the action
+   surface, so the answers to "what do I press" belong on it, beside the thing
+   that does the same job under a finger.
+
+   THE ROW IS A FLEX CHILD, not an absolutely positioned badge (which is what
+   the Autoloader's lone "F" used to be). Absolute would be tidier per button
+   and wrong per column: the badge overhung its button by 5px, which is fine for
+   the LAST control in a stack and a collision for any of the seven above it —
+   the rail's gap is 6px. As a child, the legend and the glyph share the
+   button's own box and the column's arithmetic is untouched.
+
+   THE HEIGHT BUDGET, because this is inside a control with a hard floor. The
+   glyph is 22px, the legend row 16px (10px mono, a 1px keycap border, no
+   vertical padding), the gap between them 3px: 41px of content in a button that
+   is 44px at the WCAG floor and 60px (--tap-md) everywhere the solver has room.
+   It fits the floor, so no size of window has to choose between the legend and
+   the tap target.
+
+   BOTH PAD FAMILIES ARE IN THE MARKUP AND CSS PICKS ONE. <html data-pad> is
+   written by main.ts's syncPadFamily from the connected pad's own id, and with
+   no pad connected the attribute is absent and neither mark draws — the
+   reference is for the controller in the player's hands, not a catalogue. That
+   also means a pad announcing itself mid-bay re-letters the rail without
+   re-rendering the HUD, which is load-bearing: a rebuilt element restarts its
+   animation, and these buttons sit next to instruments that are mid-flight. */
+.rail-legend {
+  display: none;
+  align-items: center;
+  gap: 3px;
+  /* The legend describes the button; it must never eat a press aimed at it. */
+  pointer-events: none;
 }
-/* Touch has no keyboard, so the hint is desktop-only. */
-@media (pointer: coarse) { .auto-btn__key { display: none; } }
+/* The stack, declared unconditionally rather than inside the pointer query and
+   without a `:has()` test for which buttons carry a legend. A column of one
+   item lays out exactly like a row of one, so the fullscreen toggle — the one
+   rail control with no binding and therefore no legend — is untouched by it,
+   and a phone with the legends hidden renders the identical button it always
+   did. Cheaper than `:has()` and it works on every WebView this ships in. */
+.side-rail .icon-btn { flex-direction: column; gap: 3px; }
+/* A keyboard exists here, so the keycap does. The pad marks are gated on the
+   PAD instead of on the pointer — a Deck, a TV, or a phone with a controller
+   clipped to it is a coarse pointer that still wants the reference — so the row
+   itself opens for either reason. Both halves default to hidden and are opened
+   by their own condition, which is why the `display: none` pair is stated
+   BEFORE the queries: these selectors all weigh the same, so source order is
+   the whole cascade here. */
+.rail-legend__key { display: none; }
+:root[data-pad] .rail-legend { display: inline-flex; }
+@media (pointer: fine) {
+  .rail-legend { display: inline-flex; }
+  .rail-legend__key { display: inline-block; }
+}
+/* Shrunk from the prose keycap (.kbd, 12px with a 2px border and 2px of
+   vertical padding — 23px tall, half the button). Same vocabulary, chip-sized:
+   one keycap idiom across the guide, the pause card and the rail. */
+.rail-legend .kbd {
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 3px;
+  border-width: 1px;
+  color: var(--text-dim);
+}
+.pad-chip {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--text-dim);
+}
+/* The mark chips carry an SVG rather than a glyph, so they lose the text
+   metrics and centre on the box instead. */
+.pad-chip--mark { padding: 0 2px; }
+/* Xbox's face buttons are a COLOUR as much as a letter, and the colour is the
+   faster read of the two. Every value is an existing token — the game's green,
+   red, blue and yellow are already the four it needs — so nothing new enters
+   the palette to say "this is the A button".
+
+   THE COLOUR IS NEVER THE ONLY CARRIER: the letter is right there inside the
+   chip, the button's accessible name says what it does, and the legend is
+   aria-hidden precisely because it repeats what the control already announces.
+   So this is a non-text UI mark and WCAG 2.2 SC 1.4.11's 3:1 is the bar, not
+   1.4.3's 4.5:1. Measured against --surface-3 (#24243b), the chip's own ground:
+
+       A  --success  #00ff9c   10.51:1
+       B  --danger   #ff2d55    4.10:1
+       X  --piece-j  #2979ff    3.73:1
+       Y  --piece-o  #ffe500   11.75:1
+
+   The blue is the tight one and it clears the bar with room; it is also the
+   game's only blue, so a "safer" value would mean either a fresh hex in this
+   stylesheet or an X button that is not the colour Microsoft prints on it. */
+.pad-chip--face { font-weight: 700; }
+.pad-chip--a { color: var(--success); border-color: var(--success); }
+.pad-chip--b { color: var(--danger); border-color: var(--danger); }
+.pad-chip--x { color: var(--piece-j); border-color: var(--piece-j); }
+.pad-chip--y { color: var(--piece-o); border-color: var(--piece-o); }
+:root[data-pad="xbox"] .pad-chip[data-pad-family="xbox"],
+:root[data-pad="playstation"] .pad-chip[data-pad-family="playstation"] { display: inline-flex; }
 
 .bond-btn:hover { border-color: #ffd23f; color: #fff0b8; }
 .bond-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
@@ -2495,27 +2596,38 @@ body.crt-off #app::after { display: none; }
    keeps the geometry the kbdhint assertion pins measurable in either state. */
 .kbd-hint { transition: opacity var(--dur-slow) var(--ease); }
 .kbd-hint--hidden { opacity: 0; }
-/* A gamepad player sees the strip whatever the pointer type (D2): the pad is
-   the control surface, and the rail's touch buttons say nothing about it. */
+/* A gamepad player sees the strip whatever the pointer type (D2): the pad's aim
+   is a STICK, and no button on the rail can carry a stick. */
 :root[data-profile="gamepad"] .kbd-hint { display: flex; }
 
+/* WHAT THIS BLOCK NO LONGER DOES, which is most of what it used to do. It sat
+   beside a rule hiding every game button on the rail, and the pair was the whole
+   desktop control scheme: no buttons, one line of text along the foot of the
+   field naming the keys instead. The owner's objection is the one that settles
+   it — the field's foot is not an action surface. A player reading "Q/E rotate"
+   there reads it in a place nothing can be pressed, several hundred pixels from
+   the machine's own controls, while the phone build has a column of real buttons
+   doing that job.
+
+   The buttons are back on every pointer and the keycaps moved ONTO them
+   (components.ts's railLegendHTML). So the strip lost every hint that names a
+   control the rail carries — rotate, the abilities, pause — and keeps only what
+   the rail CANNOT say: how the shot itself is aimed and fired, which is a
+   pointer gesture and three keys with no button anywhere, on any platform (see
+   screens.ts's hintParts). That is not the strip being tolerated alongside the
+   rail; it is the two surfaces dividing the scheme with nothing said twice.
+
+   The cancel ✕ is the ONE rail control a fine pointer still does not get, and
+   that needs no rule of its own: .cancel-aim-btn is `display: none` by default
+   and only the `@media (pointer: coarse)` block above lights it up mid-drag. It
+   exists to be hit by a SECOND finger while the first holds a slingshot drag
+   (input.ts's cancelAim), and a mouse has neither a second contact nor, since
+   the aim rework, a drag to abort — it clicks a spot and the cannon solves the
+   arc onto it. */
 @media (pointer: fine) {
-  /* Keyboard covers rotate/bond/demo/thaw/cancel; only fullscreen + pause
-     remain.
-     They sit at their conventional top-right anchor for free — the rail is
-     top-anchored for everyone now (see .side-rail), which this rule used to
-     ask for on its own. */
-  .side-rail .rotate-btn,
-  .side-rail .bond-btn,
-  .side-rail .demo-btn,
-  .side-rail .thaw-btn,
-  .side-rail .auto-btn,
-  .side-rail .cancel-aim-btn { display: none; }
-  .kbd-hint {
-    /* Only the display switch: the field-relative anchor moved to the base
-       rule, because the gamepad profile needs it on coarse pointers too. */
-    display: flex;
-  }
+  /* Only the display switch: the field-relative anchor lives on the base rule,
+     because the gamepad profile needs it on coarse pointers too. */
+  .kbd-hint { display: flex; }
 }
 
 /* The pause modal's control reference (screens.ts's pauseKeysHTML) — the
