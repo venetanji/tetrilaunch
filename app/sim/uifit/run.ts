@@ -266,6 +266,7 @@ const ASSERTIONS = [
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
   { id: "inkline", desc: "a label and the value beside it share one optical line" },
   { id: "kbdhint", desc: "the key-hint strip is centred on the field, clear of the chrome, and fades when dismissed" },
+  { id: "padfocus", desc: "a control the pad selects is revealed whole, card and all" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -293,7 +294,7 @@ function measure(cfg: {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
     plant: [], crest: [], rail: [], twocol: [], oneline: [], rack: [], badge: [],
-    inkline: [], kbdhint: [], warn: [],
+    inkline: [], kbdhint: [], padfocus: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -1248,6 +1249,66 @@ function measure(cfg: {
       );
     });
   });
+
+  // --- padfocus: a pad selection is revealed WHOLE --------------------------
+  // The assertion that owns the reported gamepad bug: on the refit shelf a card
+  // highlighted with the D-pad lost its bottom border, while the same card
+  // under the mouse kept it. Hover neither focuses nor scrolls; a pad move does
+  // both, and the scroll that came with the focus used to align the BUTTON's
+  // border box with the shelf's edge — putting the rest of the card (its
+  // remaining height, its padding and its 2px border: 13px on a Pixel 7, 50px
+  // at 1080p) under the fold, together with the outer 4px of the pad's own
+  // focus ring.
+  //
+  // So this drives the REAL landing — padnav's focusOn, on the real screens, in
+  // a real engine — over every control the pad can reach inside something that
+  // scrolls, and asks the only question the bug was about: is the box the pad
+  // treats as the selection still inside the pane after the pane has moved for
+  // it? Both boxes come from padnav (harness.ts's padBoxes) rather than from a
+  // second opinion held here, because "the selection is the card, not the
+  // button" IS the fix and a harness that re-decided it would pass a
+  // regression that changed its mind.
+  //
+  // WHY IT RUNS LAST, and puts everything back. It is the one assertion in this
+  // file that MOVES the page: every other one reads a settled layout, and a
+  // shelf left scrolled would leak into whatever ran next and into --shots.
+  //
+  // The 1px tolerance is scrollHeight's rounding, not slack: a pane's maximum
+  // scroll is an integer while its content ends on a fraction, so the last row
+  // of a list can sit up to half a pixel past the edge with the pane already
+  // scrolled as far as it goes. That residue is there for a mouse wheel too and
+  // is not something focus can fix.
+  {
+    const parked: Array<[Element, number, number]> = [];
+    document
+      .querySelectorAll("#overlay *")
+      .forEach((n) => parked.push([n, n.scrollTop, n.scrollLeft]));
+    const wasFocused = document.activeElement as HTMLElement | null;
+
+    for (const el of window.__uifit.padTargets()) {
+      // No scrollable ancestor means nothing can crop the selection, and
+      // nothing will move if we focus it. Skip rather than report a null.
+      if (!window.__uifit.padBoxes(el)) continue;
+      window.__uifit.padFocus(el);
+      const seen = window.__uifit.padBoxes(el);
+      if (!seen) continue;
+      const { unit, pane } = seen;
+      const cut = Math.max(unit.bottom - pane.bottom, pane.top - unit.top);
+      if (cut > 1) {
+        out.padfocus.push(
+          `focusing ${label(el)} leaves ${Math.round(cut)}px of its ` +
+            `${Math.round(unit.height)}px selection outside the pane`,
+        );
+      }
+    }
+
+    for (const [n, top, left] of parked) {
+      n.scrollTop = top;
+      n.scrollLeft = left;
+    }
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    wasFocused?.focus?.({ preventScroll: true });
+  }
 
   return out;
 }

@@ -202,7 +202,7 @@ import {
 import { setRailSide } from "../src/game/layout";
 import {
   armActivate, armRelease, DISARMED,
-  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext,
+  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, revealShift,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import * as S from "../src/ui/screens";
@@ -13977,6 +13977,77 @@ section("Gamepad focus navigation picks by geometry (ui/padnav.ts)");
   check("no pad chip for touch or keyboard",
     !S.coachHTML(0, lvl, "touch").includes("coach__padkey") &&
       !S.coachHTML(0, lvl, "keyboard").includes("coach__padkey"));
+}
+
+// ---------------------------------------------------------------------------
+section("A pad selection is revealed whole, ring included (ui/padnav.ts)");
+// ---------------------------------------------------------------------------
+// The arithmetic behind the reported bug: on the refit shelf, a card selected
+// with the pad lost its bottom border, while the same card under the mouse did
+// not. Hover neither focuses nor scrolls; a pad move does both, and the scroll
+// used to align the BUTTON's border box with the shelf's edge — so the card's
+// remaining height, its padding and its 2px border went under the fold, along
+// with the outer 4px of the pad's own focus ring.
+//
+// revealShift is the one piece of that with no browser in it, so it is the
+// piece this file can hold. The DOM half (which box counts as the selection —
+// the card, not the button) is sim/uifit's `padfocus` assertion, which drives
+// the real focusOn over the real screens in a real engine.
+{
+  // A 200px pane, and the item comfortably inside it: nothing to do. A move
+  // that scrolled on every step would make a shelf jitter under the thumb.
+  check("an item already clear of both edges does not move the pane",
+    revealShift(100, 140, 0, 200) === 0);
+
+  // FLUSH IS NOT VISIBLE ENOUGH. An item whose border box ends exactly at the
+  // pane's edge has its ring — a 2px line at a 2px offset — entirely outside
+  // the pane, and the ring is the pad's cursor. So the clearance costs one
+  // FOCUS_RING_GAP even when the box itself is technically shown.
+  check("an item flush with the far edge still buys the ring's clearance",
+    revealShift(160, 200, 0, 200) === FOCUS_RING_GAP);
+  check("the near edge is the same promise the other way up",
+    revealShift(0, 40, 0, 200) === -FOCUS_RING_GAP);
+
+  // The bug's own shape: the selected CARD hangs 13px past the fold (the
+  // button inside it was already visible, which is why the old scroll thought
+  // there was nothing to do). The pane moves the overhang plus the ring.
+  check("a card hanging past the fold is brought fully in, with the ring",
+    revealShift(160, 213, 0, 200) === 13 + FOCUS_RING_GAP);
+  check("and the same above the fold",
+    revealShift(-13, 40, 0, 200) === -(13 + FOCUS_RING_GAP));
+
+  // NEAREST, not centred: a step down a shelf advances the shelf by a row.
+  // Centring would make every move a jump and lose the player's place.
+  check("the pane moves the smaller of the two distances",
+    revealShift(300, 340, 0, 200) === 144 && revealShift(-340, -300, 0, 200) === -344);
+
+  // A card that only just fits cannot afford the clearance, and the answer is
+  // to spend the pane on the card rather than on the gap: shown flush beats
+  // shown short, and shown short is what a naive `lo - gap` would deliver
+  // (it would scroll the card's far edge back out to buy air at the near one).
+  check("an item as tall as the pane is shown flush, not short",
+    revealShift(0, 200, 0, 200) === 0);
+  check("…and one taller than the pane still comes to the edge it overhangs",
+    revealShift(5, 205, 0, 200) === 5 && revealShift(-5, 195, 0, 200) === -5);
+
+  // THE CLEARANCE IS THE RING'S OWN ARITHMETIC, and the ring is drawn by
+  // app.css. Two files own one number, so read the other half rather than
+  // trusting the comment beside it: D4's gamepad rule is `outline: Npx` at
+  // `outline-offset: Mpx`, and the outer edge of that line — N + M — is
+  // exactly what the pane has to leave.
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const padRule = css.slice(css.indexOf('[data-profile="gamepad"] :is(button'));
+  const body = padRule.slice(padRule.indexOf("{") + 1, padRule.indexOf("}"));
+  const width = body.match(/outline:\s*(\d+)px/);
+  const offset = body.match(/outline-offset:\s*(\d+)px/);
+  check("the pad's focus ring is still an outline at an offset",
+    width !== null && offset !== null, body.trim().replace(/\s+/g, " "));
+  check("the scroll clearance is that ring's outer edge, in one number",
+    Number(width?.[1]) + Number(offset?.[1]) === FOCUS_RING_GAP,
+    `${width?.[1]} + ${offset?.[1]} vs ${FOCUS_RING_GAP}`);
 }
 
 // ---------------------------------------------------------------------------
