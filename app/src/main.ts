@@ -253,6 +253,18 @@ const CREST_HEAT_REST = 0.45;
  */
 const UNLOCK_MUSIC_TAIL_MS = 6000;
 
+/** How long the destination panel stays flagged as just-arrived (app.css's
+ *  `.base-bay.is-landed`).
+ *
+ *  620ms is two of the tower's own 300ms beats plus the frame that starts them
+ *  — the same figure the locked-floor shake is dropped on, because the two are
+ *  the same building answering the same tap and a panel still lit after the
+ *  floor had finished shaking would read as a second event. Under
+ *  prefers-reduced-motion nothing pulses and this is simply how long the panel
+ *  holds the lit border, which is the whole reason the class comes off on a
+ *  timer rather than on animationend. */
+const BAY_LAND_MS = 620;
+
 /** How long a pointer must stay pressed on a Bond Breaker trigger before the
  *  charge is actually spent (see startHold).
  *
@@ -453,6 +465,11 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** Clears the destination panel's arrival flash. A timer rather than
+   *  animationend for the same reason the shake's is one: under
+   *  prefers-reduced-motion there is no animation, and the panel would stay
+   *  lit forever. */
+  private bayLandTimer = 0;
   /** The screen the seal-break notice was opened from, and the one "Keep the
    *  seal" hands back (see requestBayRetry). Only ever one of the two the
    *  panel can be reached from, so it is typed as those two rather than as an
@@ -1042,6 +1059,7 @@ class App {
     if (s !== "menu") {
       window.clearTimeout(this.towerTravel ?? undefined);
       window.clearTimeout(this.denyTimer);
+      window.clearTimeout(this.bayLandTimer);
       this.towerTravel = null;
       // The unlock ceremony belongs to the home screen and dies with it. It has
       // already been marked seen (armUnlockCelebration), so walking out halfway
@@ -2550,6 +2568,13 @@ class App {
     if (btn) {
       const badged = S.menuPlayBadged(
         nextStep(this.meta), tier, this.meta.sealedMarks.includes(tier),
+        // The tutorial chip holds the screen's one directive while it is up
+        // (screens.ts's menuPlayBadged). Passed here as well as at render,
+        // because this is the path that can PUT a badge back on: riding off a
+        // sealed floor re-badges the primary, and doing that under a live
+        // START HERE would restore the two-directive screen the render gate
+        // exists to prevent.
+        !this.settings.seenTutorial,
       );
       btn.classList.toggle("btn--next", badged);
       const chip = btn.querySelector(".next-badge");
@@ -2582,6 +2607,24 @@ class App {
     // the one number on it that belonged to somewhere else.
     const best = sbx ? loadBest(BOARD_SANDBOX) : loadBest();
     panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras });
+    // THE PARK MOVED, and the panel says so — the half the odometer cannot.
+    // rollBayStats leaves an unchanged readout still, on purpose (a track of two
+    // identical cells tears rather than holds), so the trips that change none of
+    // the four — Mark 10 to the roof, and back — landed with nothing on the
+    // screen having visibly moved. A mis-tap on a 26px floor is silent exactly
+    // there, and it costs the player a run on a floor they did not choose.
+    //
+    // AFTER the rebuild, never before it: `outerHTML` above replaces the
+    // element, and an animation started on the old one would be thrown away
+    // with it. Re-queried for the same reason.
+    const landed = this.overlay.querySelector<HTMLElement>(".base-bay");
+    if (landed) {
+      window.clearTimeout(this.bayLandTimer);
+      landed.classList.add("is-landed");
+      this.bayLandTimer = window.setTimeout(
+        () => landed.classList.remove("is-landed"), BAY_LAND_MS,
+      );
+    }
   }
 
   /** The primary button's subtitle for `tier`, or the in-flight line when it

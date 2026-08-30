@@ -982,6 +982,40 @@ body.crt-off #app::after { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .is-rolling .roll { transition: none; }
 }
+/* ...AND THE PANEL SAYS THE PARK MOVED, once, when it lands.
+   The odometer above is the readouts arguing their own case: it rolls a value
+   that CHANGED and deliberately holds still on one that did not (main.ts's
+   rollBayStats), which is the right rule for a number and the wrong one for
+   the event. Riding Mark 10 to the roof changes none of the four, so a tap on
+   the wrong floor re-parked the Mark with the panel, the plate and the button
+   subtitle all landing on exactly what they already said — silently, which is
+   how a mis-tap goes unnoticed until a run starts on a floor nobody chose.
+
+   So the frame answers where the contents cannot. Two pulses on the tower's
+   own 300ms refusal beat (.tower__floor.is-denied), because the tap that
+   caused this happened in the tower and one event should read as one event —
+   and main.ts drops the class on the same 620ms timer for the same reason the
+   shake uses one: with the animation off, animationend never fires.
+
+   border-color and box-shadow only. This panel's grid is measured to the pixel
+   on a 360px phone (see .base-bay__grid), and the odometer beside it is held to
+   the same contract: nothing on this screen may animate a box. */
+.base-bay.is-landed { animation: bay-landed 300ms ease 2; }
+@keyframes bay-landed {
+  0%, 100% { border-color: var(--line-strong); box-shadow: var(--shadow-hard-lg); }
+  50% {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-hard-lg), 0 0 14px rgba(0, 240, 255, 0.35);
+  }
+}
+/* The theatre goes, the teaching stays: the panel is HELD lit for the length of
+   the class instead of pulsing twice, so "this readout is about a different
+   floor now" still arrives — it just arrives as a state rather than as a
+   flash. Same treatment the tower's owed sockets get one section up, and for
+   the same reason: the answer is the information, the pulsing is the emphasis. */
+@media (prefers-reduced-motion: reduce) {
+  .base-bay.is-landed { animation: none; border-color: var(--accent); }
+}
 /* NOT KNOWN YET — the Tier S panel (screens.ts's unknownBayPanelHTML).
 
    A static "?" in a readout that normally holds a number reads as a value that
@@ -1392,6 +1426,42 @@ body.crt-off #app::after { display: none; }
    background — and .is-selected's inset shadow — in front of the shaft's own
    line. 1, so it stays under the car's 2. */
 .tower__rail { z-index: 1; }
+/* …and paint order is the only thing either of them may take from a floor. The
+   rail is a 2px stripe and the car a 16px box, both drawn ABOVE the plates and
+   both `aria-hidden` decoration with no action of their own, so every pixel
+   they cover was a tap that hit nothing — 2px of every floor's 82px, and 16
+   more of whichever floor the car is passing over mid-ride. */
+.tower__rail, .tower__car { pointer-events: none; }
+/* THE TAP ZONE, and it is the whole shaft rather than the plate.
+   sim/uifit records `.tower__floor 82x26` on the 640x360 budget phone: eleven
+   floors cannot each be 44px in a 313px shaft by arithmetic (see the cap note
+   at the top of this section), so the target is what it is and the only
+   question left is how much of the space AROUND it is dead. All of it was.
+
+   The pseudo-element claims exactly that dead space and no more:
+
+     - vertically, HALF of --tower-gap on each side. Half, so two neighbours
+       meet on the gap's centre line and never overlap — with a full gap each,
+       the lower plate (later in the DOM, so painted on top — screens.ts pushes
+       floors roof-first) would take the bottom 2px of the plate ABOVE it, and
+       a tap on a floor's own visible pixels selecting the floor below is the
+       mis-tap this is here to reduce, not a smaller version of it.
+     - horizontally, --tower-pad on each side. The shaft's own padding, which
+       no floor competes for: one plate per row, and the wall is 3px away.
+
+   82x26 becomes 88x28 — 15% more target for zero visual change, which is the
+   ceiling here. It does not make a mis-tap impossible, which is why the
+   destination panel now says when the park moved (main.ts's setSelectedTier).
+
+   Purely a hit area: no background, no border, nothing that paints. */
+.tower__floor::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--tower-pad));
+  right: calc(-1 * var(--tower-pad));
+  top: calc(-0.5 * var(--tower-gap));
+  bottom: calc(-0.5 * var(--tower-gap));
+}
 .tower__seal {
   position: absolute;
   right: 25px;
