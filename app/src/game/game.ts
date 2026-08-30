@@ -379,6 +379,11 @@ const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
  * bay while it is still playing.
  */
 const OVERTIME_CUE_STEPS = Math.round(12_000 / DT);
+/** The same floor for the BROKE countdown, and the same reasoning — see
+ *  brokeVerdictDue. 9.6s is the shipped length of the brokeSettle stinger, the
+ *  way OVERTIME_CUE_STEPS is timeFinal's 12s. Both are the piece's own length
+ *  and have to move if the master is re-cut. */
+const BROKE_CUE_STEPS = Math.round(9_600 / DT);
 
 /** How long (physics steps) a provably-dead exact-inventory bay keeps running
  *  before it is called (see the pieces branch in update()). ~1s: long enough
@@ -2970,6 +2975,9 @@ export class Game {
    *    i.e. it called the bay before the rescuing press had happened. Counting
    *    the press rather than predicting it is the fix that cannot drift again
    *    when the drag constants move.
+   *  - `BROKE_CUE_STEPS` is a SECOND floor, and it is about the sound rather
+   *    than the rules: the brokeSettle piece is 9.6s and the verdict could land
+   *    at ~6s, cutting it off. It applies only when something is listening.
    *  - `brokeGraceMaxSteps` is the backstop, because "wait for a press" needs
    *    an answer to "and if one never comes". A bay must always reach a
    *    verdict.
@@ -2982,7 +2990,31 @@ export class Game {
   private brokeVerdictDue(): boolean {
     if (this.brokeSinceStep === null) return false;
     const elapsed = this.stepCount - this.brokeSinceStep;
-    if (elapsed <= this.brokeGraceSteps) return false;
+    // THE CUE IS A FLOOR TOO, exactly as it is for the clock (see the onTimeUp
+    // branch in update). Going broke starts a 9.6s piece over a bay that is
+    // already at rest — brokeSinceStep only latches once everything has
+    // settled — so the countdown can be satisfied by the very next stroke and
+    // land its verdict at ~6s, chopping the music off mid-phrase. Reported from
+    // play as the out-of-money music being cut.
+    //
+    // Gated on a listener for the same reason the clock's floor is: the piece
+    // is the only thing this floor exists to protect, so a Game built without
+    // one (every sim in app/sim) keeps the old timing exactly. The 30s backstop
+    // below is untouched and still dominates, so a bay always reaches a verdict.
+    //
+    // THAT GATE MEANS THE SIMS NO LONGER MEASURE WHAT PLAYERS GET on this path,
+    // so the cost was measured directly and then CHOSEN. Over 120 bot bays the
+    // extra ~3.6s changed the ending of 12: eight lost-on-broke became WINS (a
+    // stroke inside the longer window cleared a line and paid), and four became
+    // losses on time instead. Accepted deliberately by the designer, and it is
+    // the reason this is not a bug to be tuned away: the bay stays alive, the
+    // clock still drains, and a player who would have been cut off mid-phrase
+    // sometimes gets lucky instead. If the broke path ever needs re-tuning, this
+    // floor is part of its real difficulty and belongs in the model.
+    const floor = this.events.onBroke
+      ? Math.max(this.brokeGraceSteps, BROKE_CUE_STEPS)
+      : this.brokeGraceSteps;
+    if (elapsed <= floor) return false;
     if (elapsed > this.brokeGraceMaxSteps) return true;
     return this.compactor.strokes > (this.brokeSinceStroke ?? this.compactor.strokes);
   }
