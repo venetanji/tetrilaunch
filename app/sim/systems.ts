@@ -11247,8 +11247,51 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   const musicDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)), "..", "public", "audio", "music",
   );
-  const shipped = new Set(
-    fs.readdirSync(musicDir).filter((f) => f.endsWith(".mp3")).map((f) => f.slice(0, -4)),
+  // Extension-agnostic scan, because prepare-audio's `--codec` flag can ship
+  // the beds as .mp3, .m4a or .ogg. Which ONE they are is pinned below against
+  // audio.ts's LONG_EXT — playMusic builds its URLs from that constant, so a
+  // re-encode that ships .m4a while the code still fetches .mp3 (or the
+  // reverse, either half-swap) is the silent-bay failure this whole section
+  // exists to catch, in a new coat.
+  const LONG_EXT_RE = /\.(mp3|m4a|ogg)$/;
+  const shippedFiles = fs.readdirSync(musicDir).filter((f) => LONG_EXT_RE.test(f));
+  const shipped = new Set(shippedFiles.map((f) => f.replace(LONG_EXT_RE, "")));
+  const audioSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "audio.ts"),
+    "utf8",
+  );
+  const declaredExt = /const LONG_EXT = "(\.[a-z0-9]+)"/.exec(audioSrc)?.[1];
+  check("audio.ts declares LONG_EXT for the long-form assets", !!declaredExt);
+  const stingersDir = path.resolve(musicDir, "..", "stingers");
+  const misExt = [
+    ...shippedFiles.map((f) => `music/${f}`),
+    ...fs.readdirSync(stingersDir).filter((f) => LONG_EXT_RE.test(f)).map((f) => `stingers/${f}`),
+  ].filter((f) => !f.endsWith(declaredExt ?? ".mp3"));
+  check(
+    `every shipped bed and stinger carries audio.ts's LONG_EXT (${declaredExt})`,
+    misExt.length === 0,
+    misExt.join(", "),
+  );
+  // ...AND THE PRECACHE, which is the third half of a swap and the only one
+  // that cannot fail loudly on its own. Workbox does not error on a glob that
+  // matches nothing: ship .m4a beds against a glob listing only mp3 and the
+  // build is clean, the two checks above are green, online playback is
+  // perfect, and the installed PWA precaches ZERO beds — every bay silent
+  // offline, against a store listing that claims the game plays offline.
+  //
+  // Asked as "does the glob admit LONG_EXT" rather than "are all three
+  // listed", because the question is whether what SHIPS can be cached, not
+  // how the pattern is spelled.
+  const viteSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "vite.config.ts"),
+    "utf8",
+  );
+  const glob = /globPatterns:\s*\[([^\]]*)\]/.exec(viteSrc)?.[1] ?? "";
+  const globExts = new Set(/\{([^}]*)\}/.exec(glob)?.[1].split(",").map((s) => s.trim()) ?? []);
+  check(
+    `the PWA precache glob admits LONG_EXT (${declaredExt}) so beds survive offline`,
+    globExts.has((declaredExt ?? ".mp3").slice(1)),
+    `glob offers {${[...globExts].join(",")}}`,
   );
   const wanted = new Set([
     ...SCREEN_BEDS, ...beds, ...std, ...bulk,
@@ -19181,11 +19224,18 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
 //      standing between thirty `cursor: pointer` class rules and the bitmaps.
 //   4. The keyword after each url() is the whole degradation story.
 {
+  // Normalised to LF, because these checks probe structure with literal
+  // newlines (`includes("\n}\n")` below finds the media query's own close) and
+  // a Windows checkout under autocrlf hands this file back with CRLF endings.
+  // Reproduced: converting cursors.css to CRLF fails exactly one check — the
+  // pointer:fine placement probe — on content that is byte-identical once
+  // endings are ignored. The harness measures the stylesheet, not git's
+  // platform manners.
   const readSrc = (...parts: string[]): string =>
     fs.readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...parts),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
   const cursors = readSrc("src", "styles", "cursors.css");
   const appCss = readSrc("src", "styles", "app.css");
   const tokens = readSrc("src", "styles", "tokens.css");

@@ -30,6 +30,15 @@ import type { BayTrack } from "../game/run";
 
 const BASE = import.meta.env.BASE_URL;
 
+/** Extension of the shipped long-form assets — music beds and stingers, the
+ *  ~29MB that dominate every download. One-shot effects stay `.mp3` and are
+ *  not governed by this. The value must match what scripts/prepare-audio.mjs
+ *  last wrote to public/audio (its `--codec` flag decides — mp3/.mp3,
+ *  aac/.m4a, opus/.ogg); the systems harness fails the run when the shipped
+ *  files and this constant disagree, so a codec swap is these two moves and
+ *  cannot half-happen. */
+const LONG_EXT = ".mp3";
+
 export type FxName =
   | "shoot"
   | "impact"
@@ -852,7 +861,7 @@ export function playMusic(track: MusicName | null): void {
   music = null;
   if (!track || !musicOn) return;
   try {
-    const el = new Audio(`${BASE}audio/music/${track}.mp3`);
+    const el = new Audio(`${BASE}audio/music/${track}${LONG_EXT}`);
     el.loop = true;
     el.preload = "auto";
     music = el;
@@ -912,7 +921,7 @@ export function playStinger(name: StingerName, keepBed = false): void {
   if (keepBed) { if (music) fadeTo(music, 0); }
   else playMusic(null);
   try {
-    const el = new Audio(`${BASE}audio/stingers/${name}.mp3`);
+    const el = new Audio(`${BASE}audio/stingers/${name}${LONG_EXT}`);
     el.preload = "auto";
     stinger = el;
     stingerName = name;
