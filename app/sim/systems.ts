@@ -74,7 +74,9 @@ import {
   callCount, installBrowserStubs, makeRecCtx, newRec, resetRec, setCount, setReducedMotion,
   type Rec,
 } from "./canvasrec";
-import { debrisCount, DEBRIS_FRAME_CAP } from "../src/game/render";
+import {
+  debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark, THAW_REACH, THAW_REACH_MS,
+} from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
@@ -8566,6 +8568,18 @@ section("THE THAW LANCE — what a charge takes (lineClear.ts / game.ts)");
       row.cubes[2].struck && !row.cubes[0].struck);
     check("...and announces where, so the cue can land on the cube",
       firedAt !== null);
+    // THE CUE IS THE LANCE'S OWN, not a blast wearing its clothes. The charge
+    // spawned an uncoloured `explosion` until the owner reported the thaw was
+    // not big enough to notice; the fix gave it fx.ts's `thaw`, and the pin
+    // that matters is that it spawns THAT and nothing else — a charge that
+    // pushed both would draw a fire-amber shockwave inside an ice crystal, and
+    // one that still pushed only the explosion would be the old cue back.
+    // (render.ts's drawThawFx is pinned in its own section.)
+    const cues = g.effects.filter((e) => e.kind === "thaw");
+    check("...with the lance's own cue, at the cube, and no blast beside it",
+      cues.length === 1 && !g.effects.some((e) => e.kind === "explosion")
+        && cues[0].x === row.cubes[2].body.position.x,
+      `${g.effects.map((e) => e.kind).join(", ") || "nothing"}`);
     // The second charge takes the OTHER one, which is what makes the ladder a
     // ladder: charges are comparable to the shipments they replace.
     check("a second charge takes the next cube in press order",
@@ -19056,13 +19070,16 @@ section("A detonation's debris is a burst, not a standing cost (render.ts's draw
     `${late.rects} particles at 700ms vs ${pop.rects} at 60ms`,
   );
 
-  // A ring with no colour is a SHOCKWAVE — a Bond Breaker discharge, a Thaw
-  // Lance strike — pressure with no wreckage behind it. fx.ts says so, and this
-  // is the pin that keeps a well-meaning default from putting the widest spray
-  // in the game on the two events with the least to show for themselves.
+  // A ring with no colour is a SHOCKWAVE — a Bond Breaker discharge — pressure
+  // with no wreckage behind it. fx.ts says so, and this is the pin that keeps a
+  // well-meaning default from putting the widest spray in the game on the event
+  // with the least to show for itself. (The Thaw Lance was the second such ring
+  // until its cue outgrew a shockwave entirely; it now spawns fx.ts's `thaw`,
+  // pinned in its own section below, and this is still the rule for the one
+  // colourless explosion left.)
   const shockwave = debris([{ kind: "explosion", x: 800, y: 500, r: CELL * 3.2, t0: 5000 }], 5060);
   check(
-    "a colourless blast is a SHOCKWAVE and throws nothing (Bond Breaker, Thaw Lance)",
+    "a colourless blast is a SHOCKWAVE and throws nothing (Bond Breaker)",
     shockwave.rects === 0 && shockwave.arcs === 0,
     `${shockwave.rects} particles from an uncoloured ring`,
   );
@@ -19157,6 +19174,296 @@ section("A detonation's debris is a burst, not a standing cost (render.ts's draw
     "...and the intake's much smaller per-cube blast spends proportionally less",
     debrisCount(CHUTE_BLAST_R) < debrisCount(VOLATILE_R) / 2 && debrisCount(CHUTE_BLAST_R) > 0,
     `chute ${debrisCount(CHUTE_BLAST_R)} vs volatile ${debrisCount(VOLATILE_R)}`,
+  );
+
+  g.destroy();
+  stubs.restore();
+}
+
+// ===========================================================================
+// CRYO'S TWO CUES — the frozen face (render.ts's frostMark/drawFrost) and the
+// Thaw Lance's strike (render.ts's drawThawFx).
+//
+// The owner reported both of them as invisible in play: "need a bigger visual
+// queue for the thawing action, and frozen cubes icon maybe needs to be thicker
+// as it's not very visible". Neither complaint is a bug a test could have
+// caught, and neither fix is one a test can approve — sim/uifit/thaw-shots.ts
+// makes the pictures and a person looks at them.
+//
+// What CAN be held here is every claim the fix makes in NUMBERS, because both
+// halves turned out to be arithmetic that had quietly gone wrong:
+//
+//   1. THE FROST'S WEIGHT was a flat 2 world px on a face whose size varies,
+//      and its ink was white on #9fe8ff ice — a contrast ratio of 1.31:1. Both
+//      are measurable, and both are the kind of number a later "just make it a
+//      bit subtler" walks straight back into.
+//   2. THE LANCE'S REACH was CELL * 0.9 on a field of 40px cubes. A reach is a
+//      ratio against the two cues either side of it (the cube it lands on, the
+//      Bond Breaker's field-wide discharge), and a ratio nobody checks drifts.
+//   3. THE CUE STILL SETTLES and still holds still: past FX_TTL.thaw it draws
+//      nothing, and the same instant draws the same frame however the renderer
+//      reached it — the same two promises the debris layer above makes, for the
+//      same reason.
+//   4. REDUCED MOTION KEEPS IT. The debris layer is removed outright under the
+//      preference because everything in it is motion; this cue cannot take that
+//      ruling, because the state it announces has no other herald. So the pin
+//      is the opposite one: under the preference the cue is still drawn, and
+//      what changes is that its first frame is already at full reach.
+// ===========================================================================
+section("Cryo reads: the frozen face's mark, and the lance's cue (render.ts)");
+{
+  // --- 1. THE FROZEN FACE ---------------------------------------------------
+  //
+  // The face a two-tone cryo cube actually gets: the cube minus the shape
+  // colour's frame on both sides. Every number below is stated against THAT,
+  // not against CELL, because that is what the mark is drawn on.
+  const FACE = CELL - FRAME_PX * 2;
+  const ICE = MATERIAL_SPEC.cryo.color!;
+  const mark = frostMark(FACE, ICE);
+
+  // The old mark, for the ratios: six hand-rolled needles at a FLAT lineWidth
+  // of 2 world px, in white, at 0.85 alpha.
+  const OLD_STROKE = 2;
+  const OLD_INK = "#ffffff";
+
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (hex: string): number => {
+    const n = parseInt(hex.slice(1), 16);
+    return 0.2126 * toLinear((n >> 16) & 255)
+      + 0.7152 * toLinear((n >> 8) & 255)
+      + 0.0722 * toLinear(n & 255);
+  };
+  const contrast = (a: string, b: string): number => {
+    const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  // WHY THE OLD MARK WAS INVISIBLE, stated as the measurement rather than as
+  // an opinion. 1.31:1 is below every contrast floor there is — WCAG's 3:1 for
+  // non-text is the loosest one in the building — so the needles were not
+  // "subtle", they were the same colour as the cube.
+  const WCAG_NON_TEXT = 3;
+  check(
+    "white frost on cryo's ice was BELOW the non-text contrast floor — the report, measured",
+    contrast(OLD_INK, ICE) < WCAG_NON_TEXT,
+    `white on ${ICE} is ${contrast(OLD_INK, ICE).toFixed(2)}:1`,
+  );
+  check(
+    "...and the mark now uses the same ink every other bay glyph does, which clears it 4x over",
+    mark.ink === glyphInk(ICE) && contrast(mark.ink, ICE) >= WCAG_NON_TEXT * 4,
+    `${mark.ink} on ${ICE} is ${contrast(mark.ink, ICE).toFixed(2)}:1`,
+  );
+  check(
+    "the frost is THICKER on the face it is drawn on — the other half of the report",
+    mark.core >= OLD_STROKE * 2,
+    `${mark.core.toFixed(2)}px core on a ${FACE}px face vs a flat ${OLD_STROKE}px`,
+  );
+  // A FRACTION, not a number of pixels. The mark is drawn on a 30px interior on
+  // a two-tone cube and on the full 40px face of a standing wall, and the old
+  // flat stroke was 6.7% of one and 5% of the other — lighter exactly where
+  // there was more room for it.
+  check(
+    "...and it is a fraction of the face, so it holds its weight at any cube size",
+    Math.abs(mark.core / FACE - frostMark(CELL, ICE).core / CELL) < 1e-9
+      && frostMark(CELL, ICE).core > mark.core,
+    `${(mark.core / FACE * 100).toFixed(1)}% of the face at both ${FACE} and ${CELL}`,
+  );
+  // Heavier than the same star on a belt tile, and the reason is the pile: a
+  // tile is read alone in a lit slot, a cube is read in peripheral vision with
+  // sixty neighbours arguing with it.
+  check(
+    "...heavier than the belt's own version of the same glyph, which is read alone",
+    mark.core > MATERIAL_GLYPH.cryo.stroke * (FACE / 24),
+    `${mark.core.toFixed(2)} vs the belt weight ${(MATERIAL_GLYPH.cryo.stroke * FACE / 24).toFixed(2)}`,
+  );
+  check(
+    "the rime is a shoulder on the core, not a second mark",
+    mark.rime > mark.core && mark.rime < mark.core * 2.5,
+    `rime ${mark.rime.toFixed(2)} / core ${mark.core.toFixed(2)}`,
+  );
+  // THE INK IS A RULE, NOT A HEX. A frozen cube is not always drawn on ice: a
+  // blinking one has its colour overridden wholesale by the clear animation, so
+  // the mark has to be right on a face this file does not choose. That override
+  // (#ff6464) happens to land on the same dark ink — checked here so the claim
+  // is a measurement and not a hope — and the rule is what makes any OTHER face
+  // safe, which a literal for cryo's ice would not be.
+  const DARK_FACE = MATERIAL_SPEC.tar.color!;
+  check(
+    "...and the ink is derived from the FACE, so it inverts on one dark enough to need it",
+    frostMark(FACE, DARK_FACE).ink !== mark.ink && frostMark(FACE, "#ff6464").ink === mark.ink,
+    `${mark.ink} on ice and on a blinking #ff6464, ${frostMark(FACE, DARK_FACE).ink} on ${DARK_FACE}`,
+  );
+
+  // --- 2. THE LANCE'S REACH -------------------------------------------------
+  //
+  // The cue sits between the two events either side of it, and those two are
+  // what size it. Both are spelled the way game.ts spells them.
+  const OLD_LANCE_R = CELL * 0.9 * (0.25 + 0.95); // the old ring, fully grown
+  const BOND_R = CELL * 3.2;                      // useBondBreaker's discharge
+  check(
+    "the lance's cue reaches more than twice what it used to — the report, in world px",
+    THAW_REACH / OLD_LANCE_R >= 2.3,
+    `${THAW_REACH} vs ${OLD_LANCE_R.toFixed(1)} = ${(THAW_REACH / OLD_LANCE_R).toFixed(2)}x radius, `
+      + `${((THAW_REACH / OLD_LANCE_R) ** 2).toFixed(1)}x area`,
+  );
+  check(
+    "...and still less than a Bond Breaker's, which is the cue for the WHOLE pile changing",
+    THAW_REACH < BOND_R && THAW_REACH > CELL * 2,
+    `${THAW_REACH} against a discharge's ${BOND_R}`,
+  );
+  check(
+    "...and it outlives a shockwave, because a static field gives the eye nothing else to follow",
+    THAW_REACH_MS > 600 && THAW_REACH_MS < FX_TTL.thaw,
+    `${THAW_REACH_MS}ms of cue inside a ${FX_TTL.thaw}ms event`,
+  );
+
+  // --- 3/4. THE CUE ON A REAL FRAME ----------------------------------------
+  const rec = newRec();
+  const stubs = installBrowserStubs();
+  const canvas: Record<string, unknown> = { width: 2560, height: 1440 };
+  // lineTo's ARGUMENTS are kept: the reduced-motion pin is a claim about WHERE
+  // the crystal's points are on the first frame, and a call count cannot say.
+  const ctx = makeRecCtx(canvas, rec, ["lineTo", "rect"]);
+  const g = new Game(makeBaseLevel(0), {}, 13);
+  g.status = "playing";
+
+  const paint = (effects: FxEvent[], now: number): Rec => {
+    resetRec(rec);
+    render(ctx as unknown as CanvasRenderingContext2D, 1280, 720, 2, {
+      cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now, aiming: false, effects,
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return {
+      calls: [...rec.calls], sets: [...rec.sets],
+      args: rec.args.map(([k, a]) => [k, [...a]] as [string, unknown[]]),
+    };
+  };
+  /** Every lineTo the frame issued, argument for argument. */
+  const lineSig = (r: Rec): string =>
+    r.args.filter(([k]) => k === "lineTo").map(([, a]) => a.join(",")).join("|");
+
+  const CUE_X = 800;
+  const CUE_Y = 500;
+  const T0 = 5000;
+  const thaw = (t0: number): FxEvent => ({ kind: "thaw", x: CUE_X, y: CUE_Y, t0 });
+
+  /**
+   * THE CUE, ISOLATED BY DELTA — the same trick the debris pins above use, and
+   * necessary for the same reason. The frame beside it is not "an empty frame":
+   * it carries the pile, the chrome, the world clip rect and every lineTo the
+   * bay's own furniture issues. Painting the same instant with and without the
+   * event leaves exactly the cue, so `reach` below is the crystal's own extent
+   * and not the distance to the far wall.
+   */
+  const cue = (now: number, calm = false): {
+    strokes: number; fills: number; motes: number; reach: number;
+  } => {
+    setReducedMotion(calm);
+    const off = paint([], now);
+    const on = paint([thaw(T0)], now);
+    setReducedMotion(false);
+    // Multiset difference on the traced points: whatever the cue added.
+    const spare = new Map<string, number>();
+    for (const [k, a] of off.args) {
+      if (k !== "lineTo") continue;
+      const key = a.join(",");
+      spare.set(key, (spare.get(key) ?? 0) + 1);
+    }
+    let reach = 0;
+    for (const [k, a] of on.args) {
+      if (k !== "lineTo") continue;
+      const key = a.join(",");
+      const held = spare.get(key) ?? 0;
+      if (held > 0) { spare.set(key, held - 1); continue; }
+      reach = Math.max(
+        reach,
+        Math.hypot((a[0] as number) - CUE_X, (a[1] as number) - CUE_Y),
+      );
+    }
+    return {
+      strokes: callCount(on, "stroke") - callCount(off, "stroke"),
+      fills: callCount(on, "fill") - callCount(off, "fill"),
+      motes: callCount(on, "rect") - callCount(off, "rect"),
+      reach,
+    };
+  };
+
+  // Warm the sprite and background caches: a cold frame pays for every bake and
+  // would report the cache's cost as the cue's.
+  paint([], 0);
+
+  const fired = cue(T0 + 60);
+  check(
+    "a charge landing puts something on the field that an idle frame does not",
+    fired.strokes > 0 && fired.fills > 0 && fired.reach > CELL,
+    `${fired.strokes} strokes, ${fired.fills} fills, reaching ${fired.reach.toFixed(1)}px`,
+  );
+  // 3. IT SETTLES. Same promise the debris layer makes, and the same way it
+  // fails if it is broken: invisibly, until a profile.
+  const spent = cue(T0 + FX_TTL.thaw);
+  check(
+    "past its TTL the cue draws nothing — it ends, it does not linger",
+    spent.strokes === 0 && spent.fills === 0 && spent.motes === 0,
+    `${spent.strokes} strokes / ${spent.fills} fills / ${spent.motes} motes at the TTL`,
+  );
+  // ...and the plume is why the TTL is longer than the crystal's own clock. If
+  // the motes stopped with the ring this would be zero and the extra 200ms
+  // would be dead weight the pruner pays for.
+  const late = cue(T0 + THAW_REACH_MS + 60);
+  check(
+    "...but the frost plume is still falling after the crystal has gone",
+    late.motes > 0 && late.reach === 0,
+    `${late.motes} mote rects and no crystal, ${FX_TTL.thaw - THAW_REACH_MS}ms past its clock`,
+  );
+  // 3b. IT HOLDS NO STATE. The same instant, reached straight or after two
+  // hundred frames at 120Hz — compared point by point, so an integrator that
+  // had crept in would land the crystal somewhere else and fail here even with
+  // every count unchanged.
+  const AT = T0 + 333;
+  const straight = lineSig(paint([thaw(T0)], AT));
+  for (let i = 0; i < 200; i++) paint([thaw(T0)], T0 + i * (1000 / 120));
+  const viaFrames = lineSig(paint([thaw(T0)], AT));
+  check(
+    "the same instant draws the same cue at 60Hz, at 120Hz and after a stall",
+    straight === viaFrames && straight.length > 0,
+    `${straight.length} vs ${viaFrames.length} chars of point arguments`,
+  );
+
+  // 4. REDUCED MOTION. The opposite ruling from the debris layer's, and the
+  // reason is that this cue is the ONLY herald the state change has: strip it
+  // and a player who asked for less motion is told less about their own bay.
+  const calmEarly = cue(T0 + 20, true);
+  const loudEarly = cue(T0 + 20);
+  const calmLate = cue(T0 + 400, true);
+  const loudLate = cue(T0 + 400);
+  check(
+    "the preference does NOT remove the cue — it is the only thing announcing the thaw",
+    calmEarly.strokes === loudEarly.strokes && calmEarly.strokes > 0,
+    `${calmEarly.strokes} strokes under the preference, ${loudEarly.strokes} without`,
+  );
+  check(
+    "...and it takes the plume, which is the one layer that is nothing but travel",
+    calmLate.motes === 0 && loudLate.motes > 0,
+    `${calmLate.motes} motes under the preference, ${loudLate.motes} without`,
+  );
+  // THE STATIC CUE, stated as a measurement: 20ms in, the preference's crystal
+  // is already at full reach while the animated one is a third of the way out.
+  // That is what "no sweep" means in numbers — it appears, it does not travel.
+  check(
+    "...and what is left appears AT full reach rather than growing into it",
+    calmEarly.reach >= THAW_REACH && loudEarly.reach < THAW_REACH * 0.6,
+    `${calmEarly.reach.toFixed(1)}px on the first frames under the preference `
+      + `vs ${loudEarly.reach.toFixed(1)}px without`,
+  );
+  check(
+    "...and it still goes out on the same clock, so the two paths end together",
+    cue(T0 + THAW_REACH_MS, true).strokes === 0 && cue(T0 + THAW_REACH_MS).strokes === 0,
+    `the crystal is gone at ${THAW_REACH_MS}ms either way`,
   );
 
   g.destroy();

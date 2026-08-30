@@ -1292,12 +1292,16 @@ export class Game {
 
     target.struck = true;
     const { x, y } = target.body.position;
-    // A ring at the cube, in the Bond Breaker's own vocabulary at one cube's
-    // scale: the same "a charge discharged here" cue the player already knows,
-    // sized to what this charge actually reaches. The cube's own face carries
-    // the rest — theme.ts draws a struck cryo cube differently from a frozen
-    // one, and that state is the thing worth knowing about it.
-    this.effects.push({ kind: "explosion", x, y, r: CELL * 0.9, t0: now });
+    // The lance's own cue, at the cube (fx.ts's `thaw`, drawn by render.ts's
+    // drawThawFx). It was an uncoloured `explosion` of radius CELL * 0.9 —
+    // the Bond Breaker's vocabulary at one cube's scale — until the owner
+    // reported the thaw was not big enough to notice, which a filmstrip of it
+    // confirms: a 43px ring inside a pile of 40px cubes, burning amber. The
+    // charge is still one cube's worth of ability and the cube's own face still
+    // carries the state (theme.ts draws a struck cryo cube differently from a
+    // frozen one); what changed is that the moment the state changes is now
+    // announced at bay scale, in the material's own ice.
+    this.effects.push({ kind: "thaw", x, y, t0: now });
     this.events.onThawLance?.({ x, y });
     this.thawCharges -= 1;
     return true;
