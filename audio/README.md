@@ -146,3 +146,41 @@ plays, it is merely wrong in the mix. `impact.mp3` shipped 2.7 dB under target
 that way and was diagnosed as a bad sample.
 
 Commit the resulting `app/public/audio/` changes; that is the half that ships.
+
+## Shrinking the beds (the codec experiment)
+
+The twelve shipped beds are ~29 MB of a ~32 MB app — ninety percent of every
+Play download is music, and Play's console says so on each upload. The beds ship
+as 128k CBR mp3 because that was the obvious default, not because anyone chose
+it over the alternatives. Choosing is a listening job, and the pipeline now
+renders the candidates for it:
+
+```bash
+cd app && npm run audio:prepare -- --compare
+```
+
+writes `audio/compare/<codec-bitrate>/` (gitignored with the rest of this
+folder — nothing there ships) with every bed at **mp3 128k** (the shipped
+control), **mp3 96k**, **aac 96k** and **opus 64k**, all through the identical
+trim/EQ/loudnorm chain — the loudness measurement runs once per master, so an
+A/B between two files compares codecs, not level accidents. It prints the size
+bill per track and in total.
+
+To commit to one:
+
+1. `npm run audio:prepare -- --codec aac` (or `opus`; add `--bitrate 112k` to
+   override the codec's default). Effects stay mp3/128k — they are under a
+   megabyte in total.
+2. Flip `LONG_EXT` in `app/src/lib/audio.ts` to match (`.m4a` / `.ogg`).
+3. Commit the re-encoded `app/public/audio/`.
+
+`npm run sim:systems` fails if steps 1 and 2 disagree — shipped files in one
+extension while the code fetches another is a silent, every-bay-plays-nothing
+failure, which is why the pin exists.
+
+Codec notes: **aac** decodes everywhere this game runs (Android WebView,
+Safari/iOS, desktop Chromium) and is the safe pick at ~40% smaller. **opus** is
+the smallest by far but Safari's support arrives too late in the iOS line to
+trust while the web build shares these files. ffmpeg's built-in aac encoder is
+used; if your build carries `libfdk_aac` it is audibly better at low
+bitrates — worth swapping in locally for the final encode if you have it.

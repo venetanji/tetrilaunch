@@ -270,6 +270,45 @@ const OVERRIDES = {
   "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
 };
 
+/**
+ * Long-form encode target — music and stingers only; a 200ms one-shot is not
+ * where the megabytes are (fx total under a megabyte and stay mp3/128k).
+ *
+ * The default is exactly what has always shipped: mp3 at 128k. The other rows
+ * exist because the twelve beds are ~29MB of a ~32MB app — ninety percent of
+ * every Play download is music — and the honest way to shrink that is a better
+ * codec through the same loudness chain, not a lazier pipeline. `--compare`
+ * renders the whole matrix from the masters so the choice is made by EAR
+ * against files that differ ONLY in codec; see audio/README.md.
+ *
+ * Sample rates are per-codec because libopus refuses 44100 — it lives at 48k
+ * and accepts nothing in between.
+ *
+ * SWITCHING IS TWO HALVES, pinned together: the extension shipped here must
+ * match LONG_EXT in src/lib/audio.ts (playMusic and playStinger build their
+ * URLs from it), and sim/systems.ts fails when they disagree. aac is the safe
+ * cross-platform pick (Android WebView, Safari/iOS, desktop all decode it);
+ * opus is the smallest but Safari playback arrives too late in the iOS line to
+ * trust while the web build shares these files.
+ */
+const CODECS = {
+  mp3:  { ext: ".mp3", args: ["-c:a", "libmp3lame"], bitrate: "128k", rate: 44100 },
+  aac:  { ext: ".m4a", args: ["-c:a", "aac"],        bitrate: "96k",  rate: 44100 },
+  opus: { ext: ".ogg", args: ["-c:a", "libopus"],    bitrate: "64k",  rate: 48000 },
+};
+const flagValue = (name) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : null;
+};
+const COMPARE = process.argv.includes("--compare");
+const CODEC_NAME = flagValue("codec") ?? "mp3";
+const CODEC = CODECS[CODEC_NAME];
+if (!CODEC) {
+  console.error(`✗ unknown --codec ${CODEC_NAME} — one of: ${Object.keys(CODECS).join(", ")}`);
+  process.exit(1);
+}
+const LONG_BITRATE = flagValue("bitrate") ?? CODEC.bitrate;
+
 async function ffprobeDuration(file) {
   const { stdout } = await run("ffprobe", [
     "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file,
@@ -459,16 +498,24 @@ async function encodeFx(srcFile, name, override) {
  * files and the two halves fight — which is exactly how the jingles ended up
  * ~4.7 LU over bay-1 with nobody having chosen that number.
  */
-async function encodeLong(srcFile, name, folder) {
-  const dst = join(OUT, folder, `${name}.mp3`);
-  const eq = MASTER_EQ[name];
-  const m = await loudnormMeasure(srcFile, eq);
+/** The finished filter chain for a long-form encode: declared EQ first, then
+ *  loudnorm — linear against the measurement when one exists. Shared with the
+ *  `--compare` matrix so every candidate codec normalises from the SAME
+ *  numbers and an A/B is a comparison of codecs, not of loudness accidents. */
+function loudnormFilter(m, eq) {
   const norm = m
     ? `${LOUDNORM}:measured_I=${m.input_i}:measured_TP=${m.input_tp}` +
       `:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}` +
       `:offset=${m.target_offset}:linear=true`
     : LOUDNORM;
-  const af = eq ? `${eq},${norm}` : norm;
+  return eq ? `${eq},${norm}` : norm;
+}
+
+async function encodeLong(srcFile, name, folder) {
+  const dst = join(OUT, folder, `${name}${CODEC.ext}`);
+  const eq = MASTER_EQ[name];
+  const m = await loudnormMeasure(srcFile, eq);
+  const af = loudnormFilter(m, eq);
   // print_format=summary on the ENCODE, because this is the only run that can
   // say how the file was actually normalised. The measurement pass reports
   // "dynamic" unconditionally — it has no measured_* values to be linear with —
@@ -478,7 +525,7 @@ async function encodeLong(srcFile, name, folder) {
     "-i", srcFile, "-vn", "-af", `${af}:print_format=summary`,
     // loudnorm runs internally at 192kHz and will happily emit it, which would
     // quadruple every bed for no audible gain. Pin the rate back down.
-    "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", dst,
+    ...CODEC.args, "-b:a", LONG_BITRATE, "-ar", String(CODEC.rate), dst,
   ], { maxBuffer: 1 << 24 });
   const mode = /Normalization Type:\s*(\w+)/.exec(stderr)?.[1]?.toLowerCase() ?? "?";
   const { lufs, tp } = await measureLoudness(dst);
@@ -491,6 +538,54 @@ async function encodeLong(srcFile, name, folder) {
     eq: !!eq,
     off: lufs - LONG_LUFS,
   };
+}
+
+/**
+ * `--compare`: render every music master through the IDENTICAL trim/EQ/loudnorm
+ * chain at each candidate codec, into audio/compare/ (gitignored with the rest
+ * of audio/ — nothing here ships), and print the size bill. The measurement
+ * pass runs once per master so all candidates normalise from the same numbers.
+ * Listen to the results in audio/compare/, then commit to one with `--codec`.
+ */
+const COMPARE_MATRIX = [
+  ["mp3", "128k"], // shipped today — the control
+  ["mp3", "96k"],
+  ["aac", "96k"],
+  ["opus", "64k"],
+];
+async function compareMusic() {
+  const tracks = new Set(await readdir(join(SRC, "tracks")).catch(() => []));
+  const cols = COMPARE_MATRIX.map(([c, b]) => `${c}-${b}`);
+  for (const label of cols) await mkdir(join(SRC, "compare", label), { recursive: true });
+  const totals = Object.fromEntries(cols.map((l) => [l, 0]));
+  const cell = (s) => String(s).padStart(10);
+  console.log(`comparing ${Object.keys(MUSIC).length} beds at: ${cols.join(", ")}`);
+  console.log("  files land in audio/compare/ — listen there; nothing here ships");
+  console.log(`  ${"".padEnd(14)}${cols.map(cell).join("")}`);
+  for (const [file, name] of Object.entries(MUSIC)) {
+    if (!tracks.has(file)) {
+      console.log(`  ${name.padEnd(14)} MISSING (${file})`);
+      continue;
+    }
+    const srcFile = join(SRC, "tracks", file);
+    const m = await loudnormMeasure(srcFile, MASTER_EQ[name]);
+    const af = loudnormFilter(m, MASTER_EQ[name]);
+    const sizes = [];
+    for (const [codecName, bitrate] of COMPARE_MATRIX) {
+      const codec = CODECS[codecName];
+      const dst = join(SRC, "compare", `${codecName}-${bitrate}`, `${name}${codec.ext}`);
+      await run("ffmpeg", [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-i", srcFile, "-vn", "-af", af,
+        ...codec.args, "-b:a", bitrate, "-ar", String(codec.rate), dst,
+      ], { maxBuffer: 1 << 24 });
+      const size = (await stat(dst)).size;
+      totals[`${codecName}-${bitrate}`] += size;
+      sizes.push(size);
+    }
+    console.log(`  ${name.padEnd(14)}${sizes.map((s) => cell((s / 1048576).toFixed(2) + "MB")).join("")}`);
+  }
+  console.log(`  ${"TOTAL".padEnd(14)}${cols.map((l) => cell((totals[l] / 1048576).toFixed(2) + "MB")).join("")}`);
 }
 
 async function main() {
@@ -508,6 +603,8 @@ async function main() {
     );
     process.exit(1);
   }
+
+  if (COMPARE) return compareMusic();
 
   await rm(OUT, { recursive: true, force: true });
   for (const d of ["fx", "music", "stingers"]) await mkdir(join(OUT, d), { recursive: true });
@@ -606,7 +703,7 @@ async function main() {
     );
   }
 
-  console.log(`music (${LONG_LUFS} LUFS, cover art stripped, 128k):`);
+  console.log(`music (${LONG_LUFS} LUFS, cover art stripped, ${CODEC_NAME} ${LONG_BITRATE}):`);
   const tracks = new Set(await readdir(join(SRC, "tracks")).catch(() => []));
   // A master dropped into tracks/ that no role claims is silently not shipped,
   // which from the outside is indistinguishable from "I added the song and
@@ -623,7 +720,7 @@ async function main() {
     const r = await encodeLong(join(SRC, "tracks", file), name, "music");
     const size = (await stat(r.dst)).size;
     total += size;
-    checkLevel(`music/${name}.mp3`, r);
+    checkLevel(`music/${name}${CODEC.ext}`, r);
     console.log(
       `  ${name.padEnd(12)} ${r.dur.toFixed(0).padStart(5)}s   ` +
       `${(size / 1048576).toFixed(2)}MB  ${levels(r)}`,

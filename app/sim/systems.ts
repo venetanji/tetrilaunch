@@ -11247,8 +11247,30 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   const musicDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)), "..", "public", "audio", "music",
   );
-  const shipped = new Set(
-    fs.readdirSync(musicDir).filter((f) => f.endsWith(".mp3")).map((f) => f.slice(0, -4)),
+  // Extension-agnostic scan, because prepare-audio's `--codec` flag can ship
+  // the beds as .mp3, .m4a or .ogg. Which ONE they are is pinned below against
+  // audio.ts's LONG_EXT — playMusic builds its URLs from that constant, so a
+  // re-encode that ships .m4a while the code still fetches .mp3 (or the
+  // reverse, either half-swap) is the silent-bay failure this whole section
+  // exists to catch, in a new coat.
+  const LONG_EXT_RE = /\.(mp3|m4a|ogg)$/;
+  const shippedFiles = fs.readdirSync(musicDir).filter((f) => LONG_EXT_RE.test(f));
+  const shipped = new Set(shippedFiles.map((f) => f.replace(LONG_EXT_RE, "")));
+  const audioSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "audio.ts"),
+    "utf8",
+  );
+  const declaredExt = /const LONG_EXT = "(\.[a-z0-9]+)"/.exec(audioSrc)?.[1];
+  check("audio.ts declares LONG_EXT for the long-form assets", !!declaredExt);
+  const stingersDir = path.resolve(musicDir, "..", "stingers");
+  const misExt = [
+    ...shippedFiles.map((f) => `music/${f}`),
+    ...fs.readdirSync(stingersDir).filter((f) => LONG_EXT_RE.test(f)).map((f) => `stingers/${f}`),
+  ].filter((f) => !f.endsWith(declaredExt ?? ".mp3"));
+  check(
+    `every shipped bed and stinger carries audio.ts's LONG_EXT (${declaredExt})`,
+    misExt.length === 0,
+    misExt.join(", "),
   );
   const wanted = new Set([
     ...SCREEN_BEDS, ...beds, ...std, ...bulk,
