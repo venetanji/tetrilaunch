@@ -67,6 +67,21 @@ const FX = [
   // fallback in lib/audio.ts's ensureStatic, which rotates over whichever of
   // the three takes have arrived.
   "congestionLoop", "congestionLoop2", "congestionLoop3",
+  // The ability cue, and the clock's two. The money family (timeUp, fundsLow,
+  // lastLaunch, broke) is spec'd in design/audio/timeout-broke-sfx-plan.md and
+  // deliberately NOT mapped yet: a name here without a master FAILS the run.
+  // timeFinal and brokeSettle are NOT here — they are stingers (see below).
+  "thawLance", "timeLow",
+  // The bankroll's two, completing the pressure family the clock's cues began.
+  "lastLaunch", "broke",
+  // The machine, the transport, the till, and the hold meter.
+  "compactorStroke", "crate", "transactionConfirm", "holdCharge",
+  // The skill moment, and the one irreversible press in the meta.
+  "excellentClear", "sealBreak",
+  // windLoop is deliberately NOT mapped: it is a continuous bed whose gain has
+  // to track |windNow|/windMax every frame, and nothing drives that yet.
+  // Mapping it would ship a file no code asks for — dead weight in the
+  // precache — so it waits in audio/fx/ and this run reports it as unmapped.
 ];
 
 /**
@@ -76,7 +91,33 @@ const FX = [
  * but never trimmed, and kept stereo: unlike a 200ms thud these are musical and
  * the width is the point.
  */
-const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
+/**
+ * `timeFinal` is here rather than in FX, and the move is the whole reason it
+ * became audible.
+ *
+ * As a one-shot it was PEAK-normalised to -3 dBFS, which is right for a 200ms
+ * transient and wrong for a 2.5s sustained pad: what a thud sounds like is its
+ * peak, but what a pad sounds like is its LOUDNESS, and a pad peaked to the
+ * same number as a thud sits far below it. It was inaudible under the bed —
+ * reported from play, then confirmed by measurement (LRA 3.4, so it
+ * loudness-normalises linear with no compressor, unlike contractClear).
+ *
+ * It also stopped needing a trim. Overtime is a window, not a moment — up to
+ * six compactor cycles while the bay settles (game.ts's settleCapSteps) — so
+ * the full take plays under it and the bay-end stinger replaces it when the
+ * verdict lands, which playStinger already does by stopping the previous one.
+ */
+const STINGERS = [
+  "bayClear", "gameOver", "gameOver2", "refit", "contractClear", "timeFinal",
+  // The bankroll's settle piece, and the exact mirror of timeFinal: `broke` is
+  // the moment the grace countdown starts, this is what plays under the bay
+  // while it converges, and the verdict's own stinger replaces it.
+  "brokeSettle",
+  // The tier ceremony's own voice. It used to BORROW contract-rare — the daily
+  // side-job's special — for the biggest progression moment in the game, which
+  // told the player the wrong thing about what had just happened.
+  "unlockFanfare",
+];
 
 /**
  * Music: which ROLE each generated master plays. Roles, not song titles — the
@@ -227,6 +268,45 @@ const PHONE_SPREAD_DB = 3.0;
 const MASTER_EQ = {
   "bay-1": "lowshelf=f=220:g=-9,alimiter=limit=0.55:level=disabled",
   "menu": "lowshelf=f=220:g=-5,alimiter=limit=0.55:level=disabled",
+  // NOT A PEAK PROBLEM — a RANGE one, which is why a limiter here did nothing.
+  // Measured, this take's input LRA is 11.70 against the pipeline's LONG_LRA
+  // target of 11, and loudnorm reverts to "dynamic" whenever the input range
+  // exceeds the target: it compresses on its own initiative to fit, which the
+  // run refuses because a mix decision taken by a filter's fallback path is one
+  // nobody chose. An alimiter pulled true peak from -2.7 to -5.2 and left LRA
+  // at 11.40, i.e. treated the symptom that was not the cause.
+  //
+  // A gentle declared compressor instead — and gentle is load-bearing, because
+  // the first attempt was NOT. 2:1 at -24dB cleared the gate easily (LRA 7.80)
+  // and was reported from play as noticeably quieter than the other stingers.
+  // Measured, that was true and integrated loudness had hidden it: every
+  // stinger lands within 0.4 LU of -15 LUFS, but the LOUDEST 3s of this one sat
+  // at -16.9 against refit's -14.3 and gameOver2's -13.6 — the average matched
+  // while the part a listener calls "loud" did not, because the compressor had
+  // taken exactly that part down.
+  //
+  // ...and then reported as STILL too quiet at +4 dB of playback trim, at which
+  // point measurement said it was already the loudest stinger in the game by
+  // 2.3 LU. When the number and the ear disagree that hard, the number is
+  // answering the wrong question: what was missing is DENSITY, not level. This
+  // take has a 9.5 dB internal range, so at any given moment most of it is well
+  // below its own peak, and gain lifts the quiet parts without filling them.
+  //
+  // So the compressor is doing the opposite job from the one it was first
+  // reached for. It is no longer sized to barely clear the LRA gate — 3:1 takes
+  // LRA to 6.50, deep inside it — because the point is now to raise the AVERAGE
+  // toward the peak so more of the piece sits at the top. What that costs
+  // (peaks pulled down at a fixed -15 LUFS target) no longer matters, because
+  // the shared target stopped setting this piece's playback level the moment
+  // audio.ts's STINGER_TRIM_DB did. Compression makes it dense; the trim makes
+  // it loud; the two are separate knobs and were fighting while one did both.
+  //
+  // The other four masters need none of this (LRA 2.1-7.6) and get none.
+  //
+  // This is a rescue of an unusually dynamic take. A future generation with a
+  // steadier level needs no entry here at all — delete it and check the run
+  // still reports "linear".
+  "contractClear": "acompressor=threshold=-24dB:ratio=3:attack=20:release=250",
 };
 
 /**
@@ -268,6 +348,89 @@ const OVERRIDES = {
   "congestionLoop.mp3": { start: 0.5, dur: 18.5 },
   "congestionLoop2.mp3": { full: true },
   "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
+  // NOT A LOOP, despite the name it arrived under. Measured, the take is a
+  // charge that RESOLVES: it climbs from 0.2s to a climax at 2.4s and releases
+  // into silence by 3.8s. A loop would have to cut that arc somewhere it does
+  // not repeat.
+  //
+  // Pinned to the TAIL of the climb, so the arc fits the gesture exactly: the
+  // window ends at the take's own climax (2.4s), and its length is BOND_HOLD_MS
+  // minus main.ts's HOLD_CUE_DELAY_MS — 1000 - 150 = 850ms. The cue starts a
+  // beat after the press (so an ordinary TAP of the dual-purpose pause button
+  // never sounds one) and still peaks at the instant the hold completes.
+  //
+  // BOTH numbers live in main.ts and this window is derived from them. Change
+  // either and re-derive: dur = (BOND_HOLD_MS - HOLD_CUE_DELAY_MS) / 1000, with
+  // start = 2.4 - dur so the climax stays the end. Rate-shifting the whole 2.2s
+  // ramp to fit was the other option and would have pitched it up a ninth.
+  //
+  // A cancelled hold needs no stop machinery: worst case a rise plays out over
+  // a gesture the player abandoned after committing to it, which is a truthful
+  // thing to hear and costs nothing.
+  "holdCharge.mp3": { start: 1.55, dur: 0.85 },
+  // TWO TAKES WITH A BLIP ON THE FRONT, and the trim went straight for it.
+  // Both open with a single tick at 0.000 followed by real silence — encoder
+  // priming, or the generator's own count-in — so "first sound to first gap"
+  // found a 30-50ms artefact, called it the effect, and peak-normalised it up
+  // by TWENTY-FOUR and TWENTY-NINE decibels respectively. That gain figure is
+  // the tell: a window needing +25dB to reach -3dBFS does not contain the
+  // sound. Nothing else in this file has ever needed more than +9.
+  //
+  // compactorStroke's press actually runs 0.06-0.92s and is a sustained
+  // pneumatic hiss rather than a discrete thunk, so the whole stroke ships and
+  // its own decay ends it. It fires twice per compactor cycle (forward at rate
+  // 1, retreat pitched down) — about 1.8s of sound per 4.4s round trip, which
+  // is a machine you can hear working. If that reads as too busy the fix is
+  // gain at the call site, not a shorter window: cutting into the body would
+  // end it mid-hiss.
+  "compactorStroke.mp3": { start: 0.06, dur: 0.88 },
+  "transactionConfirm.mp3": { start: 0.09, dur: 0.42 },
+  // A power-down sting: hard attack at 0.04, peak by 0.24, then a long decay
+  // that never reaches the silence floor inside MAX_FX_S — so the auto window
+  // ran to the 2.5s cap and would have shipped a fifth of an eight-second file
+  // as a "one-shot". Pinned to the hit and the useful part of its fall, which
+  // is the 0.6-1.2s the cue was asked for. The LONG form of this moment is
+  // brokeSettle, and it is a stinger.
+  "broke.mp3": { start: 0.03, dur: 1.15 },
+  // A TWO-NOTE FIGURE with a long tail, and the auto trim shipped all 2.41s of
+  // it: the decay never reaches the silence floor inside MAX_FX_S, so "first
+  // sound to first gap" found no gap at all. Measured, the phrase is a first
+  // note at 0.00-0.42 and a LOUDER second at 0.48-0.90, then 1.5s of ring-out.
+  //
+  // Pinned to both notes plus the head of the decay. 1.02s is long for a cue
+  // that fires repeatedly, and it is deliberately right at the edge: two
+  // crushes cannot land closer than one half-stroke apart, and the fastest the
+  // ladder can run that is 1051ms (bay 10, Hydraulics T3, three Sweep notches),
+  // so the cue cannot overlap itself even at the worst case.
+  //
+  // If it rings too long in play, `dur: 0.42` is the other honest cut — the
+  // first note alone, which is the "tick of approval" the design asked for. The
+  // full phrase is kept because a two-note figure is what was generated, and
+  // truncating it to one note throws away the resolve that makes it read as
+  // praise rather than as another blip.
+  "excellentClear.mp3": { start: 0, dur: 1.02 },
+  // THE TAKE IS A CLOCK, NOT A TICK — measured, it runs at 4 ticks a second
+  // with every fourth accented (strong hits at 0.06s, 1.06s, 2.06s; weaker ones
+  // at the quarters between), and the gaps never reach the silence floor, so
+  // the auto-trim merged the first four into one 633ms "sound". That is the
+  // uiClick failure exactly. A 633ms tick is unusable here for a second
+  // reason: syncHud fires this twice a second under ten, so it would overlap
+  // ITSELF and smear into a drone.
+  //
+  // Pinned to ONE accented hit: attack begins 0.045s, peak at 0.060s, decayed
+  // 35dB by 0.120s. Starting just before the transient rather than at 0 keeps
+  // the perceived latency at ~15ms — the same reasoning as uiClick's 10ms
+  // start, and for the same reason (a countdown pip that arrives late reads as
+  // lag, not as rhythm).
+  "timeLow.mp3": { start: 0.045, dur: 0.105 },
+  // A hit followed by a lumpy crackle that runs to ~0.5s. The auto window ships
+  // 605ms of it, which is FIVE TIMES bondBreak (124ms) — so the lance, which
+  // changes one cube, would out-announce the field-wide Bond Breaker discharge
+  // and read as a whoosh rather than the tap game.ts's onThawLance asks for.
+  // Cut to the attack and main body, ending before the secondary rattle at
+  // 0.16s: 140ms, comfortably under cryoShatter's 177ms, which is the ranking
+  // the cue needs (one cube thawing < a whole frozen row breaking).
+  "thawLance.mp3": { start: 0.015, dur: 0.14 },
 };
 
 async function ffprobeDuration(file) {
