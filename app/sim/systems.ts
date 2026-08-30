@@ -20117,6 +20117,39 @@ section("Cryo reads: the frozen face's mark, and the lance's cue (render.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("The congestion sweep moves pixels, it does not repaint them (app.css)");
+// Congestion is the one moment the crest turns on its ::before glint sweep —
+// 13 strips, infinite, only while the bay is ALSO paying peak physics and
+// canvas cost. As background-position that sweep was a main-thread repaint of
+// every strip on every frame; rewritten to a 340%-wide pseudo swept by
+// transform, the painted pixels move instead. sim/hudperf/keyframes.ts
+// --congest measured both halves of the claim under the full danger dress:
+// the repaint classification flips, and the style-recalc TICK does not (~74%
+// leave-one-out share either way), so
+// the pin holds only what was actually bought — the keyframes must stay pure
+// transform, because one more property, or a var(), puts the repaint back
+// while the census's thread column quietly keeps reading "compositor" off the
+// property it can see.
+{
+  const crestCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\r\n/g, "\n");
+  const kf = crestCss.match(/@keyframes crest-spark \{\n([\s\S]*?)\n\}/)?.[1] ?? "";
+  check("the crest-spark keyframes exist where this section can read them", kf.length > 0);
+  const declared = [...kf.matchAll(/([a-z-]+):/g)].map((m) => m[1]);
+  check("the congestion sweep's keyframes declare transform and nothing else",
+    declared.length > 0 && declared.every((p) => p === "transform"), declared.join(","));
+  check("...and no value in them reads a var(), which would demote the sweep",
+    !kf.includes("var("));
+  // The keyframes' +-120% and the pseudo's 340% width are one derivation (the
+  // note above the keyframes): move either alone and the glints sweep a
+  // different span than the background-position original did.
+  check("the sweep texture is the 340%-wide pseudo the +-120% was derived for",
+    /\.plant__crest::before \{[\s\S]{0,2200}width: 340%;/.test(crestCss));
+}
+
+// ---------------------------------------------------------------------------
 section("The cursor set covers the whole app (scripts/make-cursors.mjs → cursors.css)");
 // The owner's report was "the custom pointer does not show up on buttons or on
 // the blocked floors" — the app wore its own arrow over the chrome and handed
