@@ -547,10 +547,27 @@ async function encodeLong(srcFile, name, folder) {
  * pass runs once per master so all candidates normalise from the same numbers.
  * Listen to the results in audio/compare/, then commit to one with `--codec`.
  */
+/**
+ * THE SIZE COLUMN IS A BITRATE COLUMN. These are all CBR, so two codecs at 96k
+ * produce two files of the same size to within container overhead — measured on
+ * the twelve real masters, aac-96k came out 22.35MB against mp3-96k's 21.58MB,
+ * i.e. very slightly BIGGER. A codec does not buy megabytes; it buys QUALITY at
+ * a given bitrate, and the megabytes come from spending that surplus lower down.
+ *
+ * So each codec is paired with the bitrate it is actually a candidate at, and
+ * aac appears TWICE: at 96k as the like-for-like control against mp3-96k (same
+ * size, and the honest way to hear the codec difference on its own), and at 64k
+ * as the real proposal — the row where the advantage is spent. Measured, that
+ * row is 14.87MB against opus-64k's 15.68MB, because libopus runs VBR and lands
+ * over its target while aac holds CBR. aac-64k is therefore both the smallest
+ * option on the table AND the one that decodes everywhere this game ships, which
+ * removes the usual reason to weigh opus's Safari risk. See audio/README.md.
+ */
 const COMPARE_MATRIX = [
   ["mp3", "128k"], // shipped today — the control
   ["mp3", "96k"],
-  ["aac", "96k"],
+  ["aac", "96k"],  // same size as mp3-96k by construction — this is the A/B
+  ["aac", "64k"],  // ...and this is what that quality surplus is for
   ["opus", "64k"],
 ];
 async function compareMusic() {

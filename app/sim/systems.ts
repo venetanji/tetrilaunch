@@ -11272,6 +11272,27 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     misExt.length === 0,
     misExt.join(", "),
   );
+  // ...AND THE PRECACHE, which is the third half of a swap and the only one
+  // that cannot fail loudly on its own. Workbox does not error on a glob that
+  // matches nothing: ship .m4a beds against a glob listing only mp3 and the
+  // build is clean, the two checks above are green, online playback is
+  // perfect, and the installed PWA precaches ZERO beds — every bay silent
+  // offline, against a store listing that claims the game plays offline.
+  //
+  // Asked as "does the glob admit LONG_EXT" rather than "are all three
+  // listed", because the question is whether what SHIPS can be cached, not
+  // how the pattern is spelled.
+  const viteSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "vite.config.ts"),
+    "utf8",
+  );
+  const glob = /globPatterns:\s*\[([^\]]*)\]/.exec(viteSrc)?.[1] ?? "";
+  const globExts = new Set(/\{([^}]*)\}/.exec(glob)?.[1].split(",").map((s) => s.trim()) ?? []);
+  check(
+    `the PWA precache glob admits LONG_EXT (${declaredExt}) so beds survive offline`,
+    globExts.has((declaredExt ?? ".mp3").slice(1)),
+    `glob offers {${[...globExts].join(",")}}`,
+  );
   const wanted = new Set([
     ...SCREEN_BEDS, ...beds, ...std, ...bulk,
     // Every bed any tier's window can reach, asked for on the Contract board's

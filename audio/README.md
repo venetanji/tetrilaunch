@@ -156,10 +156,16 @@ it over the alternatives. Choosing is a listening job, and the pipeline now
 renders the candidates for it:
 
 ```bash
-cd app && npm run audio:prepare -- --compare
+cd app && node scripts/prepare-audio.mjs --compare
 ```
 
-writes `audio/compare/<codec-bitrate>/` (gitignored with the rest of this
+**Call the script directly, not through `npm run … -- --flag`.** On PowerShell
+npm eats everything after `--` without a word of complaint and runs the bare
+script — which here means a full default re-encode of `app/public/audio/` where
+you asked for a comparison, and no way to tell from the exit code. The same trap
+applies to `--codec` and `--bitrate` below.
+
+It writes `audio/compare/<codec-bitrate>/` (gitignored with the rest of this
 folder — nothing there ships) with every bed at **mp3 128k** (the shipped
 control), **mp3 96k**, **aac 96k** and **opus 64k**, all through the identical
 trim/EQ/loudnorm chain — the loudness measurement runs once per master, so an
@@ -168,19 +174,64 @@ bill per track and in total.
 
 To commit to one:
 
-1. `npm run audio:prepare -- --codec aac` (or `opus`; add `--bitrate 112k` to
-   override the codec's default). Effects stay mp3/128k — they are under a
+1. `node scripts/prepare-audio.mjs --codec aac` (or `opus`; add `--bitrate 112k`
+   to override the codec's default). Effects stay mp3/128k — they are under a
    megabyte in total.
 2. Flip `LONG_EXT` in `app/src/lib/audio.ts` to match (`.m4a` / `.ogg`).
 3. Commit the re-encoded `app/public/audio/`.
 
-`npm run sim:systems` fails if steps 1 and 2 disagree — shipped files in one
-extension while the code fetches another is a silent, every-bay-plays-nothing
-failure, which is why the pin exists.
+`npm test` fails if steps 1 and 2 disagree — shipped files in one extension
+while the code fetches another is a silent, every-bay-plays-nothing failure,
+which is why the pin exists.
+
+**There is a third half, and it is the quiet one.** `app/vite.config.ts`'s
+Workbox `globPatterns` decides what the installed PWA precaches, and Workbox
+does not error on a pattern that matches nothing — so a swap to `.m4a` against a
+glob listing only `mp3` builds clean, passes the pin above, plays perfectly
+online, and precaches **zero beds**: every bay silent offline, under a store
+listing that claims the game plays offline. The glob therefore lists all three
+extensions the pipeline can emit (the two that aren't shipping match no files
+and cost nothing), and `npm test` asserts that whatever `LONG_EXT` says is one
+of them.
+
+### The size bill, measured
+
+Run on the twelve real masters (2026-08-30, ffmpeg built-in encoders):
+
+| | mp3 128k | mp3 96k | aac 96k | aac 64k | opus 64k |
+|---|---|---|---|---|---|
+| **total** | **28.77 MB** | 21.58 MB | 22.35 MB | **14.87 MB** | 15.68 MB |
+| vs shipped | — | −25% | −22% | **−48%** | −45% |
+
+**Read the table as a bitrate table, not a codec table.** These are all CBR, so
+aac-96k and mp3-96k are the same size to within container overhead — aac-96k is
+in fact 0.8 MB *bigger*. A codec never buys megabytes directly; it buys quality
+at a given bitrate, and the megabytes come from spending that surplus on a lower
+one. That is what the two aac rows are for: 96k is the like-for-like A/B against
+mp3-96k that lets you hear the codec alone, and 64k is the actual proposal.
+
+Two things this overturned:
+
+- **aac-64k is smaller than opus-64k** (14.87 vs 15.68 MB), because libopus at
+  `-b:a 64k` runs VBR and lands a little over its target while aac holds CBR. So
+  the usual reason to accept opus's compatibility risk — that it is the smallest
+  — does not hold here. **aac-64k is the candidate to listen to first:** it is
+  the smallest option on the table *and* the one that decodes on every platform
+  this game ships to.
+- The earlier "aac ≈ 40% smaller" estimate was optimistic about the wrong thing.
+  At the same bitrate it saves nothing; at 64k it saves rather more than 40%.
+
+Size is only half the decision and the cheaper half. **Listen on a phone
+speaker, not on monitors** — the shipped mix is EQ'd for a phone band (see
+`MASTER_EQ` and `PHONE_HP_HZ`), and a 64k artefact that is inaudible on desktop
+can sit right on top of that band. bay-1 and bay-9 are the ones to audition: they
+are the loudest and the busiest of the twelve.
 
 Codec notes: **aac** decodes everywhere this game runs (Android WebView,
-Safari/iOS, desktop Chromium) and is the safe pick at ~40% smaller. **opus** is
-the smallest by far but Safari's support arrives too late in the iOS line to
-trust while the web build shares these files. ffmpeg's built-in aac encoder is
-used; if your build carries `libfdk_aac` it is audibly better at low
-bitrates — worth swapping in locally for the final encode if you have it.
+Safari/iOS, desktop Chromium). **opus** is smaller than mp3 but, per the table
+above, not smaller than aac at the same nominal bitrate, and Safari's support
+arrives too late in the iOS line to trust while the web build shares these
+files — so it is hard to justify now. ffmpeg's built-in aac encoder is what
+produced the numbers above; if your build carries `libfdk_aac` it is audibly
+better at exactly the low bitrates this table is pushing into, and is worth
+swapping in locally for the final encode.

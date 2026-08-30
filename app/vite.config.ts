@@ -103,6 +103,13 @@ export default defineConfig(({ mode }) => ({
         // Only one of the three exists in dist at a time (prepare-audio
         // rebuilds public/audio from scratch), so the extra patterns match
         // nothing until they match everything.
+        //
+        // Pinned, not merely correct: sim/systems.ts's bed census asserts this
+        // glob admits audio.ts's LONG_EXT, because Workbox does not error on a
+        // pattern that matches nothing. Without that check a later edit here
+        // could re-narrow the list and the failure would be invisible — clean
+        // build, green census, perfect online playback, and an installed PWA
+        // that precaches zero beds.
         globPatterns: ["**/*.{js,css,html,svg,png,woff2,mp3,m4a,ogg}"],
         // Default is 2 MB and the music tracks exceed it — without this they
         // are silently dropped from the precache manifest and only the effects
