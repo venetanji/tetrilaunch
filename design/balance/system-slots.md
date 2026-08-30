@@ -288,3 +288,185 @@ endgame's own faucet had no door in the rule that decides where the badge goes.
 - **A per-rig whitelist** — the owner's stated next step. Slots are the general
   case; a rig that can hold *these* systems and not those is this mechanism with
   the choice moved from the player to the hull.
+- **A CAP on the ladder, asked and answered in §8** (2026-08-29): measured, a cap
+  at six costs zero win rate, zero seconds and zero money, and confiscates 660
+  salvage of purchases. The rack is already self-limiting. What forces the
+  strategy game instead is a per-bay clause — see
+  [`volatile-exam.md`](./volatile-exam.md).
+
+---
+
+## 8. A SLOT CAP — measured against the everything-rig, per bay (2026-08-29)
+
+The owner, verbatim:
+
+> *"I am wondering if we should limit the max systems slots so we force the
+> strategy game in later tiers."*
+
+§2-§4 answered "how narrow can a rack be" at RUN level, in mean bays cleared.
+This asks the opposite question at BAY level, where win rate, **seconds-to-win**
+and end-money margin all exist: **does a ten-slot rack make the specialist
+pointless at the top of the ladder?**
+
+`app/sim/_scratch-slotid.ts`, Marks 8 and 10, bays 5 and 10, four contents, five
+racks, 6 paired seeds a cell, `demo`+bond pilot matched to the rack. **Flown on
+the recalibrated target curve** (level.ts, 2026-08-28), so these are not
+comparable to §2-§4's numbers and are not meant to be.
+
+The racks:
+
+| arm | is |
+|---|---|
+| `spec@4` | the content's own mount order, first 4 |
+| `gen@4` | `mount-generic`, first 4 — the same width, the wrong choice |
+| `spec@6` | the content's own order, first 6 |
+| `full@8` | `mount-generic`, first 8 — the widest rack §5 says is measurable |
+| `full@10` | everything |
+
+### 8a. The two columns that carry signal
+
+**Cryo and slag came back 0% for every rack in every cell**, at 0.17 of the belt.
+That is the ratchet, not the rack: `materialRate` is 0.07 + 0.05 a notch, three
+notches is one rung above the ladder's own entry at these Marks, and it is
+already past what any rig this harness can fly answers. (Four notches was tried
+first and was 0% too; the depth was walked down until the other two columns still
+moved.) Both columns are reported and neither is read.
+
+### 8b. Win rate
+
+| Mark | Bay | content | spec@4 | gen@4 | spec@6 | full@8 | full@10 |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 8 | 5 | clean | **100%** | **100%** | 83% | 83% | **0%** |
+| 8 | 5 | volatile | 83% | **100%** | **100%** | **100%** | 50% |
+| 8 | 10 | clean | 67% | 67% | **100%** | **100%** | 67% |
+| 8 | 10 | volatile | 50% | 33% | **83%** | **83%** | 50% |
+| 10 | 5 | clean | 50% | 50% | **67%** | **67%** | **0%** |
+| 10 | 5 | volatile | 67% | **100%** | **100%** | **100%** | 50% |
+| 10 | 10 | clean | 33% | 33% | **50%** | **50%** | **50%** |
+| 10 | 10 | volatile | 17% | 33% | **50%** | **50%** | 33% |
+
+### 8c. Three findings, and the first one answers the question
+
+**1. THE EVERYTHING-RIG DOES NOT DOMINATE. IT IS THE WORST RACK ON THE TABLE.**
+`full@10` is beaten or tied by `full@8` in **eight cells of eight**, and beaten
+by a FOUR-SLOT rack in three of them — including 100% → 0% on Tier 8 bay 5 clean.
+The premise a cap would be built on is not in the data: ten slots do not erase
+the specialist, they lose to it.
+
+**2. `spec@6` AND `full@8` ARE IDENTICAL IN ALL EIGHT CELLS.** Not close —
+identical win rate, identical seconds, identical end money, because the seventh
+and eighth mounts (`thaw`, `cushion`) are inert on the content those cells deal.
+The bay-level table reproduces §3's run-level saturation exactly: **the curve is
+flat from the seventh slot.**
+
+**3. THE FIFTH AND SIXTH SLOTS ARE THE ONES THAT PAY.** `spec@4` → `spec@6` gains
+in five cells (67→100, 50→83, 50→67, 33→50, 17→50), loses in one (100→83) and
+ties in two. That is the same shape §3 priced the ladder on, seen one bay at a
+time: +0.39 and +0.44 mean bays for slots 5 and 6, +0.23 and 0.00 after.
+
+### 8d. Seconds-to-win and end-money margin
+
+The two readouts the run-level sweep could not produce. Winners only for seconds;
+`end/tgt` is mean end money over the bay's own target.
+
+| Mark | Bay | content | spec@4 | spec@6 | full@8 | full@10 |
+|---:|---:|---|---|---|---|---|
+| 8 | 5 | clean | 78s / 1.09 | 65s / 0.93 | 65s / 0.93 | — / 0.14 |
+| 8 | 10 | clean | 50s / 0.84 | 72s / 1.05 | 72s / 1.05 | 92s / 0.92 |
+| 8 | 10 | volatile | 77s / 0.75 | 63s / 0.96 | 63s / 0.96 | 112s / 0.52 |
+| 10 | 5 | volatile | 84s / 0.71 | 91s / 1.02 | 91s / 1.02 | 67s / 0.58 |
+| 10 | 10 | clean | 59s / 0.49 | 101s / 0.64 | 101s / 0.64 | 118s / 0.64 |
+| 10 | 10 | volatile | 64s / 0.19 | 110s / 0.87 | 110s / 0.87 | 103s / 0.59 |
+
+**The money margin says the same thing as the win rate and says it in a currency
+a cap would be arguing about.** `full@10` banks 0.12-0.64 of its target where
+`spec@6` banks 0.64-1.05. A wide rack is not converting its width into money.
+
+### 8e. WHY the tenth slot loses, and how much of it is the instrument
+
+Slots 9 and 10 of every mount order are the **Incinerator** and the **Loader
+Magazine**, and §5 already names both as unflyable here — the hood measured a
+literal zero for a pilot that never aims into the flue, and `marks.ts` calls the
+Magazine *"a self-inflicted wound to a bot that fires on every cooldown."*
+
+The honest split:
+
+- **The Magazine's cost is REAL and not an artefact.** A −30% reload is passive,
+  always on, and it floods the bay with cargo the press cannot keep up with. A
+  human suffers it too; they just get to choose not to buy it. In a slot economy
+  they also get to choose not to MOUNT it, which is the mechanism already doing
+  the work a cap would claim to do.
+- **The Bond Emitter and Demolition Rack costs are half artefact.** `bondHands`
+  fires Bond Breakers and `demo` fires charges whenever they are available, so
+  the sixth and seventh mounts spend money and scatter piles on content that did
+  not ask for it. A player fires them when they help. Read the 100% → 83% clean
+  cell at Tier 8 bay 5 as an upper bound on that cost, not as a measurement of
+  it.
+- **The Incinerator's zero is neither** — it is a system this harness cannot
+  fly at all, so its slot is measured as pure dead weight when in a human's
+  hands it may be worth something. That is the one direction the pessimism ledger
+  runs the wrong way for a cap argument, and it runs in the cap's favour: a real
+  Incinerator makes the wide rack better than these numbers.
+
+### 8f. THE COUNTERFACTUAL — what a cap at 6 would actually take
+
+Priced against the arms that currently win, which is what "retroactivity
+matters" means when players have already bought slots with salvage:
+
+| | measured cost of a cap at 6 |
+|---|---|
+| win rate | **zero.** `spec@6` is the best or equal-best arm in eight cells of eight |
+| seconds | zero — `spec@6` and `full@8` are identical, and `full@10` is slower |
+| end money | zero — same |
+| salvage refunded to nothing | **660** (slots 7-10 at 100 + 140 + 180 + 240) |
+| the mid-game decision §6 prices | unchanged: it lives at slots 5-6 |
+
+**A cap at 6 would confiscate 660 salvage of purchases and take away no measured
+power, because the slots above 6 have none.** That is the worst possible shape
+for a change: all of the retroactive cost, none of the effect it was proposed
+for. And it does not "force the strategy game" either — a slot that buys nothing
+cannot be the thing a player was avoiding a decision with.
+
+### 8g. WHAT WOULD force the strategy game, and it is the owner's other idea
+
+The strongest number in this pass is not in the tables above. It is in
+[`volatile-exam.md`](./volatile-exam.md) §4a: a bay-10 Final Inspection built on
+a volatile-only belt reads **0% with no Impact Cushion aboard and 83% with a
+maxed one played** — and the cushion's three rungs separate upward on it
+(38 / 58 / 83) for the first time anywhere.
+
+That is the difference between the two mechanisms, stated as measurements:
+
+| | a slot cap | a per-bay clause |
+|---|---|---|
+| what it changes | how many systems you may carry | which system this bay is about |
+| measured effect on win rate | **0** (§8f) | **0% → 83%** (volatile-exam §4a) |
+| when the decision is made | once, at the Workshop, forever | at the last draft of every run |
+| flattens into a best-N meta? | yes — one right answer, then never again | no — the right answer changes per clause |
+| retroactive cost | 660 salvage | none |
+
+**The prior this pass was asked to test was that clauses force choices better
+than a global cap, and the data does not merely support it — it says the cap has
+no effect to trade off in the first place.** The rack is already self-limiting:
+the sixth slot is where the curve goes flat, the seventh and eighth are provably
+worth nothing, and the ninth and tenth are worth NEGATIVE to any pilot that
+actually fires what it carries. A player who mounts ten systems at Tier 10 is
+already playing a worse rig than one who mounts six; nothing needs to forbid it.
+
+### 8h. What this section cannot say
+
+- **Identity at K = 4 is not resolved here.** `spec@4` vs `gen@4` splits 2-1-5
+  (spec, gen, tie) across the eight cells and at 6 seeds that is noise. §4's
+  24-seed pairwise remains the identity measurement; this pass was aimed at the
+  wide end.
+- **Six seeds a cell.** Every cell moves in whole sixths, so a one-cell gap of
+  17 points is one run. The findings above rest on patterns that repeat across
+  eight cells (`spec@6` = `full@8` eight times; `full@10` worst or equal-worst
+  eight times), not on any single row.
+- **Nothing here prices optionality**, which §3 already named as the thing slots
+  7-10 actually sell and no single-policy harness can see. If the back half of
+  the ladder is worth anything, it is worth it for a reason this table is blind
+  to — and that argument, unlike a power argument, is not damaged by anything
+  measured above.
+
+---

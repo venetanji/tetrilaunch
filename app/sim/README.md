@@ -392,6 +392,16 @@ guard the numbers in `docs/` have: it imports the real constants
 and asserts on what they compose to, so a re-shaped ladder fails here in
 seconds rather than in a doc nobody re-derived.
 
+Three more probes answer the volatile exam (`design/balance/volatile-exam.md`
+and `design/balance/system-slots.md`): `_scratch-volclause.ts` sweeps belt depth
+against liner tier on a real Tier-7 arrival, and takes `CLAUSE=<id>` to fly a
+SHIPPED clause's own `apply()` instead of a written share — which is how a
+drafted number gets re-checked against the code that ships it;
+`_scratch-cushtech.ts` splits the Impact Cushion into the liner and the aiming
+policy it teaches, by flying a liner that is all geometry and no softening; and
+`_scratch-slotid.ts` asks `slots.ts`'s saturation question one BAY at a time,
+where win rate, seconds and money all exist.
+
 One probe stands beside it rather than inside it: `_scratch-finalpair.ts` prices
 Tier 1's Final Inspection pair — Rush Order against Rate Cut — in extra lines the
 last bay must sell, across the Reactor tiers that reach bay 10, with an optional

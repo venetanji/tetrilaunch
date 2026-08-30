@@ -233,10 +233,18 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
       // lying in a lined slot still goes off when cargo lands hard on top of
       // it, so a sentence that let the slots read as safe ground would be
       // teaching the player a rule the bay does not have.
+      //
+      // THE TWO RULES MOVED OUT, to "Landing a bomb" below. They are worth a
+      // measured +25 points of win rate with no rig aboard
+      // (design/balance/volatile-exam.md §1b) — two thirds of everything the
+      // Impact Cushion is credited with — and a pane that holds 250 characters
+      // cannot both describe the material and teach the technique. So this
+      // paragraph stays what the material IS, and the technique gets the room
+      // its measurement earns.
       body: `A hard landing detonates it, taking every cube within`
         + ` <b>${VOLATILE_BLAST_CELLS} cells</b>, and every live cube it takes is billed`
-        + ` <b>$${lv.volatileLoss}</b>. The trigger is impact SPEED: lob it soft, or land it on an`
-        + ` <b>Impact Cushion</b> — the deep slots it lines take a much harder LANDING.`,
+        + ` <b>$${lv.volatileLoss}</b>. The trigger is impact SPEED, and how you land it is`
+        + ` most of the answer — see <b>Landing a bomb</b>. An <b>Impact Cushion</b> is the rest.`,
     },
     {
       m: "tar", axis: "tar",
@@ -512,6 +520,40 @@ function buildTopics(mark: number): GuideTopic[] {
     drill: DRILLS.sizes,
   },
   ...materialTopics(lv),
+  /**
+   * THE ONE TECHNIQUE TOPIC IN THE CATALOGUE, and it is here because it was
+   * MEASURED rather than because volatile felt fiddly.
+   *
+   * design/balance/volatile-exam.md §1b separated the Impact Cushion's value
+   * into the liner and the aiming policy the liner enables, by flying a liner
+   * that is all geometry and no softening (8 cells of it at x1.00, so the
+   * physics is identical to no liner and the pilot's policy is identical to a
+   * maxed one). Of the +38 points of win rate a played liner buys on a
+   * volatile-capped Tier-7 bay 10, +25 is the POLICY — lob it at the wall,
+   * never drop cargo onto an intact bomb — and only +13 is the softening the
+   * player paid for. Nothing in the game forbids the policy to a bare rig;
+   * only the guide's silence did.
+   *
+   * A topic of its own rather than a longer material paragraph: the material
+   * pane holds 250 characters (sim/systems.ts's COPY BUDGET) and this needs
+   * both halves — what to do with no rig, and what the liner changes. Carrying
+   * `system` rather than `material` is also what gives it the roomier pane, and
+   * it is the honest tag: the row is about the purchase's subject.
+   *
+   * Gated at volatile's own tier, like the material topic it sits under, so it
+   * appears on the rung the player first meets a bomb.
+   */
+  {
+    id: "landing-volatile", chapter: "cargo", tier: axisTier("volatile"),
+    name: "Landing a bomb",
+    summary: "Two rules that beat the liner bare-handed — and what the Impact Cushion adds on top.",
+    system: "cushion",
+    body: `<b>Lob it at the wall</b>: the gentlest arc is the only one under the trigger.`
+      + ` And <b>never land cargo on an intact bomb</b> — the blast reads the LANDING, so what is`
+      + ` already down goes off when something drops hard on it. Bare-handed, those two beat the`
+      + ` liner that teaches them. An <b>Impact Cushion</b> lifts the trigger over the deep slots;`
+      + ` its deep rungs pay on an all-volatile belt.`,
+  },
 
   /* ---- HAZARDS --------------------------------------------------------- */
   {

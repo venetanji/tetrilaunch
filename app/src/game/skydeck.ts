@@ -290,15 +290,43 @@ export function schedulesDeadCargo(def: FinalDef): boolean {
   );
 }
 
+/**
+ * A FULL BELT IS NEVER A STANDING RULE EITHER, and it is refused on the same
+ * grammar as the dead cargo above: not because the belt is unfair, but because
+ * REPETITION and IMPOSITION together are a different ask from the one the
+ * clause was measured as.
+ *
+ * A Deep Run's Final Inspection deals two cards and the player signs one, so a
+ * full belt there is a bay you may decline — finals.ts's Tier 7 says so
+ * explicitly, and keeps Hair Trigger as the pole a rig with no liner can sign.
+ * A clause the DAY deals has no other pole and no seat to dodge into, and at
+ * the second stop it rides four bays rather than one. "Every shipment is a
+ * hazard" for four bays of a Mark-10 economy is not the exam finals.ts priced;
+ * it is that exam served four times to a player who never chose it.
+ *
+ * ONLY FOR A CLAUSE THAT STANDS FOR MORE THAN ONE BAY — the same carve-out the
+ * dead-cargo rule takes, and for the identical reason. The capstone's full-belt
+ * pair is dealt at the last stop, where it rides exactly one bay: the same
+ * exposure a Deep Run's inspection gives it. That is the case this rule has
+ * always permitted and still does.
+ *
+ * Read off `fullBelt` rather than off the belt after apply(), unlike the rule
+ * above: a full belt is a DECLARED property of the clause (finals.ts's field,
+ * pinned there against every arrival), where dead cargo is an emergent one.
+ */
+function statesWholeBelt(def: FinalDef): boolean {
+  return def.fullBelt === true;
+}
+
 /** The clauses a stop may actually deal: its bands' pairs, minus anything the
- *  rule above refuses. Flat rather than tier-then-clause, so a tier that loses
- *  half its pair does not keep a whole tier's share of the roll. */
+ *  two rules above refuse. Flat rather than tier-then-clause, so a tier that
+ *  loses half its pair does not keep a whole tier's share of the roll. */
 export function dealableAt(stopIndex: number): FinalDef[] {
   const stop = CLAUSE_STOPS[stopIndex];
   const standsOneBayOnly = stop.fromBay >= RUN_LEVELS;
   return stop.tiers
     .flatMap((t) => finalsForTier(t))
-    .filter((def) => standsOneBayOnly || !schedulesDeadCargo(def));
+    .filter((def) => standsOneBayOnly || (!schedulesDeadCargo(def) && !statesWholeBelt(def)));
 }
 
 /** How many clauses a Skydeck run ends up carrying. Derived, so the count on

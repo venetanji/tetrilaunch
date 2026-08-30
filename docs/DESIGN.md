@@ -637,6 +637,13 @@ clause is a forced pick with no seat to dodge into. The rule is derived by
 applying the clause and reading the belt (`schedulesDeadCargo`), not by listing
 ids, so a clause added later is covered without anyone remembering.
 
+**Nor is a full belt.** The same grammar, the same one-bay carve-out, a
+different reason: a Deep Run deals a full belt beside a pole a rig with no
+answer can sign, and the day deals no alternative — at the second stop it would
+also ride four bays instead of one. `Powder Keg` (Tier 7) is the clause that
+makes the rule load-bearing; the capstone's own pair is untouched, because the
+last stop rides exactly one bay.
+
 **Measured** (`npx tsx sim/skydeck.ts --stops all --rigs economy --seeds 3`, aim
 bot, bays 1/4/7/10, carry $150; every combination the bands can deal). Priced at
 **Mark 6**, because Mark 10 already reads 0% run-clear on this instrument and a

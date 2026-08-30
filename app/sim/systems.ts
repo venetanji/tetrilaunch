@@ -9929,7 +9929,8 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // rather than stacks on. The real worst case pours every notch into the
     // materials the clause does NOT write, so applyRatchets caps a full belt
     // and the clause lands on top of it. Measured before applyFinal re-capped:
-    // that arrival took Powder Run to 0.78 of the belt while this check, run
+    // that arrival took Powder Run (retired — see finals.ts's Tier 7) to 0.78
+    // of the belt while this check, run
     // on the round-robin alone, passed at 0.55. A worst-case assertion that
     // does not construct the worst case is not an assertion.
     const arrivals = (clause: (typeof FINALS)[number]): Ratchets[] => {
@@ -9988,13 +9989,17 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
       // applyFinal's re-cap). A tolerance, not equality, because the scaling is
       // floating point.
       //
-      // EXCEPT the capstone's full-belt pair, whose whole design is that
-      // nothing standard ships: there the belt must land at exactly 1, and
-      // the playability line is drawn where hazards.ts always drew it — on
-      // cargo that can never count. Slag is the one material whose cubes
-      // cannot fill a slot (theme.ts's countsForLines), so slag is what stays
-      // bounded; and the pair's other promise — the capstone stopped dealing
-      // shipment sizes — is pinned in the same breath.
+      // EXCEPT a full-belt clause, whose whole design is that nothing standard
+      // ships: there the belt must land at exactly 1, and the playability line
+      // is drawn where hazards.ts always drew it — on cargo that can never
+      // count. Slag is the one material whose cubes cannot fill a slot
+      // (theme.ts's countsForLines), so slag is what stays bounded.
+      //
+      // The shipment-size clause rides here too and is not capstone-specific
+      // even though it was written for the capstone: no ladder bay ships
+      // anything but std at bay 10, so a full-belt clause that ALSO moved the
+      // payload would be stacking a second unpriced cost on a belt with no
+      // standard cargo left to absorb it.
       const mix = Object.values(cfg.materialMix).reduce((a, b) => a + b, 0);
       if (clause.fullBelt) {
         if (Math.abs(mix - 1) > 1e-9) why.push(`full belt sums ${mix.toFixed(3)}`);
@@ -10079,10 +10084,59 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // bug (see finals.ts's schedule()) wearing its third coat.
     {
       const pair = finalsForTier(MARK_COUNT);
-      check("the capstone's pair is the full-belt pair, and nothing else is",
-        pair.every((c) => c.fullBelt === true)
-          && FINALS.every((c) => !c.fullBelt || c.tier === MARK_COUNT),
-        FINALS.filter((c) => c.fullBelt).map((c) => `${c.id}@${c.tier}`).join(", "));
+      check("the capstone's pair is the full-belt pair",
+        pair.every((c) => c.fullBelt === true),
+        pair.map((c) => `${c.id} ${c.fullBelt ? "full" : "partial"}`).join(", "));
+
+      // …AND EVERY OTHER FULL BELT IS ONE THE SHELF ALREADY ANSWERS.
+      //
+      // This used to read "and nothing else is": full belts were capstone-only,
+      // on the argument that taking the standard shipment away is the one cost
+      // that must never be dealt before the last exam. The argument is really
+      // about the cost being UNANSWERABLE — Odd Lots and Full Rebar are belts
+      // nothing on the shelf counters — so the rule is re-stated as what it was
+      // protecting, in three parts, all of which a sub-capstone full belt must
+      // satisfy (finals.ts's fullBelt doc argues them; this is the check):
+      //
+      //   1. ONE MATERIAL, read off the clean arrival rather than declared. The
+      //      catalogue-at-once flood is the capstone's own shape and stays
+      //      there.
+      //   2. That material's axis OPENS at the clause's Tier (hazards.ts's
+      //      HazardDef.mark), so the belt is the Tier's own subject. This is
+      //      the part that refuses a full REBAR belt at Tier 7 — rebar opens at
+      //      5, so a Tier-7 clause dealing it is borrowing another Tier's
+      //      material and the exam stops being the pairing finals.ts's header
+      //      is built on.
+      //   3. The system named on the card is INSTALLABLE by a player who can be
+      //      dealt the clause: meta.ts's requiresMark counts Tiers BEATEN, so a
+      //      pilot flying Tier N has beaten N-1, and the gate must admit that.
+      //      The Impact Cushion's 6 admits Tier 7 exactly.
+      //
+      // Deliberately NOT a list of permitted ids: a rule with a fuzzier
+      // predicate than "capstone only" needs a check that re-derives the
+      // predicate, or the next clause inherits the exemption by being added.
+      const unanswerable: string[] = [];
+      for (const clause of FINALS.filter((c) => c.fullBelt && c.tier !== MARK_COUNT)) {
+        const clean = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+        });
+        const dealt = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+          .filter((k) => clean.materialMix[k] > 0);
+        if (dealt.length !== 1) {
+          unanswerable.push(`${clause.id}@${clause.tier} deals ${dealt.length} materials`);
+          continue;
+        }
+        const axis = HAZARDS.find((h) => h.material === dealt[0]);
+        if (axis?.mark !== clause.tier) {
+          unanswerable.push(`${clause.id}@${clause.tier} deals ${dealt[0]}, whose axis opens at ${axis?.mark}`);
+        }
+        const gate = INSTALLS.find((i) => i.id === clause.system)?.requiresMark ?? 0;
+        if (gate > clause.tier - 1) {
+          unanswerable.push(`${clause.id}@${clause.tier} names ${clause.system}, gated at Tier ${gate + 1}`);
+        }
+      }
+      check("a full belt below the capstone is its Tier's own material, with the counter already on the shelf",
+        unanswerable.length === 0, unanswerable.join(" · "));
       const partial: string[] = [];
       const converted: string[] = [];
       for (const clause of FINALS.filter((c) => c.fullBelt)) {
@@ -10591,6 +10645,31 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     check("the last stop still deals the capstone pair",
       dealableAt(CLAUSE_STOPS.length - 1).map((f) => f.id).sort().join(",")
         === finalsForTier(MARK_COUNT).map((f) => f.id).sort().join(","));
+
+    // ---- AND NEITHER IS A FULL BELT ---------------------------------------
+    // Same grammar, same carve-out, different reason: a full belt is a bay the
+    // Deep Run lets you DECLINE — finals.ts deals it beside a pole a rig with
+    // no answer can sign — and the day deals no such alternative. At the second
+    // stop it would also ride four bays rather than one. Both halves of that
+    // are about exposure, so the rule is written against exposure.
+    const flooded: string[] = [];
+    CLAUSE_STOPS.forEach((stop, i) => {
+      if (stop.fromBay >= RUN_LEVELS) return;
+      for (const def of dealableAt(i)) {
+        if (def.fullBelt) flooded.push(`bay ${stop.fromBay}: ${def.id}`);
+      }
+    });
+    check("no clause that stands for more than one bay states the whole belt",
+      flooded.length === 0, flooded.join(" · "));
+    // Teeth, the same way: a stop's own bands must actually REACH a full-belt
+    // clause, or the filter above is passing on an empty set. Tier 7's Powder
+    // Keg sits in band 2, which is exactly the stop that stands four bays.
+    check("...and a multi-bay stop's bands really do reach one",
+      CLAUSE_STOPS.some((stop) => stop.fromBay < RUN_LEVELS
+        && stop.tiers.flatMap((t) => finalsForTier(t)).some((f) => f.fullBelt)),
+      CLAUSE_STOPS.map((stop) => `${stop.fromBay}:${stop.tiers
+        .flatMap((t) => finalsForTier(t)).filter((f) => f.fullBelt).map((f) => f.id).join("+") || "-"}`)
+        .join(" "));
   }
 
   // ---- THE CLAUSES ACTUALLY STAND -----------------------------------------

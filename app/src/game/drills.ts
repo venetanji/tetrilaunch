@@ -262,7 +262,12 @@ export const DRILLS: Record<string, DrillSpec> = {
   },
   "mat-volatile": {
     name: "Powder Run",
-    brief: "Half the belt detonates on a hard landing. Lob it soft — or aim it at the junk.",
+    // "or aim it at the junk" used to close this, and the bay bills for live
+    // cargo now (lineClear.ts's volatileLossFor) — the drill was teaching the
+    // reading the material topic had already retired. What replaces it is the
+    // measured technique (design/balance/volatile-exam.md §1b), said in the
+    // one sentence a drill card holds.
+    brief: "Half the belt detonates on a hard landing. Lob at the wall; never land on a bomb.",
     conditions: "Half the belt primed",
     goal: 2, launches: 20, material: "volatile", materialRate: 0.5, wall: NEARLY,
   },

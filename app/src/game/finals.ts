@@ -79,7 +79,10 @@ import { MARK_COUNT } from "./upgrades";
  * (The T10 row reads the RETIRED size pair — Dead Weight and Short Measure,
  * the domino/pentomino fork. The capstone now deals the full-belt cargo pair
  * below, which the bot has not flown; the Tier 10 section says why the size
- * fork was retired and what can honestly be said about its replacement.)
+ * fork was retired and what can honestly be said about its replacement. The
+ * T7 row reads the RETIRED Powder Run, replaced by Powder Keg — that pair was
+ * re-measured on its own terms in design/balance/volatile-exam.md, at depths
+ * and liner tiers this 20-seed pass never separated.)
  *
  * Six clauses read at or ABOVE the bay they are supposed to make harder. That
  * looks like six broken cards, and it is not: sorted by what each clause takes
@@ -93,7 +96,8 @@ import { MARK_COUNT } from "./upgrades";
  *    A small, consistent -5 to -10: the bot stops firing when it is broke, so
  *    it feels this directly and proportionately.
  *  - **Take away GOOD PLACEMENTS** — Tight Gauge, Tail Gale, Rebar Run, Hair
- *    Trigger, Powder Run, the retired Short Measure. Free, or better than free.
+ *    Trigger, the retired Powder Run and Short Measure. Free, or better than
+ *    free.
  *
  * The third group is the finding. The bot does not plan a row: it solves an
  * angle and fires on every cooldown, so a clause that shrinks the space of GOOD
@@ -133,7 +137,7 @@ export type FinalId =
   | "cold-chain" | "ice-wall"
   | "rebar-run" | "cold-weld"
   | "slag-run" | "slag-wall"
-  | "powder-run" | "hair-trigger"
+  | "powder-keg" | "hair-trigger"
   | "tar-run" | "fouled-bay"
   | "bled-hydraulics" | "haulage-bond"
   | "odd-lots" | "full-rebar";
@@ -159,10 +163,34 @@ export interface FinalDef {
    *  material at least what the run arrived with). applyFinal's MIX_TOTAL_CAP
    *  re-cap stands down for it — that cap exists to stop a partial-belt
    *  clause overfilling a belt that still owes the player standard cargo, and
-   *  a full-belt clause has none to owe. sim/systems.ts holds the pair to
-   *  this contract on every arrival it can construct. Capstone-only by
-   *  design: taking the standard shipment away entirely is the one cost that
-   *  must never be dealt before the ladder's last exam. */
+   *  a full-belt clause has none to owe. sim/systems.ts holds every one of
+   *  them to this contract on every arrival it can construct.
+   *
+   *  WHERE IT MAY BE DEALT — capstone-only, OR a belt the shelf already sells
+   *  the answer to. The rule used to read "capstone-only, full stop", on the
+   *  argument that taking the standard shipment away is the one cost that must
+   *  never be dealt before the ladder's last exam. That argument is really
+   *  about the cost being UNANSWERABLE: Odd Lots and Full Rebar are belts
+   *  nothing on the shelf counters, which is what makes them the capstone's.
+   *  A belt whose material has a counter, on the shelf, at or before the Tier
+   *  that opens it, is a different object — the exam that Tier's own pairing
+   *  (hazards.ts's axis, upgrades.ts's system) has been building toward for
+   *  ten bays. So the narrowed rule has three parts, all pinned in
+   *  sim/systems.ts because a fuzzier predicate needs a sharper check:
+   *
+   *   - the belt is ONE material, not the catalogue at once;
+   *   - that material's axis OPENS at this clause's Tier (hazards.ts), so the
+   *     clause is the Tier's own subject rather than a borrowed one;
+   *   - the system on the card is installable by a player who can be dealt it
+   *     (meta.ts's INSTALLS gate), so the answer is already purchasable.
+   *
+   *  A full REBAR belt at Tier 7 fails the second part and stays refused,
+   *  which is the case the old rule was really protecting against.
+   *
+   *  And it is dealt ONCE. skydeck.ts refuses a full belt as a STANDING rule
+   *  that rides more than one bay — the same shape, and the same reason, as
+   *  its dead-cargo refusal: an inspection the player picked from two cards is
+   *  not a rule the day imposed for four bays. */
   fullBelt?: true;
   /** Mutate the final bay's config. Called at most once per run, on a config
    *  that already carries the ship's upgrades and the run's ratchets (see
@@ -376,7 +404,8 @@ const TIGHT_GAUGE_ALLOWANCE_PER_CELL = 4;
  * is not reachable"), and the worst arrival a run can actually construct
  * proved it wrong: every notch poured into the materials the clause does NOT
  * write left the mix already at hazards.ts's MIX_TOTAL_CAP when the clause
- * arrived, and Powder Run pushed the belt to 0.78. applyFinal now re-caps to
+ * arrived, and Powder Run (retired; Powder Keg states the whole belt itself
+ * and stands the re-cap down) pushed the belt to 0.78. applyFinal now re-caps to
  * MIX_TOTAL_CAP, holding the clause's own material at the rate its card
  * quotes and taking the reduction out of the ratcheted ones; sim/systems.ts
  * pins the total at the cap on that same worst arrival. The other half of
@@ -733,29 +762,86 @@ export const FINALS: FinalDef[] = [
     },
   },
 
-  // -- Tier 7 · Bay Extension (how hard you may land it) -----------------
+  // -- Tier 7 · Impact Cushion (how hard you may land it) ----------------
   //
   // Volatile goes off above a landing speed, and lineClear.ts measured where:
   // first-contact speeds run 17.3 to 30.8 across everything the cannon can do,
   // and the stock threshold of 22 sits between the two halves of the power
   // dial, so a lob survives and a hard shot does not. Its cost also lands on
   // cubes that were ALREADY safely down, which is what makes it scale with how
-  // full the bay is — so room is the answer, and the two poles are "how often
-  // does it arrive" against "how gently must it land".
+  // full the bay is. The two poles are "how much of it arrives" against "how
+  // gently must it land".
+  //
+  // THE PAIR NAMED THE WRONG SYSTEM FOR A RELEASE, and the correction is
+  // measured rather than tidied. Both clauses were stamped `system: "bay"`
+  // while design/balance/volatile-exam.md §3 measured the swing a played
+  // Impact Cushion is worth on exactly these two bays at +56 and +38 points of
+  // win rate — the largest single-system effect on the ladder. The badge is
+  // the one line of the card that tells a player which purchase this bay is
+  // asking about, and lineClear.ts's cushionedTrigger floor already says whose
+  // exam it is in as many words ("a cushion should be able to SIT that exam").
+  // Retargeting also closes a third of a hole the same document names: no
+  // Final Inspection on the ladder examined `thaw`, `cushion` or
+  // `incinerator` — the three counters a player is least likely to understand.
+  //
+  // POWDER KEG IS A FULL BELT, one tier before the capstone, and that is the
+  // rule FinalDef.fullBelt was narrowed for. Measured (volatile-exam.md §4a,
+  // sim/_scratch-volclause.ts, Tier 7 bay 10, 32-40 paired seeds, the rig a
+  // Tier-7 player flies): 0% with no liner, 38 / 58 / 83% across the liner's
+  // three rungs played. Three things make that the right shape rather than a
+  // wall with a card on it:
+  //
+  //  - It is the ONLY volatile belt on which the cushion's rungs ascend. At
+  //    every partial depth the ratchet can reach, rung 1's threshold already
+  //    insures every arc the cannon fires, so rungs 2 and 3 measure flat or
+  //    worse (81 / 78 / 88 at the belt ceiling — inside noise). volatileBlast
+  //    softens THE LANDING, so on a mixed belt the standard shipments are the
+  //    detonator: they arrive unprotected and set off the volatile cargo
+  //    already lying in the liner. Take the standard cargo away and there is
+  //    nothing left the liner does not insure — which is also why a belt
+  //    between 40% and 90% volatile is HARDER than this one, for every rung.
+  //  - The 0% is refusable. The pair's other pole is Hair Trigger, measured
+  //    53% bare-handed on the same bay — a player who never bought the liner
+  //    has a card they can sign, and which pole is cheaper is legible from the
+  //    rig, exactly as it is at the capstone. A hand where BOTH poles were
+  //    walls would be a toll; a hand with one is a choice about what you built.
+  //  - The trigger stays stock. Folding Hair Trigger's priming into a full
+  //    belt was drafted and killed by the instrument: 0% at every rung
+  //    including a maxed liner played, because cushionedTrigger's floor lifts
+  //    a primed bay back to stock and no further, and a full volatile belt at
+  //    the stock threshold is unplayable. The two costs are mutually exclusive
+  //    by arithmetic, not by taste.
+  //
+  // What it costs to be able to sign it is the exam: install the cushion (50
+  // salvage, meta.ts's gate opens it for exactly the player who may be dealt
+  // this), uprate it in the Workshop, spend a rack slot on it, and buy the
+  // deep rung with scrap at a refit stop — four commitments across two
+  // currencies, every one of them made before the card is turned over.
   {
-    id: "powder-run",
-    name: "Powder Run",
-    desc: "At least 27% of the belt is volatile. Land one hard and it takes its neighbours with it — and the bay pays for every live cube in the blast.",
+    id: "powder-keg",
+    name: "Powder Keg",
+    desc: "Nothing standard ships: the belt's whole standard share arrives volatile. Land one hard and it takes its neighbours with it — and the bay pays for every live cube in the blast. Only a deep liner beds a belt like this.",
     tier: 7,
-    system: "bay",
-    apply: (cfg) => { schedule(cfg, "volatile", 0.27); },
+    system: "cushion",
+    fullBelt: true,
+    apply: (cfg) => {
+      // Full Rebar's shape exactly, and for its stated reason: the STANDARD
+      // share and no more, so a run that ratcheted cryo or slag keeps every
+      // notch it took rather than having it refunded as different cargo. The
+      // ratchet cannot pre-pay this either — MATERIAL_CAP holds a volatile
+      // arrival at a third of the belt, so the remaining two thirds is a cost
+      // no notch has already bought.
+      const keys = Object.keys(cfg.materialMix) as Array<keyof LevelConfig["materialMix"]>;
+      const others = keys.reduce((a, k) => a + (k === "volatile" ? 0 : cfg.materialMix[k]), 0);
+      cfg.materialMix = { ...cfg.materialMix, volatile: Math.max(0, 1 - others) };
+    },
   },
   {
     id: "hair-trigger",
     name: "Hair Trigger",
     desc: "At least 20% of the belt is volatile, primed 15% finer — at this setting only the softest lob will not set it off, and the bay pays for every live cube each blast takes.",
     tier: 7,
-    system: "bay",
+    system: "cushion",
     apply: (cfg) => {
       schedule(cfg, "volatile", 0.2);
       // 0.85 of the stock 22 is 18.7, just above the 17.3 floor of every
@@ -992,8 +1078,8 @@ export function finalById(id: string): FinalDef | undefined {
  *  clause lands on a belt that is already at the cap and pushes straight
  *  through it. Measured on the worst arrival a run can actually construct —
  *  every notch poured into the materials the clause does NOT write, so the mix
- *  is already full when the clause arrives — Powder Run reached 0.78 of the
- *  belt. hazards.ts says exactly what that is: "every shipment is a hazard is
+ *  is already full when the clause arrives — Powder Run, since retired,
+ *  reached 0.78 of the belt. hazards.ts says exactly what that is: "every shipment is a hazard is
  *  not a hard bay, it is an unplayable one".
  *
  *  The scaling holds the CLAUSE'S OWN material at the rate its card quotes and
