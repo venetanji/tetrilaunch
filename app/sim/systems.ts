@@ -1086,6 +1086,28 @@ section("Installs — what salvage buys (meta.ts)");
     menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
   check("once seen, How to Play returns and the tutorial entry goes",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
+  // ONE DIRECTIVE, AND ON FIRST LAUNCH IT IS THE TUTORIAL'S. START HERE and
+  // NEXT STEP are the same claim in the same amber, and a fresh save showed
+  // BOTH at once — the demo panel's chip, and the step badge on Contracts,
+  // which is precisely what a fresh save's nextStep is. Two things each calling
+  // themselves the one next step is the A3 rule broken in the one session it
+  // exists for.
+  check("first launch carries exactly one directive",
+    (menuFirst.match(/next-badge/g) ?? []).length === 1);
+  check("...and it is the tutorial's",
+    menuFirst.includes(">Start here<") && !menuFirst.includes(">Next step<"));
+  // DEFERRED, NOT CANCELLED: the step badge is back the moment the chip goes,
+  // with nothing else about the screen different. `menuMid` is the same save at
+  // the same step with seenTutorial set.
+  check("...and the step badge takes over once the chip is gone",
+    menuMid.includes(">Next step<") && !menuMid.includes(">Start here<"));
+  // The primary is gated at the RULE rather than in the markup, because main.ts
+  // re-decides this button's badge on every ride (setSelectedTier) and a copy
+  // in each place is two rules to keep in step. Not a fresh-save concern only:
+  // How to Play's "Guided Tutorial" clears seenTutorial on an advanced save, so
+  // the deferred step can be any of them.
+  check("the primary's badge defers to a live tutorial chip on any step",
+    S.menuPlayBadged("run", 1, false) && !S.menuPlayBadged("run", 1, false, true));
 
   // THE SEAL STEP ON THE MENU. A next step nobody can read is not a next step:
   // the badge has to land on the action that actually does the sealing (the
@@ -5779,6 +5801,58 @@ section("The odometer (app.css .roll — the lift's readouts)");
   check("...so reduced motion and cancelled rolls land on time",
     /playState\s*!==\s*"running"/.test(remBody),
     "rollRemainingMs counts animations that are not running");
+
+  // --- THE HALF THE ODOMETER CANNOT SAY -------------------------------------
+  // The gate two blocks up is correct and it is also the hole: a readout that
+  // did not change holds still, so a ride that changes NONE of the four lands
+  // with nothing on the screen having moved. Mark 10 to the roof and back is
+  // exactly that trip, and a mis-tap on a 26px floor is where it gets expensive
+  // — the park moves, silently, and the next Deep Run flies a floor nobody
+  // chose. So the panel's FRAME answers what its contents cannot.
+  const landRule = css.slice(css.indexOf(".base-bay.is-landed {"));
+  check("the destination panel has an arrival state",
+    landRule.startsWith(".base-bay.is-landed {")
+      && /animation:\s*bay-landed/.test(landRule.slice(0, 120)),
+    "no .base-bay.is-landed rule, or it does not run bay-landed");
+  // THE LAYOUT CONTRACT, the same one the roll's transition is held to. This
+  // panel's grid is measured to the pixel on a 360px phone; a frame that
+  // animated a box would move the four readouts under it for the length of
+  // every ride.
+  const landKf = css.slice(css.indexOf("@keyframes bay-landed"));
+  const landBody = landKf.slice(0, landKf.indexOf("\n}\n") + 1);
+  // Every `prop:` in the block, wherever it sits on the line — a stop that
+  // packs its declarations onto one line (the 0%/100% rest does) must be read
+  // the same as one that does not, or half the contract goes unchecked.
+  const landProps = [...landBody.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+  check("the arrival flash animates the frame and nothing else",
+    landProps.length > 0
+      && landProps.every((p) => p === "border-color" || p === "box-shadow"),
+    landProps.join(", "));
+  // The theatre goes, the teaching stays. A flash has no still end-state to
+  // fall back to, so what survives is the STATE: the panel holds the lit frame
+  // for the class's lifetime instead of pulsing it twice, which is the same
+  // treatment the tower's owed sockets get (.tower__floor.is-owed).
+  const landReduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)",
+    css.indexOf(".base-bay.is-landed {")));
+  check("reduced motion holds the lit frame rather than dropping the answer",
+    /\.base-bay\.is-landed\s*\{\s*animation:\s*none;\s*border-color:/.test(
+      landReduced.slice(0, 220)),
+    landReduced.slice(0, 180).trim());
+  // ...which is also why the class comes off on a TIMER: with the animation
+  // gone there is no animationend, and the panel would stay lit for the session.
+  const landedBody = bodyOf("setSelectedTier");
+  check("the flash is dropped on a timer, not on an animation event",
+    /setTimeout\(\s*\(\)\s*=>\s*landed\.classList\.remove\("is-landed"\)/.test(landedBody)
+      && !/is-landed[\s\S]{0,120}animationend/.test(landedBody),
+    "the arrival flash waits on animationend, which never fires under reduced motion");
+  // ARMED AFTER THE REBUILD. `panel.outerHTML = ...` replaces the element, so a
+  // class added before it is thrown away with the node it was added to — the
+  // house rule that a mid-animation element must never be rebuilt, in the one
+  // method that rebuilds this one.
+  const rebuiltAt = landedBody.indexOf("panel.outerHTML");
+  const flashAt = landedBody.indexOf('classList.add("is-landed")');
+  check("...and armed after the panel is rebuilt, never before it",
+    rebuiltAt >= 0 && flashAt > rebuiltAt, `rebuild@${rebuiltAt} flash@${flashAt}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -11836,6 +11910,52 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // unearned Mark stays shut whether or not the sandbox is open.
   check("Tier S does not unlock the ladder", !S.tierOpen(open, 6));
   check("the Skydeck still needs the ladder beaten", !S.tierOpen(open, S.SKYDECK_TIER));
+
+  // THE FLOORS' TAP TARGETS. sim/uifit records `.tower__floor 82x26` on the
+  // 640x360 budget phone, and eleven floors cannot each be 44px in a 313px
+  // shaft by arithmetic — so the only thing left to win is the dead space
+  // around each plate, and every pixel of it was dead. Pinned in this process
+  // because it is a claim about the STYLESHEET's arithmetic; whether the
+  // resulting box fits is sim/uifit's job.
+  {
+    const towerCss = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const zone = towerCss.slice(towerCss.indexOf(".tower__floor::after {"));
+    const zoneBody = zone.slice(0, zone.indexOf("}") + 1);
+    check("the floors carry a hit zone bigger than the plate",
+      zone.startsWith(".tower__floor::after {") && /content:\s*""/.test(zoneBody),
+      "no .tower__floor::after hit zone");
+    // HALF a gap each side, and the halving is the whole safety argument: two
+    // neighbours meet on the gap's centre line and never overlap, so DOM order
+    // — which decides who is painted on top, and screens.ts pushes the floors
+    // roof-first — cannot let one plate take taps off the visible pixels of the
+    // one above it. A full gap each would do exactly that.
+    check("...expanded by half the gap, so no two floors' zones overlap",
+      /top:\s*calc\(-0\.5\s*\*\s*var\(--tower-gap\)\)/.test(zoneBody)
+        && /bottom:\s*calc\(-0\.5\s*\*\s*var\(--tower-gap\)\)/.test(zoneBody),
+      zoneBody);
+    // Sideways it is the shaft's own padding, which no floor competes for:
+    // one plate per row, and the wall is --tower-pad away.
+    check("...and sideways into the shaft's padding, which nothing else wants",
+      /left:\s*calc\(-1\s*\*\s*var\(--tower-pad\)\)/.test(zoneBody)
+        && /right:\s*calc\(-1\s*\*\s*var\(--tower-pad\)\)/.test(zoneBody),
+      zoneBody);
+    // Derived, never re-stated: the gap and the padding are the same two
+    // numbers the shaft lays the floors out with, so a change to either moves
+    // the drawing and the target together.
+    check("...off the shaft's own two numbers rather than a second copy",
+      !/top:\s*-?\d+px/.test(zoneBody) && !/left:\s*-?\d+px/.test(zoneBody),
+      zoneBody);
+    // The rail and the car are drawn ABOVE the plates (z-index 1 and 2) and are
+    // aria-hidden decoration with no action of their own, so every pixel they
+    // covered was a tap that hit nothing: 2px of every floor, and 16 more of
+    // whichever floor the car is passing over mid-ride.
+    check("the shaft's decoration takes no taps from the floors under it",
+      /\.tower__rail,\s*\.tower__car\s*\{\s*pointer-events:\s*none;\s*\}/.test(towerCss),
+      "the rail and the car still swallow taps aimed at a floor");
+  }
 
   // THE TOP FLOOR'S NAME, pinned on the two things that can break it.
   //

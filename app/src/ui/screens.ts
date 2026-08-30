@@ -914,10 +914,19 @@ export interface SealPrompt {
  * `sealed` is about that floor. Tier S is never badged — the guide points at
  * the ladder and the sandbox is not on it — and at the seal step only a ladder
  * floor can be, since only a Mark has a seal to owe.
+ *
+ * `firstLaunch` is the OTHER floor of the same rule, and it lives here rather
+ * than in the markup for the same reason the rest of it does: the tutorial's
+ * START HERE chip is a directive, the NEXT STEP badge is a directive, and A3
+ * allows exactly one on the screen at a time. The tutorial owns it until the
+ * coach has been finished or skipped. Not only a fresh save's problem — How to
+ * Play's "Guided Tutorial" clears seenTutorial on an arbitrarily advanced one
+ * (main.ts), so the step the badge would land on can be any of them.
  */
 export function menuPlayBadged(
-  step: NextStepId | undefined, tier: number, sealed: boolean,
+  step: NextStepId | undefined, tier: number, sealed: boolean, firstLaunch = false,
 ): boolean {
+  if (firstLaunch) return false;
   if (tier === SANDBOX_TIER) return false;
   if (step === "run") return true;
   if (step !== "seal") return false;
@@ -1091,7 +1100,17 @@ export function menuScreen(
   const sealStep = guide?.step === "seal";
   const sealsOwed = MARK_COUNT - (twr.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
   const selSealed = (twr.sealed ?? []).includes(sel);
-  const badged = menuPlayBadged(guide?.step, sel, selSealed);
+  // ONE DIRECTIVE ON THE SCREEN (A3), and on first launch it is the tutorial's.
+  // The demo panel's START HERE chip and the computed NEXT STEP badge are the
+  // same claim in the same amber — two of them at once is the screen naming two
+  // "one next steps", which is what a fresh save showed: START HERE on the demo
+  // and NEXT STEP on Contracts, since a fresh save's step IS Contracts
+  // (meta.ts's nextStep). The step badge is not cancelled, only deferred: it
+  // takes over the moment the tutorial chip goes, with nothing else changed.
+  const firstLaunch = guide?.firstLaunch === true;
+  const contractsNext = !firstLaunch && guide?.step === "contracts";
+  const workshopNext = !firstLaunch && guide?.step === "workshop";
+  const badged = menuPlayBadged(guide?.step, sel, selSealed, firstLaunch);
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -1190,7 +1209,7 @@ export function menuScreen(
           // node by id and two copies of it would drift — see the note there.
           menuPlaySub(sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
+        <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
           THE TIER'S CONTRACT PIPS, on the button that leads to them. They
           replaced the run-end "Tier N progress" banner: a sentence about
           finishing Contracts on a screen the player wants to leave was never
@@ -1205,8 +1224,8 @@ export function menuScreen(
           <span id="menu-contracts-pips">${menuContractsPips(sel, progress)}</span>
         </span><span class="btn__sub" id="menu-contracts-sub">${
           menuContractsSub(sel, progress)
-        }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
+        }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           guide
             ? guide.install
               ? salvage >= guide.install.cost
@@ -1214,7 +1233,7 @@ export function menuScreen(
                 : `${salvageHTML(salvage, 10)} — Contracts pay salvage`
               : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
-        }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
+        }</span></span>${workshopNext ? nextBadgeHTML() : ""}</button>
         <!-- Three, and never a fourth. This column is the recap plus the loop
              it describes, and the recap is not compressible: it holds four
              readouts and the belt. No extra entry is a button here — the
