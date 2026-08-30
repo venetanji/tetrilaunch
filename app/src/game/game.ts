@@ -337,6 +337,22 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
  *  see resolveWin; this is only the backstop. */
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
 
+/**
+ * How long overtime runs before a SETTLED field is called without waiting for
+ * settleDone's freshness guard — see overtimeSettled.
+ *
+ * 12 seconds, and the number is the length of the `timeFinal` cue rather than
+ * anything the physics asks for. That is the point: the cue is the only clock
+ * the player still has once the timer reads zero, so the bay finishing as the
+ * music finishes makes them one event instead of two. It is a floor, not a cap
+ * — settleCapSteps still backstops a field that never comes to rest, and a bay
+ * that settles EARLIER still exits earlier through settleDone.
+ *
+ * Re-measure it against the asset if timeFinal is ever regenerated: a cue that
+ * runs long would put the silence back, and one that runs short would end the
+ * bay while it is still playing.
+ */
+const OVERTIME_SETTLED_STEPS = Math.round(12_000 / DT);
 
 /** How long (physics steps) a provably-dead exact-inventory bay keeps running
  *  before it is called (see the pieces branch in update()). ~1s: long enough
@@ -687,6 +703,11 @@ export class Game {
    *  (rightX) — "a pressing stroke has completed since step S" is then just
    *  `lastFullAdvanceStep > S`. */
   private lastFullAdvanceStep = -1;
+  /** Game.stepCount of the most recent line clear, or -1 on a bay that has not
+   *  sold one. Read by overtimeSettled to ask whether the last pressing stroke
+   *  PAID anything — the jitter-proof way to ask whether the press is still
+   *  finding work. */
+  private lastClearStep = -1;
 
   /** The field as it stood at the previous compactor full advance — body id to
    *  position and angle — or null before the first advance, and after a clear
@@ -2270,7 +2291,7 @@ export class Game {
         this.timeUpStep = this.stepCount;
         this.events.onTimeUp?.();
       }
-      if (this.settleDone(this.timeUpStep)) {
+      if (this.settleDone(this.timeUpStep) || this.overtimeSettled()) {
         this.lossReason = "time";
         this.setStatus("lost");
       }
@@ -2435,6 +2456,7 @@ export class Game {
   private noteClearForSettle(): void {
     this.settleSample = null;
     this.settleQuiet = false;
+    this.lastClearStep = this.stepCount;
   }
 
   /**
@@ -2476,6 +2498,57 @@ export class Game {
    * changes the count — not quiet either way. The clock hitting zero and the
    * budget running out change nothing at all.
    */
+  /**
+   * A SECOND, LATER EXIT FOR OVERTIME ONLY — the one the player can hear.
+   *
+   * The time-up cue is a piece of music about this long (lib/audio.ts plays
+   * `timeFinal` on onTimeUp), and a player reads it as the settlement running:
+   * it starts when the clock dies and it is the only thing telling them how
+   * long this is going to take. Owner playtest: when the bay outlives the
+   * music there are "extra settlement seconds after the music is over", which
+   * is the game contradicting the only clock it is still showing.
+   *
+   * WHY THIS DOES NOT REUSE settleQuiet — which was the first attempt, and
+   * changed nothing. That flag is a POSITION comparison against
+   * CONVERGED_EPS_PX of ONE PIXEL, and sampleField rewrites it only at a full
+   * advance, so it needs two consecutive quiet cycles and a pile in contact
+   * jitter under the press never gives it one. resolveWin's own note says as
+   * much: "contact jitter under the press is common enough that wait for
+   * perfect stillness alone would sometimes never fire". Overtime on a
+   * jittering pile therefore ran to settleCapSteps every time — about three
+   * more sweeps after the cue had finished, which is the silence reported.
+   *
+   * So the question is asked WITHOUT an epsilon, in terms of what the press is
+   * FINDING rather than how still the pixels are:
+   *
+   *  - `lastFullAdvanceStep > since` — a whole pressing stroke has completed
+   *    inside overtime. Half a stroke proves nothing; the crush is the event.
+   *  - `lastFullAdvanceStep > lastClearStep` — and that stroke PAID NOTHING. A
+   *    press still finding rows is a press still working, and it keeps the bay
+   *    alive by moving that marker.
+   *  - `isAtRest` on every cube — nothing in flight. It has a velocity floor
+   *    (SETTLE), so unlike the position sample it is not fooled by jitter.
+   *
+   * Together: the press did a full stroke, found nothing, and nothing is
+   * moving. That cannot cut a payout off — the property that actually matters
+   * here — because a payout IS a clear, and a clear pushes lastClearStep past
+   * the advance, costing the bay one more clean stroke before it may end.
+   *
+   * NOT applied to the launches or pieces branches. Those have no cue running
+   * over them, so there is no expectation to honour and no reason to relax a
+   * guard that costs nothing there.
+   */
+  private overtimeSettled(): boolean {
+    const since = this.timeUpStep;
+    if (since === null) return false;
+    if (this.stepCount - since < OVERTIME_SETTLED_STEPS) return false;
+    return (
+      this.lastFullAdvanceStep > since &&
+      this.lastFullAdvanceStep > this.lastClearStep &&
+      this.cubes.every((c) => isAtRest(c.body))
+    );
+  }
+
   private settleDone(sinceStep: number): boolean {
     const strokeDone = this.lastFullAdvanceStep > sinceStep;
     const sampleFresh =
