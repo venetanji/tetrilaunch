@@ -57,13 +57,31 @@ silence.** All of these play over music.
 | **beds (13)** | `menu`, `bay-1`…`bay-10`, `contract-rare` |
 
 **Present but NOT mapped**, so reported by the pipeline and not shipped:
-`windLoop` (needs a continuous driver off `|windNow|/windMax`; unmapped rather
-than shipped dead), `explosion2` (a second take nothing claims), and
-`chilled beginning` (bay-1's superseded master).
+`explosion2` (a second take nothing claims) and `chilled beginning` (bay-1's
+superseded master).
 
-**Still missing from the plan doc:** `timeUp` and `fundsLow`. `timeFinal` became
-the time-up cue when it moved to STINGERS, so `timeUp` may now be redundant —
-decide before generating it.
+**`timeUp` was declined and is now shipped — the decline was half right.** The
+reasoning was that `timeFinal` had become the time-up cue when it moved to
+STINGERS, so a siren at the same instant would muddy one event into two. What
+that missed is that the two are not the same KIND of thing: `timeFinal` is a
+20-second piece scoring the overtime, and a stinger fading up cannot mark an
+instant. The chime is the edge and the piece is the window, they fire together,
+and the moment reads as one thing with a beginning. `fundsLow` stays declined on
+its own merits — `broke` and `lastLaunch` already carry the bankroll and a third
+rung is a gradation the ear cannot place — as does `penalty`, for the reason its
+own entry gives: it stacks on `pieceLost` in the same frame.
+
+**`compactorImpact` was not on this sheet at all**, which is the honest
+limitation of an audit done by reading the code for silent CALLBACKS: it finds
+events the game already names, and this one the game did not. A shipment still
+in flight clipping the top tip of the press is a physics collision nobody had
+written an event for, so no amount of looking at `GameEvents` would have turned
+it up. It came from playing the game. Measured over 12 bot bays it fires on 32%
+of shots, and every one of 141 strikes landed 0.70-1.18s after the launch —
+which is the flight time, and the evidence that it is catching the piece in the
+air rather than the pile against the face.
+
+The remaining entries below are kept as the record of what was considered.
 
 One file often does several jobs already, and that is the doctrine, not a
 shortcut: `lineClear` is one file at four rates, `explosion` is one file read
@@ -213,6 +231,28 @@ The clock hitting zero opens **overtime**, it does not end the bay.
 
 **Listen for:** it must **not sound like a loss.** `gameOver` lands seconds later
 and owns that job. This says "the shift ended" over a bay that is still live.
+
+**SHIPPED**, against this sheet's own earlier decline — see the note at the top
+for why that was wrong. It fires on `onTimeUp` alongside `playStinger
+("timeFinal")`: the chime marks zero, the piece carries the settle. It survives
+the stinger because it is on the fx bus and `playStinger` only touches the bed.
+Shipped `full: true` — the take was hand-trimmed to the chime and its decay, and
+the auto trim would have kept a second beep 300ms behind it.
+
+## `compactorImpact` — one-shot, 0.3–0.6s
+
+**Why:** a shipment still IN FLIGHT clipping the top tip of the press. Not the
+press crushing the pile (that is `rigidPressDrag`, it is continuous, and
+`compactorStroke` already scores the stroke) — this is a piece launched over the
+bar catching its top edge on the way across, about a second after the shot and
+seconds before it lands. It is the one contact that moves a shipment without the
+player having done anything visible to cause it, and the bay reported it nowhere.
+
+**SHIPPED.** `game.ts`'s `onCompactorHit`, thrown when a collision pair contains
+the bar and a cube whose `landedStep` is undefined — pieces.ts's own definition
+of in flight, and what keeps the cue off the pile that touches the same edge
+every step of every stroke. Throttled to 200ms because a shipment is four cubes
+and one clipped corner reports across several steps.
 
 ### `fundsLow` — the drain · one-shot, 0.5–1.0s
 

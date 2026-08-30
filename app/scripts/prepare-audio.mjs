@@ -78,10 +78,12 @@ const FX = [
   "compactorStroke", "crate", "transactionConfirm", "holdCharge",
   // The skill moment, and the one irreversible press in the meta.
   "excellentClear", "sealBreak",
-  // windLoop is deliberately NOT mapped: it is a continuous bed whose gain has
-  // to track |windNow|/windMax every frame, and nothing drives that yet.
-  // Mapping it would ship a file no code asks for — dead weight in the
-  // precache — so it waits in audio/fx/ and this run reports it as unmapped.
+  // The clock's last word — timeUp is no longer declined, see the prompt
+  // sheet — and the tip strike (game.ts's onCompactorHit).
+  "timeUp", "compactorImpact",
+  // The bay's own weather, a LOOP like the congestion takes rather than a
+  // one-shot — its gain tracks |windNow|/windMax every frame (main.ts).
+  "windLoop",
 ];
 
 /**
@@ -314,9 +316,17 @@ const MASTER_EQ = {
  *
  *   { full: true }             keep the whole file, just level and re-encode
  *   { start: 0.3, dur: 0.45 }  pin the window explicitly, in seconds
+ *   { eq: "lowshelf=..." }      a declared filter, applied before the fade
  *
  * Reach for this when the printed window for a file looks wrong. The auto
  * detection stays the default so a new drop needs no config at all.
+ *
+ * `eq` is the fx-side counterpart of MASTER_EQ, and it goes into fxChain --
+ * the chain SHARED by the measurement and the encode -- specifically so the
+ * peak normalisation is computed against the filtered audio. That is what
+ * makes a tilt self-levelling: cut the band holding the peak and the makeup
+ * gain returns automatically, so a cut of the lows IS a boost of everything
+ * else, exactly, with no second number to keep in sync.
  */
 const OVERRIDES = {
   // This take is a 2.5s riser with no front transient — its RMS CLIMBS to a
@@ -348,6 +358,70 @@ const OVERRIDES = {
   "congestionLoop.mp3": { start: 0.5, dur: 18.5 },
   "congestionLoop2.mp3": { full: true },
   "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
+  // A LOOP, so the transient trim must not run — and the window is chosen for
+  // its EDGES rather than its content, because a loop's seam is the only part a
+  // listener hears twice.
+  //
+  // THE EQ BELOW MOVED THESE EDGES, and the first version of this entry did not
+  // follow. The old window (2.2-4.8s) was picked on the UNFILTERED take, where
+  // its ends matched within 0.4dB. Measured again through the tilt those same
+  // ends are 5.0dB apart — the match was carried by low-frequency content the
+  // highpass removes — so the shipped loop stepped once per cycle, which is the
+  // pulse this window exists to prevent. A filter that changes the spectrum
+  // changes which stretches loop, and the window has to be re-derived with it.
+  //
+  // Re-derived, the tilt pays for itself twice: the take's first second was an
+  // unusable low-frequency fade-in before, and is ordinary bed once the lows are
+  // gone. So the longest well-matched stretch is no longer 2.6s but 3.86s —
+  // 1.04-4.90s, whose ends sit within 0.14dB — and the entry that used to say a
+  // longer loop needed a longer take was, after the EQ, no longer true. It still
+  // holds beyond this: 1.0s and 5.0s bound the real plateau, the take decays
+  // from there to its end at 8.4s, and 3.86s is all of it there is.
+  //
+  // Inside the loop the level still arcs 4.2dB: it opens at the seam level,
+  // swells to its top about half a second in, and eases back down to meet
+  // itself. That is deliberately not flattened — one gust per cycle is what
+  // WIND does, and it is the opposite shape from the dip a
+  // taper at the seam would put there. It is the discontinuity that reads as
+  // machinery, not the movement.
+  //
+  // The window carries 60ms of PAD at each end that audio.ts never plays. mp3
+  // decodes with encoder delay at the head (measured: the first 10ms of the old
+  // shipped file was digital silence) and the pipeline's 30ms fade-out sits at
+  // the tail, so setWind loops an interior region inset by that much — and the
+  // inset has to land ON the matched edges, not 60ms inside them, or it undoes
+  // the match. Hence 0.98-4.96 shipped for a 1.04-4.90 loop: the pad is the part
+  // that gets thrown away, so the numbers above are the ones that matter.
+  //
+  // The EQ is not seasoning -- without it this bed is INAUDIBLE on the device
+  // the game ships to, and no amount of audio.ts gain fixes that. Measured, the
+  // take is essentially pure rumble: -14.8dB RMS below 300Hz against -37.2dB
+  // above 500Hz, i.e. 22dB of tilt away from the only band a phone speaker can
+  // reproduce. A phone plays the sub content as SILENCE, so the loudness knob
+  // was moving a signal the speaker was never going to render.
+  //
+  // The tilt cuts rather than boosts, and the peak normalisation does the rest:
+  // the sub was setting the peak, so removing it returns +23.8dB of makeup and
+  // lifts the >500Hz band from -41.1 to -24.2dBFS. Seventeen decibels into the
+  // audible band, with the file still peaking at the same -3dBFS as every other
+  // effect. The highshelf is the only boost, and it is small.
+  //
+  // What this cannot do is invent detail: the band it lifts was recorded 22dB
+  // down in a 128k master, so it carries that noise up with it. If the result
+  // reads as hiss rather than as WIND, the answer is a new take briefed for the
+  // phone band -- not more filtering here.
+  // Trimmed by hand upstream, and shipped exactly as delivered. The take ran
+  // 1.01s and carried a SECOND beep from 0.90s that the auto trim would have
+  // kept (the gap before it is 300ms of near-silence, but the beep is the
+  // loudest thing in the file and a window ending at the first gap would have
+  // shipped a double chime for a cue whose whole job is to mark ONE instant).
+  // The master is now the chime and its decay alone, so there is nothing left
+  // to cut and `full` says so rather than a window repeating the file length.
+  "timeUp.mp3": { full: true },
+  "windLoop.mp3": {
+    start: 0.98, dur: 3.98,
+    eq: "highpass=f=200:poles=2,lowshelf=f=500:g=-15,highshelf=f=1500:g=6",
+  },
   // NOT A LOOP, despite the name it arrived under. Measured, the take is a
   // charge that RESOLVES: it climbs from 0.2s to a climax at 2.4s and releases
   // into silence by 3.8s. A loop would have to cut that arc somewhere it does
@@ -610,9 +684,10 @@ async function firstSoundWindow(file, duration) {
  *  audio it will be applied to — the fold to mono in particular can drop the
  *  peak by up to 6dB when the two channels disagree. Both stages being linear,
  *  measuring here and adding the gain there is exact, not an approximation. */
-function fxChain(dur) {
+function fxChain(dur, eq) {
   const fade = Math.min(0.03, dur * 0.15);
   return [
+    ...(eq ? [eq] : []),
     `afade=t=out:st=${Math.max(0, dur - fade).toFixed(4)}:d=${fade.toFixed(4)}`,
     "pan=mono|c0=0.5*c0+0.5*c1",
   ];
@@ -625,7 +700,7 @@ async function encodeFx(srcFile, name, override) {
     : override?.dur !== undefined
       ? { start: override.start ?? 0, dur: override.dur }
       : await firstSoundWindow(srcFile, duration);
-  const chain = fxChain(dur);
+  const chain = fxChain(dur, override?.eq);
   const srcPeak = await maxVolumeDb(srcFile, { start, dur, chain });
   // Unmeasurable input, so there is no gain to compute. Stopping is right:
   // carrying NaN forward puts `volume=NaNdB` in the filter graph, and ffmpeg

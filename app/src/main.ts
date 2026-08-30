@@ -147,7 +147,7 @@ import {
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
-  startHoldCharge, stopHoldCharge, restoreBed,
+  startHoldCharge, stopHoldCharge, restoreBed, setWind, stopWind,
   suspendMidBayStinger, resumeMidBayStinger,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
@@ -1099,6 +1099,11 @@ class App {
    * every screen change and the pick has a random element.
    */
   private syncMusic(s: AppState): void {
+    // The wind belongs to a bay being PLAYED. syncHud is what drives it and
+    // syncHud only runs while playing, so without this a pause would freeze the
+    // bed at whatever gust it was on and hold it under the pause card — the
+    // same class of bug as a stinger left ringing under a bed.
+    if (s !== "playing") stopWind();
     switch (s) {
       // Clearing a bay stops the bed and rings out over silence. Which
       // celebration you get is the run's own milestone logic: isRefitBay is
@@ -3428,6 +3433,11 @@ class App {
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
+      // A shipment clipping the top of the press on its way over. Quiet: this
+      // is a GLANCE, not a landing, and the piece it happens to is still in the
+      // air with its real impact still to come — a cue as loud as the landing
+      // would make the smaller event sound like the bigger one.
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
@@ -3442,7 +3452,16 @@ class App {
       // Stopping the bed is the point rather than a side effect: the clock is
       // out, no further launch is accepted, and the music dropping away is what
       // says so. This is the one moment mid-bay where that is correct.
-      onTimeUp: () => { void impactHaptic(); playStinger("timeFinal"); },
+      // The chime lands ON zero and the piece carries the settle that follows.
+      // Both, not either: timeFinal is a 20s stinger whose job is the overtime,
+      // and a stinger fading up is not an ANNOUNCEMENT — the instant the clock
+      // hits zero needs an edge. Fired first, and it survives the stinger
+      // because it is on the fx bus while playStinger only touches the bed.
+      onTimeUp: () => {
+        void impactHaptic();
+        playFx("timeUp");
+        playStinger("timeFinal");
+      },
       // The bankroll's twin of the clock, and ALMOST the same shape: `broke` is
       // the moment the grace countdown starts and brokeSettle plays under the
       // bay while it converges.
@@ -3858,6 +3877,7 @@ class App {
       onThawLance: () => { void tapHaptic(); playFx("thawLance"); },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
@@ -3929,6 +3949,7 @@ class App {
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
@@ -5777,6 +5798,23 @@ class App {
     // the residual error lands the cue a hair early. That is the right way to
     // be wrong: a hair ahead of the crush still reads as anticipation, where
     // late reads as a mistake.
+    // THE WEATHER, as a level rather than an event. windMax 0 disables the
+    // mechanic entirely (level.ts), and dividing by it would be the one reading
+    // here that can produce NaN — so a bay with no wind is asked for silence
+    // explicitly rather than arriving at it by arithmetic.
+    //
+    // The screen-change stop in syncMusic is NOT enough on its own, and the gap
+    // is the overtime window. When the clock runs out the bay is over but it is
+    // still SETTLING, and settling happens under state "playing" by design — so
+    // syncHud keeps running, and the weather kept blowing under timeFinal for
+    // the length of the piece. Reported from play as wind audible over the game
+    // over. The clock and the status are the honest test of whether a bay can
+    // still be played, so they gate it here rather than the screen doing it:
+    // timeLeftMs is Infinity on an untimed bay (Contracts, attract), which is
+    // never <= 0, so those are unaffected.
+    if (g.status !== "playing" || g.timeLeftMs <= 0) stopWind();
+    else setWind(g.level.windMax > 0 ? Math.abs(g.windNow) / g.level.windMax : 0);
+
     const comp = g.compactor;
     if (comp.dir === 1 && this.strokeCueHalf !== comp.halfCycles) {
       // The advance's own length, which is what the lead has to fit inside.

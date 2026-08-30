@@ -65,7 +65,10 @@ export type FxName =
   | "transactionConfirm"
   | "holdCharge"
   | "excellentClear"
-  | "sealBreak";
+  | "sealBreak"
+  | "timeUp"
+  | "compactorImpact"
+  | "windLoop";
 
 /**
  * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
@@ -109,6 +112,9 @@ const FX_ONE_SHOTS: FxName[] = [
   "thawLance", "timeLow", "lastLaunch", "broke",
   "compactorStroke", "crate", "transactionConfirm", "holdCharge",
   "excellentClear", "sealBreak",
+  // The clock's last word, and the one collision the bay does not otherwise
+  // report.
+  "timeUp", "compactorImpact",
 ];
 
 /** The three interchangeable takes of the congestion cue, played IN ROTATION —
@@ -116,7 +122,12 @@ const FX_ONE_SHOTS: FxName[] = [
  *  only thing in the module that reads one. */
 const LOOP_TAKES: FxName[] = ["congestionLoop", "congestionLoop2", "congestionLoop3"];
 
-const FX_NAMES: FxName[] = [...FX_ONE_SHOTS, ...LOOP_TAKES];
+/** The bay's weather. Its own name rather than a member of LOOP_TAKES: those
+ *  three are ROTATED between congestion episodes, and this one is a single
+ *  continuous bed whose level is a live reading. */
+const WIND_LOOP: FxName = "windLoop";
+
+const FX_NAMES: FxName[] = [...FX_ONE_SHOTS, ...LOOP_TAKES, WIND_LOOP];
 
 /**
  * THE MIX — and it is deliberately the inverse of what these numbers used to
@@ -649,6 +660,100 @@ export function stopHoldCharge(): void {
   } catch {
     /* already stopped */
   }
+}
+
+/**
+ * THE BAY'S WEATHER — a bed whose level IS the reading, not a cue.
+ *
+ * Every bay rolls a steady average wind and drunk-walks around it (level.ts's
+ * windMax, game.ts's windNow), and it bends every shot. Until now the only way
+ * to learn it was to watch the trajectory preview move: a mechanic the player
+ * is expected to aim around, communicated through one thin dotted line.
+ *
+ * So this is not a cue and never fires — it runs for the length of a windy bay
+ * and its gain tracks |windNow| / windMax. A still bay is silent by
+ * construction (level 0 holds the gain at zero), a bay at its cap is at
+ * WIND_MAX_GAIN, and a gust is audible as a gust because the reading moves
+ * every step.
+ *
+ * setTargetAtTime rather than a ramp: the level is sampled once a frame and a
+ * linear ramp between samples would step audibly at 60Hz. The time constant is
+ * deliberately slower than the drunk walk's own — the ear should hear WEATHER,
+ * not the per-step noise the physics actually applies.
+ *
+ * Deliberately quiet at the top. This plays under everything for a whole bay,
+ * and a wind bed that competes with the compactor is one a player turns the
+ * game off over.
+ *
+ * 0.22 was that restraint applied to the wrong problem. The bed read as
+ * inaudible in play, and the cause was not this number: the master is pure
+ * rumble (22dB down above 500Hz), so a phone speaker rendered it as silence at
+ * ANY gain. That is fixed where it belongs, in the pipeline -- see the eq on
+ * prepare-audio.mjs's windLoop override, which moves 17dB into the audible
+ * band while the file still peaks at the same -3dBFS.
+ *
+ * So this rose only a little, and it must not be read as the fix. The tilt
+ * makes the SAME nominal gain far louder to an ear, because it moved the
+ * energy from a band the equal-loudness contours discount steeply into the one
+ * they do not -- perceived level is up much more than these 3dB.
+ *
+ * 0.3 was then reported as getting in the way of the music, and this is the
+ * number that answers that -- the tilt stays, because the tilt is what makes it
+ * present on a phone at all; only the level comes back down.
+ */
+const WIND_MAX_GAIN = 0.26;
+const WIND_RAMP_S = 0.35;
+let windSrc: AudioBufferSourceNode | null = null;
+let windGain: GainNode | null = null;
+
+export function setWind(level: number): void {
+  const want = Math.max(0, Math.min(1, level)) * WIND_MAX_GAIN;
+  if (!soundOn || !ctx || !fxBus) return;
+  if (!windSrc) {
+    // Nothing to start until the buffer has decoded, and nothing worth starting
+    // on a bay with no wind at all — a source running permanently at zero is
+    // just a voice held open for a bay that will never use it.
+    if (want <= 0) return;
+    const buf = buffers.get(WIND_LOOP);
+    if (!buf) return;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      // Loop an INTERIOR region, for the reason startStatic's takes do: the
+      // pipeline puts a 30ms fade-out inside the last 60ms of every effect, and
+      // this is the one that runs for a whole bay. Edge-to-edge, that fade is a
+      // dip to silence once per 2.6s cycle -- a 0.4Hz pulse, and precisely the
+      // 'rhythm the bay does not have' the override's own comment warns about.
+      // It went unheard only because the bed was inaudible; making it audible
+      // makes the pulse audible too.
+      const pad = Math.min(0.06, buf.duration / 8);
+      src.loopStart = pad;
+      src.loopEnd = buf.duration - pad;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g).connect(fxBus);
+      src.start(0, src.loopStart);
+      windSrc = src;
+      windGain = g;
+    } catch {
+      windSrc = null;
+      windGain = null;
+      return;
+    }
+  }
+  if (windGain && ctx) windGain.gain.setTargetAtTime(want, ctx.currentTime, WIND_RAMP_S);
+}
+
+/** Drop the bed outright — leaving a bay, not merely a lull. setWind(0) fades
+ *  to silence but keeps the voice, which is right between gusts and wrong once
+ *  the bay is over. */
+export function stopWind(): void {
+  const src = windSrc;
+  windSrc = null;
+  windGain = null;
+  if (!src) return;
+  try { src.stop(); } catch { /* already stopped */ }
 }
 
 /**
