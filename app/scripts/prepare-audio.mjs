@@ -556,8 +556,15 @@ const COMPARE_MATRIX = [
 async function compareMusic() {
   const tracks = new Set(await readdir(join(SRC, "tracks")).catch(() => []));
   const cols = COMPARE_MATRIX.map(([c, b]) => `${c}-${b}`);
+  // Rebuilt from scratch, same as the main pipeline treats OUT: a candidate
+  // folder holding a bed from a previous run — under an old master, or for a
+  // role since re-scored — would sit beside fresh encodes indistinguishably,
+  // and the whole point of the matrix is that every file in it answers to
+  // today's masters.
+  await rm(join(SRC, "compare"), { recursive: true, force: true });
   for (const label of cols) await mkdir(join(SRC, "compare", label), { recursive: true });
   const totals = Object.fromEntries(cols.map((l) => [l, 0]));
+  const missing = [];
   const cell = (s) => String(s).padStart(10);
   console.log(`comparing ${Object.keys(MUSIC).length} beds at: ${cols.join(", ")}`);
   console.log("  files land in audio/compare/ — listen there; nothing here ships");
@@ -565,6 +572,7 @@ async function compareMusic() {
   for (const [file, name] of Object.entries(MUSIC)) {
     if (!tracks.has(file)) {
       console.log(`  ${name.padEnd(14)} MISSING (${file})`);
+      missing.push(`tracks/${file}`);
       continue;
     }
     const srcFile = join(SRC, "tracks", file);
@@ -586,6 +594,13 @@ async function compareMusic() {
     console.log(`  ${name.padEnd(14)}${sizes.map((s) => cell((s / 1048576).toFixed(2) + "MB")).join("")}`);
   }
   console.log(`  ${"TOTAL".padEnd(14)}${cols.map((l) => cell((totals[l] / 1048576).toFixed(2) + "MB")).join("")}`);
+  // Same policy as the main pipeline's exit: a bed that could not be rendered
+  // makes the totals a lie and the listening set incomplete, so the run FAILS
+  // rather than reporting a cheerful table over a hole.
+  if (missing.length) {
+    console.error(`✗ compare is incomplete — missing master(s): ${missing.join(", ")}`);
+    process.exit(1);
+  }
 }
 
 async function main() {
