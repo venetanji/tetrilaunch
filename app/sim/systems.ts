@@ -1516,6 +1516,20 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
   check("slotPrice indexes off the base, not off zero",
     slotPrice(SLOT_BASE) === SLOT_PRICES[0] && slotPrice(SLOT_BASE + 1) === SLOT_PRICES[1]);
   check("a full rack has nothing left to sell", slotPrice(SLOT_CAP) === null);
+  // --- the costume --------------------------------------------------------
+  // screens.ts has always put `disabled` on the header's slot button below the
+  // salvage line, but the costume lived nowhere: no rule in app.css matched a
+  // disabled button inside .rack__hdr, so at 0 salvage the rack's one price
+  // rendered as the loudest, most enabled-looking control on the screen and
+  // ate taps. Reported from the first playtest after slots shipped. Pinned by
+  // selector because it is load-bearing UX, not theme — the button must go
+  // dark the way the shop cards' prices on the same right rail do.
+  const workshopCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\r\n/g, "\n");
+  check("the rack's slot button wears the shop cards' disabled costume",
+    workshopCss.includes(".rack__hdr .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }"));
   // The whole ladder against one climb of the tier ladder. NOT affordable
   // inside it, deliberately — this is what the endgame faucet buys (meta.ts's
   // SLOT_PRICES note), and the day it becomes affordable in one climb it has
