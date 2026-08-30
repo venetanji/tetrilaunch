@@ -160,12 +160,213 @@ export function moveFocus(root: HTMLElement, dir: NavDir): boolean {
   return true;
 }
 
-function focusOn(el: HTMLElement): void {
+/** Land pad focus on one control. Exported so sim/uifit drives the REAL
+ *  landing (harness.ts's padFocus) rather than a hand-written stand-in of it —
+ *  the two lines below are the whole difference between a pad selection and a
+ *  mouse hover, and they are exactly what the harness has to measure. */
+export function focusOn(el: HTMLElement): void {
   el.focus({ preventScroll: true });
   // The overlay has real scrollers (the refit shelf, the workshop pane, the
   // guide index); a focused control below their fold has to come to the pad
   // player, since the pad has no wheel.
-  el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  reveal(el);
+}
+
+/* ---------------------------------------------------------------------------
+ * REVEAL — bringing a focused control into a scroller without cropping it.
+ *
+ * This was `el.scrollIntoView({ block: "nearest" })`, and that call reveals
+ * exactly one box: the control's BORDER box, flush against the scrollport
+ * edge. Everything the design paints outside that box is therefore scrolled
+ * out of the pane and clipped away, and this screen paints two such things:
+ *
+ *   THE RING. The pad's cursor is `outline: 2px` at `outline-offset: 2px`
+ *   (app.css's "D4: ONE focus token"), i.e. a line whose outer edge is 4px
+ *   OUTSIDE the border box the scroll aligned. Measured on every allowlisted
+ *   scroller in sim/uifit's matrix, the ring's leading edge was cropped by
+ *   ~4px on the row a D-pad step scrolled to — the pad's own cursor, cut by
+ *   the act of moving it.
+ *
+ *   THE CARD. The refit shelf and the workshop shelf focus a BUY button that
+ *   sits inside a .shop-card, vertically centred in a row whose height is set
+ *   by the copy beside it. Below the button are the card's remaining height,
+ *   its 10px padding and its 2px border — 13px on a Pixel 7, 33px on a 720p
+ *   laptop, 50px at 1080p, all of it scrolled under the shelf's edge. That is
+ *   the bug as it was reported: "the bottom border disappears when the
+ *   selection is highlighted". The border is not being restyled; the card is
+ *   being scrolled half out of the pane by the focus that selected it.
+ *
+ * WHY THE MOUSE LOOKED FINE. Hover neither focuses nor scrolls — the pointer
+ * goes to the card, the card stays where it is, and both the border and the
+ * hover treatment are whole. A pad move is a focus() AND a scroll on every
+ * single step, so the pad is the only input that could ever see this. (A
+ * keyboard Tab is the same shape and had the same defect; nobody tabs a shop.)
+ *
+ * THE FIX IS TWO TERMS, and neither can be a stylesheet constant.
+ *
+ *   The ring's clearance is a constant, FOCUS_RING_GAP, and it is the token's
+ *   own arithmetic rather than a taste number.
+ *
+ *   The card's is NOT a constant — it is however much card hangs below the
+ *   button, which varies with the copy on the card and with chromeZoom. No
+ *   `scroll-margin` value could cover it. So the scroll reveals the UNIT the
+ *   control belongs to instead: the outermost ancestor that still fits inside
+ *   the scrollport. On the refit shelf that walk stops at .refit-card; on the
+ *   workshop pane .workshop__grid is the whole 1260px list and does not fit,
+ *   so it stops at .shop-card; on the guide index the topic button is its own
+ *   parent's whole content and the unit is the button. No screen names itself
+ *   anywhere in here, which is the point: a new card menu is covered the day
+ *   it is written.
+ *
+ * Written as arithmetic over scrollTop rather than as scrollIntoView because
+ * the gap has to apply to the unit, and scrollIntoView takes its clearance
+ * from the scrolled element's own `scroll-margin` — which would mean a
+ * stylesheet rule per card shape, i.e. exactly the per-screen list this
+ * avoids. The document itself never scrolls (app.css's `.screen` is
+ * `position: absolute; inset: 0; overflow: hidden`), so walking the element's
+ * scrollable ancestors covers every scroller the overlay has.
+ * ------------------------------------------------------------------------ */
+
+/** The focus ring's outer edge, relative to the control's border box: app.css
+ *  D4's `outline-offset: 2px` plus its `outline: 2px`. A scroll that leaves
+ *  less than this at the edge crops the pad's cursor. */
+export const FOCUS_RING_GAP = 4;
+
+/**
+ * How far a scrollport must move along one axis to show `lo..hi` with `gap` of
+ * clearance at each end — 0 when it is already shown, and the smaller of the
+ * two directions when it is not (the "nearest" of scrollIntoView, kept: a step
+ * down a shelf should advance the shelf by a row, not re-centre it).
+ *
+ * When the padded span is TALLER than the port the clearance is unaffordable,
+ * and the port is spent on the span itself rather than on the gap: an item
+ * that only just fits is better shown flush than shown short.
+ */
+export function revealShift(
+  lo: number,
+  hi: number,
+  portLo: number,
+  portHi: number,
+  gap: number = FOCUS_RING_GAP,
+): number {
+  const a = lo - gap;
+  const b = hi + gap;
+  if (b - a > portHi - portLo) {
+    if (lo < portLo) return lo - portLo;
+    if (hi > portHi) return hi - portHi;
+    return 0;
+  }
+  if (a < portLo) return a - portLo;
+  if (b > portHi) return b - portHi;
+  return 0;
+}
+
+const scrolls = (o: string): boolean => o === "auto" || o === "scroll";
+
+/** The nearest ancestor of `el` that can actually scroll in either axis, or
+ *  null. REAL scrollability, not `closest("[data-scroll]")`, for main.ts's
+ *  inScroller reason: app.css hands drags to scrollers that never opted into
+ *  the attribute (`.modal`, `.draft__body`, `.sbx-col`, the coach's body). */
+function scrollPort(el: HTMLElement): HTMLElement | null {
+  for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+    const cs = getComputedStyle(n);
+    if (scrolls(cs.overflowY) && n.scrollHeight > n.clientHeight) return n;
+    if (scrolls(cs.overflowX) && n.scrollWidth > n.clientWidth) return n;
+  }
+  return null;
+}
+
+/**
+ * The port's scrollport as getBoundingClientRect sees it, plus the factor
+ * between the two coordinate systems this arithmetic has to straddle.
+ *
+ * TWO SYSTEMS, because of `zoom`. app.css's chrome magnification puts `zoom`
+ * on the screen-anchored scaffolds (the note at "Chrome magnification"), and
+ * `zoom` scales the RENDERED box while leaving the element's own scroll
+ * coordinates in its unzoomed CSS px: getBoundingClientRect returns visual
+ * pixels, `clientHeight`, `scrollTop` and `scrollHeight` return local ones.
+ * Measured on the refit shelf at 1920x1080 (zoom 1.5), the pane's rect was
+ * 714.6px tall and its clientHeight 476 — so arithmetic that mixed the two
+ * believed the shelf ended 238px above where it is drawn and scrolled the
+ * focused card straight past the fold. Every number below is therefore VISUAL,
+ * and the one conversion back to local px happens where scrollTop is written.
+ *
+ * The factor is read off the port itself rather than from a chromeZoom import:
+ * what matters is the cumulative zoom on this element, which is a fact about
+ * where it sits in the tree, and offsetHeight/rect.height states it without
+ * the solver and the stylesheet having to agree about who applied what.
+ */
+function scrollportOf(port: HTMLElement): {
+  top: number; bottom: number; left: number; right: number; z: number;
+} {
+  const p = port.getBoundingClientRect();
+  const z = port.offsetHeight > 0 ? p.height / port.offsetHeight : 1;
+  const cs = getComputedStyle(port);
+  // The scrollport is the PADDING box: a bordered scroller measured off the
+  // border box is a border-width too generous at each edge.
+  const top = p.top + parseFloat(cs.borderTopWidth) * z;
+  const left = p.left + parseFloat(cs.borderLeftWidth) * z;
+  return {
+    top,
+    bottom: top + port.clientHeight * z,
+    left,
+    right: left + port.clientWidth * z,
+    z,
+  };
+}
+
+/** The visual unit `el` belongs to inside `port`: the outermost ancestor that
+ *  still fits the scrollport, so revealing it cannot push a neighbour's edge
+ *  out of the pane. Only the axes the port actually scrolls are asked to fit —
+ *  a shop card is as wide as the shelf by design, and testing its width would
+ *  reject every card and leave the unit at the button. */
+function revealUnit(el: HTMLElement, port: HTMLElement, box: { bottom: number; top: number; right: number; left: number }): HTMLElement {
+  const cs = getComputedStyle(port);
+  const capY = scrolls(cs.overflowY) ? box.bottom - box.top : Infinity;
+  const capX = scrolls(cs.overflowX) ? box.right - box.left : Infinity;
+  let unit = el;
+  for (let p = el.parentElement; p && p !== port; p = p.parentElement) {
+    const r = p.getBoundingClientRect();
+    if (r.height > capY || r.width > capX) break;
+    unit = p;
+  }
+  return unit;
+}
+
+/**
+ * The two boxes a pad selection has to satisfy, for the harness that checks it
+ * did: the visual unit `el` belongs to, and the scrollport that unit must lie
+ * inside. Null when nothing around `el` scrolls, i.e. when there is no way for
+ * a selection to be cut in the first place.
+ *
+ * Exported so sim/uifit's `padfocus` assertion asks padnav what the selection
+ * IS rather than keeping a second opinion about it — the fix is precisely that
+ * the selection is the card and not the button, and a harness that re-decided
+ * that for itself would pass a regression that changed its mind.
+ */
+export function focusBoxes(el: HTMLElement): {
+  unit: DOMRect;
+  pane: { top: number; bottom: number; left: number; right: number };
+} | null {
+  const port = scrollPort(el);
+  if (!port) return null;
+  const pane = scrollportOf(port);
+  return { unit: revealUnit(el, port, pane).getBoundingClientRect(), pane };
+}
+
+/** Scroll every scrollable ancestor just enough to show the focused control's
+ *  unit, ring included. Inner ports first: each one's arithmetic is read after
+ *  the one below it has already moved, so the rects are never stale. */
+function reveal(el: HTMLElement): void {
+  for (let port = scrollPort(el); port; port = scrollPort(port)) {
+    const box = scrollportOf(port);
+    const u = revealUnit(el, port, box).getBoundingClientRect();
+    // The ring is drawn in the zoomed subtree, so its 4px are 4 VISUAL px
+    // times the same factor everything else here is measured in.
+    const gap = FOCUS_RING_GAP * box.z;
+    port.scrollTop += revealShift(u.top, u.bottom, box.top, box.bottom, gap) / box.z;
+    port.scrollLeft += revealShift(u.left, u.right, box.left, box.right, gap) / box.z;
+  }
 }
 
 /* ---------------------------------------------------------------------------

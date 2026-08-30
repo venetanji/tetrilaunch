@@ -17,6 +17,7 @@ import "../../src/styles/app.css";
 import { computeLayout, railSlotsFor, setRailSlots, type Insets } from "../../src/game/layout";
 import { setPadFamily, type PadFamily } from "../../src/game/bindings";
 import { applySafeAreaInsets } from "../../src/lib/platform";
+import { focusBoxes, focusOn, focusTargets } from "../../src/ui/padnav";
 import { railLoadoutFor, rootHooksFor, SCREENS, SCREEN_IDS } from "./fixtures";
 
 const overlay = document.getElementById("overlay") as HTMLElement;
@@ -119,6 +120,14 @@ export interface UiFitApi {
    *  the harness has nothing left to tell the solver about the device. */
   render(id: string, insets: Insets): void;
   layout(): ReturnType<typeof computeLayout>;
+  /** The pad's own view of this screen, for the `padfocus` assertion: the
+   *  controls a D-pad can land on, the landing itself (focus AND the scroll
+   *  that comes with it — the scroll is the half that had the bug), and the
+   *  two boxes that landing has to satisfy. All three are padnav's own, so the
+   *  assertion measures the shipping behaviour rather than a copy of it. */
+  padTargets(): HTMLElement[];
+  padFocus(el: HTMLElement): void;
+  padBoxes(el: HTMLElement): ReturnType<typeof focusBoxes>;
 }
 
 declare global {
@@ -168,6 +177,9 @@ const api: UiFitApi = {
     overlay.innerHTML = make();
   },
   layout: () => computeLayout(window.innerWidth, window.innerHeight),
+  padTargets: () => focusTargets(overlay),
+  padFocus: (el) => focusOn(el),
+  padBoxes: (el) => focusBoxes(el),
 };
 
 window.__uifit = api;
