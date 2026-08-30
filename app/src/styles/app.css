@@ -3261,15 +3261,18 @@ body.crt-off #app::after { display: none; }
      canvas cost. Transform leaves the painted pixels alone and moves them.
 
      What it does NOT buy, measured rather than hoped
-     (sim/hudperf/keyframes.ts --congest, before/after this rewrite): the
-     style-recalc TICK. The sweep read 38% of the congested bay's recalc bill
-     as background-position and ~44% as transform — the same share inside that
-     window's noise — because Blink still ticks a running animation per frame
-     per element whatever property it lands on; the census's own closing note
-     says only removal, or fewer elements, moves that counter. So this rewrite
-     is a paint fix, not a recalc fix, and the 13-strip tick (shared with
-     pixel-sparkle's, together ~85% of the congested recalc bill) is the
-     follow-up lever if the device still drops frames.
+     (sim/hudperf/keyframes.ts --congest, before/after this rewrite, under the
+     full danger dress — cube churn and crest-rattle running): the style-recalc
+     TICK. The sweep's leave-one-out read ~74% of the congested bay's recalc
+     bill as background-position and ~74% again as transform (totals 558 and
+     530ms per 400 frames — a difference inside that window's noise) — because
+     Blink still ticks a running animation per frame per element whatever
+     property it lands on; the census's own closing note says only removal, or
+     fewer elements, moves that counter. So this rewrite is a paint fix, not a
+     recalc fix — and the recalc finding is its own headline: sweep, sparkle
+     and rattle each tick 13 strips, each one's removal alone worth ~3/4 of
+     the congested recalc bill. Fewer animated strips is the follow-up lever
+     if the device still drops frames, and it is a design call, not a CSS one.
 
      The strip's own clip-path keeps the overflowing sweep on the teeth exactly
      as it kept the background: pseudos clip with their element. */

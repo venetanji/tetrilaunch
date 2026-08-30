@@ -20123,8 +20123,9 @@ section("The congestion sweep moves pixels, it does not repaint them (app.css)")
 // canvas cost. As background-position that sweep was a main-thread repaint of
 // every strip on every frame; rewritten to a 340%-wide pseudo swept by
 // transform, the painted pixels move instead. sim/hudperf/keyframes.ts
-// --congest measured both halves of the claim: the repaint classification
-// flips, and the style-recalc TICK does not (same ~40% share either way), so
+// --congest measured both halves of the claim under the full danger dress:
+// the repaint classification flips, and the style-recalc TICK does not (~74%
+// leave-one-out share either way), so
 // the pin holds only what was actually bought — the keyframes must stay pure
 // transform, because one more property, or a var(), puts the repaint back
 // while the census's thread column quietly keeps reading "compositor" off the

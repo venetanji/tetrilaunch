@@ -229,21 +229,33 @@ const freshIdle = async (): Promise<void> => {
  * Dressed, not driven: syncHud re-derives .plant--congest-* from the live
  * pileTier every frame, so a class forced onto the plant is stripped within a
  * frame, and building a genuinely congested pile headlessly would measure the
- * pile. Instead a harness-only class replays JUST the state's animation
- * declarations (the palette swap is inert to a style-recalc counter). The
- * stand-in must be kept in step with app.css's .plant--congest-danger rules by
- * hand — it prices the animations, it does not prove the costume.
+ * pile. Instead a harness-only class replays the state's own rules, CLONED off
+ * the live stylesheets with the selector rewritten — every rule that mentions
+ * .plant--congest-danger, verbatim, so the dressed bay runs exactly the
+ * animation set the real state runs (the faster cube-* churn and crest-rattle
+ * that the danger state restates per strip included — the first version of
+ * this dress hand-copied two pseudo rules and priced the sweep against a
+ * lighter workload than the one claimed). The palette declarations come along
+ * and are inert to a style-recalc counter; drift is impossible because there
+ * is nothing to keep in step.
  */
 const CONGEST = argv.includes("--congest");
 const congestDress = async (): Promise<void> => {
   await page.evaluate(`
     if (!document.getElementById('kf-congest-sheet')) {
+      const cloned = [];
+      for (const ss of document.styleSheets) {
+        let rules; try { rules = ss.cssRules; } catch { continue; }
+        for (const r of rules || []) {
+          if (r instanceof CSSStyleRule && r.selectorText.includes('.plant--congest-danger')) {
+            cloned.push(r.cssText.replaceAll('.plant--congest-danger', '.kf-congest'));
+          }
+        }
+      }
+      if (!cloned.length) throw new Error('no .plant--congest-danger rules found to clone');
       const s = document.createElement('style');
       s.id = 'kf-congest-sheet';
-      s.textContent = [
-        '.kf-congest .plant__crest::before { opacity: 1; animation: crest-spark 1.15s linear infinite; }',
-        '.kf-congest .plant__crest::after { --spark-peak: 1; animation-duration: 1.6s; }',
-      ].join('\\n');
+      s.textContent = cloned.join('\\n');
       document.head.appendChild(s);
     }
     document.querySelector('.plant')?.classList.add('kf-congest');
