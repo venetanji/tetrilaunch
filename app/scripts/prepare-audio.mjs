@@ -67,6 +67,10 @@ const FX = [
   // fallback in lib/audio.ts's ensureStatic, which rotates over whichever of
   // the three takes have arrived.
   "congestionLoop", "congestionLoop2", "congestionLoop3",
+  // The ability cue, and the clock's two. The money family (timeUp, fundsLow,
+  // lastLaunch, broke) is spec'd in design/audio/timeout-broke-sfx-plan.md and
+  // deliberately NOT mapped yet: a name here without a master FAILS the run.
+  "thawLance", "timeLow", "timeFinal",
 ];
 
 /**
@@ -76,7 +80,7 @@ const FX = [
  * but never trimmed, and kept stereo: unlike a 200ms thud these are musical and
  * the width is the point.
  */
-const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
+const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit", "contractClear"];
 
 /**
  * Music: which ROLE each generated master plays. Roles, not song titles — the
@@ -227,6 +231,23 @@ const PHONE_SPREAD_DB = 3.0;
 const MASTER_EQ = {
   "bay-1": "lowshelf=f=220:g=-9,alimiter=limit=0.55:level=disabled",
   "menu": "lowshelf=f=220:g=-5,alimiter=limit=0.55:level=disabled",
+  // NOT A PEAK PROBLEM — a RANGE one, which is why a limiter here did nothing.
+  // Measured, this take's input LRA is 11.70 against the pipeline's LONG_LRA
+  // target of 11, and loudnorm reverts to "dynamic" whenever the input range
+  // exceeds the target: it compresses on its own initiative to fit, which the
+  // run refuses because a mix decision taken by a filter's fallback path is one
+  // nobody chose. An alimiter pulled true peak from -2.7 to -5.2 and left LRA
+  // at 11.40, i.e. treated the symptom that was not the cause.
+  //
+  // A gentle declared compressor instead, sized to land this take among the
+  // stingers it plays beside rather than to squash it: 2:1 takes LRA to 7.80,
+  // against gameOver2's 7.6 and refit's 5.0. The other four masters need none
+  // of this (LRA 2.1–7.6) and get none.
+  //
+  // This is a rescue of an unusually dynamic take. A future generation with a
+  // steadier level needs no entry here at all — delete it and check the run
+  // still reports "linear".
+  "contractClear": "acompressor=threshold=-24dB:ratio=2:attack=20:release=250",
 };
 
 /**
@@ -268,6 +289,42 @@ const OVERRIDES = {
   "congestionLoop.mp3": { start: 0.5, dur: 18.5 },
   "congestionLoop2.mp3": { full: true },
   "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
+  // THE TAKE IS A CLOCK, NOT A TICK — measured, it runs at 4 ticks a second
+  // with every fourth accented (strong hits at 0.06s, 1.06s, 2.06s; weaker ones
+  // at the quarters between), and the gaps never reach the silence floor, so
+  // the auto-trim merged the first four into one 633ms "sound". That is the
+  // uiClick failure exactly. A 633ms tick is unusable here for a second
+  // reason: syncHud fires this twice a second under ten, so it would overlap
+  // ITSELF and smear into a drone.
+  //
+  // Pinned to ONE accented hit: attack begins 0.045s, peak at 0.060s, decayed
+  // 35dB by 0.120s. Starting just before the transient rather than at 0 keeps
+  // the perceived latency at ~15ms — the same reasoning as uiClick's 10ms
+  // start, and for the same reason (a countdown pip that arrives late reads as
+  // lag, not as rhythm).
+  "timeLow.mp3": { start: 0.045, dur: 0.105 },
+  // A hit followed by a lumpy crackle that runs to ~0.5s. The auto window ships
+  // 605ms of it, which is FIVE TIMES bondBreak (124ms) — so the lance, which
+  // changes one cube, would out-announce the field-wide Bond Breaker discharge
+  // and read as a whoosh rather than the tap game.ts's onThawLance asks for.
+  // Cut to the attack and main body, ending before the secondary rattle at
+  // 0.16s: 140ms, comfortably under cryoShatter's 177ms, which is the ranking
+  // the cue needs (one cube thawing < a whole frozen row breaking).
+  "thawLance.mp3": { start: 0.015, dur: 0.14 },
+  // THE CLIMB IS NOT AT THE FRONT. Measured over the full 12s take, level is
+  // flat (-22 to -16dB) and brightness (>2kHz share) climbs 0.5% → 13% between
+  // 5.4s and 7.9s, then RECEDES to 5.6% before the sound stops at 10.4s. It is
+  // a ten-second arch, not the two-second riser the cue wants.
+  //
+  // So the auto window — the first 2.5s, where MAX_FX_S caps it — is the
+  // dullest, flattest part of the file: a riser cue with no rise in it. Pinned
+  // to the actual ascent instead. `fadeIn` because 5.4s is mid-texture at
+  // -16dB and a hard cut there is a click.
+  //
+  // This is a rescue of a take that is the wrong SHAPE, not a tuning. If a
+  // future generation is a real 2s riser, delete this entry and let the auto
+  // trim have it — see design/audio/missing-sfx-prompts.md for what to ask for.
+  "timeFinal.mp3": { start: 5.4, dur: 2.5, fadeIn: true },
 };
 
 async function ffprobeDuration(file) {
@@ -408,9 +465,20 @@ async function firstSoundWindow(file, duration) {
  *  audio it will be applied to — the fold to mono in particular can drop the
  *  peak by up to 6dB when the two channels disagree. Both stages being linear,
  *  measuring here and adding the gain there is exact, not an approximation. */
-function fxChain(dur) {
+/**
+ * `fadeIn` is OPT-IN and must stay that way. Every window the auto-trim picks
+ * begins AT a transient — that attack is the sound — and fading into it would
+ * round off the one part that carries the cue. The flag exists for the other
+ * case: a window pinned into the MIDDLE of a continuous texture, where the cut
+ * lands on non-zero signal and a hard edge is an audible click. `timeFinal` is
+ * that case (its climb is 5.4s into a 12s take), and the congestion loops are
+ * not, because their pinned windows are already inside a uniform region and
+ * audio.ts crossfades the loop itself.
+ */
+function fxChain(dur, fadeIn = false) {
   const fade = Math.min(0.03, dur * 0.15);
   return [
+    ...(fadeIn ? [`afade=t=in:st=0:d=${fade.toFixed(4)}`] : []),
     `afade=t=out:st=${Math.max(0, dur - fade).toFixed(4)}:d=${fade.toFixed(4)}`,
     "pan=mono|c0=0.5*c0+0.5*c1",
   ];
@@ -423,7 +491,7 @@ async function encodeFx(srcFile, name, override) {
     : override?.dur !== undefined
       ? { start: override.start ?? 0, dur: override.dur }
       : await firstSoundWindow(srcFile, duration);
-  const chain = fxChain(dur);
+  const chain = fxChain(dur, override?.fadeIn === true);
   const srcPeak = await maxVolumeDb(srcFile, { start, dur, chain });
   // Unmeasurable input, so there is no gain to compute. Stopping is right:
   // carrying NaN forward puts `volume=NaNdB` in the filter graph, and ffmpeg

@@ -1869,6 +1869,23 @@ function lbTabHTML(board: BoardId, label: string, current: BoardId): string {
 export const LOW_LAUNCH_WARN = 3;
 
 /**
+ * The clock's two thresholds, in ms.
+ *
+ * The first is not new — the TIME readout has turned danger-red at twenty
+ * seconds since it was built; it was a bare literal inside main.ts's syncHud.
+ * It lives here now because it is the same KIND of number as the two beside it
+ * (the point at which the correct play changes) and because the audio cue keys
+ * off exactly the same crossing the colour does. One threshold, two senses.
+ *
+ * The second is half the first, and it is where the BEAT halves: twenty seconds
+ * of even ticking is a state, and a state does not escalate. Ten is short
+ * enough that a doubled beat reads as the end approaching rather than as a new
+ * tempo.
+ */
+export const LOW_TIME_WARN_MS = 20_000;
+export const FINAL_TIME_WARN_MS = 10_000;
+
+/**
  * The same urgency, one shot later, for a Contract's supply readout — its
  * launch budget, or a pattern Contract's shipment queue (see main.ts's
  * syncHud, which picks whichever one this Contract runs on).

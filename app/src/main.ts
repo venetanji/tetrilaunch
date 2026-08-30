@@ -145,7 +145,7 @@ import {
 } from "./lib/purchases";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
-  playExplosion, playUiClick, playUiConfirm,
+  playExplosion, playUiClick, playUiConfirm, playTimeTick,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
 } from "./lib/audio";
@@ -622,6 +622,15 @@ class App {
   private contractBoardComplete = false;
   /** Rising-edge latch for the reload-ready cue (see syncHud). */
   private reloadWasReady = true;
+  /** Which tick of the low-time cue last fired, or -1 while the cue is not
+   *  running. syncHud runs every drawn frame; the BEAT NUMBER CHANGING is the
+   *  cue, not the state — keyed to the state alone this would fire sixty times
+   *  a second for the last twenty seconds of every bay. */
+  private timeBeat = -1;
+  /** The final-ten riser is once a BAY, not once a crossing — the clock can
+   *  cross ten seconds only downward, but a retry re-enters the same bay and
+   *  must start the riser armed again (reset in startLevel). */
+  private timeFinalPlayed = false;
   /** What the Contract just finished did to tier progress — whether this
    *  attempt was the first clear, and whether it completed the tier (see
    *  meta.ts's recordContractClear). Null until one resolves. */
@@ -1059,7 +1068,20 @@ class App {
       // hazard in whatever silence is left once the sting ends.
       case "refit": case "draft": return;
 
-      case "lost": case "contract-end": playStinger("gameOver"); return;
+      case "lost": playStinger("gameOver"); return;
+
+      // A CLEARED CONTRACT IS NOT A LOSS. This shared a branch with "lost" and
+      // therefore rang the run's funeral over a banked milestone — the one
+      // screen in the app whose music argued against what the card in front of
+      // the player said. The drill screen below has always got this right; a
+      // Contract simply never got the same treatment.
+      //
+      // Its own stinger rather than bayClear's, because the two are different
+      // sizes: a daily side-job is not a cleared bay of a Deep Run, and lending
+      // it the bay's fanfare would flatten the ranking between them.
+      case "contract-end":
+        playStinger(this.game?.status === "won" ? "contractClear" : "gameOver");
+        return;
       // A drill's verdict, in the voice the verdict deserves: a cleared lesson
       // rings out like a cleared bay, and a failed one gets the bay-clear
       // stinger's absence rather than the run's funeral — nothing ended, and a
@@ -3095,6 +3117,12 @@ class App {
     if (!this.run) return;
     this.game?.destroy();
     this.congestion = 0;
+    // The clock cues are per-BAY state: a new bay re-arms the riser and forgets
+    // whatever beat the last one ended on. Only here, not in startContract or
+    // startDrill — a Contract has timeLimitSec 0 and the attract loop is
+    // untimed, so neither family can reach the cue at all.
+    this.timeBeat = -1;
+    this.timeFinalPlayed = false;
     // levelForRun already seeds the bay's Bond Breaker charges from the run's
     // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
     // refill — so the config arrives complete and nothing is patched here.
@@ -3134,6 +3162,7 @@ class App {
       // happened than did.
       onThawLance: () => {
         telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
+        playFx("thawLance");
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
@@ -3526,7 +3555,7 @@ class App {
       onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => { void impactHaptic(); playBondBreak(); },
-      onThawLance: () => { void tapHaptic(); },
+      onThawLance: () => { void tapHaptic(); playFx("thawLance"); },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
@@ -3596,6 +3625,7 @@ class App {
       // happened than did.
       onThawLance: () => {
         telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
+        playFx("thawLance");
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
@@ -5411,7 +5441,35 @@ class App {
         this.timeSecShown = sec;
         set("#hud-time", formatMMSS(g.timeLeftMs));
       }
-      this.hudEl("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
+      // TWO PREDICATES, NOT ONE. The COLOUR is a state: the chip has always
+      // stayed red at zero and through overtime, because time-expired is the
+      // most dangerous the clock ever gets, and a shared "low" predicate that
+      // required positive time would snap the danger off at the exact moment it
+      // peaks. The SOUND is a count: ticking only makes sense while there is a
+      // count left to keep, so it gates on positive time ON TOP of the colour's
+      // condition. The literal is now S.LOW_TIME_WARN_MS — same number, but the
+      // colour and the cue must key off one threshold or they drift apart.
+      const danger = g.timeLeftMs < S.LOW_TIME_WARN_MS;
+      const ticking = danger && g.timeLeftMs > 0;
+      this.hudEl("#hud-time-chip")?.classList.toggle("pl-stat--danger", danger);
+      // THE TICK — the red pulse offered to the ear, on the BEAT rather than
+      // per frame. syncHud runs every drawn frame, so the beat NUMBER changing
+      // is the cue. It halves under FINAL_TIME_WARN_MS, which together with
+      // playTimeTick's rate climb is the whole of the acceleration: one file,
+      // no second "fast ticks" asset, exactly as one lineClear covers four.
+      const beat = ticking
+        ? Math.ceil(g.timeLeftMs / (g.timeLeftMs < S.FINAL_TIME_WARN_MS ? 500 : 1000))
+        : -1;
+      if (beat !== this.timeBeat) {
+        if (ticking) playTimeTick(1 - g.timeLeftMs / S.LOW_TIME_WARN_MS);
+        this.timeBeat = beat;
+      }
+      // The riser, once a bay: it says the count is nearly over, underneath the
+      // ticks that are still keeping it.
+      if (ticking && g.timeLeftMs < S.FINAL_TIME_WARN_MS && !this.timeFinalPlayed) {
+        this.timeFinalPlayed = true;
+        playFx("timeFinal", { gain: 0.8 });
+      }
     }
 
     // The transport's two-deep queue (canvas A5): the piece the cannon is

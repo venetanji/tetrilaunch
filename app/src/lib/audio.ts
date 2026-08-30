@@ -46,7 +46,10 @@ export type FxName =
   | "uiConfirm"
   | "congestionLoop"
   | "congestionLoop2"
-  | "congestionLoop3";
+  | "congestionLoop3"
+  | "thawLance"
+  | "timeLow"
+  | "timeFinal";
 
 /**
  * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
@@ -58,12 +61,19 @@ export type FxName =
  * generated master becomes each one.
  */
 export type MusicName = "menu" | ContractBed | BayTrack;
-export type StingerName = "bayClear" | "gameOver" | "gameOver2" | "refit";
+/** `contractClear` is the daily Contract's own celebration. It exists because
+ *  the alternative was worse than silence: a cleared Contract used to play
+ *  `gameOver`, i.e. the run's funeral over a banked milestone. Deliberately
+ *  shorter and smaller than `bayClear` — a daily side-job is not a cleared bay
+ *  of a Deep Run, and a bigger fanfare would mis-rank the two. */
+export type StingerName =
+  | "bayClear" | "gameOver" | "gameOver2" | "refit" | "contractClear";
 
 const FX_ONE_SHOTS: FxName[] = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
   "explosion", "uiClick", "bombArm", "uiConfirm",
+  "thawLance", "timeLow", "timeFinal",
 ];
 
 /** The three interchangeable takes of the congestion cue, played IN ROTATION —
@@ -562,6 +572,26 @@ export function playExplosion(kind: "bomb" | "volatile" | "chute"): void {
  *  down when they switch off, which reads without looking at the pill. */
 export function playUiClick(rate = 1): void {
   playFx("uiClick", { rate: rate * (0.97 + Math.random() * 0.06), gain: 0.5 });
+}
+
+/**
+ * THE CLOCK, out loud. One file read at a sliding rate.
+ *
+ * The HUD already says this in colour — #hud-time-chip goes .pl-stat--danger
+ * under LOW_TIME_WARN_MS and pulses on app.css's shared `pulse-danger`, a 1s
+ * cycle — so this is that pulse offered to the ear, and `rate` is the whole of
+ * the acceleration. A second "fast ticks" asset would be two files saying one
+ * thing, exactly as a fourth lineClear would be.
+ *
+ * `urgency` is 0 at the warn threshold and 1 at zero, so the tick climbs about
+ * a minor third across the last twenty seconds and comes up with it. It never
+ * stacks: syncHud fires it on the beat, at most twice a second, and the shipped
+ * sample is 105ms (see its OVERRIDES entry — the master is a four-per-second
+ * clock and only ONE hit of it ships, precisely so this cannot overlap itself).
+ */
+export function playTimeTick(urgency: number): void {
+  const u = Math.max(0, Math.min(1, urgency));
+  playFx("timeLow", { rate: 1 + 0.19 * u, gain: 0.5 + 0.3 * u });
 }
 
 /** The COMMITTING press — play, buy, undock, confirm. Same master as uiClick,
