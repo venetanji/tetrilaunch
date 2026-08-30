@@ -146,7 +146,7 @@ import {
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
-  startHoldCharge, stopHoldCharge,
+  startHoldCharge, stopHoldCharge, restoreBed,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
 } from "./lib/audio";
@@ -3278,18 +3278,32 @@ class App {
       // out, no further launch is accepted, and the music dropping away is what
       // says so. This is the one moment mid-bay where that is correct.
       onTimeUp: () => { void impactHaptic(); playStinger("timeFinal"); },
-      // The bankroll's twin of the clock, and the same shape: `broke` is the
-      // moment the grace countdown starts, brokeSettle plays under the bay
-      // while it converges, and the verdict replaces it.
+      // The bankroll's twin of the clock, and ALMOST the same shape: `broke` is
+      // the moment the grace countdown starts and brokeSettle plays under the
+      // bay while it converges.
       //
-      // Silent on the way back OUT. A rescue is its own reward, and it is the
-      // line clear that pays for it — which already has a cue of its own that
-      // would be talked over by a second one saying the danger has passed.
+      // The difference is that this one can be UNDONE, and the first wiring did
+      // not survive it. A line clear pays more than a launch costs, so a player
+      // can climb back out mid-bay — and playStinger stops the bed, so a rescued
+      // bay played on in total silence for the rest of its length. Found in
+      // play: "a line cleared and my balance went up again... now my bay is all
+      // silent."
+      //
+      // So the bed is kept and muted (playStinger's keepBed) rather than
+      // stopped, and the rescue hands it back where it would have been. The
+      // stinger IS stopped on the way out — the piece is about a countdown that
+      // is no longer running — but nothing else announces the recovery: that is
+      // the line clear's own cue, and a second sound saying the danger passed
+      // would talk over the payout that ended it.
       onBroke: (stuck) => {
-        if (!stuck) return;
+        if (!stuck) {
+          stopStinger();
+          restoreBed();
+          return;
+        }
         void impactHaptic();
         playFx("broke");
-        playStinger("brokeSettle");
+        playStinger("brokeSettle", true);
       },
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);

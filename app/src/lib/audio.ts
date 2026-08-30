@@ -377,6 +377,10 @@ let music: HTMLAudioElement | null = null;
 let musicName: MusicName | null = null;
 let stinger: HTMLAudioElement | null = null;
 let stingerName: StingerName | null = null;
+/** Whether the stinger now playing MUTED the bed rather than stopping it (see
+ *  playStinger's keepBed). Read when it ends, so a piece that simply runs out
+ *  hands the bay's music back instead of leaving it muted under nothing. */
+let stingerKeptBed = false;
 /** Set while the app is backgrounded, so playback that arrives from a timer or
  *  a pending promise while hidden does not start something audible behind a
  *  screen the player is not looking at. */
@@ -882,18 +886,37 @@ export function playMusic(track: MusicName | null): void {
  * wants a bed asks for one. Because the bed is stopped here rather than by the
  * caller, no call site can reintroduce the overlap.
  */
-export function playStinger(name: StingerName): void {
+export function playStinger(name: StingerName, keepBed = false): void {
   if (!musicOn) return;
   // Same stinger already running: leave it alone. refit and draft are separate
   // app states, so without this, walking between them restarts a 24s piece.
   if (stinger && stingerName === name) return;
   stopStinger();
-  playMusic(null);
+  // `keepBed` is for the one stinger that marks a REVERSIBLE state.
+  //
+  // Every other one answers something already decided — a bay cleared, a run
+  // ended, the clock out — so stopping the bed is right and the screen after it
+  // starts a new one. Going BROKE is not like that: a line clear pays more than
+  // a launch costs, so the player can climb back out mid-bay, and a stopped bed
+  // has nowhere to come back from. playMusic would restart it at bar one, which
+  // is worse than the silence it replaces.
+  //
+  // So the bed is MUTED and left running: it keeps its position, and restoreBed
+  // fades it back exactly where the bay would have been. Muted rather than
+  // ducked, and that matters — this module's own note records that ducking to
+  // 25% was tried and left "two songs in two keys audible together". At zero
+  // there is no second key, only a piece that is still where you left it.
+  // `music &&` because a bay entered with the bed already stopped (Sound on,
+  // Music off) has nothing to mute — and nothing for restoreBed to hand back,
+  // which it guards the same way.
+  if (keepBed) { if (music) fadeTo(music, 0); }
+  else playMusic(null);
   try {
     const el = new Audio(`${BASE}audio/stingers/${name}.mp3`);
     el.preload = "auto";
     stinger = el;
     stingerName = name;
+    stingerKeptBed = keepBed;
     // Clamped at 1: the trim is a correction, not a second volume control, and
     // an element gain over unity is not a thing the Web Audio graph accepts
     // here anyway — a piece needing more than this needs a better master.
@@ -904,6 +927,13 @@ export function playStinger(name: StingerName): void {
       if (stinger !== el) return;
       stinger = null;
       stingerName = null;
+      // RAN OUT WITH THE STATE STILL TRUE. brokeSettle is 9.6s and the grace it
+      // plays over can run to brokeGraceMaxSteps — thirty seconds — so a player
+      // who neither recovers nor loses in the first ten would otherwise sit
+      // under a muted bed for the rest of it. That is the same silence the
+      // keepBed path exists to prevent, one step later.
+      if (stingerKeptBed) restoreBed();
+      stingerKeptBed = false;
     }, { once: true });
   } catch {
     stinger = null;
@@ -916,6 +946,24 @@ export function stopStinger(): void {
   fadeOutAndStop(stinger);
   stinger = null;
   stingerName = null;
+  // Deliberately NOT restoring the bed here. Every caller that stops a stinger
+  // is on its way to deciding what should be playing instead — syncMusic starts
+  // a bed or another stinger on the very next line — and handing the old one
+  // back first would be an audible flicker of a track about to be replaced. The
+  // one caller that DOES want it back (the broke rescue) asks for it.
+  stingerKeptBed = false;
+}
+
+/**
+ * Hand the bed back after a `keepBed` stinger — see playStinger.
+ *
+ * A no-op when there is no bed muted under one, which is every case but a broke
+ * countdown the player rescued themselves out of. It does NOT stop the stinger:
+ * the caller decides whether the piece it was playing is still true, and for a
+ * rescue it is not, so main.ts stops it first.
+ */
+export function restoreBed(): void {
+  if (music) fadeTo(music, MUSIC_GAIN);
 }
 
 /**
