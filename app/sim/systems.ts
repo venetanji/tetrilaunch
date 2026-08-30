@@ -19110,11 +19110,33 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
 //      standing between thirty `cursor: pointer` class rules and the bitmaps.
 //   4. The keyword after each url() is the whole degradation story.
 {
+  /**
+   * NEWLINES NORMALISED, and that is a bug fix rather than tidiness.
+   *
+   * These are CONTENT checks — does this rule exist, is it inside that media
+   * query — and several ask by searching for a literal containing a newline.
+   * The cursor switch check below is the sharpest: it proves the media query
+   * closed before the switch block by looking for a top-level "\n}\n" between
+   * them.
+   *
+   * git checks out with native line endings and this repo carries no
+   * .gitattributes, so on Windows those files arrive CRLF — 51 of the src files
+   * in a checkout here — and "\n}\n" cannot match "\r\n}\r\n". That check
+   * therefore FAILED on every Windows working copy while passing in CI, which
+   * is the worst shape a harness failure can take: a red suite that is red for
+   * nobody who can reproduce it, and that teaches whoever sees it to stop
+   * reading the output. It was written off as "pre-existing on staging"
+   * through a whole session of unrelated work for exactly that reason.
+   *
+   * Stripping the carriage returns at the door fixes every check at once rather
+   * than teaching one of them about \r. Nothing in this section asserts
+   * anything about line endings, so there is nothing to lose by it.
+   */
   const readSrc = (...parts: string[]): string =>
     fs.readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...parts),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
   const cursors = readSrc("src", "styles", "cursors.css");
   const appCss = readSrc("src", "styles", "app.css");
   const tokens = readSrc("src", "styles", "tokens.css");
