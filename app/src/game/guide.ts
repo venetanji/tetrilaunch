@@ -116,9 +116,13 @@ export interface GuideTopic {
   cta?: { action: string; label: string; note: string };
 }
 
-/** A hazard axis's own card copy, so the guide quotes rather than paraphrases. */
-function axisDesc(id: HazardId): string {
-  return HAZARDS.find((h) => h.id === id)?.desc ?? "";
+/** A hazard axis's own card copy, so the guide quotes rather than paraphrases.
+ *  Priced at `mark` for the same reason every money and clock figure below is:
+ *  the cost and time axes enter their ladder further up the higher the tier
+ *  (hazards.ts's notchPrice), and a guide that quotes the wrong tier's price is
+ *  read as authority by the one player who does not yet know the number. */
+function axisDesc(id: HazardId, mark: number): string {
+  return HAZARDS.find((h) => h.id === id)?.desc(mark) ?? "";
 }
 function axisName(id: HazardId): string {
   return HAZARDS.find((h) => h.id === id)?.name ?? id;
@@ -252,7 +256,7 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
     id: `mat-${s.m}`,
     chapter: "cargo" as ChapterId,
     name: MATERIAL_SPEC[s.m].name,
-    summary: axisDesc(s.axis),
+    summary: axisDesc(s.axis, lv.mark),
     body: s.body,
     tier: axisTier(s.axis),
     material: s.m,
@@ -522,16 +526,16 @@ function buildTopics(mark: number): GuideTopic[] {
   },
   {
     id: "axis-cost", chapter: "pressure", tier: axisTier("cost"),
-    name: axisName("cost"), summary: axisDesc("cost"), axis: "cost",
-    body: `${axisDesc("cost")}<br>The ladder is Fibonacci, so the fourth levy hurts far more than four`
+    name: axisName("cost"), summary: axisDesc("cost", mark), axis: "cost",
+    body: `${axisDesc("cost", mark)}<br>The ladder is Fibonacci, so the fourth levy hurts far more than four`
       + ` first ones — and it starts further up the ladder the higher the tier you are flying.`
       + ` <b>Reactor Output</b> is the answer that exists inside a run: a bigger float and a better rate`
       + ` per line both pay the levy back.`,
   },
   {
     id: "axis-time", chapter: "pressure", tier: axisTier("time"),
-    name: axisName("time"), summary: axisDesc("time"), axis: "time",
-    body: `${axisDesc("time")}<br>Its ladder runs one rung ahead of the fuel levy's, deliberately:`
+    name: axisName("time"), summary: axisDesc("time", mark), axis: "time",
+    body: `${axisDesc("time", mark)}<br>Its ladder runs one rung ahead of the fuel levy's:`
       + ` money has an in-run answer and the clock does not.`
       + ` The floor is <b>45s</b>, so the axis can never reach an unplayable bay.`
       + ` <b>Loader Magazine</b> is the nearest thing to a counter — a shorter reload is more shots`
@@ -539,8 +543,8 @@ function buildTopics(mark: number): GuideTopic[] {
   },
   {
     id: "axis-wind", chapter: "pressure", tier: axisTier("wind"),
-    name: axisName("wind"), summary: axisDesc("wind"), axis: "wind",
-    body: `${axisDesc("wind")}<br>Each bay rolls a steady <b>average</b> and gusts gently around`
+    name: axisName("wind"), summary: axisDesc("wind", mark), axis: "wind",
+    body: `${axisDesc("wind", mark)}<br>Each bay rolls a steady <b>average</b> and gusts gently around`
       + ` it, so it is a bias to learn rather than a coin flip. <b>Launcher Coils</b> answer it`
       + ` from both sides — more muzzle speed, and a stabilizer that cancels part of the wind`
       + ` outright.`,
@@ -548,8 +552,8 @@ function buildTopics(mark: number): GuideTopic[] {
   },
   {
     id: "axis-sweeper", chapter: "pressure", tier: axisTier("sweeper"),
-    name: axisName("sweeper"), summary: axisDesc("sweeper"), axis: "sweeper",
-    body: `${axisDesc("sweeper")}<br>Two costs in one notch: less room to land in, and less time between`
+    name: axisName("sweeper"), summary: axisDesc("sweeper", mark), axis: "sweeper",
+    body: `${axisDesc("sweeper", mark)}<br>Two costs in one notch: less room to land in, and less time between`
       + ` strokes to use it. It is the axis that punishes a slow, tidy player hardest.`
       + ` <b>Bay Extension</b> buys the cells straight back, and <b>Press Hydraulics</b> turns the extra`
       + ` strokes from a threat into more chances to close a row.`,

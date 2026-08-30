@@ -354,7 +354,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
               text: h.name,
               on: (s.ratchets[h.id] ?? 0) > 0,
               off: !isBay,
-              title: `${h.desc} — tap to notch, wraps at ${SANDBOX_RATCHET_MAX}`,
+              title: `${h.desc(s.tier)} — tap to notch, wraps at ${SANDBOX_RATCHET_MAX}`,
               pips: s.ratchets[h.id] ?? 0,
             })),
             "pack",

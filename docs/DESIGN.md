@@ -626,8 +626,8 @@ re-spaces the inspections with it.
 bay and a standing clause is that cost times the bays it rides. Stop 1 stands
 for seven bays and draws from Tiers 2–3, the *conditions* tiers — none of them
 touches the bay's books, which is what makes them safe to repeat. Tier 1 is
-excluded on arithmetic: Rush Order's flat +$750 is a 66% quota raise on Mark
-10's bay 4 and still 41% on bay 10. Stop 2 stands for four bays and draws from
+excluded on arithmetic: Rush Order's flat +$875 is a 39% quota raise on Mark
+10's bay 4 and still 24% on bay 10. Stop 2 stands for four bays and draws from
 Tiers 4–9. Stop 3 rides one bay and is the capstone pair, on exactly the bay
 `finals.ts` reserves the full-belt clauses for.
 

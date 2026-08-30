@@ -392,6 +392,13 @@ guard the numbers in `docs/` have: it imports the real constants
 and asserts on what they compose to, so a re-shaped ladder fails here in
 seconds rather than in a doc nobody re-derived.
 
+One probe stands beside it rather than inside it: `_scratch-finalpair.ts` prices
+Tier 1's Final Inspection pair — Rush Order against Rate Cut — in extra lines the
+last bay must sell, across the Reactor tiers that reach bay 10, with an optional
+`aim` arm (`BOT=1 SEEDS=48`) and a `WINDOW=1` readout of the quota range in which
+the pair crosses at all. `systems.ts` pins the crossing; this prints the table the
+pin's threshold was chosen from, off the shipped bay rather than off a note.
+
 ## `patterns.ts` — pattern Contract audit
 
 `systems.ts` asserts the invariants that must hold on every build; this is the

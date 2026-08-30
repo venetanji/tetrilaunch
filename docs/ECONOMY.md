@@ -603,6 +603,13 @@ taken by a player who has no idea yet what a notch feels like. That is the same
 reasoning that already took `TIME_NOTCH` from 20 to 5, carried the rest of the
 way.
 
+**Where a run *enters* the ladder is the Tier's job** (`ladderStart`): one rung
+up per two Marks, so a first Shift Cut is −1s at Tier 1 and −8s at Tier 10, and
+a first Fuel Levy +$1 and +$5. The draft card quotes the rung the run is
+standing on rather than the ladder's foot — the two are the same call
+(`notchPrice`), so the offer and the charge cannot drift apart, and
+`sim/systems.ts` holds them equal at every Tier.
+
 ## The belt: a ceiling on how much of a bay is special
 
 `belt.ts`. A material used to be an **independent roll per shipment** — a
@@ -695,7 +702,7 @@ change anything.
 
 | Tier | System | Clause | …or |
 |---|---|---|---|
-| 1 | Reactor Output | **Rush Order** — quota +$750 | **Rate Cut** — every line pays 20% less |
+| 1 | Reactor Output | **Rush Order** — quota +$875 | **Rate Cut** — every line pays 20% less |
 | 2 | Launcher Coils | **Head Gale** — a dead-steady gale into the muzzle, at the cap | **Tail Gale** — a gale dead astern, at the cap, gusting 3× |
 | 3 | Press / Bay | **Double Shift** — the press runs at 2× | **Tight Gauge** — the bay gives up 2 open cells |
 | 4 | Bay Extension | **Cold Chain** — 22% of the belt frozen | **Ice Wall** — the bay opens on 11 cubes of unthawed salvage |
@@ -715,23 +722,48 @@ earn, so its price falls faster. The design wants the two to **cross** inside
 the band of rigs that actually reach bay 10, so that the clause a player should
 take is a direct readout of how good their rate actually is.
 
-**On the shipped ladder they do not cross.** Re-deriving `finals.ts`'s own model
-on Tier 1's bay 10 — a $1500 target, $190 a line, $20 a launch, a $160 float
-plus run.ts's $150 carry, so at ~2.9 launches per line a line nets $132 and the
-bay needs 9.0 lines — prices Rush Order at **+5.7 / +4.6 / +4.2** lines against
-Rate Cut's **+3.6 / +2.5 / +2.1**, across stock / Reactor 2 / Reactor 3. The
-flat raise is the dearer poison at *every* rig, and the two never converge: at
-the precision printed here the gap holds at 2.1 lines across stock, Reactor 2
-and Reactor 3 alike, so no rig that reaches bay 10 flips the answer.
-`RUSH_ORDER_QUOTA` must be re-sized against the tier being flown before this
-pair can be claimed to have a crossing at all. (It was already gone before #88:
-the pre-#88 table in `finals.ts`'s header only reproduces at a 25% cut, and
-`RATE_CUT` is 0.2.)
+**Where Tier 1 crosses.** Re-derived on the shipped bay: Tier 1's bay 10 opens
+at a $2700 target, pays $190 a line and prices a launch at $20, against a $160
+float plus run.ts's $150 carry — so at ~2.9 launches per line a line nets $132
+and the bay needs 18.1 lines. On Mark 1 the refit sells only the Reactor, so the
+band of rigs that reach bay 10 *is* that one track:
 
-The owner's original sketch was +$1000 against −25%. Both moved: at $1000 the
-percentage wins at every rig and the crossing falls off the bottom of the table,
-which is a pair with a right answer, i.e. not a pair — which is exactly the
-shape the numbers above now measure at $750 on Tier 1, one ladder later.
+| | stock | Reactor 1 | Reactor 2 | Reactor 3 |
+|---|---|---|---|---|
+| baseline lines | 18.1 | 15.9 | 14.0 | 12.5 |
+| **Rush Order** (+$875) | +6.63 | +5.95 | +5.40 | +4.94 |
+| **Rate Cut** (−20%) | +7.32 | +6.13 | +5.22 | +4.51 |
+
+The crossing sits between Reactor 1 and Reactor 2, and the two cards are within
+0.7 lines of each other at every rig — a real fork, and one the player reads off
+their own rig.
+
+The `aim` bot at 48 seeds a cell agrees about the *size* and cannot see the
+crossing: against each rig's own baseline (67 / 71 / 71 / 79%) Rush Order costs
+−9 / −8 / −4 / −10 points and Rate Cut −13 / −8 / −6 / −10 — level at two rigs,
+2–4 apart at the others, where the standard error is about 7. Both cards cost a
+real, survivable slice of the bay; a 0.2-line crossing is an order of magnitude
+under what a bot at this cadence can resolve, and the line model is what the
+sizing rests on.
+
+**It did not cross at $750, and the reason is worth keeping.** A flat raise
+costs a fixed sum of revenue, so its price in lines does not notice a bigger
+bill; a percentage's does. The 2026-08-28 recalibration multiplied every target
+by 1.8, which raised what Rate Cut costs and left Rush Order where it was: at
+$750 the same table reads Rush Order **+5.68 / +5.10 / +4.63 / +4.24** against
+Rate Cut **+7.32 / +6.13 / +5.22 / +4.51** — the quota cheaper at all four rigs,
+converging to 0.27 lines and never crossing. Two cards, one answer, dealt for a
+whole release. A flat term priced against a bill has to move when the bill does,
+and `RUSH_ORDER_QUOTA` is now $875: the middle of the window in which the pair
+crosses inside the rig band at all ($799–$966 on this bay, the range over which
+the quota is dearer than the cut on a maxed Reactor and cheaper on a stock one).
+`sim/systems.ts` pins the crossing and the spread; `sim/_scratch-finalpair.ts`
+rebuilds the table off the shipped bay.
+
+The owner's original sketch was +$1000 against −25%, and both the $1000 and the
+$750 that replaced it were sized on the pre-ladder flat $1700 / $190 / $25 / $200
+bay, where a crossing only reproduces at a 25% cut the game has never run. They
+price a bay that no longer exists.
 
 **Neither is a lose button.** Every clause is floored the way `Shift Cut` is
 floored, for the reason `hazards.ts` gives — an axis that can reach an

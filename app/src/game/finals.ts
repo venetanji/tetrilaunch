@@ -181,97 +181,112 @@ export interface FinalDef {
  * from its two sides — the Reactor pays a float AND a rate, and these two
  * clauses attack one each.
  *
- * SIZED, not guessed, and the sizing is the interesting part.
+ * THE MECHANISM THE PAIR IS BUILT ON. A flat raise costs a fixed amount of
+ * revenue, so its price in LINES falls as your rate rises; a percentage cut
+ * costs a share of everything you earn, so its price falls too, but faster.
+ * Where the two cross, the flat raise is the cheaper poison below and the
+ * percentage above, and the clause a player should take is a direct readout of
+ * how good their rate actually is — the question the Reactor track has been
+ * asking them all run. That is what the pair is FOR, and it is only true if the
+ * crossing lands INSIDE the band of rigs that reach bay 10. Outside it, the
+ * hand is two cards with one right answer, which is a toll wearing a draft's
+ * clothes.
  *
- * Tier 1's bay 10 opens at targetScore $2700, pays scorePerLine $190 and prices
- * a launch at $20, against a $160 float (eight shots — LAUNCH_BUDGET_SHOTS x
- * launchCostFor) plus at most run.ts's $150 carry. At the measured ~2.9
- * launches per line (contracts.ts's PLANNING_EFFICIENCY) a line grosses $190
- * and costs $58 to make, so it nets $132 and the bay needs
- * (2700 - 310) / 132 = 18.1 lines. Price both clauses in that unit — extra
- * lines the bay demands — across the rigs that actually arrive at bay 10 (the
- * Reactor pays +$60 float and +$15 a line per tier, and a clause's apply runs
- * AFTER the ship's upgrades, so the rate cut bites the boosted rate):
+ * SIZED, not guessed. Tier 1's bay 10 opens at targetScore $2700, pays
+ * scorePerLine $190 and prices a launch at $20, against a $160 float (eight
+ * shots — LAUNCH_BUDGET_SHOTS x launchCostFor) plus at most run.ts's $150
+ * carry. At the measured ~2.9 launches per line (contracts.ts's
+ * PLANNING_EFFICIENCY) a line grosses $190 and costs $58 to make, so it nets
+ * $132 and the bay needs (2700 - 310) / 132 = 18.1 lines. Price both clauses in
+ * that unit across the rigs that arrive at bay 10 — which on THIS Tier is the
+ * Reactor track and nothing else, since refitTracks sells only the Reactor at
+ * Mark 1 and its own note says the tuning assumes all three tiers get built
+ * across the run's three stops. The Reactor pays +$60 float and +$15 a line per
+ * tier, and a clause's apply runs AFTER the ship's upgrades, so the cut bites
+ * the boosted rate (sim/_scratch-finalpair.ts rebuilds this table off the
+ * shipped bay rather than off these figures):
  *
- *              stock      Reactor 2    Reactor 3
- *   baseline   18.1       14.0         12.5
- *   Rush Order +5.7       +4.6         +4.2
- *   Rate Cut   +7.3       +5.3         +4.6
+ *                stock    Reactor 1   Reactor 2   Reactor 3
+ *   baseline     18.1     15.9        14.0        12.5
+ *   Rush Order   +6.63    +5.95       +5.40       +4.94
+ *   Rate Cut     +7.32    +6.13       +5.22       +4.51
+ *   the cheaper  Rush     Rush        Rate        Rate
  *
- * THE BASELINE MOVED AND THE PAIR'S SHAPE DID NOT. level.ts's 2026-08-28
- * recalibration multiplied every target by 1.8, so the bay demands twice the
- * lines it did — which leaves Rush Order's flat raise costing exactly what it
- * cost before (a fixed sum of revenue is a fixed number of lines) while Rate
- * Cut's percentage, being a share of a now larger bill, costs proportionally
- * more. The two clauses are still priced within a couple of lines of each other
- * at every rig, which is the property the pair is built on; what changed is
- * which one is the cheaper poison at the stock rig, and the crossing is exactly
- * the decision the Final Inspection exists to pose.
+ * The crossing sits between Reactor 1 and Reactor 2 — a run that bought two of
+ * its three stops takes the quota, a run that finished the track takes the cut —
+ * and the two clauses are within 0.7 lines of each other at every rig on an
+ * 18-line bay, which is what "equally bad, bad differently" has to mean
+ * numerically.
  *
- * The mechanism the pair is built on is unchanged. A flat raise costs a fixed
- * amount of revenue, so its price in lines FALLS as your rate rises; a
- * percentage cut costs a share of everything you earn, so its price falls too,
- * but faster. Where the two cross, the flat raise is the cheaper poison below
- * and the percentage above, and the clause a player should take is a direct
- * readout of how good their rate actually is — the question the Reactor track
- * has been asking them all run. That is what the pair is FOR.
+ * WHY THE QUOTA MOVED, $750 -> $875. A flat raise costs a fixed sum of revenue,
+ * so its price in lines does not notice a bigger bill; a percentage's does.
+ * level.ts's 2026-08-28 recalibration multiplied every target by 1.8, which
+ * raised what Rate Cut costs and left Rush Order exactly where it was, and that
+ * is enough to decide the hand: at $750 the same table reads Rush Order +5.68 /
+ * +5.10 / +4.63 / +4.24 against Rate Cut +7.32 / +6.13 / +5.22 / +4.51 — the
+ * flat raise CHEAPER at all four rigs, converging to 0.27 lines at the top and
+ * never crossing. Both cards were still dealt; only one was ever correct. A
+ * flat number priced against a bill has to move when the bill does.
  *
- * BUT THERE IS NO CROSSING ON THE SHIPPED BAY, and re-deriving both bays says
- * there never was one in shipped code — this is a sizing bug that predates the
- * tier ladder, not something #88 took away. The pair was sized on the PRE-#88
- * bay, measured with sim/_finalprobe.ts (a throwaway, deleted) against the flat
- * $1700 / $190 / $25 / $200 bay the tier ladder replaced: there a line netted
- * $117.50, the bay needed 11.5 lines, and the table read baseline 11.5 / 8.3 /
- * 7.2, Rush Order +6.4 / +5.1 / +4.6, Rate Cut +7.7 / +5.0 / +4.1 — crossing at
- * the mid-track Reactor, which is what a bay-10 rig typically carries. But that
- * Rate Cut row only reproduces at a 25% cut, which on that bay gives 7.66 /
- * 4.96 / 4.10. RATE_CUT is 0.2 and has been 0.2 in every revision since the
- * constant was first committed, and at 0.2 the same bay reads +5.5 / +3.5 /
- * +2.9 against Rush Order's +6.4 / +5.1 / +4.6 — the percentage cheaper at
- * EVERY rig, so no crossing on the old bay either. The crossing is an artifact
- * of a rate the game has never run.
+ * THE WINDOW, because the next recalibration will need it rather than needing
+ * this paragraph rewritten. The quota crosses inside the rig band exactly when
+ * it is dearer than Rate Cut on the FATTEST rig and cheaper on the THINNEST —
+ * i.e. between (Rate Cut's line cost at Reactor 3) x that rig's net per line
+ * and the same product at stock: $799 .. $966 on this bay. $875 is the middle
+ * of that window, which is what puts the crossing mid-track rather than against
+ * either wall. RATE_CUT is left at 0.2 — it has been 0.2 since the constant was
+ * first committed, it reads as a round number on the card, and moving the flat
+ * term is the change the arithmetic actually asks for.
  *
- * What #88 changed is the size of the gap, not its sign. Tier 1's cheaper shot
- * lifts every rig's net per line and its lighter quota cuts the baseline line
- * count; Rate Cut, being a share of the lines the bay sells, is shrunk by both,
- * where a flat $750 only feels the first — so the old bay's spread of 0.9 / 1.5
- * / 1.7 lines becomes about 2.1 at every rig in the table above. The flat raise
- * is the dearer poison at EVERY rig, and was before the ladder landed too, so
- * the pair has a right answer. TODO: re-size it — and re-derive at each Tier's
- * own bay 10, since the ladder moves the bay under it now — before this pair is
- * described as crossing again. Note which way: Rush Order is the DEARER clause
- * everywhere, so a crossing needs it CHEAPER than Rate Cut on a thin rig and
- * dearer on a fat one — on Tier 1's table above, a quota worth less than Rate
- * Cut's +3.6 lines cost a stock rig (3.6 x $132 net ≈ $475) and more than its
- * +2.1 cost a maxed Reactor (2.1 x $177 ≈ $370), i.e. roughly $370-$475, far
- * under anything RUSH_ORDER_QUOTA has shipped at. Deepening RATE_CUT is the
- * other lever — 0.3 puts a crossing between stock and Reactor 2 on this bay.
- * Both are line-model arithmetic; neither has been played.
+ * THE WINDOW IS NOT EXACT, and $875 survives its edges. The model carries two
+ * assumptions: a full carry and 2.9 launches a line. Drop the carry to zero, or
+ * fly it at a sloppier 3.3, and the crossing slides one rig up (between Reactor
+ * 2 and 3); at a tidy 2.5 it slides one rig down (between stock and Reactor 1).
+ * It never leaves the table under any of them, which is the property being
+ * bought — the pair does not need the crossing pinned to one rig, it needs it
+ * inside the band.
  *
- * $750 rather than the $1000 this was first sketched at, for that same reason:
- * at $1000 Rush Order cost +8.5 lines on a stock rig and +6.1 on a maxed
- * Reactor, against Rate Cut's +7.7 and +4.1 — the percentage won at EVERY rig,
- * the crossing fell off the bottom of the table, and a pair with a right answer
- * is not a pair. Those Rate Cut figures are the 25% column again, and only at
- * 25% did $750 put the crossing back inside the range real rigs occupied on
- * that bay. At the shipped 0.2, where the same bay's Rate Cut column is +5.5 /
- * +3.5 / +2.9, cutting $1000 to $750 narrowed the percentage's lead from about
- * 3 lines at every rig to 0.9-1.7 and never closed it. The $1000 verdict holds
- * at either rate; the claim that $750 fixed it holds only at 25%. Re-derive if
- * scorePerLine, the launch price or the Reactor track move; this number is only
- * meaningful relative to them.
+ * WHAT THE BOT SAYS, AND WHAT IT CANNOT. Money is one of the two things this
+ * harness prices honestly (see the instrument note above — the bot stops firing
+ * when it is broke), so this pair is the one worth flying. `aim`, Tier 1 bay 10,
+ * 48 seeds a cell, win rate and the delta against each rig's own no-clause
+ * baseline (sim/_scratch-finalpair.ts, BOT=1 SEEDS=48):
+ *
+ *                stock      Reactor 1   Reactor 2   Reactor 3
+ *   baseline     67%        71%         71%         79%
+ *   Rush Order   58%  -9    63%  -8     67%  -4     69%  -10
+ *   Rate Cut     54% -13    63%  -8     65%  -6     69%  -10
+ *
+ * What it settles: both clauses cost a real but survivable slice of the bay at
+ * every rig, and they cost about the SAME slice — dead level at two rigs of
+ * four, 2-4 points apart at the others. Neither is a lose button and neither is
+ * free, which is the magnitude claim the pair is built on.
+ *
+ * What it cannot settle is the crossing, and it is worth being exact about why
+ * rather than reading the rows as if it had. At 48 seeds one seed is 2 points
+ * and the standard error on a ~70% cell is about 7, so a 2-4 point gap is noise;
+ * the crossing the model draws is 0.2 lines out of 14, an order of magnitude
+ * under what this instrument can see. (A 24-seed pass had Rate Cut consistently
+ * the worse card, which is exactly the artefact that story predicts: doubling
+ * the seeds collapsed the gap to zero at two rigs.) The line model is exact for
+ * money and is what the sizing rests on; what neither instrument prices is the
+ * one asymmetry a device pass might find — a rate cut thins cash flow DURING
+ * the bay where a raised quota only moves the finish line, and a pilot who goes
+ * broke mid-bay feels the first far more than the second. If that turns out to
+ * be real for humans too, the lever is this same window, worked toward its top.
+ *
+ * Re-derive if scorePerLine, the launch price, CARRY_CAP or the Reactor track
+ * move: this number is only meaningful relative to them. Earlier sizings ($1000,
+ * then $750) were derived on the pre-ladder flat $1700 / $190 / $25 / $200 bay
+ * and only reproduce a crossing at a 25% cut, which the game has never run —
+ * they price a bay that no longer exists and are not evidence about this one.
  * ------------------------------------------------------------------------- */
 
 /** Quota added by Rush Order. Named because the card copy interpolates it and
- *  the arithmetic above quotes it. (This shipped as 800 for a while — a slip,
- *  never a re-sizing: the sizing note above and its original table were always
- *  computed at $750, which on that pre-#88 bay was +6.4 stock = 750/117.5. The
- *  note that $800 slid the crossing off the mid-track Reactor is true only of
- *  the 25% column that crossing lives in; at the shipped RATE_CUT of 0.2
- *  neither $750 nor $800 crosses at any rig on that bay. On Tier 1's shipped
- *  bay the same $750 is +5.7 = 750/132 — and, as the note above records, there
- *  is no crossing there either, and never has been.) */
-export const RUSH_ORDER_QUOTA = 750;
+ *  the arithmetic above quotes it — and it is the term that has to move when
+ *  the ladder re-prices a bay, since a flat sum is the only half of this pair
+ *  that does not re-price itself. */
+export const RUSH_ORDER_QUOTA = 875;
 /** Share of each line's payout Rate Cut withholds. */
 export const RATE_CUT = 0.2;
 

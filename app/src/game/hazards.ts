@@ -63,10 +63,18 @@ export type Ratchets = Partial<Record<HazardId, number>>;
 export interface HazardDef {
   id: HazardId;
   name: string;
-  /** Card copy naming the exact change ONE notch makes. The player is choosing
-   *  a cost, so the number has to be on the card — a vague card turns a
-   *  deliberate trade into a guess. */
-  desc: string;
+  /** Card copy naming the exact change ONE notch makes to a run flying `mark`.
+   *  The player is choosing a cost, so the number has to be on the card — a
+   *  vague card turns a deliberate trade into a guess.
+   *
+   *  A function of the Mark rather than a string, because two of these axes are
+   *  not the same price at every Mark: the cost and time ladders are entered at
+   *  ladderStart(mark). Both halves of such an axis read notchPrice — the card
+   *  at one notch, the apply at n — so a card can never name a price its own
+   *  bay does not charge. The axes with no Mark dependence ignore the argument;
+   *  they are still functions so that every card is quoted the same way and a
+   *  future Mark-priced axis needs no new plumbing. */
+  desc(mark: number): string;
   /** The Mark being FLOWN at which this axis first appears in the offer.
    *  Deliberately not "Marks beaten" like meta.ts's requiresMark: the run knows
    *  its own Mark (RunState.mark), and comparing the two against different
@@ -190,15 +198,37 @@ export function ladderStart(mark: number): number {
   return Math.max(0, Math.floor((Math.floor(mark) - 1) / 2));
 }
 
+/**
+ * The price of `n` notches on `ladder` for a run flying `mark`: the ladder
+ * entered where that Mark enters it.
+ *
+ * THE ONE EXPRESSION BOTH HALVES OF AN ESCALATING AXIS READ. The apply charges
+ * notchPrice(ladder, cfg.mark, n) and the card quotes notchPrice(ladder, mark,
+ * 1), so the promise and the charge are the same arithmetic evaluated at
+ * different notch counts rather than two statements of the same number. They
+ * were two statements until this existed: `desc` interpolated rung 0 while
+ * apply entered at ladderStart(cfg.mark), so a card named a price its own bay
+ * did not charge from Mark 3 up on the clock (1s promised against 2s, and 8s
+ * by Mark 10) and from Mark 5 up on money (COST_LADDER opens 1,1, so its first
+ * two rungs are the same $1 and the divergence starts a Mark later; $1 against
+ * $5 by Mark 10). It also contradicted the projection printed beside it, which
+ * has always computed from the real entry rung — preview.ts runs levelForRun
+ * twice rather than modelling the delta. sim/systems.ts pins card against apply
+ * at every Mark, in both directions.
+ */
+export function notchPrice(ladder: readonly number[], mark: number, n: number): number {
+  return notchTotal(ladder, n, ladderStart(mark));
+}
+
 /** Rung 0 of each ladder — what one notch costs at Marks 1-2, where
  *  ladderStart is still 0. NOT what a first notch costs in general: a run
  *  enters the ladder at ladderStart(mark), one rung higher per two Marks, so a
  *  player who has never taken the axis before pays $1 for a first Fuel Levy at
  *  Mark 1 and $5 at Mark 10, and 1s for a first Shift Cut at Mark 1 and 8s at
- *  Mark 10. Kept as named constants because card copy and docs quote them —
- *  anything that quotes them to a player has to say which Mark it is quoting,
- *  which the Fuel Levy and Shift Cut `desc` below currently do not — and
- *  neither axis is linear any more. */
+ *  Mark 10. Kept as named constants for the docs and pins that quote the
+ *  ladder's foot; nothing shown to a PLAYER may read them, because a card that
+ *  quotes a rung has to quote the rung that run is standing on (notchPrice)
+ *  and say which Mark it means. Neither axis is linear any more. */
 export const COST_NOTCH = COST_LADDER[0];
 export const TIME_NOTCH = TIME_LADDER[0];
 
@@ -285,7 +315,10 @@ function contentAxis(
   material: keyof MaterialMix,
 ): HazardDef {
   return {
-    id, name, desc, mark, kind: "content", material,
+    // A material's copy describes what arrives on the belt, which the Mark does
+    // not re-price — materialRate reads the run's notches and nothing else — so
+    // the Mark argument is dropped here rather than threaded through nine rows.
+    id, name, desc: () => desc, mark, kind: "content", material,
     apply(cfg, notches) {
       cfg.materialMix = { ...cfg.materialMix, [material]: materialRate(notches) };
     },
@@ -309,7 +342,7 @@ export const HAZARDS: HazardDef[] = [
   {
     id: "target",
     name: "Quota Raise",
-    desc: `Every bay's funding target rises by $${TARGET_NOTCH}.`,
+    desc: () => `Every bay's funding target rises by $${TARGET_NOTCH}.`,
     mark: 1,
     kind: "number",
     // Retired from the draft (RETIRED_AXES) but deliberately still applied:
@@ -321,17 +354,21 @@ export const HAZARDS: HazardDef[] = [
   {
     id: "cost",
     name: "Fuel Levy",
-    // The card quotes the FIRST rung and warns that it steepens — an
-    // escalating axis whose card reads the same at every depth is a trap.
-    desc: `Every launch costs more — ${COST_LADDER[0]} at the first levy, steeply more at each one after.`,
+    // The card quotes THIS RUN'S first rung and warns that it steepens — an
+    // escalating axis whose card reads the same at every depth is a trap, and
+    // one whose card reads the same at every MARK is a lie, since the ladder
+    // is entered further up the higher you fly (notchPrice).
+    desc: (mark) => `This tier's first levy adds $${notchPrice(COST_LADDER, mark, 1)} to every`
+      + ` launch; each one after is steeply worse.`,
     mark: 1,
     kind: "number",
-    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n, ladderStart(cfg.mark)); },
+    apply: (cfg, n) => { cfg.launchCost += notchPrice(COST_LADDER, cfg.mark, n); },
   },
   {
     id: "time",
     name: "Shift Cut",
-    desc: `Every bay's clock loses time — ${TIME_LADDER[0]}s at the first cut, steeply more at each one after.`,
+    desc: (mark) => `This tier's first cut takes ${notchPrice(TIME_LADDER, mark, 1)}s off every`
+      + ` bay's clock; each one after is steeply worse.`,
     mark: 1,
     kind: "number",
     // Floored well above zero: an axis that can reach an unplayable bay is not a
@@ -340,13 +377,13 @@ export const HAZARDS: HazardDef[] = [
     // under Fibonacci than under a flat step — the ladder reaches it in far
     // fewer notches.
     apply: (cfg, n) => {
-      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n, ladderStart(cfg.mark)));
+      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchPrice(TIME_LADDER, cfg.mark, n));
     },
   },
   {
     id: "wind",
     name: "Crosswind",
-    desc: `The bay's prevailing wind cap rises by ${WIND_NOTCH}, and gusts with it.`,
+    desc: () => `The bay's prevailing wind cap rises by ${WIND_NOTCH}, and gusts with it.`,
     mark: 2,
     kind: "number",
     apply: (cfg, n) => {
@@ -359,7 +396,7 @@ export const HAZARDS: HazardDef[] = [
   {
     id: "sweeper",
     name: "Sweeper Detail",
-    desc: `The press runs ${Math.round(SWEEP_NOTCH * 100)}% faster and the bay gives up ${OPEN_CELL_NOTCH} open cell.`,
+    desc: () => `The press runs ${Math.round(SWEEP_NOTCH * 100)}% faster and the bay gives up ${OPEN_CELL_NOTCH} open cell.`,
     mark: 3,
     kind: "number",
     apply: (cfg, n) => {
