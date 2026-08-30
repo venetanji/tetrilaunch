@@ -119,8 +119,8 @@ import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import {
-  armActivate, armRelease, DISARMED, focusInitial, moveFocus,
-  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, type ArmState,
+  armActivate, armRelease, DISARMED, focusInitial, focusOn, focusTargets, moveFocus,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, type ArmState,
 } from "./ui/padnav";
 import { captureScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
@@ -2911,11 +2911,116 @@ class App {
    * restores above deliberately — `.focus()` scrolls its element into view,
    * which is a coarser answer to the same question, and the exact offset
    * should win over it.
+   *
+   * THE PAD IS NOT DONE THERE, and that is what reseatPadSelection is for: a
+   * restored offset and a landed selection are two answers to "where is the
+   * player", and they have to be one.
    */
   private renderKeepingScroll(): void {
+    const held = this.dataSignature(document.activeElement);
     const keep = captureScroll(this.overlay.querySelectorAll<HTMLElement>("[data-scroll]"));
     this.renderOverlay();
     restoreScroll(this.overlay.querySelectorAll<HTMLElement>("[data-scroll]"), keep);
+    this.reseatPadSelection(held);
+  }
+
+  /**
+   * A selector that names the control the player was holding, out of its own
+   * data-attributes — the signature renderSandboxInPlace matches its chips by,
+   * and the same thing renderOverlay's `data-bind` / `data-toggle` restores do
+   * one attribute at a time. Empty for anything outside the overlay (a fresh
+   * screen's `<body>`), which reads as "there was nothing to hold".
+   *
+   * Data-attributes rather than the element itself because the element is
+   * exactly what a wholesale innerHTML rewrite destroys, and rather than an
+   * index because the list it sits in changes shape across the render — the
+   * card a purchase completes leaves the shelf for the ✓ Owned strip.
+   */
+  private dataSignature(el: Element | null): string {
+    if (!(el instanceof HTMLElement) || !this.overlay.contains(el)) return "";
+    return Array.from(el.attributes)
+      .filter((a) => a.name.startsWith("data-"))
+      .map((a) => `[${a.name}="${CSS.escape(a.value)}"]`)
+      .join("");
+  }
+
+  /**
+   * Put the PAD's selection back where the player can see it, after a
+   * renderKeepingScroll has moved the shelf under it.
+   *
+   * THE BUG THIS EXISTS FOR (found in review of the scroll restore itself, and
+   * a good example of why a re-render has two coordinates rather than one). A
+   * pad player buys from the bottom of the Workshop shelf. The purchase
+   * destroys the button they pressed, so syncPadFocus — inside the render —
+   * lands focus on the screen's first primary action, and on this screen that
+   * is a BUY button near the TOP of the shelf; focusOn reveals it, scrolling
+   * the shelf up. Then the scroll restore puts the shelf back at 661. Measured
+   * on a 740x360 phone: the ring sitting 605px above the fold, on "+1 slot ·
+   * 70", with nothing on screen to say so. The next Confirm spends salvage on
+   * an item the player never saw, and the next D-pad press teleports the shelf
+   * back to the top to show them what they just bought.
+   *
+   * GAMEPAD ONLY. It is the one profile that lands a selection after a render
+   * at all (syncPadFocus), so it is the one profile that can strand one. A
+   * mouse player's focus falls to <body> — no ring, nothing to press blind —
+   * and re-seating it there would paint a focus ring on a screen nobody
+   * navigated with a key.
+   *
+   * TWO ANSWERS, in the order the player would want them:
+   *
+   *  1. THE SAME CONTROL, when the re-render kept it — a track bought at tier
+   *     1 still offers tier 2 from the same card. focusOn rather than focus(),
+   *     so ui/padnav.ts's own reveal arbitrates the last few pixels: it is the
+   *     one piece of code that knows a selection is the CARD and not the
+   *     button (canvas D4), and after a purchase the card above it may have
+   *     left the shelf.
+   *  2. THE NEAREST THING THE PLAYER CAN SEE, when it did not — a bought
+   *     unlock leaves the shelf for the ✓ Owned strip. Only when the landed
+   *     selection is genuinely off screen: padnav's pickInView reads the
+   *     restored viewport and picks the target showing the most of itself, and
+   *     a selection that is merely low in the pane is left exactly where the
+   *     render put it.
+   *
+   * AND WHEN THE RESTORED VIEW HAS NOTHING TO SELECT, the selection wins and
+   * the offset is spent bringing it in. That is not a corner case invented for
+   * completeness: buy the last option on the Workshop shelf and what is left
+   * at the bottom of the pane is the ✓ Installed and ✓ Owned strips and the
+   * gated cards — spans and prices, not one focusable control (13 targets, all
+   * of them above the fold, in the measurement above). Keeping the offset
+   * there would mean keeping a ring the player cannot see, and this whole
+   * method exists to say that the two must agree. focusOn's reveal is what
+   * spends it, so the shelf moves exactly as far as showing the selection
+   * needs — which is also, precisely, the behaviour of the render before any
+   * of this existed.
+   */
+  private reseatPadSelection(held: string): void {
+    if (this.profile !== "gamepad") return;
+    const back = held ? this.overlay.querySelector<HTMLElement>(held) : null;
+    // A control that came back DISABLED is not a selection: the purchase can
+    // spend the last affordable salvage, and a disabled button cannot take
+    // focus at all — so focusing it would leave the ring wherever the render's
+    // own landing put it while `reveal` scrolled the pane away from it, which
+    // is the exact failure this method is here to end. Fall through and pick
+    // something live instead.
+    if (back && !(back as HTMLButtonElement).disabled) { focusOn(back); return; }
+    const el = document.activeElement as HTMLElement | null;
+    const port = el?.closest<HTMLElement>("[data-scroll]");
+    if (!el || !port) return;
+    const pr = port.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    // Any of it on screen at all is enough to leave alone: a selection low in
+    // the pane is where the render meant to put it, and moving a ring the
+    // player can already see is its own kind of lost place.
+    if (Math.min(er.bottom, pr.bottom) - Math.max(er.top, pr.top) > 0) return;
+    const targets = focusTargets(port);
+    const idx = pickInView(
+      targets.map((t) => {
+        const r = t.getBoundingClientRect();
+        return { x: r.left, y: r.top, w: r.width, h: r.height };
+      }),
+      { x: pr.left, y: pr.top, w: pr.width, h: pr.height },
+    );
+    focusOn(idx >= 0 ? targets[idx] : el);
   }
 
   /** A pad player needs focus to EXIST before the D-pad can move it: land it
@@ -6183,13 +6288,7 @@ class App {
   private renderSandboxInPlace(): void {
     const cols = this.overlay.querySelectorAll<HTMLElement>(".sbx-col");
     const offsets = Array.from(cols, (c) => c.scrollTop);
-    const active = document.activeElement;
-    const sig = active instanceof HTMLElement && this.overlay.contains(active)
-      ? Array.from(active.attributes)
-        .filter((a) => a.name.startsWith("data-"))
-        .map((a) => `[${a.name}="${CSS.escape(a.value)}"]`)
-        .join("")
-      : "";
+    const sig = this.dataSignature(document.activeElement);
     this.renderOverlay();
     // Synchronous: the new elements are already in the document, and writing
     // scrollTop forces the layout it needs to clamp against. No frame to wait

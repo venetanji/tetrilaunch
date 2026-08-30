@@ -203,7 +203,7 @@ import {
 import { setRailSide } from "../src/game/layout";
 import {
   armActivate, armRelease, DISARMED,
-  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, revealShift,
+  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import { captureScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
@@ -14256,6 +14256,44 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
   // worse than leaving it at the top.
   check("an anonymous region is left alone rather than guessed at",
     scrollKey(region("", "")) === "" && captureScroll([region("", "", 90)]).size === 0);
+
+  // THE PAD'S HALF OF THE SAME RENDER (ui/padnav.ts's pickInView, driven by
+  // main.ts's reseatPadSelection). Restoring the offset is only half an
+  // answer: syncPadFocus lands a selection inside that same render, and on the
+  // Workshop it lands on the first primary action — a BUY button near the TOP
+  // of the shelf. Measured on a 740x360 phone, the two together left the ring
+  // 605px above the fold, where the next Confirm spends salvage on an item
+  // nobody looked at. So when the control the player was holding did not
+  // survive, the selection is re-seated on what the restored viewport is
+  // actually showing.
+  //
+  // The pane below is 200 tall at y=100, i.e. the shelf as the player sees it.
+  const port = { x: 0, y: 100, w: 300, h: 200 };
+  const row = (y: number, h = 44) => ({ x: 0, y, w: 300, h });
+
+  check("a selection is re-seated on a row inside the pane",
+    pickInView([row(-500), row(-100), row(140), row(400)], port) === 2);
+
+  // MOST OF ITSELF SHOWN, not nearest to an edge: a row clipped to a sliver at
+  // the fold is not somewhere to leave a ring the player is about to press.
+  check("a whole row beats a sliver at the edge",
+    pickInView([row(90), row(180)], port) === 1);
+
+  // Ties go to the earliest, so a pane of equally visible rows selects the top
+  // one — where a reader's eye already is.
+  check("equally visible rows tie to the first",
+    pickInView([row(120), row(180), row(240)], port) === 0);
+
+  // NOTHING IN VIEW IS ITS OWN ANSWER, and it is the case the Workshop
+  // actually produces: buy the last option on the shelf and everything left at
+  // that offset is the ✓ Installed and ✓ Owned strips and the gated cards —
+  // spans and prices, not one focusable control. -1 is what tells the caller
+  // to spend the offset revealing the selection instead of keeping a ring
+  // nobody can see.
+  check("a pane showing nothing selectable says so",
+    pickInView([row(-500), row(-200), row(400)], port) === -1);
+  check("…and an empty pane too",
+    pickInView([], port) === -1);
 }
 
 // ---------------------------------------------------------------------------
