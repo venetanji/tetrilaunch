@@ -74,7 +74,7 @@ import {
   markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
-  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, SLOT_CAP,
+  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -148,6 +148,7 @@ import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
   startHoldCharge, stopHoldCharge, restoreBed, setWind, stopWind,
+  playIncinerate, playCushionAbsorb, playRackMove,
   suspendMidBayStinger, resumeMidBayStinger,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
@@ -3440,6 +3441,21 @@ class App {
       onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
+      // THE TWO SYSTEMS THAT ONLY EXIST ON A RIG, and the reason neither is
+      // wired into startDrill or startContract below: a drill flies
+      // makeBaseLevel(0) and a Contract flies levelForContract, and neither
+      // runs applyUpgrades — so there is no hood and no liner in either mode,
+      // and a handler there could only ever be a line that never fires.
+      //
+      // The hood gets a haptic as well as a cue. It is the one of the two that
+      // answers something the PLAYER did on purpose (aiming an unusable
+      // shipment into the flue), and a success the thumb can feel is how the
+      // rest of this list marks a deliberate act.
+      onIncinerate: (relief) => { void successHaptic(); playIncinerate(relief); },
+      // The liner's is sound only. It rides on a landing that already fired
+      // onImpact in the same frame, and a second buzz on top of that one would
+      // read as the phone stuttering rather than as a system reporting.
+      onCushionAbsorb: () => playCushionAbsorb(),
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
       onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       // THE SHIFT ENDING, not the run ending. Overtime is still live: shots
@@ -4599,6 +4615,11 @@ class App {
     this.meta = next;
     saveMeta(this.meta);
     void tapHaptic();
+    // Read off the SAVED state rather than tracked across the toggle: which way
+    // the system just went is what the rack now says, and asking the new state
+    // is the one form of the question that cannot fall out of step with
+    // toggleMount's own rules.
+    playRackMove(isMounted(this.meta, id as UpgradeId));
     this.renderKeepingScroll();
   }
 

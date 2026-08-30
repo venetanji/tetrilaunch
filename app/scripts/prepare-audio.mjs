@@ -81,6 +81,18 @@ const FX = [
   // The clock's last word — timeUp is no longer declined, see the prompt
   // sheet — and the tip strike (game.ts's onCompactorHit).
   "timeUp", "compactorImpact",
+  // THE RIG'S OWN THREE, mapped ahead of their masters on purpose — the run
+  // fails here until they land, which is the loud TODO the header describes and
+  // the reason the names go in with the wiring rather than after it. The app
+  // side is already live and degrades to silence (lib/audio.ts's playFx returns
+  // on an undecoded buffer), so the branch carrying them plays exactly as it
+  // did before while these three are missing.
+  //
+  // The hood remitting a bill (game.ts's onIncinerate), the liner catching a
+  // volatile landing (onCushionAbsorb), and the Workshop rack — one master read
+  // two ways, mount forward and stow pitched down, so there is no `systemStow`
+  // to map (lib/audio.ts's playRackMove).
+  "incinerate", "cushionAbsorb", "systemMount",
   // The bay's own weather, a LOOP like the congestion takes rather than a
   // one-shot — its gain tracks |windNow|/windMax every frame (main.ts).
   "windLoop",

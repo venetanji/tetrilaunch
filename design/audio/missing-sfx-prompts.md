@@ -51,10 +51,27 @@ silence.** All of these play over music.
 
 | bucket | names |
 |---|---|
-| **fx one-shots (21)** | `shoot` `impact` `lineClear` `pieceLost` `settleStart` `cryoShatter` `bondBreak` `bondBreak2` `reloadReady` `explosion` `uiClick` `bombArm` `uiConfirm` `thawLance` `timeLow` `lastLaunch` `broke` `compactorStroke` `crate` `transactionConfirm` `holdCharge` |
-| **fx loops (3)** | `congestionLoop` `congestionLoop2` `congestionLoop3` |
-| **stingers (7)** | `bayClear` `gameOver` `gameOver2` `refit` `contractClear` `timeFinal` `brokeSettle` |
+| **fx one-shots (25)** | `shoot` `impact` `lineClear` `pieceLost` `settleStart` `cryoShatter` `bondBreak` `bondBreak2` `reloadReady` `explosion` `uiClick` `bombArm` `uiConfirm` `thawLance` `timeLow` `lastLaunch` `broke` `compactorStroke` `crate` `transactionConfirm` `holdCharge` `excellentClear` `sealBreak` `timeUp` `compactorImpact` |
+| **fx loops (4)** | `congestionLoop` `congestionLoop2` `congestionLoop3` `windLoop` |
+| **stingers (8)** | `bayClear` `gameOver` `gameOver2` `refit` `contractClear` `timeFinal` `brokeSettle` `unlockFanfare` |
 | **beds (13)** | `menu`, `bay-1`…`bay-10`, `contract-rare` |
+
+**MAPPED AND AWAITING MASTERS — `incinerate`, `cushionAbsorb`, `systemMount`.**
+The wiring for all three is already on `staging`'s `claude/system-sounds`
+branch: `FxName`, `FX_ONE_SHOTS`, prepare-audio's `FX`, and the call sites. So
+**`npm run audio:prepare` FAILS until those three files exist in `audio/fx/`** —
+mapped-but-missing, exactly the loud TODO the script is built around. That is
+the intended state of the branch, not a fault in it, and the app is unaffected
+(`playFx` returns on an undecoded buffer, so each is silence until its take
+lands). What it does mean is: **generate these three before running the
+pipeline on that branch.** A run without them rebuilds `app/public/audio/`
+minus the three, prints the failure and exits non-zero — recoverable with
+`git checkout app/public/audio`, but do not commit that state.
+
+The names cross the seam unchanged, so `incinerate.mp3` in `audio/fx/` is the
+`FxName`, is the shipped asset, is the `playFx` argument. `systemMount` covers
+**both** rack directions and there is deliberately no `systemStow` to generate —
+see its entry.
 
 **Present but NOT mapped**, so reported by the pipeline and not shipped:
 `explosion2` (a second take nothing claims) and `chilled beginning` (bay-1's
@@ -425,6 +442,164 @@ frame, so it has to be tiny or it doubles up. Skip it if the mix is already busy
 1. `instrumental short descending two-note debit tone, dry synthetic, funds deducted, terminal readout, quiet and matter of fact, 400ms`
 2. `instrumental one low negative blip, downward pitch bend, cold accounting cue, no reverb, unobtrusive, 350ms`
 3. `instrumental brief muted buzz stepping down a minor third, machine rejecting, thin and midrange, 500ms`
+
+---
+
+# TIER 4 — the rig's own three
+
+The newer systems arrived with no audio at all, which is a different gap from
+the ones above: those were moments the game already had and did not voice, and
+these are whole SYSTEMS a player buys, fits and flies without ever hearing them
+work. All three are wired and mapped; only the takes are missing.
+
+Two of them share one constraint worth stating once. Both fire in a frame that
+already has a sound in it — the Incinerator's tick lands on top of `pieceLost`,
+the cushion's on top of `impact` — so each is a **second voice**, not a
+replacement, and the `excellentClear` rule applies to both: stay clearly ABOVE
+the cue underneath and clearly SHORTER, or the two smear into one muddy event
+and the player cannot hear which happened.
+
+## `incinerate` — one-shot, 0.2–0.4s
+
+**Why:** the Incinerator remits 25/50/75% of a loss bill for cargo destroyed in
+the flue — the whole bay above the plant's roof (`chute.ts`'s `INCINERATOR_Y`),
+including the intake's own mouth. Firing an unusable shipment up there instead
+of landing it is the play the system is bought for, and it currently sounds
+**identical to fumbling one**: the same `pieceLost` thud, the same `−$` toast.
+One of those is a plan and the other is a mistake, and the bay says nothing
+about which.
+
+Fires on `game.ts`'s `onIncinerate`, gated on money the hood **actually kept**
+(`reliefRealised`, so a near-broke bay that never paid the full bill is silent)
+and throttled to one tick per dump. One asset at three readings: `playIncinerate`
+pitches and lifts it slightly with the hood's rating, so a better hood is
+audible as a better hood — **do not generate three.**
+
+1. `instrumental short furnace intake, one dry gas-burner whoomp with a bright metallic edge on the front, sucking inward rather than exploding outward, no reverb tail, cold industrial, 300ms`
+2. `instrumental single incinerator flare, sharp ignition tick into a brief filtered noise swell that cuts off hard, synthetic, midrange, no sub, 350ms`
+3. `instrumental one short pneumatic vent into a bright confirm blip, waste being taken and accounted for, dry neon-industrial machinery, 250ms`
+
+**Listen for:** it must read as **relief, not loss** — this is the moment money
+was SAVED, over the top of a cue that is already saying money was spent. Reject
+anything mournful, anything descending, and anything that reads as a second
+explosion (`explosion` at `rate 0.66` is already the chute's own crunch and this
+plays right beside it). Reject sub content especially hard: a furnace is exactly
+the brief where a generator will hand back a 40 Hz rumble the phone plays as
+silence — that is `windLoop`'s whole story, and this cue does not get a
+`MASTER_EQ` rescue for free.
+
+## `cushionAbsorb` — one-shot, 0.15–0.3s
+
+**Why:** the Impact Cushion lines the deep slots so a volatile shipment lands
+there without going off. When it works, **nothing happens** — which is the point
+and also the problem: an absorbed landing is pixel-for-pixel an ordinary one, so
+the most expensive counter in the Workshop is invisible in play. On an unlined
+bay this same instant would have been `explosion`.
+
+Fires on `onCushionAbsorb`, and only in the band where the liner is the reason:
+a gentle set-down was never going off and a shot past even a maxed liner did go
+off, so neither reports (`lineClear.ts`'s `cushionAbsorbed`, pinned in
+`sim/systems.ts`). Frequent in cushion play, so it plays quiet and detuned per
+hit, under the landing's own `impact`.
+
+1. `instrumental single soft damped thud, a heavy object caught in padding, dull mid-body with the transient absorbed rather than sharp, dry, no ring, 250ms`
+2. `instrumental one muffled pneumatic catch, air taking a load, short and rounded with no attack spike, cold synthetic, no reverb, 200ms`
+3. `instrumental short cushioned impact into a brief settling squeak, something arrested safely, thin and mid-focused, no boom, 300ms`
+
+**Listen for:** **absence of a bang.** The cue's job is to say the blast did not
+happen, so anything percussive, bright or explosive tells the exact opposite
+story. It also has to stay clear of `impact` (which is firing in the same frame)
+and clear of `pieceLost` — softer and duller than both, a *swallowed* sound.
+Reject any take with a tail: volatile cargo arrives in runs and this can fire
+several times across one settle.
+
+## `systemMount` — one-shot, 0.2–0.4s
+
+**Why:** the Workshop rack is where a player decides which systems fly, and
+moving one between the rack and the shed (`main.ts`'s `onMount`) answers with a
+haptic and **nothing at all**. Buying rings `transactionConfirm`; `crate` is the
+in-bay transport and covers neither — so both directions are silent today.
+
+**ONE MASTER COVERS BOTH DIRECTIONS.** `playRackMove` plays it forward for a
+mount and pitched down and pulled back for a stow, which is exactly what
+`playUiClick` already does for toggles ("toggles pitch up when they switch on
+and down when they switch off, which reads without looking at the pill"). This
+is the doctrine at the top of the page — do not generate a `systemStow`.
+
+Neither direction is a purchase: mounting spends nothing and is undone by
+tapping again, so the till would be pricing a decision that has no price.
+
+1. `instrumental single rack module seating, one firm mechanical click into a short solid latch, hardware locking into a bay, dry, no reverb, 300ms`
+2. `instrumental one servo-assisted socket engaging, brief whirr into a hard positive stop, workshop hardware, cold and precise, 350ms`
+3. `instrumental short metallic slide into a damped clunk, a card seating in a slot, tight and unfussy, no tail, 250ms`
+
+**Listen for:** it has to survive being **pitched down 18%** and still read as
+the same mechanism — that is the stow. Audition every take both ways before
+choosing. Reject anything tonal enough that the pitched-down version sounds like
+a different note (it plays over the menu bed), anything with a rising tail (a
+stow is not a launch), and anything longer than about 400ms: the rack is
+rearranged in bursts of five or six taps.
+
+---
+
+# PROPOSAL — the Skydeck's music. A decision for the owner.
+
+**Not wired, deliberately.** The release checklist asks for "its own stinger or
+bed — decide", and both answers cost masters and download size, which is the
+owner's call rather than an audio-wiring call. Here is what the decision
+actually is.
+
+**Where it stands today.** A Skydeck run flies the ladder's own ten bays
+(`run.ts`'s `bayMusic`), so it plays `bay-1` through `bay-10` in order, exactly
+like a Mark-10 Deep Run. Its verdict is `syncMusic`'s `case "won"`, which rings
+`gameOver2` — the same run-complete piece a ladder run gets.
+
+**Option A — leave it borrowing (free, and defensible).** The Skydeck IS the
+ladder's ten bays, at the roof's economics with standing clauses on top. The bed
+arc travelling with it says something true: this is the same tower. The
+soundtrack already stopped short of a per-mode theme once on the same reasoning
+— "Contracts have no theme of their own, by design: each borrows a bay's bed" —
+and the Skydeck has a far stronger claim to the ladder's beds than a Contract
+does, because it literally flies them. Cost: nothing. Risk: the game's hardest
+mode is sonically indistinguishable from its normal one.
+
+**Option B — its own bed (~2.5 MB, one master).** A fourteenth role, `skydeck`,
+mapped in prepare-audio's `MUSIC` and returned by `bayMusic` when
+`run.skydeck`. This is the expensive answer and it is expensive twice: one bed
+under ten bays is the exact thing `bayMusic`'s ladder exists to avoid ("it is a
+ten-bay arc, and the score should travel with it instead of looping a single
+track across the whole thing"), so a single Skydeck bed would be a **worse**
+listen over a 20-minute run than the borrowed ladder is. Ten Skydeck beds is 25
+MB and not a real proposal. **Recommendation: no.**
+
+**Option C — a run-clear stinger only (~0.4 MB, one master). The cheap honest
+one.** The Skydeck's distinctness is not the twenty minutes, it is the
+**finish**: it is the last thing in the game, gated on every Mark being beaten
+and sealed, and clearing it currently plays the same `gameOver2` a ladder run
+ends on. One 20–25s piece — call it `skydeckClear` — makes the moment its own
+without touching the arc that works.
+
+The hook is already there and it is one line, in `main.ts`'s `syncMusic`:
+
+> `case "won": playStinger("gameOver2"); return;`
+
+becomes a branch on `this.run?.skydeck`, which is the same shape `drill-end` and
+`contract-end` already use to pick a verdict piece. Plus a `StingerName` member
+and a `STINGERS` entry. Nothing else moves. **Left unwired on this branch on
+purpose:** a mapped stinger with no master fails `audio:prepare`, and this one
+is not decided yet — unlike the three effects above, which are.
+
+If the owner says yes, prompts to start from (stinger rules: never trimmed, kept
+stereo, loudness-normalised to −15 LUFS, so it may breathe):
+
+1. `instrumental summit arrival theme, 24 seconds, wide synth pad opening under a slow bright lead, altitude and stillness after effort, industrial optimism, no vocals, no drums`
+2. `instrumental neon synthwave finale, 22 seconds, arpeggio resolving over a sustained chord with a long clean tail, the top of the tower, confident and final, no vocals`
+3. `instrumental spacious electronic closing cue, 25 seconds, sparse bell motif over a warm drone, cold air and open sky, resolves completely, no vocals, no percussion`
+
+**Listen for, if it is generated:** it must outrank `gameOver2` without
+outranking `unlockFanfare` — this is the end of the game, but the tier ceremony
+is the moment the player was reaching for all run. And it plays under the end
+card while someone reads a score, like every other verdict piece here.
 
 ---
 
