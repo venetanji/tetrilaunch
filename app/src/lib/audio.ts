@@ -66,6 +66,8 @@ export type FxName =
   | "holdCharge"
   | "excellentClear"
   | "sealBreak"
+  | "timeUp"
+  | "compactorImpact"
   | "windLoop";
 
 /**
@@ -110,6 +112,9 @@ const FX_ONE_SHOTS: FxName[] = [
   "thawLance", "timeLow", "lastLaunch", "broke",
   "compactorStroke", "crate", "transactionConfirm", "holdCharge",
   "excellentClear", "sealBreak",
+  // The clock's last word, and the one collision the bay does not otherwise
+  // report.
+  "timeUp", "compactorImpact",
 ];
 
 /** The three interchangeable takes of the congestion cue, played IN ROTATION —

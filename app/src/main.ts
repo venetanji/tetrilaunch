@@ -3433,6 +3433,11 @@ class App {
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
+      // A shipment clipping the top of the press on its way over. Quiet: this
+      // is a GLANCE, not a landing, and the piece it happens to is still in the
+      // air with its real impact still to come — a cue as loud as the landing
+      // would make the smaller event sound like the bigger one.
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
@@ -3447,7 +3452,16 @@ class App {
       // Stopping the bed is the point rather than a side effect: the clock is
       // out, no further launch is accepted, and the music dropping away is what
       // says so. This is the one moment mid-bay where that is correct.
-      onTimeUp: () => { void impactHaptic(); playStinger("timeFinal"); },
+      // The chime lands ON zero and the piece carries the settle that follows.
+      // Both, not either: timeFinal is a 20s stinger whose job is the overtime,
+      // and a stinger fading up is not an ANNOUNCEMENT — the instant the clock
+      // hits zero needs an edge. Fired first, and it survives the stinger
+      // because it is on the fx bus while playStinger only touches the bed.
+      onTimeUp: () => {
+        void impactHaptic();
+        playFx("timeUp");
+        playStinger("timeFinal");
+      },
       // The bankroll's twin of the clock, and ALMOST the same shape: `broke` is
       // the moment the grace countdown starts and brokeSettle plays under the
       // bay while it converges.
@@ -3863,6 +3877,7 @@ class App {
       onThawLance: () => { void tapHaptic(); playFx("thawLance"); },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
@@ -3934,6 +3949,7 @@ class App {
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
       onCryoShatter: () => playFx("cryoShatter"),
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),

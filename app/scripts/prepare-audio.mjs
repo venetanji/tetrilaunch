@@ -78,6 +78,9 @@ const FX = [
   "compactorStroke", "crate", "transactionConfirm", "holdCharge",
   // The skill moment, and the one irreversible press in the meta.
   "excellentClear", "sealBreak",
+  // The clock's last word — timeUp is no longer declined, see the prompt
+  // sheet — and the tip strike (game.ts's onCompactorHit).
+  "timeUp", "compactorImpact",
   // The bay's own weather, a LOOP like the congestion takes rather than a
   // one-shot — its gain tracks |windNow|/windMax every frame (main.ts).
   "windLoop",
@@ -407,6 +410,14 @@ const OVERRIDES = {
   // down in a 128k master, so it carries that noise up with it. If the result
   // reads as hiss rather than as WIND, the answer is a new take briefed for the
   // phone band -- not more filtering here.
+  // Trimmed by hand upstream, and shipped exactly as delivered. The take ran
+  // 1.01s and carried a SECOND beep from 0.90s that the auto trim would have
+  // kept (the gap before it is 300ms of near-silence, but the beep is the
+  // loudest thing in the file and a window ending at the first gap would have
+  // shipped a double chime for a cue whose whole job is to mark ONE instant).
+  // The master is now the chime and its decay alone, so there is nothing left
+  // to cut and `full` says so rather than a window repeating the file length.
+  "timeUp.mp3": { full: true },
   "windLoop.mp3": {
     start: 0.98, dur: 3.98,
     eq: "highpass=f=200:poles=2,lowshelf=f=500:g=-15,highshelf=f=1500:g=6",

@@ -164,6 +164,24 @@ export interface GameEvents {
    *  landing should be one sound. The consumer throttles again on top (see
    *  lib/audio.ts's playImpact) because consecutive steps also collide. */
   onImpact?: (strength: number) => void;
+  /** A shipment still IN FLIGHT clipped the top tip of the press.
+   *
+   *  Not the press crushing the pile — that is `rigidPressDrag`, it is
+   *  continuous, and compactorStroke already scores the stroke it happens in.
+   *  This is the other collision: a piece launched over the bar catching its
+   *  top edge on the way across, seconds before it lands. The bay reports it
+   *  nowhere else, and it is the one contact that changes where a shipment ends
+   *  up without the player having done anything visible to cause it.
+   *
+   *  IN FLIGHT is `landedStep === undefined` — pieces.ts's own definition, and
+   *  the reason the field is optional: an unstamped cube is a cube that has
+   *  never been at rest. That is what keeps this off the pile sitting ON the
+   *  bar, which touches the same edge every step of every stroke.
+   *
+   *  Throttled to once per COMPACTOR_HIT_STEPS here rather than left to the
+   *  consumer: a shipment is four cubes and a clipped corner reports several
+   *  pairs across consecutive steps, which is one event to a player. */
+  onCompactorHit?: () => void;
   /** Fired when the bay CROSSES a congestion tier boundary (level.ts's
    *  PILE_TIERS) — on the crossing, never per step. `tier` is 0 for a clean bay
    *  and 1..`tiers` for each rung of the staircase; `tiers` is how many rungs
@@ -247,6 +265,11 @@ const TOPOUT_Y = 96;
  * a launched piece arrives at, so an ordinary landing has headroom left rather
  * than pinning at full volume. Audio only — nothing here affects simulation. */
 const IMPACT_MIN = 4;
+/** How long a tip strike owns the cue, in steps (~200ms). A shipment is four
+ *  cubes crossing the same edge, so the raw contact reports in bursts across
+ *  consecutive steps; this is what turns a burst into one sound. Short enough
+ *  that two SEPARATE shipments clipping the bar still get one cue each. */
+const COMPACTOR_HIT_STEPS = Math.round(200 / DT);
 const IMPACT_FULL = 14;
 
 /** Air damping the preview integrates, and the same figure every launched body
@@ -711,6 +734,8 @@ export class Game {
    *  PAID anything — the jitter-proof way to ask whether the press is still
    *  finding work. */
   private lastClearStep = -1;
+  /** Throttle for onCompactorHit — see COMPACTOR_HIT_STEPS. */
+  private lastCompactorHitStep = -Infinity;
 
   /** The field as it stood at the previous compactor full advance — body id to
    *  position and angle — or null before the first advance, and after a clear
@@ -906,6 +931,9 @@ export class Game {
       // rather than in a second pass — the relative speed only exists at the
       // moment matter reports the pair, the same reason strikeCryo runs here.
       let hardest = 0;
+      // Hoisted out of the loop: both are read once per pair.
+      const bar = this.compactor.body;
+      let hitTip = false;
       for (const pair of e.pairs) {
         const rel = Math.hypot(
           pair.bodyA.velocity.x - pair.bodyB.velocity.x,
@@ -938,6 +966,21 @@ export class Game {
         for (const [a, b] of tarWelds(this.cubes, pair.bodyA, pair.bodyB)) {
           this.pendingWelds.push([a.body, b.body]);
         }
+        // A SHIPMENT CLIPPING THE TOP OF THE PRESS (onCompactorHit). Ordered
+        // cheapest test first and deliberately so: the bar is in contact with
+        // the pile for most of every advance, so this pair matches often, and
+        // the height test rejects all of that before anything walks `cubes`.
+        // What is being crushed sits AGAINST THE FACE, below the top edge.
+        if (pair.bodyA === bar || pair.bodyB === bar) {
+          const other = pair.bodyA === bar ? pair.bodyB : pair.bodyA;
+          // Half a cell of tolerance, because the contact that counts is a
+          // CORNER catching the edge — a cube whose centre is exactly level
+          // with the top has already cleared it.
+          if (other.position.y < this.compactor.top + CELL / 2) {
+            const cube = this.cubes.find((c) => c.body === other);
+            if (cube && cube.landedStep === undefined) hitTip = true;
+          }
+        }
       }
       // IMPACT_MIN filters the low-level contact chatter of the AWAKE part of
       // the pile. Sleeping (engine.ts) quiets fully-settled cubes, but the
@@ -945,6 +988,10 @@ export class Game {
       // wakeCompactorBand), and those cubes report soft contacts every step.
       if (hardest >= IMPACT_MIN) {
         this.events.onImpact?.(Math.min(1, (hardest - IMPACT_MIN) / (IMPACT_FULL - IMPACT_MIN)));
+      }
+      if (hitTip && this.stepCount - this.lastCompactorHitStep >= COMPACTOR_HIT_STEPS) {
+        this.lastCompactorHitStep = this.stepCount;
+        this.events.onCompactorHit?.();
       }
     };
     Matter.Events.on(this.phys.engine, "collisionStart", this.onCollisionStart);
