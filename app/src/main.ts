@@ -147,7 +147,7 @@ import {
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
-  startHoldCharge, stopHoldCharge, restoreBed,
+  startHoldCharge, stopHoldCharge, restoreBed, setWind, stopWind,
   suspendMidBayStinger, resumeMidBayStinger,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
@@ -1099,6 +1099,11 @@ class App {
    * every screen change and the pick has a random element.
    */
   private syncMusic(s: AppState): void {
+    // The wind belongs to a bay being PLAYED. syncHud is what drives it and
+    // syncHud only runs while playing, so without this a pause would freeze the
+    // bed at whatever gust it was on and hold it under the pause card — the
+    // same class of bug as a stinger left ringing under a bed.
+    if (s !== "playing") stopWind();
     switch (s) {
       // Clearing a bay stops the bed and rings out over silence. Which
       // celebration you get is the run's own milestone logic: isRefitBay is
@@ -5777,6 +5782,12 @@ class App {
     // the residual error lands the cue a hair early. That is the right way to
     // be wrong: a hair ahead of the crush still reads as anticipation, where
     // late reads as a mistake.
+    // THE WEATHER, as a level rather than an event. windMax 0 disables the
+    // mechanic entirely (level.ts), and dividing by it would be the one reading
+    // here that can produce NaN — so a bay with no wind is asked for silence
+    // explicitly rather than arriving at it by arithmetic.
+    setWind(g.level.windMax > 0 ? Math.abs(g.windNow) / g.level.windMax : 0);
+
     const comp = g.compactor;
     if (comp.dir === 1 && this.strokeCueHalf !== comp.halfCycles) {
       // The advance's own length, which is what the lead has to fit inside.

@@ -78,10 +78,9 @@ const FX = [
   "compactorStroke", "crate", "transactionConfirm", "holdCharge",
   // The skill moment, and the one irreversible press in the meta.
   "excellentClear", "sealBreak",
-  // windLoop is deliberately NOT mapped: it is a continuous bed whose gain has
-  // to track |windNow|/windMax every frame, and nothing drives that yet.
-  // Mapping it would ship a file no code asks for — dead weight in the
-  // precache — so it waits in audio/fx/ and this run reports it as unmapped.
+  // The bay's own weather, a LOOP like the congestion takes rather than a
+  // one-shot — its gain tracks |windNow|/windMax every frame (main.ts).
+  "windLoop",
 ];
 
 /**
@@ -348,6 +347,18 @@ const OVERRIDES = {
   "congestionLoop.mp3": { start: 0.5, dur: 18.5 },
   "congestionLoop2.mp3": { full: true },
   "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
+  // A LOOP, so the transient trim must not run — and the window is chosen for
+  // its EDGES rather than its content, because a loop's seam is the only part a
+  // listener hears twice. Measured, the take fades in over ~0.6s, plateaus, and
+  // decays from 5.0s to its end at 8.4s, so most of it cannot be looped at all.
+  //
+  // 2.2-4.8s is the longest stretch whose two ends MATCH: -14.9dB at the start
+  // against -15.3dB at the end, a 0.4dB seam. The obvious wider window (1.0 to
+  // 5.0) spans 6dB and would pulse once per cycle — audible as a rhythm the bay
+  // does not have, which is the defect congestionLoop's entry warns about. 2.6s
+  // is short for a wind bed and will read as repetitive if it is ever loud; the
+  // fix then is a longer take, not a wider window.
+  "windLoop.mp3": { start: 2.2, dur: 2.6 },
   // NOT A LOOP, despite the name it arrived under. Measured, the take is a
   // charge that RESOLVES: it climbs from 0.2s to a climax at 2.4s and releases
   // into silence by 3.8s. A loop would have to cut that arc somewhere it does

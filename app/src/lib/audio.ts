@@ -65,7 +65,8 @@ export type FxName =
   | "transactionConfirm"
   | "holdCharge"
   | "excellentClear"
-  | "sealBreak";
+  | "sealBreak"
+  | "windLoop";
 
 /**
  * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
@@ -116,7 +117,12 @@ const FX_ONE_SHOTS: FxName[] = [
  *  only thing in the module that reads one. */
 const LOOP_TAKES: FxName[] = ["congestionLoop", "congestionLoop2", "congestionLoop3"];
 
-const FX_NAMES: FxName[] = [...FX_ONE_SHOTS, ...LOOP_TAKES];
+/** The bay's weather. Its own name rather than a member of LOOP_TAKES: those
+ *  three are ROTATED between congestion episodes, and this one is a single
+ *  continuous bed whose level is a live reading. */
+const WIND_LOOP: FxName = "windLoop";
+
+const FX_NAMES: FxName[] = [...FX_ONE_SHOTS, ...LOOP_TAKES, WIND_LOOP];
 
 /**
  * THE MIX — and it is deliberately the inverse of what these numbers used to
@@ -649,6 +655,74 @@ export function stopHoldCharge(): void {
   } catch {
     /* already stopped */
   }
+}
+
+/**
+ * THE BAY'S WEATHER — a bed whose level IS the reading, not a cue.
+ *
+ * Every bay rolls a steady average wind and drunk-walks around it (level.ts's
+ * windMax, game.ts's windNow), and it bends every shot. Until now the only way
+ * to learn it was to watch the trajectory preview move: a mechanic the player
+ * is expected to aim around, communicated through one thin dotted line.
+ *
+ * So this is not a cue and never fires — it runs for the length of a windy bay
+ * and its gain tracks |windNow| / windMax. A still bay is silent by
+ * construction (level 0 holds the gain at zero), a bay at its cap is at
+ * WIND_MAX_GAIN, and a gust is audible as a gust because the reading moves
+ * every step.
+ *
+ * setTargetAtTime rather than a ramp: the level is sampled once a frame and a
+ * linear ramp between samples would step audibly at 60Hz. The time constant is
+ * deliberately slower than the drunk walk's own — the ear should hear WEATHER,
+ * not the per-step noise the physics actually applies.
+ *
+ * Deliberately quiet at the top. This plays under everything for a whole bay,
+ * and a wind bed that competes with the compactor is one a player turns the
+ * game off over.
+ */
+const WIND_MAX_GAIN = 0.22;
+const WIND_RAMP_S = 0.35;
+let windSrc: AudioBufferSourceNode | null = null;
+let windGain: GainNode | null = null;
+
+export function setWind(level: number): void {
+  const want = Math.max(0, Math.min(1, level)) * WIND_MAX_GAIN;
+  if (!soundOn || !ctx || !fxBus) return;
+  if (!windSrc) {
+    // Nothing to start until the buffer has decoded, and nothing worth starting
+    // on a bay with no wind at all — a source running permanently at zero is
+    // just a voice held open for a bay that will never use it.
+    if (want <= 0) return;
+    const buf = buffers.get(WIND_LOOP);
+    if (!buf) return;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g).connect(fxBus);
+      src.start();
+      windSrc = src;
+      windGain = g;
+    } catch {
+      windSrc = null;
+      windGain = null;
+      return;
+    }
+  }
+  if (windGain && ctx) windGain.gain.setTargetAtTime(want, ctx.currentTime, WIND_RAMP_S);
+}
+
+/** Drop the bed outright — leaving a bay, not merely a lull. setWind(0) fades
+ *  to silence but keeps the voice, which is right between gusts and wrong once
+ *  the bay is over. */
+export function stopWind(): void {
+  const src = windSrc;
+  windSrc = null;
+  windGain = null;
+  if (!src) return;
+  try { src.stop(); } catch { /* already stopped */ }
 }
 
 /**

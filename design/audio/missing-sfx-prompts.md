@@ -61,9 +61,16 @@ silence.** All of these play over music.
 than shipped dead), `explosion2` (a second take nothing claims), and
 `chilled beginning` (bay-1's superseded master).
 
-**Still missing from the plan doc:** `timeUp` and `fundsLow`. `timeFinal` became
-the time-up cue when it moved to STINGERS, so `timeUp` may now be redundant —
-decide before generating it.
+**Nothing is missing.** `timeUp` and `fundsLow` were spec'd in
+[`timeout-broke-sfx-plan.md`](./timeout-broke-sfx-plan.md) and are **declined**:
+`timeFinal` became the time-up cue when it moved to STINGERS, and firing a siren
+at the same instant would muddy one event into two. `fundsLow` goes with it —
+`broke` and `lastLaunch` already carry the bankroll, and a third rung is a
+gradation the ear cannot place. `penalty` is declined for the reason its own
+entry gives: it stacks on `pieceLost` in the same frame.
+
+The set is complete as it stands. The remaining entries below are kept as the
+record of what was considered.
 
 One file often does several jobs already, and that is the doctrine, not a
 shortcut: `lineClear` is one file at four rates, `explosion` is one file read
