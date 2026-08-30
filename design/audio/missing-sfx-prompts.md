@@ -51,10 +51,19 @@ silence.** All of these play over music.
 
 | bucket | names |
 |---|---|
-| **fx one-shots (13)** | `shoot` `impact` `lineClear` `pieceLost` `settleStart` `cryoShatter` `bondBreak` `bondBreak2` `reloadReady` `explosion` `uiClick` `bombArm` `uiConfirm` |
+| **fx one-shots (21)** | `shoot` `impact` `lineClear` `pieceLost` `settleStart` `cryoShatter` `bondBreak` `bondBreak2` `reloadReady` `explosion` `uiClick` `bombArm` `uiConfirm` `thawLance` `timeLow` `lastLaunch` `broke` `compactorStroke` `crate` `transactionConfirm` `holdCharge` |
 | **fx loops (3)** | `congestionLoop` `congestionLoop2` `congestionLoop3` |
-| **stingers (4)** | `bayClear` `gameOver` `gameOver2` `refit` |
+| **stingers (7)** | `bayClear` `gameOver` `gameOver2` `refit` `contractClear` `timeFinal` `brokeSettle` |
 | **beds (13)** | `menu`, `bay-1`…`bay-10`, `contract-rare` |
+
+**Present but NOT mapped**, so reported by the pipeline and not shipped:
+`windLoop` (needs a continuous driver off `|windNow|/windMax`; unmapped rather
+than shipped dead), `explosion2` (a second take nothing claims), and
+`chilled beginning` (bay-1's superseded master).
+
+**Still missing from the plan doc:** `timeUp` and `fundsLow`. `timeFinal` became
+the time-up cue when it moved to STINGERS, so `timeUp` may now be redundant —
+decide before generating it.
 
 One file often does several jobs already, and that is the doctrine, not a
 shortcut: `lineClear` is one file at four rates, `explosion` is one file read
@@ -64,7 +73,44 @@ say.** Every entry below is a moment that is currently *silent* or *wrong*.
 
 ---
 
-# TIER 0 — the two that are wrong today
+# TIER 0 — the skill moment, and the two that are wrong today
+
+## `excellentClear` — one-shot, 0.15–0.35s
+
+**Why:** EXCELLENT is the game's clearest statement that a shot was *deliberate*,
+and it is silent. Three gates have to line up at once (`grades.ts`): the row
+closed within **100ms** of the landing that closed it, the player's own shipment
+was **in** the row — a row the press ground shut on its own does not count — and
+the bay was **not congested**, because congestion caps the grade at *swept*. It
+pays **1.5x**, the highest multiplier in the game, and it draws a toast.
+
+`playLineClear` cannot cover it: that is one file at four rates keyed to LINE
+COUNT, and grade is an orthogonal axis. A four-line sweep closed by grinding and
+a single row closed on the shot sound identical today.
+
+**It LAYERS on top of `lineClear`, it does not replace it** — the clear still
+happened and its own cue still has to say how many rows. So this is a second
+voice in the same frame, and that is the whole design constraint: `lineClear` is
+a sweep that pitches up to rate 1.27 at four rows, so this has to stay clearly
+ABOVE it and clearly SHORTER, or the two smear into one muddy event.
+
+**Prompts:**
+
+1. `instrumental single bright bell chime, one struck note high and clean, silver and precise, instant attack with a short shimmering decay, no reverb wash, neon arcade reward, 250ms`
+2. `instrumental one crisp high synth ping, glassy FM bell struck once, narrow and bright around 4 kHz, confident and affirmative, dry, no tail, 200ms`
+3. `instrumental short ascending two-note sparkle, high register, clean digital bell, resolves upward, tight and unfussy, no reverb, 300ms`
+
+**Listen for:** it fires **several times in a good bay**, so it must be small.
+Anything that reads as a fanfare becomes unbearable by the third one — this is a
+tick of approval, not a celebration. Reject anything with a reverb tail (it will
+collide with the next clear), anything below ~1.5 kHz (that is `lineClear`'s
+territory and they will fight), and anything more than about three notes.
+
+**A note on frequency:** because congestion caps the grade, this cue can only
+ever fire in a **clean** bay. That makes it self-limiting and is why it can
+afford to be bright — it is the sound of a bay under control.
+
+# The two that are wrong today
 
 ## `contractClear` — stinger, 20–25s
 

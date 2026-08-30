@@ -49,7 +49,14 @@ export type FxName =
   | "congestionLoop3"
   | "thawLance"
   | "timeLow"
-  | "timeFinal";
+  | "lastLaunch"
+  | "broke"
+  | "compactorStroke"
+  | "crate"
+  | "transactionConfirm"
+  | "holdCharge"
+  | "excellentClear"
+  | "sealBreak";
 
 /**
  * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
@@ -67,13 +74,32 @@ export type MusicName = "menu" | ContractBed | BayTrack;
  *  shorter and smaller than `bayClear` — a daily side-job is not a cleared bay
  *  of a Deep Run, and a bigger fanfare would mis-rank the two. */
 export type StingerName =
-  | "bayClear" | "gameOver" | "gameOver2" | "refit" | "contractClear";
+  | "bayClear" | "gameOver" | "gameOver2" | "refit" | "contractClear"
+  /** The clock running out. A stinger and not a one-shot for two reasons that
+   *  arrived together: peak-normalising a sustained pad to a transient's target
+   *  left it inaudible under the bed, and OVERTIME is a window rather than a
+   *  moment — the bay settles for up to six compactor cycles after expiry, so a
+   *  cue with a shape has somewhere to play. Stopping the bed is correct here
+   *  and is the one place mid-bay it is: no further launch is accepted once the
+   *  clock is out, and the verdict's own stinger replaces this one when it
+   *  lands. */
+  | "timeFinal"
+  /** The bankroll's settle piece, and timeFinal's exact mirror: `broke` marks
+   *  the moment the grace countdown starts, this plays under the bay while it
+   *  converges, and the verdict replaces it. */
+  | "brokeSettle"
+  /** The tier ceremony. It used to borrow `contract-rare` — the daily Contract's
+   *  1-in-20 special — for the biggest progression moment in the game, which
+   *  said the wrong thing about what had just happened. */
+  | "unlockFanfare";
 
 const FX_ONE_SHOTS: FxName[] = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
   "explosion", "uiClick", "bombArm", "uiConfirm",
-  "thawLance", "timeLow", "timeFinal",
+  "thawLance", "timeLow", "lastLaunch", "broke",
+  "compactorStroke", "crate", "transactionConfirm", "holdCharge",
+  "excellentClear", "sealBreak",
 ];
 
 /** The three interchangeable takes of the congestion cue, played IN ROTATION —
@@ -195,6 +221,52 @@ const LIMITER_ATTACK_S = 0.003;
 const LIMITER_RELEASE_S = 0.25;
 const STINGER_UNDER_DB = -6;
 const STINGER_GAIN = MUSIC_GAIN * 10 ** (STINGER_UNDER_DB / 20);
+
+/**
+ * PER-STINGER TRIM, in dB on top of STINGER_GAIN. Empty means "no trim", which
+ * is what every well-behaved piece gets.
+ *
+ * This exists because loudness normalisation does its job and the job is not
+ * the whole story. Every stinger is baked to the same -15 LUFS integrated
+ * (prepare-audio's LONG_LUFS) and lands within 0.4 LU of it — yet contractClear
+ * was reported from play as much quieter than the others, and measurement
+ * agreed with the ear rather than with the number: its LOUDEST three seconds
+ * sit at -16.7 dB against refit's -14.3 and gameOver2's -13.6. Integrated
+ * loudness is an average over a whole piece; "how loud is this cue" is a
+ * question about its peak passage, and the two come apart whenever one piece is
+ * sparser than another. bayClear (-17.1) has the same shape.
+ *
+ * Mastering cannot fix that without abandoning the single shared target — the
+ * one number that makes the relative balance decidable in one place — and
+ * re-encoding a piece hotter than its neighbours is exactly what that target
+ * exists to prevent. So the correction goes where this module already says
+ * taste belongs: a stinger is not BAKED louder, it is PLAYED louder, and by how
+ * much is a number tunable by ear with no re-encode. STINGER_UNDER_DB is that
+ * number for the whole class; this is the same idea per piece.
+ *
+ * Tune by ear against refit and gameOver2, which are the loudest of the set. A
+ * denser take would need less of this, and none is the right answer when a
+ * future master arrives with peaks like theirs.
+ */
+const STINGER_TRIM_DB: Partial<Record<StingerName, number>> = {
+  // +5, arrived at over three passes and one wrong theory. +2 and +4 were both
+  // reported as still too quiet, and at +4 the measurement said this was
+  // ALREADY the loudest stinger in the game by 2.3 LU (K-weighted, over each
+  // piece's own peak window). When a number and an ear disagree that hard, the
+  // number is answering the wrong question — what was missing was DENSITY, not
+  // level, and gain cannot add it. The compressor in prepare-audio's MASTER_EQ
+  // is what fixed that; this is only the level on top of it.
+  //
+  // Kept slightly hot rather than exactly level, on purpose: it is the shortest
+  // piece here at 11.6s and the only one that has to announce itself over a
+  // result card the player is already reading.
+  //
+  // THE CEILING IS +6, and it is a real one rather than a round number: that is
+  // STINGER_UNDER_DB exactly cancelled, i.e. this piece playing at a music
+  // bed's own gain with nothing left to give. Anything asking for more than
+  // that is asking for a denser master, not a bigger number.
+  contractClear: 5,
+};
 /** Crossfade between tracks, and the fade applied when a stinger is cut short
  *  by the next screen. Long enough not to click, short enough not to muddy. */
 const FADE_MS = 450;
@@ -501,6 +573,72 @@ export function playFx(name: FxName, opts: { rate?: number; gain?: number } = {}
 }
 
 /**
+ * THE HOLD METER, and the one effect in here that can be CUT SHORT.
+ *
+ * Every other one-shot is fire-and-forget because every other one-shot answers
+ * something that already happened. This one answers something still happening —
+ * a finger on a trigger — and the meter it voices visibly UNWINDS when the
+ * finger leaves (app.css drains the fill rather than blinking it away). A rise
+ * that kept playing over that would contradict the thing it exists to describe.
+ *
+ * So the source is held rather than dropped, and stopHoldCharge fades it out
+ * over CHARGE_RELEASE_MS instead of calling stop() bare: cutting a sustained
+ * rising tone at full amplitude is a click, and the click would be louder than
+ * the cue. One at a time by construction — starting a second charge stops the
+ * first — which is also true of the gesture.
+ */
+let holdChargeSrc: AudioBufferSourceNode | null = null;
+let holdChargeGain: GainNode | null = null;
+const CHARGE_RELEASE_MS = 70;
+
+export function startHoldCharge(gain = 0.45): void {
+  stopHoldCharge();
+  if (!soundOn || !ctx || !fxBus) return;
+  const buf = buffers.get("holdCharge");
+  if (!buf) return;
+  try {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(fxBus);
+    // Self-clearing, so a charge that simply RAN OUT — the hold completed, or
+    // the player held past the climax — leaves nothing behind for a later
+    // stopHoldCharge to fade a dead node through.
+    src.addEventListener("ended", () => {
+      if (holdChargeSrc === src) { holdChargeSrc = null; holdChargeGain = null; }
+    }, { once: true });
+    src.start();
+    holdChargeSrc = src;
+    holdChargeGain = g;
+  } catch {
+    holdChargeSrc = null;
+    holdChargeGain = null;
+  }
+}
+
+export function stopHoldCharge(): void {
+  const src = holdChargeSrc, g = holdChargeGain;
+  holdChargeSrc = null;
+  holdChargeGain = null;
+  if (!src || !ctx) return;
+  try {
+    if (g) {
+      const t = ctx.currentTime;
+      // setValueAtTime first: without an anchor the ramp starts from whatever
+      // the parameter's last SCHEDULED value was, not its current one.
+      g.gain.setValueAtTime(g.gain.value, t);
+      g.gain.linearRampToValueAtTime(0.0001, t + CHARGE_RELEASE_MS / 1000);
+      src.stop(t + CHARGE_RELEASE_MS / 1000);
+    } else {
+      src.stop();
+    }
+  } catch {
+    /* already stopped */
+  }
+}
+
+/**
  * Impacts arrive in bursts as a piece settles. The 60ms floor stops them
  * overlapping into mush; the small random detune keeps repeats from sounding
  * like one looped sample.
@@ -589,9 +727,51 @@ export function playUiClick(rate = 1): void {
  * sample is 105ms (see its OVERRIDES entry — the master is a four-per-second
  * clock and only ONE hit of it ships, precisely so this cannot overlap itself).
  */
-export function playTimeTick(urgency: number): void {
+export function playTimeTick(urgency: number, final: boolean): void {
   const u = Math.max(0, Math.min(1, urgency));
-  playFx("timeLow", { rate: 1 + 0.19 * u, gain: 0.5 + 0.3 * u });
+  // TWO BANDS, ONE THRESHOLD. `final` is the same FINAL_TIME_WARN_MS crossing
+  // that halves the beat in syncHud, so the tick gets louder, faster and higher
+  // at ONE moment rather than three — a single audible event ("this changed"),
+  // not a gradual smear the player cannot date.
+  //
+  // The ramp alone was not enough, reported from play: at the ten-second mark a
+  // linear 0.5->0.8 climb has only reached 0.65, and the bed sits on top of it
+  // (fx run at FX_BUS_GAIN 0.45 UNDER music's 0.55, and nothing ducks). The
+  // last ten seconds are where the cue has to cut through, so the band starts
+  // where the old ramp ENDED and climbs from there.
+  const gain = final ? 0.8 + 0.2 * (u - 0.5) * 2 : 0.5 + 0.3 * u;
+  playFx("timeLow", { rate: 1 + 0.19 * u, gain: Math.min(1, gain) });
+}
+
+/**
+ * THE PRESS LANDING — one cue per compactor cycle, and it is ANTICIPATORY.
+ *
+ * The bar's arrival at full advance is the beat the whole bay is played on, so
+ * the sound has to peak THERE. That means starting it before the bar gets
+ * there, which is why the caller owns the timing and this function does not: it
+ * is fired a fixed lead ahead of the stop (main.ts's COMPACTOR_CUE_LEAD_MS,
+ * measured off this sample's own envelope), so its loudest moment and the
+ * bar's rightmost position are the same instant.
+ *
+ * It was first wired the obvious way — fire on the stop, once per HALF-stroke,
+ * with the retreat pitched down — and both halves of that were wrong. Firing on
+ * the stop put the whole sound AFTER the event it was announcing, and two
+ * sustained hisses per cycle ran nearly continuously: reported as sounding like
+ * a loop, which is exactly what it was. One cue per cycle, peaked on the press.
+ *
+ * Quiet in absolute terms. This is the most repeated sound in the game and
+ * anything with personality at this rate becomes torture by bay 4.
+ */
+export function playCompactorStroke(squeeze = 1): void {
+  // `squeeze` is how much of the ideal lead the caller could actually give us:
+  // 1 when the stroke had room for the whole cue, above 1 when it did not and
+  // the sample has to play faster to still finish on the crush. A quicker press
+  // then also SOUNDS quicker and pitches up, which is the physically honest
+  // reading of a machine running harder — so the compromise is a feature rather
+  // than a fallback. Clamped, because past about a third faster it stops
+  // sounding like the same press.
+  const rate = Math.min(1.5, Math.max(1, squeeze)) * (0.98 + Math.random() * 0.04);
+  playFx("compactorStroke", { rate, gain: 0.3 });
 }
 
 /** The COMMITTING press — play, buy, undock, confirm. Same master as uiClick,
@@ -714,7 +894,11 @@ export function playStinger(name: StingerName): void {
     el.preload = "auto";
     stinger = el;
     stingerName = name;
-    void el.play().then(() => { if (stinger === el) fadeIn(el, STINGER_GAIN); })
+    // Clamped at 1: the trim is a correction, not a second volume control, and
+    // an element gain over unity is not a thing the Web Audio graph accepts
+    // here anyway — a piece needing more than this needs a better master.
+    const gain = Math.min(1, STINGER_GAIN * 10 ** ((STINGER_TRIM_DB[name] ?? 0) / 20));
+    void el.play().then(() => { if (stinger === el) fadeIn(el, gain); })
       .catch(() => { /* ignore */ });
     el.addEventListener("ended", () => {
       if (stinger !== el) return;

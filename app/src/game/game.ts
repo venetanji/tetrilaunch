@@ -186,6 +186,28 @@ export interface GameEvents {
    *  button, keyboard, gamepad), so a cue wired here covers all three without
    *  each call site remembering to play it. */
   onBombArmed?: (armed: boolean) => void;
+  /** Fired the step the clock reaches zero and OVERTIME opens (see the time-up
+   *  block in update()) — NOT the loss, which lands whenever settleDone
+   *  converges and arrives through onStatus.
+   *
+   *  The distance between those two is the point. Overtime is not a moment, it
+   *  is a WINDOW: launches already paid for still land, their lines are still
+   *  pressed and paid, and a payout in it can still win the bay. It runs until
+   *  the press stops changing anything, capped at settleCapSteps (six compactor
+   *  cycles, ~26s at stock). That is room enough for a cue with a shape, which
+   *  is why the time-up sound is a STINGER rather than a one-shot — see
+   *  main.ts's onTimeUp and lib/audio.ts's StingerName.
+   *
+   *  Once a bay: timeUpStep latches. */
+  onTimeUp?: () => void;
+  /** Fired when the stuck-broke grace countdown STARTS, and again with `false`
+   *  when a payout cancels it (see the broke block in update()).
+   *
+   *  The CROSSING, not the state, for the same reason onCongestion is one — and
+   *  this one can cross BACK, which is the half that matters: a line clear pays
+   *  more than a launch costs and also removes the cubes that raised the price,
+   *  so a rescue really does re-solvent the player. `stuck` says which way. */
+  onBroke?: (stuck: boolean) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -314,6 +336,7 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
  *  window's NORMAL exit is "field at rest AND a pressing stroke completed" —
  *  see resolveWin; this is only the backstop. */
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
+
 
 /** How long (physics steps) a provably-dead exact-inventory bay keeps running
  *  before it is called (see the pieces branch in update()). ~1s: long enough
@@ -2160,12 +2183,14 @@ export class Game {
     // clear that cancels the countdown ALSO removes the cubes that raised the
     // price, so a rescue fixes both halves at once.
     if (this.score >= this.launchCostNow) {
+      if (this.brokeSinceStep !== null) this.events.onBroke?.(false);
       this.brokeSinceStep = null;
       this.brokeSinceStroke = null;
     } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));
       if (allAtRest) {
         this.brokeSinceStep = this.stepCount;
+        this.events.onBroke?.(true);
         // Snapshot the stroke count with it: the verdict below counts presses
         // FROM HERE, so the two halves of the window have to arm together.
         this.brokeSinceStroke = this.compactor.strokes;
@@ -2241,7 +2266,10 @@ export class Game {
       // settleCapSteps so a never-resting pile can't stall the verdict forever.
       // A payout during overtime can still win the bay: the score >= target
       // check above runs first.
-      if (this.timeUpStep === null) this.timeUpStep = this.stepCount;
+      if (this.timeUpStep === null) {
+        this.timeUpStep = this.stepCount;
+        this.events.onTimeUp?.();
+      }
       if (this.settleDone(this.timeUpStep)) {
         this.lossReason = "time";
         this.setStatus("lost");

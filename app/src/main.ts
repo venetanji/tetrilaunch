@@ -7,7 +7,7 @@ import {
   quitLosesProgress, bayRetryable, retryIsWholeRun,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
-import { addGradeTally } from "./game/grades";
+import { addGradeTally, STEP_MS, type GradeTally } from "./game/grades";
 import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -145,7 +145,8 @@ import {
 } from "./lib/purchases";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
-  playExplosion, playUiClick, playUiConfirm, playTimeTick,
+  playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
+  startHoldCharge, stopHoldCharge,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
 } from "./lib/audio";
@@ -230,23 +231,6 @@ const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
  *  disagree the ring lurches the moment the first frame writes the property. */
 const CREST_HEAT_REST = 0.45;
 
-/**
- * THE BONUS TRACK, and the one other thing in the game that is allowed to
- * play it.
- *
- * It is the Contract board's rare special (contracts.ts's contractBed — one
- * roll in twenty, the bed that belongs to no bay), REUSED rather than
- * re-scored, and the reuse is the point rather than an economy. That track is
- * already the sound of "something out of the ordinary is happening to you",
- * which is exactly what a tier opening is; a player who has heard it on a
- * Contract recognises it here, and a player who meets it here first will
- * recognise it there. A second special written for one four-second ceremony
- * would be a track most players never hear twice.
- *
- * Nothing about the Contract roll changes to make this work — this is a second
- * READER of the same name, and contracts.ts is not touched.
- */
-const UNLOCK_BED: ContractBed = "contract-rare";
 
 /**
  * How long the bonus bed keeps the menu after the car has landed.
@@ -283,7 +267,71 @@ const UNLOCK_MUSIC_TAIL_MS = 6000;
  *  deliberate press does not feel like a wait. Published to CSS as
  *  `--bond-hold` when the hold starts, so the charge meter on the button and
  *  the timer that spends the charge are the same number and cannot drift. */
+/** The presses that SPEND a currency, and therefore answer with the till from
+ *  their own handlers instead of the generic press blip — see actionFeedback.
+ *  Kept as action ids rather than a class because spending is a fact about what
+ *  the button DOES, and a `.btn--primary` that happens to be styled that way is
+ *  a fact about how it looks. */
+const SPEND_ACTIONS = new Set(["buy-unlock", "buy-install", "buy-slot", "refit-done"]);
+
+/**
+ * How long a press has to survive before the charge cue starts.
+ *
+ * The ⏸ button does DOUBLE DUTY — a tap pauses, a hold restarts the bay — and
+ * so does Bond Breaker's trigger. Both call startHold on pointerdown, because
+ * the meter has to begin filling immediately for the gesture to feel counted.
+ * Sounding the charge there too meant every ordinary TAP fired a rising cue for
+ * a hold the player was never making.
+ *
+ * So the meter starts at once and the SOUND waits. 150ms rather than the 100 it
+ * was first pitched at: a deliberate tap runs about 50-100ms, and a threshold
+ * sitting on top of that range still catches the slow ones. The press is not
+ * left silent in the meantime — tapHaptic fires immediately, and the tap's own
+ * click feedback follows — so this delays a cue, not the confirmation.
+ *
+ * Its cost is paid back in the sample: holdCharge is pinned to end on its
+ * climax at BOND_HOLD_MS, so its window is shortened by exactly this much (see
+ * its OVERRIDES entry) and the peak still lands when the hold completes.
+ */
+const HOLD_CUE_DELAY_MS = 150;
+
 const BOND_HOLD_MS = 1000;
+
+/**
+ * How far ahead of full advance the press cue STARTS, so the crush and the
+ * sound are one event.
+ *
+ * Measured off the shipped sample: compactorStroke ramps in over ~0.12s, is
+ * within 2dB of its maximum from 0.20, and holds that until ~0.60 before
+ * decaying. The arithmetic peak is at 0.44 — and setting the lead to exactly
+ * that was reported as still landing LATE.
+ *
+ * Which is the lesson in this number. The sample is a PLATEAU, not a spike, and
+ * for a sustained sound the moment the ear assigns to it is not its numerical
+ * maximum: the body has to be established BEFORE the visual event for the two
+ * to fuse, because the eye takes the bar hitting the stop as instantaneous
+ * while the ear is still integrating a hiss that has been running for 440ms.
+ * Aligning the max to the stop therefore puts most of the sound after it.
+ *
+ * Tuned by ear across four passes — 440, 560, 760, 910 — and where it settled
+ * says what this sample actually is. The shipped file is 880ms long, so at 910
+ * the sound RUNS OUT about 30ms before the bar reaches the stop: the plateau
+ * covers the approach, and what lands on the crush is the end of the decay.
+ * This take is a hiss of hydraulics building and running out, and the bay wants
+ * it to FINISH on the press rather than to peak on it.
+ *
+ * That also makes 910 the practical edge. Push the lead past the sample's own
+ * 880ms length by any real margin and the cue stops overlapping the event
+ * altogether — there would be audible silence between the sound ending and the
+ * bar landing, which reads as two things rather than one. If it still wants to
+ * be earlier than this, the answer is a longer or slower-building master, not a
+ * bigger number here.
+ *
+ * And the number is a property of THIS master, not of the machine. Regenerate
+ * compactorStroke and re-tune from scratch; do not carry 910 over. Each 40ms is
+ * one bucket of the measured envelope, which is the unit to nudge it in.
+ */
+const COMPACTOR_CUE_LEAD_MS = 910;
 /** How far a held thumb may wander outside its trigger before the hold is read
  *  as "moved off it" and cancelled. A press on a rail button is made with the
  *  fat part of a thumb and wobbles by a few px while it sits there; sliding
@@ -627,10 +675,17 @@ class App {
    *  cue, not the state — keyed to the state alone this would fire sixty times
    *  a second for the last twenty seconds of every bay. */
   private timeBeat = -1;
-  /** The final-ten riser is once a BAY, not once a crossing — the clock can
-   *  cross ten seconds only downward, but a retry re-enters the same bay and
-   *  must start the riser armed again (reset in startLevel). */
-  private timeFinalPlayed = false;
+  /** Launches-left as the bankroll cue last saw it, -1 before a bay's first
+   *  frame. `launches` is an ESTIMATE OF PURCHASING POWER, not an ammo count:
+   *  it falls when congestion raises the price and climbs again when a line
+   *  pays out, so the cue fires on the fall through its rung and re-arms when a
+   *  rescue lifts it back over. */
+  private lastLaunchesSeen = -1;
+  /** Which compactor half-stroke the press cue has already been fired for, so
+   *  a lead-time trigger read every frame fires ONCE per advance. -1 before a
+   *  bay's first frame. */
+  private strokeCueHalf = -1;
+
   /** What the Contract just finished did to tier progress — whether this
    *  attempt was the first clear, and whether it completed the tier (see
    *  meta.ts's recordContractClear). Null until one resolves. */
@@ -752,6 +807,9 @@ class App {
         el: HTMLElement;
         rect: DOMRect;
         timer: number;
+        /** The charge cue's own delayed start — see HOLD_CUE_DELAY_MS. Cleared
+         *  by clearHold, so a hold abandoned inside the delay never sounds. */
+        cueTimer: number;
         onComplete: () => void;
       }
     | null = null;
@@ -1116,22 +1174,54 @@ class App {
         playMusic("menu");
         return;
 
-      // Everything out-of-run shares the menu bed — except the one visit to
-      // the home screen where a tier has just opened, which gets the bonus
-      // track for the length of the ceremony (UNLOCK_BED, and the tail after
-      // it). `celebrating` is only ever true on the menu (setState clears it on
-      // the way out), so this branch cannot leak the special onto the Workshop
-      // or the Contract board, and the timer that hands the lounge back is the
-      // one in armUnlockCelebration rather than anything here.
+      // Everything out-of-run shares the menu bed — except the one visit to the
+      // home screen where a tier has just opened, which gets the ceremony's own
+      // stinger for the length of the ride and the tail after it.
+      //
+      // It used to BORROW `contract-rare` here — the daily Contract's 1-in-20
+      // special — which meant the biggest progression moment in the game played
+      // a track the player associates with a side-job. A stinger rather than a
+      // bed because that is what this is: a thing that marks a moment and then
+      // plays on under the screen that follows, exactly like bayClear.
+      //
+      // No stopStinger on the celebrating path: syncMusic runs on every state
+      // change, and playStinger already no-ops when the piece it is handed is
+      // the one playing, so the ceremony survives a re-render. `celebrating` is
+      // only ever true on the menu (setState clears it on the way out), so this
+      // cannot leak the fanfare onto the Workshop or the Contract board.
       default:
+        if (this.celebrating) { playStinger("unlockFanfare"); return; }
         stopStinger();
-        playMusic(this.celebrating ? UNLOCK_BED : "menu");
+        playMusic("menu");
     }
   }
 
   /** Turn a congestion tier into a cue level. Normalised against the bay's own
    *  ladder rather than a hardcoded 2, so adding a third rung re-spaces the cue
    *  instead of pinning the new worst tier alongside the old one. */
+  /**
+   * THE SHOT THAT DID IT, on top of the clear rather than instead of it.
+   *
+   * EXCELLENT is the game's one statement that a row was closed DELIBERATELY,
+   * and it needs three things at once (grades.ts): the row closed within 100ms
+   * of the landing that closed it, the player's own shipment was in the row —
+   * a row the press ground shut on its own is not a shot — and the bay was not
+   * congested, since congestion caps the grade at SWEPT. It pays 1.5x, the
+   * highest multiplier in the game, and until now it was silent.
+   *
+   * playLineClear cannot carry it: that is one file at four rates keyed to LINE
+   * COUNT, and the grade is an orthogonal axis — a four-row sweep ground out
+   * over three strokes and a single row closed on the shot sound identical.
+   *
+   * Fired on the TALLY, not on a headline grade, so any excellent row in the
+   * crush earns it; and ONCE however many there were, because this is praise
+   * for the shot and the crush was one shot. The congestion gate is what keeps
+   * it rare enough to stay praise: it can only ever ring in a clean bay.
+   */
+  private excellenceCue(g: GradeTally): void {
+    if (g.excellent > 0) playFx("excellentClear", { gain: 0.55 });
+  }
+
   private setCongestion(tier: number, tiers: number): void {
     this.congestion = tiers > 0 ? Math.min(1, Math.max(0, tier / tiers)) : 0;
     if (this.state === "playing") setCongestion(this.congestion);
@@ -1820,7 +1910,12 @@ class App {
     // whatever screen the player went to, and this must not pull it back.
     window.clearTimeout(this.celebrateMusicTimer);
     this.celebrateMusicTimer = window.setTimeout(() => {
-      if (this.state === "menu") playMusic("menu");
+      // stopStinger FIRST, and that is new with the fanfare: playMusic starts a
+      // bed but does not touch the stinger channel, so handing the lounge back
+      // without this would leave a 14s fanfare ringing UNDER the menu bed for
+      // whatever was left of it. The old UNLOCK_BED was music, and swapping one
+      // bed for another needed no such thing.
+      if (this.state === "menu") { stopStinger(); playMusic("menu"); }
     }, total + UNLOCK_MUSIC_TAIL_MS);
   }
 
@@ -3117,12 +3212,13 @@ class App {
     if (!this.run) return;
     this.game?.destroy();
     this.congestion = 0;
-    // The clock cues are per-BAY state: a new bay re-arms the riser and forgets
-    // whatever beat the last one ended on. Only here, not in startContract or
-    // startDrill — a Contract has timeLimitSec 0 and the attract loop is
-    // untimed, so neither family can reach the cue at all.
+    // Per-BAY state: a new bay forgets whatever beat the last one ended on.
+    // Only here, not in startContract or startDrill — a Contract has
+    // timeLimitSec 0 and the attract loop is untimed, so neither family can
+    // reach the cue at all.
     this.timeBeat = -1;
-    this.timeFinalPlayed = false;
+    this.lastLaunchesSeen = -1;
+    this.strokeCueHalf = -1;
     // levelForRun already seeds the bay's Bond Breaker charges from the run's
     // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
     // refill — so the config arrives complete and nothing is patched here.
@@ -3143,7 +3239,8 @@ class App {
       },
       onLineClear: (n, g) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
-        void successHaptic(); playLineClear(n); this.flashGoal(); this.coachOnLineClear();
+        void successHaptic(); playLineClear(n); this.excellenceCue(g);
+        this.flashGoal(); this.coachOnLineClear();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => {
@@ -3170,6 +3267,30 @@ class App {
       onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
       onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
       onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
+      // THE SHIFT ENDING, not the run ending. Overtime is still live: shots
+      // already paid for are still in the air, their lines still pay, and a
+      // payout here can still WIN the bay — so this is deliberately not a
+      // funeral. It plays under the settling field for as long as that takes,
+      // and whatever verdict lands replaces it (playStinger stops the previous
+      // stinger, and syncMusic fires bayClear/gameOver on the status change).
+      //
+      // Stopping the bed is the point rather than a side effect: the clock is
+      // out, no further launch is accepted, and the music dropping away is what
+      // says so. This is the one moment mid-bay where that is correct.
+      onTimeUp: () => { void impactHaptic(); playStinger("timeFinal"); },
+      // The bankroll's twin of the clock, and the same shape: `broke` is the
+      // moment the grace countdown starts, brokeSettle plays under the bay
+      // while it converges, and the verdict replaces it.
+      //
+      // Silent on the way back OUT. A rescue is its own reward, and it is the
+      // line clear that pays for it — which already has a cue of its own that
+      // would be talked over by a second one saying the danger has passed.
+      onBroke: (stuck) => {
+        if (!stuck) return;
+        void impactHaptic();
+        playFx("broke");
+        playStinger("brokeSettle");
+      },
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
     telemetry.startBay({
@@ -3606,7 +3727,7 @@ class App {
       },
       onLineClear: (n, g) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
-        void successHaptic(); playLineClear(n); this.flashGoal();
+        void successHaptic(); playLineClear(n); this.excellenceCue(g); this.flashGoal();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => {
@@ -4150,7 +4271,13 @@ class App {
         }
         this.run = next;
         void successHaptic();
+        playFx("transactionConfirm");
       }
+    } else {
+      // Undocking with nothing staged. No money moved, so no till — but the
+      // press still has to be answered, and actionFeedback has stepped aside
+      // for this action. It is the ordinary commit blip it would have got.
+      playUiConfirm();
     }
     this.refitOrder = {};
     this.setState("draft");
@@ -4215,6 +4342,7 @@ class App {
     };
     saveMeta(this.meta);
     void successHaptic();
+    playFx("transactionConfirm");
     this.renderOverlay();
   }
 
@@ -4230,6 +4358,7 @@ class App {
     this.meta = next;
     saveMeta(this.meta);
     void successHaptic();
+    playFx("transactionConfirm");
     this.renderOverlay();
   }
 
@@ -4244,6 +4373,7 @@ class App {
     this.meta = next;
     saveMeta(this.meta);
     void successHaptic();
+    playFx("transactionConfirm");
     this.renderOverlay();
   }
 
@@ -4712,6 +4842,11 @@ class App {
       this.setState(this.sealBreakBack);
       return;
     }
+    // The stamp being voided. Placed on the CONFIRM rather than on the panel
+    // opening, because the panel is a question and this is the answer — and it
+    // is the only genuinely irreversible press in the meta, which until now
+    // confirmed with the same blip a Back button gets.
+    playFx("sealBreak");
     // Straight to resetBay rather than back through requestBayRetry: the
     // watermark is already burned, so the round trip would be a no-op with one
     // more chance to get a state guard wrong. Asked from THIS screen rather
@@ -5345,6 +5480,22 @@ class App {
       this
         .hudEl("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+      // ...and the same rung said out loud, on the CROSSING. The sharper cue
+      // wins a multi-step fall: going 5 -> 1 on one bad price move is "last
+      // launch", not "funds low, also last launch".
+      //
+      // Gated on the clock still SELLING launches, not merely on status:
+      // overtime keeps status "playing" while shoot() rejects every launch, and
+      // payouts and congestion pricing still move this estimate across the
+      // rungs. A warning about purchasing power the clock no longer honours is
+      // a lie, and it would land on top of timeFinal.
+      if (launches !== this.lastLaunchesSeen) {
+        const was = this.lastLaunchesSeen;
+        this.lastLaunchesSeen = launches;
+        if (was > 1 && launches === 1 && g.status === "playing" && g.timeLeftMs > 0) {
+          playFx("lastLaunch");
+        }
+      }
       // B7: the funds block joins the one urgency treatment at the same
       // threshold — the goal bar is the biggest funds surface on screen, and
       // it stayed serenely cyan while the number beside it flashed.
@@ -5427,6 +5578,42 @@ class App {
     }
     this.reloadWasReady = ready;
 
+    // THE PRESS, ANTICIPATED. The bar reaching full advance is the beat the bay
+    // is played on, so the cue has to PEAK there — which means starting it
+    // COMPACTOR_CUE_LEAD_MS earlier, not firing it on arrival. Driven from here
+    // rather than from a Game event for exactly that reason: the moment worth
+    // announcing is a lead time ahead of the event, and the lead is a property
+    // of the sample rather than of the machine, so it belongs on the audio side
+    // of the seam.
+    //
+    // The estimate reads the bar's own pace and is a step short under rigid
+    // drag (game.ts's rigidPressDrag slows the travel but not this arithmetic),
+    // so a labouring press lands its cue slightly early. That is the right way
+    // to be wrong: a hair ahead of the crush still reads as anticipation, where
+    // late reads as a mistake.
+    const comp = g.compactor;
+    if (comp.dir === 1 && this.strokeCueHalf !== comp.halfCycles) {
+      // The advance's own length, which is what the lead has to fit inside.
+      // Measured across the whole ladder it runs 2222ms (bay 1, stock) down to
+      // 1051ms (bay 10 with Press Hydraulics T3 AND three Sweep notches), so
+      // today the lead always fits — by 141ms in the worst case. That margin is
+      // thin enough that a balance change to compactorSpeed could eat it
+      // silently, and the failure would be invisible: the cue would clamp to
+      // the start of the advance and drift earlier and earlier as the press got
+      // faster, with nothing to say so.
+      //
+      // So it is clamped HERE and the shortfall handed to the sample instead.
+      // The cue is anchored to the crush at every speed by construction rather
+      // than by a margin nobody re-measures.
+      const strokeMs = (comp.cycleSteps / 2) * STEP_MS;
+      const lead = Math.min(COMPACTOR_CUE_LEAD_MS, strokeMs);
+      const msToStop = (1 - comp.phase) * strokeMs;
+      if (msToStop <= lead) {
+        this.strokeCueHalf = comp.halfCycles;
+        playCompactorStroke(COMPACTOR_CUE_LEAD_MS / lead);
+      }
+    }
+
     if (g.timeLeftMs !== Infinity) {
       // BUCKETED AT THE RESOLUTION IT IS READ AT. The clock moves every frame
       // and is displayed to the whole second, which is the third class in the
@@ -5457,18 +5644,11 @@ class App {
       // is the cue. It halves under FINAL_TIME_WARN_MS, which together with
       // playTimeTick's rate climb is the whole of the acceleration: one file,
       // no second "fast ticks" asset, exactly as one lineClear covers four.
-      const beat = ticking
-        ? Math.ceil(g.timeLeftMs / (g.timeLeftMs < S.FINAL_TIME_WARN_MS ? 500 : 1000))
-        : -1;
+      const final = g.timeLeftMs < S.FINAL_TIME_WARN_MS;
+      const beat = ticking ? Math.ceil(g.timeLeftMs / (final ? 500 : 1000)) : -1;
       if (beat !== this.timeBeat) {
-        if (ticking) playTimeTick(1 - g.timeLeftMs / S.LOW_TIME_WARN_MS);
+        if (ticking) playTimeTick(1 - g.timeLeftMs / S.LOW_TIME_WARN_MS, final);
         this.timeBeat = beat;
-      }
-      // The riser, once a bay: it says the count is nearly over, underneath the
-      // ticks that are still keeping it.
-      if (ticking && g.timeLeftMs < S.FINAL_TIME_WARN_MS && !this.timeFinalPlayed) {
-        this.timeFinalPlayed = true;
-        playFx("timeFinal", { gain: 0.8 });
       }
     }
 
@@ -5487,6 +5667,13 @@ class App {
     const nextKey = `${idKey}|${g.cannon.quarterTurns}:${bp.quarterTurns}`;
     if (this.lastNext !== nextKey) {
       const arrived = this.lastNextId !== idKey;
+      // The transport, out loud — on `arrived`, which is the identity change
+      // and NOT the render key, so a rotate tap that redraws the held tile does
+      // not also clunk. Quiet and dull on purpose: it lands immediately behind
+      // `shoot` on every launch, and anything brighter reads as a double-fire.
+      // Guarded on the first frame of a bay, where lastNextId is empty and
+      // every piece is technically "new".
+      if (arrived && this.lastNextId !== "") playFx("crate", { gain: 0.3 });
       const next = this.hudEl<HTMLElement>("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
@@ -6248,6 +6435,18 @@ class App {
    *  button, shared by the press path and the keyboard path below. */
   private actionFeedback(el: HTMLElement): void {
     void tapHaptic();
+    // A SPEND SAYS ONE THING, NOT TWO. These four actions answer with the till
+    // (transactionConfirm) from their own handlers, and this used to blip
+    // underneath it — press feedback on pointerdown, purchase on the click a
+    // few milliseconds later, heard as a stutter rather than as a confirmation.
+    //
+    // Deferred rather than moved up here on purpose. The handler is the only
+    // place that knows the spend HAPPENED: buying is guarded (a stale DOM
+    // attribute, an order the run cannot pay for), and "refit-done" on an EMPTY
+    // order buys nothing at all and is simply the door out. Choosing the sound
+    // at press time would have to guess all three, and would announce a
+    // purchase that did not occur.
+    if (SPEND_ACTIONS.has(el.getAttribute("data-action") ?? "")) return;
     if (el.classList.contains("btn--primary")) playUiConfirm();
     else playUiClick();
   }
@@ -6399,12 +6598,20 @@ class App {
       el,
       rect: el.getBoundingClientRect(),
       onComplete,
+      // THE METER, out loud — but only once the press has outlived a tap. The
+      // cue runs to its own climax from here, so nothing has to stop it: a hold
+      // abandoned AFTER the delay lets a rise play out over a gesture that went
+      // nowhere, which is honest, while a tap never starts one at all.
+      cueTimer: window.setTimeout(() => startHoldCharge(), HOLD_CUE_DELAY_MS),
       timer: window.setTimeout(() => {
         // Tear down FIRST: the completion may re-render the overlay (the pause
         // button's restarts the bay), and clearHold has to drop the class off
         // the element that is still on screen, not off a detached one.
         const done = this.hold?.onComplete;
-        this.clearHold();
+        // `true`: the charge has just PEAKED — its window is pinned to end on
+        // the climax at exactly this instant — so tearing the hold down here
+        // must not also cut the one moment the cue exists to deliver.
+        this.clearHold(true);
         done?.();
       }, ms),
     };
@@ -6438,10 +6645,23 @@ class App {
    *  Called on release, on drift, the instant the hold completes, and whenever
    *  play stops (setState), since a modal replacing the rail means the
    *  pointerup that would have ended it is never coming. Idempotent. */
-  private clearHold(): void {
+  private clearHold(completed = false): void {
     const h = this.hold;
     if (!h) return;
+    // RELEASED EARLY, so the rise stops with the meter. The fill drains rather
+    // than blinking away (app.css), and a charge that kept climbing over a
+    // trigger the player had let go of would describe a gesture that was no
+    // longer happening — which is the whole job of this cue.
+    //
+    // Only on the abandoned path. A COMPLETED hold is the case the sample was
+    // cut for: it ends on its climax at the instant the hold fires, so silencing
+    // it here would remove the peak and leave only the approach.
+    if (!completed) stopHoldCharge();
     window.clearTimeout(h.timer);
+    // ...and the charge cue with it. This is the whole tap fix: a press
+    // released inside HOLD_CUE_DELAY_MS tears down here before the cue's timer
+    // ever fires, so pausing with a tap makes no charging sound.
+    window.clearTimeout(h.cueTimer);
     // Dropping the class ends the fill animation, and the base rule's
     // transition drains the meter back down instead of blinking it away — an
     // abandoned hold should visibly UNWIND, not just stop existing.
