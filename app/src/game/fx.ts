@@ -52,15 +52,20 @@ export type FxEvent =
      * colour sprays pixel wreckage in it: the material's hazard hue for a
      * volatile pop, the cargo's own colour for a shipment the intake ate,
      * BLAST_AMBER for a demolition charge. A blast that names none is a
-     * SHOCKWAVE — a Bond Breaker discharge, a Thaw Lance strike — pressure
-     * with no wreckage behind it, and it throws nothing, exactly as it did
-     * before the debris layer existed.
+     * SHOCKWAVE — a Bond Breaker discharge — pressure with no wreckage behind
+     * it, and it throws nothing, exactly as it did before the debris layer
+     * existed.
      *
-     * That is the whole reason this is optional rather than defaulted. The two
-     * shockwaves are the widest rings the game draws (a Bond Breaker's is
-     * CELL * 3.2), so a default would have put the biggest spray in the game
-     * on the two events with the least to show for themselves — on top of the
-     * dozens of `snap` puffs a discharge already spawns.
+     * That is the whole reason this is optional rather than defaulted. The
+     * shockwave is the widest ring the game draws (CELL * 3.2), so a default
+     * would have put the biggest spray in the game on the event with the least
+     * to show for itself — on top of the dozens of `snap` puffs a discharge
+     * already spawns.
+     *
+     * The Thaw Lance was the second such ring and is no longer one at all: its
+     * cue outgrew a shockwave in both size and temperature, and it now has its
+     * own event (`thaw`, below), which is where the argument for keeping this
+     * channel meaning ONE thing is written out.
      */
     color?: string;
     t0: number;
@@ -99,7 +104,32 @@ export type FxEvent =
    *  answer is cargo the player had already landed. Bigger and fewer than
    *  `shatter`'s shards: a cube that came apart in chunks, not one that
    *  vaporized. */
-  | { kind: "chunk"; x: number; y: number; color: string; t0: number };
+  | { kind: "chunk"; x: number; y: number; color: string; t0: number }
+  /**
+   * A THAW LANCE charge landing on one frozen cube (game.ts's useThawLance).
+   *
+   * WHY IT IS ITS OWN KIND, when it spent its first life as an uncoloured
+   * `explosion` of radius CELL * 0.9. The owner's report was that the thaw is
+   * "not a big enough visual cue", and photographing it says why in one frame
+   * (sim/uifit/thaw-shots.ts): a ring reaching 43 world px on a 40px cube,
+   * buried inside the pile it fires into, drawn in BLAST_AMBER — a fire colour
+   * on the one ability whose whole subject is ice.
+   *
+   * The alternative was to keep the explosion and widen it, and it was refused
+   * on the colour channel. `explosion.color` is not decoration: it is the
+   * switch the debris layer reads, and "no colour" is what makes the two
+   * shockwaves (Bond Breaker, this) throw no wreckage. A thaw that named its
+   * ice to get a cold ring would start spraying burning embers; a thaw that
+   * stayed colourless would keep burning amber. Neither is a thaw, and both
+   * are one event kind carrying two unrelated meanings on one field.
+   *
+   * So the lance keeps its own event, and the two stay honest about what they
+   * are: an explosion is pressure and heat, and this is a phase change. It
+   * carries no radius because — unlike a blast, which is sized by what it
+   * destroys — a charge thaws exactly one cube and always reaches the same
+   * distance (render.ts's THAW_REACH).
+   */
+  | { kind: "thaw"; x: number; y: number; t0: number };
 
 /** How long (ms) each event kind stays alive before Game prunes it. */
 export const FX_TTL: Record<FxEvent["kind"], number> = {
@@ -121,4 +151,10 @@ export const FX_TTL: Record<FxEvent["kind"], number> = {
   bayclear: 1400,
   snap: 500,
   chunk: 800,
+  /** The same 900/700 split the explosion above runs, for the same reason: the
+   *  ring, the star and the bloom finish on render.ts's THAW_REACH_MS clock and
+   *  the frost plume keeps drifting down out of the event for another fifth of
+   *  a second. A cue that ends on one frame is a flicker; one whose last motes
+   *  are still settling after its ring has gone is something the eye followed. */
+  thaw: 900,
 };

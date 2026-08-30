@@ -7218,6 +7218,14 @@ button.panel { color: var(--text); }
   box-shadow: var(--shadow-hard-sm);
 }
 .rack__hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* The slot button is the one PRICE in the rack, and it must go dark exactly
+   the way the shop cards' prices on the same right rail do — identical filter,
+   identical dead cursor. screens.ts has always set `disabled` below the
+   salvage line; only this costume was missing, so at 0 salvage the header's
+   loudest control was a full-brightness primary that ate taps. Reported from
+   the first playtest after the slots shipped, which is what "loudest control
+   on the screen" buys you. */
+.rack__hdr .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 /* The count takes the free space so the slot button lands on the same right
    rail the shop cards' prices do — .shop-card__foot's min-width is 96px and
    this button sits inside it optically even though it is in a different box. */

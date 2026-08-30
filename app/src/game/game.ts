@@ -186,6 +186,28 @@ export interface GameEvents {
    *  button, keyboard, gamepad), so a cue wired here covers all three without
    *  each call site remembering to play it. */
   onBombArmed?: (armed: boolean) => void;
+  /** Fired the step the clock reaches zero and OVERTIME opens (see the time-up
+   *  block in update()) — NOT the loss, which lands whenever settleDone
+   *  converges and arrives through onStatus.
+   *
+   *  The distance between those two is the point. Overtime is not a moment, it
+   *  is a WINDOW: launches already paid for still land, their lines are still
+   *  pressed and paid, and a payout in it can still win the bay. It runs until
+   *  the press stops changing anything, capped at settleCapSteps (six compactor
+   *  cycles, ~26s at stock). That is room enough for a cue with a shape, which
+   *  is why the time-up sound is a STINGER rather than a one-shot — see
+   *  main.ts's onTimeUp and lib/audio.ts's StingerName.
+   *
+   *  Once a bay: timeUpStep latches. */
+  onTimeUp?: () => void;
+  /** Fired when the stuck-broke grace countdown STARTS, and again with `false`
+   *  when a payout cancels it (see the broke block in update()).
+   *
+   *  The CROSSING, not the state, for the same reason onCongestion is one — and
+   *  this one can cross BACK, which is the half that matters: a line clear pays
+   *  more than a launch costs and also removes the cubes that raised the price,
+   *  so a rescue really does re-solvent the player. `stuck` says which way. */
+  onBroke?: (stuck: boolean) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -314,6 +336,26 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
  *  window's NORMAL exit is "field at rest AND a pressing stroke completed" —
  *  see resolveWin; this is only the backstop. */
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
+
+/**
+ * THE MINIMUM LENGTH OF OVERTIME — the `timeFinal` cue plays to its end before
+ * the bay may be called at all.
+ *
+ * 12 seconds, and the number is that asset's length rather than anything the
+ * physics asks for. The cue is the only clock the player still has once the
+ * timer reads zero, so the bay finishing as the music finishes makes them one
+ * event instead of two — in BOTH directions. Ending late leaves dead silence;
+ * ending early cuts the piece off mid-phrase, which is what settleDone did on
+ * its own, since it can converge in four or five seconds.
+ *
+ * A FLOOR, not a cap. settleCapSteps still backstops a field that never comes
+ * to rest, so a bay cannot hang on this.
+ *
+ * Re-measure it against the asset if timeFinal is ever regenerated: a cue that
+ * runs long would put the silence back, and one that runs short would end the
+ * bay while it is still playing.
+ */
+const OVERTIME_CUE_STEPS = Math.round(12_000 / DT);
 
 /** How long (physics steps) a provably-dead exact-inventory bay keeps running
  *  before it is called (see the pieces branch in update()). ~1s: long enough
@@ -664,6 +706,11 @@ export class Game {
    *  (rightX) — "a pressing stroke has completed since step S" is then just
    *  `lastFullAdvanceStep > S`. */
   private lastFullAdvanceStep = -1;
+  /** Game.stepCount of the most recent line clear, or -1 on a bay that has not
+   *  sold one. Read by overtimeSettled to ask whether the last pressing stroke
+   *  PAID anything — the jitter-proof way to ask whether the press is still
+   *  finding work. */
+  private lastClearStep = -1;
 
   /** The field as it stood at the previous compactor full advance — body id to
    *  position and angle — or null before the first advance, and after a clear
@@ -1292,12 +1339,16 @@ export class Game {
 
     target.struck = true;
     const { x, y } = target.body.position;
-    // A ring at the cube, in the Bond Breaker's own vocabulary at one cube's
-    // scale: the same "a charge discharged here" cue the player already knows,
-    // sized to what this charge actually reaches. The cube's own face carries
-    // the rest — theme.ts draws a struck cryo cube differently from a frozen
-    // one, and that state is the thing worth knowing about it.
-    this.effects.push({ kind: "explosion", x, y, r: CELL * 0.9, t0: now });
+    // The lance's own cue, at the cube (fx.ts's `thaw`, drawn by render.ts's
+    // drawThawFx). It was an uncoloured `explosion` of radius CELL * 0.9 —
+    // the Bond Breaker's vocabulary at one cube's scale — until the owner
+    // reported the thaw was not big enough to notice, which a filmstrip of it
+    // confirms: a 43px ring inside a pile of 40px cubes, burning amber. The
+    // charge is still one cube's worth of ability and the cube's own face still
+    // carries the state (theme.ts draws a struck cryo cube differently from a
+    // frozen one); what changed is that the moment the state changes is now
+    // announced at bay scale, in the material's own ice.
+    this.effects.push({ kind: "thaw", x, y, t0: now });
     this.events.onThawLance?.({ x, y });
     this.thawCharges -= 1;
     return true;
@@ -2160,12 +2211,14 @@ export class Game {
     // clear that cancels the countdown ALSO removes the cubes that raised the
     // price, so a rescue fixes both halves at once.
     if (this.score >= this.launchCostNow) {
+      if (this.brokeSinceStep !== null) this.events.onBroke?.(false);
       this.brokeSinceStep = null;
       this.brokeSinceStroke = null;
     } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));
       if (allAtRest) {
         this.brokeSinceStep = this.stepCount;
+        this.events.onBroke?.(true);
         // Snapshot the stroke count with it: the verdict below counts presses
         // FROM HERE, so the two halves of the window have to arm together.
         this.brokeSinceStroke = this.compactor.strokes;
@@ -2241,8 +2294,35 @@ export class Game {
       // settleCapSteps so a never-resting pile can't stall the verdict forever.
       // A payout during overtime can still win the bay: the score >= target
       // check above runs first.
-      if (this.timeUpStep === null) this.timeUpStep = this.stepCount;
-      if (this.settleDone(this.timeUpStep)) {
+      if (this.timeUpStep === null) {
+        this.timeUpStep = this.stepCount;
+        this.events.onTimeUp?.();
+      }
+      // THE CUE IS A FLOOR ON OVERTIME, not merely a deadline for the check
+      // below it. settleDone can converge in four or five seconds, and with a
+      // twelve-second piece playing over it that ended the bay mid-phrase —
+      // reported as "it cuts the music". So no exit is offered at all while the
+      // cue is still running, and both exits are asked only once it has
+      // finished: at that point the bay ends if the field has stopped, and
+      // waits in silence if it has not.
+      //
+      // This LENGTHENS overtime on bays that would have converged early, and
+      // that is a balance change in the player's favour, stated rather than
+      // slipped in: a payout during overtime can still WIN the bay, so a longer
+      // floor is more time for a rescue to land. It is bounded by the cue.
+      // ...but only where the cue actually PLAYS. The floor exists to honour a
+      // piece of music, and a Game constructed without an onTimeUp listener
+      // has no piece to honour — the drills are exactly that (the clock and
+      // sys-magazine drills are timed, and main.ts's startDrill wires no cue),
+      // and stretching a failed practice run by twelve silent seconds would be
+      // the original dead-air bug reintroduced on purpose. Keying on the
+      // listener rather than on a mode flag keeps this self-maintaining: wire
+      // the cue somewhere new and the floor arrives with it.
+      const cueFloor = this.events.onTimeUp ? OVERTIME_CUE_STEPS : 0;
+      if (
+        this.stepCount - this.timeUpStep >= cueFloor &&
+        (this.settleDone(this.timeUpStep) || this.fieldStopped())
+      ) {
         this.lossReason = "time";
         this.setStatus("lost");
       }
@@ -2407,6 +2487,7 @@ export class Game {
   private noteClearForSettle(): void {
     this.settleSample = null;
     this.settleQuiet = false;
+    this.lastClearStep = this.stepCount;
   }
 
   /**
@@ -2448,6 +2529,61 @@ export class Game {
    * changes the count — not quiet either way. The clock hitting zero and the
    * budget running out change nothing at all.
    */
+  /**
+   * HAS THE FIELD STOPPED — a second exit for overtime, offered alongside
+   * settleDone once OVERTIME_CUE_STEPS has passed (see the caller, which gates
+   * both).
+   *
+   * The time-up cue is a piece of music (lib/audio.ts plays `timeFinal` on
+   * onTimeUp) and a player reads it as the settlement running: it starts when
+   * the clock dies and it is the only thing telling them how long this will
+   * take. Owner playtest, on the bay outliving it: "extra settlement seconds
+   * after the music is over" — the game contradicting the only clock it is
+   * still showing. This is the exit that lets the bay end AT the cue rather
+   * than sweeps later; the floor in the caller is what stops it ending before.
+   *
+   * WHY THIS DOES NOT REUSE settleQuiet — which was the first attempt, and
+   * changed nothing. That flag is a POSITION comparison against
+   * CONVERGED_EPS_PX of ONE PIXEL, and sampleField rewrites it only at a full
+   * advance, so it needs two consecutive quiet cycles and a pile in contact
+   * jitter under the press never gives it one. resolveWin's own note says as
+   * much: "contact jitter under the press is common enough that wait for
+   * perfect stillness alone would sometimes never fire". Overtime on a
+   * jittering pile therefore ran to settleCapSteps every time — about three
+   * more sweeps after the cue had finished, which is the silence reported.
+   * Elapsed time simply did not register: "it feels like the music time
+   * doesn't count as settled".
+   *
+   * So the question is asked WITHOUT an epsilon, in terms of what the press is
+   * FINDING rather than how still the pixels are:
+   *
+   *  - `lastFullAdvanceStep > since` — a whole pressing stroke has completed
+   *    inside overtime. Half a stroke proves nothing; the crush is the event.
+   *  - `lastFullAdvanceStep > lastClearStep` — and that stroke PAID NOTHING. A
+   *    press still finding rows is a press still working, and it keeps the bay
+   *    alive by moving that marker.
+   *  - `isAtRest` on every cube — nothing in flight. It has a velocity floor
+   *    (SETTLE), so unlike the position sample it is not fooled by jitter.
+   *
+   * Together: the press did a full stroke, found nothing, and nothing is
+   * moving. That cannot cut a payout off — the property that actually matters
+   * here — because a payout IS a clear, and a clear pushes lastClearStep past
+   * the advance, costing the bay one more clean stroke before it may end.
+   *
+   * NOT applied to the launches or pieces branches. Those have no cue running
+   * over them, so there is no expectation to honour and no reason to relax a
+   * guard that costs nothing there.
+   */
+  private fieldStopped(): boolean {
+    const since = this.timeUpStep;
+    if (since === null) return false;
+    return (
+      this.lastFullAdvanceStep > since &&
+      this.lastFullAdvanceStep > this.lastClearStep &&
+      this.cubes.every((c) => isAtRest(c.body))
+    );
+  }
+
   private settleDone(sinceStep: number): boolean {
     const strokeDone = this.lastFullAdvanceStep > sinceStep;
     const sampleFresh =

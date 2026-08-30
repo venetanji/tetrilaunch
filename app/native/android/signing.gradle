@@ -133,6 +133,18 @@ android {
             // shell strips the reflectively-invoked plugin bridge classes unless
             // every plugin ships keep rules; the download saving is not worth
             // shipping a build whose in-app purchases throw at runtime.
+            //
+            // Play's "native code without debug symbols" warning. Every .so in
+            // the bundle comes from a dependency's AAR, not this repo, but Play
+            // can only symbolicate a native crash or ANR if the bundle carries
+            // the symbol tables. SYMBOL_TABLE gives readable stack frames;
+            // FULL would add line numbers at many times the size, for code we
+            // do not own and cannot edit anyway. Packaging the symbols needs an
+            // NDK at build time — AGP auto-provisions its default version when
+            // none is pinned, which is what CI's setup-android allows for.
+            ndk {
+                debugSymbolLevel 'SYMBOL_TABLE'
+            }
         }
     }
 }

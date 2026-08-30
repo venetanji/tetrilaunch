@@ -734,8 +734,12 @@ function getSprite(
 /** How much of the cube's half-width the shape-colour frame takes. The interior
  *  keeps ~55% of the cube's AREA, which is the point of the split: material has
  *  no second channel and shape has one (the silhouette), so the channel that is
- *  carrying more information gets the larger region and the glyph. */
-const FRAME_PX = 5;
+ *  carrying more information gets the larger region and the glyph.
+ *
+ *  Exported because it is the width every interior mark is actually drawn on —
+ *  CELL - FRAME_PX * 2 — and sim/systems.ts pins the frost's weight against
+ *  that face rather than against the cube. */
+export const FRAME_PX = 5;
 
 /** Bay glyphs are drawn under full opacity so a single cube is unmistakable but
  *  sixty of them read as surface texture rather than sixty competing icons.
@@ -848,17 +852,24 @@ function getCubeSprite(
     // Rubble hatching instead of the type pattern — slag has no shipment
     // identity left to advertise, which is precisely its point.
     drawSlagFace(ctx, io, isize, dark, light);
-  } else if (!bayGlyph) {
+  } else if (!bayGlyph && !cold) {
     // Per-type interior pattern (ported from main.py draw_square_piece).
     // Skipped where a glyph is about to take the same space: pattern AND mark
     // is busier than either alone, and the mark is the one carrying something
     // the player cannot read anywhere else on a landed cube.
+    //
+    // A FROZEN face is that same case and was not treated as one until the
+    // frost was thickened: hatching under a heavy six-spoke star is the exact
+    // "pattern AND mark" this line refuses everywhere else, and the type it
+    // spells is already in the silhouette and in the shape-colour frame, while
+    // the star is the only thing on the field saying this cube will not sell
+    // its row. The pattern comes back the instant the cube thaws.
     drawPattern(ctx, type, io, io, isize, dark, light);
   }
   // Frost over whatever the interior holds, so a cryo O still reads as an O.
   // It vanishes the instant the cube thaws — that transition IS the feedback
   // that the strike landed, and the row is now completable.
-  if (cold) drawFrost(ctx, io, isize);
+  if (cold) drawFrost(ctx, io, isize, color);
   ctx.restore();
 
   if (bayGlyph) {
@@ -1851,21 +1862,118 @@ function drawSlagFace(
   ctx.globalAlpha = 1;
 }
 
-/** Cold cryo's frost: a few white needles radiating from the cube's center.
- *  Drawn only while frozen (see drawCube) so thawing is a visible event. */
-function drawFrost(ctx: CanvasRenderingContext2D, o: number, size: number): void {
-  const c = o + size / 2;
+/**
+ * THE FROST MARK — what a frozen cube's face is drawn with.
+ *
+ * WHY IT IS A TABLE AND NOT THREE LITERALS IN THE DRAWER. The bake happens on
+ * an offscreen canvas, which is the one surface sim/systems.ts's recording
+ * context deliberately cannot see (canvasrec.ts gives every createElement its
+ * own throwaway recorder). Handing the drawer a computed description instead
+ * puts the whole of the mark's arithmetic somewhere a node pin can read it,
+ * which is what the weight below needs: it is a claim about a RATIO, and a
+ * ratio nobody checks is a ratio that drifts back.
+ *
+ * WEIGHT. The owner's report was that a frozen cube "is not very visible", and
+ * the old mark measures out as exactly that: six hand-rolled needles at a FLAT
+ * lineWidth of 2 world px — 6.7% of the 30px interior a two-tone cryo cube
+ * actually has — in white, on cryo's #9fe8ff ice, which is a contrast ratio of
+ * 1.31:1. It was a white line on a white-blue square.
+ *
+ * So the mark is rebuilt on the two channels that were being wasted:
+ *
+ *   THICKNESS. Both strokes are a FRACTION of the face they are drawn on, so
+ *   the mark holds its weight on a two-tone interior (30px), on a standing
+ *   wall's full face (40px) and at any bake scale. The core lands at 4.05
+ *   world px on a two-tone cube against the old 2 — the "thicker" the report
+ *   asked for, stated as a proportion so it stays true at any size.
+ *
+ *   CONTRAST. The ink is glyphInk(face) — the same near-black/near-white rule
+ *   every other bay glyph is drawn with (theme.ts derives it from relative
+ *   luminance), which on ice is #07070f at 14.5:1 against the 1.31:1 the white
+ *   needles had.
+ *
+ * WHY THE RIME IS NOT WHITE. The obvious version of this keeps the old white
+ * as a wide under-stroke and puts the dark core inside it, so the mark still
+ * reads as frost rather than as a crack. It was built that way first and
+ * photographed as nothing at all: the rime is drawn ON the ice, and white on
+ * #9fe8ff is the same 1.31:1 that made the original needles invisible — a
+ * layer whose entire justification was a contrast it does not have. The rime
+ * is therefore the SAME ink at RIME_ALPHA, a soft shoulder that widens the
+ * mark's apparent weight and keeps a hard 4px stroke from reading as type set
+ * on a cube. It is also the half that survives a face this rule inverts on: a
+ * blinking cube's #ff6464 takes light ink, and the shoulder goes with it.
+ *
+ * SHAPE. The path is MATERIAL_GLYPH.cryo itself, not a second copy of it.
+ * theme.ts calls that glyph "the same six-spoke star the cube face has carried
+ * since cryo shipped — this is that mark promoted to the belt", and the two
+ * were nonetheless drawn by different code from different numbers: the belt's
+ * spokes run on the vertical and two 30° diagonals, the cube's ran at 0/60/120°
+ * off the horizontal. One authored path is what theme.ts asks for in the line
+ * above MATERIAL_GLYPH ("a glyph drawn twice is a glyph that drifts"), and it
+ * means the tile the player reads on the belt and the face they read in the bay
+ * are now literally the same mark.
+ */
+export interface FrostMark {
+  /** World px of the soft under-stroke. */
+  rime: number;
+  /** World px of the high-contrast core stroke. */
+  core: number;
+  /** Both strokes' ink, by theme.ts's luminance rule for this face. */
+  ink: string;
+}
+
+/** Core stroke as a fraction of the frosted face's edge. 0.135 against the
+ *  belt glyph's authored 2.6/24 = 0.108: a bay cube is read in peripheral
+ *  vision against sixty neighbours, where a belt tile is read alone in a lit
+ *  slot, so the bay wears the heavier version of the same mark. */
+const FROST_CORE_FRAC = 0.135;
+/** Rime stroke, as the same fraction. 1.85x the core — wide enough to read as
+ *  a shoulder around the needles at 40px and still inside the face at 24px,
+ *  which is the smallest a cube is ever drawn (the menu's attract panel). */
+const FROST_RIME_FRAC = FROST_CORE_FRAC * 1.85;
+/** How opaque the rime is. A quarter: it is a shoulder on the core, not a
+ *  second mark, and anything heavier closes the gap between the spokes on a
+ *  30px face and turns the star into a blot. */
+const FROST_RIME_ALPHA = 0.26;
+
+/** The frost mark for a `size`-wide face of colour `face`. Pure, and exported
+ *  for sim/systems.ts — see FrostMark above for why the drawer does not just
+ *  hold these numbers itself. */
+export function frostMark(size: number, face: string): FrostMark {
+  return {
+    rime: size * FROST_RIME_FRAC,
+    core: size * FROST_CORE_FRAC,
+    ink: glyphInk(face),
+  };
+}
+
+/** Cold cryo's frost: the material's own six-spoke star, rimed in white and
+ *  cored in high-contrast ink. Drawn only while frozen (see drawCube) so
+ *  thawing is a visible event. */
+function drawFrost(
+  ctx: CanvasRenderingContext2D,
+  o: number,
+  size: number,
+  face: string,
+): void {
+  const mark = frostMark(size, face);
+  const s = size / 24;
   ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  ctx.lineWidth = 2;
+  ctx.translate(o, o);
+  ctx.scale(s, s);
+  // Both strokes are specified in world px and then drawn under the glyph's
+  // own 24-unit scale, so the numbers above mean what they say on the face
+  // rather than in the authoring box.
+  const path = new Path2D(MATERIAL_GLYPH.cryo.d);
   ctx.lineCap = "round";
-  for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i;
-    ctx.beginPath();
-    ctx.moveTo(c, c);
-    ctx.lineTo(c + Math.cos(a) * size * 0.36, c + Math.sin(a) * size * 0.36);
-    ctx.stroke();
-  }
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = mark.ink;
+  ctx.globalAlpha = FROST_RIME_ALPHA;
+  ctx.lineWidth = mark.rime / s;
+  ctx.stroke(path);
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = mark.core / s;
+  ctx.stroke(path);
   ctx.restore();
 }
 
@@ -3325,6 +3433,279 @@ function drawExplosionDebris(
   ctx.restore();
 }
 
+// ---------------------------------------------------------------------------
+// THE THAW LANCE'S CUE (fx.ts's `thaw`, spawned by game.ts's useThawLance).
+//
+// WHAT IT HAS TO DO, and why it is the hardest cue in the game to draw. One
+// charge takes one cube from "will not sell this row" to "will", and NOTHING
+// ELSE ON THE FIELD MOVES when it does: no cube is destroyed, no row lights, no
+// piece falls, no money floats. The only lasting evidence is a face that is now
+// drawn differently, on a cube the player was not necessarily looking at. Every
+// other effect in this file gets to point at something that happened; this one
+// has to be the thing that happened.
+//
+// The old cue did not try. It was an uncoloured `explosion` at CELL * 0.9 — a
+// ring reaching 43 world px inside a pile of 40px cubes, over in 600ms, drawn
+// in BLAST_AMBER because that is what an uncoloured explosion is drawn in. The
+// owner's report ("need a bigger visual queue for the thawing action") is what
+// a filmstrip of it shows exactly: sim/uifit/thaw-shots.ts, desk-120ms.
+//
+// SO IT IS BUILT AROUND FINDING THE CUBE. Three layers, each answering a
+// different distance, and the split is the design:
+//
+//   THE RING says OVER HERE, from across the bay. It reaches THAW_REACH, and
+//     it is a HEXAGON: ice grows in facets and pressure expands as a circle, so
+//     the six-fold ring is what stops the cue reading as a small shockwave at
+//     the exact distance where its colour has stopped being legible. Its
+//     corners sit on the star's own axes, so the two layers are one crystal.
+//   THE STAR says THIS CUBE. Six spokes thrown out along the cryo glyph's own
+//     axes — the mark on the face, briefly drawn at bay scale, which is the
+//     frost leaving. It is the layer that survives being seen out of the corner
+//     of an eye, because a six-fold star is a shape and a ring is a size.
+//   THE BLOOM says NOW. A short ice-white core over the cube itself: the frame
+//     the eye lands on once the ring has pulled it here.
+//
+// COLD, NOT FIERY — a constraint, not a preference. The explosions pass left
+// the lance shockwave-only on purpose (fx.ts's note on explosion.color), because
+// a phase change that threw burning wreckage would be teaching the wrong verb.
+// Everything here burns in cryo's own ice, the plume is frost rather than
+// embers, and the single additive layer blooms white the way ice glare does.
+// ---------------------------------------------------------------------------
+
+/** The ice the whole cue burns in: cryo's OWN material colour, read out of the
+ *  table rather than restated here, so the cue and the cargo it melts cannot
+ *  drift apart. The piece type is arbitrary — cryo overrides the shape colour
+ *  outright (theme.ts's MATERIAL_SPEC), which is exactly why this is the honest
+ *  way to ask for it without a second literal of the hex. */
+const THAW_ICE = shipmentColor("O", "cryo");
+
+/**
+ * How far the cue reaches, in world px.
+ *
+ * CELL * 2.6 = 104, against the old ring's 43 (CELL * 0.9 grown by the
+ * explosion's own 0.25 + 0.95 easing): 2.4x the radius and 5.8x the area.
+ *
+ * The ceiling is the Bond Breaker's CELL * 3.2, which is the widest ring the
+ * game draws and means "the whole pile just changed". A lance changes one cube,
+ * so it must not claim that — but it fires INTO a pile, and anything much under
+ * two cells is a ring the pile itself hides. 2.6 is the largest reach that
+ * still reads as smaller than a discharge when the two are seen a minute apart.
+ */
+export const THAW_REACH = CELL * 2.6;
+
+/** The ring, star and bloom's own clock, in ms — FX_TTL.thaw is 900 and the
+ *  gap is the frost plume outliving them, exactly as EXPLOSION_RING_MS is the
+ *  shockwave's clock inside a 900ms blast. 700 against the shockwave's 600
+ *  because this cue has no debris field to hold the eye afterwards and a
+ *  quarter-second event on a static field reads as a glitch. */
+export const THAW_REACH_MS = 700;
+
+/** Ring radius at t=0, as a fraction of THAW_REACH: it starts a cube wide
+ *  rather than at a point, so the first frame already sits ON the cube. */
+const THAW_RING_BASE_FRAC = 0.22;
+const THAW_RING_W_MAX = 9;
+const THAW_RING_W_MIN = 2;
+/** Width of the ring's translucent halo under-stroke, world px. Same trick and
+ *  the same reason as the shockwave's: the radius changes every frame, so this
+ *  cannot bake, and shadowBlur on a growing arc is the widest live blur there
+ *  is. */
+const THAW_RING_HALO_W = 14;
+const THAW_RING_HALO_ALPHA = 0.3;
+
+/** Six, on the vertical and the two ~30° diagonals — MATERIAL_GLYPH.cryo's own
+ *  axes, so the star thrown across the pile is the mark that was on the face.
+ *  The half-slot offset is what puts a spoke on the vertical. */
+const THAW_SPOKES = 6;
+/** How far past the ring the spoke tips run. Just outside: a star whose points
+ *  sit exactly on the ring reads as a wheel, and one far outside stops being
+ *  attached to it. */
+const THAW_SPOKE_LEAD = 1.16;
+/** Where the spokes start, in world px from the cube's centre — its own corner,
+ *  so they read as leaving the cube rather than crossing it. */
+const THAW_SPOKE_ROOT = CELL * 0.55;
+const THAW_SPOKE_W_MAX = 7;
+const THAW_SPOKE_W_MIN = 1.5;
+
+/** Axis `i` of the cue's crystal, in radians. The half-slot offset is what puts
+ *  an axis on the vertical, which is the orientation MATERIAL_GLYPH.cryo is
+ *  authored in — so the ring's corners, the star's spokes and the mark on the
+ *  cube's own face are all one set of directions. */
+function spokeAngle(i: number): number {
+  return Math.PI / THAW_SPOKES + i * (TAU / THAW_SPOKES);
+}
+
+/** How long the ice-white core burns, as a fraction of THAW_REACH_MS. */
+const THAW_BLOOM_T = 0.22;
+const THAW_BLOOM_HALO_R = CELL * 0.95;
+const THAW_BLOOM_HALO_ALPHA = 0.55;
+const THAW_BLOOM_CORE_R = CELL * 0.45;
+
+/**
+ * THE FROST PLUME — the cue's one motion layer, and the cold answer to the
+ * blast debris.
+ *
+ * ONE BAND, where a detonation has three, and the asymmetry is the point.
+ * DEBRIS_BANDS is three populations because a blast IS three things at once (a
+ * flash, a throw and a fall) and reads as an explosion only when they behave
+ * differently. A thaw is one thing: ice coming off a face. So it gets one
+ * population — thrown gently, sagging, guttering out — and adding a second
+ * would be inventing structure the event does not have.
+ *
+ * Small enough to draw with the rest of the effects layer rather than in
+ * drawExplosionDebris' own pass: that pass exists because 240 lit squares must
+ * not cover the trajectory line, and THAW_MOTES is 18 of them.
+ */
+const THAW_MOTES = 18;
+const THAW_MOTE_FLING_MS = 300;
+const THAW_MOTE_REACH_FRAC = 0.78;
+const THAW_MOTE_SPREAD = 0.55;
+/** World px of sag by the plume's end. Half the embers' 150: frost falls off a
+ *  cube, it is not thrown off one. */
+const THAW_MOTE_GRAVITY = 74;
+const THAW_MOTE_PX = 4;
+
+/** The plume's squares, on the same lattice and from the same hash as the
+ *  blast debris — see DEBRIS_PIXEL and hash2 for why both. */
+function drawThawMotes(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  elapsed: number,
+): void {
+  const bt = elapsed / FX_TTL.thaw;
+  if (bt >= 1) return;
+  const seed = hash2(Math.round(x), Math.round(y));
+  const reach = THAW_REACH * THAW_MOTE_REACH_FRAC
+    * easeOutCubic(clamp01(elapsed / THAW_MOTE_FLING_MS));
+  const sag = THAW_MOTE_GRAVITY * bt * bt;
+  const slot = TAU / THAW_MOTES;
+  ctx.save();
+  ctx.globalAlpha = 1 - bt * bt;
+  ctx.fillStyle = THAW_ICE;
+  ctx.beginPath();
+  for (let i = 0; i < THAW_MOTES; i++) {
+    const h = hash2(seed, i);
+    const angle = i * slot + (((h & 1023) / 1024) - 0.5) * slot;
+    const speed = 1 - THAW_MOTE_SPREAD * (((h >>> 10) & 255) / 255);
+    const fall = 0.55 + (((h >>> 18) & 127) / 127) * 0.9;
+    const side = THAW_MOTE_PX + ((h >>> 25) & 1) * DEBRIS_PIXEL;
+    const px = x + Math.cos(angle) * reach * speed;
+    const py = y + Math.sin(angle) * reach * speed + sag * fall;
+    ctx.rect(
+      Math.round((px - side / 2) / DEBRIS_PIXEL) * DEBRIS_PIXEL,
+      Math.round((py - side / 2) / DEBRIS_PIXEL) * DEBRIS_PIXEL,
+      side, side,
+    );
+  }
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * REDUCED MOTION keeps the whole cue and takes only the travel out of it.
+ *
+ * The blast debris is removed outright under the preference because everything
+ * in it is motion and "fewer flung squares" is a smaller dose of exactly what
+ * was asked not to be shown. This cue cannot take that ruling: strip its motion
+ * and there is no cue at all, because the state it announces has no other
+ * herald — the cube's face simply differs between two frames nobody was
+ * watching. A player who asked for less motion asked for less motion, not to be
+ * told less about their own bay.
+ *
+ * So under the preference the plume goes — thrown, falling squares are the one
+ * layer that is nothing but travel — and the crystal is drawn AT FULL REACH
+ * from its first frame and fades in place. What is left is a static six-spoke
+ * mark over the cube, going out over the same 700ms: the same picture the cue
+ * ends on, arrived at without a sweep. Opacity is the substitute the preference
+ * asks for, and it is the whole of what is left here.
+ */
+function drawThawFx(
+  ctx: CanvasRenderingContext2D,
+  e: Extract<FxEvent, { kind: "thaw" }>,
+  now: number,
+): void {
+  const elapsed = now - e.t0;
+  if (elapsed < 0) return;
+  const calm = prefersReducedMotion();
+  const t = clamp01(elapsed / THAW_REACH_MS);
+
+  if (t < 1) {
+    // HOLDS, THEN GOES. A shockwave fades linearly because a blast's story is
+    // told in its first hundred milliseconds and the ring is the receipt. This
+    // cue's story IS the reach — the ring is the layer that says "over here" —
+    // so a linear fade spends its brightest frames on the smallest circle and
+    // draws the widest one at almost nothing. 1 - t² keeps it at 75% while it
+    // grows through the first half and gives the whole fall back at the end.
+    const fade = 1 - t * t;
+    const grown = THAW_RING_BASE_FRAC + (1 - THAW_RING_BASE_FRAC) * easeOutCubic(t);
+    const radius = calm ? THAW_REACH : THAW_REACH * grown;
+
+    ctx.save();
+    ctx.strokeStyle = THAW_ICE;
+    ctx.lineCap = "round";
+
+    // THE RING — six-sided, with a corner on each of the star's axes.
+    const ringW = THAW_RING_W_MAX * fade + THAW_RING_W_MIN;
+    ctx.beginPath();
+    for (let i = 0; i < THAW_SPOKES; i++) {
+      const a = spokeAngle(i);
+      const px = e.x + Math.cos(a) * radius;
+      const py = e.y + Math.sin(a) * radius;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.globalAlpha = fade * THAW_RING_HALO_ALPHA;
+    ctx.lineWidth = ringW + THAW_RING_HALO_W;
+    ctx.stroke();
+    ctx.globalAlpha = fade;
+    ctx.lineWidth = ringW;
+    ctx.stroke();
+
+    // THE STAR. One path, six spokes, stroked once — the tips lead the ring
+    // slightly so the mark is read before the circle it sits in.
+    const tip = radius * THAW_SPOKE_LEAD;
+    ctx.lineWidth = THAW_SPOKE_W_MAX * fade + THAW_SPOKE_W_MIN;
+    ctx.beginPath();
+    for (let i = 0; i < THAW_SPOKES; i++) {
+      const a = spokeAngle(i);
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      ctx.moveTo(e.x + cos * THAW_SPOKE_ROOT, e.y + sin * THAW_SPOKE_ROOT);
+      ctx.lineTo(e.x + cos * tip, e.y + sin * tip);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (!calm) drawThawMotes(ctx, e.x, e.y, elapsed);
+
+  // THE BLOOM, last so the cube itself is the brightest thing in the cue: an
+  // ice halo growing as it fades, with a white core inside it. Additive, which
+  // is what makes it read as glare on ice rather than as a white disc pasted
+  // over the cargo it is supposed to be lighting.
+  if (t < THAW_BLOOM_T) {
+    const b = 1 - t / THAW_BLOOM_T;
+    // Under the preference the two discs hold their size and only fade, for
+    // the same reason the crystal above does not sweep: a radius that changes
+    // per frame is motion however short it is, and opacity says the same thing.
+    const halo = calm ? 1 : 1.25 - b * 0.45;
+    const core = calm ? 1 : b;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = b * THAW_BLOOM_HALO_ALPHA;
+    ctx.fillStyle = THAW_ICE;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, THAW_BLOOM_HALO_R * halo, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = b;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, THAW_BLOOM_CORE_R * core, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 /** Draw all live FX events on top of the settled field. Pure function of
  *  (effects, now): every sub-drawer derives its progress from `now - t0`
  *  and a position-derived hash, so nothing here holds state across frames. */
@@ -3349,6 +3730,9 @@ function drawEffects(ctx: CanvasRenderingContext2D, effects: FxEvent[], now: num
         break;
       case "explosion":
         drawExplosionFx(ctx, e, now);
+        break;
+      case "thaw":
+        drawThawFx(ctx, e, now);
         break;
       case "salvage":
         drawSalvageFx(ctx, e, now);
