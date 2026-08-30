@@ -679,8 +679,21 @@ export function stopHoldCharge(): void {
  * Deliberately quiet at the top. This plays under everything for a whole bay,
  * and a wind bed that competes with the compactor is one a player turns the
  * game off over.
+ *
+ * 0.22 was that restraint applied to the wrong problem. The bed read as
+ * inaudible in play, and the cause was not this number: the master is pure
+ * rumble (22dB down above 500Hz), so a phone speaker rendered it as silence at
+ * ANY gain. That is fixed where it belongs, in the pipeline -- see the eq on
+ * prepare-audio.mjs's windLoop override, which moves 17dB into the audible
+ * band while the file still peaks at the same -3dBFS.
+ *
+ * So this rose only a little, and it must not be read as the fix. The tilt
+ * makes the SAME nominal gain far louder to an ear, because it moved the
+ * energy from a band the equal-loudness contours discount steeply into the one
+ * they do not -- perceived level is up much more than these 3dB. If the bed now
+ * sits too high, pull this; if it still reads thin, the take is the problem.
  */
-const WIND_MAX_GAIN = 0.22;
+const WIND_MAX_GAIN = 0.3;
 const WIND_RAMP_S = 0.35;
 let windSrc: AudioBufferSourceNode | null = null;
 let windGain: GainNode | null = null;
@@ -699,10 +712,20 @@ export function setWind(level: number): void {
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.loop = true;
+      // Loop an INTERIOR region, for the reason startStatic's takes do: the
+      // pipeline puts a 30ms fade-out inside the last 60ms of every effect, and
+      // this is the one that runs for a whole bay. Edge-to-edge, that fade is a
+      // dip to silence once per 2.6s cycle -- a 0.4Hz pulse, and precisely the
+      // 'rhythm the bay does not have' the override's own comment warns about.
+      // It went unheard only because the bed was inaudible; making it audible
+      // makes the pulse audible too.
+      const pad = Math.min(0.06, buf.duration / 8);
+      src.loopStart = pad;
+      src.loopEnd = buf.duration - pad;
       const g = ctx.createGain();
       g.gain.value = 0;
       src.connect(g).connect(fxBus);
-      src.start();
+      src.start(0, src.loopStart);
       windSrc = src;
       windGain = g;
     } catch {

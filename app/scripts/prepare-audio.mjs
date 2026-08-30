@@ -313,9 +313,17 @@ const MASTER_EQ = {
  *
  *   { full: true }             keep the whole file, just level and re-encode
  *   { start: 0.3, dur: 0.45 }  pin the window explicitly, in seconds
+ *   { eq: "lowshelf=..." }      a declared filter, applied before the fade
  *
  * Reach for this when the printed window for a file looks wrong. The auto
  * detection stays the default so a new drop needs no config at all.
+ *
+ * `eq` is the fx-side counterpart of MASTER_EQ, and it goes into fxChain --
+ * the chain SHARED by the measurement and the encode -- specifically so the
+ * peak normalisation is computed against the filtered audio. That is what
+ * makes a tilt self-levelling: cut the band holding the peak and the makeup
+ * gain returns automatically, so a cut of the lows IS a boost of everything
+ * else, exactly, with no second number to keep in sync.
  */
 const OVERRIDES = {
   // This take is a 2.5s riser with no front transient — its RMS CLIMBS to a
@@ -358,7 +366,28 @@ const OVERRIDES = {
   // does not have, which is the defect congestionLoop's entry warns about. 2.6s
   // is short for a wind bed and will read as repetitive if it is ever loud; the
   // fix then is a longer take, not a wider window.
-  "windLoop.mp3": { start: 2.2, dur: 2.6 },
+  //
+  // The EQ is not seasoning -- without it this bed is INAUDIBLE on the device
+  // the game ships to, and no amount of audio.ts gain fixes that. Measured, the
+  // take is essentially pure rumble: -14.8dB RMS below 300Hz against -37.2dB
+  // above 500Hz, i.e. 22dB of tilt away from the only band a phone speaker can
+  // reproduce. A phone plays the sub content as SILENCE, so the loudness knob
+  // was moving a signal the speaker was never going to render.
+  //
+  // The tilt cuts rather than boosts, and the peak normalisation does the rest:
+  // the sub was setting the peak, so removing it returns +23.8dB of makeup and
+  // lifts the >500Hz band from -41.1 to -24.2dBFS. Seventeen decibels into the
+  // audible band, with the file still peaking at the same -3dBFS as every other
+  // effect. The highshelf is the only boost, and it is small.
+  //
+  // What this cannot do is invent detail: the band it lifts was recorded 22dB
+  // down in a 128k master, so it carries that noise up with it. If the result
+  // reads as hiss rather than as WIND, the answer is a new take briefed for the
+  // phone band -- not more filtering here.
+  "windLoop.mp3": {
+    start: 2.2, dur: 2.6,
+    eq: "highpass=f=200:poles=2,lowshelf=f=500:g=-15,highshelf=f=1500:g=6",
+  },
   // NOT A LOOP, despite the name it arrived under. Measured, the take is a
   // charge that RESOLVES: it climbs from 0.2s to a climax at 2.4s and releases
   // into silence by 3.8s. A loop would have to cut that arc somewhere it does
@@ -621,9 +650,10 @@ async function firstSoundWindow(file, duration) {
  *  audio it will be applied to — the fold to mono in particular can drop the
  *  peak by up to 6dB when the two channels disagree. Both stages being linear,
  *  measuring here and adding the gain there is exact, not an approximation. */
-function fxChain(dur) {
+function fxChain(dur, eq) {
   const fade = Math.min(0.03, dur * 0.15);
   return [
+    ...(eq ? [eq] : []),
     `afade=t=out:st=${Math.max(0, dur - fade).toFixed(4)}:d=${fade.toFixed(4)}`,
     "pan=mono|c0=0.5*c0+0.5*c1",
   ];
@@ -636,7 +666,7 @@ async function encodeFx(srcFile, name, override) {
     : override?.dur !== undefined
       ? { start: override.start ?? 0, dur: override.dur }
       : await firstSoundWindow(srcFile, duration);
-  const chain = fxChain(dur);
+  const chain = fxChain(dur, override?.eq);
   const srcPeak = await maxVolumeDb(srcFile, { start, dur, chain });
   // Unmeasurable input, so there is no gain to compute. Stopping is right:
   // carrying NaN forward puts `volume=NaNdB` in the filter graph, and ffmpeg
