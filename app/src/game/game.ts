@@ -25,6 +25,7 @@ import {
   updateLineClear,
   strikeCryo,
   volatileBlast,
+  cushionAbsorbed,
   tarWelds,
   alignMagnetic,
   VOLATILE_BLAST_CELLS,
@@ -182,6 +183,23 @@ export interface GameEvents {
    *  consumer: a shipment is four cubes and a clipped corner reports several
    *  pairs across consecutive steps, which is one event to a player. */
   onCompactorHit?: () => void;
+  /** A volatile shipment landed on the Impact Cushion's liner and did NOT go
+   *  off — where the same arrival on an unlined bay would have (lineClear.ts's
+   *  cushionAbsorbed).
+   *
+   *  The band, not the state. A gentle set-down inside the liner was never
+   *  going to detonate, and announcing it would credit the system for physics
+   *  that was free; an arrival past even the cushioned threshold detonated, and
+   *  onExplosion already owns that. Only the speeds BETWEEN the two thresholds
+   *  are the liner doing the job it was bought for, and this fires on exactly
+   *  those — which is what makes the cue readable as "the rig just paid for
+   *  itself" rather than as a second landing noise.
+   *
+   *  Throttled to once per CUSHION_ABSORB_STEPS here rather than at the
+   *  consumer, for the reason onCompactorHit is: a shipment is four cubes and
+   *  the same landing reports across several pairs and several steps, which is
+   *  one event to a player. */
+  onCushionAbsorb?: () => void;
   /** Fired when the bay CROSSES a congestion tier boundary (level.ts's
    *  PILE_TIERS) — on the crossing, never per step. `tier` is 0 for a clean bay
    *  and 1..`tiers` for each rung of the staircase; `tiers` is how many rungs
@@ -199,6 +217,33 @@ export interface GameEvents {
    *  to the ear. One call per blast, not per cube — a volatile chain in one
    *  step aggregates into a single event exactly like its explosion visual. */
   onExplosion?: (kind: "bomb" | "volatile" | "chute") => void;
+  /** The Incinerator actually REMITTED part of a loss bill: cargo destroyed
+   *  inside the flue (chute.ts's inIncinerator) on a rig carrying the hood.
+   *
+   *  Never on a bay with no hood, and never on a loss the hood did not touch —
+   *  which is the whole point of the cue. Deliberately dumping an unusable
+   *  shipment into the flue is a MOVE, and today it sounds exactly like
+   *  spilling cargo by accident: the same `pieceLost` thud, the same "−$"
+   *  toast, one of them a plan and the other a mistake. This is the half that
+   *  says which.
+   *
+   *  Gated on money actually KEPT rather than on a nominal discount
+   *  (lineClear.ts's reliefRealised): a bay too broke to have paid the full
+   *  bill saved nothing, and a tick claiming otherwise would teach a rule the
+   *  ledger does not follow.
+   *
+   *  `relief` is the bay's hood rating — the share of a bill it remits
+   *  (upgrades.ts's incineratorRelief: 25%, 50%, 75%). Passed so the cue can
+   *  say WHICH hood is aboard, in the same rate-and-gain way playExplosion
+   *  reads one blast three ways, rather than shipping a second asset per tier.
+   *  It is constant within a bay, so nothing here changes shot to shot — the
+   *  difference is between runs, which is where the upgrade was bought.
+   *
+   *  Throttled to once per INCINERATE_STEPS here rather than at the consumer:
+   *  both loss paths (blinked out short of the press, fed to the intake) can
+   *  bill inside one step, and a shipment feeds across several. One dump is
+   *  one sound. */
+  onIncinerate?: (relief: number) => void;
   /** Fired when armBomb actually changes the armed state — never on a refused
    *  call — with the new state. Every input path converges on armBomb (HUD
    *  button, keyboard, gamepad), so a cue wired here covers all three without
@@ -270,6 +315,20 @@ const IMPACT_MIN = 4;
  *  consecutive steps; this is what turns a burst into one sound. Short enough
  *  that two SEPARATE shipments clipping the bar still get one cue each. */
 const COMPACTOR_HIT_STEPS = Math.round(200 / DT);
+/** How long an absorbed volatile landing owns its cue, in steps (~200ms). The
+ *  same figure and the same reason as COMPACTOR_HIT_STEPS: one shipment is four
+ *  cubes crossing the liner, so the raw pairs report across consecutive steps
+ *  and one landing has to be one sound. */
+const CUSHION_ABSORB_STEPS = COMPACTOR_HIT_STEPS;
+/** How long one flue dump owns its cue, in steps (~350ms).
+ *
+ *  Longer than the collision throttles above because the events it merges are
+ *  further apart: the intake takes a shipment over several steps as it feeds in
+ *  (shredChute), and the blink path can bill the stragglers a beat later
+ *  (updateBlinking, whose cubes serve a 1.4s fade before they are charged). A
+ *  200ms window let one deliberate dump tick twice. Still well short of the
+ *  gap between two launches, so two dumps get two ticks. */
+const INCINERATE_STEPS = Math.round(350 / DT);
 const IMPACT_FULL = 14;
 
 /** Air damping the preview integrates, and the same figure every launched body
@@ -741,6 +800,10 @@ export class Game {
   private lastClearStep = -1;
   /** Throttle for onCompactorHit — see COMPACTOR_HIT_STEPS. */
   private lastCompactorHitStep = -Infinity;
+  /** Throttle for onCushionAbsorb — see CUSHION_ABSORB_STEPS. */
+  private lastCushionAbsorbStep = -Infinity;
+  /** Throttle for onIncinerate — see INCINERATE_STEPS. */
+  private lastIncinerateStep = -Infinity;
 
   /** The field as it stood at the previous compactor full advance — body id to
    *  position and angle — or null before the first advance, and after a clear
@@ -939,6 +1002,7 @@ export class Game {
       // Hoisted out of the loop: both are read once per pair.
       const bar = this.compactor.body;
       let hitTip = false;
+      let absorbed = false;
       for (const pair of e.pairs) {
         const rel = Math.hypot(
           pair.bodyA.velocity.x - pair.bodyB.velocity.x,
@@ -966,6 +1030,23 @@ export class Game {
           { cells: this.level.cushionCells, mult: this.level.cushionMult },
         );
         for (const c of blast) this.pendingBlast.add(c.body);
+        // THE LINER EARNING ITS KEEP (onCushionAbsorb). Only asked of a pair
+        // that did NOT blow, and only on a bay carrying a liner — cushionAbsorbed
+        // leaves on `cells <= 0` before it walks `cubes`, so an unlined bay pays
+        // one comparison for the whole system. Not asked at all once the cue is
+        // already throttled, which is the common case while a shipment feeds
+        // across the liner: the answer would be discarded anyway and it is the
+        // more expensive half of this branch.
+        if (
+          blast.length === 0 && !absorbed
+          && this.stepCount - this.lastCushionAbsorbStep >= CUSHION_ABSORB_STEPS
+          && cushionAbsorbed(
+            this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult,
+            { cells: this.level.cushionCells, mult: this.level.cushionMult },
+          )
+        ) {
+          absorbed = true;
+        }
         // TAR: welds to whatever it settled against. Also deferred — adding a
         // constraint during collisionStart is the same mid-solve mutation.
         for (const [a, b] of tarWelds(this.cubes, pair.bodyA, pair.bodyB)) {
@@ -997,6 +1078,13 @@ export class Game {
       if (hitTip && this.stepCount - this.lastCompactorHitStep >= COMPACTOR_HIT_STEPS) {
         this.lastCompactorHitStep = this.stepCount;
         this.events.onCompactorHit?.();
+      }
+      // The throttle was already tested to decide whether to ask the question,
+      // so `absorbed` can only be true inside an open window; this is where the
+      // window closes.
+      if (absorbed) {
+        this.lastCushionAbsorbStep = this.stepCount;
+        this.events.onCushionAbsorb?.();
       }
     };
     Matter.Events.on(this.phys.engine, "collisionStart", this.onCollisionStart);
@@ -1186,10 +1274,30 @@ export class Game {
     // modelling its delta.
     const gross = n * this.level.penaltyPerLostPiece;
     const deducted = Math.min(this.score, owed);
-    this.incineratedFunds += reliefRealised(this.score, gross, owed);
+    this.noteIncinerated(reliefRealised(this.score, gross, owed));
     this.score -= deducted;
     this.events.onPieceLost?.(n);
     return deducted;
+  }
+
+  /**
+   * Bank what the hood kept out of one bill, and say so at most once per dump.
+   *
+   * Both loss paths converge here — the spill fine (chargeLostCubes) and the
+   * volatile charge (resolveVolatile) — so the ledger the end screen prints and
+   * the cue the player hears cannot disagree about whether the flue did
+   * anything. `saved` is money REALLY still in the bankroll rather than a
+   * nominal discount, which is the distinction lineClear.ts's reliefRealised
+   * exists to draw, so a bay too broke to have paid the full bill is silent.
+   *
+   * The throttle is here and not at the consumer: see INCINERATE_STEPS.
+   */
+  private noteIncinerated(saved: number): void {
+    if (saved <= 0) return;
+    this.incineratedFunds += saved;
+    if (this.stepCount - this.lastIncinerateStep < INCINERATE_STEPS) return;
+    this.lastIncinerateStep = this.stepCount;
+    this.events.onIncinerate?.(this.level.incineratorRelief);
   }
 
   /** The share of one cube's loss charge the hood remits, from where that cube
@@ -2812,7 +2920,7 @@ export class Game {
       );
       this.score += settled.net;
       this.volatileLosses += settled.charged;
-      this.incineratedFunds += blastRelief(bare, settled);
+      this.noteIncinerated(blastRelief(bare, settled));
       if (settled.bounty > 0) {
         // Reuses the bomb's salvage toast rather than inventing a second one:
         // it is the same statement ("that wreckage was worth something") and

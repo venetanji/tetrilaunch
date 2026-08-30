@@ -68,6 +68,13 @@ export type FxName =
   | "sealBreak"
   | "timeUp"
   | "compactorImpact"
+  /** The three systems that were fitted without a voice. `incinerate` is the
+   *  flue remitting part of a loss bill, `cushionAbsorb` is the liner catching
+   *  a volatile landing that would otherwise have gone off, and `systemMount`
+   *  is one master read two ways for the Workshop rack (see playRackMove). */
+  | "incinerate"
+  | "cushionAbsorb"
+  | "systemMount"
   | "windLoop";
 
 /**
@@ -115,6 +122,8 @@ const FX_ONE_SHOTS: FxName[] = [
   // The clock's last word, and the one collision the bay does not otherwise
   // report.
   "timeUp", "compactorImpact",
+  // The rig, out loud: the hood, the liner, and the rack the two are fitted in.
+  "incinerate", "cushionAbsorb", "systemMount",
 ];
 
 /** The three interchangeable takes of the congestion cue, played IN ROTATION —
@@ -899,6 +908,73 @@ export function playCompactorStroke(squeeze = 1): void {
  *  commitment says "bl-blip". */
 export function playUiConfirm(): void {
   playFx("uiConfirm", { rate: 0.97 + Math.random() * 0.06, gain: 0.5 });
+}
+
+/**
+ * THE FLUE REMITTING A BILL — and the cue that tells a plan from a mistake.
+ *
+ * Cargo destroyed in the flue plays `pieceLost` and draws a "−$" toast exactly
+ * like cargo spilled anywhere else, so deliberately dumping an unusable
+ * shipment — the play the Incinerator is bought for — sounds identical to
+ * fumbling one. This is the second voice in that frame, and it only ever fires
+ * when the hood actually kept money (game.ts's onIncinerate).
+ *
+ * It LAYERS on the loss, so the same constraint excellentClear carries applies:
+ * it has to stay clearly above `pieceLost`'s thud and clearly shorter, or the
+ * two smear into one event and the player cannot hear which happened.
+ *
+ * `relief` is the hood's rating, 0.25 / 0.5 / 0.75 up the track. Rate and gain
+ * rather than three assets, the way playExplosion reads one blast three ways: a
+ * better hood is brighter and a little louder, so the upgrade is audible as an
+ * upgrade. The span is small on purpose — this is the same event at three
+ * grades, not three events — and 0.25 is the floor because tier 0 never gets
+ * here at all.
+ */
+export function playIncinerate(relief: number): void {
+  const r = Math.max(0, Math.min(1, relief));
+  playFx("incinerate", { rate: 0.94 + 0.16 * r, gain: 0.34 + 0.16 * r });
+}
+
+/**
+ * THE LINER CATCHING ONE — a non-event given a sound, which is the whole
+ * problem it answers.
+ *
+ * An absorbed landing is a blast that did not happen: the cue for it competes
+ * with nothing, because on an unlined bay this same instant would have been
+ * `explosion`. It rides UNDER the ordinary `impact` of the landing that caused
+ * it (both fire in the same frame), so it is quiet and detuned per hit for the
+ * reason playImpact detunes — this is a frequent event in cushion play and a
+ * fixed sample repeating at that rate reads as one looped noise.
+ *
+ * Deliberately not scaled by how close the arrival came to going off. The
+ * player cannot see that number, the liner either held or it did not, and a cue
+ * that varied with an invisible margin would read as inconsistent rather than
+ * as informative.
+ */
+export function playCushionAbsorb(): void {
+  playFx("cushionAbsorb", { rate: 0.96 + Math.random() * 0.08, gain: 0.42 });
+}
+
+/**
+ * THE WORKSHOP RACK — one master, two directions.
+ *
+ * Mounting and stowing are the same gesture answered opposite ways, and the app
+ * already says that with `rate`: playUiClick pitches a toggle up when it
+ * switches on and down when it switches off, "which reads without looking at
+ * the pill". A stow is a mount run backwards, so it is the same seating clack
+ * pitched down and pulled back rather than a second asset — the doctrine the
+ * prompt sheet states as "do not generate a new asset for something rate and
+ * gain can say".
+ *
+ * Neither is a purchase. `transactionConfirm` belongs to the four handlers on
+ * this screen that spend salvage; moving a system between rack and shed spends
+ * nothing and is undone by tapping again, so a till here would price a decision
+ * that has no price.
+ */
+export function playRackMove(mounted: boolean): void {
+  playFx("systemMount", mounted
+    ? { rate: 1, gain: 0.5 }
+    : { rate: 0.82, gain: 0.42 });
 }
 
 /* ------------------------------------------------------- music & stingers */

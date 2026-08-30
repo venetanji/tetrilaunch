@@ -95,7 +95,7 @@ import {
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
   volatileLossFor, settleBlast, chargeAfterRelief, reliefRealised, blastRelief,
   markLostPieces, slagBountyFor, nextColdCryo, VOLATILE_BLAST_CELLS,
-  cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
+  cushionedTrigger, cushionEdgeX, cushionAbsorbed, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
   stampLandings, landingOf, newestLanding, headlineGrade, headlineRow,
   rowParticipation, IMPACT_ASSIST_X_TOL, IMPACT_ASSIST_Y_MAX, IMPACT_ASSIST_Y_MIN,
@@ -11589,6 +11589,113 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   check("no music file ships unclaimed", orphaned.length === 0, orphaned.join(", "));
 }
 
+// ---------------------------------------------------------------------------
+// THE OTHER HALF OF THE AUDIO SEAM, and the half no type system spans.
+//
+// The section above checks names against SHIPPED FILES, which is the right
+// question for beds — a bed with no file is a silent bay. It is the wrong
+// question for effects, and deliberately so: an effect name is mapped in
+// prepare-audio.mjs's FX list AHEAD of its master arriving, because a mapped
+// name with no file is what FAILS that script's run and that failure IS the
+// TODO (see the script's own note on the FX list, and audio/README.md on why
+// the masters are gitignored). A pin that demanded the mp3 would turn the
+// design's loud reminder into a red build on every checkout that has not
+// generated the take yet.
+//
+// So this asks the question that IS always answerable: do the three places a
+// name is written still agree with each other? They are a .ts union, a .ts
+// array and an untyped .mjs literal that nothing imports, so nothing but this
+// can notice when one moves:
+//
+//   - a name in FxName but not in FX_ONE_SHOTS/LOOP_TAKES/WIND_LOOP is a name
+//     loadEffects never fetches, so playFx can only ever no-op on it;
+//   - a name in the code but not in prepare-audio's FX is the reverse and worse
+//     — the pipeline does not know it exists, so the run does NOT fail, no
+//     master is ever asked for, and the cue is silent forever with nothing
+//     anywhere saying so. That is the failure this file exists to catch.
+//
+// Read from source rather than imported, for the reason the bed census states:
+// lib/audio.ts reads import.meta.env at load and reaches for AudioContext, so
+// it cannot be pulled into a Node harness at all, and prepare-audio.mjs is a
+// script that runs ffmpeg on import.
+// ---------------------------------------------------------------------------
+section("Effect and stinger names (lib/audio.ts vs scripts/prepare-audio.mjs)");
+{
+  const readSrc = (...p: string[]): string => fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...p), "utf8",
+  );
+  /** Comments carry example names, quoted prose and — in this repo especially —
+   *  whole essays. Stripped before anything is matched, so a note ABOUT a cue
+   *  can never be read as a declaration OF one. */
+  const bare = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const audioSrc = bare(readSrc("src", "lib", "audio.ts"));
+  const prepSrc = bare(readSrc("scripts", "prepare-audio.mjs"));
+  const namesIn = (src: string, re: RegExp): string[] =>
+    [...(re.exec(src)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+  const fxUnion = namesIn(audioSrc, /export type FxName =([\s\S]*?);/);
+  const oneShots = namesIn(audioSrc, /const FX_ONE_SHOTS: FxName\[\] = \[([\s\S]*?)\];/);
+  const loopTakes = namesIn(audioSrc, /const LOOP_TAKES: FxName\[\] = \[([\s\S]*?)\];/);
+  const windLoop = namesIn(audioSrc, /const WIND_LOOP: FxName = ([^;]*?);/);
+  const stingerUnion = namesIn(audioSrc, /export type StingerName =([\s\S]*?);/);
+  const prepFx = namesIn(prepSrc, /\nconst FX = \[([\s\S]*?)\n\];/);
+  const prepStingers = namesIn(prepSrc, /\nconst STINGERS = \[([\s\S]*?)\n\];/);
+
+  // EVERY EXTRACTION IS PROVEN NON-EMPTY FIRST. A set comparison between two
+  // empty sets passes, so a renamed constant would not fail this section — it
+  // would silently retire it, which is the one outcome a census must not have.
+  const found: [string, string[]][] = [
+    ["FxName", fxUnion], ["FX_ONE_SHOTS", oneShots], ["LOOP_TAKES", loopTakes],
+    ["WIND_LOOP", windLoop], ["StingerName", stingerUnion],
+    ["prepare-audio FX", prepFx], ["prepare-audio STINGERS", prepStingers],
+  ];
+  check(
+    "every name list is still where this pin looks for it",
+    found.every(([, list]) => list.length > 0),
+    found.map(([label, list]) => `${label}:${list.length}`).join(" "),
+  );
+
+  const diff = (a: string[], b: string[]): string[] => a.filter((n) => !b.includes(n));
+  const loaded = [...oneShots, ...loopTakes, ...windLoop];
+  // audio.ts against itself: FX_NAMES is built from exactly these three lists
+  // and is the only thing loadEffects fetches, so a union member missing from
+  // them is a name the module can name and never play.
+  check(
+    "every FxName is one loadEffects actually fetches",
+    diff(fxUnion, loaded).length === 0, diff(fxUnion, loaded).join(", "),
+  );
+  check(
+    "...and nothing is loaded under a name the union does not declare",
+    diff(loaded, fxUnion).length === 0, diff(loaded, fxUnion).join(", "),
+  );
+  // …and against the pipeline. Set EQUALITY, both directions, for the reason
+  // the bed census gives: the reverse drift — a name the script ships and the
+  // code never asks for — is an asset carried in the PWA precache for nothing.
+  check(
+    "every effect the code plays is mapped in prepare-audio's FX",
+    diff(fxUnion, prepFx).length === 0, diff(fxUnion, prepFx).join(", "),
+  );
+  check(
+    "...and every mapped effect is one the code can play",
+    diff(prepFx, fxUnion).length === 0, diff(prepFx, fxUnion).join(", "),
+  );
+  check(
+    "every stinger the code plays is mapped in prepare-audio's STINGERS",
+    diff(stingerUnion, prepStingers).length === 0, diff(stingerUnion, prepStingers).join(", "),
+  );
+  check(
+    "...and every mapped stinger is one the code can play",
+    diff(prepStingers, stingerUnion).length === 0, diff(prepStingers, stingerUnion).join(", "),
+  );
+  // The two families must not collide. A one-shot dropped into STINGERS gets
+  // loudness-normalised and never trimmed, and playStinger STOPS THE BED — so a
+  // mid-bay cue landing there kills the bay's music, which is the last line of
+  // the prompt sheet and the one mistake this seam makes easy.
+  const both = fxUnion.filter((n) => stingerUnion.includes(n));
+  check("no name is both an effect and a stinger", both.length === 0, both.join(", "));
+}
+
 
 // ---------------------------------------------------------------------------
 // GESTURE MISFIRE PREVENTION — the firing floor, the strand warning, the chute.
@@ -16950,12 +17057,8 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
      * being pinned, and two hand-written fixtures could drift apart by a stray
      * constant and still both pass.
      */
-    const blastAt = (
-      x: number,
-      cushion: { cells: number; mult: number },
-      volatileArrives: boolean,
-    ): boolean => {
-      const moving = { x: 0, y: shot };
+    const fixtureAt = (x: number, volatileArrives: boolean, speed = shot) => {
+      const moving = { x: 0, y: speed };
       const still = { x: 0, y: 0 };
       const vol = {
         position: { x, y: volatileArrives ? 360 : 400 },
@@ -16969,7 +17072,16 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
         { body: vol, material: "volatile", struck: true, blinkStart: null },
         { body: other, material: "standard", struck: true, blinkStart: null },
       ] as unknown as Cube[];
-      return volatileBlast(cubes, vol, other, 1, cushion).length > 0;
+      return { cubes, vol, other };
+    };
+    const blastAt = (
+      x: number,
+      cushion: { cells: number; mult: number },
+      volatileArrives: boolean,
+      speed = shot,
+    ): boolean => {
+      const f = fixtureAt(x, volatileArrives, speed);
+      return volatileBlast(f.cubes, f.vol, f.other, 1, cushion).length > 0;
     };
     /** A volatile shipment coming DOWN into the slot at x — the landing the
      *  liner is insurance on. */
@@ -17116,6 +17228,91 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
       bare.cushionCells === 0 && bare.cushionMult === 1,
       `${bare.cushionCells} cells x${bare.cushionMult}`,
     );
+
+    /* -----------------------------------------------------------------------
+     * THE LINER'S OWN CUE (lineClear.ts's cushionAbsorbed, game.ts's
+     * onCushionAbsorb) — a report on a blast that did not happen.
+     *
+     * The whole difficulty is that the event has no visible trace: an absorbed
+     * landing looks exactly like an ordinary one, which is why it wanted a
+     * sound in the first place. That makes "when does it fire" the entire
+     * design, and it is stated here as an EQUIVALENCE rather than as a handful
+     * of cases — absorbed is true exactly when this bay did not detonate and a
+     * bare one would have — so the cue cannot drift from the rule while both
+     * still pass their own separate tests.
+     *
+     * Sampled off the same fixture builder the detonation pins above use, so
+     * the two answers are being read from one landing rather than from two
+     * hand-written ones that could disagree about the shot.
+     * --------------------------------------------------------------------- */
+    {
+      const absorbAt = (
+        x: number,
+        cushion: { cells: number; mult: number },
+        speed = shot,
+      ): boolean => {
+        const f = fixtureAt(x, true, speed);
+        return cushionAbsorbed(f.cubes, f.vol, f.other, 1, cushion);
+      };
+      /** Every slot under the deepest liner, plus one clearly outside it. */
+      const slots = [
+        ...Array.from({ length: maxed.cells }, (_, i) => WALL_INNER - (i + 0.5) * CELL),
+        shallow,
+      ];
+      const specs = [
+        NO_CUSHION,
+        ...CUSHION_TIERS.map((r) => ({ cells: r.cells, mult: r.mult })),
+      ];
+      // Speeds spanning both thresholds: a set-down nothing would have set off,
+      // the band the liner is bought for, and a shot past even a maxed liner.
+      const speeds = [
+        VOLATILE_TRIGGER_SPEED * 0.5,
+        VOLATILE_TRIGGER_SPEED + 1,
+        shot,
+        VOLATILE_TRIGGER_SPEED * maxed.mult + 1,
+      ];
+      const cases = slots.flatMap((x) => specs.flatMap((s) => speeds.map((v) => ({ x, s, v }))));
+      const wrong = cases.filter(({ x, s, v }) =>
+        absorbAt(x, s, v) !== (!blastAt(x, s, true, v) && blastAt(x, NO_CUSHION, true, v)));
+      check(
+        "the liner reports exactly the landings it — and only it — kept from going off",
+        wrong.length === 0,
+        `${wrong.length} of ${cases.length} disagree`,
+      );
+      // The three cases the equivalence is made of, named on their own so a
+      // failure says WHICH way the rule broke rather than only that it did.
+      check(
+        "a volatile shipment set down gently in a lined slot reports nothing",
+        !absorbAt(deep, maxed, VOLATILE_TRIGGER_SPEED * 0.5),
+        "nothing was absorbed — it was never going off",
+      );
+      check(
+        "...a shot in the band between the two thresholds does report",
+        absorbAt(deep, maxed, VOLATILE_TRIGGER_SPEED + 1),
+      );
+      check(
+        "...and one hard enough to beat the liner detonates instead of reporting",
+        !absorbAt(deep, maxed, VOLATILE_TRIGGER_SPEED * maxed.mult + 1)
+          && blastAt(deep, maxed, true, VOLATILE_TRIGGER_SPEED * maxed.mult + 1),
+      );
+      // A bay that never bought the system is silent at every speed and in
+      // every slot — the same inert-by-default stance the config pin above
+      // asserts, said on the cue side.
+      check(
+        "an unlined bay never reports an absorb",
+        slots.every((x) => speeds.every((v) => !absorbAt(x, NO_CUSHION, v))),
+      );
+      // And the liner insures a LANDING, not a cube: the cue inherits that rule
+      // from primedLanding rather than restating it, so a volatile cube already
+      // lying in the liner with cargo dropped on it is not an absorb either.
+      check(
+        "...and neither is cargo dropped on a volatile cube already lying in the liner",
+        CUSHION_TIERS.every((r) => {
+          const f = fixtureAt(deep, false);
+          return !cushionAbsorbed(f.cubes, f.vol, f.other, 1, { cells: r.cells, mult: r.mult });
+        }),
+      );
+    }
   }
 
   /* -------------------------------------------------------------------------

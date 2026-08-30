@@ -302,19 +302,24 @@ export function cushionedTrigger(clauseMult: number, cushionMult: number): numbe
  * a shipment arrives at. Measured across Press Hydraulics tiers 0-3, minimum
  * impact speed moved 17.34 -> 17.56, i.e. not at all.
  */
-export function volatileBlast(
+/**
+ * The volatile cube an impact would set off, and whether the liner was under
+ * the landing.
+ *
+ * Extracted because two questions are asked of it and they have to agree
+ * exactly: volatileBlast asks whether the arrival detonates, and
+ * cushionAbsorbed asks whether the liner is the reason it did not. A bay that
+ * softened an arrival it then refused to report — or reported one it never
+ * softened — would be the cushionEdgeX note's own failure in a second voice
+ * ("a warning drawn against one number and a penalty charged against another
+ * is a game lying about its own rules"), one layer in.
+ */
+function primedLanding(
   cubes: Cube[],
   a: Matter.Body,
   b: Matter.Body,
-  /** Per-bay multiplier on the trigger speed (level.ts's volatileTriggerMult).
-   *  1 = stock, and a bay that never writes it behaves byte-identically to
-   *  before the knob existed. Below 1 the material is primed finer — see the
-   *  field's doc for why this is a multiplier rather than an absolute speed. */
-  triggerMult = 1,
-  /** The rig's liner (level.ts's cushionCells / cushionMult). Defaults to none,
-   *  so every existing caller keeps the field-wide behaviour it had. */
-  cushion: CushionSpec = NO_CUSHION,
-): Cube[] {
+  cushion: CushionSpec,
+): { primed: Cube; lined: boolean } | null {
   // WHICH CUBE, BEFORE HOW FAST — the order is load-bearing now and was not
   // before. The threshold this impact has to clear depends on WHERE the
   // volatile cube is, so the speed test cannot be made until the primed cube is
@@ -323,7 +328,7 @@ export function volatileBlast(
   const primed = cubes.find(
     (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
   );
-  if (!primed) return [];
+  if (!primed) return null;
   // Inside the liner or outside it, measured on the volatile cube that ARRIVED
   // — which is `primed` itself for every impact that has one moving body, and
   // is only a different cube when a volatile shipment comes down on a volatile
@@ -350,7 +355,61 @@ export function volatileBlast(
   const lined = cushion.cells > 0
     && landing !== undefined
     && landing.body.position.x >= cushionEdgeX(cushion.cells);
-  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+  return { primed, lined };
+}
+
+/** Relative speed between the two bodies of a pair — the one number both the
+ *  detonation test and the absorb test compare against a threshold. */
+function pairSpeed(a: Matter.Body, b: Matter.Body): number {
+  return Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+}
+
+/**
+ * Did the LINER stop this one — i.e. would the same arrival have detonated on
+ * an unlined bay?
+ *
+ * The narrow question on purpose, and the narrowness is the design. A volatile
+ * shipment set down gently in a lined slot was never going to go off, and a cue
+ * there would credit the system for physics the player got for free; an arrival
+ * hard enough to beat even the cushioned threshold DID go off, and nothing was
+ * absorbed. Only the band between the two thresholds is the liner doing the job
+ * it was bought for, and it is the only band this reports.
+ *
+ * False whenever there is no liner at all, so a bay that never bought one pays
+ * nothing for asking.
+ */
+export function cushionAbsorbed(
+  cubes: Cube[],
+  a: Matter.Body,
+  b: Matter.Body,
+  triggerMult = 1,
+  cushion: CushionSpec = NO_CUSHION,
+): boolean {
+  if (cushion.cells <= 0) return false;
+  const found = primedLanding(cubes, a, b, cushion);
+  if (!found?.lined) return false;
+  const rel = pairSpeed(a, b);
+  return rel >= VOLATILE_TRIGGER_SPEED * cushionedTrigger(triggerMult, 1)
+    && rel < VOLATILE_TRIGGER_SPEED * cushionedTrigger(triggerMult, cushion.mult);
+}
+
+export function volatileBlast(
+  cubes: Cube[],
+  a: Matter.Body,
+  b: Matter.Body,
+  /** Per-bay multiplier on the trigger speed (level.ts's volatileTriggerMult).
+   *  1 = stock, and a bay that never writes it behaves byte-identically to
+   *  before the knob existed. Below 1 the material is primed finer — see the
+   *  field's doc for why this is a multiplier rather than an absolute speed. */
+  triggerMult = 1,
+  /** The rig's liner (level.ts's cushionCells / cushionMult). Defaults to none,
+   *  so every existing caller keeps the field-wide behaviour it had. */
+  cushion: CushionSpec = NO_CUSHION,
+): Cube[] {
+  const found = primedLanding(cubes, a, b, cushion);
+  if (!found) return [];
+  const { primed, lined } = found;
+  const rel = pairSpeed(a, b);
   if (rel < VOLATILE_TRIGGER_SPEED * cushionedTrigger(triggerMult, lined ? cushion.mult : 1)) {
     return [];
   }
