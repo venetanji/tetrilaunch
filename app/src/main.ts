@@ -147,6 +147,7 @@ import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
   startHoldCharge, stopHoldCharge, restoreBed,
+  suspendMidBayStinger, resumeMidBayStinger,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
 } from "./lib/audio";
@@ -1151,6 +1152,12 @@ class App {
       case "won": playStinger("gameOver2"); return;
 
       case "playing":
+        // A resume first: if the pause below suspended a mid-bay piece
+        // (timeFinal over overtime, brokeSettle over the broke grace), hand it
+        // back at the position the frozen game clock kept for it, and touch
+        // nothing else — the piece's own contract (stopped bed, muted bed)
+        // is exactly as it left it.
+        if (resumeMidBayStinger()) return;
         stopStinger();
         playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0));
         return;
@@ -1170,6 +1177,14 @@ class App {
       case "paused":
       case "coach-fail":
       case "seal-break":
+        // The two mid-bay pieces are the exception to stop-and-lounge: they
+        // score windows the game clock owns (overtime's cue floor, the broke
+        // grace), and pausing freezes those windows. Stopping the piece here
+        // meant resume restarted the bay bed while the floor ran on in
+        // silence — reported by codex on this PR — so the piece is PAUSED
+        // with the clock instead, and no lounge plays over the held breath.
+        // Every other stinger keeps the old treatment.
+        if (suspendMidBayStinger()) return;
         stopStinger();
         playMusic("menu");
         return;
@@ -5600,10 +5615,14 @@ class App {
     // of the sample rather than of the machine, so it belongs on the audio side
     // of the seam.
     //
-    // The estimate reads the bar's own pace and is a step short under rigid
-    // drag (game.ts's rigidPressDrag slows the travel but not this arithmetic),
-    // so a labouring press lands its cue slightly early. That is the right way
-    // to be wrong: a hair ahead of the crush still reads as anticipation, where
+    // The estimate reads the bar's pace UNDER TODAY'S DRAG: rigid cargo slows
+    // the travel by up to 3.88x (game.ts's rigidPressDrag), and arithmetic on
+    // the undragged pace fired the cue seconds ahead of a labouring press —
+    // finished before the bar arrived, which is not anticipation, it is a
+    // sound about nothing. The drag read here is instantaneous, and it can
+    // only LIGHTEN mid-stroke (bonds break under the press; none re-form), so
+    // the residual error lands the cue a hair early. That is the right way to
+    // be wrong: a hair ahead of the crush still reads as anticipation, where
     // late reads as a mistake.
     const comp = g.compactor;
     if (comp.dir === 1 && this.strokeCueHalf !== comp.halfCycles) {
@@ -5619,7 +5638,7 @@ class App {
       // So it is clamped HERE and the shortfall handed to the sample instead.
       // The cue is anchored to the crush at every speed by construction rather
       // than by a margin nobody re-measures.
-      const strokeMs = (comp.cycleSteps / 2) * STEP_MS;
+      const strokeMs = (comp.cycleSteps / 2) * STEP_MS * g.rigidPressDrag;
       const lead = Math.min(COMPACTOR_CUE_LEAD_MS, strokeMs);
       const msToStop = (1 - comp.phase) * strokeMs;
       if (msToStop <= lead) {

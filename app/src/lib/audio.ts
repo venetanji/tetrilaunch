@@ -952,6 +952,10 @@ export function stopStinger(): void {
   // back first would be an audible flicker of a track about to be replaced. The
   // one caller that DOES want it back (the broke rescue) asks for it.
   stingerKeptBed = false;
+  // A suspended piece that gets STOPPED (quit from the pause card, a verdict
+  // arriving under the seal notice) is gone; a later resume must not revive a
+  // dead flag into a false "handled".
+  stingerSuspended = false;
 }
 
 /**
@@ -964,6 +968,45 @@ export function stopStinger(): void {
  */
 export function restoreBed(): void {
   if (music) fadeTo(music, MUSIC_GAIN);
+}
+
+/**
+ * THE MID-BAY PIECES SURVIVE A PAUSE AS A PAUSE, not as a stop.
+ *
+ * timeFinal and brokeSettle are the two stingers that score a window the GAME
+ * clock owns — overtime's cue-length floor (game.ts's OVERTIME_CUE_STEPS) and
+ * the broke grace. Pausing freezes stepCount, so those windows freeze; a
+ * stinger that was STOPPED there (which is what syncMusic's paused branch did
+ * to every stinger) could only restart from bar one on resume, desynchronised
+ * from the very floor it is the sound of — or, worse, be replaced by the bay
+ * bed while the floor ran on in silence. Pausing the ELEMENT keeps its
+ * position exactly as the frozen clock keeps its own, and the two come back
+ * together.
+ *
+ * Only these two. Every other stinger answers something already decided, and a
+ * pause over one of those (the seal notice over a loss card, say) is already
+ * handled by the stop-and-replace idiom this module is built on. The pair of
+ * functions is deliberately narrow — suspend answers "did I take this?" so the
+ * caller can fall through to the ordinary stop when it did not.
+ */
+const MID_BAY_STINGERS: ReadonlySet<StingerName> = new Set(["timeFinal", "brokeSettle"]);
+let stingerSuspended = false;
+
+export function suspendMidBayStinger(): boolean {
+  if (!stinger || !stingerName || !MID_BAY_STINGERS.has(stingerName)) return false;
+  try { stinger.pause(); } catch { /* already unplayable — resume will no-op */ }
+  stingerSuspended = true;
+  return true;
+}
+
+export function resumeMidBayStinger(): boolean {
+  if (!stingerSuspended) return false;
+  stingerSuspended = false;
+  if (!stinger) return false;
+  void stinger.play().catch(() => { /* refused — the ended handler never fires
+    on a paused element, so the piece simply stays silent; the bay's own exit
+    still ends it and syncMusic replaces it there. */ });
+  return true;
 }
 
 /**

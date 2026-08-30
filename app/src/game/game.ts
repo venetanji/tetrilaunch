@@ -2306,8 +2306,17 @@ export class Game {
       // that is a balance change in the player's favour, stated rather than
       // slipped in: a payout during overtime can still WIN the bay, so a longer
       // floor is more time for a rescue to land. It is bounded by the cue.
+      // ...but only where the cue actually PLAYS. The floor exists to honour a
+      // piece of music, and a Game constructed without an onTimeUp listener
+      // has no piece to honour — the drills are exactly that (the clock and
+      // sys-magazine drills are timed, and main.ts's startDrill wires no cue),
+      // and stretching a failed practice run by twelve silent seconds would be
+      // the original dead-air bug reintroduced on purpose. Keying on the
+      // listener rather than on a mode flag keeps this self-maintaining: wire
+      // the cue somewhere new and the floor arrives with it.
+      const cueFloor = this.events.onTimeUp ? OVERTIME_CUE_STEPS : 0;
       if (
-        this.stepCount - this.timeUpStep >= OVERTIME_CUE_STEPS &&
+        this.stepCount - this.timeUpStep >= cueFloor &&
         (this.settleDone(this.timeUpStep) || this.fieldStopped())
       ) {
         this.lossReason = "time";
