@@ -708,7 +708,7 @@ change anything.
 | 4 | Bay Extension | **Cold Chain** — 22% of the belt frozen | **Ice Wall** — the bay opens on 11 cubes of unthawed salvage |
 | 5 | Bond Emitter | **Rebar Run** — 32% of the belt rigid | **Cold Weld** — nothing in the bay comes apart on its own |
 | 6 | Demolition Rack | **Slag Run** — 17% of the belt dead | **Slag Wall** — the bay opens on 11 cubes of somebody else's slag |
-| 7 | Bay Extension | **Powder Run** — 27% of the belt volatile | **Hair Trigger** — 20% volatile, primed 15% finer |
+| 7 | Impact Cushion | **Powder Keg** — nothing standard ships: the whole standard share arrives volatile | **Hair Trigger** — 20% volatile, primed 15% finer |
 | 8 | Demolition Rack | **Tar Run** — 18% of the belt tar | **Fouled Bay** — 12% tar, congestion bites 12 cubes earlier |
 | 9 | Press Hydraulics | **Bled Hydraulics** — settle assist at 35% | **Haulage Bond** — spillage billed at 3× |
 | 10 | Bond Emitter | **Odd Lots** — nothing standard ships: all six materials at once | **Full Rebar** — every standard shipment arrives as rebar |
@@ -787,7 +787,7 @@ clause takes away, all twenty fall into three groups with no exceptions:
 |---|---|---|
 | **Cubes that can reach a line** | every material clause, plus Cold Weld and the retired Dead Weight | −15 to −70 |
 | **Money** | Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics | −5 to −10 |
-| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, the retired Short Measure | free or better |
+| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, the retired Powder Run and Short Measure | free or better |
 
 The Tier 10 pair postdates the table. The size fork it replaced (**Dead
 Weight** / **Short Measure**, the pentomino/domino pair) examined the cannon's
@@ -799,6 +799,29 @@ cargo. The bot cannot rank the two poles (a material flood collapses it, a
 placement demand reads free), so the sizing argument is against the ladder
 itself and lives in `finals.ts`'s Tier 10 header; only a device playtest can
 say more.
+
+**The Tier 7 pair postdates it too, and was re-measured on its own terms.**
+`design/balance/volatile-exam.md` separates the Impact Cushion's value into the
+liner and the aiming policy it teaches, and finds two thirds of it is the
+policy: on a volatile-capped Tier-7 bay 10, a pilot playing the liner's own rule
+with the softening turned off (x1.00) reads 75% against a naive 50%, where a
+real tier-1 liner played reads 88%. That is why the guide now teaches *lob it at
+the wall, never land cargo on an intact bomb* as a technique of its own, and why
+both Tier-7 clauses are badged **Impact Cushion** rather than Bay Extension —
+the measured swing on those two bays is +56 and +38 points of win rate from a
+played liner.
+
+`Powder Keg` replaces `Powder Run` on the same document's §4a. It is the first
+full belt dealt below the capstone, and the only volatile belt on which the
+cushion's three rungs separate upward: 0% with no liner, then 38 / 58 / 83
+across the rungs played (re-flown through the shipped clause at 24 seeds: 0 /
+42 / 46 / 79). Every partial depth the ratchet can reach reads flat instead,
+because `volatileBlast` softens the LANDING — so on a mixed belt the standard
+shipments are the detonator, arriving unprotected and setting off what is
+already lying in the liner. A belt between 40% and 90% volatile is *harder*
+than a full one for the same reason, which is why the clause goes all the way
+or not at all. Its pole, `Hair Trigger`, stays 53% bare-handed: a rig with no
+liner still has a card it can sign.
 
 The third group is the finding. The bot does not plan a row — it solves an angle
 and fires on every cooldown — so a clause that shrinks the space of *good*

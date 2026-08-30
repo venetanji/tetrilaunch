@@ -438,6 +438,27 @@ the liner.
 
 ## 6. THE RECOMMENDATION
 
+> **STATUS: shipped.** The owner ruled on all five points. 1, 2 and 4 are built
+> — the pair is retargeted, the technique is taught (`guide.ts`'s "Landing a
+> bomb", and the volatile drill's brief, which had been teaching the retired
+> "aim it at the junk" reading), and Powder Keg replaced Powder Run with
+> `FinalDef.fullBelt`'s rule narrowed to "capstone-only, or a belt the shelf
+> already sells the answer to" (`sim/systems.ts` re-derives that predicate
+> rather than listing permitted ids). 3 and 5 are declined as this document
+> recommends: no `CUSHION_TIERS` nerf, no slot cap. The 0% bare-handed row is
+> accepted design — the pair's other pole is signable without a liner.
+>
+> One consequence this document did not consider and the implementation had to:
+> the Skydeck's second stop draws from Tiers 4-9 and stands four bays, so
+> Powder Keg would have been dealt as an unrefusable standing rule. `skydeck.ts`
+> now refuses a full belt exactly as it refuses dead cargo, with the same
+> one-bay carve-out that keeps the capstone pair dealable at the last stop.
+>
+> Re-flown through the SHIPPED clause (`CLAUSE=powder-keg`, 24 paired seeds):
+> 0% none/naive, 0% t1/naive, 42% t1/played, 0% t2/naive, 46% t2/played, 83%
+> t3/naive, 79% t3/played. The wall and the ascent both reproduce; the middle
+> rung separates less at 24 seeds than the 32-40 the table below was flown at.
+
 In order, cheapest first, and only the first is unconditional:
 
 1. **Retarget the Tier-7 pair to `system: "cushion"`.** One word per clause. §3
