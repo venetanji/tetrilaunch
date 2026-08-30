@@ -205,9 +205,10 @@ import {
 import { setRailSide } from "../src/game/layout";
 import {
   armActivate, armRelease, DISARMED,
-  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, revealShift,
+  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
+import { captureScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
 import * as S from "../src/ui/screens";
 import {
   CHAPTERS, GUIDE_TOPICS, drillUnlocked, guideTopics, topicById, topicsIn,
@@ -14272,6 +14273,98 @@ section("A pad selection is revealed whole, ring included (ui/padnav.ts)");
   check("the scroll clearance is that ring's outer edge, in one number",
     Number(width?.[1]) + Number(offset?.[1]) === FOCUS_RING_GAP,
     `${width?.[1]} + ${offset?.[1]} vs ${FOCUS_RING_GAP}`);
+}
+
+// ---------------------------------------------------------------------------
+section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)");
+// ---------------------------------------------------------------------------
+// THE BUG, reported as "after a purchase the scroll refreshes to the top".
+// There is no component framework here: main.ts's renderOverlay rewrites
+// `overlay.innerHTML` wholesale, so a Workshop purchase REPLACES the shop pane
+// rather than updating it, and a fresh element scrolls to 0. Measured in the
+// real app on a 740x360 phone against a progressed save: a 906px shelf in a
+// 181px pane, the player 725px down it, back to 0 on every BUY.
+//
+// The DOM half — which regions exist, and which re-renders are the same view
+// redrawn rather than navigation — lives at main.ts's renderKeepingScroll. The
+// MATCHING RULE is the part with no browser in it, so it is the part this file
+// can hold (the same split revealShift makes above).
+{
+  const region = (id: string, className: string, scrollTop = 0) => ({ id, className, scrollTop });
+
+  // The Workshop's shelf, mid-purchase: same region, new element. This is the
+  // whole reported bug in four lines.
+  const shelfOut = [region("", "workshop__shop", 725)];
+  const shelfIn = [region("", "workshop__shop")];
+  restoreScroll(shelfIn, captureScroll(shelfOut));
+  check("the workshop shelf comes back where the player left it",
+    shelfIn[0].scrollTop === 725);
+
+  // An id beats a class, because four of the five [data-scroll] regions carry
+  // one and it is the most stable name a screen gives anything.
+  check("a region is keyed by its id when it has one",
+    scrollKey(region("guide-list", "guide__list")) === "guide-list");
+  // …and the FIRST class stands in when it does not. First rather than the
+  // whole className: a state class appended later must not silently rename the
+  // region and turn the restore back into the jump it fixes.
+  check("a class-only region is keyed by its first class, not its class list",
+    scrollKey(region("", "workshop__shop is-flashing")) === "workshop__shop");
+
+  // NAVIGATION BETWEEN SCREENS must not carry an offset across. Both of these
+  // screens have exactly one [data-scroll] region, so anything matching by
+  // position alone would drop the Workshop's 725px into the guide index.
+  const guideIn = [region("guide-list", "guide__list")];
+  restoreScroll(guideIn, captureScroll(shelfOut));
+  check("one screen's offset cannot land in another screen's shelf",
+    guideIn[0].scrollTop === 0);
+
+  // A shelf already at the top restores to the top by doing nothing, which is
+  // what lets the common case cost one empty map and no second walk.
+  check("a screen nobody scrolled captures nothing",
+    captureScroll([region("lb-body", ""), region("", "workshop__shop")]).size === 0);
+
+  // A region with neither id nor class is unidentifiable, and guessing is
+  // worse than leaving it at the top.
+  check("an anonymous region is left alone rather than guessed at",
+    scrollKey(region("", "")) === "" && captureScroll([region("", "", 90)]).size === 0);
+
+  // THE PAD'S HALF OF THE SAME RENDER (ui/padnav.ts's pickInView, driven by
+  // main.ts's reseatPadSelection). Restoring the offset is only half an
+  // answer: syncPadFocus lands a selection inside that same render, and on the
+  // Workshop it lands on the first primary action — a BUY button near the TOP
+  // of the shelf. Measured on a 740x360 phone, the two together left the ring
+  // 605px above the fold, where the next Confirm spends salvage on an item
+  // nobody looked at. So when the control the player was holding did not
+  // survive, the selection is re-seated on what the restored viewport is
+  // actually showing.
+  //
+  // The pane below is 200 tall at y=100, i.e. the shelf as the player sees it.
+  const port = { x: 0, y: 100, w: 300, h: 200 };
+  const row = (y: number, h = 44) => ({ x: 0, y, w: 300, h });
+
+  check("a selection is re-seated on a row inside the pane",
+    pickInView([row(-500), row(-100), row(140), row(400)], port) === 2);
+
+  // MOST OF ITSELF SHOWN, not nearest to an edge: a row clipped to a sliver at
+  // the fold is not somewhere to leave a ring the player is about to press.
+  check("a whole row beats a sliver at the edge",
+    pickInView([row(90), row(180)], port) === 1);
+
+  // Ties go to the earliest, so a pane of equally visible rows selects the top
+  // one — where a reader's eye already is.
+  check("equally visible rows tie to the first",
+    pickInView([row(120), row(180), row(240)], port) === 0);
+
+  // NOTHING IN VIEW IS ITS OWN ANSWER, and it is the case the Workshop
+  // actually produces: buy the last option on the shelf and everything left at
+  // that offset is the ✓ Installed and ✓ Owned strips and the gated cards —
+  // spans and prices, not one focusable control. -1 is what tells the caller
+  // to spend the offset revealing the selection instead of keeping a ring
+  // nobody can see.
+  check("a pane showing nothing selectable says so",
+    pickInView([row(-500), row(-200), row(400)], port) === -1);
+  check("…and an empty pane too",
+    pickInView([], port) === -1);
 }
 
 // ---------------------------------------------------------------------------

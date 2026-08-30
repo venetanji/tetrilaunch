@@ -106,6 +106,45 @@ export function pickNext(rects: NavRect[], from: number, dir: NavDir): number {
   return best;
 }
 
+/**
+ * Where a pad selection should land when the control it was holding did not
+ * survive a re-render, and the pane it lived in is showing a different part of
+ * itself than the landing did: the target sharing the most of its own height
+ * with the scrollport. -1 when nothing in `rects` is on screen at all.
+ *
+ * THE HAZARD THIS ANSWERS is a selection the player cannot see. main.ts's
+ * renderKeepingScroll puts a shelf back where the player left it after a
+ * purchase; focusInitial, running inside the same render, lands on the
+ * screen's first primary action, which on the Workshop is a BUY button near
+ * the TOP of that shelf. Both are individually right and together they leave
+ * the ring 605px above the fold (measured on a 740x360 phone) — where the next
+ * Confirm spends salvage on an item nobody looked at.
+ *
+ * MOST OF ITS OWN HEIGHT rather than nearest-to-centre: a control the player
+ * can see all of beats one clipped to a sliver at the edge, which is the same
+ * judgement `reveal` makes when it brings a selection in. Ties go to the
+ * earliest in document order (`>` rather than `>=`), so a pane of equally
+ * visible rows selects the top one — where a reader's eye already is.
+ *
+ * Vertical only. Every scroller the overlay has scrolls in Y (the two
+ * horizontal ones, `.pl-mods` and `.guide__tabs`, are strips of one row that
+ * cannot strand anything above or below a fold), so a second axis here would
+ * be arithmetic nothing can exercise.
+ */
+export function pickInView(rects: NavRect[], port: NavRect): number {
+  let best = -1;
+  let bestSeen = 0;
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    const seen = Math.min(r.y + r.h, port.y + port.h) - Math.max(r.y, port.y);
+    if (seen > bestSeen) {
+      bestSeen = seen;
+      best = i;
+    }
+  }
+  return best;
+}
+
 /** Everything a pad may land focus on. Native controls plus the two ARIA
  *  shapes the overlay actually uses (the settings switch is a div with
  *  role="switch" + tabindex). [tabindex] alone would also catch them, but
