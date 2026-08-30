@@ -338,21 +338,24 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
 
 /**
- * How long overtime runs before a SETTLED field is called without waiting for
- * settleDone's freshness guard — see overtimeSettled.
+ * THE MINIMUM LENGTH OF OVERTIME — the `timeFinal` cue plays to its end before
+ * the bay may be called at all.
  *
- * 12 seconds, and the number is the length of the `timeFinal` cue rather than
- * anything the physics asks for. That is the point: the cue is the only clock
- * the player still has once the timer reads zero, so the bay finishing as the
- * music finishes makes them one event instead of two. It is a floor, not a cap
- * — settleCapSteps still backstops a field that never comes to rest, and a bay
- * that settles EARLIER still exits earlier through settleDone.
+ * 12 seconds, and the number is that asset's length rather than anything the
+ * physics asks for. The cue is the only clock the player still has once the
+ * timer reads zero, so the bay finishing as the music finishes makes them one
+ * event instead of two — in BOTH directions. Ending late leaves dead silence;
+ * ending early cuts the piece off mid-phrase, which is what settleDone did on
+ * its own, since it can converge in four or five seconds.
+ *
+ * A FLOOR, not a cap. settleCapSteps still backstops a field that never comes
+ * to rest, so a bay cannot hang on this.
  *
  * Re-measure it against the asset if timeFinal is ever regenerated: a cue that
  * runs long would put the silence back, and one that runs short would end the
  * bay while it is still playing.
  */
-const OVERTIME_SETTLED_STEPS = Math.round(12_000 / DT);
+const OVERTIME_CUE_STEPS = Math.round(12_000 / DT);
 
 /** How long (physics steps) a provably-dead exact-inventory bay keeps running
  *  before it is called (see the pieces branch in update()). ~1s: long enough
@@ -2291,7 +2294,22 @@ export class Game {
         this.timeUpStep = this.stepCount;
         this.events.onTimeUp?.();
       }
-      if (this.settleDone(this.timeUpStep) || this.overtimeSettled()) {
+      // THE CUE IS A FLOOR ON OVERTIME, not merely a deadline for the check
+      // below it. settleDone can converge in four or five seconds, and with a
+      // twelve-second piece playing over it that ended the bay mid-phrase —
+      // reported as "it cuts the music". So no exit is offered at all while the
+      // cue is still running, and both exits are asked only once it has
+      // finished: at that point the bay ends if the field has stopped, and
+      // waits in silence if it has not.
+      //
+      // This LENGTHENS overtime on bays that would have converged early, and
+      // that is a balance change in the player's favour, stated rather than
+      // slipped in: a payout during overtime can still WIN the bay, so a longer
+      // floor is more time for a rescue to land. It is bounded by the cue.
+      if (
+        this.stepCount - this.timeUpStep >= OVERTIME_CUE_STEPS &&
+        (this.settleDone(this.timeUpStep) || this.fieldStopped())
+      ) {
         this.lossReason = "time";
         this.setStatus("lost");
       }
@@ -2499,14 +2517,17 @@ export class Game {
    * budget running out change nothing at all.
    */
   /**
-   * A SECOND, LATER EXIT FOR OVERTIME ONLY — the one the player can hear.
+   * HAS THE FIELD STOPPED — a second exit for overtime, offered alongside
+   * settleDone once OVERTIME_CUE_STEPS has passed (see the caller, which gates
+   * both).
    *
-   * The time-up cue is a piece of music about this long (lib/audio.ts plays
-   * `timeFinal` on onTimeUp), and a player reads it as the settlement running:
-   * it starts when the clock dies and it is the only thing telling them how
-   * long this is going to take. Owner playtest: when the bay outlives the
-   * music there are "extra settlement seconds after the music is over", which
-   * is the game contradicting the only clock it is still showing.
+   * The time-up cue is a piece of music (lib/audio.ts plays `timeFinal` on
+   * onTimeUp) and a player reads it as the settlement running: it starts when
+   * the clock dies and it is the only thing telling them how long this will
+   * take. Owner playtest, on the bay outliving it: "extra settlement seconds
+   * after the music is over" — the game contradicting the only clock it is
+   * still showing. This is the exit that lets the bay end AT the cue rather
+   * than sweeps later; the floor in the caller is what stops it ending before.
    *
    * WHY THIS DOES NOT REUSE settleQuiet — which was the first attempt, and
    * changed nothing. That flag is a POSITION comparison against
@@ -2517,6 +2538,8 @@ export class Game {
    * perfect stillness alone would sometimes never fire". Overtime on a
    * jittering pile therefore ran to settleCapSteps every time — about three
    * more sweeps after the cue had finished, which is the silence reported.
+   * Elapsed time simply did not register: "it feels like the music time
+   * doesn't count as settled".
    *
    * So the question is asked WITHOUT an epsilon, in terms of what the press is
    * FINDING rather than how still the pixels are:
@@ -2538,10 +2561,9 @@ export class Game {
    * over them, so there is no expectation to honour and no reason to relax a
    * guard that costs nothing there.
    */
-  private overtimeSettled(): boolean {
+  private fieldStopped(): boolean {
     const since = this.timeUpStep;
     if (since === null) return false;
-    if (this.stepCount - since < OVERTIME_SETTLED_STEPS) return false;
     return (
       this.lastFullAdvanceStep > since &&
       this.lastFullAdvanceStep > this.lastClearStep &&
