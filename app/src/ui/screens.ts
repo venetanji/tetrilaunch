@@ -4178,6 +4178,12 @@ export function draftScreen(opts: {
   /** The run's tier (its Mark, in player-facing words) — carried on the
    *  eyebrow so the draft states which rung's pressure is being priced. */
   tier: number;
+  /** The Mark the run is actually flying, which `tier` above is NOT: on the
+   *  Skydeck that field carries the roof's sentinel so the eyebrow can name the
+   *  floor. The cards price themselves off this — the cost and time axes enter
+   *  their ladder at ladderStart(mark) (hazards.ts) — so a card quoted off the
+   *  sentinel would name a price no bay charges. */
+  mark: number;
   funds: number;
   /** Overshoot above this bay's target (0 if it ended right at target) —
    *  the only part of `funds` that actually carries into the next bay's
@@ -4291,7 +4297,7 @@ export function draftScreen(opts: {
           <span class="mod-card__ax" aria-hidden="true">${badge}</span>
           <span class="mod-card__name">${h.name}</span>
         </div>
-        <p class="mod-card__desc">${h.desc}</p>
+        <p class="mod-card__desc">${h.desc(opts.mark)}</p>
         <div class="mod-card__foot">
           <span class="mod-card__pick">${foot}</span>
           <span class="mod-card__state">${stack}${box}</span>

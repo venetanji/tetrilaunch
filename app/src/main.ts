@@ -4667,6 +4667,10 @@ class App {
       // eyebrow names the floor being flown, and a Skydeck run's floor is the
       // Skydeck (screens.ts's tierText), not the Mark it borrows numbers from.
       tier: run.skydeck ? S.SKYDECK_TIER : run.mark,
+      // …and the Mark itself beside it, unsentinelled: the cards quote what a
+      // notch costs on THIS run's ladder, and a Skydeck run flies a Mark's
+      // numbers however the eyebrow names its floor.
+      mark: run.mark,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
       // what's displayed can't drift from what the next bay's float is really

@@ -97,6 +97,7 @@ function draft(selected: HazardId[]): string {
   return S.draftScreen({
     bayNum: 6,
     tier: 6,
+    mark: 6,
     funds: 1_820,
     carry: 120,
     offers: hazardOffers(20_260_815, 6, 6),
@@ -139,6 +140,7 @@ function skydeckDraft(selected: HazardId[]): string {
   return S.draftScreen({
     bayNum: 6,
     tier: run.mark,
+    mark: run.mark,
     funds: 1_820,
     carry: 120,
     offers: hazardOffers(run.seed, 6, run.mark, undefined, HUD_BASE.ratchets),
@@ -199,6 +201,7 @@ function materialDraft(selected: HazardId[]): string {
   return S.draftScreen({
     bayNum: LEVEL_INDEX + 1,
     tier: 10,
+    mark: 10,
     funds: 1_820,
     carry: 120,
     offers: hazardOffers(SEED, LEVEL_INDEX, 10, 2, HUD_BASE.ratchets),

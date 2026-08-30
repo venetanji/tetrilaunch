@@ -1431,7 +1431,7 @@ section("Installs — what salvage buys (meta.ts)");
   // The yard's cards say what a system is and its buttons say what a rung
   // costs — nothing on it says what the belt is made of.
   const mixDraft = S.draftScreen({
-    bayNum: 7, tier: 10, funds: 1_820, carry: 120,
+    bayNum: 7, tier: 10, mark: 10, funds: 1_820, carry: 120,
     offers: hazardOffers(25, 6, 10, 2, mixRun.ratchets),
     ratchets: mixRun.ratchets, selected: ["slag"], picksNeeded: 2,
     preview: previewRows(
@@ -6947,9 +6947,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       && picksPerBay(CAPSTONE_MARK) === 2 && picksPerBay(9) === 1);
   check("every axis id is unique",
     new Set(HAZARDS.map((h) => h.id)).size === HAZARDS.length);
+  // At the foot of the ladder AND at the capstone: a card priced off the Mark
+  // (hazards.ts's notchPrice) has to carry its number at every Mark it is
+  // dealt at, not only at the one a fixture happens to build.
   check("every axis names its number in its own copy",
-    HAZARDS.filter((h) => h.kind === "number").every((h) => /\d/.test(h.desc)),
-    HAZARDS.filter((h) => h.kind === "number" && !/\d/.test(h.desc)).map((h) => h.id).join(","));
+    HAZARDS.filter((h) => h.kind === "number")
+      .every((h) => /\d/.test(h.desc(1)) && /\d/.test(h.desc(CAPSTONE_MARK))),
+    HAZARDS.filter((h) => h.kind === "number" && !(/\d/.test(h.desc(1)) && /\d/.test(h.desc(CAPSTONE_MARK))))
+      .map((h) => h.id).join(","));
 
   // ---- Notches actually bite ----------------------------------------------
   const flat = makeBaseLevel(0, 1);
@@ -7281,7 +7286,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const run = { ...newRun(25, [], 400, undefined, 10), levelIndex: 7, carry: 120, scrap: 340 };
     const marks: Ratchets = { volatile: 1, magnetic: 1 };
     const draft = S.draftScreen({
-      bayNum: 8, tier: 10, funds: 1_820, carry: 120,
+      bayNum: 8, tier: 10, mark: 10, funds: 1_820, carry: 120,
       offers: hazardOffers(25, 7, 10, 2, marks),
       ratchets: marks, selected: ["volatile"], picksNeeded: 2,
       preview: previewRows(levelForRun(run), levelForRun(run), marks),
@@ -9622,6 +9627,57 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
       String(makeBaseLevel(0, 5).timeLimitSec - m5two.timeLimitSec));
   }
 
+  // THE CARD NEVER NAMES A PRICE ITS OWN BAY DOES NOT CHARGE.
+  //
+  // The invariant, not the two strings: a draft card is an offer, and an offer
+  // quoting rung 0 while the bay enters at ladderStart(mark) is a different
+  // number from Mark 3 up ($1 promised, $5 charged at Mark 10; 1s promised, 8s
+  // charged) — and it contradicted the projection printed beside it, which has
+  // always computed from the real entry rung. Read as: parse the price out of
+  // the copy the player is shown, then charge one notch and measure what moved.
+  {
+    const quoted = (text: string): number => Number(/(\d+)/.exec(text)?.[1] ?? NaN);
+    const priced: [HazardId, (c: LevelConfig, b: LevelConfig) => number][] = [
+      ["cost", (c, b) => c.launchCost - b.launchCost],
+      ["time", (c, b) => b.timeLimitSec - c.timeLimitSec],
+    ];
+    for (const [id, delta] of priced) {
+      const def = hazardById(id)!;
+      const wrong: string[] = [];
+      for (let m = 1; m <= CAPSTONE_MARK; m++) {
+        const b = { ...makeBaseLevel(0, 1), mark: m };
+        const charged = delta(applyRatchets(b, { [id]: 1 } as Ratchets), b);
+        if (quoted(def.desc(m)) !== charged) wrong.push(`M${m} says ${quoted(def.desc(m))}, charges ${charged}`);
+      }
+      check(`the ${id} card quotes what its bay charges, at every Mark`,
+        wrong.length === 0, wrong.join("; "));
+    }
+  }
+
+  // …and the same invariant read from the other side, so an axis that becomes
+  // Mark-priced in code without becoming Mark-priced in copy fails HERE rather
+  // than on a player's draft screen. Only cfg.mark is varied — one base config,
+  // one field — so a difference in the applied config is Mark-dependence and
+  // nothing else.
+  {
+    const stale: string[] = [];
+    for (const h of HAZARDS) {
+      const applied = (m: number): string => {
+        const b = { ...makeBaseLevel(0, 1), mark: m };
+        // `mark` itself is stripped back out: it is the input being varied, so
+        // leaving it in would report every axis as Mark-dependent.
+        return JSON.stringify({ ...applyRatchets(b, { [h.id]: 1 } as Ratchets), mark: 0 });
+      };
+      const applyVaries = applied(1) !== applied(CAPSTONE_MARK);
+      const copyVaries = h.desc(1) !== h.desc(CAPSTONE_MARK);
+      if (applyVaries !== copyVaries) {
+        stale.push(`${h.id} (apply ${applyVaries ? "varies" : "flat"}, copy ${copyVaries ? "varies" : "flat"})`);
+      }
+    }
+    check("a card's copy varies with the Mark exactly when its apply does",
+      stale.length === 0, stale.join(", "));
+  }
+
   const threeCuts = applyRatchets(base, { time: 3 });
   check("three shift cuts take 1+2+3 seconds",
     threeCuts.timeLimitSec === base.timeLimitSec - 6, String(threeCuts.timeLimitSec));
@@ -9675,6 +9731,50 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
   // effect is a direction rather than a size (the wind pair) says so in words.
   const vague = FINALS.filter((f) => !/\d/.test(f.desc) && !/\b(full|pinned|nothing|never)\b/i.test(f.desc));
   check("every clause states its own size", vague.length === 0, vague.map((f) => f.id).join(", "));
+
+  // THE TIER-1 MONEY PAIR CROSSES INSIDE THE RIG BAND.
+  //
+  // The property the whole Final Inspection rests on, pinned where it can be
+  // read as arithmetic: a pair whose cheaper card is the same card at every rig
+  // is two cards with one right answer, i.e. a toll. Tier 1 is the case that can
+  // be stated exactly, because its two clauses move the same quantity from
+  // opposite sides — a flat sum of revenue against a share of it — and because
+  // Mark 1's refit sells the Reactor and nothing else (upgrades.ts's
+  // refitTracks), so the band of rigs that reach bay 10 IS that one track.
+  //
+  // Priced in the unit finals.ts sizes every pair in: extra lines the last bay
+  // must sell, at the repo's measured ~2.9 launches a line, on the bay as
+  // levelForRun hands it over (ladder, then ship, then carry) and through the
+  // clause's OWN apply rather than a second copy of its arithmetic.
+  //
+  // It failed for a whole release: post-recalibration the flat quota was the
+  // cheaper card at all four Reactor tiers, which finals.ts's own TODO recorded.
+  {
+    const LAUNCHES_PER_LINE = 2.9;
+    const linesToSell = (cfg: LevelConfig): number =>
+      (cfg.targetScore - cfg.startingFunds) / (cfg.scorePerLine - LAUNCHES_PER_LINE * cfg.launchCost);
+    const withClause = (reactor: number, id: FinalId | null): number => {
+      const cfg = makeBaseLevel(RUN_LEVELS - 1, 1);
+      applyUpgrades(cfg, { ...newTiers(), reactor });
+      cfg.startingFunds += CARRY_CAP;
+      applyFinal(cfg, id);
+      return linesToSell(cfg);
+    };
+    const cost = (reactor: number, id: FinalId): number =>
+      withClause(reactor, id) - withClause(reactor, null);
+    const thin = [cost(0, "rush-order"), cost(0, "rate-cut")];
+    const fat = [cost(MAX_TIER, "rush-order"), cost(MAX_TIER, "rate-cut")];
+    check("Tier 1's money pair crosses: the quota is the cheap card on a thin rig",
+      thin[0] < thin[1], `stock: rush ${thin[0].toFixed(2)} vs cut ${thin[1].toFixed(2)}`);
+    check("...and the dear one on a maxed Reactor",
+      fat[0] > fat[1], `reactor ${MAX_TIER}: rush ${fat[0].toFixed(2)} vs cut ${fat[1].toFixed(2)}`);
+    // …and EQUALLY bad while it crosses. A pair that crosses because one card
+    // became ruinous has not been balanced, it has been swapped. One line on an
+    // 18-line bay is the tolerance finals.ts's "within a couple of lines" means.
+    const spread = Math.max(Math.abs(thin[0] - thin[1]), Math.abs(fat[0] - fat[1]));
+    check("...with neither card more than a line dearer than the other",
+      spread < 1, `worst gap ${spread.toFixed(2)} lines`);
+  }
 
   // The boundary. The offer is built at the moment a bay is WON, before the run
   // advances, so the index is the bay just cleared: clearing bay 9 (index 8)
@@ -10730,7 +10830,7 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // an input to the bay, not the floor's name: passing it here had the
     // between-bays eyebrow filing the day run as "Tier 10" (device report).
     const draft = S.draftScreen({
-      bayNum: 4, tier: S.SKYDECK_TIER, funds: 900, carry: 120,
+      bayNum: 4, tier: S.SKYDECK_TIER, mark: MARK_COUNT, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
       picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 62, baysToRefit: 2,
       standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
@@ -10749,7 +10849,7 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     check("...while a ladder draft's eyebrow still prints its tier",
       S.tierText(MARK_COUNT) === `Tier ${MARK_COUNT}`);
     const ladderDraft = S.draftScreen({
-      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      bayNum: 4, tier: MARK_COUNT, mark: MARK_COUNT, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
       picksNeeded: 2, preview: [], scrap: 40, baysToRefit: 2,
     });
@@ -16194,7 +16294,7 @@ section("Volatile is billed for the cargo it destroys (level.ts / lineClear.ts /
     const card = hazardById("volatile");
     check(
       "the volatile draft card prices the notch, not just the bang",
-      !!card && disclosesCharge(card.desc), card?.desc,
+      !!card && disclosesCharge(card.desc(7)), card?.desc(7),
     );
 
     // Bay 1 of the tier volatile opens at, which is where the guide reads its
