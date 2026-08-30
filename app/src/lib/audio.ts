@@ -690,10 +690,13 @@ export function stopHoldCharge(): void {
  * So this rose only a little, and it must not be read as the fix. The tilt
  * makes the SAME nominal gain far louder to an ear, because it moved the
  * energy from a band the equal-loudness contours discount steeply into the one
- * they do not -- perceived level is up much more than these 3dB. If the bed now
- * sits too high, pull this; if it still reads thin, the take is the problem.
+ * they do not -- perceived level is up much more than these 3dB.
+ *
+ * 0.3 was then reported as getting in the way of the music, and this is the
+ * number that answers that -- the tilt stays, because the tilt is what makes it
+ * present on a phone at all; only the level comes back down.
  */
-const WIND_MAX_GAIN = 0.3;
+const WIND_MAX_GAIN = 0.26;
 const WIND_RAMP_S = 0.35;
 let windSrc: AudioBufferSourceNode | null = null;
 let windGain: GainNode | null = null;

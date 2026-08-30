@@ -357,15 +357,38 @@ const OVERRIDES = {
   "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
   // A LOOP, so the transient trim must not run — and the window is chosen for
   // its EDGES rather than its content, because a loop's seam is the only part a
-  // listener hears twice. Measured, the take fades in over ~0.6s, plateaus, and
-  // decays from 5.0s to its end at 8.4s, so most of it cannot be looped at all.
+  // listener hears twice.
   //
-  // 2.2-4.8s is the longest stretch whose two ends MATCH: -14.9dB at the start
-  // against -15.3dB at the end, a 0.4dB seam. The obvious wider window (1.0 to
-  // 5.0) spans 6dB and would pulse once per cycle — audible as a rhythm the bay
-  // does not have, which is the defect congestionLoop's entry warns about. 2.6s
-  // is short for a wind bed and will read as repetitive if it is ever loud; the
-  // fix then is a longer take, not a wider window.
+  // THE EQ BELOW MOVED THESE EDGES, and the first version of this entry did not
+  // follow. The old window (2.2-4.8s) was picked on the UNFILTERED take, where
+  // its ends matched within 0.4dB. Measured again through the tilt those same
+  // ends are 5.0dB apart — the match was carried by low-frequency content the
+  // highpass removes — so the shipped loop stepped once per cycle, which is the
+  // pulse this window exists to prevent. A filter that changes the spectrum
+  // changes which stretches loop, and the window has to be re-derived with it.
+  //
+  // Re-derived, the tilt pays for itself twice: the take's first second was an
+  // unusable low-frequency fade-in before, and is ordinary bed once the lows are
+  // gone. So the longest well-matched stretch is no longer 2.6s but 3.86s —
+  // 1.04-4.90s, whose ends sit within 0.14dB — and the entry that used to say a
+  // longer loop needed a longer take was, after the EQ, no longer true. It still
+  // holds beyond this: 1.0s and 5.0s bound the real plateau, the take decays
+  // from there to its end at 8.4s, and 3.86s is all of it there is.
+  //
+  // Inside the loop the level still arcs 4.2dB: it opens at the seam level,
+  // swells to its top about half a second in, and eases back down to meet
+  // itself. That is deliberately not flattened — one gust per cycle is what
+  // WIND does, and it is the opposite shape from the dip a
+  // taper at the seam would put there. It is the discontinuity that reads as
+  // machinery, not the movement.
+  //
+  // The window carries 60ms of PAD at each end that audio.ts never plays. mp3
+  // decodes with encoder delay at the head (measured: the first 10ms of the old
+  // shipped file was digital silence) and the pipeline's 30ms fade-out sits at
+  // the tail, so setWind loops an interior region inset by that much — and the
+  // inset has to land ON the matched edges, not 60ms inside them, or it undoes
+  // the match. Hence 0.98-4.96 shipped for a 1.04-4.90 loop: the pad is the part
+  // that gets thrown away, so the numbers above are the ones that matter.
   //
   // The EQ is not seasoning -- without it this bed is INAUDIBLE on the device
   // the game ships to, and no amount of audio.ts gain fixes that. Measured, the
@@ -385,7 +408,7 @@ const OVERRIDES = {
   // reads as hiss rather than as WIND, the answer is a new take briefed for the
   // phone band -- not more filtering here.
   "windLoop.mp3": {
-    start: 2.2, dur: 2.6,
+    start: 0.98, dur: 3.98,
     eq: "highpass=f=200:poles=2,lowshelf=f=500:g=-15,highshelf=f=1500:g=6",
   },
   // NOT A LOOP, despite the name it arrived under. Measured, the take is a

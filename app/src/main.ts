@@ -5786,7 +5786,18 @@ class App {
     // mechanic entirely (level.ts), and dividing by it would be the one reading
     // here that can produce NaN — so a bay with no wind is asked for silence
     // explicitly rather than arriving at it by arithmetic.
-    setWind(g.level.windMax > 0 ? Math.abs(g.windNow) / g.level.windMax : 0);
+    //
+    // The screen-change stop in syncMusic is NOT enough on its own, and the gap
+    // is the overtime window. When the clock runs out the bay is over but it is
+    // still SETTLING, and settling happens under state "playing" by design — so
+    // syncHud keeps running, and the weather kept blowing under timeFinal for
+    // the length of the piece. Reported from play as wind audible over the game
+    // over. The clock and the status are the honest test of whether a bay can
+    // still be played, so they gate it here rather than the screen doing it:
+    // timeLeftMs is Infinity on an untimed bay (Contracts, attract), which is
+    // never <= 0, so those are unaffected.
+    if (g.status !== "playing" || g.timeLeftMs <= 0) stopWind();
+    else setWind(g.level.windMax > 0 ? Math.abs(g.windNow) / g.level.windMax : 0);
 
     const comp = g.compactor;
     if (comp.dir === 1 && this.strokeCueHalf !== comp.halfCycles) {
