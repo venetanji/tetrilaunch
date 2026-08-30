@@ -19224,11 +19224,18 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
 //      standing between thirty `cursor: pointer` class rules and the bitmaps.
 //   4. The keyword after each url() is the whole degradation story.
 {
+  // Normalised to LF, because these checks probe structure with literal
+  // newlines (`includes("\n}\n")` below finds the media query's own close) and
+  // a Windows checkout under autocrlf hands this file back with CRLF endings.
+  // Reproduced: converting cursors.css to CRLF fails exactly one check — the
+  // pointer:fine placement probe — on content that is byte-identical once
+  // endings are ignored. The harness measures the stylesheet, not git's
+  // platform manners.
   const readSrc = (...parts: string[]): string =>
     fs.readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...parts),
       "utf8",
-    );
+    ).replace(/\r\n/g, "\n");
   const cursors = readSrc("src", "styles", "cursors.css");
   const appCss = readSrc("src", "styles", "app.css");
   const tokens = readSrc("src", "styles", "tokens.css");
