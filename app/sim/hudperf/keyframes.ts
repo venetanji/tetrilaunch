@@ -216,6 +216,38 @@ const freshIdle = async (): Promise<void> => {
   await page.evaluate(
     `window.__hudperf.prepare(${JSON.stringify({ frames: FRAMES, fire: false, still: false, fresh: true })})`,
   );
+  if (CONGEST) await congestDress();
+};
+
+/**
+ * --congest: measure the bay DRESSED as congest-danger, because that state is
+ * where the crest turns on its most expensive layers (the ::before glint sweep
+ * exists only there, and pixel-sparkle runs 8.75x faster) and it is exactly the
+ * moment a real bay is also paying peak physics and canvas cost — the frames a
+ * phone actually drops.
+ *
+ * Dressed, not driven: syncHud re-derives .plant--congest-* from the live
+ * pileTier every frame, so a class forced onto the plant is stripped within a
+ * frame, and building a genuinely congested pile headlessly would measure the
+ * pile. Instead a harness-only class replays JUST the state's animation
+ * declarations (the palette swap is inert to a style-recalc counter). The
+ * stand-in must be kept in step with app.css's .plant--congest-danger rules by
+ * hand — it prices the animations, it does not prove the costume.
+ */
+const CONGEST = argv.includes("--congest");
+const congestDress = async (): Promise<void> => {
+  await page.evaluate(`
+    if (!document.getElementById('kf-congest-sheet')) {
+      const s = document.createElement('style');
+      s.id = 'kf-congest-sheet';
+      s.textContent = [
+        '.kf-congest .plant__crest::before { opacity: 1; animation: crest-spark 1.15s linear infinite; }',
+        '.kf-congest .plant__crest::after { --spark-peak: 1; animation-duration: 1.6s; }',
+      ].join('\\n');
+      document.head.appendChild(s);
+    }
+    document.querySelector('.plant')?.classList.add('kf-congest');
+  `);
 };
 
 await freshIdle();
@@ -239,7 +271,7 @@ const running: (Running & { shared: boolean })[] = rolled
   })
   .sort((a, b) => b.targets - a.targets || a.name.localeCompare(b.name));
 
-console.log("# Tetrilaunch idle-keyframe census\n");
+console.log(`# Tetrilaunch idle-keyframe census${CONGEST ? " — dressed as congest-danger" : ""}\n`);
 console.log(
   `frames=${FRAMES} per arm, engine=chromium(headless), 900x420 @2x. ` +
     `Milliseconds are a desktop CPU's; the RANKING is what transfers to a phone.\n`,
