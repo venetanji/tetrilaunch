@@ -1,6 +1,6 @@
 {
   "name": "tetrilaunch",
-  "version": "1.0.0",
+  "version": "1.0.0-alpha.1",
   "private": true,
   "description": "Tetrilaunch — a neon-arcade physics cannon puzzle. Capacitor port (web / Android / iOS).",
   "type": "module",

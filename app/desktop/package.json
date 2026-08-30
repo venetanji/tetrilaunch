@@ -1,7 +1,7 @@
 {
   "name": "tetrilaunch-desktop",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.0-alpha.1",
   "description": "Electron shell for the desktop/Steam build. Its own package so Electron's ~200MB of binaries stay out of app/node_modules.",
   "author": "Tetrilaunch",
   "main": "main.js",
