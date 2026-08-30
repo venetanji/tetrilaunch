@@ -122,6 +122,7 @@ import {
   armActivate, armRelease, DISARMED, focusInitial, moveFocus,
   PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, type ArmState,
 } from "./ui/padnav";
+import { captureScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForView, boardForView, DAY_NONE,
@@ -2873,6 +2874,50 @@ class App {
     this.syncAttract();
   }
 
+  /**
+   * renderOverlay for a re-render that is THE SAME VIEW REDRAWN, keeping the
+   * player's place in whatever shelf they were reading.
+   *
+   * The reported bug: buy something on the Workshop and the shop pane jumps
+   * back to the top. renderOverlay rewrites `overlay.innerHTML` wholesale, so
+   * a purchase does not update `.workshop__shop` — it replaces it, and a fresh
+   * element scrolls to 0. Measured on a 740x360 phone against a progressed
+   * save: a 906px shelf in a 181px pane, the player 725px down it, and every
+   * BUY threw them back to the first card. The stock they were shopping for is
+   * exactly the stock that is furthest from the top.
+   *
+   * NOT folded into renderOverlay itself, and that is the whole design of this
+   * seam. The offsets are only worth keeping when the shelf the player is in
+   * survives as the SAME shelf — a Workshop purchase, a guide topic chosen
+   * beside an unchanged index. A re-render that swaps what the region CONTAINS
+   * is navigation, and the top is the right answer there: switching Controls
+   * tabs (`#controls-grid` holds a different pane) or Guide chapters
+   * (`#guide-list` holds a different chapter's topics) still calls
+   * renderOverlay directly, so the new content arrives read from its
+   * beginning. Deciding that per call is something only the call site knows.
+   *
+   * The Controls screen's REBIND renders are the third same-view case and are
+   * deliberately left alone: renderOverlay already restores focus to the row
+   * being rebound, and `.focus()` drags it back into view on its own — the
+   * same 740x360 measurement put that grid at 338px of 389 rather than at 0.
+   * Nothing to fix there until that focus restore stops being the answer.
+   *
+   * The capture/restore rule itself is ui/scrollkeep.ts, pure and pinned in
+   * sim/systems.ts; all this adds is the DOM either side of it.
+   *
+   * Synchronous, for renderSandboxInPlace's reason: the new elements are
+   * already in the document and writing scrollTop forces the layout it clamps
+   * against, so there is no frame to wait for. And it lands AFTER the focus
+   * restores above deliberately — `.focus()` scrolls its element into view,
+   * which is a coarser answer to the same question, and the exact offset
+   * should win over it.
+   */
+  private renderKeepingScroll(): void {
+    const keep = captureScroll(this.overlay.querySelectorAll<HTMLElement>("[data-scroll]"));
+    this.renderOverlay();
+    restoreScroll(this.overlay.querySelectorAll<HTMLElement>("[data-scroll]"), keep);
+  }
+
   /** A pad player needs focus to EXIST before the D-pad can move it: land it
    *  on each fresh screen's primary action (ui/padnav.ts's focusInitial).
    *  Gamepad profile only — a mouse player's screens should not open with a
@@ -4185,7 +4230,10 @@ class App {
     };
     saveMeta(this.meta);
     void successHaptic();
-    this.renderOverlay();
+    // The shelf the player just bought from is the shelf they are still
+    // shopping in — see renderKeepingScroll, which is what the four purchase
+    // handlers on this screen use instead of a bare renderOverlay.
+    this.renderKeepingScroll();
   }
 
   /** Workshop: install a ship system with salvage.
@@ -4200,7 +4248,7 @@ class App {
     this.meta = next;
     saveMeta(this.meta);
     void successHaptic();
-    this.renderOverlay();
+    this.renderKeepingScroll();
   }
 
   /** Workshop: buy one more rack slot (meta.ts's buySlot). Same three lines as
@@ -4214,7 +4262,7 @@ class App {
     this.meta = next;
     saveMeta(this.meta);
     void successHaptic();
-    this.renderOverlay();
+    this.renderKeepingScroll();
   }
 
   /** Workshop: move one owned system between the rack and the shed.
@@ -4236,7 +4284,7 @@ class App {
     this.meta = next;
     saveMeta(this.meta);
     void tapHaptic();
-    this.renderOverlay();
+    this.renderKeepingScroll();
   }
 
   /** Workshop: switch shop halves. Anything other than the two known ids is
@@ -5775,7 +5823,14 @@ class App {
         const id = el.getAttribute("data-topic");
         if (id && topicById(id, markUnlocked(this.meta))) {
           this.guideTopic = id;
-          this.renderOverlay();
+          // The Workshop's purchase bug in its other clothes: the INDEX
+          // (#guide-list) is the same list of the same chapter's topics before
+          // and after this tap, so rebuilding it must not throw the reader
+          // back to its first row — the topic they just chose is the one
+          // furthest from the top. The chapter switch above keeps the plain
+          // render for the opposite reason: that list is a DIFFERENT chapter's
+          // topics, and a new list is read from its beginning.
+          this.renderKeepingScroll();
         }
         break;
       }

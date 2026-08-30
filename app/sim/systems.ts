@@ -206,6 +206,7 @@ import {
   FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, revealShift,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
+import { captureScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
 import * as S from "../src/ui/screens";
 import {
   CHAPTERS, GUIDE_TOPICS, drillUnlocked, guideTopics, topicById, topicsIn,
@@ -14201,6 +14202,60 @@ section("A pad selection is revealed whole, ring included (ui/padnav.ts)");
   check("the scroll clearance is that ring's outer edge, in one number",
     Number(width?.[1]) + Number(offset?.[1]) === FOCUS_RING_GAP,
     `${width?.[1]} + ${offset?.[1]} vs ${FOCUS_RING_GAP}`);
+}
+
+// ---------------------------------------------------------------------------
+section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)");
+// ---------------------------------------------------------------------------
+// THE BUG, reported as "after a purchase the scroll refreshes to the top".
+// There is no component framework here: main.ts's renderOverlay rewrites
+// `overlay.innerHTML` wholesale, so a Workshop purchase REPLACES the shop pane
+// rather than updating it, and a fresh element scrolls to 0. Measured in the
+// real app on a 740x360 phone against a progressed save: a 906px shelf in a
+// 181px pane, the player 725px down it, back to 0 on every BUY.
+//
+// The DOM half — which regions exist, and which re-renders are the same view
+// redrawn rather than navigation — lives at main.ts's renderKeepingScroll. The
+// MATCHING RULE is the part with no browser in it, so it is the part this file
+// can hold (the same split revealShift makes above).
+{
+  const region = (id: string, className: string, scrollTop = 0) => ({ id, className, scrollTop });
+
+  // The Workshop's shelf, mid-purchase: same region, new element. This is the
+  // whole reported bug in four lines.
+  const shelfOut = [region("", "workshop__shop", 725)];
+  const shelfIn = [region("", "workshop__shop")];
+  restoreScroll(shelfIn, captureScroll(shelfOut));
+  check("the workshop shelf comes back where the player left it",
+    shelfIn[0].scrollTop === 725);
+
+  // An id beats a class, because four of the five [data-scroll] regions carry
+  // one and it is the most stable name a screen gives anything.
+  check("a region is keyed by its id when it has one",
+    scrollKey(region("guide-list", "guide__list")) === "guide-list");
+  // …and the FIRST class stands in when it does not. First rather than the
+  // whole className: a state class appended later must not silently rename the
+  // region and turn the restore back into the jump it fixes.
+  check("a class-only region is keyed by its first class, not its class list",
+    scrollKey(region("", "workshop__shop is-flashing")) === "workshop__shop");
+
+  // NAVIGATION BETWEEN SCREENS must not carry an offset across. Both of these
+  // screens have exactly one [data-scroll] region, so anything matching by
+  // position alone would drop the Workshop's 725px into the guide index.
+  const guideIn = [region("guide-list", "guide__list")];
+  restoreScroll(guideIn, captureScroll(shelfOut));
+  check("one screen's offset cannot land in another screen's shelf",
+    guideIn[0].scrollTop === 0);
+
+  // A shelf already at the top restores to the top by doing nothing, which is
+  // what lets the common case cost one empty map and no second walk.
+  check("a screen nobody scrolled captures nothing",
+    captureScroll([region("lb-body", ""), region("", "workshop__shop")]).size === 0);
+
+  // A region with neither id nor class is unidentifiable, and guessing is
+  // worse than leaving it at the top.
+  check("an anonymous region is left alone rather than guessed at",
+    scrollKey(region("", "")) === "" && captureScroll([region("", "", 90)]).size === 0);
 }
 
 // ---------------------------------------------------------------------------
