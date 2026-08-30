@@ -338,15 +338,18 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
 
 /**
- * How long overtime runs before a SETTLED field is called without waiting for
- * settleDone's freshness guard — see overtimeSettled.
+ * How long the time-out cue runs, and therefore the FLOOR under the whole
+ * time branch: a timed-out bay never ends — by settleDone OR overtimeSettled
+ * — before this many steps of overtime have passed.
  *
  * 12 seconds, and the number is the length of the `timeFinal` cue rather than
  * anything the physics asks for. That is the point: the cue is the only clock
- * the player still has once the timer reads zero, so the bay finishing as the
- * music finishes makes them one event instead of two. It is a floor, not a cap
- * — settleCapSteps still backstops a field that never comes to rest, and a bay
- * that settles EARLIER still exits earlier through settleDone.
+ * the player still has once the timer reads zero, and the design is one clock
+ * in both directions — a field that settles at three seconds keeps its music
+ * to the end and the bay ends with it, and a field still jittering at the end
+ * keeps running until it converges (settleCapSteps backstops, and clears this
+ * floor at every compactor speed). Ending early cuts the music mid-phrase;
+ * ending late plays silence over a still field. Both are the same bug.
  *
  * Re-measure it against the asset if timeFinal is ever regenerated: a cue that
  * runs long would put the silence back, and one that runs short would end the
@@ -2291,7 +2294,17 @@ export class Game {
         this.timeUpStep = this.stepCount;
         this.events.onTimeUp?.();
       }
-      if (this.settleDone(this.timeUpStep) || this.overtimeSettled()) {
+      // BOTH exits wait for the cue to play out. The first draft floored only
+      // overtimeSettled and left settleDone free to end the bay early, which
+      // is the mirror image of the silence that exit was built to fix: a
+      // sample that DID go quiet at nine seconds cut the music mid-phrase.
+      // The design, stated by the owner: the cue plays to its end even over a
+      // field that has already settled, and at its end a settled bay ends —
+      // one clock, both directions. settleCapSteps still backstops a field
+      // that never rests, and it clears the floor at every compactor speed
+      // (min(6 cycles, 30s); the fastest measured rig makes that 12.6s).
+      const cueDone = this.stepCount - this.timeUpStep >= OVERTIME_SETTLED_STEPS;
+      if (cueDone && (this.settleDone(this.timeUpStep) || this.overtimeSettled())) {
         this.lossReason = "time";
         this.setStatus("lost");
       }
