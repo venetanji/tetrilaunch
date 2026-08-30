@@ -211,6 +211,11 @@ function busyEffects(now: number): FxEvent[] {
     { kind: "payout", x: 700, y: 400, amount: 120, grade: "excellent", congested: false, t0: now - 300 },
     { kind: "rowflash", y: 640, x0: 0, x1: WORLD.width, t0: now - 100 },
     { kind: "explosion", x: 800, y: 560, r: 120, t0: now - 150 },
+    // The Thaw Lance's crystal, mid-sweep: a hexagon, six spokes, an additive
+    // bloom and a plume of motes. In the busy set for the reason stated above —
+    // one of every animated kind — and at 180ms because that is where all four
+    // of its layers are alive at once, which is the frame it actually costs.
+    { kind: "thaw", x: 620, y: 520, t0: now - 180 },
     { kind: "salvage", x: 820, y: 520, amount: 9, t0: now - 250 },
     { kind: "penalty", x: 300, y: 600, amount: 40, t0: now - 400 },
     { kind: "snap", x: 860, y: 480, color: PIECE_COLORS.O, t0: now - 120 },
