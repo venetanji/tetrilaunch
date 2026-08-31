@@ -4,17 +4,15 @@
 # bundle first — see the `files` mapping below for why that ordering is not
 # optional — and by .github/workflows/desktop.yml on a v* tag.
 #
-# NOTHING HERE IS SIGNED. There are no certificates, for any of the three
-# platforms, and the config is arranged so that missing certificates produce a
-# working artifact rather than a failed build. See the mac block for the one
-# place where "unsigned" still needs a signature.
+# Local macOS builds use an ad-hoc signature so they remain runnable without
+# secrets. CI overrides the mac signing fields with the Developer ID identity,
+# hardened runtime and notarization settings documented in desktop/README.md.
+# Windows remains unsigned.
 
-appId: com.tetrilaunch.desktop
-# Not com.tetrilaunch.app, which capacitor.config.ts already claims for the
-# phone builds. macOS keys per-app state — the sandbox container, the
-# Launch Services registration, the notarization record — on the bundle id, so
-# two products sharing one id is a category of bug that only shows up on a
-# user's machine.
+appId: com.tetrilaunch.game
+# This intentionally matches the new Apple-team identifier used by the iOS
+# target. Do not install the iOS-on-Mac build beside this Electron build: macOS
+# keys Launch Services registration and per-app state on this value.
 productName: Tetrilaunch
 copyright: Copyright © 2026 Tetrilaunch
 
@@ -110,20 +108,16 @@ mac:
   # Gatekeeper still blocks the download; desktop/README.md says how to get
   # past it.
   identity: "-"
-  # Explicit rather than inherited: notarization needs an Apple Developer
-  # account and an app-specific password, and a build that silently tried
-  # would fail late, after packaging.
+  # Local default. The macOS CI leg overrides this to true after validating all
+  # signing/notarization secrets.
   notarize: false
-  # Ad-hoc signatures and the hardened runtime interact badly — library
-  # validation rejects Electron's own unsigned frameworks — and the hardened
-  # runtime buys nothing without notarization anyway.
+  # Local default paired with the ad-hoc identity. CI overrides it to true for
+  # the Developer ID build.
   hardenedRuntime: false
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 dmg:
-  # The disk image itself would otherwise be signed with whatever identity
-  # discovery turns up, which on a runner with no keychain is a failure rather
-  # than a skip.
+  # Local default; CI signs the dmg with the imported Developer ID certificate.
   sign: false
   title: Tetrilaunch ${version}
 

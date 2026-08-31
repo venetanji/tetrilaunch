@@ -56,7 +56,9 @@ code with nothing to evict it.
 
 ## Packaging
 
-`electron-builder.yml` produces three things, all unsigned:
+`electron-builder.yml` produces three desktop packages. Release CI signs and
+notarizes the macOS package; Windows remains unsigned and Linux has no platform
+code-signing step:
 
 | Platform | Target | Artifact |
 | --- | --- | --- |
@@ -82,21 +84,19 @@ Everything is inside the asar, audio included — verified with `npx asar list`
 after a Linux build: 54 files, byte-identical to `app/dist/`, plus `main.js`
 and `package.json` at the root and nothing else.
 
-### Nothing is signed
+### Signing
 
-There are no certificates for any of the three platforms, and there is no way
-to make an unsigned build look signed. What each platform does about it:
+What each platform does about it:
 
 - **Windows.** SmartScreen shows "Windows protected your PC" on first run of
   the installer. More info → Run anyway. Only an EV code-signing certificate
   removes this, and reputation is per-certificate, so it will come back on the
   first build after buying one.
-- **macOS.** The builds are **unsigned and unnotarized**. Gatekeeper refuses
-  them on first open. On macOS 14 and earlier: right-click the app → Open →
-  Open. On macOS 15 and later Apple removed that shortcut, so it is System
-  Settings → Privacy & Security → "Open Anyway" after the first refusal.
-  `xattr -dr com.apple.quarantine /Applications/Tetrilaunch.app` does it in one
-  step from a terminal.
+- **macOS release CI.** The app and dmg are signed with a **Developer ID
+  Application** certificate, use the hardened runtime, and are notarized by
+  Apple. Their bundle ID is `com.tetrilaunch.game`, matching the Apple-team App
+  ID used by iOS. Local builds intentionally fall back to the ad-hoc signature
+  described below rather than requiring release credentials on every Mac.
 - **Linux.** AppImages have no signing story to fail. `chmod +x` and run.
 
 One subtlety worth not undoing: `mac.identity` is `"-"`, not `null`. `null`
@@ -104,6 +104,27 @@ skips `codesign` entirely, and an *unsigned* arm64 Mach-O will not exec at all
 on Apple Silicon — the build would be dead on arrival on every recent Mac.
 `"-"` is the ad-hoc identity: no certificate, no authority, but a real
 signature, which is what arm64 requires.
+
+The macOS workflow requires these GitHub Actions repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing the Developer ID Application certificate and private key |
+| `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting that `.p12` |
+| `MACOS_SIGNING_IDENTITY` | Full identity, for example `Developer ID Application: Example Ltd (TEAMID)` |
+| `APPLE_ID` | Apple Account used for notarization |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple Account |
+| `APPLE_TEAM_ID` | Ten-character Apple Developer Team ID |
+
+Export the certificate from Keychain Access, then encode it without line wraps
+before storing it as `MACOS_CERTIFICATE`:
+
+```bash
+base64 < DeveloperIDApplication.p12 | tr -d '\n'
+```
+
+The workflow fails before packaging if any secret is missing; it never silently
+publishes an ad-hoc build as a signed release.
 
 ### Icons
 
