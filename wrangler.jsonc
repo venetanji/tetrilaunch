@@ -33,6 +33,17 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Public identity constants for /api/account — vars, not secrets, because
+  // neither is confidential: the RevenueCat project id is in every dashboard
+  // URL, and the Apple native client id is the app's bundle id, printed on its
+  // store listing. The confidential half (REVENUECAT_SECRET_KEY) and the
+  // client ids still being provisioned (GOOGLE_WEB_CLIENT_ID,
+  // GOOGLE_IOS_CLIENT_ID, APPLE_WEB_CLIENT_ID) are uploaded as worker secrets
+  // by the deploy workflows, so they never live in this file.
+  "vars": {
+    "REVENUECAT_PROJECT_ID": "proj8f307358",
+    "APPLE_NATIVE_CLIENT_ID": "com.tetrilaunch.game"
+  },
   "observability": { "enabled": true },
 
   // STAGING. Deployed from the `staging` branch, which PRs land on before main.
@@ -97,6 +108,14 @@
           "migrations_dir": "migrations"
         }
       ],
+      // Restated, not inherited — the same rule as the bindings above: a named
+      // environment takes NOTHING from the top level, and the two RevenueCat
+      // and Apple values are identical in every environment on purpose (one
+      // RevenueCat project, one bundle id).
+      "vars": {
+        "REVENUECAT_PROJECT_ID": "proj8f307358",
+        "APPLE_NATIVE_CLIENT_ID": "com.tetrilaunch.game"
+      },
       "observability": { "enabled": true }
     }
   }
