@@ -6,6 +6,14 @@ import { setSafeAreaInsets, type Insets } from "../game/layout";
 
 export const isNative = Capacitor.isNativePlatform();
 
+/** The Electron shell. app/desktop/main.js serves the bundle from its own
+ *  registered `app://` scheme — the origin that exists so localStorage and
+ *  fetch() work at all (see the note there) — and nothing else ever loads the
+ *  game from that protocol, so the scheme IS the detection. Guarded for the
+ *  sims, which import this module under Node where `location` does not exist. */
+export const isDesktop =
+  !isNative && typeof location !== "undefined" && location.protocol === "app:";
+
 /** One reload per page session is all this is allowed. Without the guard a
  *  worker that survives the purge would send the shell into a boot loop, which
  *  is a far worse failure than the stale bundle it is trying to fix. */

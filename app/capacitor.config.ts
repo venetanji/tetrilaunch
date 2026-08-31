@@ -55,6 +55,13 @@ const config: CapacitorConfig = {
       // Handled at runtime via @capacitor/screen-orientation (lock landscape —
       // see lib/platform's lockLandscape).
     },
+    SocialLogin: {
+      // Providers default to TRUE, and true means their native SDKs are
+      // compiled into the binary: without these two `false`s the plugin's
+      // post-sync hook links the whole Facebook SDK into an app that never
+      // calls it — size, and a privacy-scanner finding, for nothing.
+      providers: { google: true, apple: true, facebook: false, twitter: false },
+    },
   },
 };
 

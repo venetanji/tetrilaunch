@@ -196,15 +196,17 @@ jobs:
       - name: Require store keys
         env:
           VITE_REVENUECAT_ANDROID_KEY: ${{ secrets.VITE_REVENUECAT_ANDROID_KEY }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
         run: |
           if [ -z "$VITE_REVENUECAT_ANDROID_KEY" ]; then
             echo "::error::VITE_REVENUECAT_ANDROID_KEY is not set — a release built now would have no in-app purchases."
             exit 1
           fi
-          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
-            echo "::error::Supabase public auth configuration is missing."
+          # Android sign-in runs Credential Manager against the WEB client id
+          # (docs/AUTH.md). Without it the account screen hides itself and a
+          # web purchase can never be recovered on this build.
+          if [ -z "$VITE_GOOGLE_WEB_CLIENT_ID" ]; then
+            echo "::error::VITE_GOOGLE_WEB_CLIENT_ID is not set — a release built now would have no sign-in."
             exit 1
           fi
 
@@ -212,8 +214,7 @@ jobs:
         env:
           VITE_REVENUECAT_ANDROID_KEY: ${{ secrets.VITE_REVENUECAT_ANDROID_KEY }}
           VITE_REVENUECAT_IOS_KEY: ${{ secrets.VITE_REVENUECAT_IOS_KEY }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
         run: npm run build:native
 
       - name: Systems smoke test

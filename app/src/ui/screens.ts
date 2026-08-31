@@ -1273,8 +1273,15 @@ export interface StoreState {
   unlimited: boolean;
   /** Native store receipts can be restored; web identity is persisted locally. */
   restorable?: boolean;
-  /** Supabase account used to make web ownership recoverable across devices. */
-  account?: { available: boolean; ready: boolean; label: string | null };
+  /** Social-login identity (lib/auth.ts) that keys purchases to a durable
+   *  RevenueCat id. `providers` says which sign-in buttons can work on THIS
+   *  platform, so the screen never offers one that fails on tap. */
+  account?: {
+    available: boolean;
+    ready: boolean;
+    label: string | null;
+    providers: { google: boolean; apple: boolean };
+  };
 }
 
 function unlimitedBadgeHTML(): string {
@@ -1507,9 +1514,14 @@ export function settingsScreen(
         </div>
         <div class="settings__actions">
           <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
-          ${store?.account?.available ? `<button class="btn btn--secondary btn--block" data-action="account">${
-            store.account.label ? "Player Account" : "Sign In"
-          }</button>` : ""}
+          ${
+            // Signed-in beats available: a player whose identity was persisted
+            // by a build with sign-in configured must keep the door to Sign
+            // Out / Delete Account even in a build without it.
+            store?.account && (store.account.available || store.account.label)
+              ? `<button class="btn btn--secondary btn--block" data-action="account">${
+                store.account.label ? "Player Account" : "Sign In"
+              }</button>` : ""}
           ${store?.available ? purchaseRowsHTML(store) : ""}
           <button class="btn btn--secondary btn--block" data-action="menu">Done</button>
         </div>
@@ -1696,15 +1708,15 @@ function accountText(value: string): string {
 }
 
 export function accountScreen(account: NonNullable<StoreState["account"]>): string {
-  const body = !account.available
-    ? `<p class="muted">Account sign-in is not configured in this build.</p>`
-    : account.label
-      ? `<p class="muted">Signed in as</p><p class="display account__name">${accountText(account.label)}</p>
-         <button class="btn btn--secondary btn--block" data-action="account-signout">Sign Out</button>
-         <button class="btn btn--ghost btn--block" data-action="account-delete">Delete Account</button>`
+  const body = account.label
+    ? `<p class="muted">Signed in as</p><p class="display account__name">${accountText(account.label)}</p>
+       <button class="btn btn--secondary btn--block" data-action="account-signout">Sign Out</button>
+       <button class="btn btn--ghost btn--block" data-action="account-delete">Delete Account</button>`
+    : !account.available
+      ? `<p class="muted">Account sign-in is not configured in this build.</p>`
       : `<p class="muted">Sign in before buying on the web so Full Game can be recovered on another device.</p>
-         <button class="btn btn--secondary btn--block" data-action="account-google">Continue with Google</button>
-         <button class="btn btn--secondary btn--block" data-action="account-apple">Continue with Apple</button>`;
+         ${account.providers.google ? `<button class="btn btn--secondary btn--block" data-action="account-google">Continue with Google</button>` : ""}
+         ${account.providers.apple ? `<button class="btn btn--secondary btn--block" data-action="account-apple">Continue with Apple</button>` : ""}`;
   return `<div class="screen neon-backdrop center">
     <div class="panel modal pop account">
       <div style="display:flex;align-items:center;justify-content:space-between">

@@ -13,8 +13,9 @@
       sanitizeName() strips everything outside [A-Z0-9 _-] to 12 chars.
     - lib/telemetry.ts is opt-in, off by default, and has no network call.
     - lib/store.ts keeps settings/name/best/meta in localStorage only.
-    - lib/auth.ts sends OAuth sign-in and session requests to Supabase only
-      after account support is configured and the player chooses to sign in.
+    - lib/auth.ts contacts Google or Apple only when the player chooses to
+      sign in, and keeps the resulting identity (provider, subject id, label)
+      in local storage — no server of ours ever stores account data.
     - public/fonts/ removed the last third-party runtime request.
 -->
 <html lang="en">
@@ -126,23 +127,26 @@
         If you buy anything in the app, the transaction is handled by Apple, Google
         or a web payment provider and by RevenueCat, which tells the app
         whether your purchase is active. We never see your card details. RevenueCat
-        uses a random anonymous ID for guests or your player-account UUID after
-        sign-in. Neither is an advertising identifier. See
+        uses a random anonymous ID for guests, or an identifier derived from your
+        Google or Apple sign-in. Neither is an advertising identifier. See
         <a href="https://www.revenuecat.com/privacy/" rel="noopener">RevenueCat's privacy policy</a>.
       </p>
 
       <h2>Optional player accounts</h2>
       <p>
-        If you choose Continue with Google or Continue with Apple, Supabase processes
-        the sign-in and stores a stable account identifier, your provider identity,
-        and profile information supplied by that provider, which may include your
-        email address and display name. We use this only to authenticate you and make
-        purchase ownership recoverable. We do not use it for advertising.
-        See <a href="https://supabase.com/privacy" rel="noopener">Supabase's privacy policy</a>.
+        Sign-in is optional and does one thing: it keys your purchases to a durable
+        identity so they can be recovered on another device. If you choose Continue
+        with Google or Continue with Apple, that provider handles the sign-in, and
+        the game keeps a stable identifier from it plus a display label on your
+        device. The identifier also names your purchase record at RevenueCat. The
+        game stores no account data on its own servers — there is no account
+        database, and we never receive your password. We do not use any of this for
+        advertising.
       </p>
       <p>
         You can sign out or delete the account from Settings → Player Account.
-        Deletion removes the Supabase account. Apple, Google and RevenueCat may retain
+        Deletion removes the purchase-identity record (the RevenueCat customer) and
+        the identity stored on your device. Apple, Google and RevenueCat may retain
         transaction records where required for purchases, fraud prevention, tax or law.
       </p>
 
@@ -169,7 +173,7 @@
         Guest gameplay does not contact an advertising network or analytics provider.
       </p>
       <p>
-        Outbound connections may go to our leaderboard API; to Supabase, Google or
+        Outbound connections may go to our leaderboard API; to Google or
         Apple when you use player-account features; and to Apple, Google, RevenueCat
         or its web payment provider when you open the store or make a purchase. The
         purchase screen is rendered by RevenueCat and may load its own resources.

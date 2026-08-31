@@ -13,7 +13,7 @@ TestFlight and the App Store; a free Apple ID can only side-load to your own dev
 | Min iOS | 15.0 |
 | Signing | Automatic (`CODE_SIGN_STYLE = Automatic`) — pick your team in Xcode |
 | Capacitor | 8.x — dependencies via **Swift Package Manager**, no CocoaPods |
-| Plugins | `@capacitor/haptics`, `@capacitor/screen-orientation`, `@revenuecat/purchases-capacitor`, `@revenuecat/purchases-capacitor-ui` |
+| Plugins | `@capacitor/haptics`, `@capacitor/screen-orientation`, `@capgo/capacitor-social-login`, `@revenuecat/purchases-capacitor`, `@revenuecat/purchases-capacitor-ui` |
 
 ## 1. One-time setup on the Mac
 
@@ -44,8 +44,9 @@ npm run ios:open              # opens ios/App/App.xcodeproj
 2. Project navigator → **App** target → **Signing & Capabilities**:
    - **Automatically manage signing** ✓, **Team** → your team.
    - Bundle Identifier stays `com.tetrilaunch.game`.
-   - **+ Capability → Sign in with Apple.** The Supabase account flow uses Apple
-     as an identity provider, so the App ID must have this capability enabled.
+   - **+ Capability → Sign in with Apple.** Player identity keys purchases to a
+     provider id (docs/AUTH.md), and on iOS Apple is the native provider — the
+     App ID must have this capability enabled or the sign-in sheet never appears.
    - **+ Capability → In-App Purchase.** RevenueCat's docs call for this. If your Xcode
      doesn't list it, that's fine — StoreKit needs no entitlement, and In-App Purchase is
      enabled by default on every explicit App ID, so there is nothing to toggle in the
@@ -57,7 +58,31 @@ npm run ios:open              # opens ios/App/App.xcodeproj
    Enable **Sign in with Apple** on that identifier. No push, Associated Domains or App
    Groups capabilities are needed.
 
-3. **Run on a device:** plug in an iPhone, pick it, ⌘R. First launch needs the cert
+3. **Google sign-in URL scheme** — owner step, once the iOS OAuth client exists.
+   Google's native flow returns to the app through a URL scheme that is the iOS
+   client id REVERSED (`com.googleusercontent.apps.<number>`). Create the iOS
+   OAuth client for `com.tetrilaunch.game` in the Google Cloud console (it also
+   supplies `VITE_GOOGLE_IOS_CLIENT_ID` — see docs/AUTH.md), copy the
+   "iOS URL scheme" it displays, and add it to `app/ios/App/App/Info.plist`
+   inside the outermost `<dict>`:
+
+   ```xml
+   <key>CFBundleURLTypes</key>
+   <array>
+       <dict>
+           <key>CFBundleURLSchemes</key>
+           <array>
+               <string>com.googleusercontent.apps.YOUR_IOS_CLIENT_NUMBER</string>
+           </array>
+       </dict>
+   </array>
+   ```
+
+   Without it, Google sign-in opens and never comes back. (The old
+   `com.tetrilaunch.app` scheme was the Supabase browser callback and is gone —
+   nothing routes through custom schemes but Google's return leg.)
+
+4. **Run on a device:** plug in an iPhone, pick it, ⌘R. First launch needs the cert
    trusted: *Settings → General → VPN & Device Management → Trust*.
 
    The Simulator works for gameplay but **not** for purchases against real StoreKit — use
