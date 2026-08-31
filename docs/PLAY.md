@@ -14,6 +14,168 @@ Everything the Play Console asks for that isn't the build itself. The build side
 
 ---
 
+## Google Play + RevenueCat purchase setup
+
+This is the first-time setup runbook for the subscription used by this repo.
+The code integration and release automation already exist; the remaining work
+is store-side configuration. Console labels move occasionally, but the objects
+and identifiers below are the important part.
+
+### Identifiers that must agree
+
+| Object | Value | Where it is consumed |
+|---|---|---|
+| Android package | `com.tetrilaunch.app` | Play app, RevenueCat app, release workflow |
+| Play subscription product ID | `tetrilaunch_unlimited` | Play and RevenueCat only; permanent after creation |
+| First base plan ID | `monthly` | Play and RevenueCat product/package mapping |
+| RevenueCat entitlement ID | `Tetrilaunch Unlimited` | **Exact, case-sensitive** lookup in `src/lib/purchases.ts` |
+| RevenueCat offering ID | `default` | RevenueCat's current offering; the app asks for the current paywall |
+| RevenueCat package | `$rc_monthly` | Monthly product shown on the paywall |
+
+The product and base-plan IDs above are conventions chosen for this app, not
+strings compiled into it. The entitlement is different: changing its spelling
+in RevenueCat would let a payment succeed without unlocking the app. If an
+annual option is wanted, add base plan `yearly` to the same subscription and
+map it to RevenueCat package `$rc_annual`; do not create a second entitlement.
+
+Before choosing prices, also decide what Unlimited actually unlocks. The
+current product design lists uncapped Contracts, cosmetics, run history and
+cloud save, but the currently implemented client only exposes the entitlement
+state/badge. Do not sell the subscription until the advertised benefits are
+implemented and the paywall accurately describes what the shipped build does.
+
+### 1. Create the Play app and establish the package
+
+1. In Play Console, create the app as **Tetrilaunch**, game, paid/free as
+   intended (the current plan is a free app with an in-app subscription), and
+   accept the declarations.
+2. Complete the payments profile/merchant setup. A subscription cannot be made
+   available without it.
+3. Create an **internal testing** release and upload a signed AAB for
+   `com.tetrilaunch.app`. The easiest safe first upload is a manual dispatch of
+   **Android debug APK**, which builds a signed AAB artifact but does not
+   publish it; download `tetrilaunch-release-bundle` from that run and upload
+   `app-release.aab` in Play Console.
+4. Finish the minimum blocking dashboard tasks Play reports for that internal
+   release, add tester email accounts (or a Google Group), publish the release,
+   and save its opt-in URL. A tester must accept that link and install from Play
+   for a real Billing test; a sideloaded APK is only useful for the RevenueCat
+   Test Store.
+
+Uploading a bundle before wiring RevenueCat is intentional: it proves the
+package exists in Play, registers the billing-enabled app/version with Play,
+and gives testers a store-installed build. The workflow assigns a monotonically
+increasing `versionCode`, so do not repeatedly publish old downloaded artifacts.
+
+### 2. Give RevenueCat Play API access
+
+RevenueCat needs a Google service-account JSON **in its dashboard** to import
+products and validate purchases. `PLAY_SERVICE_ACCOUNT_JSON` in GitHub does not
+automatically configure RevenueCat; GitHub only passes it to the action that
+uploads an AAB.
+
+Recommended: make a separate service account for RevenueCat, then invite its
+email under Play Console **Users and permissions** with access limited to
+Tetrilaunch and the permissions RevenueCat's credential checker requests. At
+the time of setup these normally include viewing app/financial data and
+managing orders and subscriptions. Download one JSON key, upload it at
+RevenueCat **Project settings → Apps → Tetrilaunch Android → Service
+credentials**, verify it, then securely delete the downloaded copy. Follow
+RevenueCat's current
+[Play service credential guide](https://www.revenuecat.com/docs/service-credentials/creating-play-service-credentials)
+for the exact permission list rather than guessing from an old screenshot.
+
+Using the existing upload service account is possible, but then it needs the
+union of release and purchase-management permissions and one leaked credential
+has a larger blast radius. Do not put a RevenueCat secret API key in GitHub or
+the app: only the app-specific public `goog_…` SDK key belongs in the bundle.
+Google permission changes can take time to propagate; if RevenueCat's check
+fails immediately after a change, wait and retry before recreating everything.
+
+### 3. Create and activate the Play subscription
+
+In Play Console open **Monetize with Play → Products → Subscriptions**:
+
+1. Create product ID `tetrilaunch_unlimited` and name it **Tetrilaunch
+   Unlimited**. Product IDs cannot be reused or renamed, so check the spelling
+   before saving.
+2. Add base plan `monthly`, set it to **auto-renewing**, choose the billing
+   period (one month), select the countries/regions, and set the price. Review
+   Play's converted local prices rather than accepting them blindly.
+3. Activate the base plan. A saved draft is not purchasable and commonly
+   appears downstream as an empty offering.
+4. Add any trial or introductory offer only after the plain monthly purchase
+   works. Eligibility rules add another variable to first-time testing.
+
+The repo does not hard-code price text or currency. Google supplies localized
+pricing to RevenueCat and the RevenueCat paywall renders it; paywall copy must
+not contain a manually typed price that can disagree by territory.
+
+### 4. Connect the product in RevenueCat
+
+1. In the existing RevenueCat project, confirm the Android app package is
+   exactly `com.tetrilaunch.app` and its Play service credentials pass the
+   dashboard check.
+2. Under **Product catalog → Products**, import
+   `tetrilaunch_unlimited` / `monthly` from Google Play. If import cannot find
+   it, re-check that the base plan is active, the package matches, and the
+   service account has propagated.
+3. Under **Entitlements**, create `Tetrilaunch Unlimited` exactly as shown and
+   attach the imported product. This is the case-sensitive contract with the
+   app.
+4. Under **Offerings**, create or select `default`, make it the **Current**
+   offering, add package `$rc_monthly`, and attach the imported monthly product.
+5. Build and publish a RevenueCat Paywall for that offering. Include a clear
+   renewal period, price, auto-renewal/cancellation language, Terms and Privacy
+   links, plus a restore path. The app calls RevenueCat's paywall UI rather than
+   rendering product buttons itself.
+6. In **Project settings → API keys**, copy the Android app-specific public key
+   beginning `goog_`. Confirm it is the value already stored as the
+   `VITE_REVENUECAT_ANDROID_KEY` secret in GitHub's `android-build`
+   environment; replace the secret if the app/project changed. Never substitute
+   a `test_` Test Store key in that environment—the bundle verifier rejects it.
+
+### 5. Test the complete path before a production release
+
+Use two distinct tests; passing one does not prove the other:
+
+1. **RevenueCat wiring without Play:** put the Test Store public key in local
+   `app/.env`, run `cd app && npm run android:apk:test`, install the debug APK,
+   and exercise successful purchase, cancellation, failure, expiry and restore.
+   This checks the entitlement spelling, offering and paywall without charging.
+2. **Real Google Play sandbox:** publish a signed build to the internal track,
+   add the purchasing account to both the internal-test tester list and Play
+   Console **Settings → License testing**, accept the opt-in link, and install
+   from Google Play. Confirm the paywall shows the expected local price, a test
+   purchase activates Unlimited, relaunch preserves it, **Restore purchases**
+   works after reinstall, cancellation/expiry removes it, and RevenueCat shows
+   the event for the anonymous customer.
+
+For the first automated internal upload after the manual bootstrap, publish a
+`v*` GitHub release or dispatch the Android workflow on a `v*` tag with
+**Publish the bundle…** enabled. A normal workflow dispatch only builds the AAB
+artifact. The automation intentionally targets `internal`; promotion to closed,
+open or production testing remains a deliberate Play Console action.
+
+### Launch checklist
+
+- [ ] Play subscription and `monthly` base plan are **active** in every launch
+      country, with prices reviewed.
+- [ ] RevenueCat service credentials validate, and its Android package is
+      `com.tetrilaunch.app`.
+- [ ] Product is attached to entitlement `Tetrilaunch Unlimited` and package
+      `$rc_monthly` in the **Current** offering.
+- [ ] The published paywall describes only benefits present in the release and
+      includes required links/disclosures.
+- [ ] `android-build` holds the matching public `goog_…` key; no `test_…` key is
+      used by the release workflow.
+- [ ] Purchase, restore, renewal/expiry and cancellation have been observed from
+      a Play-installed internal-test build and in RevenueCat customer history.
+- [ ] Play's Data safety, content rating, app access, privacy policy and
+      subscription declarations are complete before production review.
+
+---
+
 ## Store assets
 
 ```bash
