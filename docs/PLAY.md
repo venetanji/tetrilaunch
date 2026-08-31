@@ -27,7 +27,7 @@ and identifiers below are the important part.
 |---|---|---|
 | Android package | `com.tetrilaunch.app` | Play app, RevenueCat app, release workflow |
 | Play one-time product ID | `tetrilaunch_unlimited` | Play and RevenueCat only; permanent after creation |
-| RevenueCat entitlement ID | `Tetrilaunch Unlimited` | **Exact, case-sensitive** lookup in `src/lib/purchases.ts` |
+| RevenueCat entitlement ID | `full_game` | **Exact, case-sensitive** lookup in `src/lib/purchases.ts` |
 | RevenueCat offering ID | `default` | RevenueCat's current offering; the app asks for the current paywall |
 | RevenueCat package | `$rc_lifetime` | Lifetime product shown on the paywall |
 
@@ -118,7 +118,7 @@ not contain a manually typed price that can disagree by territory.
    `tetrilaunch_unlimited` from Google Play. If import cannot find
    it, re-check that the product is active, the package matches, and the
    service account has propagated.
-3. Under **Entitlements**, create `Tetrilaunch Unlimited` exactly as shown and
+3. Under **Entitlements**, create `full_game` exactly as shown and
    attach the imported product. This is the case-sensitive contract with the
    app.
 4. Under **Offerings**, create or select `default`, make it the **Current**
@@ -161,7 +161,7 @@ open or production testing remains a deliberate Play Console action.
       country, with prices reviewed.
 - [ ] RevenueCat service credentials validate, and its Android package is
       `com.tetrilaunch.app`.
-- [ ] Product is attached to entitlement `Tetrilaunch Unlimited` and package
+- [ ] Product is attached to entitlement `full_game` and package
       `$rc_lifetime` in the **Current** offering.
 - [ ] The published paywall describes only benefits present in the release and
       includes required links/disclosures.

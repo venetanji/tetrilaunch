@@ -505,8 +505,8 @@ export function towerRisePassMs(to: number, tier: number): number | null {
 
 function floorHTML(state: TowerState, tier: number): string {
   const open = tierOpen(state, tier);
-  const paywalled = !tierOpen({ ...state, fullGame: true }, tier) ? false
-    : state.fullGame === false && tier > 3 && tier <= MARK_COUNT;
+  const paywalled = state.fullGame === false && tier <= MARK_COUNT
+    && !tierIncluded(tier, false) && tierOpen({ ...state, fullGame: true }, tier);
   const sky = tier === SKYDECK_TIER;
   const sel = tier === state.selected;
   const cls = ["tower__floor"];
@@ -5358,7 +5358,7 @@ export function contractsScreen(opts: {
   const allowance = opts.allowance
     ? opts.allowance.fullGame
       ? `<b>Full Game · unlimited Contracts</b>`
-      : `<b>${opts.allowance.remaining} of 3 Contract clears left today</b>`
+      : `<b>${opts.allowance.remaining} of ${DAILY_COUNT} Contract clears left today</b>`
     : "";
   const foot = opts.progress
     ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ${

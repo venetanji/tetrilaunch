@@ -1140,7 +1140,7 @@ leaderboard, and it's the entire social hook.
 
 One lifetime, non-consumable **Full Game** purchase. Its legacy RevenueCat
 entitlement identifier remains
-`Tetrilaunch Unlimited` (see `UNLIMITED_ENTITLEMENT` in
+`full_game` (see `UNLIMITED_ENTITLEMENT` in
 `app/src/lib/purchases.ts` — it must match the dashboard byte for byte).
 
 **What it buys:** access to earned Tiers 4–10, the daily Contract cap lifted,

@@ -74,7 +74,7 @@ npm run ios:open              # opens ios/App/App.xcodeproj
 3. Point **App Store Server Notifications V2** at the URL RevenueCat gives you.
 4. Create a non-consumable Full Game product in App Store Connect, then in RevenueCat attach it to an
    **offering** and an **entitlement** whose identifier is exactly
-   **`Tetrilaunch Unlimited`** — that string is `UNLIMITED_ENTITLEMENT` in
+   **`full_game`** — that string is `UNLIMITED_ENTITLEMENT` in
    `app/src/lib/purchases.ts` and the two must match byte for byte, spaces and
    capitals included. A mismatch fails silently in the worst way: the purchase
    goes through, the receipt validates, and nothing unlocks.

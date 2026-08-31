@@ -16,7 +16,7 @@ import { isNative } from "./platform";
  *  A mismatch fails silently in the worst possible way: the purchase succeeds,
  *  the receipt validates, and `entitlements.active[…]` is simply undefined, so
  *  the player is charged and nothing unlocks. */
-export const UNLIMITED_ENTITLEMENT = "Tetrilaunch Unlimited";
+export const UNLIMITED_ENTITLEMENT = "full_game";
 
 /** Publishable SDK keys (`appl_…` / `goog_…`). These are *public* by design —
  *  RevenueCat's secret keys are the ones that never leave a server — but they

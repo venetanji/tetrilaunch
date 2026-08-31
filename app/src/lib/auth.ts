@@ -1,4 +1,5 @@
 import type { AuthChangeEvent, Session, SupabaseClient, User } from "@supabase/supabase-js";
+import { apiBase } from "./api";
 import { isNative } from "./platform";
 
 export type AuthProvider = "google" | "apple";
@@ -82,7 +83,10 @@ export async function deleteAccount(): Promise<void> {
   if (!client) throw new Error("Authentication is not configured");
   const { data } = await client.auth.getSession();
   if (!data.session) throw new Error("No signed-in account");
-  const response = await fetch("/api/account", {
+  // Same apiBase the leaderboard client uses: a relative /api/account would
+  // resolve against capacitor://localhost inside the native shells, where no
+  // Worker answers — and in-app deletion is exactly the path Apple reviews.
+  const response = await fetch(`${apiBase()}/api/account`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${data.session.access_token}` },
   });
