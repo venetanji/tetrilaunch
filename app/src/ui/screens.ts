@@ -18,7 +18,7 @@ import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
   tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
-  maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor,
+  maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -287,6 +287,8 @@ export const TOWER_FLOORS = MARK_COUNT + 1;
 export interface TowerState {
   /** The highest Mark the player may fly (meta.ts's markUnlocked). */
   unlocked: number;
+  /** Lifetime Full Game entitlement. Absent preserves existing fixtures. */
+  fullGame?: boolean;
   /** The floor the car is parked on — a Mark, SKYDECK_TIER, or SANDBOX_TIER once
    *  the beacon has been found. */
   selected: number;
@@ -356,7 +358,9 @@ export interface TowerState {
  *  a floor, so the two questions that used to be separate are one again. */
 export function tierOpen(state: TowerState, tier: number): boolean {
   if (tier === SANDBOX_TIER) return sandboxOpen(state);
-  return tier === SKYDECK_TIER ? state.skydeck : tier >= 1 && tier <= state.unlocked;
+  if (tier === SKYDECK_TIER) return state.skydeck;
+  const included = tierIncluded(tier, state.fullGame !== false);
+  return included && tier >= 1 && tier <= state.unlocked;
 }
 
 /** True when the Tier S door is there to be opened. */
@@ -501,6 +505,8 @@ export function towerRisePassMs(to: number, tier: number): number | null {
 
 function floorHTML(state: TowerState, tier: number): string {
   const open = tierOpen(state, tier);
+  const paywalled = !tierOpen({ ...state, fullGame: true }, tier) ? false
+    : state.fullGame === false && tier > 3 && tier <= MARK_COUNT;
   const sky = tier === SKYDECK_TIER;
   const sel = tier === state.selected;
   const cls = ["tower__floor"];
@@ -543,6 +549,7 @@ function floorHTML(state: TowerState, tier: number): string {
   // paid and the label is the floor's name, which is what the sim pins.
   const sealsHeld = (state.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
   const sealsNote = sky && !open ? ` — ${sealsHeld} of ${MARK_COUNT} Marks sealed` : "";
+  const accessNote = paywalled ? " — Full Game required" : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
   // swatches and sim/systems.ts fails the build below dE00 10, so there is no
@@ -596,7 +603,7 @@ function floorHTML(state: TowerState, tier: number): string {
   const rideAt = pass === null ? "" : ` style="--tower-pass:${pass}ms"`;
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"${rideAt}`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${accessNote}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${sky ? "SKY" : tier}</span>`
     + windows
@@ -1237,7 +1244,7 @@ export function menuScreen(
         <!-- Three, and never a fourth. This column is the recap plus the loop
              it describes, and the recap is not compressible: it holds four
              readouts and the belt. No extra entry is a button here — the
-             Unlimited upsell is a shelf row in the brand column, and Tier S is
+             Full Game upsell is a shelf row in the brand column, and Tier S is
              a plate under the tower (#90) — which is what keeps this column
              the same three rows in every build and at every entitlement
              state. -->
@@ -1264,10 +1271,12 @@ export interface StoreState {
   available: boolean;
   /** The `unlimited` entitlement is active. */
   unlimited: boolean;
+  /** Native store receipts can be restored; web identity is persisted locally. */
+  restorable?: boolean;
 }
 
 function unlimitedBadgeHTML(): string {
-  return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Unlimited</div>`;
+  return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Full Game</div>`;
 }
 
 /** The pre-purchase counterpart to the badge above, in the same shelf row.
@@ -1277,7 +1286,7 @@ function unlimitedBadgeHTML(): string {
  *  a band across the demo artwork, and this — and only this one treats a
  *  purchase entry the way the rest of the screen treats a control. */
 function unlockChipHTML(): string {
-  return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Unlimited</button>`;
+  return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Full Game</button>`;
 }
 
 /* #89 re-added a sandboxChipHTML here; #90 had deleted it. #90 wins: Tier S
@@ -1665,16 +1674,15 @@ export function controlsScreen(opts: {
   </div>`;
 }
 
-/** Restore is always reachable (Apple requires it without a purchase first);
- *  Manage opens RevenueCat's Customer Center, which only makes sense once
- *  there's something to manage. */
+/** Restore is always reachable without a purchase first. A lifetime purchase
+ *  has no renewal or cancellation controls, so owned state is status text. */
 function purchaseRowsHTML(store: StoreState): string {
   return `${
     store.unlimited
-      ? `<button class="btn btn--secondary btn--block" data-action="customer-center">Manage Subscription</button>`
-      : `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Unlimited</button>`
+      ? `<div class="btn btn--secondary btn--block settings__store-status" role="status">★ Full Game owned</div>`
+      : `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Full Game</button>`
   }
-  <button class="btn btn--ghost btn--block" data-action="restore" id="restore-btn">Restore Purchases</button>`;
+  ${store.restorable === false ? "" : `<button class="btn btn--ghost btn--block" data-action="restore" id="restore-btn">Restore Purchases</button>`}`;
 }
 
 /** One rendered board line. `rank` is the player's TRUE standing, carried
@@ -5245,6 +5253,9 @@ export function contractsScreen(opts: {
    *  the ladder cannot say "Tier N", and saying nothing at all would leave the
    *  player no way to tell the roof's board from the tier-10 one. */
   floor?: string;
+  /** One allowance across every Tier for this UTC day. Full Game owners have
+   * no cap; already-cleared cards remain replayable after it reaches zero. */
+  allowance?: { fullGame: boolean; remaining: number };
 }): string {
   // Whether a first clear still banks anything. A tier pays its milestone share
   // for only the first TIER_CONTRACTS_REQUIRED Contracts (meta.ts), so once the
@@ -5254,6 +5265,7 @@ export function contractsScreen(opts: {
   const cards = opts.contracts
     .map((c, i) => {
       const done = opts.cleared.includes(c.id);
+      const capped = !done && opts.allowance?.fullGame === false && opts.allowance.remaining <= 0;
       // A pattern Contract advertises its exact inventory, because the whole
       // offer is "here is what you get — can you place it?". Knowing the set
       // before you accept is the planning the mode is made of. A lines Contract
@@ -5273,7 +5285,7 @@ export function contractsScreen(opts: {
           : paying
             ? `<span class="contract-card__state contract-card__state--pays">${salvageHTML(`+${opts.progress.milestone}`)}</span>`
             : `<span class="contract-card__state">Practice</span>`;
-      return `<button class="contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
+      return `<button class="contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}"${capped ? ' disabled aria-label="Daily Contract limit reached"' : ""}>
         <span class="contract-card__top">
           <span class="contract-card__kind">${c.kind === "pattern" ? "Pattern" : "Lines"}</span>
           ${state}
@@ -5312,6 +5324,11 @@ export function contractsScreen(opts: {
   // answering the same question from either end ("what does this cost me" and
   // "what is it for"). The A9 half is unchanged: the tier's total in its own
   // numbers, against the price of the thing it buys next.
+  const allowance = opts.allowance
+    ? opts.allowance.fullGame
+      ? `<b>Full Game · unlimited Contracts</b>`
+      : `<b>${opts.allowance.remaining} of 3 Contract clears left today</b>`
+    : "";
   const foot = opts.progress
     ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ${
         salvageHTML(opts.progress.milestone * opts.progress.needed)
@@ -5319,8 +5336,8 @@ export function contractsScreen(opts: {
         opts.nextInstall
           ? `, so ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)}) is waiting in the Workshop before your next run`
           : " toward the Workshop"
-      }.</p>`
-    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.</p>`;
+      }.${allowance ? ` ${allowance}.` : ""}</p>`
+    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.${allowance ? ` ${allowance}.` : ""}</p>`;
   return `<div class="screen neon-backdrop">
     <div class="contracts">
       <div class="contracts__hdr">
