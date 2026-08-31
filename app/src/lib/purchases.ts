@@ -131,7 +131,7 @@ export function onUnlimitedChange(fn: UnlimitedListener): () => void {
  * Configure the SDK. Safe to call unconditionally and safe to call twice.
  * Deliberately swallows failures: a store outage must never block the game.
  */
-export async function initPurchases(): Promise<void> {
+export async function initPurchases(appUserId?: string): Promise<void> {
   if (!isNative) {
     try {
       if (ready) return;
@@ -140,16 +140,21 @@ export async function initPurchases(): Promise<void> {
         return;
       }
       const { Purchases, LogLevel } = await import("@revenuecat/purchases-js");
-      let appUserId = localStorage.getItem(WEB_USER_KEY);
-      if (!appUserId) {
-        appUserId = Purchases.generateRevenueCatAnonymousAppUserId();
-        localStorage.setItem(WEB_USER_KEY, appUserId);
+      // Prefer a pre-login anonymous id long enough to alias its purchases to
+      // the new Supabase account. Configuring directly as the account first
+      // would strand anything bought before sign-in on the old customer.
+      const anonymousUserId = localStorage.getItem(WEB_USER_KEY);
+      let revenueCatUserId = anonymousUserId ?? appUserId;
+      if (!revenueCatUserId) {
+        revenueCatUserId = Purchases.generateRevenueCatAnonymousAppUserId();
+        localStorage.setItem(WEB_USER_KEY, revenueCatUserId);
       }
       if (import.meta.env.DEV) Purchases.setLogLevel(LogLevel.Debug);
-      webPurchases = Purchases.configure({ apiKey: KEYS.web, appUserId });
+      webPurchases = Purchases.configure({ apiKey: KEYS.web, appUserId: revenueCatUserId });
       const info = await webPurchases.getCustomerInfo();
       ready = true;
       setUnlimited(readUnlimited(info));
+      if (appUserId && revenueCatUserId !== appUserId) await identifyPurchasesUser(appUserId);
     } catch (err) {
       console.warn("[purchases] web configure failed", err);
     }
@@ -179,8 +184,49 @@ export async function initPurchases(): Promise<void> {
     await Purchases.addCustomerInfoUpdateListener((info) => setUnlimited(readUnlimited(info)));
     const { customerInfo } = await Purchases.getCustomerInfo();
     setUnlimited(readUnlimited(customerInfo));
+    if (appUserId) await identifyPurchasesUser(appUserId);
   } catch (err) {
     console.warn("[purchases] configure failed", err);
+  }
+}
+
+/** Attach the current anonymous purchase history to a durable account ID. */
+export async function identifyPurchasesUser(appUserId: string): Promise<boolean> {
+  if (!ready) return unlimited;
+  try {
+    if (isNative) {
+      const { Purchases } = await sdk();
+      const { customerInfo } = await Purchases.logIn({ appUserID: appUserId });
+      setUnlimited(readUnlimited(customerInfo));
+    } else if (webPurchases) {
+      const info = webPurchases.isAnonymous()
+        ? (await webPurchases.identifyUser(appUserId)).customerInfo
+        : await webPurchases.changeUser(appUserId);
+      localStorage.removeItem(WEB_USER_KEY);
+      setUnlimited(readUnlimited(info));
+    }
+  } catch (err) {
+    console.warn("[purchases] identify failed", err);
+  }
+  return unlimited;
+}
+
+/** Leave an identified customer without carrying their entitlement to a guest. */
+export async function resetPurchasesUser(): Promise<void> {
+  if (!ready) return;
+  try {
+    if (isNative) {
+      const { Purchases } = await sdk();
+      const { customerInfo } = await Purchases.logOut();
+      setUnlimited(readUnlimited(customerInfo));
+    } else if (webPurchases) {
+      const { Purchases } = await import("@revenuecat/purchases-js");
+      const anonymous = Purchases.generateRevenueCatAnonymousAppUserId();
+      localStorage.setItem(WEB_USER_KEY, anonymous);
+      setUnlimited(readUnlimited(await webPurchases.changeUser(anonymous)));
+    }
+  } catch (err) {
+    console.warn("[purchases] sign-out failed", err);
   }
 }
 

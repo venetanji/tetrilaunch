@@ -20423,6 +20423,34 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
   }
 }
 
+// ---------------------------------------------------------------------------
+section("Player accounts (Supabase OAuth + RevenueCat identity)");
+// ---------------------------------------------------------------------------
+{
+  const guest = S.accountScreen({ available: true, ready: true, label: null });
+  check("a guest can choose Google", guest.includes('data-action="account-google"'));
+  check("a guest can choose Apple", guest.includes('data-action="account-apple"'));
+  check("account sign-in explains purchase recovery", guest.includes("recovered on another device"));
+
+  const signedIn = S.accountScreen({ available: true, ready: true, label: "A&B <Pilot>" });
+  check("a signed-in account can sign out", signedIn.includes('data-action="account-signout"'));
+  check("a signed-in account can be deleted in-app", signedIn.includes('data-action="account-delete"'));
+  check("provider profile text is escaped before entering HTML",
+    signedIn.includes("A&amp;B &lt;Pilot&gt;") && !signedIn.includes("A&B <Pilot>"));
+
+  const authSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "auth.ts"),
+    "utf8",
+  );
+  const purchasesSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "purchases.ts"),
+    "utf8",
+  );
+  check("OAuth uses PKCE", authSrc.includes('flowType: "pkce"'));
+  check("web purchases require a durable Supabase UUID handoff",
+    purchasesSrc.includes("identifyPurchasesUser") && purchasesSrc.includes("identifyUser(appUserId)"));
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."

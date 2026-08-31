@@ -1273,6 +1273,8 @@ export interface StoreState {
   unlimited: boolean;
   /** Native store receipts can be restored; web identity is persisted locally. */
   restorable?: boolean;
+  /** Supabase account used to make web ownership recoverable across devices. */
+  account?: { available: boolean; ready: boolean; label: string | null };
 }
 
 function unlimitedBadgeHTML(): string {
@@ -1505,6 +1507,9 @@ export function settingsScreen(
         </div>
         <div class="settings__actions">
           <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
+          ${store?.account?.available ? `<button class="btn btn--secondary btn--block" data-action="account">${
+            store.account.label ? "Player Account" : "Sign In"
+          }</button>` : ""}
           ${store?.available ? purchaseRowsHTML(store) : ""}
           <button class="btn btn--secondary btn--block" data-action="menu">Done</button>
         </div>
@@ -1683,6 +1688,32 @@ function purchaseRowsHTML(store: StoreState): string {
       : `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Full Game</button>`
   }
   ${store.restorable === false ? "" : `<button class="btn btn--ghost btn--block" data-action="restore" id="restore-btn">Restore Purchases</button>`}`;
+}
+
+function accountText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+export function accountScreen(account: NonNullable<StoreState["account"]>): string {
+  const body = !account.available
+    ? `<p class="muted">Account sign-in is not configured in this build.</p>`
+    : account.label
+      ? `<p class="muted">Signed in as</p><p class="display account__name">${accountText(account.label)}</p>
+         <button class="btn btn--secondary btn--block" data-action="account-signout">Sign Out</button>
+         <button class="btn btn--ghost btn--block" data-action="account-delete">Delete Account</button>`
+      : `<p class="muted">Sign in before buying on the web so Full Game can be recovered on another device.</p>
+         <button class="btn btn--secondary btn--block" data-action="account-google">Continue with Google</button>
+         <button class="btn btn--secondary btn--block" data-action="account-apple">Continue with Apple</button>`;
+  return `<div class="screen neon-backdrop center">
+    <div class="panel modal pop account">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h2 class="display" style="font-size:var(--fs-h1)">Player Account</h2>
+        <button class="icon-btn" data-action="settings" aria-label="Back">${icon("close", 18)}</button>
+      </div>
+      ${body}
+    </div>
+  </div>`;
 }
 
 /** One rendered board line. `rank` is the player's TRUE standing, carried

@@ -7,6 +7,8 @@
 export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
 }
 
 interface ScoreRow {
@@ -58,8 +60,8 @@ const DAY_MAX = 20_991_231;
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 function json(data: unknown, status = 200): Response {
@@ -158,6 +160,35 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     const limit = clampInt(url.searchParams.get("limit"), 10, 1, 50);
     const scores = await getTop(env, mark, limit);
     return json({ scores });
+  }
+
+  if (url.pathname === "/api/account" && request.method === "DELETE") {
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+      return json({ error: "account_service_unavailable" }, 503);
+    }
+    const authorization = request.headers.get("Authorization");
+    if (!authorization?.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+
+    // Ask Supabase Auth to validate the caller's JWT. Only the returned UUID is
+    // handed to the admin endpoint; no client-provided user id is trusted.
+    const userHeaders = {
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: authorization,
+    };
+    const userResponse = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, { headers: userHeaders });
+    if (!userResponse.ok) return json({ error: "unauthorized" }, 401);
+    const user = await userResponse.json<{ id?: string }>();
+    if (!user.id) return json({ error: "unauthorized" }, 401);
+
+    const deleted = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
+      method: "DELETE",
+      headers: {
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+    if (!deleted.ok) return json({ error: "delete_failed" }, 502);
+    return json({ ok: true });
   }
 
   if (url.pathname === "/api/scores" && request.method === "POST") {

@@ -144,8 +144,11 @@ import {
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
-  presentPaywall, restorePurchases,
+  presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
 } from "./lib/purchases";
+import {
+  accountLabel, authState, deleteAccount, initAuth, onAuthChange, signIn, signOut, type AuthState,
+} from "./lib/auth";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
@@ -157,7 +160,7 @@ import {
 } from "./lib/audio";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
+  | "splash" | "menu" | "howto" | "settings" | "account" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
@@ -432,6 +435,8 @@ class App {
   private guard: HTMLElement;
 
   private state: AppState = "splash";
+  private auth: AuthState = authState();
+  private offAuthChange: (() => void) | null = null;
   /** Developer sandbox settings. Constructed unconditionally (it is a plain
    *  object) but only ever READ behind SANDBOX — see lib/sandbox.ts. */
   private sandbox: SandboxState = newSandbox();
@@ -991,7 +996,21 @@ class App {
     const restoreScreen = (): void => {
       if (this.state === "menu" || this.state === "settings") this.renderOverlay();
     };
-    void initPurchases().then(restoreScreen);
+    void (async () => {
+      try { this.auth = await initAuth(); }
+      catch (err) { console.warn("[auth] configure failed", err); }
+      await initPurchases(this.auth.user?.id);
+      restoreScreen();
+    })();
+    this.offAuthChange = onAuthChange((auth) => {
+      const previous = this.auth.user?.id;
+      this.auth = auth;
+      if (auth.user?.id && auth.user.id !== previous) void identifyPurchasesUser(auth.user.id);
+      else if (!auth.user && previous) void resetPurchasesUser();
+      if (this.state === "account" || this.state === "settings" || this.state === "menu") {
+        this.renderOverlay();
+      }
+    });
     this.offUnlimitedChange = onUnlimitedChange(restoreScreen);
 
     this.setState("splash");
@@ -1034,6 +1053,7 @@ class App {
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
+    this.offAuthChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
   }
@@ -1800,7 +1820,14 @@ class App {
   }
 
   private storeState(): S.StoreState {
-    return { available: purchasesReady(), unlimited: isUnlimited(), restorable: isNative };
+    return {
+      available: purchasesReady(), unlimited: isUnlimited(), restorable: isNative,
+      account: {
+        available: this.auth.available,
+        ready: this.auth.ready,
+        label: this.auth.user ? accountLabel(this.auth.user) : null,
+      },
+    };
   }
 
   /** The cheapest system the player could install next — what the contract
@@ -2852,6 +2879,9 @@ class App {
         break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
+        break;
+      case "account":
+        this.overlay.innerHTML = S.accountScreen(this.storeState().account!);
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -6135,6 +6165,7 @@ class App {
       case "seal-break": return '[data-action="seal-break-back"]';
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
+      case "account": return '[data-action="settings"]';
       case "settings": case "workshop": case "contracts":
       case "howto": case "leaderboard": case "sandbox":
         return '[data-action="menu"]';
@@ -6391,6 +6422,11 @@ class App {
         this.finishTutorial();
         break;
       case "settings": this.setState("settings"); break;
+      case "account": this.setState("account"); break;
+      case "account-google": void this.onAccountSignIn("google"); break;
+      case "account-apple": void this.onAccountSignIn("apple"); break;
+      case "account-signout": void this.onAccountSignOut(); break;
+      case "account-delete": void this.onAccountDelete(); break;
       // Two CLICKABLE doors into Controls — Settings and the guide's Controls
       // row — and the screen goes back through whichever one was used.
       // Remembered here rather than inferred from history: the screen
@@ -7083,7 +7119,31 @@ class App {
    *  the re-render comes from the entitlement listener, so there's nothing to
    *  do here but celebrate. */
   private async onPaywall(): Promise<void> {
+    if (!isNative && !this.auth.user) {
+      this.setState("account");
+      return;
+    }
     if (await presentPaywall()) void successHaptic();
+  }
+
+  private async onAccountSignIn(provider: "google" | "apple"): Promise<void> {
+    try { await signIn(provider); }
+    catch (err) { console.warn("[auth] sign-in failed", err); }
+  }
+
+  private async onAccountSignOut(): Promise<void> {
+    try { await signOut(); }
+    catch (err) { console.warn("[auth] sign-out failed", err); }
+  }
+
+  private async onAccountDelete(): Promise<void> {
+    if (!window.confirm("Delete this player account? This cannot be undone.")) return;
+    try {
+      await deleteAccount();
+      this.setState("settings");
+    } catch (err) {
+      console.warn("[auth] account deletion failed", err);
+    }
   }
 
   /** Restore is the one store action with no UI of its own, so it has to say
