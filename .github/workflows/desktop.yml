@@ -152,13 +152,39 @@ jobs:
           fi
           test -f node_modules/electron/path.txt
 
-      # Nothing is signed. Windows gets a SmartScreen warning, macOS gets an
-      # ad-hoc signature (which arm64 requires to run at all) and a Gatekeeper
-      # prompt. electron-builder.yml documents all three; there are no
-      # certificates to add here.
-      - name: Package
+      - name: Package Windows or Linux
+        if: matrix.script != 'dist:mac'
         run: npm run ${{ matrix.script }}
         working-directory: app/desktop
+
+      # electron-builder imports the base64 PKCS#12 from CSC_LINK into a
+      # temporary keychain, signs the app and dmg with Developer ID, then asks
+      # Apple to notarize the dmg. The checked-in config stays ad-hoc so a local
+      # build without secrets remains useful; these overrides are deliberately
+      # confined to the macOS CI leg.
+      - name: Package, sign and notarize macOS
+        if: matrix.script == 'dist:mac'
+        working-directory: app/desktop
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in CSC_LINK CSC_KEY_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required macOS signing secret $name is not configured"
+              exit 1
+            fi
+          done
+          npm run dist:mac -- \
+            --config.mac.identity="$MACOS_SIGNING_IDENTITY" \
+            --config.mac.hardenedRuntime=true \
+            --config.mac.notarize=true \
+            --config.dmg.sign=true
 
       - uses: actions/upload-artifact@v4
         with:
