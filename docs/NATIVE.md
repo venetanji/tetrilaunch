@@ -28,7 +28,7 @@ must also hold in the browser — and a browser fix ships to native on the next
 | In-app purchases | done — RevenueCat, native only (`src/lib/purchases.ts`, [docs/ios.md](ios.md)) |
 | iOS Xcode project, icons, `Info.plist` | **committed** at `app/ios/` — see [docs/ios.md](ios.md) |
 | Self-hosted fonts (no runtime Google Fonts fetch) | done — `app/public/fonts/`, refreshed by `scripts/fetch-fonts.mjs` |
-| Privacy policy + support pages | done — `app/public/{privacy,support}.html`, served by the Worker |
+| Terms, privacy policy + support pages | done — `app/public/{terms,privacy,support}.html`, served by the Worker |
 | **Android** release signing + `.aab` | done — `native/android/signing.gradle`, CI `bundle` job. **Needs a keystore + secrets** |
 | **iOS** signed release / store listings | **not done — needs a Mac and secrets, see below** |
 
