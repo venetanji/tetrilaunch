@@ -99,13 +99,37 @@ gameplay, content, persistence, or cosmetic feature:
   “Unlock Unlimited” for an “Unlimited” badge and “Manage Subscription.” No
   game/progression module reads it.
 - `docs/ios.md:98-116` explicitly says the entitlement unlocks a badge and
-  nothing else. `docs/PLAY.md:41-45` correctly warns not to sell the subscription
+  nothing else. `docs/PLAY.md:41-45` correctly warns not to sell the product
   until benefits are implemented.
 
 `docs/DESIGN.md:1139-1154` describes planned benefits—uncapped/on-demand
 Contracts, cosmetics, run history, and cloud save—but none is wired to the
 entitlement. In particular, the current Contract generator and daily board do
 not branch on `isUnlimited()`.
+
+The configured store product is a **non-consumable**, not a subscription. The
+RevenueCat entitlement reader itself is compatible with that product shape, but
+most repository copy is not:
+
+- `docs/PLAY.md:19-39` specifies a Play subscription, monthly base plan, and
+  `$rc_monthly` package; the rest of that runbook tests renewal, expiry, and
+  cancellation. It must be rewritten around a one-time Play product and the
+  RevenueCat lifetime package used by the actual offering.
+- `public/terms.html:78` and `131-183` describe Tetrilaunch Unlimited as an
+  automatically renewing subscription, including recurring billing,
+  cancellation, and access expiry. This is materially wrong for the product
+  being sold.
+- `public/support.html:103-108` tells purchasers how to cancel a subscription.
+- `ui/screens.ts:1671-1677` shows “Manage Subscription” to every entitled user,
+  and `lib/purchases.ts:180-193` opens Customer Center as subscription
+  management. A lifetime owner instead needs a simple “Unlimited owned” state
+  plus Restore Purchases; Customer Center should be shown only if it provides a
+  useful non-consumable receipt/refund surface on the configured platforms.
+- `docs/ios.md:98-116` and comments in `lib/purchases.ts`/`main.ts` describe
+  renewal and expiry behavior that is irrelevant to the current SKU.
+
+Until these surfaces are corrected, store configuration, paywall, in-app copy,
+support, and legal terms describe different transactions.
 
 Do not publish a paid paywall that advertises those benefits against the current
 client. Either implement and test at least one concrete entitlement gate before
