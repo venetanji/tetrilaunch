@@ -102,30 +102,55 @@ gameplay, content, persistence, or cosmetic feature:
   nothing else. `docs/PLAY.md:41-45` correctly warns not to sell the subscription
   until benefits are implemented.
 
-The intended entitlement contract, confirmed by the product owner, is narrower:
+The one consistent, approved benefit across the design history is **Contract
+throughput**:
 
-1. Unlimited removes the free limit of three completed Contracts per day.
-2. Unlimited grants access to the **Skybridge** without requiring the normal
-   ladder-completion and seal requirements. The current code and copy call this
-   destination **Skydeck**; that naming difference must be resolved before the
-   benefit is implemented or advertised.
+1. Free players may complete three daily Contracts. Failure and replay remain
+   free and do not consume the allowance.
+2. Unlimited removes that completion cap and provides on-demand/endless
+   generated Contracts.
+3. Deep Run remains uncapped for everybody.
 
-Neither benefit is wired today. The current Contract generator and board do not
-branch on `isUnlimited()`, and the only roof-access predicate is
-`game/meta.ts:690-691`'s `skydeckOpen(meta)`, which requires the completed
-ladder and every seal. `main.ts:1818-1831`, `1885-1892`, and `2850-2852` use
-that progression-only result for the tower, ceremony, and leaderboard.
+The repository contains no historical coupling between Unlimited and Skydeck
+access. Every implemented Skydeck gate goes through `game/meta.ts:690-691`'s
+`skydeckOpen(meta)`, which requires the completed ladder and every seal;
+`main.ts:1818-1831`, `1885-1892`, and `2850-2852` use that progression-only
+result for the tower, ceremony, and leaderboard. Treat subscriber Skydeck
+access as an unapproved idea unless the product decision is made explicitly.
 
-`docs/DESIGN.md:1139-1154` also lists cosmetics, run history, and cloud save,
-but those are not part of the confirmed entitlement benefits and should not be
-advertised unless separately approved and implemented.
+The original design record (`docs/DESIGN.md:1139-1154`) also says cosmetics,
+run history, and cloud save. Those are future-roadmap ideas rather than current
+client capabilities: the same document's minimum shipping scope names only
+“Unlimited with the daily cap,” and the later native/store guides describe only
+Contract throughput. An earlier pre-design note proposed cosmetic skins, a
+wider draft pool, and consumable continues; the subsequent design superseded
+that list and explicitly rejected consumable power.
 
-Do not publish a paid paywall that advertises these benefits against the current
-client. Both promised benefits should be implemented and tested before sale.
-When implementation begins, derive a small capability object such as
-`{ unlimitedContracts, skybridgeAccess }` from the entitlement instead of
-importing purchase state into game modules directly. This will make both gates
-independently testable and keep leaderboard/build-budget invariants isolated.
+There is one indirect gameplay consequence that needs a product decision. Every
+unique Contract first-clear is appended to `meta.claimedContracts`, including
+clears beyond the three that can pay or advance the current Tier
+(`game/meta.ts:1208-1235`). Five claimed Contracts unlock a third hazard-draft
+choice used in later Deep Runs (`game/meta.ts:1368-1387`). Unlimited therefore
+lets a subscriber reach that gameplay-affecting unlock sooner, even though the
+extra Contracts award no salvage. This may fit the stated “progression speed,
+never exclusive power” policy, but it conflicts with the strongest wording that
+Unlimited buys nothing usable in Deep Run and must be acknowledged in paywall
+copy and tests—or the draft-slot unlock must count only the free dailies.
+
+None of the Contract-cap behavior is wired today. `game/contracts.ts:1384-1390`
+always creates exactly `DAILY_COUNT` cards; no generator, board, or completion
+path branches on `isUnlimited()`. Implementing the benefit also requires a
+durable per-day completion allowance. `claimedContracts` can prove a specific
+seeded card was cleared once, but there is currently no entitlement-aware cap or
+on-demand-board state, and local-only persistence means reinstall/clear-data can
+reset any client-only allowance.
+
+Do not publish a paid paywall that advertises Unlimited Contracts against the
+current client. When implementation begins, derive a small capability object
+such as `{ unlimitedContracts }` from the entitlement instead of importing
+purchase state into game modules directly. Keep allowance enforcement,
+on-demand generation, payout eligibility, Tier progress, and the earned third
+draft slot as separately tested decisions.
 
 ### Privacy and data disclosures
 
