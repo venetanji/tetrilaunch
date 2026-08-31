@@ -7,7 +7,7 @@ TestFlight and the App Store; a free Apple ID can only side-load to your own dev
 
 | | |
 |---|---|
-| Bundle ID | `com.tetrilaunch.app` (`PRODUCT_BUNDLE_IDENTIFIER`, set from `capacitor.config.ts`) |
+| Bundle ID | `com.tetrilaunch.game` (`PRODUCT_BUNDLE_IDENTIFIER` in the committed Xcode project) |
 | Display name | Tetrilaunch |
 | Devices | iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`), **landscape only** |
 | Min iOS | 15.0 |
@@ -43,7 +43,9 @@ npm run ios:open              # opens ios/App/App.xcodeproj
    membership.
 2. Project navigator → **App** target → **Signing & Capabilities**:
    - **Automatically manage signing** ✓, **Team** → your team.
-   - Bundle Identifier stays `com.tetrilaunch.app`.
+   - Bundle Identifier stays `com.tetrilaunch.game`.
+   - **+ Capability → Sign in with Apple.** The Supabase account flow uses Apple
+     as an identity provider, so the App ID must have this capability enabled.
    - **+ Capability → In-App Purchase.** RevenueCat's docs call for this. If your Xcode
      doesn't list it, that's fine — StoreKit needs no entitlement, and In-App Purchase is
      enabled by default on every explicit App ID, so there is nothing to toggle in the
@@ -51,8 +53,9 @@ npm run ios:open              # opens ios/App/App.xcodeproj
 
    Xcode registers the App ID, issues a development certificate and creates the profile.
    To do it by hand instead: [developer.apple.com](https://developer.apple.com/account/resources/identifiers/list)
-   → *Identifiers* → **+** → *App IDs* → *App* → explicit Bundle ID `com.tetrilaunch.app`.
-   No other capabilities are needed — no push, no sign-in, no App Groups.
+   → *Identifiers* → **+** → *App IDs* → *App* → explicit Bundle ID `com.tetrilaunch.game`.
+   Enable **Sign in with Apple** on that identifier. No push, Associated Domains or App
+   Groups capabilities are needed.
 
 3. **Run on a device:** plug in an iPhone, pick it, ⌘R. First launch needs the cert
    trusted: *Settings → General → VPN & Device Management → Trust*.
@@ -64,7 +67,7 @@ npm run ios:open              # opens ios/App/App.xcodeproj
 
 ### Dashboard
 
-1. Create a project → add an **App Store** app with bundle ID `com.tetrilaunch.app`.
+1. Create a project → add an **App Store** app with bundle ID `com.tetrilaunch.game`.
 2. **App Store Connect shared secret** and an **In-App Purchase Key** (App Store Connect
    → Users and Access → Integrations → In-App Purchase → generate the `.p8`) — upload
    both to RevenueCat.
@@ -135,7 +138,7 @@ in the main App Store account. Purchases are free and renewals are accelerated
 1. **Business** → accept the *Paid Applications* agreement, and complete banking + tax.
    **Until this is done StoreKit returns zero products** in sandbox and production alike —
    it's the most common cause of "no products found".
-2. **Apps → + → New App** — platform iOS, unique name, Bundle ID `com.tetrilaunch.app`,
+2. **Apps → + → New App** — platform iOS, unique name, Bundle ID `com.tetrilaunch.game`,
    SKU e.g. `tetrilaunch-ios`.
 3. Create the in-app purchases, matching the product IDs configured in RevenueCat.
 4. Bump versions before each upload, in the target's *General* tab:
