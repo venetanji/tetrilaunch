@@ -1,11 +1,12 @@
-// RevenueCat integration. Everything here is a no-op off-native (the web/PWA
-// build has no store to talk to), so callers never have to branch — they just
-// check `purchasesReady()` before showing store UI.
+// RevenueCat integration for both Capacitor and the web/PWA. Callers never
+// branch by platform; this module selects the matching SDK and exposes one
+// entitlement-shaped interface.
 //
 // The SDK loads through the memoised `sdk()` below rather than a static import,
 // so the ~25 kB of StoreKit/Billing wrapper sits in its own chunk that only the
 // native shells ever fetch.
-import type { CustomerInfo } from "@revenuecat/purchases-capacitor";
+import type { CustomerInfo as NativeCustomerInfo } from "@revenuecat/purchases-capacitor";
+import type { CustomerInfo as WebCustomerInfo, Purchases as WebPurchases } from "@revenuecat/purchases-js";
 import { isNative } from "./platform";
 
 /** Entitlement identifier as configured in the RevenueCat dashboard. Whatever
@@ -23,7 +24,10 @@ export const UNLIMITED_ENTITLEMENT = "Tetrilaunch Unlimited";
 const KEYS = {
   ios: import.meta.env.VITE_REVENUECAT_IOS_KEY as string | undefined,
   android: import.meta.env.VITE_REVENUECAT_ANDROID_KEY as string | undefined,
+  web: import.meta.env.VITE_REVENUECAT_WEB_KEY as string | undefined,
 };
+
+const WEB_USER_KEY = "tetrilaunch.rc.web-user";
 
 /**
  * RevenueCat's Test Store — a simulated store that needs no Play/App Store
@@ -91,6 +95,7 @@ async function loadSdk() {
 }
 
 let sdkPromise: ReturnType<typeof loadSdk> | null = null;
+let webPurchases: WebPurchases | null = null;
 
 function sdk(): ReturnType<typeof loadSdk> {
   return (sdkPromise ??= loadSdk());
@@ -102,12 +107,11 @@ function setUnlimited(next: boolean): void {
   for (const l of listeners) l(next);
 }
 
-function readUnlimited(info: CustomerInfo): boolean {
+function readUnlimited(info: NativeCustomerInfo | WebCustomerInfo): boolean {
   return info.entitlements.active[UNLIMITED_ENTITLEMENT] !== undefined;
 }
 
-/** True once configure() has succeeded — i.e. we're native and a key was
- *  supplied. Store buttons should stay hidden until this is true. */
+/** True once the SDK for this platform has configured successfully. */
 export function purchasesReady(): boolean {
   return ready;
 }
@@ -116,8 +120,8 @@ export function isUnlimited(): boolean {
   return unlimited;
 }
 
-/** Subscribe to entitlement changes (purchase, restore, expiry, or a renewal
- *  RevenueCat pushes down). Returns an unsubscribe. */
+/** Subscribe to entitlement changes (purchase, restore, refund/revocation, or
+ *  a purchase made on another device). Returns an unsubscribe. */
 export function onUnlimitedChange(fn: UnlimitedListener): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
@@ -127,8 +131,35 @@ export function onUnlimitedChange(fn: UnlimitedListener): () => void {
  * Configure the SDK. Safe to call unconditionally and safe to call twice.
  * Deliberately swallows failures: a store outage must never block the game.
  */
-export async function initPurchases(): Promise<void> {
-  if (!isNative) return;
+export async function initPurchases(appUserId?: string): Promise<void> {
+  if (!isNative) {
+    try {
+      if (ready) return;
+      if (!KEYS.web) {
+        console.warn("[purchases] no RevenueCat web key configured — store disabled");
+        return;
+      }
+      const { Purchases, LogLevel } = await import("@revenuecat/purchases-js");
+      // Prefer a pre-login anonymous id long enough to alias its purchases to
+      // the new Supabase account. Configuring directly as the account first
+      // would strand anything bought before sign-in on the old customer.
+      const anonymousUserId = localStorage.getItem(WEB_USER_KEY);
+      let revenueCatUserId = anonymousUserId ?? appUserId;
+      if (!revenueCatUserId) {
+        revenueCatUserId = Purchases.generateRevenueCatAnonymousAppUserId();
+        localStorage.setItem(WEB_USER_KEY, revenueCatUserId);
+      }
+      if (import.meta.env.DEV) Purchases.setLogLevel(LogLevel.Debug);
+      webPurchases = Purchases.configure({ apiKey: KEYS.web, appUserId: revenueCatUserId });
+      const info = await webPurchases.getCustomerInfo();
+      ready = true;
+      setUnlimited(readUnlimited(info));
+      if (appUserId && revenueCatUserId !== appUserId) await identifyPurchasesUser(appUserId);
+    } catch (err) {
+      console.warn("[purchases] web configure failed", err);
+    }
+    return;
+  }
   try {
     const { Capacitor, Purchases, LOG_LEVEL } = await sdk();
     if (ready) return;
@@ -148,13 +179,54 @@ export async function initPurchases(): Promise<void> {
     if (import.meta.env.DEV) await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
     await Purchases.configure({ apiKey });
     ready = true;
-    // Renewals, expiries and purchases made on another device arrive on this
-    // listener, so nothing polls.
+    // Purchases, restores, refunds/revocations and changes made on another
+    // device arrive on this listener, so nothing polls.
     await Purchases.addCustomerInfoUpdateListener((info) => setUnlimited(readUnlimited(info)));
     const { customerInfo } = await Purchases.getCustomerInfo();
     setUnlimited(readUnlimited(customerInfo));
+    if (appUserId) await identifyPurchasesUser(appUserId);
   } catch (err) {
     console.warn("[purchases] configure failed", err);
+  }
+}
+
+/** Attach the current anonymous purchase history to a durable account ID. */
+export async function identifyPurchasesUser(appUserId: string): Promise<boolean> {
+  if (!ready) return unlimited;
+  try {
+    if (isNative) {
+      const { Purchases } = await sdk();
+      const { customerInfo } = await Purchases.logIn({ appUserID: appUserId });
+      setUnlimited(readUnlimited(customerInfo));
+    } else if (webPurchases) {
+      const info = webPurchases.isAnonymous()
+        ? (await webPurchases.identifyUser(appUserId)).customerInfo
+        : await webPurchases.changeUser(appUserId);
+      localStorage.removeItem(WEB_USER_KEY);
+      setUnlimited(readUnlimited(info));
+    }
+  } catch (err) {
+    console.warn("[purchases] identify failed", err);
+  }
+  return unlimited;
+}
+
+/** Leave an identified customer without carrying their entitlement to a guest. */
+export async function resetPurchasesUser(): Promise<void> {
+  if (!ready) return;
+  try {
+    if (isNative) {
+      const { Purchases } = await sdk();
+      const { customerInfo } = await Purchases.logOut();
+      setUnlimited(readUnlimited(customerInfo));
+    } else if (webPurchases) {
+      const { Purchases } = await import("@revenuecat/purchases-js");
+      const anonymous = Purchases.generateRevenueCatAnonymousAppUserId();
+      localStorage.setItem(WEB_USER_KEY, anonymous);
+      setUnlimited(readUnlimited(await webPurchases.changeUser(anonymous)));
+    }
+  } catch (err) {
+    console.warn("[purchases] sign-out failed", err);
   }
 }
 
@@ -164,6 +236,16 @@ export async function initPurchases(): Promise<void> {
  * Resolves to the entitlement state afterwards.
  */
 export async function presentPaywall(): Promise<boolean> {
+  if (!isNative) {
+    try {
+      if (!ready || !webPurchases) return unlimited;
+      const result = await webPurchases.presentPaywall({});
+      setUnlimited(readUnlimited(result.customerInfo));
+    } catch (err) {
+      console.warn("[purchases] web paywall failed", err);
+    }
+    return unlimited;
+  }
   try {
     const { RevenueCatUI, PAYWALL_RESULT } = await sdk();
     if (!ready) return unlimited;
@@ -177,25 +259,15 @@ export async function presentPaywall(): Promise<boolean> {
   return unlimited;
 }
 
-/**
- * RevenueCat's Customer Center — self-serve subscription management, refunds
- * and cancellations. Apple requires a way to manage a subscription from inside
- * the app; this is it, without building the screens.
- */
-export async function presentCustomerCenter(): Promise<void> {
-  try {
-    const { RevenueCatUI } = await sdk();
-    if (!ready) return;
-    await RevenueCatUI.presentCustomerCenter();
-    await refresh();
-  } catch (err) {
-    console.warn("[purchases] customer center failed", err);
-  }
-}
-
 /** Restore on a reinstall or a new device. Apple requires this to be reachable
  *  without a purchase, hence its own button in Settings. */
 export async function restorePurchases(): Promise<boolean> {
+  if (!isNative) {
+    // Web purchases are tied to the persisted RevenueCat app-user id. There is
+    // no browser store receipt to restore; re-fetching is the web equivalent.
+    await refresh();
+    return unlimited;
+  }
   try {
     const { Purchases } = await sdk();
     if (!ready) return unlimited;
@@ -208,6 +280,11 @@ export async function restorePurchases(): Promise<boolean> {
 }
 
 async function refresh(): Promise<void> {
+  if (!isNative) {
+    if (!webPurchases) return;
+    setUnlimited(readUnlimited(await webPurchases.getCustomerInfo()));
+    return;
+  }
   const { Purchases } = await sdk();
   const { customerInfo } = await Purchases.getCustomerInfo();
   setUnlimited(readUnlimited(customerInfo));

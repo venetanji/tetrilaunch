@@ -149,7 +149,7 @@ like a detail and isn't.
 **A per-track cap normalizes the maximum rig, not the actual one.** Two players
 at Mark 5 are both "capped" when one has every track maxed and the other has two
 tracks maxed and four empty — but the first is strictly stronger. The distance
-between them is grind time, which is exactly what Unlimited sells, so the
+between them is grind time, which is exactly what Full Game's uncapped Contracts accelerate, so the
 leaderboard leak returns in a milder form.
 
 There are only two escapes, and one is bad:
@@ -191,7 +191,7 @@ What it buys:
 - **Every rig at Mark N has identical total power.** Real normalization.
 - **Builds stay genuinely different**, because the budget forces the choice.
 - **Contracts still matter enormously** — they unlock which tracks, tiers,
-  materials and rigs *exist* to spend on. Unlimited buys breadth of options and
+  materials and rigs *exist* to spend on. Full Game buys breadth of options and
   speed of access, never total power.
 - **The loadout is respec-able before each Deep Run attempt** — the "choose your
   ship layout" beat, and a natural UI moment.
@@ -292,7 +292,7 @@ already done is wasted.
 In-run refits are deliberately **not** budget-capped — they're bounded by
 `MAX_TIER` and by the scrap a run actually earns, which is a function of how well
 it's being played. That's the right thing to leave uncapped: the permanent layer
-is what needed normalizing, because it's the one a subscription can accelerate.
+is what needed normalizing, because it's the one uncapped Contracts can accelerate.
 Scrap is earned by playing well, and rewarding that is the point.
 
 ### Calibrating a Mark
@@ -1138,20 +1138,21 @@ leaderboard, and it's the entire social hook.
 
 ## Monetization
 
-One subscription, **Tetrilaunch Unlimited**. The entitlement identifier is
+One lifetime, non-consumable **Full Game** purchase. Its legacy RevenueCat
+entitlement identifier remains
 `Tetrilaunch Unlimited` (see `UNLIMITED_ENTITLEMENT` in
 `app/src/lib/purchases.ts` — it must match the dashboard byte for byte).
 
-**What it buys:** the daily Contract cap lifted, Contracts on demand, cosmetics,
-run history, cloud save. **What it never buys:** build budget, Marks,
-leaderboard position, or anything usable in Deep Run.
+**What it buys:** access to earned Tiers 4–10, the daily Contract cap lifted,
+and Contracts on demand. **What it never buys:** Tier progression, Skydeck
+access, build budget, leaderboard position, or power within a Tier.
 
 ### The daily cap, designed not to feel like lives
 
 - **Free** — 3 daily Contracts. A complete, satisfying daily ritual.
-- **Unlimited** — the dailies plus endless generated Contracts.
+- **Full Game** — the dailies plus endless generated Contracts.
 - **A failed Contract does not consume the allowance.** Only completions count.
-- **Deep Run is uncapped for everyone.** The exam is always free to attempt.
+- **Deep Run is uncapped inside the owned trial/full-game Tiers.**
 
 That last pair is what separates this from an energy system. Candy Crush's lives
 punish failure; this caps *throughput* and leaves failure free, so a stuck player

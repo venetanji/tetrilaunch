@@ -26,6 +26,8 @@
  *      plus the two <application> attributes pointing at them — Auto Backup
  *      exclusions so a reinstall's restore can't resurrect a stale service
  *      worker, while localStorage (the save) keeps being backed up.
+ *   6. AndroidManifest.xml — the custom-scheme intent filter that returns
+ *      Google/Apple OAuth from the system browser to Capacitor's appUrlOpen.
  *
  * Idempotent: safe to run on every sync, and a no-op once applied. Exits 0 with
  * a notice if app/android/ doesn't exist yet, so `npm run build` on a checkout
@@ -221,6 +223,28 @@ for (const file of backupFiles) {
 
 const manifestPath = path.join(androidDir, "app", "src", "main", "AndroidManifest.xml");
 let manifest = fs.readFileSync(manifestPath, "utf8");
+let manifestDirty = false;
+
+/* OAuth returns from the system browser through the same custom scheme iOS
+ * registers in Info.plist. Capacitor forwards this intent as appUrlOpen. */
+const authScheme = "com.tetrilaunch.app";
+if (!manifest.includes(`android:scheme="${authScheme}"`)) {
+  const activityClose = manifest.indexOf("</activity>");
+  if (activityClose < 0) {
+    console.error("patch-android: could not find the main </activity> for the OAuth intent filter");
+    process.exit(1);
+  }
+  const filter = `        <intent-filter>\n` +
+    `            <action android:name="android.intent.action.VIEW" />\n` +
+    `            <category android:name="android.intent.category.DEFAULT" />\n` +
+    `            <category android:name="android.intent.category.BROWSABLE" />\n` +
+    `            <data android:scheme="${authScheme}" android:host="auth" android:pathPrefix="/callback" />\n` +
+    `        </intent-filter>\n\n        `;
+  manifest = manifest.slice(0, activityClose) + filter + manifest.slice(activityClose);
+  manifestDirty = true;
+  console.log("patch-android: registered the Supabase OAuth callback scheme");
+  changed++;
+}
 
 const backupAttrs = [
   { name: "android:fullBackupContent", value: "@xml/backup_rules" }, // API <= 30
@@ -258,9 +282,11 @@ if (missingAttrs.length) {
     anchor + missingAttrs.map((a) => `\n${indent}${a}`).join(""),
   );
   manifest = manifest.replace(appTag[0], patchedTag);
-  fs.writeFileSync(manifestPath, manifest);
+  manifestDirty = true;
   console.log(`patch-android: wired ${missingAttrs.length} backup attribute(s) into AndroidManifest.xml`);
   changed++;
 }
+
+if (manifestDirty) fs.writeFileSync(manifestPath, manifest);
 
 console.log(changed ? "patch-android: done" : "patch-android: already applied");

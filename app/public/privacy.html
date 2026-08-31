@@ -13,6 +13,8 @@
       sanitizeName() strips everything outside [A-Z0-9 _-] to 12 chars.
     - lib/telemetry.ts is opt-in, off by default, and has no network call.
     - lib/store.ts keeps settings/name/best/meta in localStorage only.
+    - lib/auth.ts sends OAuth sign-in and session requests to Supabase only
+      after account support is configured and the player chooses to sign in.
     - public/fonts/ removed the last third-party runtime request.
 -->
 <html lang="en">
@@ -75,12 +77,12 @@
     <main>
       <p class="eyebrow">Tetrilaunch</p>
       <h1>Privacy Policy</h1>
-      <p class="updated">Last updated: 9 August 2026</p>
+      <p class="updated">Last updated: 31 August 2026</p>
 
       <div class="callout">
         <p>
-          Tetrilaunch has no accounts, no ads, no analytics and no tracking of any kind.
-          Nothing leaves your device unless you submit a score to the leaderboard.
+          Tetrilaunch has no ads or advertising tracking. You may play as a guest,
+          or choose a Google or Apple account to recover purchases across devices.
         </p>
       </div>
 
@@ -106,8 +108,8 @@
         <li>the number of <strong>lines</strong> cleared</li>
       </ul>
       <p>
-        That is the whole record. We do not ask for, and have no way to obtain, your
-        email address, phone number, contacts, location, photos or advertising ID.
+        That is the whole leaderboard record. We do not ask for your phone number,
+        contacts, location, photos or advertising ID.
         The display name is whatever you type — <strong>please do not enter your real
         name</strong> if you would rather not have it shown publicly, because the
         leaderboard is public by design.
@@ -121,12 +123,27 @@
 
       <h2>Purchases</h2>
       <p>
-        If you buy anything in the app, the transaction is handled entirely by Apple
-        or Google and by our payments provider, RevenueCat, which tells the app
+        If you buy anything in the app, the transaction is handled by Apple, Google
+        or a web payment provider and by RevenueCat, which tells the app
         whether your purchase is active. We never see your card details. RevenueCat
-        identifies your device by a random, anonymous ID that is not an advertising
-        identifier and is not used for tracking or advertising. See
+        uses a random anonymous ID for guests or your player-account UUID after
+        sign-in. Neither is an advertising identifier. See
         <a href="https://www.revenuecat.com/privacy/" rel="noopener">RevenueCat's privacy policy</a>.
+      </p>
+
+      <h2>Optional player accounts</h2>
+      <p>
+        If you choose Continue with Google or Continue with Apple, Supabase processes
+        the sign-in and stores a stable account identifier, your provider identity,
+        and profile information supplied by that provider, which may include your
+        email address and display name. We use this only to authenticate you and make
+        purchase ownership recoverable. We do not use it for advertising.
+        See <a href="https://supabase.com/privacy" rel="noopener">Supabase's privacy policy</a>.
+      </p>
+      <p>
+        You can sign out or delete the account from Settings → Player Account.
+        Deletion removes the Supabase account. Apple, Google and RevenueCat may retain
+        transaction records where required for purchases, fraud prevention, tax or law.
       </p>
 
       <h2>Playtest recording</h2>
@@ -148,20 +165,20 @@
 
       <h2>Third parties</h2>
       <p>
-        The game makes no third-party requests during play. Its fonts are bundled
-        into the app rather than fetched from Google Fonts, so ordinary play involves
-        no font provider and no content delivery network.
+        Its fonts are bundled into the app rather than fetched from Google Fonts.
+        Guest gameplay does not contact an advertising network or analytics provider.
       </p>
       <p>
-        The only outbound connections are to our own leaderboard API and, on phones
-        and tablets, to Apple, Google and RevenueCat when you open the store or make a
-        purchase. The purchase screen itself is rendered by RevenueCat and may load
-        its own resources; it is only shown when you choose to open it.
+        Outbound connections may go to our leaderboard API; to Supabase, Google or
+        Apple when you use player-account features; and to Apple, Google, RevenueCat
+        or its web payment provider when you open the store or make a purchase. The
+        purchase screen is rendered by RevenueCat and may load its own resources.
       </p>
 
       <h2>Your choices</h2>
       <ul>
-        <li><strong>Don't submit a score</strong> and nothing about you is ever transmitted.</li>
+        <li><strong>Play as a guest</strong> if you do not want to create an account.</li>
+        <li><strong>Account deletion:</strong> use Settings → Player Account → Delete Account.</li>
         <li><strong>Removal:</strong> to have a leaderboard entry deleted, contact us with the
           display name, score and roughly when it was set, and we will remove it.</li>
         <li><strong>Local data:</strong> clear it yourself at any time by deleting the app or

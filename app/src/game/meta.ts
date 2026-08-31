@@ -39,6 +39,15 @@ import {
 
 export { MARK_COUNT };
 
+/** The downloadable game is a complete three-Tier trial. The lifetime
+ * entitlement opens the remainder; progression still decides which of those
+ * paid Tiers has actually been earned. */
+export const FREE_TIER_LIMIT = 3;
+
+export function tierIncluded(tier: number, fullGame: boolean): boolean {
+  return fullGame || tier <= FREE_TIER_LIMIT;
+}
+
 export interface UnlockDef {
   id: string;
   name: string;
