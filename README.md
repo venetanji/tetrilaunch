@@ -281,7 +281,7 @@ Worker, and anything reviewed on a `*.pages.dev` URL was the SPA with no API beh
 ### Native (iOS / Android)
 
 The **iOS Xcode project is committed** at `app/ios/` (Capacitor 8 + SPM, bundle ID
-`com.tetrilaunch.app`, universal, landscape-only, icons generated from `app/resources/`).
+`com.tetrilaunch.game`, universal, landscape-only, icons generated from `app/resources/`).
 On a Mac with Xcode 16+ — no CocoaPods needed:
 
 ```bash

@@ -7,6 +7,9 @@ import type { CapacitorConfig } from "@capacitor/cli";
  * hold for the browser build and vice versa.
  */
 const config: CapacitorConfig = {
+  // Android's published package name. The committed iOS target deliberately
+  // uses com.tetrilaunch.game because com.tetrilaunch.app belongs to a
+  // different Apple Developer team; `cap sync` preserves that Xcode setting.
   appId: "com.tetrilaunch.app",
   appName: "Tetrilaunch",
   webDir: "dist",
