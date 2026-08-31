@@ -1,85 +1,91 @@
-# Player accounts — Supabase OAuth
+# Player identity — social login without accounts
 
-Player accounts make a RevenueCat Full Game purchase recoverable across web,
-iOS and Android. Guest play remains available; the PWA requires an account only
-when the player starts a purchase.
+There is no account system. "Signing in" hands the app a provider ID token
+(Google or Apple, via `@capgo/capacitor-social-login`), and the app keeps
+exactly three things in localStorage: the provider, the token's `sub` claim
+and a display label. The RevenueCat App User ID is `${provider}:${sub}` —
+`google:1234…` / `apple:000123.abc…` — which is what makes a Full Game
+purchase recoverable on any device that signs in with the same provider.
 
-## Supabase project
+Nothing is stored server-side by us. No database row, no session, no token at
+rest. The identity exists in two places only: the player's device and the
+RevenueCat customer record it names. The client never verifies ID tokens
+(there is no secret to protect on-device); the Worker verifies them — issuer,
+signature against the provider JWKS, audience, expiry — for the single
+privileged action, account deletion.
 
-The authentication project is `edgsqtivfkivqbzzlvth`, with API URL
-`https://edgsqtivfkivqbzzlvth.supabase.co`.
+## The deletion path
 
-1. In project `edgsqtivfkivqbzzlvth`, enable Google and Apple under
-   Authentication → Providers.
-2. Add the production site, local development URL and native callback
-   `com.tetrilaunch.app://auth/callback` to Authentication → URL Configuration.
-3. Configure Google's web, iOS and Android OAuth clients in one Google project.
-4. Configure Apple's Services ID and native Sign in with Apple capability. In
-   the Apple Services ID, set the website return URL to Supabase's callback:
-   `https://edgsqtivfkivqbzzlvth.supabase.co/auth/v1/callback`. The Services ID
-   is an OAuth client identifier, so it does not become part of that URL.
-   Supabase receives Apple's response and then redirects the native app to
-   `com.tetrilaunch.app://auth/callback`. The web OAuth client secret must be
-   rotated on Apple's schedule.
-5. Put the public values in `app/.env` and in each build environment:
+`DELETE /api/account` with `Authorization: Bearer <raw ID token>`. The client
+re-runs the provider login immediately before the call — ID tokens live about
+an hour, so a stored token is stale by construction. The Worker verifies the
+token, derives `${provider}:${sub}`, and deletes that customer from RevenueCat
+(v2 API, secret key). Responses: 200 `{ok:true}` (a RevenueCat 404 is also ok
+— deleting an identity that never bought anything must succeed), 401 for an
+invalid/expired token, 503 when the Worker is missing its config.
 
-   ```text
-   VITE_SUPABASE_URL=https://edgsqtivfkivqbzzlvth.supabase.co
-   VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
-   ```
+## Environment matrix
 
-The publishable key is safe in clients. Never put the service-role key in Vite
-variables or the app bundle.
+Client (Vite, public identifiers — set in `app/.env` and in every workflow
+that builds the app; a provider whose id is missing simply isn't offered):
 
-## Account deletion
+| Variable | Used by |
+| --- | --- |
+| `VITE_GOOGLE_WEB_CLIENT_ID` | Google on web **and** Android (Credential Manager validates against the web client) |
+| `VITE_GOOGLE_IOS_CLIENT_ID` | Google on native iOS |
+| `VITE_APPLE_WEB_CLIENT_ID` | Apple on web (the Services ID). Native iOS Apple sign-in keys to the app's bundle id and needs no variable |
 
-The Cloudflare Worker implements `DELETE /api/account`. It validates the
-caller's Supabase access token, derives the UUID from Supabase, then calls the
-admin deletion endpoint. Configure these Worker secrets/variables:
+Worker (deploy-time secrets, uploaded by `.github/workflows/{staging,production}.yml`):
 
-```sh
-wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-wrangler secret put SUPABASE_URL
-```
+| Secret | Purpose |
+| --- | --- |
+| `GOOGLE_WEB_CLIENT_ID` | Google token `aud` allowlist |
+| `GOOGLE_IOS_CLIENT_ID` | Google token `aud` allowlist (iOS-minted tokens carry the iOS client id) |
+| `APPLE_WEB_CLIENT_ID` | Apple token `aud` allowlist (web) |
+| `REVENUECAT_SECRET_KEY` | RevenueCat v2 API — deletion. The one true secret; never in a client |
 
-Configure both production and staging separately. The service-role key belongs
-only in the Worker environment.
+Worker vars (`wrangler.jsonc`, public — not secrets):
 
-## GitHub Actions environments
+| Var | Purpose |
+| --- | --- |
+| `APPLE_NATIVE_CLIENT_ID` | Apple token `aud` allowlist (native iOS = the app bundle id, `com.tetrilaunch.game`) |
+| `REVENUECAT_PROJECT_ID` | The RevenueCat project whose customers deletion targets |
 
-GitHub environments are recommended so deployment credentials are scoped to
-the job that needs them:
+## Owner checklist
 
-| Environment | Used by | Required secrets |
-| --- | --- | --- |
-| `staging` | `.github/workflows/staging.yml` | `CLOUDFLARE_API_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_REVENUECAT_WEB_KEY` |
-| `production` | `.github/workflows/production.yml` | the same five secrets |
-| `android-build` | signed Android bundle | `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`, in addition to the existing Android and RevenueCat secrets |
+Google (one Cloud project for all three clients):
 
-The Supabase project may be shared by all three environments, but GitHub does
-not share an environment secret with other environments. Add the values to
-each environment whose job consumes them. Repository-level secrets also work,
-but do not provide deployment approvals or environment-specific scoping.
+1. **Web application** client — authorized JavaScript origins:
+   `https://tetrilaunch.com`, the staging Worker URL
+   (`https://tetrilaunch-staging.<account>.workers.dev`), and
+   `http://localhost:5173` for dev. This id is `VITE_GOOGLE_WEB_CLIENT_ID`
+   and the Worker's `GOOGLE_WEB_CLIENT_ID`.
+2. **iOS** client for bundle id `com.tetrilaunch.game` →
+   `VITE_GOOGLE_IOS_CLIENT_ID` / `GOOGLE_IOS_CLIENT_ID`. Its REVERSED client
+   id also goes into `Info.plist` as a URL scheme — see docs/ios.md.
+3. **Android** client for package `com.tetrilaunch.app`, registering the
+   SHA-1 of **both** the release keystore and the debug keystore (and Play
+   App Signing's key once Play distribution starts) — Credential Manager
+   refuses an APK whose signing cert isn't listed. No id from this client is
+   configured anywhere; the package+SHA-1 registration is its whole job.
 
-Both Worker workflows deploy the code and then upload `SUPABASE_URL` and
-`SUPABASE_SERVICE_ROLE_KEY` as encrypted Worker secrets. Uploading after the
-deploy also supports the first deployment, when the named Worker does not yet
-exist. Production is manual and should have a required reviewer; staging runs
-on pushes to `staging` and can also be dispatched manually.
+Apple:
 
-## RevenueCat identity
+1. Enable **Sign in with Apple** on the App ID `com.tetrilaunch.game`
+   (docs/ios.md — the Xcode capability registers it).
+2. Create a **Services ID** for the web popup, enable Sign in with Apple on
+   it, and register the site origins (`tetrilaunch.com`, the staging Worker
+   host) as its web domains/return URLs. That Services ID is
+   `VITE_APPLE_WEB_CLIENT_ID` and the Worker's `APPLE_WEB_CLIENT_ID`.
 
-After OAuth, the Supabase user UUID becomes RevenueCat's App User ID. RevenueCat
-aliases an existing anonymous customer on first sign-in; later sessions change
-to the same UUID. Signing out switches purchases back to a new anonymous ID so
-one player's entitlement never remains active for the next guest.
+## Test matrix
 
-Test these paths before release:
-
-- guest → Google → purchase → relaunch;
-- guest → Apple → purchase → relaunch;
-- purchase anonymously on native → sign in → same entitlement;
-- sign in as the same account on another platform;
-- sign out does not leave Full Game active for the guest;
-- delete account invalidates sign-in and removes the Supabase user;
-- Apple and Google provider revocation followed by a fresh sign-in.
+- guest → sign in → purchase → relaunch: entitlement active, same
+  `${provider}:${sub}` customer.
+- same provider on a second device (or a reinstall): sign-in alone restores
+  the entitlement.
+- sign out: back to an anonymous customer, no entitlement carried to the
+  guest.
+- delete: RevenueCat customer is gone (dashboard), app returns to guest.
+- delete with an aged session: the flow re-runs the provider login for a
+  fresh token — verify it does not fail with 401 an hour after sign-in.

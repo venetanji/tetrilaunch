@@ -141,8 +141,9 @@ export async function initPurchases(appUserId?: string): Promise<void> {
       }
       const { Purchases, LogLevel } = await import("@revenuecat/purchases-js");
       // Prefer a pre-login anonymous id long enough to alias its purchases to
-      // the new Supabase account. Configuring directly as the account first
-      // would strand anything bought before sign-in on the old customer.
+      // the signed-in identity (auth.ts's provider:sub). Configuring directly
+      // as that identity first would strand anything bought before sign-in on
+      // the old customer.
       const anonymousUserId = localStorage.getItem(WEB_USER_KEY);
       let revenueCatUserId = anonymousUserId ?? appUserId;
       if (!revenueCatUserId) {

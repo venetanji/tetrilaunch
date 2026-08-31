@@ -20424,31 +20424,95 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
 }
 
 // ---------------------------------------------------------------------------
-section("Player accounts (Supabase OAuth + RevenueCat identity)");
+section("Player accounts (social login + RevenueCat identity)");
 // ---------------------------------------------------------------------------
 {
-  const guest = S.accountScreen({ available: true, ready: true, label: null });
+  const both = { google: true, apple: true };
+  const guest = S.accountScreen({ available: true, ready: true, label: null, providers: both });
   check("a guest can choose Google", guest.includes('data-action="account-google"'));
   check("a guest can choose Apple", guest.includes('data-action="account-apple"'));
   check("account sign-in explains purchase recovery", guest.includes("recovered on another device"));
 
-  const signedIn = S.accountScreen({ available: true, ready: true, label: "A&B <Pilot>" });
+  // Per-provider offerability is the screen's contract with auth.ts: a button
+  // for a provider whose client id is missing on this platform would open a
+  // login that can only fail, so it must not exist at all.
+  const googleOnly = S.accountScreen({
+    available: true, ready: true, label: null, providers: { google: true, apple: false },
+  });
+  check("only available providers get a button",
+    googleOnly.includes('data-action="account-google"')
+      && !googleOnly.includes('data-action="account-apple"'));
+  const none = S.accountScreen({
+    available: false, ready: true, label: null, providers: { google: false, apple: false },
+  });
+  check("no provider at all says so instead of rendering dead buttons",
+    none.includes("not configured in this build")
+      && !none.includes('data-action="account-google"'));
+
+  const signedIn = S.accountScreen({ available: true, ready: true, label: "A&B <Pilot>", providers: both });
   check("a signed-in account can sign out", signedIn.includes('data-action="account-signout"'));
   check("a signed-in account can be deleted in-app", signedIn.includes('data-action="account-delete"'));
   check("provider profile text is escaped before entering HTML",
     signedIn.includes("A&amp;B &lt;Pilot&gt;") && !signedIn.includes("A&B <Pilot>"));
+  // Sign Out must survive a build that lost its sign-in config — the identity
+  // is local, so the way OUT of it cannot depend on the way in.
+  const orphaned = S.accountScreen({
+    available: false, ready: true, label: "Pilot", providers: { google: false, apple: false },
+  });
+  check("a signed-in identity keeps its exits with no provider configured",
+    orphaned.includes('data-action="account-signout"'));
 
-  const authSrc = fs.readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "auth.ts"),
-    "utf8",
+  const libDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib");
+  const authSrc = fs.readFileSync(path.join(libDir, "auth.ts"), "utf8");
+  const purchasesSrc = fs.readFileSync(path.join(libDir, "purchases.ts"), "utf8");
+  // The identity contract (docs/AUTH.md): the RevenueCat App User ID is the
+  // provider-namespaced subject, so Google's numeric subs and Apple's opaque
+  // ones can never collide — and the Worker derives the same string.
+  check("the app user id is `${provider}:${sub}`",
+    authSrc.includes("${user.provider}:${user.sub}"));
+  const deleteBody = authSrc.slice(
+    authSrc.indexOf("export async function deleteAccount"),
+    authSrc.indexOf("export", authSrc.indexOf("export async function deleteAccount") + 1),
   );
-  const purchasesSrc = fs.readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "purchases.ts"),
-    "utf8",
-  );
-  check("OAuth uses PKCE", authSrc.includes('flowType: "pkce"'));
-  check("web purchases require a durable Supabase UUID handoff",
+  // ID tokens live about an hour. A deletion that replayed the token captured
+  // at sign-in would 401 for everyone who didn't sign in this session.
+  check("deleteAccount earns a FRESH token by re-running the provider login",
+    deleteBody.indexOf("providerLogin") > 0
+      && deleteBody.indexOf("providerLogin") < deleteBody.indexOf("fetch("),
+    "no fresh login before the DELETE");
+  check("...and never reads a stored token", !deleteBody.includes("localStorage"));
+  check("deletion goes through apiBase — a relative URL dies in the native shells",
+    deleteBody.includes("${apiBase()}/api/account"));
+  check("web purchases require a durable identity handoff",
     purchasesSrc.includes("identifyPurchasesUser") && purchasesSrc.includes("identifyUser(appUserId)"));
+
+  // THE WORKER'S HALF of the deletion contract, pinned from source. The token
+  // is verified server-side or nowhere (the client only decodes), so these
+  // greps are the difference between "verifies" and "trusts".
+  const workerSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "worker", "index.ts"),
+    "utf8",
+  );
+  check("the Worker fetches Google's signing keys", workerSrc.includes("googleapis.com"));
+  check("...and Apple's", workerSrc.includes("appleid.apple.com"));
+  check("the audience allowlist is read from env, never hardcoded client ids",
+    ["GOOGLE_WEB_CLIENT_ID", "GOOGLE_IOS_CLIENT_ID", "APPLE_WEB_CLIENT_ID", "APPLE_NATIVE_CLIENT_ID"]
+      .every((name) => workerSrc.includes(name)));
+  check("deletion targets RevenueCat's v2 customers API",
+    workerSrc.includes("api.revenuecat.com/v2") && workerSrc.includes("customers"));
+  // The account route's own status vocabulary: 401 = the token failed, 503 =
+  // the Worker is missing config (deploy problem, not the player's), and a
+  // RevenueCat 404 still resolves ok — deleting an identity that never bought
+  // anything must succeed, or the flow strands exactly the players with the
+  // least reason to be stuck.
+  // The route's own block, bounded at the next route so a status code
+  // elsewhere in the file can never stand in for one here.
+  const accountAt = workerSrc.indexOf('"/api/account"');
+  const accountEnd = workerSrc.indexOf("url.pathname", accountAt + 1);
+  const accountRoute = workerSrc.slice(accountAt, accountEnd < 0 ? undefined : accountEnd);
+  check("a bad token is refused with 401", accountRoute.includes("401"));
+  check("an unconfigured Worker refuses with 503", accountRoute.includes("503"));
+  check("a RevenueCat 404 is a successful deletion", accountRoute.includes("404"));
 }
 
 console.log(

@@ -137,8 +137,8 @@ import {
   loadMeta, saveMeta, loadBaysPlayed, bumpBaysPlayed, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, isNative, tapHaptic, successHaptic, impactHaptic, readyHaptic,
-  hapticsSupported,
+  lockLandscape, isPortrait, isNative, isDesktop, tapHaptic, successHaptic, impactHaptic,
+  readyHaptic, hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
   applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
@@ -147,7 +147,8 @@ import {
   presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
 } from "./lib/purchases";
 import {
-  accountLabel, authState, deleteAccount, initAuth, onAuthChange, signIn, signOut, type AuthState,
+  accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, onAuthChange,
+  signIn, signOut, type AuthState,
 } from "./lib/auth";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
@@ -999,14 +1000,15 @@ class App {
     void (async () => {
       try { this.auth = await initAuth(); }
       catch (err) { console.warn("[auth] configure failed", err); }
-      await initPurchases(this.auth.user?.id);
+      await initPurchases(appUserId() ?? undefined);
       restoreScreen();
     })();
     this.offAuthChange = onAuthChange((auth) => {
-      const previous = this.auth.user?.id;
+      const previous = this.auth.user ? appUserIdFor(this.auth.user) : undefined;
       this.auth = auth;
-      if (auth.user?.id && auth.user.id !== previous) void identifyPurchasesUser(auth.user.id);
-      else if (!auth.user && previous) void resetPurchasesUser();
+      const next = auth.user ? appUserIdFor(auth.user) : undefined;
+      if (next && next !== previous) void identifyPurchasesUser(next);
+      else if (!next && previous) void resetPurchasesUser();
       if (this.state === "account" || this.state === "settings" || this.state === "menu") {
         this.renderOverlay();
       }
@@ -1797,7 +1799,7 @@ class App {
     const state = this.towerState();
     return state.selected === S.SKYDECK_TIER && state.skydeck
       ? SKYDECK_CONTRACT_TIER
-      : Math.min(markUnlocked(this.meta), isUnlimited() ? MARK_COUNT : FREE_TIER_LIMIT);
+      : Math.min(markUnlocked(this.meta), this.fullGame() ? MARK_COUNT : FREE_TIER_LIMIT);
   }
 
   /** The day's Contracts at the parked floor's tier. Tier tracks the Mark
@@ -1805,12 +1807,28 @@ class App {
    *  (see docs/DESIGN.md) — and the roof deals its own board (contractsTier). */
   private todaysContracts(): Contract[] {
     return availableContracts(
-      this.contractsTier(), this.meta.claimedContracts, isUnlimited(), dailySeed(),
+      this.contractsTier(), this.meta.claimedContracts, this.fullGame(), dailySeed(),
     );
   }
 
+  /**
+   * THE full-game gate — every trial limit in the app reads this one helper,
+   * never isUnlimited() directly (that stays for purchase UI: the Settings
+   * "owned" row and the menu chip must keep reporting what was BOUGHT).
+   *
+   * The desktop shell ships the full game as policy, not entitlement: the
+   * Electron build has no store to sell the unlock through, and no workable
+   * OAuth to recover a web purchase with (Google refuses embedded browsers) —
+   * so its gates could only ever say "buy elsewhere and you still can't
+   * restore it here". A build distributed by the owner's own hand is not a
+   * trial funnel. Revisit if the desktop build ever gets a store (Steam).
+   */
+  private fullGame(): boolean {
+    return isUnlimited() || isDesktop;
+  }
+
   private contractAllowance(): { fullGame: boolean; remaining: number } {
-    const fullGame = isUnlimited();
+    const fullGame = this.fullGame();
     return {
       fullGame,
       remaining: fullGame ? Infinity : Math.max(
@@ -1826,6 +1844,7 @@ class App {
         available: this.auth.available,
         ready: this.auth.ready,
         label: this.auth.user ? accountLabel(this.auth.user) : null,
+        providers: this.auth.providers,
       },
     };
   }
@@ -1856,7 +1875,7 @@ class App {
    */
   private towerState(): S.TowerState {
     const unlocked = markUnlocked(this.meta);
-    const fullGame = isUnlimited();
+    const fullGame = this.fullGame();
     const skydeck = fullGame && skydeckOpen(this.meta);
     const selected = Math.min(unlocked, fullGame ? MARK_COUNT : FREE_TIER_LIMIT);
     const state: S.TowerState = {
@@ -2228,7 +2247,7 @@ class App {
       // Progress may have earned this floor even though the lifetime Full Game
       // entitlement has not. In that one case the refusal is an offer, not a
       // progression hint; the floor's accessible label says the same thing.
-      if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !isUnlimited()
+      if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !this.fullGame()
         && S.tierOpen({ ...state, fullGame: true }, tier)) {
         void this.onPaywall();
         return;
@@ -3429,7 +3448,7 @@ class App {
    *  fullscreen state this call already established. */
   private startGame(): void {
     const selected = this.towerState().selected;
-    if (!isUnlimited() && selected !== S.SANDBOX_TIER
+    if (!this.fullGame() && selected !== S.SANDBOX_TIER
       && (selected === S.SKYDECK_TIER || selected > FREE_TIER_LIMIT)) {
       void this.onPaywall();
       return;
@@ -4017,7 +4036,7 @@ class App {
    */
   private startContract(c: Contract, fromSandbox = false): void {
     if (!fromSandbox
-      && !canStartContract(c, this.meta.claimedContracts, isUnlimited(), dailySeed())) {
+      && !canStartContract(c, this.meta.claimedContracts, this.fullGame(), dailySeed())) {
       this.setState("contracts");
       return;
     }
@@ -4157,10 +4176,10 @@ class App {
           saveMeta(this.meta);
         }
         const board = availableContracts(
-          this.contract.tier, this.meta.claimedContracts, isUnlimited(), dailySeed(),
+          this.contract.tier, this.meta.claimedContracts, this.fullGame(), dailySeed(),
         );
         const remaining = board.filter((c) => !this.meta.claimedContracts.includes(c.id)
-          && canStartContract(c, this.meta.claimedContracts, isUnlimited(), dailySeed()));
+          && canStartContract(c, this.meta.claimedContracts, this.fullGame(), dailySeed()));
         this.contractBoardComplete = remaining.length === 0;
         this.nextContract = remaining.find((c) => c.id !== this.contract?.id) ?? null;
         this.contractAward = result;
@@ -6483,7 +6502,7 @@ class App {
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
         const c = this.todaysContracts()[slot];
-        if (c && canStartContract(c, this.meta.claimedContracts, isUnlimited())) {
+        if (c && canStartContract(c, this.meta.claimedContracts, this.fullGame())) {
           this.startContract(c);
         }
         break;
