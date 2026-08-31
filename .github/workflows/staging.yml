@@ -47,22 +47,33 @@ jobs:
       # Fail here, loudly, rather than letting wrangler fail with an auth error
       # that reads like a network problem. The token needs Workers Scripts:Edit
       # (deploy the worker) and D1:Edit (bind the database).
-      - name: Require the API token
+      #
+      # Two tiers, and the split is the sign-in rollout: Google web sign-in and
+      # RevenueCat are the floor — without them the account screen and the web
+      # store are dead — so their absence is an error. The iOS and Apple client
+      # ids are still being provisioned, and the client hides each sign-in
+      # option whose id it was not built with, so an unset one is a warning:
+      # the deploy is still correct, just narrower than it will be.
+      - name: Require deployment configuration
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_REVENUECAT_WEB_KEY: ${{ secrets.VITE_REVENUECAT_WEB_KEY }}
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
+          VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
+          VITE_APPLE_WEB_CLIENT_ID: ${{ secrets.VITE_APPLE_WEB_CLIENT_ID }}
+          REVENUECAT_SECRET_KEY: ${{ secrets.REVENUECAT_SECRET_KEY }}
         run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::CLOUDFLARE_API_TOKEN is not set — add it under Settings → Secrets → Actions."
-            exit 1
-          fi
-          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ] || [ -z "$VITE_REVENUECAT_WEB_KEY" ]; then
-            echo "::error::Supabase auth or RevenueCat web configuration is missing."
-            exit 1
-          fi
+          for name in CLOUDFLARE_API_TOKEN VITE_REVENUECAT_WEB_KEY VITE_GOOGLE_WEB_CLIENT_ID REVENUECAT_SECRET_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set — add it under Settings → Secrets → Actions."
+              exit 1
+            fi
+          done
+          for name in VITE_GOOGLE_IOS_CLIENT_ID VITE_APPLE_WEB_CLIENT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::warning::$name is not set — that sign-in option stays hidden until it is."
+            fi
+          done
 
       # Root `npm ci` installs wrangler itself; the app's own dependencies are
       # installed by wrangler's configured build command (wrangler.jsonc's
@@ -77,6 +88,13 @@ jobs:
       # inherited by a named environment, so dropping this flag would deploy a
       # worker pointed at the production leaderboard.
       #
+      # The VITE_ vars are read by the client build (Vite inlines them), which
+      # runs inside this deploy via wrangler's build command. They are the
+      # PUBLIC halves of the identity/store setup — OAuth client ids and the
+      # RevenueCat web billing key — kept as GitHub secrets only because that
+      # is where per-environment configuration lives, not because they are
+      # confidential.
+      #
       # Migrations are deliberately NOT run here. Applying schema changes on
       # every push means a bad migration ships without anyone deciding to ship
       # it; run `wrangler d1 migrations apply tetrilaunch-leaderboard-preview
@@ -85,20 +103,42 @@ jobs:
         id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
+          VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
+          VITE_APPLE_WEB_CLIENT_ID: ${{ secrets.VITE_APPLE_WEB_CLIENT_ID }}
           VITE_REVENUECAT_WEB_KEY: ${{ secrets.VITE_REVENUECAT_WEB_KEY }}
         run: npx wrangler deploy --env staging
 
       # A new named Worker must exist before Wrangler can attach secrets. The
       # bulk upload creates a new Worker version immediately after the initial
-      # deploy and keeps the service-role key out of logs and config files.
+      # deploy and keeps the RevenueCat secret key out of logs and config files.
+      #
+      # The client ids the Worker verifies token audiences against are the SAME
+      # values the client build above inlined — one source (the VITE_ secrets),
+      # two consumers, so the worker can never accept a token the client could
+      # not have obtained.
+      #
+      # Built with node rather than printf: JSON-escaping becomes node's
+      # problem, and an UNSET id must be ABSENT from the payload rather than
+      # uploaded as "" — an empty-string secret would show up in the dashboard
+      # as configured while meaning nothing, and the Worker's "is this provider
+      # configured" check should read the same truth an operator does.
       - name: Configure Worker auth secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          REVENUECAT_SECRET_KEY: ${{ secrets.REVENUECAT_SECRET_KEY }}
+          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
+          VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
+          VITE_APPLE_WEB_CLIENT_ID: ${{ secrets.VITE_APPLE_WEB_CLIENT_ID }}
         run: |
-          printf '{"SUPABASE_URL":"%s","SUPABASE_SERVICE_ROLE_KEY":"%s"}\n' \
-            "$SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" \
-            | npx wrangler secret bulk --env staging
+          node -e '
+            const secrets = {
+              REVENUECAT_SECRET_KEY: process.env.REVENUECAT_SECRET_KEY,
+              GOOGLE_WEB_CLIENT_ID: process.env.VITE_GOOGLE_WEB_CLIENT_ID,
+              GOOGLE_IOS_CLIENT_ID: process.env.VITE_GOOGLE_IOS_CLIENT_ID,
+              APPLE_WEB_CLIENT_ID: process.env.VITE_APPLE_WEB_CLIENT_ID,
+            };
+            process.stdout.write(JSON.stringify(
+              Object.fromEntries(Object.entries(secrets).filter(([, v]) => v)),
+            ));
+          ' | npx wrangler secret bulk --env staging

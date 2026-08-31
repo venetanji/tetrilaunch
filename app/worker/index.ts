@@ -1,14 +1,30 @@
 /// <reference types="@cloudflare/workers-types" />
 
-// Cloudflare Worker: serves the built Vite app (via the ASSETS binding) and a
+// Cloudflare Worker: serves the built Vite app (via the ASSETS binding), a
 // small D1-backed leaderboard API — the all-time boards under /api/scores and
-// the Skydeck's per-day board under /api/daily (see DAY_MIN below).
+// the Skydeck's per-day board under /api/daily (see DAY_MIN below) — and the
+// account-deletion endpoint under /api/account (see verifyIdentity below).
+
+import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
 
 export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
-  SUPABASE_URL?: string;
-  SUPABASE_SERVICE_ROLE_KEY?: string;
+  /** RevenueCat's project id — a var, not a secret: it is in every dashboard
+   *  URL. Optional in the type only so a misconfigured deploy answers 503
+   *  instead of throwing; wrangler.jsonc sets it in every environment. */
+  REVENUECAT_PROJECT_ID?: string;
+  /** A v2 secret API key with customer-delete permission. Uploaded by the
+   *  deploy workflows; unset means /api/account answers 503 (see below). */
+  REVENUECAT_SECRET_KEY?: string;
+  /** OAuth client ids an ID token's `aud` may claim — the audience allowlist,
+   *  per provider. Each is optional because they are provisioned one at a
+   *  time; an unset id is simply not in its provider's allowlist, and a
+   *  provider whose whole allowlist is empty is not configured yet (503). */
+  GOOGLE_WEB_CLIENT_ID?: string;
+  GOOGLE_IOS_CLIENT_ID?: string;
+  APPLE_WEB_CLIENT_ID?: string;
+  APPLE_NATIVE_CLIENT_ID?: string;
 }
 
 interface ScoreRow {
@@ -69,6 +85,91 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json", ...CORS },
   });
+}
+
+// ---- Account identity. ------------------------------------------------------
+//
+// There is no auth backend. A player's identity IS their Google or Apple ID
+// token, verified here against the provider's own published keys, and their
+// app user id everywhere (RevenueCat included — lib/purchases.ts hands the
+// same string to identifyUser) is `${provider}:${sub}`. The `sub` claim is the
+// provider's stable subject identifier, which is exactly the property an
+// account key needs: it survives email changes and re-consents, and no other
+// party can mint a token that carries it — provided the token verifies.
+//
+// Module scope on purpose: jose's RemoteJWKSet caches the fetched keys (and
+// rate-limits refetches) for as long as the isolate lives, so the JWKS fetch
+// is paid once per isolate rather than once per deletion. Constructing the set
+// does no I/O — Workers forbid I/O at module evaluation — the fetch happens
+// lazily inside the first jwtVerify, which is inside a request.
+
+const PROVIDERS = {
+  google: {
+    // Google has shipped both spellings of its issuer over the years and its
+    // docs say to accept either; verifying against the pair is the documented
+    // contract, not a loosening.
+    issuers: ["https://accounts.google.com", "accounts.google.com"],
+    jwks: createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs")),
+    audiences: (env: Env) => [env.GOOGLE_WEB_CLIENT_ID, env.GOOGLE_IOS_CLIENT_ID],
+  },
+  apple: {
+    issuers: ["https://appleid.apple.com"],
+    jwks: createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys")),
+    audiences: (env: Env) => [env.APPLE_WEB_CLIENT_ID, env.APPLE_NATIVE_CLIENT_ID],
+  },
+} as const;
+
+/**
+ * Verify a raw ID token (a JWS) and derive the app user id it proves.
+ *
+ * The unverified decode up front is dispatch, not trust: the token has to name
+ * an issuer before the right JWKS can be chosen, and everything the decode
+ * yielded is then re-checked INSIDE jwtVerify — issuer against the same list
+ * that picked the provider, so a token cannot decode as one provider and
+ * verify as another.
+ *
+ * What jwtVerify enforces, and why each is non-optional:
+ *  - the RS256 signature, against the provider key the header's `kid` names.
+ *    The algorithm is pinned rather than read from the header — both Google
+ *    and Apple sign with RS256, and honoring whatever `alg` a token claims is
+ *    the classic downgrade (`none`, or an HS256 keyed on the public key).
+ *  - `exp`: an expired token is a replay. ID tokens are short-lived by design;
+ *    the client fetches a fresh one for this call rather than storing any.
+ *  - `aud` ∈ the allowlist built from env: an ID token is minted FOR a client
+ *    id, and a valid Google token minted for some other app's client id must
+ *    not delete this app's customer of the same sub. Unset ids are simply not
+ *    in the list; a provider with NO ids configured cannot verify anything, so
+ *    the caller gets 503 (not configured) rather than 401 (not you).
+ */
+async function verifyIdentity(
+  token: string,
+  env: Env,
+): Promise<{ id: string } | { status: 401 | 503 }> {
+  let iss: string | undefined;
+  try {
+    iss = decodeJwt(token).iss;
+  } catch {
+    return { status: 401 };
+  }
+  const provider = (Object.keys(PROVIDERS) as (keyof typeof PROVIDERS)[])
+    .find((p) => (PROVIDERS[p].issuers as readonly string[]).includes(iss ?? ""));
+  if (!provider) return { status: 401 };
+
+  const spec = PROVIDERS[provider];
+  const audience = spec.audiences(env).filter((a): a is string => !!a);
+  if (audience.length === 0) return { status: 503 };
+
+  try {
+    const { payload } = await jwtVerify(token, spec.jwks, {
+      algorithms: ["RS256"],
+      issuer: [...spec.issuers],
+      audience,
+    });
+    if (!payload.sub) return { status: 401 };
+    return { id: `${provider}:${payload.sub}` };
+  } catch {
+    return { status: 401 };
+  }
 }
 
 function sanitizeName(raw: unknown): string {
@@ -162,32 +263,41 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     return json({ scores });
   }
 
+  // DELETE /api/account — `Authorization: Bearer <raw Google/Apple ID token>`,
+  // no body. The only server-side state an account has is its RevenueCat
+  // customer (scores are anonymous rows), so deleting the customer IS deleting
+  // the account; the client wipes its own local identity afterwards.
   if (url.pathname === "/api/account" && request.method === "DELETE") {
-    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    // Unconfigured is 503, and it is checked before anything is read from the
+    // request: without the secret key no deletion can succeed no matter how
+    // valid the token is, and the client shows "try again later" rather than
+    // treating its own token as bad.
+    if (!env.REVENUECAT_SECRET_KEY || !env.REVENUECAT_PROJECT_ID) {
       return json({ error: "account_service_unavailable" }, 503);
     }
     const authorization = request.headers.get("Authorization");
     if (!authorization?.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
-    // Ask Supabase Auth to validate the caller's JWT. Only the returned UUID is
-    // handed to the admin endpoint; no client-provided user id is trusted.
-    const userHeaders = {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: authorization,
-    };
-    const userResponse = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, { headers: userHeaders });
-    if (!userResponse.ok) return json({ error: "unauthorized" }, 401);
-    const user = await userResponse.json<{ id?: string }>();
-    if (!user.id) return json({ error: "unauthorized" }, 401);
+    // Only the VERIFIED identity is handed to RevenueCat — no client-provided
+    // user id is trusted, same principle as before the auth migration.
+    const verdict = await verifyIdentity(authorization.slice("Bearer ".length), env);
+    if (!("id" in verdict)) {
+      return json(
+        { error: verdict.status === 503 ? "account_service_unavailable" : "unauthorized" },
+        verdict.status,
+      );
+    }
 
-    const deleted = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${user.id}`, {
-      method: "DELETE",
-      headers: {
-        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-    });
-    if (!deleted.ok) return json({ error: "delete_failed" }, 502);
+    // 404 is a SUCCESS. RevenueCat only knows customers who have been seen by
+    // the SDK; a player who signed in but never bought anything may have no
+    // customer record at all, and "the customer does not exist" is exactly the
+    // state a deletion is meant to reach. Treating it as failure would strand
+    // precisely the accounts with the least reason to be stuck.
+    const deleted = await fetch(
+      `https://api.revenuecat.com/v2/projects/${env.REVENUECAT_PROJECT_ID}/customers/${encodeURIComponent(verdict.id)}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${env.REVENUECAT_SECRET_KEY}` } },
+    );
+    if (!deleted.ok && deleted.status !== 404) return json({ error: "delete_failed" }, 502);
     return json({ ok: true });
   }
 
