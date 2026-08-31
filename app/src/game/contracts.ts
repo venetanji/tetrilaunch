@@ -1365,6 +1365,26 @@ export function dailySeed(d = new Date()): number {
  */
 export const PATTERN_SLOT = 2;
 
+/** Free accounts may bank this many first-clear Contracts per UTC day, across
+ * every Tier. The day is part of the Contract id, so changing Tier cannot reset
+ * the allowance. Replays never spend it because their id is already claimed. */
+export const FREE_DAILY_CONTRACTS = DAILY_COUNT;
+
+export function claimedContractsOnDay(claimed: readonly string[], seed = dailySeed()): number {
+  const prefix = `${seed}-`;
+  return new Set(claimed.filter((id) => id.startsWith(prefix))).size;
+}
+
+export function canStartContract(
+  contract: Pick<Contract, "id">,
+  claimed: readonly string[],
+  fullGame: boolean,
+  seed = dailySeed(),
+): boolean {
+  return claimed.includes(contract.id) || fullGame ||
+    claimedContractsOnDay(claimed, seed) < FREE_DAILY_CONTRACTS;
+}
+
 /**
  * The day's board, MEMOISED.
  *
@@ -1387,6 +1407,26 @@ export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
   if (hit) return hit;
   const board = Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, i));
   DAILY_CACHE.set(key, board);
+  return board;
+}
+
+/** The three cards currently offered. Free players keep the shared daily
+ * board. Full-game owners receive the next three uncleared deterministic slots,
+ * so clearing a card makes another available without turning retries into a
+ * reroll. */
+export function availableContracts(
+  tier: number,
+  claimed: readonly string[],
+  fullGame: boolean,
+  seed = dailySeed(),
+): Contract[] {
+  if (!fullGame) return dailyContracts(tier, seed);
+  const done = new Set(claimed);
+  const board: Contract[] = [];
+  for (let slot = 0; board.length < DAILY_COUNT; slot++) {
+    const contract = generateContract(seed, tier, slot);
+    if (!done.has(contract.id)) board.push(contract);
+  }
   return board;
 }
 

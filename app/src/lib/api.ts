@@ -8,7 +8,7 @@
 
 const REMOTE = "https://tetrilaunch.com";
 
-function apiBase(): string {
+export function apiBase(): string {
   const h = location.hostname;
   const servedByWorker =
     h === "tetrilaunch.com" || h === "www.tetrilaunch.com" || h.endsWith(".workers.dev");

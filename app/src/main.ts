@@ -75,10 +75,12 @@ import {
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
+  FREE_TIER_LIMIT,
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailyContracts, dailySeed, generateContract, levelForContract, contractBed, variantSpec,
+  dailySeed, generateContract, levelForContract, contractBed, variantSpec,
+  availableContracts, canStartContract, claimedContractsOnDay, FREE_DAILY_CONTRACTS,
   PATTERN_SLOT, SKYDECK_CONTRACT_TIER, isSkydeckBoard,
   type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
@@ -135,15 +137,18 @@ import {
   loadMeta, saveMeta, loadBaysPlayed, bumpBaysPlayed, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic, readyHaptic,
+  lockLandscape, isPortrait, isNative, tapHaptic, successHaptic, impactHaptic, readyHaptic,
   hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
   applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
-  presentPaywall, presentCustomerCenter, restorePurchases,
+  presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
 } from "./lib/purchases";
+import {
+  accountLabel, authState, deleteAccount, initAuth, onAuthChange, signIn, signOut, type AuthState,
+} from "./lib/auth";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
@@ -155,7 +160,7 @@ import {
 } from "./lib/audio";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
+  | "splash" | "menu" | "howto" | "settings" | "account" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
@@ -430,6 +435,8 @@ class App {
   private guard: HTMLElement;
 
   private state: AppState = "splash";
+  private auth: AuthState = authState();
+  private offAuthChange: (() => void) | null = null;
   /** Developer sandbox settings. Constructed unconditionally (it is a plain
    *  object) but only ever READ behind SANDBOX — see lib/sandbox.ts. */
   private sandbox: SandboxState = newSandbox();
@@ -989,7 +996,21 @@ class App {
     const restoreScreen = (): void => {
       if (this.state === "menu" || this.state === "settings") this.renderOverlay();
     };
-    void initPurchases().then(restoreScreen);
+    void (async () => {
+      try { this.auth = await initAuth(); }
+      catch (err) { console.warn("[auth] configure failed", err); }
+      await initPurchases(this.auth.user?.id);
+      restoreScreen();
+    })();
+    this.offAuthChange = onAuthChange((auth) => {
+      const previous = this.auth.user?.id;
+      this.auth = auth;
+      if (auth.user?.id && auth.user.id !== previous) void identifyPurchasesUser(auth.user.id);
+      else if (!auth.user && previous) void resetPurchasesUser();
+      if (this.state === "account" || this.state === "settings" || this.state === "menu") {
+        this.renderOverlay();
+      }
+    });
     this.offUnlimitedChange = onUnlimitedChange(restoreScreen);
 
     this.setState("splash");
@@ -1032,6 +1053,7 @@ class App {
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
+    this.offAuthChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
   }
@@ -1775,18 +1797,37 @@ class App {
     const state = this.towerState();
     return state.selected === S.SKYDECK_TIER && state.skydeck
       ? SKYDECK_CONTRACT_TIER
-      : markUnlocked(this.meta);
+      : Math.min(markUnlocked(this.meta), isUnlimited() ? MARK_COUNT : FREE_TIER_LIMIT);
   }
 
   /** The day's Contracts at the parked floor's tier. Tier tracks the Mark
    *  ladder, so clearing a Mark opens harder Contracts — the loop's other half
    *  (see docs/DESIGN.md) — and the roof deals its own board (contractsTier). */
   private todaysContracts(): Contract[] {
-    return dailyContracts(this.contractsTier());
+    return availableContracts(
+      this.contractsTier(), this.meta.claimedContracts, isUnlimited(), dailySeed(),
+    );
+  }
+
+  private contractAllowance(): { fullGame: boolean; remaining: number } {
+    const fullGame = isUnlimited();
+    return {
+      fullGame,
+      remaining: fullGame ? Infinity : Math.max(
+        0, FREE_DAILY_CONTRACTS - claimedContractsOnDay(this.meta.claimedContracts),
+      ),
+    };
   }
 
   private storeState(): S.StoreState {
-    return { available: purchasesReady(), unlimited: isUnlimited() };
+    return {
+      available: purchasesReady(), unlimited: isUnlimited(), restorable: isNative,
+      account: {
+        available: this.auth.available,
+        ready: this.auth.ready,
+        label: this.auth.user ? accountLabel(this.auth.user) : null,
+      },
+    };
   }
 
   /** The cheapest system the player could install next — what the contract
@@ -1815,9 +1856,11 @@ class App {
    */
   private towerState(): S.TowerState {
     const unlocked = markUnlocked(this.meta);
-    const skydeck = skydeckOpen(this.meta);
+    const fullGame = isUnlimited();
+    const skydeck = fullGame && skydeckOpen(this.meta);
+    const selected = Math.min(unlocked, fullGame ? MARK_COUNT : FREE_TIER_LIMIT);
     const state: S.TowerState = {
-      unlocked, selected: unlocked, skydeck,
+      unlocked, selected, skydeck, fullGame,
       // Tier S is a SETTING, not progress — it is drawn under the tower for
       // anyone who has found the beacon and turned nothing else on. Read
       // through sandboxOpen so a sandbox BUILD always shows the door: a
@@ -2182,6 +2225,14 @@ class App {
     // is parked on. The old branch that navigated from here is gone.
     const floor = shaft.querySelector<HTMLElement>(`[data-tier="${tier}"]`);
     if (!S.tierOpen(state, tier)) {
+      // Progress may have earned this floor even though the lifetime Full Game
+      // entitlement has not. In that one case the refusal is an offer, not a
+      // progression hint; the floor's accessible label says the same thing.
+      if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !isUnlimited()
+        && S.tierOpen({ ...state, fullGame: true }, tier)) {
+        void this.onPaywall();
+        return;
+      }
       // THE ROOF'S REFUSAL ANSWERS "WHICH ONES". Every other locked floor is
       // refused by one number the player can read off the tower already — the
       // Mark above their unlock — so a shake is the whole answer. The Skydeck
@@ -2744,6 +2795,7 @@ class App {
           cleared: this.meta.claimedContracts,
           progress: sky ? undefined : tierProgressFor(this.meta),
           nextInstall: sky ? null : this.nextInstall(),
+          allowance: this.contractAllowance(),
         });
         break;
       }
@@ -2827,6 +2879,9 @@ class App {
         break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
+        break;
+      case "account":
+        this.overlay.innerHTML = S.accountScreen(this.storeState().account!);
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -3373,6 +3428,12 @@ class App {
    *  every later transition (draft advance, bay restart) reuses whatever
    *  fullscreen state this call already established. */
   private startGame(): void {
+    const selected = this.towerState().selected;
+    if (!isUnlimited() && selected !== S.SANDBOX_TIER
+      && (selected === S.SKYDECK_TIER || selected > FREE_TIER_LIMIT)) {
+      void this.onPaywall();
+      return;
+    }
     void autoEnterFullscreenForRun();
     // The run gets a SNAPSHOT of the player's unlocks (see run.ts's
     // RunState.unlocks): a Workshop purchase made mid-run can't retroactively
@@ -3955,6 +4016,11 @@ class App {
    * this.run is what keeps the two modes from bleeding into each other.
    */
   private startContract(c: Contract, fromSandbox = false): void {
+    if (!fromSandbox
+      && !canStartContract(c, this.meta.claimedContracts, isUnlimited(), dailySeed())) {
+      this.setState("contracts");
+      return;
+    }
     this.game?.destroy();
     this.congestion = 0;
     this.run = null;
@@ -4090,8 +4156,11 @@ class App {
           this.meta = result.meta;
           saveMeta(this.meta);
         }
-        const board = dailyContracts(this.contract.tier);
-        const remaining = board.filter((c) => !this.meta.claimedContracts.includes(c.id));
+        const board = availableContracts(
+          this.contract.tier, this.meta.claimedContracts, isUnlimited(), dailySeed(),
+        );
+        const remaining = board.filter((c) => !this.meta.claimedContracts.includes(c.id)
+          && canStartContract(c, this.meta.claimedContracts, isUnlimited(), dailySeed()));
         this.contractBoardComplete = remaining.length === 0;
         this.nextContract = remaining.find((c) => c.id !== this.contract?.id) ?? null;
         this.contractAward = result;
@@ -6096,6 +6165,7 @@ class App {
       case "seal-break": return '[data-action="seal-break-back"]';
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
+      case "account": return '[data-action="settings"]';
       case "settings": case "workshop": case "contracts":
       case "howto": case "leaderboard": case "sandbox":
         return '[data-action="menu"]';
@@ -6352,6 +6422,11 @@ class App {
         this.finishTutorial();
         break;
       case "settings": this.setState("settings"); break;
+      case "account": this.setState("account"); break;
+      case "account-google": void this.onAccountSignIn("google"); break;
+      case "account-apple": void this.onAccountSignIn("apple"); break;
+      case "account-signout": void this.onAccountSignOut(); break;
+      case "account-delete": void this.onAccountDelete(); break;
       // Two CLICKABLE doors into Controls — Settings and the guide's Controls
       // row — and the screen goes back through whichever one was used.
       // Remembered here rather than inferred from history: the screen
@@ -6402,11 +6477,15 @@ class App {
         break;
       }
       case "workshop": this.setState("workshop"); break;
-      case "contracts": this.setState("contracts"); break;
+      case "contracts":
+        this.setState("contracts");
+        break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
         const c = this.todaysContracts()[slot];
-        if (c) this.startContract(c);
+        if (c && canStartContract(c, this.meta.claimedContracts, isUnlimited())) {
+          this.startContract(c);
+        }
         break;
       }
       case "contract-retry":
@@ -6468,7 +6547,6 @@ class App {
         break;
       case "submit-score": void this.onSubmitScore(); break;
       case "paywall": void this.onPaywall(); break;
-      case "customer-center": void presentCustomerCenter(); break;
       case "restore": void this.onRestore(); break;
       case "pick-hazard":
         this.onPickHazard(el.getAttribute("data-hazard") ?? "");
@@ -7041,7 +7119,31 @@ class App {
    *  the re-render comes from the entitlement listener, so there's nothing to
    *  do here but celebrate. */
   private async onPaywall(): Promise<void> {
+    if (!isNative && !this.auth.user) {
+      this.setState("account");
+      return;
+    }
     if (await presentPaywall()) void successHaptic();
+  }
+
+  private async onAccountSignIn(provider: "google" | "apple"): Promise<void> {
+    try { await signIn(provider); }
+    catch (err) { console.warn("[auth] sign-in failed", err); }
+  }
+
+  private async onAccountSignOut(): Promise<void> {
+    try { await signOut(); }
+    catch (err) { console.warn("[auth] sign-out failed", err); }
+  }
+
+  private async onAccountDelete(): Promise<void> {
+    if (!window.confirm("Delete this player account? This cannot be undone.")) return;
+    try {
+      await deleteAccount();
+      this.setState("settings");
+    } catch (err) {
+      console.warn("[auth] account deletion failed", err);
+    }
   }
 
   /** Restore is the one store action with no UI of its own, so it has to say

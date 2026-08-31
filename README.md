@@ -31,8 +31,9 @@ clears them away.
   a Mark is *won*, never bought, which is what keeps "cleared Mark 7" worth the
   same for everyone. **Every Mark keeps its own leaderboard**, so a heavier tier
   can't out-score a lighter one.
-- **Three daily Contracts** — one bay, **no clock, no launch cost**, failing costs
-  nothing and you can retry forever. What replaces time and money pressure is a
+- **Three free Contract clears per UTC day** — one bay, **no clock, no launch cost**, failing costs
+  nothing and you can retry forever. The one-time Full Game purchase adds
+  on-demand Contracts and opens earned Tiers 4–10. What replaces time and money pressure is a
   **launch budget**: N shipments to hit the goal. One of the three is a **pattern
   Contract** — instead of a budget you're handed the *exact* inventory that tiles
   the goal, so every single cube has to end up inside a completed row. **Zero

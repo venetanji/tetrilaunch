@@ -72,13 +72,14 @@ npm run ios:open              # opens ios/App/App.xcodeproj
    → Users and Access → Integrations → In-App Purchase → generate the `.p8`) — upload
    both to RevenueCat.
 3. Point **App Store Server Notifications V2** at the URL RevenueCat gives you.
-4. Create your products in App Store Connect, then in RevenueCat attach them to an
+4. Create a non-consumable Full Game product in App Store Connect, then in RevenueCat attach it to an
    **offering** and an **entitlement** whose identifier is exactly
-   **`Tetrilaunch Unlimited`** — that string is `UNLIMITED_ENTITLEMENT` in
+   **`full_game`** — that string is `UNLIMITED_ENTITLEMENT` in
    `app/src/lib/purchases.ts` and the two must match byte for byte, spaces and
    capitals included. A mismatch fails silently in the worst way: the purchase
    goes through, the receipt validates, and nothing unlocks.
-5. Build a **paywall** for the offering. The app calls `presentPaywall()`, so pricing,
+5. Put it in RevenueCat's `$rc_lifetime` package and build a **paywall** for the offering.
+   State clearly that it is a one-time purchase. The app calls `presentPaywall()`, so pricing,
    copy and layout are all remote-configured and need no app update.
 
 ### Keys
@@ -88,6 +89,7 @@ Public SDK keys go in `app/.env` (gitignored):
 ```
 VITE_REVENUECAT_IOS_KEY=appl_…
 VITE_REVENUECAT_ANDROID_KEY=goog_…
+VITE_REVENUECAT_WEB_KEY=rcb_…
 ```
 
 These are publishable by design — they're safe in the client bundle. Without them the app
@@ -106,17 +108,16 @@ otherwise invisible until someone taps Unlock and nothing happens.
 |---|---|
 | `initPurchases()` | boot (`main.ts` constructor), fire-and-forget |
 | `isUnlimited()` / `onUnlimitedChange()` | menu UNLIMITED badge, store button visibility |
-| `presentPaywall()` | "★ Unlock Unlimited" — menu and Settings |
+| `presentPaywall()` | "★ Unlock Full Game" — menu and Settings |
 | `restorePurchases()` | "Restore Purchases" — Settings |
-| `presentCustomerCenter()` | "Manage Subscription" — Settings, when entitled |
 
-Off-native every one of them is a no-op and `purchasesReady()` stays false, so the web
-build renders exactly as before.
+On web, `@revenuecat/purchases-js` presents the configured web paywall. Its anonymous
+RevenueCat user ID is persisted in local storage, so production setup should also enable
+RevenueCat Redemption Links or introduce sign-in before promising cross-device recovery.
 
-**The entitlement currently unlocks a badge and nothing else** — the product design is
-tracked separately, but the intent is: Unlimited lifts the daily cap on Contracts, so it
-buys *progression speed*, never power. Rig strength is capped per Mark and only beating
-a Mark raises the ceiling, which is what keeps the leaderboard purchase-neutral.
+**The entitlement is the lifetime Full Game purchase.** It opens earned Tiers 4–10 and
+lifts the global three-clears-per-UTC-day Contract limit, dealing replacements on demand.
+It does not skip progression, directly open the Skydeck, or increase power within a Tier.
 
 **Virtual currencies** are worth knowing about for later: RevenueCat can hold a
 persistent balance (a natural home for salvage), but the client SDK is **read-only**

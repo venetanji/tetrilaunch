@@ -121,7 +121,7 @@ import {
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
   skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
   SLOT_BASE, SLOT_CAP, SLOT_PRICES, buySlot, isMounted, mountedIds, slotPrice, slotsFor,
-  stowedIds, toggleMount,
+  stowedIds, toggleMount, FREE_TIER_LIMIT, tierIncluded,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
@@ -145,6 +145,7 @@ import {
 } from "../src/game/finals";
 import {
   dailyContracts, dailySeed, dealPatternQueue, generateContract, levelForContract, contractBed,
+  availableContracts, canStartContract, claimedContractsOnDay, FREE_DAILY_CONTRACTS,
   contractSlotBed, CONTRACT_BED_TOP_BASE,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
@@ -1777,6 +1778,36 @@ section("Contracts (contracts.ts)");
     JSON.stringify(dailyContracts(3, 20260730)) !== JSON.stringify(dailyContracts(3, 20260731)),
   );
   check("a day offers DAILY_COUNT contracts", dailyContracts(1).length === DAILY_COUNT);
+
+  // The free allowance is GLOBAL for the UTC day, not replenished by earning
+  // another Tier. IDs include both day and Tier, so this specifically catches
+  // the tempting but wrong implementation that counts only one board.
+  const allowanceDay = 20260730;
+  const threeAcrossTiers = [
+    dailyContracts(1, allowanceDay)[0].id,
+    dailyContracts(2, allowanceDay)[0].id,
+    dailyContracts(3, allowanceDay)[0].id,
+  ];
+  const fourth = dailyContracts(3, allowanceDay)[1];
+  check("three free clears are counted across Tiers",
+    claimedContractsOnDay(threeAcrossTiers, allowanceDay) === FREE_DAILY_CONTRACTS);
+  check("another day's clears do not spend today's allowance",
+    claimedContractsOnDay(dailyContracts(1, allowanceDay - 1).map((c) => c.id), allowanceDay) === 0);
+  check("a free fourth Contract is refused",
+    !canStartContract(fourth, threeAcrossTiers, false, allowanceDay));
+  check("a claimed Contract remains replayable after the allowance is spent",
+    canStartContract(dailyContracts(1, allowanceDay)[0], threeAcrossTiers, false, allowanceDay));
+  check("Full Game removes the daily Contract cap",
+    canStartContract(fourth, threeAcrossTiers, true, allowanceDay));
+
+  const ownedFirst = availableContracts(3, [], true, allowanceDay);
+  const ownedNext = availableContracts(3, [ownedFirst[0].id], true, allowanceDay);
+  check("Full Game always deals three uncleared Contracts", ownedNext.length === DAILY_COUNT);
+  check("Full Game rolls the cleared slot forward",
+    !ownedNext.some((c) => c.id === ownedFirst[0].id) && ownedNext[0].id === ownedFirst[1].id);
+  check("the free board remains the fixed daily set",
+    JSON.stringify(availableContracts(3, [ownedFirst[0].id], false, allowanceDay))
+      === JSON.stringify(dailyContracts(3, allowanceDay)));
 
   // The single worst thing this generator could emit is an impossible
   // Contract, so the launch budget is derived from the goal rather than rolled.
@@ -12196,6 +12227,11 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // unearned Mark stays shut whether or not the sandbox is open.
   check("Tier S does not unlock the ladder", !S.tierOpen(open, 6));
   check("the Skydeck still needs the ladder beaten", !S.tierOpen(open, S.SKYDECK_TIER));
+  const trial: S.TowerState = { unlocked: 5, selected: 3, skydeck: false, fullGame: false };
+  check("the trial includes exactly three Tiers",
+    tierIncluded(FREE_TIER_LIMIT, false) && !tierIncluded(FREE_TIER_LIMIT + 1, false));
+  check("earned Tier 4 still needs Full Game", !S.tierOpen(trial, 4));
+  check("Full Game opens an earned Tier 4", S.tierOpen({ ...trial, fullGame: true }, 4));
 
   // THE FLOORS' TAP TARGETS. sim/uifit records `.tower__floor 82x26` on the
   // 640x360 budget phone, and eleven floors cannot each be 44px in a 313px
@@ -20385,6 +20421,34 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
     check(".toggle declares no cursor — the pill inherits the switch row's",
       at >= 0 && !/cursor:/.test(rule), rule.match(/cursor:[^;]*/)?.[0] ?? "no rule found");
   }
+}
+
+// ---------------------------------------------------------------------------
+section("Player accounts (Supabase OAuth + RevenueCat identity)");
+// ---------------------------------------------------------------------------
+{
+  const guest = S.accountScreen({ available: true, ready: true, label: null });
+  check("a guest can choose Google", guest.includes('data-action="account-google"'));
+  check("a guest can choose Apple", guest.includes('data-action="account-apple"'));
+  check("account sign-in explains purchase recovery", guest.includes("recovered on another device"));
+
+  const signedIn = S.accountScreen({ available: true, ready: true, label: "A&B <Pilot>" });
+  check("a signed-in account can sign out", signedIn.includes('data-action="account-signout"'));
+  check("a signed-in account can be deleted in-app", signedIn.includes('data-action="account-delete"'));
+  check("provider profile text is escaped before entering HTML",
+    signedIn.includes("A&amp;B &lt;Pilot&gt;") && !signedIn.includes("A&B <Pilot>"));
+
+  const authSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "auth.ts"),
+    "utf8",
+  );
+  const purchasesSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "purchases.ts"),
+    "utf8",
+  );
+  check("OAuth uses PKCE", authSrc.includes('flowType: "pkce"'));
+  check("web purchases require a durable Supabase UUID handoff",
+    purchasesSrc.includes("identifyPurchasesUser") && purchasesSrc.includes("identifyUser(appUserId)"));
 }
 
 console.log(

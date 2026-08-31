@@ -16,7 +16,7 @@ Everything the Play Console asks for that isn't the build itself. The build side
 
 ## Google Play + RevenueCat purchase setup
 
-This is the first-time setup runbook for the subscription used by this repo.
+This is the first-time setup runbook for the one-time Full Game purchase used by this repo.
 The code integration and release automation already exist; the remaining work
 is store-side configuration. Console labels move occasionally, but the objects
 and identifiers below are the important part.
@@ -26,30 +26,30 @@ and identifiers below are the important part.
 | Object | Value | Where it is consumed |
 |---|---|---|
 | Android package | `com.tetrilaunch.app` | Play app, RevenueCat app, release workflow |
-| Play subscription product ID | `tetrilaunch_unlimited` | Play and RevenueCat only; permanent after creation |
-| First base plan ID | `monthly` | Play and RevenueCat product/package mapping |
-| RevenueCat entitlement ID | `Tetrilaunch Unlimited` | **Exact, case-sensitive** lookup in `src/lib/purchases.ts` |
+| Play one-time product ID | `tetrilaunch_unlimited` | Play and RevenueCat only; permanent after creation |
+| RevenueCat entitlement ID | `full_game` | **Exact, case-sensitive** lookup in `src/lib/purchases.ts` |
 | RevenueCat offering ID | `default` | RevenueCat's current offering; the app asks for the current paywall |
-| RevenueCat package | `$rc_monthly` | Monthly product shown on the paywall |
+| RevenueCat package | `$rc_lifetime` | Lifetime product shown on the paywall |
 
-The product and base-plan IDs above are conventions chosen for this app, not
+The product ID above is a convention chosen for this app, not
 strings compiled into it. The entitlement is different: changing its spelling
-in RevenueCat would let a payment succeed without unlocking the app. If an
-annual option is wanted, add base plan `yearly` to the same subscription and
-map it to RevenueCat package `$rc_annual`; do not create a second entitlement.
+in RevenueCat would let a payment succeed without unlocking the app.
 
-Before choosing prices, also decide what Unlimited actually unlocks. The
-current product design lists uncapped Contracts, cosmetics, run history and
-cloud save, but the currently implemented client only exposes the entitlement
-state/badge. Do not sell the subscription until the advertised benefits are
-implemented and the paywall accurately describes what the shipped build does.
+Full Game opens earned Tiers 4–10 and removes the three-clears-per-UTC-day
+Contract limit. It does not skip Tier progression or open the Skydeck directly.
+
+The PWA uses the same entitlement through RevenueCat Web Billing. Configure a
+web app and lifetime package in the same project, connect its supported payment
+provider, and provide its public key as `VITE_REVENUECAT_WEB_KEY` when building
+the deployed web bundle. Anonymous web identity is persisted locally; enable
+Redemption Links or add account sign-in before advertising cross-device recovery.
 
 ### 1. Create the Play app and establish the package
 
 1. In Play Console, create the app as **Tetrilaunch**, game, paid/free as
-   intended (the current plan is a free app with an in-app subscription), and
+   intended (the current plan is a free app with a one-time in-app purchase), and
    accept the declarations.
-2. Complete the payments profile/merchant setup. A subscription cannot be made
+2. Complete the payments profile/merchant setup. A product cannot be made
    available without it.
 3. Create an **internal testing** release and upload a signed AAB for
    `com.tetrilaunch.app`. The easiest safe first upload is a manual dispatch of
@@ -78,7 +78,7 @@ Recommended: make a separate service account for RevenueCat, then invite its
 email under Play Console **Users and permissions** with access limited to
 Tetrilaunch and the permissions RevenueCat's credential checker requests. At
 the time of setup these normally include viewing app/financial data and
-managing orders and subscriptions. Download one JSON key, upload it at
+managing orders. Download one JSON key, upload it at
 RevenueCat **Project settings → Apps → Tetrilaunch Android → Service
 credentials**, verify it, then securely delete the downloaded copy. Follow
 RevenueCat's current
@@ -92,20 +92,18 @@ the app: only the app-specific public `goog_…` SDK key belongs in the bundle.
 Google permission changes can take time to propagate; if RevenueCat's check
 fails immediately after a change, wait and retry before recreating everything.
 
-### 3. Create and activate the Play subscription
+### 3. Create and activate the Play one-time product
 
-In Play Console open **Monetize with Play → Products → Subscriptions**:
+In Play Console open **Monetize with Play → Products → In-app products** (or
+**One-time products**, depending on the current Console label):
 
 1. Create product ID `tetrilaunch_unlimited` and name it **Tetrilaunch
    Unlimited**. Product IDs cannot be reused or renamed, so check the spelling
    before saving.
-2. Add base plan `monthly`, set it to **auto-renewing**, choose the billing
-   period (one month), select the countries/regions, and set the price. Review
-   Play's converted local prices rather than accepting them blindly.
-3. Activate the base plan. A saved draft is not purchasable and commonly
+2. Configure it as a non-consumable/permanent entitlement, select the
+   countries/regions, and set the price. Review Play's converted local prices.
+3. Activate the product. A saved draft is not purchasable and commonly
    appears downstream as an empty offering.
-4. Add any trial or introductory offer only after the plain monthly purchase
-   works. Eligibility rules add another variable to first-time testing.
 
 The repo does not hard-code price text or currency. Google supplies localized
 pricing to RevenueCat and the RevenueCat paywall renders it; paywall copy must
@@ -117,17 +115,17 @@ not contain a manually typed price that can disagree by territory.
    exactly `com.tetrilaunch.app` and its Play service credentials pass the
    dashboard check.
 2. Under **Product catalog → Products**, import
-   `tetrilaunch_unlimited` / `monthly` from Google Play. If import cannot find
-   it, re-check that the base plan is active, the package matches, and the
+   `tetrilaunch_unlimited` from Google Play. If import cannot find
+   it, re-check that the product is active, the package matches, and the
    service account has propagated.
-3. Under **Entitlements**, create `Tetrilaunch Unlimited` exactly as shown and
+3. Under **Entitlements**, create `full_game` exactly as shown and
    attach the imported product. This is the case-sensitive contract with the
    app.
 4. Under **Offerings**, create or select `default`, make it the **Current**
-   offering, add package `$rc_monthly`, and attach the imported monthly product.
-5. Build and publish a RevenueCat Paywall for that offering. Include a clear
-   renewal period, price, auto-renewal/cancellation language, Terms and Privacy
-   links, plus a restore path. The app calls RevenueCat's paywall UI rather than
+   offering, add package `$rc_lifetime`, and attach the imported product.
+5. Build and publish a RevenueCat Paywall for that offering. State clearly that
+   this is a one-time purchase, list only the shipped benefits, and include the
+   price, Terms and Privacy links, plus a restore path. The app calls RevenueCat's paywall UI rather than
    rendering product buttons itself.
 6. In **Project settings → API keys**, copy the Android app-specific public key
    beginning `goog_`. Confirm it is the value already stored as the
@@ -141,14 +139,14 @@ Use two distinct tests; passing one does not prove the other:
 
 1. **RevenueCat wiring without Play:** put the Test Store public key in local
    `app/.env`, run `cd app && npm run android:apk:test`, install the debug APK,
-   and exercise successful purchase, cancellation, failure, expiry and restore.
+   and exercise successful purchase, cancellation, failure, revocation and restore.
    This checks the entitlement spelling, offering and paywall without charging.
 2. **Real Google Play sandbox:** publish a signed build to the internal track,
    add the purchasing account to both the internal-test tester list and Play
    Console **Settings → License testing**, accept the opt-in link, and install
    from Google Play. Confirm the paywall shows the expected local price, a test
-   purchase activates Unlimited, relaunch preserves it, **Restore purchases**
-   works after reinstall, cancellation/expiry removes it, and RevenueCat shows
+   purchase activates Full Game, relaunch preserves it, **Restore purchases**
+   works after reinstall, a refund/revocation removes it, and RevenueCat shows
    the event for the anonymous customer.
 
 For the first automated internal upload after the manual bootstrap, publish a
@@ -159,20 +157,20 @@ open or production testing remains a deliberate Play Console action.
 
 ### Launch checklist
 
-- [ ] Play subscription and `monthly` base plan are **active** in every launch
+- [ ] Play one-time product is **active** in every launch
       country, with prices reviewed.
 - [ ] RevenueCat service credentials validate, and its Android package is
       `com.tetrilaunch.app`.
-- [ ] Product is attached to entitlement `Tetrilaunch Unlimited` and package
-      `$rc_monthly` in the **Current** offering.
+- [ ] Product is attached to entitlement `full_game` and package
+      `$rc_lifetime` in the **Current** offering.
 - [ ] The published paywall describes only benefits present in the release and
       includes required links/disclosures.
 - [ ] `android-build` holds the matching public `goog_…` key; no `test_…` key is
       used by the release workflow.
-- [ ] Purchase, restore, renewal/expiry and cancellation have been observed from
+- [ ] Purchase, restore and refund/revocation have been observed from
       a Play-installed internal-test build and in RevenueCat customer history.
 - [ ] Play's Data safety, content rating, app access, privacy policy and
-      subscription declarations are complete before production review.
+      in-app-product declarations are complete before production review.
 
 ---
 

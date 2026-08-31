@@ -347,8 +347,8 @@ npm run android:apk:test    # builds --mode teststore, then assembleDebug
 ```
 
 `VITE_REVENUECAT_TEST_KEY` in `app/.env` supplies the key. The purchase sheet
-offers *Cancel / Test failed purchase / Test valid purchase*, and subscriptions
-renew every few minutes so expiry is observable in one sitting.
+offers *Cancel / Test failed purchase / Test valid purchase*. Test refund or
+revocation separately; the shipped product is non-consumable and does not renew.
 
 ### Why this is gated on a build mode rather than on DEV
 
