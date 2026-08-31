@@ -102,17 +102,30 @@ gameplay, content, persistence, or cosmetic feature:
   nothing else. `docs/PLAY.md:41-45` correctly warns not to sell the subscription
   until benefits are implemented.
 
-`docs/DESIGN.md:1139-1154` describes planned benefits—uncapped/on-demand
-Contracts, cosmetics, run history, and cloud save—but none is wired to the
-entitlement. In particular, the current Contract generator and daily board do
-not branch on `isUnlimited()`.
+The intended entitlement contract, confirmed by the product owner, is narrower:
 
-Do not publish a paid paywall that advertises those benefits against the current
-client. Either implement and test at least one concrete entitlement gate before
-sale, or keep the product inactive. When implementation begins, derive a small
-capability object from the entitlement instead of importing purchase state into
-game modules directly; this will make each promised benefit independently
-testable and keep leaderboard/build-budget invariants isolated.
+1. Unlimited removes the free limit of three completed Contracts per day.
+2. Unlimited grants access to the **Skybridge** without requiring the normal
+   ladder-completion and seal requirements. The current code and copy call this
+   destination **Skydeck**; that naming difference must be resolved before the
+   benefit is implemented or advertised.
+
+Neither benefit is wired today. The current Contract generator and board do not
+branch on `isUnlimited()`, and the only roof-access predicate is
+`game/meta.ts:690-691`'s `skydeckOpen(meta)`, which requires the completed
+ladder and every seal. `main.ts:1818-1831`, `1885-1892`, and `2850-2852` use
+that progression-only result for the tower, ceremony, and leaderboard.
+
+`docs/DESIGN.md:1139-1154` also lists cosmetics, run history, and cloud save,
+but those are not part of the confirmed entitlement benefits and should not be
+advertised unless separately approved and implemented.
+
+Do not publish a paid paywall that advertises these benefits against the current
+client. Both promised benefits should be implemented and tested before sale.
+When implementation begins, derive a small capability object such as
+`{ unlimitedContracts, skybridgeAccess }` from the entitlement instead of
+importing purchase state into game modules directly. This will make both gates
+independently testable and keep leaderboard/build-budget invariants isolated.
 
 ### Privacy and data disclosures
 
