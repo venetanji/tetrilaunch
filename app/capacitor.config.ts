@@ -44,11 +44,14 @@ const config: CapacitorConfig = {
     // No rubber-band scroll and no pinch zoom — both fight the aim drag.
     scrollEnabled: false,
     zoomEnabled: false,
-    // Paired with WKAppBoundDomains in ios/App/App/Info.plist; the flag does
-    // nothing unless that key is declared. Unverified on a device — if the
-    // leaderboard or a paywall web view ever misbehaves on iOS, this is the
-    // first thing to switch off.
-    limitsNavigationsToAppBoundDomains: true,
+    // OFF, and deliberately so. This was true "paired with WKAppBoundDomains
+    // in Info.plist" — but that key was never actually declared there, so the
+    // first device install (TestFlight 1.0.2 (7), iPhone X) ran a WebView
+    // restricted to an app-bound domain list that did not exist. The old
+    // comment called itself "unverified on a device" and "the first thing to
+    // switch off"; the device agreed. Re-enabling requires BOTH halves: the
+    // plist key listing every domain the app touches, and a real-device pass.
+    limitsNavigationsToAppBoundDomains: false,
   },
   plugins: {
     ScreenOrientation: {
