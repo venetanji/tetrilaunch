@@ -1,0 +1,194 @@
+name: iOS TestFlight build
+
+# Builds the signed iOS app and uploads it to TestFlight. From there App Store
+# submission is a deliberate click in App Store Connect — same shape as
+# android.yml, where promotion past the testing track is the irreversible half
+# and stays human.
+#
+# THIS RUNS ONLY ON DEMAND OR A RELEASE TAG, and that is a cost decision as
+# much as a hygiene one: GitHub bills macOS runner minutes at 10x Linux, so a
+# per-push iOS build would drain the Actions quota faster than every other
+# workflow combined. A dispatch is the rehearsal button; a v* tag is a
+# release, mirroring desktop.yml.
+#
+# Signing is Xcode "cloud signing": the runner holds the Apple Distribution
+# certificate in a throwaway keychain, and -allowProvisioningUpdates plus an
+# App Store Connect API key lets xcodebuild fetch (or create) the App Store
+# provisioning profile itself. No profile is stored as a secret, so a profile
+# regenerated in the portal never strands this workflow.
+#
+# The secrets live in the `ios-build` ENVIRONMENT (same reasoning as
+# android-build: an environment can carry protection rules repo secrets
+# cannot). The job fails at its guard steps rather than uploading a build
+# with the store or sign-in silently missing:
+#
+#   IOS_DIST_CERT_P12         base64 of the Apple Distribution cert + private
+#                             key (.p12). Keychain Access → export both items.
+#   IOS_DIST_CERT_PASSWORD    the password chosen at that export
+#   ASC_API_KEY_P8            base64 of the App Store Connect API key (.p8),
+#                             role App Manager (Users and Access → Keys)
+#   ASC_API_KEY_ID            the key's ID (e.g. 2X9R4HXF34)
+#   ASC_API_ISSUER_ID         the issuer UUID shown on the same page
+#   APPLE_TEAM_ID             the 10-char team id
+#   VITE_REVENUECAT_IOS_KEY   RevenueCat App Store public SDK key (appl_…) —
+#                             exists once the app is registered in App Store
+#                             Connect and added to the RevenueCat project
+#   VITE_GOOGLE_IOS_CLIENT_ID Google's iOS OAuth client id (warn-only:
+#                             without it Google sign-in is hidden and Apple
+#                             sign-in still works)
+#
+#   base64 -i dist.p12 | gh secret set IOS_DIST_CERT_P12 --env ios-build
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testflight:
+    runs-on: macos-15
+    environment: ios-build
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Require signing and store secrets
+        env:
+          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VITE_REVENUECAT_IOS_KEY: ${{ secrets.VITE_REVENUECAT_IOS_KEY }}
+          VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
+        run: |
+          missing=0
+          for name in IOS_DIST_CERT_P12 IOS_DIST_CERT_PASSWORD ASC_API_KEY_P8 ASC_API_KEY_ID ASC_API_ISSUER_ID APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set in the ios-build environment — see the header of .github/workflows/ios.yml."
+              missing=1
+            fi
+          done
+          # Same rule as android.yml's store-key guard: verify:store proves the
+          # SDK survived tree-shaking, not that a key was set. A build without
+          # the key ships with purchases silently disabled — and with the
+          # tier-3 gate live, that is a build whose full game cannot be bought.
+          if [ -z "$VITE_REVENUECAT_IOS_KEY" ]; then
+            echo "::error::VITE_REVENUECAT_IOS_KEY is not set — a build made now would have no in-app purchases behind the tier-3 gate."
+            missing=1
+          fi
+          if [ -z "$VITE_GOOGLE_IOS_CLIENT_ID" ]; then
+            echo "::warning::VITE_GOOGLE_IOS_CLIENT_ID is not set — Google sign-in will be hidden on this build (Apple sign-in still works)."
+          fi
+          exit $missing
+
+      - name: Typecheck + build web bundle
+        env:
+          VITE_REVENUECAT_IOS_KEY: ${{ secrets.VITE_REVENUECAT_IOS_KEY }}
+          VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
+        run: npm run build:native
+
+      - name: Systems smoke test
+        run: npm run test
+
+      - name: Verify the store bundle
+        run: npm run verify:store
+
+      - name: Sync the iOS shell
+        run: npx cap sync ios
+
+      # A throwaway keychain so the Distribution key never touches the login
+      # keychain, unlocked for the job and deleted with the runner.
+      - name: Import signing certificate
+        env:
+          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$IOS_DIST_CERT_P12" | base64 -d > $RUNNER_TEMP/dist.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import $RUNNER_TEMP/dist.p12 -k "$KEYCHAIN" \
+            -P "$IOS_DIST_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm $RUNNER_TEMP/dist.p12
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$ASC_API_KEY_P8" | base64 -d > ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8
+
+      # MARKETING_VERSION tracks app/package.json (the same number the web and
+      # desktop builds carry); the build number is the run number, which App
+      # Store Connect requires to only ever go up.
+      - name: Archive
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_API_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      # destination=upload sends the build straight to App Store Connect from
+      # the export step — no ipa artifact, no separate uploader tool.
+      - name: Upload to TestFlight
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cat > $RUNNER_TEMP/export-options.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/export-options.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8 \
+            -authenticationKeyID "$ASC_API_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"

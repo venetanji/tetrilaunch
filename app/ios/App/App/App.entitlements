@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sign in with Apple (auth.ts's native Apple path). Committed rather than
+	     clicked in Xcode so a CI archive carries it too: an archive without the
+	     entitlement builds fine and then fails at authorization time, which is
+	     the worst place to find out. The capability must also be enabled on the
+	     App ID in the developer portal (docs/AUTH.md). -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

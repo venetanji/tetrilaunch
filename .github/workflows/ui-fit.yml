@@ -8,8 +8,19 @@ name: UI fit
 # of the two, so on a layout change it is the first thing to go red.
 #
 # See app/sim/README.md for what the harness asserts and how the baseline works.
+#
+# THIS WORKFLOW IS RATIONED, on android.yml's reasoning. An unfiltered `push`
+# fired it for every push to every working branch — a merge-train session
+# (branch pushes, the PR, staging, main) could queue six runs of two browser
+# jobs each inside an hour, none of which said anything the PR run and the
+# local ritual had not already said. So: pushes build only where the tree is
+# authoritative (main, staging), pull requests cover every working branch,
+# and a superseded run is cancelled rather than finished for a commit nobody
+# ships. A branch with no PR is validated by the local ritual; if you want CI
+# on it anyway, that is what the dispatch button is for.
 on:
   push:
+    branches: [main, staging]
     paths:
       - "app/src/**"
       - "app/sim/uifit/**"
@@ -29,6 +40,13 @@ on:
       - "app/package-lock.json"
       - ".github/workflows/ui-fit.yml"
   workflow_dispatch:
+
+# A new push to the same ref supersedes the running measurement of a commit
+# that will never ship. main/staging pushes get distinct groups per ref, so a
+# staging deploy never cancels main's.
+concurrency:
+  group: ui-fit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   fit:
@@ -52,7 +70,15 @@ jobs:
       # because every number this harness reports is a text-measurement result,
       # so a browser upgrade would shift the baseline for reasons that have
       # nothing to do with the app — `install` therefore fetches the one build
-      # the baseline was recorded against.
+      # the baseline was recorded against. The cache keys on the lockfile for
+      # the same reason: a Playwright bump is a new browser build, so it must
+      # be a new cache entry. On a hit, `install` skips the download and only
+      # the OS packages are fetched.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
@@ -87,7 +113,13 @@ jobs:
   # `npm run test:uifit -- --engine=webkit --update-baseline` locally on a
   # machine with WebKit installed, or from this job's uploaded report. Flip
   # continue-on-error off in the same commit that lands the baseline.
+  #
+  # Until that baseline exists this job can only ever be advisory-red, so it
+  # does not spend a WebKit install on every PR sync: it runs on main/staging
+  # pushes (keeping the report fresh enough to record the baseline from) and
+  # on dispatch. Re-widen it to PRs in the commit that lands the baseline.
   fit-webkit:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     continue-on-error: true
     defaults:
@@ -104,6 +136,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webkit-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
 
       - name: Install WebKit
         run: npx playwright install --with-deps webkit

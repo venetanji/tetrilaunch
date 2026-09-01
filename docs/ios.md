@@ -233,6 +233,34 @@ npm run ios:run      # straight to a device / simulator
 Re-run `ios:sync` whenever you add or update a Capacitor plugin — that's what rewrites
 `Package.swift`.
 
+## 6b. TestFlight from CI
+
+`.github/workflows/ios.yml` builds, signs and uploads to TestFlight on a `v*`
+tag or a manual dispatch — its header documents every secret and how to
+generate each. The one-time owner setup, in order:
+
+1. **Apple Distribution certificate.** Xcode → Settings → Accounts → Manage
+   Certificates → “+” → *Apple Distribution* (or Certificates in the developer
+   portal). In Keychain Access select the certificate **and** its private key,
+   export as `.p12` with a password → `IOS_DIST_CERT_P12` (base64) and
+   `IOS_DIST_CERT_PASSWORD`.
+2. **App Store Connect API key.** App Store Connect → Users and Access → Keys
+   → “+”, role **App Manager**. Download the `.p8` (one chance) →
+   `ASC_API_KEY_P8` (base64), plus `ASC_API_KEY_ID` and `ASC_API_ISSUER_ID`
+   from the same page.
+3. `APPLE_TEAM_ID` — the 10-character id from the developer-portal membership
+   page.
+4. Put all of it in a GitHub environment named **`ios-build`** (Settings →
+   Environments), plus `VITE_REVENUECAT_IOS_KEY` (§3) and
+   `VITE_GOOGLE_IOS_CLIENT_ID` once those exist.
+
+No provisioning profile is stored: the workflow signs with
+`-allowProvisioningUpdates` against the API key, so xcodebuild fetches or
+creates the App Store profile itself. The Sign in with Apple entitlement is
+committed (`App/App.entitlements`), so a CI archive carries it without Xcode
+ever being opened — the capability still has to be ON for the App ID in the
+developer portal.
+
 ## 7. Notes
 
 - **Android** isn't generated in the repo (`npx cap add android` when you want it). One
