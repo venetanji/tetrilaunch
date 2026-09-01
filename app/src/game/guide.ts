@@ -178,7 +178,7 @@ function systemTopics(): GuideTopic[] {
     summary: u.blurb,
     body:
       `${u.blurb}<br><b>Tier 1</b> ${u.tiers[0]}. <b>Tier ${MAX_TIER}</b> ${u.tiers[MAX_TIER - 1]}.`
-      + ` Tiers 1-2 are Workshop purchases — salvage, once, yours forever, on the Mark's`
+      + ` Tiers 1-2 are Workshop purchases — salvage, once, yours forever, on your`
       + ` build budget; the rest up to tier ${MAX_TIER} is scrap at a refit stop, for the run.`,
     tier: gate[u.id] ?? 1,
     system: u.id,
@@ -684,8 +684,8 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, run end to end.`
       + ` Each bay has its own funding target and countdown; go broke or run the clock out and the run`
       + ` ends there — there are no lives.`
-      + ` Between bays you ratchet an axis, and three times you refit. Every Mark keeps its own`
-      + ` leaderboard, and this is the only mode that can raise your tier.`,
+      + ` Between bays you ratchet an axis, and three times you refit. Every Tier keeps its own`
+      + ` leaderboard, and this is the only mode that can raise the Tier you fly.`,
   },
   {
     id: "contracts", chapter: "modes", tier: 1,
@@ -707,11 +707,11 @@ function buildTopics(mark: number): GuideTopic[] {
     // are told about it belongs at the bottom of the catalogue.
     id: "seals", chapter: "modes", tier: 1,
     name: "Seals",
-    summary: "Clear a Mark without retrying a bay and its floor is stamped. All ten stamps open the Skydeck.",
-    body: `A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays in one run without`
+    summary: "Clear a Tier without retrying a bay and its floor is stamped. All ten stamps open the Skydeck.",
+    body: `A Tier is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays in one run without`
       + ` retrying a single one. The tower stamps that floor; empty sockets are the seals still`
       + ` owed. Retrying a bay costs this run its seal and <b>nothing else</b> — the run counts, the`
-      + ` salvage banks, the tier opens — and any later run can take it, a beaten Mark included.`
+      + ` salvage banks, the Tier opens — and any later run can take it, a beaten Tier included.`
       + ` All <b>${MARK_COUNT}</b> seals open the Skydeck.`,
   },
   {
@@ -723,7 +723,7 @@ function buildTopics(mark: number): GuideTopic[] {
     name: "The Skydeck",
     summary: "The day's fixed run, flown on the rig you brought. No yard, and the clauses are written for you.",
     body: `The floor above the ladder, open once you have beaten it and`
-      + ` <b>sealed every Mark</b> (see Seals). One run a day, dealt from the date,`
+      + ` <b>sealed every Tier</b> (see Seals). One run a day, dealt from the date,`
       + ` so everyone flies the same one. <b>No refit stops</b>, and <b>one notch a bay</b>`
       + ` instead of the capstone's two. In their place the day writes`
       + ` <b>${CLAUSE_COUNT} standing clauses</b>,`

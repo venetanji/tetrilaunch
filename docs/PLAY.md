@@ -328,8 +328,9 @@ Short, sharp challenges with fixed objectives. Retry as often as you like —
 these are for learning a technique, not for grinding.
 
 WORKSHOP
-Salvage from clearing a tier's Contracts and beating its Deep Run buys permanent
-unlocks. Rig strength is capped per Mark, and only beating a Mark raises the
+Salvage from clearing a Tier's Contracts and beating its Deep Run buys permanent
+unlocks. Rig strength is capped per Tier. Completing a Tier — its Deep Run plus
+the required Contracts — unlocks the next Tier and raises the build-budget
 ceiling, so the leaderboard stays honest.
 
 WHAT MAKES IT DIFFERENT

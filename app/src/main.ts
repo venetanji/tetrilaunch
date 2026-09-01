@@ -2173,7 +2173,7 @@ class App {
     // flown — same guard levelForRun uses, so this line cannot claim an
     // inspection the run never sat under.
     const clause = bay === SANDBOX_FINAL_BAY && s.final ? finalById(s.final) : undefined;
-    return `Mark ${s.tier} · from bay ${bay}`
+    return `Tier ${s.tier} · from bay ${bay}`
       + (notches > 0 ? ` · ${notches} notch${notches === 1 ? "" : "es"}` : "")
       + (s.material !== "mix" ? ` · ${s.material} belt` : "")
       + (clause ? ` · ${clause.name}` : "");
