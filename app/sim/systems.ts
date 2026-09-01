@@ -20883,6 +20883,119 @@ section("Player accounts (social login + RevenueCat identity)");
     /if \(s !== "account"\) this\.paywallReturn = null;/.test(mainSrc));
 }
 
+// ---------------------------------------------------------------------------
+section("The desktop monetization boundary (docs/STEAM.md)");
+// ---------------------------------------------------------------------------
+//
+// Electron is neither Capacitor platform — inside the shell
+// `Capacitor.getPlatform()` answers "web" — so every `!isNative` branch in
+// purchases.ts is the branch the desktop build takes, and that branch is
+// RevenueCat's WEB BILLING checkout. It has never fired, but only because
+// VITE_REVENUECAT_WEB_KEY happens to be unset in the `--mode native` bundle the
+// shell loads. That is a configuration accident, and a Steam release cannot
+// rest on one: a game sold by Valve running its own web checkout for in-game
+// content is the thing the distribution agreement exists to prevent.
+//
+// These pin the gate in SOURCE. Its other half is an output check —
+// scripts/verify-store-bundle.mjs --desktop, run by `desktop:dist:steam` —
+// because the gate only counts if it survives into dist/, and because the two
+// halves share literal strings that would otherwise drift apart silently.
+{
+  const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const purchasesSrc = fs.readFileSync(path.join(appDir, "src", "lib", "purchases.ts"), "utf8");
+  const verifySrc = fs.readFileSync(
+    path.join(appDir, "scripts", "verify-store-bundle.mjs"), "utf8",
+  );
+  const appPkg = fs.readFileSync(path.join(appDir, "package.json"), "utf8");
+  const builderYml = fs.readFileSync(
+    path.join(appDir, "desktop", "electron-builder.yml"), "utf8",
+  );
+
+  check("purchases.ts knows what platform the desktop shell is",
+    /import \{[^}]*\bisDesktop\b[^}]*\} from "\.\/platform"/.test(purchasesSrc),
+    "isDesktop is not imported");
+
+  // Bounded to each function's own body: an `isDesktop` anywhere in the module
+  // is not the same claim as one at the top of the door it is guarding.
+  const initBody = purchasesSrc.slice(
+    purchasesSrc.indexOf("export async function initPurchases("),
+    purchasesSrc.indexOf("export async function identifyPurchasesUser("),
+  );
+  check("initPurchases short-circuits on desktop BEFORE the platform branch",
+    initBody.indexOf("if (isDesktop)") > 0
+      && initBody.indexOf("if (isDesktop)") < initBody.indexOf("if (!isNative)"),
+    "the desktop gate does not precede the isNative split");
+  // The gate is worth nothing if it lands after the configure call it is
+  // meant to prevent; KEYS.web is the first thing the web path reads.
+  check("...and returns without ever reaching the web billing key",
+    initBody.indexOf("if (isDesktop)") > 0
+      && initBody.indexOf("if (isDesktop)") < initBody.indexOf("KEYS.web"));
+
+  const paywallBody = purchasesSrc.slice(
+    purchasesSrc.indexOf("export async function presentPaywall("),
+    purchasesSrc.indexOf("export async function restorePurchases("),
+  );
+  check("presentPaywall refuses on desktop before touching the web SDK",
+    paywallBody.indexOf("if (isDesktop)") > 0
+      && paywallBody.indexOf("if (isDesktop)") < paywallBody.indexOf("webPurchases"));
+
+  // Nothing else needs its own gate, and that is a property rather than an
+  // oversight: with initPurchases returning early, `ready` stays false and
+  // `webPurchases` stays null, so identify/reset/restore/refresh all take the
+  // nothing-configured exits the module already had. Pinning the two that a
+  // caller can reach without `ready` is pinning the whole boundary.
+  check("the module still degrades through `ready`, not through new branches",
+    /if \(!ready\) return unlimited;/.test(purchasesSrc)
+      && /if \(!webPurchases\) return;/.test(purchasesSrc));
+
+  // THE SHARED LITERALS. The gate's evidence in the emitted bundle is these two
+  // warning strings — `isDesktop` is a runtime test (location.protocol), not an
+  // inlined build constant, so nothing folds the branches away and the strings
+  // survive minification. An ABSENCE check could not stand in for them:
+  // "presentPaywall" is also a string the RevenueCat Capacitor bridge emits,
+  // and that bridge legitimately ships in this same bundle for iOS and Android.
+  // So the verifier greps for these, and this asserts it is grepping for the
+  // ones that actually exist — the failure otherwise is a check that passes
+  // forever against a marker nobody emits any more.
+  const markers = [...purchasesSrc.matchAll(/const DESKTOP_NO_[A-Z]+ = "([^"]+)";/g)]
+    .map((m) => m[1]);
+  check("the desktop gate carries two marker strings", markers.length === 2,
+    `found ${markers.length}: ${markers.join(" | ")}`);
+  check("...and the bundle verifier greps for exactly those",
+    markers.length === 2 && markers.every((m) => verifySrc.includes(m)),
+    markers.filter((m) => !verifySrc.includes(m)).join(" | ") || "none missing");
+
+  // The outer wall: no billing credential of any provenance in a depot bundle.
+  const anyKeyAt = verifySrc.indexOf("const ANY_KEY");
+  const anyKeyLine = verifySrc.slice(anyKeyAt, verifySrc.indexOf("\n", anyKeyAt));
+  check("the desktop bundle check refuses every RevenueCat key prefix",
+    anyKeyAt > 0 && ["appl", "goog", "rcb", "test"].every((p) => anyKeyLine.includes(p)),
+    anyKeyLine.trim() || "no ANY_KEY in the verifier");
+
+  // ---------------------------------------------------------------------------
+  // PHASE 1 PACKAGING (docs/STEAM.md). Steam does not want the installer; it
+  // wants the unpacked application directory. These pin that the unpacked tree
+  // is a DECLARED target rather than a by-product, and that the script which
+  // builds it is the one carrying the monetization check.
+  check("desktop:dist:steam builds only the unpacked tree",
+    /"desktop:dist:steam": "[^"]*dist:steam/.test(appPkg));
+  check("...and runs the desktop bundle check before packaging",
+    /"desktop:dist:steam": "[^"]*verify:store:desktop[^"]*dist:steam/.test(appPkg));
+  check("the desktop bundle check is its own script",
+    /"verify:store:desktop": "node scripts\/verify-store-bundle\.mjs --desktop"/.test(appPkg));
+  // One `dir` per platform block. Counted, because adding it to Windows alone
+  // would leave two depots with no declared content root.
+  check("every platform declares a `dir` target",
+    (builderYml.match(/- target: dir/g) ?? []).length === 3,
+    `${(builderYml.match(/- target: dir/g) ?? []).length} of 3`);
+  // The installers are the direct-download channel and Steam is an ADDITIONAL
+  // channel, not a replacement. This is the pin that catches a "simplification"
+  // that dropped them.
+  check("...and no installer target was traded away for it",
+    ["- target: nsis", "- target: dmg", "- target: zip", "- target: AppImage"]
+      .every((t) => builderYml.includes(t)));
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."

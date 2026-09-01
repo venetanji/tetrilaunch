@@ -1,4 +1,5 @@
-# Packaging for the desktop build: an NSIS installer, a dmg + zip, an AppImage.
+# Packaging for the desktop build: an NSIS installer, a dmg + zip, an AppImage —
+# and, for Steam, the unpacked application directory those three are made from.
 #
 # Driven by `npm run desktop:dist` from app/, which builds the --mode native
 # bundle first — see the `files` mapping below for why that ordering is not
@@ -70,6 +71,22 @@ win:
   target:
     - target: nsis
       arch: [x64]
+    # THE STEAM DEPOT'S CONTENT ROOT — see docs/STEAM.md's Phase 1 and
+    # store/steam/README.md, which pins this path for the depot scripts.
+    #
+    # Steam is the installer. It downloads a depot's files into
+    # steamapps/common/ and runs a binary named in the app's launch options, so
+    # what a depot wants is the UNPACKED application directory, not the NSIS
+    # setup above — upload the installer and the player receives a game whose
+    # only content is a setup wizard.
+    #
+    # electron-builder already leaves that directory behind on every build, as
+    # the staging area the installer is then made from. Declaring `dir` costs
+    # nothing extra and changes what it is: a named output with a stable path,
+    # rather than an intermediate that could be tidied away by a future version
+    # without anyone noticing until a depot uploaded nothing.
+    - target: dir
+      arch: [x64]
   # Windows SmartScreen will warn about an unsigned installer on first run.
   # That is unavoidable without an EV certificate and is not something a build
   # flag can suppress; it is documented in desktop/README.md instead.
@@ -98,6 +115,15 @@ mac:
     - target: dmg
       arch: [x64, arm64]
     - target: zip
+      arch: [x64, arm64]
+    # The macOS depot's content root. Both arches, because unlike Windows and
+    # Linux this platform has two, and electron-builder writes them to
+    # DIFFERENT directories — `release/mac/` for x64 and `release/mac-arm64/`
+    # for arm64 — each holding its own Tetrilaunch.app. Which of the two (or a
+    # universal build of both) the depot actually ships is a Phase 5 decision
+    # and is deliberately not made here; store/steam/README.md records it as
+    # open rather than pretending one of the paths is canonical.
+    - target: dir
       arch: [x64, arm64]
   # AD-HOC, NOT null. This is the one place where "no code signing" is the
   # wrong instruction. `identity: null` skips codesign entirely, and an
@@ -142,5 +168,11 @@ linux:
   syncDesktopName: true
   target:
     - target: AppImage
+      arch: [x64]
+    # The Linux depot's content root, and the one that makes Steam Deck
+    # possible at all. Its launch binary is `tetrilaunch`, lowercase — see
+    # executableName above, and note that the depot's launch option must agree
+    # with it or the app installs and never starts.
+    - target: dir
       arch: [x64]
   artifactName: ${productName}-${version}-linux-${arch}.${ext}

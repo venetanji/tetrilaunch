@@ -7,7 +7,7 @@
 // native shells ever fetch.
 import type { CustomerInfo as NativeCustomerInfo } from "@revenuecat/purchases-capacitor";
 import type { CustomerInfo as WebCustomerInfo, Purchases as WebPurchases } from "@revenuecat/purchases-js";
-import { isNative } from "./platform";
+import { isDesktop, isNative } from "./platform";
 
 /** Entitlement identifier as configured in the RevenueCat dashboard. Whatever
  *  products/offerings are attached to it, the app only ever asks "is it on?".
@@ -67,6 +67,46 @@ function testStoreKey(): string | undefined {
   if (!USE_TEST_STORE) return undefined;
   return import.meta.env.VITE_REVENUECAT_TEST_KEY as string | undefined;
 }
+
+/**
+ * THE DESKTOP SHELL HAS NO STORE, AND MUST NOT GROW ONE BY ACCIDENT.
+ *
+ * Electron is neither Capacitor platform: `Capacitor.getPlatform()` answers
+ * `"web"` inside the shell, so without a gate every `!isNative` branch below is
+ * the branch the desktop build takes — which is RevenueCat's **web billing**
+ * path, a checkout of our own, served inside a desktop app. On a Steam release
+ * that is the shape of thing Valve's distribution agreement exists to prevent;
+ * on the direct-download build it contradicts the carve-out that grants the
+ * full game on desktop in the first place (`main.ts`'s `fullGame()`).
+ *
+ * It has never fired, but only because `VITE_REVENUECAT_WEB_KEY` happens to be
+ * unset in the `--mode native` bundle the shell loads and the module then
+ * disables itself with a warning. That is an accident of configuration, not a
+ * guarantee: one env var added to `.github/workflows/desktop.yml` — or one
+ * local `.env` — arms it, silently, with nothing failing.
+ *
+ * So the boundary is drawn here, in code, at the two doors:
+ *
+ *   - `initPurchases` returns before configuring anything. Nothing else needs
+ *     its own gate as a consequence: `ready` stays false and `webPurchases`
+ *     stays null, so `identifyPurchasesUser`, `resetPurchasesUser`,
+ *     `restorePurchases` and `refresh` all take their existing
+ *     nothing-configured exits. That is the module's normal degrade path, not
+ *     a new one.
+ *   - `presentPaywall` refuses, because it is the only door a caller can open
+ *     without going through `ready` at all.
+ *
+ * These two strings are the gate's fingerprint in the EMITTED bundle, and
+ * `scripts/verify-store-bundle.mjs --desktop` asserts both survive into
+ * `dist/`. `isDesktop` is a runtime test (`location.protocol === "app:"`), not
+ * an inlined build constant, so nothing folds these branches away — which is
+ * exactly why the check can look for them and why a marker is the honest thing
+ * to look for. An absence check could not work: `presentPaywall` is also a
+ * string the RevenueCat Capacitor bridge emits, and that bridge legitimately
+ * ships in the same bundle for the iOS and Android shells.
+ */
+const DESKTOP_NO_STORE = "[purchases] desktop shell — no store, purchases disabled";
+const DESKTOP_NO_PAYWALL = "[purchases] desktop shell — paywall refused";
 
 type UnlimitedListener = (unlimited: boolean) => void;
 
@@ -132,6 +172,13 @@ export function onUnlimitedChange(fn: UnlimitedListener): () => void {
  * Deliberately swallows failures: a store outage must never block the game.
  */
 export async function initPurchases(appUserId?: string): Promise<void> {
+  // Ahead of both platform branches, because the desktop shell would take the
+  // web one. See the DESKTOP_NO_STORE comment: this is the whole gate, and
+  // everything downstream degrades through `ready === false` on its own.
+  if (isDesktop) {
+    console.warn(DESKTOP_NO_STORE);
+    return;
+  }
   if (!isNative) {
     try {
       if (ready) return;
@@ -237,6 +284,14 @@ export async function resetPurchasesUser(): Promise<void> {
  * Resolves to the entitlement state afterwards.
  */
 export async function presentPaywall(): Promise<boolean> {
+  // The second door. Nothing routes here on desktop today — `fullGame()` is
+  // already true there, so no tier gate ever asks — which is precisely why the
+  // refusal is loud: if this warning is ever seen, the monetization boundary
+  // has been crossed by a caller that thought it was on the web.
+  if (isDesktop) {
+    console.warn(DESKTOP_NO_PAYWALL);
+    return unlimited;
+  }
   if (!isNative) {
     try {
       if (!ready || !webPurchases) return unlimited;

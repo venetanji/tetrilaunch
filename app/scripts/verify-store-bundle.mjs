@@ -20,6 +20,13 @@
 //   node scripts/verify-store-bundle.mjs --allow-test-key
 //
 // is the deliberate opt-out, used only by the teststore scripts.
+//
+// And a fourth question, asked only of the tree that goes into a Steam depot:
+//
+//   node scripts/verify-store-bundle.mjs --desktop
+//
+// which inverts the first one — there, a purchase surface reaching the bundle
+// is the failure. See the block at the bottom.
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve, join } from "node:path";
@@ -122,6 +129,86 @@ if (hasSandbox) {
       `  never appear. Check the build ran with \`--mode sandbox\`.`,
   );
   process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// THE DESKTOP BUNDLE (--desktop), which is a different question from all three
+// checks above and the only one where "the store is missing" is the PASS.
+//
+//   node scripts/verify-store-bundle.mjs --desktop
+//
+// is run by `npm run desktop:dist:steam`, whose output goes into a Steam depot.
+//
+// Why it exists: the Electron shell loads this same `--mode native` bundle, and
+// inside it `Capacitor.getPlatform()` answers "web" — so every `!isNative`
+// branch in src/lib/purchases.ts is the branch the desktop build takes, and
+// that branch is RevenueCat's WEB BILLING checkout. A Steam-distributed game
+// offering its own web checkout for in-game content is what Valve's
+// distribution agreement exists to prevent. purchases.ts now gates both doors
+// on `isDesktop`; this asserts the gate reached the emitted output, and that
+// nothing armed it in the first place.
+//
+// TWO ASSERTIONS, AND NEITHER IS AN ABSENCE CHECK ON THE SDK.
+//
+// 1. NO KEY OF ANY SHAPE. Without a key nothing can configure, so this is the
+//    outer wall and the one that has actually been holding — desktop.yml
+//    deliberately passes no VITE_REVENUECAT_* at all. Strict about all four
+//    prefixes, not just the web one: an `appl_`/`goog_` key is inert on
+//    desktop only because Capacitor's native bridge is not there, which is the
+//    same species of accident this check exists to stop relying on. A depot
+//    bundle carries no billing credential, full stop.
+//
+// 2. THE GATE'S MARKERS ARE PRESENT. It would be nice to assert the paywall is
+//    simply absent, and it cannot be done: "presentPaywall" is also a string
+//    the RevenueCat Capacitor bridge emits, and that bridge legitimately ships
+//    in this bundle because iOS and Android build from it too. So the positive
+//    evidence is the gate itself. `isDesktop` is a runtime test
+//    (`location.protocol === "app:"`), not an inlined build constant, so
+//    nothing folds those branches away — their warning strings survive
+//    minification, and their absence means someone removed the gate.
+//
+// Deliberately NOT wired into `desktop:dist`, `:win`, `:mac` or `:linux`. Those
+// are the direct-download installers, they are unchanged, and a developer with
+// a populated app/.env building one locally is not doing anything wrong. The
+// Steam path is the one with a distribution agreement attached.
+const DESKTOP_MARKERS = [
+  "[purchases] desktop shell — no store, purchases disabled",
+  "[purchases] desktop shell — paywall refused",
+];
+// RevenueCat's public key prefixes: appl_ (App Store), goog_ (Play), rcb_ (Web
+// Billing) and test_ (Test Store). The length floor is the same one TEST_KEY
+// uses, and for the same reason: it keeps the check off minified identifiers.
+const ANY_KEY = /\b(?:appl|goog|rcb|test)_[A-Za-z0-9]{20,}\b/;
+
+if (process.argv.includes("--desktop")) {
+  const key = bundle.match(ANY_KEY);
+  if (key) {
+    console.error(
+      `✗ desktop bundle check: a RevenueCat key is in dist/ (${key[0].slice(0, 9)}…).\n` +
+        `  This bundle is headed for a Steam depot. Inside the Electron shell\n` +
+        `  Capacitor reports platform "web", so a RevenueCat key here is one\n` +
+        `  configuration change away from a web checkout running inside a game\n` +
+        `  Valve sold. Build the Steam tree with no VITE_REVENUECAT_* set —\n` +
+        `  .github/workflows/desktop.yml already passes none.`,
+    );
+    process.exit(1);
+  }
+
+  const ungated = DESKTOP_MARKERS.filter((m) => !bundle.includes(m));
+  if (ungated.length) {
+    console.error(
+      `✗ desktop bundle check: the isDesktop purchase gate is not in dist/.\n` +
+        `  Missing marker(s): ${ungated.join(" | ")}\n` +
+        `  src/lib/purchases.ts must short-circuit initPurchases and refuse\n` +
+        `  presentPaywall on isDesktop. Without it the shell takes the web\n` +
+        `  billing path, because Capacitor calls Electron "web".`,
+    );
+    process.exit(1);
+  }
+
+  console.log(
+    `✓ desktop bundle check: no RevenueCat key, isDesktop gate present in ${files.length} chunks`,
+  );
 }
 
 console.log(`✓ store bundle check: RevenueCat SDK present across ${files.length} chunks`);
