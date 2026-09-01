@@ -210,6 +210,11 @@ channel are their own piece of work; `publish` is explicitly `null` in
 `electron-builder.yml` so nothing generates half an update manifest in the
 meantime.
 
+The Steam half of that is planned in **[docs/STEAM.md](../../docs/STEAM.md)** —
+including the one thing this package's targets do not yet produce, which is the
+*unpacked* application directory a depot actually wants rather than the three
+installers above.
+
 ## Measured (2026-08-26, on the reference Windows box)
 
 Frame pacing median **8.30 ms**, p95 **8.40 ms** (~120 fps, flat). SFX decode
