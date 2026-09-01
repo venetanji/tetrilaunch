@@ -1,7 +1,13 @@
 # Copy and terminology audit
 
-Status: findings only. This document records the August 2026 audit and does not
-change player-facing copy.
+Status: **implemented.** This document recorded the August 2026 audit; the
+terminology contract below has since been applied to the player-facing copy in
+the same change that carries this note. Each section states what shipped, what
+was already true by the time the pass ran, and what is still open.
+
+Because the codebase moved between the audit and the implementation, every
+finding was re-verified against the current tree. Line numbers below are the
+August ones and are hints, not addresses.
 
 ## Recommended terminology contract
 
@@ -31,6 +37,9 @@ identifier replacement would therefore be unsafe.
 
 ### Home, tower, and Skydeck
 
+*Implemented.* Every numbered floor now reads Tier N on the surfaces below; the
+Skydeck half was already true and is explained at the end of this section.
+
 - `ui/screens.ts:696` labels the control “Tier tower” but asks the player to
   “pick the Mark to fly.”
 - `ui/screens.ts:979` advertises “Any Mark, bay or Contract” on Tier S.
@@ -43,7 +52,26 @@ identifier replacement would therefore be unsafe.
   and accessibility labels should use “Skydeck”; the compact plate can keep
   “SKY ★.”
 
+**Shipped:** the tower's picker label (“pick the Tier to fly”), the Tier S floor
+and subtitle (“Any Tier, bay or Contract”), the Skydeck subtitle (“a step above
+Tier 10”), the locked roof's accessible seal count (“N of 10 Tiers sealed”) and
+the endgame primary's owed count (“N Tiers left to seal”, “N Tiers still owed”).
+
+**Already resolved for Skydeck.** The running-prose and accessibility half of
+this finding predates the audit and needed no change: the tower floor's
+accessible name is `"Skydeck"` (`ui/screens.ts` `floorHTML`, since 62c1c25,
+2026-08-26) and the bay banner's `aria-label` special-cases the roof to
+`"Skydeck"` rather than `tierText()` (since 7a6ee0a, 2026-08-27). What is left on
+`tierText()`/`boardText()` is exactly the compact plate the contract exempts —
+the leaderboard tab, the board heading, the draft eyebrow and the end card's
+“… board” line — and `sim/systems.ts` pins that plate spelling deliberately (“the
+eyebrow names the floor, not the borrowed mark”), so it stays “Tier SKY ★”.
+
 ### Refit, sandbox, and run announcements
+
+*Implemented.* The refit eyebrow now reads “Tier N · refit stop”, the sandbox
+briefing “Tier N”, the sandbox setup's difficulty chip is labelled **Tier**, and
+`main.ts`'s end-modal setup line announces “Tier N · from bay N”.
 
 - `ui/screens.ts:3393` says “Mark N · refit stop,” while the same panel at
   `ui/screens.ts:3404` immediately says “Tier 1” and “Tier 2” for the run
@@ -53,6 +81,7 @@ identifier replacement would therefore be unsafe.
   Tier S configuration UI.
 - `ui/screens.ts:791` says Tier S is “set on the level select”; the public
   destination is the Tier S or sandbox setup screen, not a level selector.
+  *Now reads* “Tier S — set on the sandbox setup screen”.
 
 ### Seals and retry explanations
 
@@ -67,6 +96,16 @@ The seal flow switches wholesale back to the old noun:
 These refer to the same numbered floor called Tier N everywhere around the
 copy. They should use Tier consistently. “Restart Bay” in Pause versus “Retry
 Bay” after Game Over is intentionally contextual and is not a finding.
+
+*Implemented.* The whole seal flow now says Tier: the held line and its
+`aria-label` on both the run-end card and the pause rail (“Tier N is already
+sealed, so this costs nothing”), the seal-break panel in both its long and short
+forms (“A Tier is **sealed** …”, “all 10 Tiers carry a stamp”, “**Tier N** cannot
+be sealed”), and the guide's Seals and Skydeck articles. The conversion is
+one-to-one at every one of these sites: `meta.sealedMarks` holds the floor
+numbers 1…`MARK_COUNT`, and the tower draws floor *n* as “Tier *n*”, so no
+off-by-one is crossed. The `meta.mark` / `markUnlocked` boundary the contract
+warns about is not touched — nothing here interpolates the high-water count.
 
 ### Guide and documentation
 
@@ -83,62 +122,60 @@ Bay” after Game Over is intentionally contextual and is not a finding.
 Recommended public wording: “Completing a Tier—its Deep Run plus the required
 Contracts—unlocks the next Tier and raises the build-budget ceiling.”
 
+*Implemented.* `game/guide.ts` now says every **Tier** keeps its own leaderboard
+and that the Deep Run is the only mode that can raise the Tier you fly.
+`README.md` reads Tier for the ladder throughout and keeps `mark` only where it
+names a wire field or a code symbol, mapped to Tier in the same sentence
+(`GET /api/scores?mark=7` → “that **Tier's** top scores”; the save schema's `mark
+(the Tier)`). `docs/DESIGN.md` was converted the same way and now opens with a
+**Terminology** note stating the contract, the `mark` symbols it keeps, and the
+`meta.mark` / `markUnlocked` off-by-one; lowercase “tier” on a *system track* is
+called out there as a different thing. `docs/PLAY.md` carries the recommended
+advancement wording verbatim.
+
 ## Other verified copy inconsistencies
 
-### Tetrilaunch Unlimited is currently a store-integration stub
+### Tetrilaunch Unlimited is a store-integration stub — **stale, resolved by
+later work**
 
-The purchase plumbing is implemented, but the entitlement currently unlocks no
-gameplay, content, persistence, or cosmetic feature:
+*This section is kept for the record and is no longer actionable.* It described
+an August 2026 tree in which the RevenueCat plumbing existed but the entitlement
+gated nothing, and in which the product was documented as a renewing
+subscription while the store was configured with a non-consumable. Both halves
+have since been fixed by work outside this audit, and re-verifying against the
+current tree finds none of the cited surfaces:
 
-- `lib/purchases.ts` configures RevenueCat, reads the exact `Tetrilaunch
-  Unlimited` entitlement, listens for changes, presents the paywall and Customer
-  Center, and supports restore.
-- The only application consumer of `isUnlimited()` is `main.ts:1788-1789`,
-  which passes the boolean into `StoreState`.
-- `ui/screens.ts:1173`, `1269-1280`, and `1671-1677` use that state only to swap
-  “Unlock Unlimited” for an “Unlimited” badge and “Manage Subscription.” No
-  game/progression module reads it.
-- `docs/ios.md:98-116` explicitly says the entitlement unlocks a badge and
-  nothing else. `docs/PLAY.md:41-45` correctly warns not to sell the product
-  until benefits are implemented.
+- **The entitlement gates real content.** `game/meta.ts` defines
+  `FREE_TIER_LIMIT = 3` and `tierIncluded(tier, fullGame)`; `ui/screens.ts`
+  derives a `paywalled` floor from it (the tower plate's accessible name gains
+  “— Full Game required”), and `main.ts` clamps the pickable floor, the Contract
+  tier and the Deep Run launch to that limit, plus a per-UTC-day Contract
+  allowance for non-owners. The entitlement is no longer a badge.
+- **The product renamed and re-typed.** `lib/purchases.ts` reads
+  `UNLIMITED_ENTITLEMENT = "full_game"`; the player-facing name is **Full Game**,
+  and “Unlimited”, “Unlock Unlimited” and “Manage Subscription” no longer appear
+  in `ui/screens.ts` at all — the surfaces are “★ Unlock Full Game” and “★ Full
+  Game owned”.
+- **The subscription copy is gone.** `public/terms.html` now says “a one-time,
+  non-consumable Full Game purchase … does not renew and is not consumed through
+  use”; `public/support.html` explains the one-time purchase and restore rather
+  than cancellation; `docs/PLAY.md` documents the one-time product and states
+  what it opens (earned Tiers 4–10 and the Contract limit) instead of warning it
+  must not be sold.
 
-`docs/DESIGN.md:1139-1154` describes planned benefits—uncapped/on-demand
-Contracts, cosmetics, run history, and cloud save—but none is wired to the
-entitlement. In particular, the current Contract generator and daily board do
-not branch on `isUnlimited()`.
-
-The configured store product is a **non-consumable**, not a subscription. The
-RevenueCat entitlement reader itself is compatible with that product shape, but
-most repository copy is not:
-
-- `docs/PLAY.md:19-39` specifies a Play subscription, monthly base plan, and
-  `$rc_monthly` package; the rest of that runbook tests renewal, expiry, and
-  cancellation. It must be rewritten around a one-time Play product and the
-  RevenueCat lifetime package used by the actual offering.
-- `public/terms.html:78` and `131-183` describe Tetrilaunch Unlimited as an
-  automatically renewing subscription, including recurring billing,
-  cancellation, and access expiry. This is materially wrong for the product
-  being sold.
-- `public/support.html:103-108` tells purchasers how to cancel a subscription.
-- `ui/screens.ts:1671-1677` shows “Manage Subscription” to every entitled user,
-  and `lib/purchases.ts:180-193` opens Customer Center as subscription
-  management. A lifetime owner instead needs a simple “Unlimited owned” state
-  plus Restore Purchases; Customer Center should be shown only if it provides a
-  useful non-consumable receipt/refund surface on the configured platforms.
-- `docs/ios.md:98-116` and comments in `lib/purchases.ts`/`main.ts` describe
-  renewal and expiry behavior that is irrelevant to the current SKU.
-
-Until these surfaces are corrected, store configuration, paywall, in-app copy,
-support, and legal terms describe different transactions.
-
-Do not publish a paid paywall that advertises those benefits against the current
-client. Either implement and test at least one concrete entitlement gate before
-sale, or keep the product inactive. When implementation begins, derive a small
-capability object from the entitlement instead of importing purchase state into
-game modules directly; this will make each promised benefit independently
-testable and keep leaderboard/build-budget invariants isolated.
+Nothing in this section was acted on by the terminology pass, and nothing in it
+should be acted on now. The one durable recommendation it made — derive a small
+capability object from the entitlement rather than importing purchase state into
+game modules — is what `tierIncluded`/`FREE_TIER_LIMIT` in effect became.
 
 ### Privacy and data disclosures
+
+*Still open, and out of scope for the terminology pass.* Re-verified against the
+current tree: `public/privacy.html` still says a leaderboard record is “exactly
+four things plus the time of submission” and still calls the highest bay the
+“level reached”, and `store/play/data-safety.csv` is still the declaration the
+policy has to be reconciled with. These want a store-review owner, not a copy
+diff, so this pass left them alone rather than half-answering them.
 
 - `public/privacy.html:98-109` says a leaderboard record contains exactly four
   things plus time. The client also sends the board key (`mark`) and a board day;
@@ -162,6 +199,14 @@ testable and keep leaderboard/build-budget invariants isolated.
 
 ### Platform and general UI wording
 
+*Still open.* “Level Cleared!” and “tap to continue” both still exist
+(`ui/screens.ts`, now around lines 4824 and 3261) and both remain worth fixing,
+but neither is a Mark/Tier question and the audit's own implementation order
+puts the system-upgrade “tier” → “rank” decision after this pass, so all three
+were left for a separate change rather than folded into a terminology diff. The
+desktop-platform omission is unchanged: `public/terms.html` still lists “the web,
+Android, iPhone and iPad”, which is correct only while desktop is unreleased.
+
 - If the Electron build is publicly distributed, `public/support.html:79-81`
   and `128`, plus `public/terms.html:84-86`, omit desktop platforms. If desktop
   is not released yet, this omission is intentional.
@@ -174,12 +219,31 @@ testable and keep leaderboard/build-budget invariants isolated.
   upgrades, but treat this as a deliberate terminology decision rather than a
   mechanical replacement.
 
-## Suggested implementation order
+## Implementation order, and where it stands
 
 1. Correct the privacy policy and Play data-safety mismatch before store review.
-2. Add a shared player-facing Tier/Skydeck formatter and replace literal Mark
-   strings in UI and guide copy with focused tests for each surface.
-3. Update README and design/play documentation, retaining `mark` only beside
-   code symbols, database fields, and API examples.
+   **Not done** — see *Privacy and data disclosures* above.
+2. Replace literal Mark strings in UI and guide copy, with a check on each
+   surface. **Done.** `ui/screens.ts`, `ui/sandbox-screen.ts`, `main.ts` and
+   `game/guide.ts` carry no player-visible “Mark” any more, and every pin in
+   `sim/systems.ts` that asserted one of those strings was updated with it and
+   mutation-proved (the old wording was restored locally, the check was watched
+   to fail, and the new wording restored). No pin was loosened. No shared
+   formatter was added: the sites interpolate different numbers — the run's
+   flown Tier, the count of Tiers sealed, the count still owed — and a single
+   helper would have hidden exactly the distinction `meta.mark` versus
+   `markUnlocked` makes dangerous.
+3. Update README and design/play documentation, retaining `mark` only beside code
+   symbols, database fields, and API examples. **Done.**
 4. Decide whether system upgrade “tier” becomes “rank,” then update those
-   surfaces separately.
+   surfaces separately. **Not done, deliberately** — it is a terminology
+   decision, not a mechanical replacement, and nothing in this pass depends on
+   it.
+
+## What this pass did not touch
+
+No code symbol, storage key, leaderboard/API field or CSS class was renamed.
+`meta.mark`, `markUnlocked`, `sealedMarks`, `budgetForMark`, the `mark` query and
+body field, the `sbx-tier` action and the save schema are all exactly as they
+were: this is a copy diff, and a global replacement across the two vocabularies
+would have crossed the off-by-one the top of this document warns about.

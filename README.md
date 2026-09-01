@@ -17,19 +17,19 @@ clears them away.
 
 - **Deep Run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
   compactor, a heavier **funding target** every bay. The **countdown** and the
-  price of a shot are the **Mark's** knobs, not the bay's: both are set before
+  price of a shot are the **Tier's** knobs, not the bay's: both are set before
   you launch and stay flat all ten bays (only a difficulty axis you ratchet
   yourself moves them mid-run). Bank each bay's target before the clock or the
   bankroll runs out.
-- **Ten Marks** are the difficulty ladder over Deep Run. Each one states harder
+- **Ten Tiers** are the difficulty ladder over Deep Run. Each one states harder
   terms — the opening bay's funding target climbs from **$600 to $780** (and the
   per-bay climb steepens with it, so a run ends at **$1500** at Tier 1 and
   **$1842** at Tier 10), the shift shortens **180s → 144s**, a shot costs
   **$20 → $30** against a float that always buys the same eight launches — and
-  hands you a larger **build budget** to spend on the ship to meet them. The Mark you may
+  hands you a larger **build budget** to spend on the ship to meet them. The Tier you may
   attempt is always **one above your best clear**. Nothing purchasable raises it —
-  a Mark is *won*, never bought, which is what keeps "cleared Mark 7" worth the
-  same for everyone. **Every Mark keeps its own leaderboard**, so a heavier tier
+  a Tier is *won*, never bought, which is what keeps "cleared Tier 7" worth the
+  same for everyone. **Every Tier keeps its own leaderboard**, so a heavier Tier
   can't out-score a lighter one.
 - **Three free Contract clears per UTC day** — one bay, **no clock, no launch cost**, failing costs
   nothing and you can retry forever. The one-time Full Game purchase adds
@@ -51,7 +51,7 @@ clears them away.
   stabilizer), **Press Hydraulics**, **Loader Magazine**, **Reactor Output**,
   **Bond Emitter**, **Demolition Rack**. Upgrades last the whole run.
 - **Ratchet an axis after every bay** — the between-bay draft deals **2 hazard
-  cards** and you must take one (two at Mark 10, `picksPerBay`). There is **no
+  cards** and you must take one (two at Tier 10, `picksPerBay`). There is **no
   skip**: a notch is pure cost — a tighter clock, a dearer shot, a new material
   on the belt — and it sticks for the rest of the run. The reward is bought in
   the **Workshop** and is implicit: a system never deletes a hazard, it makes
@@ -107,22 +107,22 @@ headhouse — the blinking lamp on the tower's roof — **nine times in a row** 
 a basement floor appears below the building's slab. The elevator does not serve
 it; tapping it opens a level-select screen instead.
 
-From there: any Mark 1-10, any of the ten bays started cold, any Contract
+From there: any Tier 1-10, any of the ten bays started cold, any Contract
 variant, any rig from stock to maxed, any belt (one material, or a parade of all
 six), and any difficulty axis pre-ratcheted up to three notches — states a real
 run can only reach by drafting its way there across six correct bays.
 
 It is a **game mode, not a cheat menu**, and the difference is enforced:
 
-- No salvage, no tier progress, no mark on the ladder — `RunState.sandbox` makes
+- No salvage, no Tier progress, no step up the ladder — `RunState.sandbox` makes
   `finishRun` skip `recordRunEnd` entirely, and a Tier S Contract never reaches
   `recordContractClear`.
 - Scores go to **their own leaderboard** (`BOARD_SANDBOX`), with its own personal
-  best. A run started on bay 9 at Mark 10 on a rig nobody paid for can never
+  best. A run started on bay 9 at Tier 10 on a rig nobody paid for can never
   place against an honest one.
 - The gesture toggles, and Settings carries the same switch once found.
 
-The **save-editing tools** (set the Mark, grant salvage, unlock everything, wipe)
+The **save-editing tools** (set the Tier, grant salvage, unlock everything, wipe)
 are a different thing and stay behind the build gate they always had: they live
 in `src/lib/sandbox-cheats.ts`, are reached only through `if (SANDBOX)`, and
 `npm run verify:store` fails any bundle their marker string appears in. Build one
@@ -141,7 +141,7 @@ app/                      Capacitor + Vite + TypeScript web app
                 plus the material schedule
     finals      the last bay's Final Inspection clauses
     mods        RETIRED modifier table — app/src uses it only for mulberry32
-    run         one run's state: carry, scrap, tiers, ratchets, mark, final
+    run         one run's state: carry, scrap, tiers, ratchets, mark (the Tier), final
     meta        salvage + permanent unlocks (persists across runs)
     guide       the knowledge catalogue behind How to Play — one row per rule,
                 the tier it opens at, and the drill that teaches it
@@ -368,7 +368,7 @@ hazard ratchet, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   Contracts** hand you an exact inventory and demand zero waste; a backtracking
   tiler (`tiling.ts`) *proves* the queue fills the goal before the Contract ships,
   because the one failure this mode can't survive is an unwinnable puzzle.
-- **The Mark ladder** — ten difficulty steps over Deep Run, each with its own
+- **The Tier ladder** — ten difficulty steps over Deep Run, each with its own
   bay terms (target, clock, launch cost), its own build budget and its own
   leaderboard, each raised only by beating the one below. Calibrated with a
   headless harness (`sim/`), which is also how we learned the ladder's original
@@ -389,7 +389,7 @@ Next steps:
 
 1. **Playtest the refit balance.** `TIER_COSTS` (20/35/55) against
    `SCRAP_PER_LINE`/`SCRAP_PER_BAY` (2/10) is a first guess: measured with the
-   aim bot at Mark 1 a won bay clears ~13 lines → ~36 scrap, so the first stop
+   aim bot at Tier 1 a won bay clears ~13 lines → ~36 scrap, so the first stop
    arrives at ~108 scrap — and because a refit only *raises* tracks the Workshop
    already installed (`run.ts`'s `buyUpgrade` refuses a tier-0 track), that is
    two owned tracks to tier 2, or one to tier 3, never a new system.

@@ -1,9 +1,18 @@
-# Design direction — Contracts, Marks and the rig
+# Design direction — Contracts, Tiers and the rig
 
 The record of where the game is going after the three-currency rework, so the
 shape can be argued with before it's built and the numbers can be tuned later
 without re-deriving the intent. Companion to `docs/ECONOMY.md`, which covers the
 in-run economy this sits on top of.
+
+**Terminology.** **Tier N** is the ladder rung — the one name the player ever
+sees for a numbered tower floor, difficulty, Deep Run, leaderboard and seal. The
+code calls the same rung `mark` (`meta.mark`, `markUnlocked`, `budgetForMark`,
+`sealedMarks`, the `mark` leaderboard field), and this document keeps that
+spelling only when it is naming the symbol, alongside the Tier it means. Watch
+the off-by-one at that boundary: `meta.mark` counts Tiers *completed*, while
+`markUnlocked(meta)` is the Tier the player may currently fly. Lowercase **tier**
+on a system track is an upgrade rung and is a different thing entirely.
 
 Shorthand used throughout: **"Candy Crush meets FTL."** Contracts are the Candy
 Crush half (short, repeatable, daily, generous). Deep Run is the FTL half (long,
@@ -35,8 +44,8 @@ problem with the same work.
 | Bankroll | **none** — launches are free | yes — funds are the target |
 | Constraint | **launch budget** | funds + clock |
 | Failure | costs nothing, retry freely | ends the run |
-| Earns | permanent rig upgrades | leaderboard rank, the next Mark |
-| Board | per-contract, seeded | per-Mark global board |
+| Earns | permanent rig upgrades | leaderboard rank, the next Tier |
+| Board | per-contract, seeded | per-Tier global board |
 | Purchasable power | **none** | **none** |
 | Daily cap | yes (see below) | **never** |
 | Role | training, economy, the daily habit | the exam |
@@ -103,7 +112,7 @@ tempo/economy half, and a Contract is played on a stock bay whatever the Worksho
 has installed. That is deliberate, and it strengthens Deep Run's status as a real
 exam, but it makes the consequence larger than the two-track version was: **a
 player spends their ENTIRE budget with no information to go on**, and their first
-attempt at a new Mark is reconnaissance end to end. That is fine for a roguelite
+attempt at a new Tier is reconnaissance end to end. That is fine for a roguelite
 — FTL works the same way — but it is the argument that settles free respec (see
 Settled).
 
@@ -114,47 +123,47 @@ the rig you built is good enough. Neither mode is the "real" game.
 
 1. Run Contracts. They pay the permanent currency and teach one material at a time.
 2. Spend it on your rig — pick a direction, because you cannot afford every track.
-3. Attempt **Deep Run at Mark 1**. This is a gated exam, not an endless score chase.
-4. Beat it. That unlocks Mark 2 Contracts *and* raises your build budget.
-5. Repeat. Each Mark is harder, introduces new materials, and demands a build.
+3. Attempt **Deep Run at Tier 1**. This is a gated exam, not an endless score chase.
+4. Beat it. That unlocks Tier 2 Contracts *and* raises your build budget.
+5. Repeat. Each Tier is harder, introduces new materials, and demands a build.
 
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
-into the next Mark, you beat your way into it. A tier completes only when both
+into the next Tier, you beat your way into it. A tier completes only when both
 halves are done at that tier — the Deep Run beaten *and* three of its Contracts
 cleared — and the tier's salvage arrives as **milestones**, not as one payout at
 completion: each of the three at-tier first-clear Contracts and the Deep Run win
 banks an equal share (a flat 60 a tier, split four ways, so 15 each at every
-Mark) the moment it lands, and completion pays only the rounding remainder —
-zero at every tier on the current numbers — while raising the Mark. What the
+Tier) the moment it lands, and completion pays only the rounding remainder —
+zero at every tier on the current numbers — while raising the Tier. What the
 2026-08-08 playtest fixed survives the re-timing: a Contract pays only on its
 once-ever first clear, only at the current tier, and only for the first three.
 Contracts count once each, so they add a second requirement, never an
 alternative route: no amount of Contract play skips the run. That's what makes a
-Mark N clear mean the same thing for every player who has one.
+Tier N clear mean the same thing for every player who has one.
 
 ## The build budget — the integrity rule
 
 This is the load-bearing rule of the whole design, so it goes first.
 
-> **Mark N grants a fixed upgrade budget, spent freely across the ten tracks.
+> **Tier N grants a fixed upgrade budget, spent freely across the ten tracks.
 > Contracts unlock what you may spend it *on*. Only completing tier N — its
 > Deep Run beaten and three of its Contracts cleared — raises the budget.**
 
 ### Why a budget and not a tier cap
 
 The obvious version of this rule caps the tier of each track at the player's
-Mark. That doesn't work, and the reason is worth recording because the fix looks
+Tier. That doesn't work, and the reason is worth recording because the fix looks
 like a detail and isn't.
 
 **A per-track cap normalizes the maximum rig, not the actual one.** Two players
-at Mark 5 are both "capped" when one has every track maxed and the other has two
+at Tier 5 are both "capped" when one has every track maxed and the other has two
 tracks maxed and four empty — but the first is strictly stronger. The distance
 between them is grind time, which is exactly what Full Game's uncapped Contracts accelerate, so the
 leaderboard leak returns in a milder form.
 
 There are only two escapes, and one is bad:
 
-- **Let everyone eventually max every track at their Mark.** True normalization,
+- **Let everyone eventually max every track at their Tier.** True normalization,
   but then "pick a direction for your rig" is a delay before convergence rather
   than a choice, and the FTL feel is gone.
 - **Budget the total.** Keeps normalization *and* build diversity, which
@@ -165,19 +174,19 @@ There are only two escapes, and one is bad:
 `MAX_TIER` stays 3 and the 20/35/55 ladder in `upgrades.ts` is unchanged, so
 ten tracks fully maxed is **1100 points** (`FULL_BUILD_COST`, derived from
 `UPGRADES.length` rather than written down, so adding a track can never leave the
-budget behind). The Mark sets how many of those you get. First-pass: Mark 1 = 110
+budget behind). The Tier sets how many of those you get. First-pass: Tier 1 = 110
 (four tracks opened at tier 1, or one system built out entirely),
-scaling to 1100 at Mark 10 — the arc from "you can afford one system" to "you can
+scaling to 1100 at Tier 10 — the arc from "you can afford one system" to "you can
 afford everything" *is* the ladder, which is FTL's own shape. One number per
-Mark, no second cap to reason about.
+Tier, no second cap to reason about.
 
 **The total moved when the eighth track (Thaw Lance) landed, again for the
 ninth (Impact Cushion) and again for the tenth (Incinerator), and that is the
 rule working rather than a side effect to be pinned out.** The promise is "a
-fully-kitted rig at Mark 10"; freezing the budget while the roster grows would
-quietly leave Mark 10 a system short of everything. Every Mark's allowance rose
-in step (Mark 1 77 → 88 → 99 → 110, Mark 10 770 → 880 → 990 → 1100). At ten
-tracks Mark 1's allowance is **exactly one whole system**, which is the first
+fully-kitted rig at Tier 10"; freezing the budget while the roster grows would
+quietly leave Tier 10 a system short of everything. Every Tier's allowance rose
+in step (Tier 1 77 → 88 → 99 → 110, Tier 10 770 → 880 → 990 → 1100). At ten
+tracks Tier 1's allowance is **exactly one whole system**, which is the first
 time the arithmetic has matched the sentence this section opens with; before the
 tenth track it was nine tenths of one, and `sim/systems.ts` pins the
 relationship rather than the number so an eleventh moves it correctly. The relationship that makes the budget a real gate survives
@@ -188,7 +197,7 @@ rather than as a number).
 
 What it buys:
 
-- **Every rig at Mark N has identical total power.** Real normalization.
+- **Every rig at Tier N has identical total power.** Real normalization.
 - **Builds stay genuinely different**, because the budget forces the choice.
 - **Contracts still matter enormously** — they unlock which tracks, tiers,
   materials and rigs *exist* to spend on. Full Game buys breadth of options and
@@ -207,9 +216,9 @@ can pay to progress faster, never to rank higher.**
 > carry into one run, never what you may own.
 
 The budget above normalizes total power, and it does that job completely: two
-rigs at Mark 5 are worth the same number of ladder points however they spend
+rigs at Tier 5 are worth the same number of ladder points however they spend
 them. What it cannot do is make a rig a SHAPE. Once the roster reached ten
-systems, the arc it promises — "you can afford everything" at Mark 10 — meant
+systems, the arc it promises — "you can afford everything" at Tier 10 — meant
 every endgame rig converged on the same rack, and the counter systems the last
 three PRs added (`design/balance/aim-strategy-findings.md`) all fitted on it at
 once. A counter that is always aboard is a passive.
@@ -229,7 +238,7 @@ says salvage must never touch. Gating the **loadout** costs nothing already paid
 for, is remade free before every run, and is where "rigs that can have certain
 systems and not others" actually starts.
 
-### Slots cannot outrun the Mark
+### Slots cannot outrun the Tier
 
 This is the integrity rule above, re-checked against the new purchase, and it
 holds by construction rather than by tuning. A mounted rig is a SUBSET of the
@@ -237,16 +246,16 @@ owned one, so
 
     tiersCost(mounted) <= tiersCost(owned) <= budgetForMark(mark)
 
-— a slot can only ever move a rig back up toward the ceiling the Mark already
+— a slot can only ever move a rig back up toward the ceiling the Tier already
 granted, never past it. Salvage still buys which systems exist to spend budget
-on; only beating Mark N raises how much may be spent. `sim/systems.ts` pins the
-inequality across the whole ladder rather than at one Mark.
+on; only beating Tier N raises how much may be spent. `sim/systems.ts` pins the
+inequality across the whole ladder rather than at one Tier.
 
 ### The ladder, and what it is for
 
 `SLOT_BASE` is 4, `SLOT_CAP` is 10, and the six slots between them cost 50, 70,
 100, 140, 180 and 240 salvage — 780 in total, against 600 for a whole climb of
-the tier ladder. **That is deliberately not affordable inside one climb.** The
+the Tier ladder. **That is deliberately not affordable inside one climb.** The
 shelf was already 575 against 600 when the Incinerator landed, and `meta.ts`
 recorded that the eleventh system would need "the re-price or the second income
 that note asked for". A finished ladder keeps paying 60 a cycle forever (three
@@ -295,18 +304,18 @@ it's being played. That's the right thing to leave uncapped: the permanent layer
 is what needed normalizing, because it's the one uncapped Contracts can accelerate.
 Scrap is earned by playing well, and rewarding that is the point.
 
-### Calibrating a Mark
+### Calibrating a Tier
 
-The difficulty of Mark N is set against the budget, and the criterion is
+The difficulty of Tier N is set against the budget, and the criterion is
 testable rather than felt:
 
-> A rig built with the **full** Mark-N budget, played at the **sim bot's**
-> competence, should fall **just short** of the Mark N target. The gap is what
+> A rig built with the **full** Tier-N budget, played at the **sim bot's**
+> competence, should fall **just short** of the Tier N target. The gap is what
 > skill fills.
 
 Both failure modes are then measurable: if a full-budget rig can't clear it
-however well played, the Mark is impossible; if it clears while played badly, the
-Mark is free. `sim/marks.ts` measures exactly this.
+however well played, the Tier is impossible; if it clears while played badly, the
+Tier is free. `sim/marks.ts` measures exactly this.
 
 ### What the first calibration actually found
 
@@ -314,7 +323,7 @@ It was run, and the answer was that **the ladder's own numbers are not a
 difficulty lever at all**. Three findings, all from `sim/marks.ts` with the `aim`
 bot and a 550-point rig:
 
-- **Target is a duration knob.** Raising bay 1's Mark 10 target from 2096 to
+- **Target is a duration knob.** Raising bay 1's Tier 10 target from 2096 to
   3536 produced *zero* extra losses — the bot played longer and scored 5852
   instead of 2487. Once income per line beats spend per line, a competent player
   reaches any target given time. Sweeps over 0.06–0.38 returned identical win
@@ -331,14 +340,14 @@ multiplier on what a bay demands produces a graded response, because the rig has
 already outgrown the demand.
 
 So the section above is right about the *criterion* and wrong about the *lever*.
-Mark difficulty has to come from **content** — materials and hazards that change
+Tier difficulty has to come from **content** — materials and hazards that change
 what the rig must DO — not from scaling what a bay asks for. The old
 `MARK_TARGET_STEP` multiplier is gone; what a tier demands is now an explicit
 curve (see below) that is deliberately **not** to be tuned as if it controlled
 difficulty.
 
 That reorders the build plan: materials stop being step 4 and become the thing
-the Mark ladder is actually made of. It also means the ladder can't be finally
+the Tier ladder is actually made of. It also means the ladder can't be finally
 tuned until they exist, and that the bot has a ceiling as an instrument — it
 cannot use Bond Breaker, Demolition, or tempo, so a track like MAGAZINE is
 invisible to it (a full 770 rig loses to a stock one purely because the bot
@@ -368,9 +377,9 @@ progress. The build budget is shared, but each rig's unlocked tracks are its
 own, so a second rig starts sparse and is a genuine investment rather than a free
 power spike.
 
-## The Mark ladder
+## The Tier ladder
 
-A Mark is a difficulty tier of Deep Run *and* a content gate. Each one:
+A Tier is a difficulty rung of Deep Run *and* a content gate. Each one:
 
 1. **Changes the rig visibly on screen** — more hydraulic rams, a wider press
    plate, hotter glow. Progress that only exists as a number in a menu doesn't
@@ -379,21 +388,21 @@ A Mark is a difficulty tier of Deep Run *and* a content gate. Each one:
 3. **Adds one material or hazard to both content pools.** An option, never a
    stat — the constraint `meta.ts` already commits to, extended to the ladder.
 4. **Raises Deep Run's base difficulty *and* the build budget together** — the
-   tier ladder below states the bar, `budgetForMark` states the rig.
+   bay terms below state the bar, `budgetForMark` states the rig.
 
-Point 4 is what keeps the ladder honest: a Mark raises the floor and the bar at
-once, so a Mark 9 player isn't posting inflated numbers, they're playing a harder
+Point 4 is what keeps the ladder honest: a Tier raises the floor and the bar at
+once, so a Tier 9 player isn't posting inflated numbers, they're playing a harder
 game with a better rig.
 
-**Contracts teach what Deep Run tests.** Mark N's Contracts introduce the
-material Mark N's Deep Run will throw at you. Without that relationship the two
+**Contracts teach what Deep Run tests.** Tier N's Contracts introduce the
+material Tier N's Deep Run will throw at you. Without that relationship the two
 modes are merely parallel and Contracts degrade into a currency chore.
 
-### The tier ladder — what a Mark actually demands
+### What a Tier actually demands
 
-Three knobs state a tier's opening terms (`level.ts`'s `targetScoreFor`,
+Three knobs state a Tier's opening terms (`level.ts`'s `targetScoreFor`,
 `timeLimitFor`, `launchCostFor`). They extend the old bay — which opened at $800
-on a 150s clock at $25 a shot, identically at every Mark — in **both**
+on a 150s clock at $25 a shot, identically at every Tier — in **both**
 directions: the bottom of the ladder is a genuinely gentler bay than the game has
 ever shipped, and the top asks for meaningfully more. The ladder's own per-bay
 climb (`TARGET_PER_BAY`) rides on top and the tier steepens it a little.
@@ -431,9 +440,9 @@ to.
 **Measured** (`npx tsx sim/marks.ts --marks 1,3,6,8,10 --seeds 5 --ratchets spread`, aim bot,
 bays 1/4/7/10, carry $150). `--ratchets spread` is new and is why these numbers mean something: it
 models the ratchet the mode actually forces (`picksPerBay(mark) x` cleared bays, round-robin over
-that Mark's number axes), instead of measuring a bare ladder no run is ever played on.
+that Tier's number axes), instead of measuring a bare ladder no run is ever played on.
 
-| Mark | budget | bar | best build | run clear | verdict |
+| Tier | budget | bar | best build | run clear | verdict |
 |---|---|---|---|---|---|
 | 1 | 77 | $600/180s | economy | 1% | too hard |
 | 3 | 231 | $640/172s | economy | 33% | just short |
@@ -442,14 +451,14 @@ that Mark's number axes), instead of measuring a bare ladder no run is ever play
 | 10 | 770 | $780/144s | economy | 0% | IMPOSSIBLE |
 
 Three of five rungs land inside the criterion band (2–35%). The two that don't are the ends, and
-they fail for opposite reasons. **Mark 1 is budget-starved, not over-asked**: 77 ladder points buy
-`LCH1 RCT1` and nothing else, so the rung below Mark 3 reads harder than the rung above it — the
-budget curve, not the tier ladder, is what to move if that inversion matters. **Mark 10 at 0%** is
+they fail for opposite reasons. **Tier 1 is budget-starved, not over-asked**: 77 ladder points buy
+`LCH1 RCT1` and nothing else, so the rung below Tier 3 reads harder than the rung above it — the
+budget curve, not the Tier ladder, is what to move if that inversion matters. **Tier 10 at 0%** is
 where every one of the harness's caveats bites hardest, and all of them push the number down rather
 than up: the bots never fire a Bond Breaker or a bomb, MAGAZINE is excluded from the archetypes (so
 the "full" rig spends 550 of 770), and a spread ratchet is the *unprepared* hand, not what a player
 who drafted for their build would take. Treat both ends as "needs a human pass", not as walls — and
-note that without the ratchet modelled at all the same sweep still reads *FREE* at the middle Marks,
+note that without the ratchet modelled at all the same sweep still reads *FREE* at the middle Tiers,
 which is the finding that matters: a run's difficulty lives in the purse and the ratchet, not in the
 bar the tier states.
 
@@ -459,8 +468,8 @@ Two consequences worth stating:
   bay, and the timing grade multiplies it — see below). So a higher tier is more
   lines, not richer lines — which is exactly why
   the leaderboard is now **per tier** (`main.ts`'s `boardTier`, posted under the
-  run's own Mark): a shared board would have ranked the ladder, not the play.
-- **The notch ladders already slide with the Mark** (`hazards.ts`'s
+  run's own Tier): a shared board would have ranked the ladder, not the play.
+- **The notch ladders already slide with the Tier** (`hazards.ts`'s
   `ladderStart`), so the tier states the bar and the ratchet states what
   hardening it costs — two curves that compose rather than one doing both jobs.
 
@@ -504,17 +513,17 @@ was arithmetically dead: 51 scrap against a 55-scrap rung.
 
 ### What actually gets harder
 
-Beyond the tier ladder above and the existing `makeBaseLevel(i)` ramp:
+Beyond the Tier ladder above and the existing `makeBaseLevel(i)` ramp:
 
 - **Compactor tempo** — faster sweeps, shorter dwell.
 - **Tolerance** — `compactorMinLineCells` rises, slot alignment narrows.
 - **Launch budgets** — see below.
-- **Materials** — one new type per Mark, in both pools.
+- **Materials** — one new type per Tier, in both pools.
 - **Hazards** — lowering ceiling, tilted floor, drifting conveyor, two-sided press.
 
 ## The seal — and what it opens
 
-A Mark is **sealed** by a run that was won, tracked the ladder, and retried no
+A Tier is **sealed** by a run that was won, tracked the ladder, and retried no
 bay (`meta.ts`'s `sealedMarks`, written in `recordRunEnd`). The tower stamps
 that floor; floors that still owe one draw an empty socket in the same glyph, so
 the building states its own bill without a sentence anywhere on the menu.
@@ -562,7 +571,7 @@ for nine tiers and a treadmill on the tenth: at `MARK_COUNT` `markUnlocked`
 saturates onto the tier just finished and `advanceTier` has already cleared its
 counters, so the board it points at can no longer open anything. The finished
 ladder gets its own answer now — **seal** — and it lands on the primary, which
-names the price in words ("*N* Marks left to seal · win with no bay retried")
+names the price in words ("*N* Tiers left to seal · win with no bay retried")
 because sealing is flown and never bought. Once every seal is in, the roof is
 open and the primary flies it.
 
@@ -573,7 +582,7 @@ where it announced the floor the player had just spent the tier flying. The
 question is answered once now (`tierOpenedByCompleting`), and its null branch is
 the ladder's own ending: Contracts keep paying (the tier-10 loop is a faucet by
 decision, not by accident), so what is left to fly for is a maxed rig and every
-Mark sealed, and the card says exactly that.
+Tier sealed, and the card says exactly that.
 
 **Migration.** The gate tightened; nothing was erased. `sealedMarks` has been
 recorded since the seal shipped, so a player who beat the ladder with clean runs
@@ -582,14 +591,14 @@ tower's ride to it, since the roof now has its own ceremony watermark
 (`skydeckCelebrated`, false on every existing save precisely so that ride is
 not skipped). A player who beat the ladder messily finds the roof shut, and
 every seal it wants is re-earnable at any time: a clean win on an
-already-beaten Mark seals it (`recordRunEnd`'s `sealed` is deliberately not
-gated on the Mark being current), and the tower flies any beaten floor. No run,
-no salvage, no loadout and no Mark is touched.
+already-beaten Tier seals it (`recordRunEnd`'s `sealed` is deliberately not
+gated on the Tier being current), and the tower flies any beaten floor. No run,
+no salvage, no loadout and no Tier is touched.
 
 ## The Skydeck — the day's run
 
-The floor above the ladder (`src/game/skydeck.ts`), open once every Mark is
-beaten **and every Mark is sealed** (see *The seal* below). It is a Mark-10 Deep
+The floor above the ladder (`src/game/skydeck.ts`), open once every Tier is
+beaten **and every Tier is sealed** (see *The seal* below). It is a Tier-10 Deep
 Run with three rules changed, and each of the three takes away a lever the rest
 of the game hands the player:
 
@@ -597,9 +606,9 @@ of the game hands the player:
 |---|---|---|
 | Seed | a fresh roll every run | **the date** — one run a day, shared by everyone |
 | Refit stops | after bays 3 / 6 / 9 | **none** — you fly the rig you brought |
-| Notches | 1 a bay, 2 at the capstone | **1 a bay**, at that same capstone Mark |
+| Notches | 1 a bay, 2 at the capstone | **1 a bay**, at that same capstone Tier |
 | Final Inspection | one clause, drafted, bay 10 | **three clauses, dealt, standing** from bays 4 / 7 / 10 |
-| Board | the Mark's own, all time | **its own, and one per day** (see below) |
+| Board | the Tier's own, all time | **its own, and one per day** (see below) |
 
 The seed is `contracts.ts`'s own daily key put through a salt, so the Skydeck
 and the Contract board roll over at the same instant and share a date without
@@ -626,7 +635,7 @@ re-spaces the inspections with it.
 bay and a standing clause is that cost times the bays it rides. Stop 1 stands
 for seven bays and draws from Tiers 2–3, the *conditions* tiers — none of them
 touches the bay's books, which is what makes them safe to repeat. Tier 1 is
-excluded on arithmetic: Rush Order's flat +$875 is a 39% quota raise on Mark
+excluded on arithmetic: Rush Order's flat +$875 is a 39% quota raise on Tier
 10's bay 4 and still 24% on bay 10. Stop 2 stands for four bays and draws from
 Tiers 4–9. Stop 3 rides one bay and is the capstone pair, on exactly the bay
 `finals.ts` reserves the full-belt clauses for.
@@ -646,20 +655,20 @@ last stop rides exactly one bay.
 
 **Measured** (`npx tsx sim/skydeck.ts --stops all --rigs economy --seeds 3`, aim
 bot, bays 1/4/7/10, carry $150; every combination the bands can deal). Priced at
-**Mark 6**, because Mark 10 already reads 0% run-clear on this instrument and a
-control on the floor cannot show a change — the Mark-10 rows give the sign, the
-Mark-6 rows give the size. Mean per-bay win rate:
+**Tier 6**, because Tier 10 already reads 0% run-clear on this instrument and a
+control on the floor cannot show a change — the Tier-10 rows give the sign, the
+Tier-6 rows give the size. Mean per-bay win rate:
 
 | | ladder control | Skydeck bare | worst day | median day | best day |
 |---|---|---|---|---|---|
-| Mark 6 | 59% | 84% | 25% | 50% | 92% |
-| Mark 10 | 25% | 58% | 17% | 33% | 67% |
+| Tier 6 | 59% | 84% | 25% | 50% | 92% |
+| Tier 10 | 25% | 58% | 17% | 33% | 67% |
 
 So the three clauses cost about 34 points of mean per-bay rate off the bare
 mode, landing the median day either side of the shipped ladder run it sits
 above, with a real day-to-day spread — which is what a daily wants. **No single
-clause is a wall**: the per-clause report card runs 37–64% at Mark 6 and 24–47%
-at Mark 10, none at zero. The slag pair *was* a wall (bays 7 and 10 to 0%,
+clause is a wall**: the per-clause report card runs 37–64% at Tier 6 and 24–47%
+at Tier 10, none at zero. The slag pair *was* a wall (bays 7 and 10 to 0%,
 every seed) and is the measurement the dead-cargo rule above came from.
 
 **It moves no ladder state.** `recordRunEnd` ticks the tier at
@@ -667,33 +676,33 @@ every seed) and is the measurement the dead-cargo rule above came from.
 only once the ladder is beaten, so every player who can reach the roof is parked
 on that saturated tier. Unguarded, a daily win would set `tierRunDone`, bank a
 tier milestone's salvage and print Tier 10 completion copy *every day*, and
-would claim the Mark-10 seal besides (`sealed` is deliberately not gated on the
-Mark being current — which is also what lets a beaten Mark be re-sealed, see
+would claim the Tier-10 seal besides (`sealed` is deliberately not gated on the
+Tier being current — which is also what lets a beaten Tier be re-sealed, see
 *The seal* above). So a Skydeck ending skips the bookkeeping entirely —
 `run.ts`'s `tracksLadder` is the one statement of it, shared with Tier S — and
 keeps only the score. Its telemetry is tagged `mode: "skydeck"` for the same
-class of reason: a Skydeck bay carries mark 10 and a clock, so nothing else
-about the record tells it apart from an ordinary Mark-10 bay, and pooled into
-`sim/playtest.ts` it would corrupt the medians the tier ladder is tuned against.
+class of reason: a Skydeck bay carries `mark` 10 — Tier 10 — and a clock, so nothing else
+about the record tells it apart from an ordinary Tier-10 bay, and pooled into
+`sim/playtest.ts` it would corrupt the medians the Tier ladder is tuned against.
 
 **It files to a board of its own, and that board is a day.** The first cut sent
-a Skydeck run to the **Mark-10 board** and recorded the reason: a per-day board
+a Skydeck run to the **Tier-10 board** and recorded the reason: a per-day board
 needs a schema column the leaderboard did not have, and a mixed all-time board
 would rank days rather than players. The column exists now
 (`migrations/0003_daily_boards.sql`), so the key is `(BOARD_SKYDECK, day)` —
 `lib/api.ts`'s `boardForRun`/`boardDayForRun`. Two reasons the pooling had to
 end rather than stay safe-in-direction: the roof reads level.ts's curves a rung
-past the capstone and carries three standing clauses, so a Mark-10 pilot and a
+past the capstone and carries three standing clauses, so a Tier-10 pilot and a
 Skydeck pilot on one list are not being compared at anything; and the mode whose
 entire argument is that everyone flies the same day had a board that was not one.
 The **day is the run's**, stamped at undock from `SkydeckRules.day` — the same
 `dailySeed` the Contract board rolls on — so a run undocked at 23:50Z and landed
 after midnight ranks against the seed it actually flew. The board id is negative
 for the reason Tier S's is: `SKYDECK_TIER` is `MARK_COUNT + 1` and any server
-that knows only Marks clamps it straight back onto Mark 10, which is the pooling
+that knows only Tiers clamps it straight back onto Tier 10, which is the pooling
 arrived at through the key meant to end it. Scores already pooled onto Tier 10
 stay there — a Skydeck row carries mark 10, its bay and its lines, which is
-exactly an honest Mark-10 row, so there is nothing to filter on and a cleanup
+exactly an honest Tier-10 row, so there is nothing to filter on and a cleanup
 would be a guess applied to other people's scores.
 
 One thing is still deliberately NOT in the cut, recorded rather than forgotten.
@@ -709,7 +718,7 @@ nobody can still post to.
 `makeBaseLevel(i)` is linear in `i` and every formula already extrapolates; the
 only thing stopping bay 11 existing is `LEVEL_NAMES[i]` returning `undefined`.
 Add a name generator past index 9 and Deep Run runs endless past bay 10, which is
-what a score board actually needs — unbounded headroom so the top of each Mark's
+what a score board actually needs — unbounded headroom so the top of each Tier's
 board is a skill expression rather than a completion checkmark.
 
 ## Launches: the constraint Contracts run on
@@ -804,7 +813,7 @@ and free retries would hand back the identical bad order forever. Proving the
 roll doesn't fix the roll being random — it fixes it being able to be impossible.
 
 What piece TYPE changes, once both proofs hold, is how hard the delivery is — I
-and O settle flat, S/Z/T tip and strand — and that is what the tier ladder
+and O settle flat, S/Z/T tip and strand — and that is what the Tier ladder
 scales. `sim/patterns.ts` measures it: for every inventory the generator can
 emit, the share of arrival orders finishable landing each shipment straight down.
 The headline numbers, over the 333 distinct inventories reachable across 1500
@@ -922,8 +931,8 @@ than the card's.
 **The two material variants sit on their material's own hazard rung, not where
 their difficulty would put them.** That costs something real and is kept anyway.
 Guided is the gentlest thing on the list and would make a lovely tier-2 on-ramp;
-magnetic is Mark 9's hazard, and a Contract spending it at tier 2 has spoiled
-Mark 9's reveal to save a new player four minutes. "Contracts teach what Deep Run
+magnetic is Tier 9's hazard, and a Contract spending it at Contract tier 2 has spoiled
+Tier 9's reveal to save a new player four minutes. "Contracts teach what Deep Run
 tests" is either a rule or it is decoration.
 
 `sim/patterns.ts` sweeps every variant at every tier it appears on. Over 14,000
@@ -977,13 +986,13 @@ exists.
 ✅ **All six are built.** This table read "slag and cryo" long after the other
 four shipped, which cost a design pass the time to rediscover that volatile
 already existed — `theme.ts`'s `MATERIAL_SPEC` carries all six and `hazards.ts`
-opens one content axis per Mark from 4 to 9. Slag and cryo came first — see
+opens one content axis per Tier from 4 to 9. Slag and cryo came first — see
 [the spec](superpowers/specs/2026-08-01-materials-slag-cryo-design.md). A
 material is a property of a whole shipment (`theme.ts`'s `Material`) and enforced
 in exactly one place: `lineClear.ts`'s `fillsSlots`. It is no longer *scheduled*
 by the ladder at all — `level.ts`'s `materialMixFor` is retired, and a material
 now arrives only when the player ratchets its content axis (`hazards.ts`), so
-facing one and choosing to face it are the same act. Mark 1 stays entirely clean.
+facing one and choosing to face it are the same act. Tier 1 stays entirely clean.
 
 **How MUCH of a bay may be special is capped, and the cap is structural.** The
 ratchet is additive and a Tier-10 run takes two notches a bay, so by bay 6 a run
@@ -1027,7 +1036,7 @@ Two things the build settled that this table could not:
   **The Skydeck is where it came back, and the exception is argued rather than
   carved out.** Every clause of the removal is an *on-ramp* clause — "deals it
   to you", "reads as a dice roll" — and the roof is the one floor where nothing
-  is an on-ramp: the door needs all ten Marks beaten *and* every one of them
+  is an on-ramp: the door needs all ten Tiers beaten *and* every one of them
   sealed, the run's rules are dealt rather than drafted, and there is no yard.
   Packing badly is the exam there, not the accident. Tiers 1–`MARK_COUNT` ship
   no pentomino and `sim/systems.ts` pins it at every one of them.
@@ -1106,13 +1115,13 @@ treadmill nobody on this project has time to feed. A Contract is instead
 - **Objective** — reach $X · N lines in M launches · clear all slag · deliver a
   marked crate to the floor · precision (≤K launches) · survive N presses losing
   ≤K pieces
-- **Materials** — drawn from the countable pool at the player's Mark (built:
+- **Materials** — drawn from the countable pool at the player's Tier (built:
   `contractMaterialsFor`, following the hazard ladder's rungs; slag excluded
   structurally)
 - **Complication** — one, occasionally two: wind character, material, micro
   payload, tight launch budget
 - **Budget** — every element carries a weighted cost, and the generator spends a
-  scalar budget derived from Mark and tier
+  scalar budget derived from the Tier and the Contract tier
 
 The budget is what separates this from slop: difficulty becomes a number you
 spend rather than an accident of the roll.
@@ -1185,18 +1194,18 @@ disconnected.
 
 Worth noting the budget rule makes selling salvage *safe* if it ever happens — a
 bundle can only accelerate a player toward options they can already afford to
-install, never past the Mark N budget, so it is identical in effect to selling
+install, never past the Tier N budget, so it is identical in effect to selling
 Contract throughput.
 
 ## Build order
 
-1. ~~**Mark ladder + build budget.**~~ Done — the model layer, with the
+1. ~~**Tier ladder + build budget.**~~ Done — the model layer, with the
    calibration above. No UI yet.
 2. ~~**Materials**, starting with slag and cryo.~~ Done — both ship, gated one
-   per Mark, with Contracts explicitly excluded until their budget model can
+   per Tier, with Contracts explicitly excluded until their budget model can
    price a cube that never counts. Promoted from fourth because the calibration
    showed they are not flavour on top of a numeric ramp, they ARE the ramp. The
-   Mark ladder's final tuning is now unblocked, and wants play rather than
+   Tier ladder's final tuning is now unblocked, and wants play rather than
    another sweep — the bots cannot use a demolition charge on slag.
 3. **Launch budgets.** Load-bearing for Contracts.
 4. **Contract generator + sim validation**, together.
@@ -1209,7 +1218,7 @@ Contract throughput.
 The window is Aug 1 – Sep 30 and the iOS ship is concurrent, so the minimum that
 reads as "Candy Crush meets FTL" to a judge:
 
-Mark ladder with visible rig changes · generated Contracts across three tiers ·
+Tier ladder with visible rig changes · generated Contracts across three tiers ·
 launch-limited objectives · two materials (slag, cryo) · Unlimited with the
 daily cap · one alternate rig.
 
@@ -1220,7 +1229,7 @@ down when judges ask where it goes next.
 
 - **You fly the rig you built.** Deep Run does not hand out a normalized loadout.
   The build budget is what makes that fair — normalization comes from everyone at
-  a Mark having the same points to spend, not from the run overwriting your
+  a Tier having the same points to spend, not from the run overwriting your
   choices. Contracts would be pointless otherwise.
 - **Contracts have no clock and no bankroll.** Launches are the constraint, and
   the mode's character is easy, positive and replayable.
@@ -1234,10 +1243,10 @@ down when judges ask where it goes next.
 
 ## Open questions
 
-- **How many Marks?** Ten is a placeholder that rhymes with the ten bays. The
-  real answer depends on how long a Mark takes to beat, which needs playtesting.
-- **How does the budget curve?** Linear 77/Mark to 770 is the first pass. A curve
-  that front-loads early Marks would make the first few feel snappier at the cost
+- **How many Tiers?** Ten is a placeholder that rhymes with the ten bays. The
+  real answer depends on how long a Tier takes to beat, which needs playtesting.
+- **How does the budget curve?** Linear 77/Tier to 770 is the first pass. A curve
+  that front-loads early Tiers would make the first few feel snappier at the cost
   of a flatter endgame.
 - **Contract currency: salvage, or a fourth currency?** Reusing salvage keeps the
   count at three; a separate one lets Contracts and Deep Run pay independently.
