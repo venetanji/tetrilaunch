@@ -331,6 +331,78 @@ export function getSafeAreaInsets(): Insets {
 }
 
 /**
+ * EVERYTHING computeLayout's answer is a function of.
+ *
+ * The solver is pure: hand it the same width, height and insets and it returns
+ * the same Layout, every time. So "is the published layout still the right
+ * one?" is not a question about events, timers or platform quirks — it is
+ * whether a fresh reading of these six numbers still matches the reading the
+ * published layout was made from. That framing is the whole point: it lets the
+ * app re-solve on DISAGREEMENT rather than on notification, which is what makes
+ * the recovery independent of which event a given WebView remembers to fire.
+ */
+export interface ViewportReading {
+  /** window.innerWidth at the moment of the reading. */
+  w: number;
+  /** window.innerHeight likewise. */
+  h: number;
+  /** The safe-area insets measured alongside them (lib/platform's
+   *  applySafeAreaInsets). Copied by value — the module cache above is
+   *  overwritten in place on every measurement, so holding the same object
+   *  would make every reading agree with every other one. */
+  safe: Insets;
+}
+
+/** Half a CSS pixel. Below this nothing in the stylesheet or the solver can
+ *  express a difference — `fit` divides by WORLD.width, the rail floors at a
+ *  whole 44 — so a sub-pixel wobble in a WebView's reported innerHeight is
+ *  noise, and re-solving on it would throw the canvas backing store away for a
+ *  layout that came out identical. */
+const READING_EPSILON = 0.5;
+
+/** Copy a reading's insets by value. See ViewportReading.safe. */
+export function readingOf(w: number, h: number, safe: Insets): ViewportReading {
+  return { w, h, safe: { ...safe } };
+}
+
+const off = (a: number, b: number): boolean => Math.abs(a - b) >= READING_EPSILON;
+
+/**
+ * The SIZE half of viewportChanged, taking bare numbers.
+ *
+ * Not a convenience wrapper — it is the version main.ts's frame loop can call.
+ * That caller runs sixty times a second and already holds the two numbers (it
+ * is about to hand them to render()); building a ViewportReading for it would
+ * mean an object per frame, and measuring the insets to fill one would mean a
+ * forced style recalc per frame. So the hot path asks only what it can answer
+ * for free, and the watchdog's interval — which can afford the probe — owns the
+ * insets. viewportChanged is defined in terms of THIS rather than the other way
+ * round, so the two can never drift apart on the size axes or on the epsilon.
+ */
+export function sizeChanged(prev: ViewportReading | null, w: number, h: number): boolean {
+  if (!prev) return true;
+  return off(prev.w, w) || off(prev.h, h);
+}
+
+/**
+ * Does a fresh reading disagree with the one the published layout was solved
+ * from? A null `prev` means nothing has been solved yet, which disagrees with
+ * everything.
+ *
+ * This is the predicate behind main.ts's dimension watchdog. It exists as a
+ * pure function here, next to the solver whose inputs it describes, so that it
+ * can be pinned without a browser (sim/systems.ts) — the bug it answers is one
+ * nobody on this side of the device can reproduce, and a predicate that only
+ * ever runs inside a WKWebView is a predicate nobody can check.
+ */
+export function viewportChanged(prev: ViewportReading | null, next: ViewportReading): boolean {
+  if (!prev) return true;
+  return sizeChanged(prev, next.w, next.h)
+    || off(prev.safe.left, next.safe.left) || off(prev.safe.right, next.safe.right)
+    || off(prev.safe.top, next.safe.top) || off(prev.safe.bottom, next.safe.bottom);
+}
+
+/**
  * Chrome scale for a usable box, and the tier it falls in.
  *
  * Deliberately solved in JS next to the field rather than expressed as CSS

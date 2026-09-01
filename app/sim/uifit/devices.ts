@@ -60,6 +60,27 @@ export const DEVICES: Device[] = [
   { name: "Android · Pixel Tablet", platform: "android", w: 1600, h: 1000, dpr: 2, insets: NONE },
   // --- iOS -----------------------------------------------------------------
   { name: "iOS · iPhone SE 3", platform: "ios", w: 667, h: 375, dpr: 2, insets: NONE },
+  // THE DEVICE THE FIRST REAL iOS TEST RAN ON, and it was not in this matrix.
+  //
+  // An owner reported the HUD's lower chrome hanging below the visible screen
+  // on an iPhone X (iOS 16.7, WKWebView via Capacitor). The cause was a
+  // lifecycle bug rather than a fit one — a layout solved against a viewport
+  // the WebView had already stopped being, which no measurement of a settled
+  // page can see (see main.ts's WATCHDOG_* block) — but the report also
+  // exposed that the FIT side of that device was never measured either. The
+  // rows around it are close but not the same box: the SE 3 shares its 375
+  // height and has NO insets at all, and every notched row here is 780px wide
+  // or more.
+  //
+  // 812x375 with 44px either side and the 21px home indicator is the narrowest
+  // NOTCHED viewport the app ships to, which makes it the tightest usable box
+  // in the file: 724x354 after insets, against the 640x360 budget Android's
+  // full 640x360. Whatever the lifecycle does, this is the geometry the
+  // stylesheet has to survive.
+  {
+    name: "iOS · iPhone X", platform: "ios", w: 812, h: 375, dpr: 3,
+    insets: { left: 44, right: 44, top: 0, bottom: 21 },
+  },
   {
     name: "iOS · iPhone 13 mini", platform: "ios", w: 780, h: 360, dpr: 3,
     insets: { left: 50, right: 50, top: 0, bottom: 21 },
