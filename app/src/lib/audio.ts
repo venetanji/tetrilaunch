@@ -1037,16 +1037,21 @@ let fxLoading = false;
 async function loadEffect(name: FxName): Promise<void> {
   const url = `${BASE}audio/fx/${name}.mp3`;
   let bytes: ArrayBuffer;
+  let status = 0;
   try {
     const res = await fetch(url);
-    if (!res.ok) {
-      // The shape a scheme-handler miss takes: a response arrived and it is not
-      // the file. Worth separating from a thrown fetch, which is the network
-      // layer refusing outright.
-      fxFailures.set(name, `HTTP ${res.status}`);
-      warnOnce(`fx:${name}`, `${name} — ${url} returned HTTP ${res.status}`);
-      return;
-    }
+    status = res.status;
+    // NOT gated on res.ok, and a device made that decision: iOS 16's
+    // WKWebView hands fetch() the capacitor:// scheme handler's response
+    // with NO HTTP status at all — status 0, ok false — while the body
+    // arrives intact. The same build's music played fine because <audio>
+    // never consults a status. TestFlight 1.0.2 (11) read "32 of 32,
+    // HTTP 0" off this very panel with every byte sitting on the phone.
+    // So the body is the evidence and the status is only a label: read it
+    // regardless, and let emptiness or the decoder say whether what came
+    // back was the file. A 404's HTML error page fails the decode with its
+    // byte count and status attached, which is strictly more diagnostic
+    // than the old early return ever was.
     bytes = await res.arrayBuffer();
   } catch (err) {
     fxFailures.set(name, `fetch ${why(err)}`);
@@ -1054,15 +1059,15 @@ async function loadEffect(name: FxName): Promise<void> {
     return;
   }
   if (bytes.byteLength === 0) {
-    fxFailures.set(name, "empty body");
-    warnOnce(`fx:${name}`, `${name} — ${url} returned 0 bytes`);
+    fxFailures.set(name, `empty body (HTTP ${status})`);
+    warnOnce(`fx:${name}`, `${name} — ${url} returned 0 bytes (HTTP ${status})`);
     return;
   }
   try {
     buffers.set(name, await decodeFx(bytes));
     fxFailures.delete(name);
   } catch (err) {
-    fxFailures.set(name, `decode ${why(err)} (${bytes.byteLength}B)`);
+    fxFailures.set(name, `decode ${why(err)} (${bytes.byteLength}B, HTTP ${status})`);
     warnOnce(`fx:${name}`,
       `${name} — ${bytes.byteLength} bytes arrived and would not decode: ${why(err)}`);
   }

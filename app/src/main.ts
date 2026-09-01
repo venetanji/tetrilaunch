@@ -149,6 +149,7 @@ import {
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
   presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
+  probeNativeRevenueCatPaywall,
 } from "./lib/purchases";
 import {
   accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, onAuthChange,
@@ -7470,6 +7471,71 @@ class App {
     this.showAudioDiagnostics();
   }
 
+  /** What the last native-paywall probe reported, shown in the panel so the
+   *  verdict survives the panel being rebuilt. Session-lived on purpose: the
+   *  probe is an experiment, not a setting. */
+  private paywallProbeNote: string | null = null;
+
+  /**
+   * The viewport as this frame actually sees it, one label per line.
+   *
+   * Exists because the HUD clip on the iPhone X has now survived two fixes
+   * that were each correct against every measurable engine (the #201 watchdog
+   * against stale solves, the #208 .plant floor against WebKit's metrics) —
+   * which means the remaining disagreement is between the numbers this app
+   * lays out FROM and the pixels the device actually shows, and only the
+   * device can say where. So: every height the layout could be keyed to
+   * (inner, visual, client, and all four CSS viewport units via a probe
+   * element), the solver's published field band, the safe-area insets as CSS
+   * resolved them, and where the bottom-anchored chrome actually ended up
+   * relative to the viewport's edge. The line to look at first is `plant` —
+   * a bottom beyond `inner`'s height is the clip, and whichever unit line
+   * disagrees with `inner` above it is the culprit.
+   */
+  private layoutDiagnostics(): string {
+    try {
+      const de = document.documentElement;
+      const root = getComputedStyle(de);
+      const cssVar = (name: string): string => root.getPropertyValue(name).trim() || "unset";
+      // One probe, re-measured per unit: cheaper than four elements and the
+      // probe is fixed/invisible, so nothing it does can disturb the layout
+      // it is measuring.
+      const probe = document.createElement("div");
+      probe.style.cssText =
+        "position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none";
+      document.body.appendChild(probe);
+      const unit = (h: string): number => {
+        probe.style.height = h;
+        return probe.getBoundingClientRect().height;
+      };
+      const vh = unit("100vh"), dvh = unit("100dvh"), svh = unit("100svh"), lvh = unit("100lvh");
+      probe.remove();
+      const rect = (sel: string): string => {
+        const el = document.querySelector(sel);
+        if (!el) return "absent";
+        const r = el.getBoundingClientRect();
+        return `top ${r.top.toFixed(1)} bottom ${r.bottom.toFixed(1)} h ${r.height.toFixed(1)}`;
+      };
+      const plant = document.querySelector(".plant");
+      const vv = window.visualViewport;
+      return [
+        `inner    ${window.innerWidth}x${window.innerHeight}  dpr ${window.devicePixelRatio}`,
+        `visual   ${vv
+          ? `${vv.width.toFixed(1)}x${vv.height.toFixed(1)}  off ${vv.offsetLeft.toFixed(1)},${vv.offsetTop.toFixed(1)}  scale ${vv.scale}`
+          : "absent"}`,
+        `client   ${de.clientWidth}x${de.clientHeight}  screen ${screen.width}x${screen.height}`,
+        `units    vh ${vh.toFixed(1)}  dvh ${dvh.toFixed(1)}  svh ${svh.toFixed(1)}  lvh ${lvh.toFixed(1)}`,
+        `insets   t ${cssVar("--inset-t")}  r ${cssVar("--inset-r")}  b ${cssVar("--inset-b")}  l ${cssVar("--inset-l")}`,
+        `field    y ${cssVar("--field-y")}  h ${cssVar("--field-h")}  gutter-b ${cssVar("--gutter-b")}  zoom ${cssVar("--chrome-zoom")}`,
+        `plant    ${rect(".plant")}${plant ? `  css-bottom ${getComputedStyle(plant).bottom}` : ""}`,
+        `screen   ${rect(".screen")}`,
+        `scroll   y ${window.scrollY}  bodyH ${document.body.scrollHeight}`,
+      ].join("\n");
+    } catch (err) {
+      return `layout diagnostics failed: ${String(err)}`;
+    }
+  }
+
   /**
    * The panel itself: built here, styled here, removed here.
    *
@@ -7516,8 +7582,40 @@ class App {
     // textContent, not innerHTML. Every line of this comes from a failure
     // message that may quote a URL or an engine's own error text, and none of
     // it is markup this app wrote.
+    //
+    // The layout section rides along because this panel is the only debug
+    // surface a tester without a Mac can reach: iOS's remote Web Inspector
+    // needs desktop Safari, so "read getComputedStyle(...) off the console"
+    // is not an instruction the one test device's owner can follow. Same
+    // knock, both snapshots, one photograph.
     box.textContent = `[audio] diagnostics\n\n${audioDiagnostics()}`
+      + `\n\n[layout]\n${this.layoutDiagnostics()}`
       + "\n\ntap to close — drag to scroll";
+    // Native only: the door to the RevenueCatUI experiment (see
+    // probeNativeRevenueCatPaywall). A <button> inside the panel, so the
+    // close-on-tap logic below must let its taps through — the pointerup
+    // handler checks for it by id.
+    if (isNative) {
+      const probe = document.createElement("button");
+      probe.id = "paywall-probe";
+      probe.textContent = this.paywallProbeNote
+        ? `paywall probe last said:\n${this.paywallProbeNote}\n(tap to run again)`
+        : "PROBE NATIVE PAYWALL — bypasses the iOS<18 gate; a crash here is the experiment answering";
+      probe.style.cssText = [
+        "display:block", "margin:16px 0", "padding:12px 14px",
+        "font:inherit", "white-space:pre-wrap", "text-align:left",
+        "color:#07121c", "background:#cfe9ff", "border:0", "border-radius:6px",
+      ].join(";");
+      probe.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        box.remove();
+        this.paywallProbeNote = await probeNativeRevenueCatPaywall();
+        // Re-open with the fresh verdict so the tester sees the answer in the
+        // same place they asked the question — and can photograph it.
+        this.showAudioDiagnostics();
+      });
+      box.appendChild(probe);
+    }
     // A TAP CLOSES, A DRAG SCROLLS. Closing on pointerdown was the first shape
     // of this and it made the panel unreadable the moment the snapshot grew a
     // trace: every attempt to scroll the list dismissed it on the first touch.
@@ -7538,6 +7636,9 @@ class App {
       const from = down;
       down = null;
       if (!from) return;
+      // A tap on the probe button is the button's, not the panel's: without
+      // this the capture-phase close fires first and the click never lands.
+      if ((e.target as Element | null)?.closest?.("#paywall-probe")) return;
       if (Math.abs(e.clientX - from.x) > SLOP || Math.abs(e.clientY - from.y) > SLOP) return;
       if (box.scrollTop !== from.top) return; // momentum scrolling counts as a drag
       box.remove();

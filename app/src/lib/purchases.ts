@@ -238,6 +238,15 @@ export async function initPurchases(appUserId?: string): Promise<void> {
     const { customerInfo } = await Purchases.getCustomerInfo();
     setUnlimited(readUnlimited(customerInfo));
     if (appUserId) await identifyPurchasesUser(appUserId);
+    // Warm the offerings cache now, in the quiet after configure, instead of
+    // paying the network round-trip at the moment of the buy tap. The first
+    // device purchase (TestFlight 1.0.2 (11)) sat long enough between tap and
+    // payment sheet that the tester pressed "a million times" — that wait was
+    // getOfferings going to the network inside purchaseLifetimeFallback. The
+    // SDK caches the result, so the tap-time call becomes a cache read.
+    // Fire-and-forget: a prefetch that fails has cost nothing, the tap-time
+    // call still fetches for itself.
+    void Purchases.getOfferings().catch(() => {});
   } catch (err) {
     console.warn("[purchases] configure failed", err);
   }
@@ -284,11 +293,37 @@ export async function resetPurchasesUser(): Promise<void> {
 }
 
 /**
+ * True from a buy tap until its flow fully resolves. One flag guards every
+ * purchase entry point because they all funnel through presentPaywall.
+ *
+ * The device wrote this requirement: on a slow connection the gap between the
+ * first tap and Apple's payment sheet ran long enough that the tester kept
+ * tapping, and every tap queued another purchasePackage — the sheets then
+ * arrived one after another, each a real purchase request. The sheet's own
+ * modality only protects the window AFTER it is up; this flag owns the window
+ * before it.
+ */
+let paywallInFlight = false;
+
+/**
  * Show the paywall built in the RevenueCat dashboard — offerings, pricing and
  * copy are all remote-configured, so changing the offer needs no app update.
  * Resolves to the entitlement state afterwards.
+ *
+ * Re-entry resolves immediately with the current state: a second tap while a
+ * flow is pending is the same tap, not a second intent.
  */
 export async function presentPaywall(): Promise<boolean> {
+  if (paywallInFlight) return unlimited;
+  paywallInFlight = true;
+  try {
+    return await presentPaywallOnce();
+  } finally {
+    paywallInFlight = false;
+  }
+}
+
+async function presentPaywallOnce(): Promise<boolean> {
   if (!isNative) {
     try {
       if (!ready || !webPurchases) return unlimited;
@@ -331,19 +366,28 @@ export async function presentPaywall(): Promise<boolean> {
 /** Restore on a reinstall or a new device. Apple requires this to be reachable
  *  without a purchase, hence its own button in Settings. */
 export async function restorePurchases(): Promise<boolean> {
-  if (!isNative) {
-    // Web purchases are tied to the persisted RevenueCat app-user id. There is
-    // no browser store receipt to restore; re-fetching is the web equivalent.
-    await refresh();
-    return unlimited;
-  }
+  // Shares the purchase flow's guard: a restore launched while a payment
+  // sheet is pending (or vice versa) hands StoreKit two overlapping
+  // transactions, and repeated taps on a slow connection queue restores the
+  // same way they queued purchases.
+  if (paywallInFlight) return unlimited;
+  paywallInFlight = true;
   try {
+    if (!isNative) {
+      // Web purchases are tied to the persisted RevenueCat app-user id. There
+      // is no browser store receipt to restore; re-fetching is the web
+      // equivalent.
+      await refresh();
+      return unlimited;
+    }
     const { Purchases } = await sdk();
     if (!ready) return unlimited;
     const { customerInfo } = await Purchases.restorePurchases();
     setUnlimited(readUnlimited(customerInfo));
   } catch (err) {
     console.warn("[purchases] restore failed", err);
+  } finally {
+    paywallInFlight = false;
   }
   return unlimited;
 }
@@ -357,4 +401,38 @@ async function refresh(): Promise<void> {
   const { Purchases } = await sdk();
   const { customerInfo } = await Purchases.getCustomerInfo();
   setUnlimited(readUnlimited(customerInfo));
+}
+
+/**
+ * DIAGNOSTICS ONLY — present RevenueCatUI directly, bypassing the iOS<18 gate.
+ *
+ * Exists to answer one question from a phone with no debugger attached: did
+ * renaming the Xcode target (the purchases-ios#7567 mis-link fix) also cure
+ * the V2 paywall's null-metadata crash on iOS 16/17? The production path
+ * cannot ask it — the gate routes those systems to the fallback before
+ * RevenueCatUI loads — and flipping the gate to find out would put a
+ * may-crash tap on the buy button of every old-iOS player. So the question
+ * gets its own door, reachable only from the knock-to-open diagnostics panel,
+ * where crashing IS the experiment's answer and only the tester can trigger
+ * it. If this renders on an iPhone X, the gate can be retired for real.
+ *
+ * Returns a sentence for the panel rather than throwing: the interesting
+ * failure mode (a native crash) never returns at all, so anything that DOES
+ * come back deserves to be legible.
+ */
+export async function probeNativeRevenueCatPaywall(): Promise<string> {
+  if (!isNative) return "web platform — the iOS gate does not apply here";
+  if (paywallInFlight) return "a purchase flow is already in flight";
+  paywallInFlight = true;
+  try {
+    const { RevenueCatUI } = await sdk();
+    if (!ready) return "purchases SDK not configured";
+    const { result } = await RevenueCatUI.presentPaywall({ displayCloseButton: true });
+    await refresh();
+    return `RevenueCatUI rendered and returned "${result}" — the gate can come down`;
+  } catch (err) {
+    return `RevenueCatUI threw without crashing: ${String(err)}`;
+  } finally {
+    paywallInFlight = false;
+  }
 }

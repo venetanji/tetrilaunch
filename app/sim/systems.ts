@@ -12340,6 +12340,30 @@ section("Audio session policy and on-device diagnostics");
     loadFx.replace(/\s+/g, " ").slice(0, 140),
   );
 
+  // THE STATUS IS A LABEL, NOT A GATE. iOS 16's WKWebView hands fetch() the
+  // capacitor:// scheme handler's response with no HTTP status (0, not ok)
+  // while the body arrives whole — TestFlight 1.0.2 (11) reported all 32
+  // effects "HTTP 0" with every byte on the phone, music playing from the
+  // same tree because <audio> never asks. So the loader must read the body
+  // unconditionally and let emptiness or the decoder judge it: no res.ok (or
+  // any status comparison) may stand between the fetch and arrayBuffer.
+  check(
+    "the effect loader reads the body no matter what the status says",
+    !/res\.ok/.test(loadFx) && !/status\s*[!=<>]==?/.test(loadFx)
+    && /await res\.arrayBuffer\(\)/.test(loadFx),
+    loadFx.replace(/\s+/g, " ").slice(0, 140),
+  );
+  // ...and the status still reaches the report, where it is diagnosis rather
+  // than gate: an empty or undecodable body names the HTTP status it came
+  // with, so a real 404 (an HTML error page that will not decode) remains
+  // tellable from a scheme-handler body that simply has no status.
+  check(
+    "a bad body still reports the HTTP status it arrived with",
+    /empty body \(HTTP \$\{status\}\)/.test(loadFx)
+    && /HTTP \$\{status\}\)`\)/.test(loadFx),
+    loadFx.replace(/\s+/g, " ").slice(0, 140),
+  );
+
   // playFx COUNTS EVERY EXIT. This is what separates "buffers never loaded"
   // from "buffers loaded and inaudible" — the two halves of the remaining
   // search space, and the pair the tester's sentence cannot distinguish.
@@ -21701,6 +21725,44 @@ section("Player accounts (social login + RevenueCat identity)");
     // Walking away from the sheet is the sheet working.
     check("a cancelled sheet is quiet, not a failure",
       /userCancelled[\s\S]{0,40}return;/.test(purchasesSrc));
+
+    /* ---- One tap, one purchase flow --------------------------------------
+     * On a slow connection the gap between the buy tap and Apple's payment
+     * sheet ran seconds long, the tester kept tapping, and every tap queued
+     * another purchasePackage — the sheets then arrived in series, each a
+     * real purchase request (TestFlight 1.0.2 (11)). The sheet's modality
+     * only guards the window after it is up; the in-flight flag owns the
+     * window before it, at the one choke point every entry funnels through. */
+    const guarded = /export async function presentPaywall\(\): Promise<boolean> \{\s*\n\s*if \(paywallInFlight\) return unlimited;/;
+    check("a second buy tap while one is pending is the same tap, not a queue",
+      guarded.test(purchasesSrc));
+    // The flag must come back down on EVERY exit — a throw that left it up
+    // would brick the buy button for the session — so the set is paired with
+    // a finally, in both the paywall and the restore.
+    check("...and the flag always comes back down",
+      (purchasesSrc.match(/paywallInFlight = true;/g) ?? []).length
+        === (purchasesSrc.match(/\} finally \{\s*\n\s*paywallInFlight = false;/g) ?? []).length
+      && (purchasesSrc.match(/paywallInFlight = true;/g) ?? []).length >= 2);
+    // Restore shares it: overlapping StoreKit transactions are the same bug
+    // wearing a different button.
+    check("restore takes the same guard as the paywall",
+      /export async function restorePurchases[\s\S]{0,500}?if \(paywallInFlight\) return unlimited;/.test(purchasesSrc));
+
+    /* ---- The RevenueCatUI probe stays a diagnostics door ----------------
+     * probeNativeRevenueCatPaywall exists to ask, from a phone with no
+     * debugger, whether the target rename cured the V2 paywall crash. It
+     * bypasses the OS gate BY DESIGN, so it must never become a production
+     * path: defined after presentPaywall (so the gate-order pin above keeps
+     * reading the production branch first) and called from exactly one place
+     * in main.ts — the knock-to-open diagnostics panel. */
+    check("the paywall probe sits behind the production paywall in the file",
+      purchasesSrc.indexOf("export async function probeNativeRevenueCatPaywall")
+        > purchasesSrc.indexOf("export async function presentPaywall"));
+    const probeCalls = mainSrc.match(/probeNativeRevenueCatPaywall\(\)/g) ?? [];
+    check("main.ts calls the probe from the diagnostics panel and nowhere else",
+      probeCalls.length === 1
+      && mainSrc.indexOf("probeNativeRevenueCatPaywall()")
+        > mainSrc.indexOf("private showAudioDiagnostics"));
   }
 }
 
