@@ -21684,55 +21684,34 @@ section("Player accounts (social login + RevenueCat identity)");
   check("leaving the account screen clears the pending destination",
     /if \(s !== "account"\) this\.paywallReturn = null;/.test(mainSrc));
 
-  /* ---- The iOS 16/17 paywall gate (purchases.ts, purchases-ios#7567) ------
-   * RevenueCatUI compiled by the iOS 26 SDK into Capacitor's static SPM
-   * target dereferences SwiftUI type metadata that exists only on iOS 18+ —
-   * two TestFlight builds crashed on an iPhone X proving it, on two SDK
-   * versions, at two different call sites. So the pretty paywall runs only
-   * where the frameworks it references exist, and everything older buys
-   * through the core SDK, whose one confirmation is Apple's own payment
-   * sheet. These pins hold the gate's shape; the crash they prevent cannot be
-   * reproduced on this side of a device. */
+  /* ---- The native paywall, after the gate came down --------------------
+   * History, because the shape of this code is the residue of a solved case:
+   * RevenueCatUI's V2 paywall crashed below iOS 18 while the Xcode target was
+   * named "App" — a name Xcode 16+/26 mis-links against SwiftUICore
+   * (purchases-ios#7567). An OS gate and a core-SDK fallback stood here for
+   * one build; then the target rename fixed the link, a diagnostics probe
+   * rendered RevenueCatUI on iOS 16.7 hardware, and both came out. What
+   * remains pinned is what must not quietly return. */
   {
-    // The gate stands between ready-check and RevenueCatUI in the native
-    // branch — source order is the wiring here, exactly as the resume pin
-    // above reads main.ts.
-    const nativePaywall = purchasesSrc.slice(purchasesSrc.indexOf("export async function presentPaywall"));
-    const gateAt = nativePaywall.indexOf("canPresentNativeRevenueCatPaywall()");
-    const rcuiAt = nativePaywall.indexOf("RevenueCatUI.presentPaywall(");
-    check("the native paywall asks the OS gate before RevenueCatUI",
-      gateAt > 0 && rcuiAt > 0 && gateAt < rcuiAt);
-    // Fail CLOSED: an unreadable OS version routes to the fallback, because
-    // guessing wrong the other way terminates the process.
-    const gateBody = purchasesSrc.slice(
-      purchasesSrc.indexOf("async function canPresentNativeRevenueCatPaywall"),
-      purchasesSrc.indexOf("async function purchaseLifetimeFallback"),
-    );
-    check("the gate fails closed when the OS cannot be read",
-      /catch[\s\S]*return false;/.test(gateBody));
-    // 18 is the floor because the missing metadata is the SwiftUICore split,
-    // which is an iOS-18 boundary — not 17, which no one here can test.
-    check("...and the floor is iOS 18", gateBody.includes("major >= 18"));
-    // The fallback buys the SAME lifetime package the dashboard paywall
-    // sells, through the core SDK.
-    check("the fallback purchases the offering's lifetime package",
-      purchasesSrc.includes("purchasePackage({ aPackage: lifetime })"));
     // Apple's payment sheet is the confirmation. The one browser-drawn
     // dialog in the game was removed by the account-deletion work; the
     // purchase path must not reintroduce one.
     check("no browser dialog stands in front of the payment sheet",
       !purchasesSrc.includes("window.confirm"));
-    // Walking away from the sheet is the sheet working.
-    check("a cancelled sheet is quiet, not a failure",
-      /userCancelled[\s\S]{0,40}return;/.test(purchasesSrc));
+    // No OS-version gate either: reintroducing one to "be safe" would send
+    // old-iOS buyers down a fallback that no longer exists. A crash report is
+    // the only licence to bring it back — docs/ios.md says where to start.
+    check("the native paywall reaches RevenueCatUI ungated",
+      /if \(!ready\) return unlimited;[\s\S]{0,700}?RevenueCatUI\.presentPaywall\(/.test(purchasesSrc)
+      && !purchasesSrc.includes("canPresentNativeRevenueCatPaywall"));
 
     /* ---- One tap, one purchase flow --------------------------------------
      * On a slow connection the gap between the buy tap and Apple's payment
      * sheet ran seconds long, the tester kept tapping, and every tap queued
-     * another purchasePackage — the sheets then arrived in series, each a
-     * real purchase request (TestFlight 1.0.2 (11)). The sheet's modality
-     * only guards the window after it is up; the in-flight flag owns the
-     * window before it, at the one choke point every entry funnels through. */
+     * another purchase — the sheets then arrived in series, each a real
+     * purchase request (TestFlight 1.0.2 (11)). The sheet's modality only
+     * guards the window after it is up; the in-flight flag owns the window
+     * before it, at the one choke point every entry funnels through. */
     const guarded = /export async function presentPaywall\(\): Promise<boolean> \{\s*\n\s*if \(paywallInFlight\) return unlimited;/;
     check("a second buy tap while one is pending is the same tap, not a queue",
       guarded.test(purchasesSrc));
@@ -21747,22 +21726,10 @@ section("Player accounts (social login + RevenueCat identity)");
     // wearing a different button.
     check("restore takes the same guard as the paywall",
       /export async function restorePurchases[\s\S]{0,500}?if \(paywallInFlight\) return unlimited;/.test(purchasesSrc));
-
-    /* ---- The RevenueCatUI probe stays a diagnostics door ----------------
-     * probeNativeRevenueCatPaywall exists to ask, from a phone with no
-     * debugger, whether the target rename cured the V2 paywall crash. It
-     * bypasses the OS gate BY DESIGN, so it must never become a production
-     * path: defined after presentPaywall (so the gate-order pin above keeps
-     * reading the production branch first) and called from exactly one place
-     * in main.ts — the knock-to-open diagnostics panel. */
-    check("the paywall probe sits behind the production paywall in the file",
-      purchasesSrc.indexOf("export async function probeNativeRevenueCatPaywall")
-        > purchasesSrc.indexOf("export async function presentPaywall"));
-    const probeCalls = mainSrc.match(/probeNativeRevenueCatPaywall\(\)/g) ?? [];
-    check("main.ts calls the probe from the diagnostics panel and nowhere else",
-      probeCalls.length === 1
-      && mainSrc.indexOf("probeNativeRevenueCatPaywall()")
-        > mainSrc.indexOf("private showAudioDiagnostics"));
+    // Offerings are warmed right after configure — the tap-time getOfferings
+    // becoming a network wait is what invited the tapping in the first place.
+    check("offerings are prefetched at configure, not at the buy tap",
+      /void Purchases\.getOfferings\(\)\.catch\(/.test(purchasesSrc));
   }
 }
 

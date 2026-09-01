@@ -111,58 +111,6 @@ function readUnlimited(info: NativeCustomerInfo | WebCustomerInfo): boolean {
   return info.entitlements.active[UNLIMITED_ENTITLEMENT] !== undefined;
 }
 
-/**
- * RevenueCatUI 5.x compiled by Xcode 26 is not back-deployable when it is
- * statically linked by Capacitor's SPM package. Weak-linking SwiftUICore lets
- * iOS 15-17 launch, but entering a V2 paywall still dereferences unavailable
- * SwiftUI type metadata (RevenueCat purchases-ios#7567).
- *
- * Fail closed when the OS cannot be read: calling the core Purchases API is
- * safe on these releases, while guessing wrong here terminates the process.
- */
-async function canPresentNativeRevenueCatPaywall(): Promise<boolean> {
-  const { Capacitor } = await sdk();
-  if (Capacitor.getPlatform() !== "ios") return true;
-
-  try {
-    const { Device } = await import("@capacitor/device");
-    const { osVersion } = await Device.getInfo();
-    const major = Number.parseInt(osVersion, 10);
-    return Number.isFinite(major) && major >= 18;
-  } catch (err) {
-    console.warn("[purchases] could not determine iOS version; using safe purchase fallback", err);
-    return false;
-  }
-}
-
-/**
- * Purchase the configured lifetime package without loading RevenueCatUI.
- *
- * NO CONFIRMATION OF OUR OWN, and that is a decision, not an omission:
- * purchasePackage immediately presents Apple's payment sheet, which shows the
- * localized price and demands Face ID/passcode — the real, binding
- * confirmation. A browser-drawn confirm in front of it would be a second ask
- * from outside the game (the exact dialog account deletion just got rid of),
- * showing a price string one step removed from the one Apple will actually
- * charge. The sim pins that absence.
- */
-async function purchaseLifetimeFallback(): Promise<void> {
-  const { Purchases } = await sdk();
-  const offering = (await Purchases.getOfferings()).current;
-  const lifetime = offering?.lifetime;
-  if (!lifetime) throw new Error("current RevenueCat offering has no lifetime package");
-
-  try {
-    const { customerInfo } = await Purchases.purchasePackage({ aPackage: lifetime });
-    setUnlimited(readUnlimited(customerInfo));
-  } catch (err) {
-    // Walking away from the sheet is the sheet working — same rule the web
-    // paywall applies to UserCancelledError.
-    if ((err as { userCancelled?: boolean } | null)?.userCancelled) return;
-    throw err;
-  }
-}
-
 /** True once the SDK for this platform has configured successfully. */
 export function purchasesReady(): boolean {
   return ready;
@@ -242,7 +190,7 @@ export async function initPurchases(appUserId?: string): Promise<void> {
     // paying the network round-trip at the moment of the buy tap. The first
     // device purchase (TestFlight 1.0.2 (11)) sat long enough between tap and
     // payment sheet that the tester pressed "a million times" — that wait was
-    // getOfferings going to the network inside purchaseLifetimeFallback. The
+    // getOfferings going to the network at tap time. The
     // SDK caches the result, so the tap-time call becomes a cache read.
     // Fire-and-forget: a prefetch that fails has cost nothing, the tap-time
     // call still fetches for itself.
@@ -347,10 +295,13 @@ async function presentPaywallOnce(): Promise<boolean> {
   try {
     const { RevenueCatUI, PAYWALL_RESULT } = await sdk();
     if (!ready) return unlimited;
-    if (!(await canPresentNativeRevenueCatPaywall())) {
-      await purchaseLifetimeFallback();
-      return unlimited;
-    }
+    // RevenueCatUI runs on EVERY supported iOS. An OS gate stood here while
+    // the Xcode "App" target name mis-linked SwiftUICore and crashed V2
+    // paywalls below iOS 18 (purchases-ios#7567); the target rename fixed the
+    // link and a diagnostics probe rendered this exact call on iOS 16.7
+    // hardware, so the gate and its core-SDK fallback are gone. If a paywall
+    // crash ever returns on old iOS, start at docs/ios.md's
+    // "iOS 15-17 and Xcode 26" section, not with a new gate.
     // Ignored by V2 dashboard paywalls (their close button is an editor
     // component); kept so an original-template fallback still gets one.
     const { result } = await RevenueCatUI.presentPaywall({ displayCloseButton: true });
@@ -401,38 +352,4 @@ async function refresh(): Promise<void> {
   const { Purchases } = await sdk();
   const { customerInfo } = await Purchases.getCustomerInfo();
   setUnlimited(readUnlimited(customerInfo));
-}
-
-/**
- * DIAGNOSTICS ONLY — present RevenueCatUI directly, bypassing the iOS<18 gate.
- *
- * Exists to answer one question from a phone with no debugger attached: did
- * renaming the Xcode target (the purchases-ios#7567 mis-link fix) also cure
- * the V2 paywall's null-metadata crash on iOS 16/17? The production path
- * cannot ask it — the gate routes those systems to the fallback before
- * RevenueCatUI loads — and flipping the gate to find out would put a
- * may-crash tap on the buy button of every old-iOS player. So the question
- * gets its own door, reachable only from the knock-to-open diagnostics panel,
- * where crashing IS the experiment's answer and only the tester can trigger
- * it. If this renders on an iPhone X, the gate can be retired for real.
- *
- * Returns a sentence for the panel rather than throwing: the interesting
- * failure mode (a native crash) never returns at all, so anything that DOES
- * come back deserves to be legible.
- */
-export async function probeNativeRevenueCatPaywall(): Promise<string> {
-  if (!isNative) return "web platform — the iOS gate does not apply here";
-  if (paywallInFlight) return "a purchase flow is already in flight";
-  paywallInFlight = true;
-  try {
-    const { RevenueCatUI } = await sdk();
-    if (!ready) return "purchases SDK not configured";
-    const { result } = await RevenueCatUI.presentPaywall({ displayCloseButton: true });
-    await refresh();
-    return `RevenueCatUI rendered and returned "${result}" — the gate can come down`;
-  } catch (err) {
-    return `RevenueCatUI threw without crashing: ${String(err)}`;
-  } finally {
-    paywallInFlight = false;
-  }
 }

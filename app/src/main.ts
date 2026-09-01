@@ -149,7 +149,6 @@ import {
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
   presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
-  probeNativeRevenueCatPaywall,
 } from "./lib/purchases";
 import {
   accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, onAuthChange,
@@ -5876,6 +5875,12 @@ class App {
    * every bay, for a number that changes when congestion re-prices a launch.
    */
   private syncHud(g: Game): void {
+    // The diagnostics sampler rides the HUD's own frame, throttled to ~1Hz
+    // inside itself. It has to run HERE, mid-run, because the knock-to-open
+    // panel lives on the Settings screen, where the game DOM is already gone:
+    // build 12's [layout] read `plant absent` while the run's clip was the
+    // very thing under investigation. See sampleHudGeometry.
+    this.sampleHudGeometry();
     const set = (id: string, v: string) => {
       const el = this.hudEl(id);
       if (el && el.textContent !== v) el.textContent = v;
@@ -7471,11 +7476,6 @@ class App {
     this.showAudioDiagnostics();
   }
 
-  /** What the last native-paywall probe reported, shown in the panel so the
-   *  verdict survives the panel being rebuilt. Session-lived on purpose: the
-   *  probe is an experiment, not a setting. */
-  private paywallProbeNote: string | null = null;
-
   /**
    * The viewport as this frame actually sees it, one label per line.
    *
@@ -7492,6 +7492,57 @@ class App {
    * a bottom beyond `inner`'s height is the clip, and whichever unit line
    * disagrees with `inner` above it is the culprit.
    */
+  /** The last in-run reading sampleHudGeometry took, or null before the first
+   *  run. A string, built at sample time: the panel prints it verbatim, so a
+   *  crash between the run and the knock cannot lose the numbers to a live
+   *  re-measure of DOM that no longer exists. */
+  private hudSample: string | null = null;
+  private hudSampleAt = 0;
+
+  /**
+   * Once a second while a run draws, record where the plant panel REALLY is.
+   *
+   * Build 12 proved the resting numbers are innocent: on the Settings screen
+   * every viewport height agreed (812x375, all four CSS units, insets
+   * 44/44/0/21) and the .plant clamp solves to a bottom 31.5px above the
+   * glass — yet the run still clips everything after the reload bar. So the
+   * lie is only tellable while the run is live, and this takes the deposition:
+   * the panel's rect against the live innerHeight, its computed bottom (the
+   * #208 clamp's instrument — --inset-b means the clamp fired), the solver's
+   * published band at that instant, and the panel's own inner overflow
+   * (scrollHeight past clientHeight + the last child's real bottom), which
+   * separates "the panel is misplaced" from "the panel clips its own tail".
+   *
+   * Strings and reads only, ~1Hz, wrapped: a sampler that costs a frame or
+   * throws mid-run would be a worse bug than the one it is hunting.
+   */
+  private sampleHudGeometry(): void {
+    const now = performance.now();
+    if (now - this.hudSampleAt < 1000) return;
+    this.hudSampleAt = now;
+    try {
+      const plant = this.overlay.querySelector(".plant");
+      if (!plant) return;
+      const r = plant.getBoundingClientRect();
+      const cs = getComputedStyle(plant);
+      const root = getComputedStyle(document.documentElement);
+      const v = (name: string): string => root.getPropertyValue(name).trim() || "unset";
+      const kids = [...plant.children].map((c) => c.getBoundingClientRect().bottom);
+      const deepest = kids.length ? Math.max(...kids) : r.bottom;
+      const app = document.getElementById("app")?.getBoundingClientRect();
+      this.hudSample = [
+        `sampled  in-run, ${(now / 1000).toFixed(0)}s after boot`,
+        `inner    ${window.innerWidth}x${window.innerHeight}`,
+        `app      ${app ? `top ${app.top.toFixed(1)} bottom ${app.bottom.toFixed(1)}` : "absent"}`,
+        `plant    top ${r.top.toFixed(1)} bottom ${r.bottom.toFixed(1)} h ${r.height.toFixed(1)}  css-bottom ${cs.bottom}`,
+        `inside   scroll ${plant.scrollHeight}/${plant.clientHeight}  deepest child bottom ${deepest.toFixed(1)}`,
+        `field    y ${v("--field-y")}  h ${v("--field-h")}  inset-b ${v("--inset-b")}`,
+      ].join("\n");
+    } catch {
+      // Swallowed by design: see the doc block.
+    }
+  }
+
   private layoutDiagnostics(): string {
     try {
       const de = document.documentElement;
@@ -7590,32 +7641,9 @@ class App {
     // knock, both snapshots, one photograph.
     box.textContent = `[audio] diagnostics\n\n${audioDiagnostics()}`
       + `\n\n[layout]\n${this.layoutDiagnostics()}`
+      + `\n\n[hud, last in-run sample]\n${this.hudSample
+        ?? "none yet — play a bay first, then knock again"}`
       + "\n\ntap to close — drag to scroll";
-    // Native only: the door to the RevenueCatUI experiment (see
-    // probeNativeRevenueCatPaywall). A <button> inside the panel, so the
-    // close-on-tap logic below must let its taps through — the pointerup
-    // handler checks for it by id.
-    if (isNative) {
-      const probe = document.createElement("button");
-      probe.id = "paywall-probe";
-      probe.textContent = this.paywallProbeNote
-        ? `paywall probe last said:\n${this.paywallProbeNote}\n(tap to run again)`
-        : "PROBE NATIVE PAYWALL — bypasses the iOS<18 gate; a crash here is the experiment answering";
-      probe.style.cssText = [
-        "display:block", "margin:16px 0", "padding:12px 14px",
-        "font:inherit", "white-space:pre-wrap", "text-align:left",
-        "color:#07121c", "background:#cfe9ff", "border:0", "border-radius:6px",
-      ].join(";");
-      probe.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        box.remove();
-        this.paywallProbeNote = await probeNativeRevenueCatPaywall();
-        // Re-open with the fresh verdict so the tester sees the answer in the
-        // same place they asked the question — and can photograph it.
-        this.showAudioDiagnostics();
-      });
-      box.appendChild(probe);
-    }
     // A TAP CLOSES, A DRAG SCROLLS. Closing on pointerdown was the first shape
     // of this and it made the panel unreadable the moment the snapshot grew a
     // trace: every attempt to scroll the list dismissed it on the first touch.
@@ -7636,9 +7664,6 @@ class App {
       const from = down;
       down = null;
       if (!from) return;
-      // A tap on the probe button is the button's, not the panel's: without
-      // this the capture-phase close fires first and the click never lands.
-      if ((e.target as Element | null)?.closest?.("#paywall-probe")) return;
       if (Math.abs(e.clientX - from.x) > SLOP || Math.abs(e.clientY - from.y) > SLOP) return;
       if (box.scrollTop !== from.top) return; // momentum scrolling counts as a drag
       box.remove();
