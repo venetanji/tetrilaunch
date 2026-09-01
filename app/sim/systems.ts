@@ -172,6 +172,11 @@ import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
+// The uifit device matrix, read as DATA by the safe-area/zoom premise check
+// below. It is a plain list of numbers with no browser in it, and reading the
+// real one is the entire point: a premise restated here could go stale against
+// the matrix it is a premise about.
+import { DEVICES } from "./uifit/devices";
 import {
   computeLayout,
   getRailSlots,
@@ -4764,6 +4769,50 @@ section("Stale-viewport detection (layout.ts viewportChanged)");
   live.bottom = 0;
   check("a reading keeps its own copy of the insets",
     viewportChanged(held, readingOf(812, 375, live)));
+}
+
+// ---------------------------------------------------------------------------
+section("A side cutout is never magnified (layout.ts chromeZoom vs the matrix)");
+// THE INVARIANT app.css's `.screen` padding rule is written against, promoted
+// out of that comment and into something that fails.
+//
+// `.screen` clears the notch with `max(var(--hud-pad), var(--inset-l))`, and it
+// carries `zoom: var(--chrome-zoom)`. Zoom scales padding, so a 44px inset
+// under zoom Z covers 44*Z real px — over-clearing, never under-clearing, since
+// uiScaleFor clamps chromeZoom to [1, UI_ZOOM_MAX]. The rule therefore does NOT
+// divide the inset back down, and the comment there explains why not: dividing
+// a length by a var()-held number is CSS Values 4, and an engine that declines
+// to parse it drops the whole padding declaration — leaving those screens with
+// no padding at all, on the exact platform the fix exists for.
+//
+// That trade is only free while the over-clearing is invisible, and this is
+// what says it is. Zoom exceeds 1 only when the usable box clears 1000x720 on
+// BOTH axes, and no device with a SIDE cutout is close — the notched iPhones
+// are 440px tall at most. The rows that are magnified (the iPads) carry only
+// the home indicator, where --hud-pad is the larger term and the inset never
+// binds. Read off the real matrix rather than restated, so adding a notched
+// device that breaks the premise fails HERE, next to the reasoning, instead of
+// shipping a screen whose content is quietly 30% further from the edge than the
+// stylesheet says.
+// ---------------------------------------------------------------------------
+{
+  setRailSlots(RAIL_SLOTS_MAX);
+  for (const d of DEVICES) {
+    if (!d.insets.left && !d.insets.right) continue;
+    setSafeAreaInsets(d.insets);
+    const z = computeLayout(d.w, d.h).chromeZoom;
+    check(`${d.name} has a side cutout and is not magnified`, z === 1, `chromeZoom ${z}`);
+  }
+  // ...and the other half of the same premise, which the padding rule leans on
+  // just as hard: zoom is never a SHRINK. If it could be, `max()` would under-
+  // clear rather than over-clear and the division the comment declines to write
+  // would become mandatory.
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  for (const d of DEVICES) {
+    check(`${d.name} is never shrunk by chromeZoom`,
+      computeLayout(d.w, d.h).chromeZoom >= 1, String(computeLayout(d.w, d.h).chromeZoom));
+  }
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
 }
 
 // ---------------------------------------------------------------------------
