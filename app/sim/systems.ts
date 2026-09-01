@@ -11729,6 +11729,110 @@ section("Effect and stinger names (lib/audio.ts vs scripts/prepare-audio.mjs)");
 
 
 // ---------------------------------------------------------------------------
+// THE EFFECTS PATH ON A STRICT PLATFORM.
+//
+// A first real-device iOS pass (iPhone X, iOS 16.7, Capacitor WKWebView) played
+// every bed and every stinger and produced no sound effect at all. That is not
+// a mix problem, it is a dependency problem: music needs an <audio> element and
+// a play() the platform allows, and effects need a constructed AudioContext, a
+// context that reached "running", thirty-three fetches and thirty-three
+// decodes. lib/audio.ts used to make one attempt at the second list and latch
+// the outcome whatever it was — `unlocked = true` on the first line of
+// unlockAudio, under main.ts's `{ once: true }` pointerdown.
+//
+// Scanned from source for the reason the name census above gives: audio.ts
+// reads import.meta.env at load and reaches for AudioContext, so no Node
+// harness can import it. That means these pins can only assert the SHAPE of the
+// module, and the shape is exactly what regressed — a latch in the wrong place
+// and an empty catch are both perfectly typed.
+// ---------------------------------------------------------------------------
+section("Effects unlock (lib/audio.ts, iOS)");
+{
+  const audioSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "audio.ts"),
+    "utf8",
+  );
+  const bare = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const code = bare(audioSrc);
+
+  // THE LATCH. `unlocked` is what makes unlockAudio idempotent, and where it is
+  // written decides whether a refused context gets a second gesture or a whole
+  // silent session. It may be set in exactly one place, and that place has to
+  // be looking at the context's own state — anything else is latching intent.
+  const latch = /function markUnlocked\(\): void \{([\s\S]*?)\n\}/.exec(code)?.[1] ?? "";
+  check("markUnlocked is still where this pin looks for it", latch.length > 0);
+  check(
+    "the unlock latch trips only against a running context",
+    /"running"/.test(latch) && /unlocked = true/.test(latch),
+    latch.replace(/\s+/g, " ").slice(0, 120),
+  );
+  const latches = code.match(/\bunlocked = true\b/g) ?? [];
+  check(
+    "...and nothing else in the module latches it",
+    latches.length === 1, `${latches.length} assignments`,
+  );
+
+  // THE RE-ARM. main.ts's hook is `{ once: true }`, so a retry needs a gesture
+  // this module owns. touchend is the one that matters on the platform this
+  // was found on — WebKit's user-activation window is at its widest there, and
+  // pointerdown alone is what shipped and what failed.
+  const events = [...(/const UNLOCK_EVENTS = \[([^\]]*)\]/.exec(code)?.[1] ?? "")
+    .matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  check(
+    "the module arms its own unlock gestures, touchend among them",
+    events.length > 0 && events.includes("touchend") && events.includes("pointerdown"),
+    events.join(", "),
+  );
+
+  // LOUD, NOT SILENT. Every way an effect can fail to arrive has to name itself
+  // — that is the whole reason the device report could say nothing more than
+  // "sound effects are silent". Asserted as: the fetch/decode path reports the
+  // asset, and playFx's missing-buffer case reports the cue.
+  const loader = /async function loadEffect\(name: FxName\): Promise<void> \{([\s\S]*?)\n\}/
+    .exec(code)?.[1] ?? "";
+  check("loadEffect is still where this pin looks for it", loader.length > 0);
+  const warns = loader.match(/warnOnce\(/g) ?? [];
+  check(
+    "every way one effect can fail to load says so by name",
+    warns.length >= 3 && /catch \(err\)/.test(loader),
+    `${warns.length} warnOnce calls`,
+  );
+  const reach = /function fxBuffer\(name: FxName\): AudioBuffer \| undefined \{([\s\S]*?)\n\}/
+    .exec(code)?.[1] ?? "";
+  check(
+    "a cue with no decoded buffer reports itself and asks for a repair",
+    /warnOnce\(/.test(reach) && /repairFx\(\)/.test(reach),
+    reach.replace(/\s+/g, " ").slice(0, 120),
+  );
+  // …and every caller goes through it. A bare buffers.get outside fxBuffer is
+  // the silent early return this section exists to prevent coming back.
+  const gets = code.match(/buffers\.get\(/g) ?? [];
+  check(
+    "nothing reaches past fxBuffer for a one-shot",
+    gets.length === 2, `${gets.length} buffers.get call sites`,
+  );
+
+  // THE CONGESTION CUE IS SCORED OR IT IS NOT. The synthesized white noise this
+  // shipped with was kept on as a fallback after the three congestionLoop takes
+  // landed, and it was reported still audible underneath them. There is no
+  // second source any more: no generated buffer, no bandpass, no per-source
+  // peak variable to choose between two levels.
+  check(
+    "no synthesized congestion source survives",
+    !/Math\.random\(\) \* 2 - 1/.test(code)
+    && !/"bandpass"/.test(code)
+    && !/\bstaticPeak\b/.test(code)
+    && !/\bSTATIC_GAIN\b/.test(code),
+    [/Math\.random\(\) \* 2 - 1/.test(code) && "noise fill",
+      /"bandpass"/.test(code) && "bandpass",
+      /\bstaticPeak\b/.test(code) && "staticPeak",
+      /\bSTATIC_GAIN\b/.test(code) && "STATIC_GAIN"].filter(Boolean).join(", "),
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // GESTURE MISFIRE PREVENTION — the firing floor, the strand warning, the chute.
 // ---------------------------------------------------------------------------
 section("Misfire prevention");
