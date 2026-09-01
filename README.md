@@ -4,7 +4,7 @@ A neon-arcade **physics cannon puzzle**. Load the cannon, arc tetrominoes across
 with an Angry-Birds-style drag, and feed full rows into the sweeping compactor before it
 clears them away.
 
-> **This repo is a port** of the original Python/pygame prototype (`main.py`, kept for
+> **This repo is a port** of the original Python/pygame prototype (`design/prototype/main.py`, kept for
 > reference) to a **Capacitor.js** app targeting **Web (PWA) · Android · iOS**, deployed on
 > **Cloudflare Workers** with a **D1-backed leaderboard**.
 
@@ -132,7 +132,7 @@ with `npm run build:sandbox` / `npm run android:apk:sandbox`.
 
 ```
 app/                      Capacitor + Vite + TypeScript web app
-  src/game/               matter.js physics port of main.py
+  src/game/               matter.js physics port of design/prototype/main.py
     engine, pieces, cannon, compactor, lineClear, render, input, game
     layout      viewport/aspect-ratio solver (wide | snug | tall + safe areas)
     level       per-bay tunables (the 10-bay ladder)
@@ -170,7 +170,7 @@ docs/ECONOMY.md           three-currency economy + ship-upgrade design rationale
 docs/NATIVE.md            Android/iOS pipeline + the layout solver
 wrangler.jsonc            Worker config: static assets + D1 binding
 migrations/               D1 schema
-main.py                   original pygame prototype (reference)
+design/prototype/         original pygame prototype (reference)
 ```
 
 **Tech:** matter.js (physics), HTML5 Canvas (gameplay render), HTML/CSS overlays (UI),
