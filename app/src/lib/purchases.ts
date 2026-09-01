@@ -111,6 +111,58 @@ function readUnlimited(info: NativeCustomerInfo | WebCustomerInfo): boolean {
   return info.entitlements.active[UNLIMITED_ENTITLEMENT] !== undefined;
 }
 
+/**
+ * RevenueCatUI 5.x compiled by Xcode 26 is not back-deployable when it is
+ * statically linked by Capacitor's SPM package. Weak-linking SwiftUICore lets
+ * iOS 15-17 launch, but entering a V2 paywall still dereferences unavailable
+ * SwiftUI type metadata (RevenueCat purchases-ios#7567).
+ *
+ * Fail closed when the OS cannot be read: calling the core Purchases API is
+ * safe on these releases, while guessing wrong here terminates the process.
+ */
+async function canPresentNativeRevenueCatPaywall(): Promise<boolean> {
+  const { Capacitor } = await sdk();
+  if (Capacitor.getPlatform() !== "ios") return true;
+
+  try {
+    const { Device } = await import("@capacitor/device");
+    const { osVersion } = await Device.getInfo();
+    const major = Number.parseInt(osVersion, 10);
+    return Number.isFinite(major) && major >= 18;
+  } catch (err) {
+    console.warn("[purchases] could not determine iOS version; using safe purchase fallback", err);
+    return false;
+  }
+}
+
+/**
+ * Purchase the configured lifetime package without loading RevenueCatUI.
+ *
+ * NO CONFIRMATION OF OUR OWN, and that is a decision, not an omission:
+ * purchasePackage immediately presents Apple's payment sheet, which shows the
+ * localized price and demands Face ID/passcode — the real, binding
+ * confirmation. A browser-drawn confirm in front of it would be a second ask
+ * from outside the game (the exact dialog account deletion just got rid of),
+ * showing a price string one step removed from the one Apple will actually
+ * charge. The sim pins that absence.
+ */
+async function purchaseLifetimeFallback(): Promise<void> {
+  const { Purchases } = await sdk();
+  const offering = (await Purchases.getOfferings()).current;
+  const lifetime = offering?.lifetime;
+  if (!lifetime) throw new Error("current RevenueCat offering has no lifetime package");
+
+  try {
+    const { customerInfo } = await Purchases.purchasePackage({ aPackage: lifetime });
+    setUnlimited(readUnlimited(customerInfo));
+  } catch (err) {
+    // Walking away from the sheet is the sheet working — same rule the web
+    // paywall applies to UserCancelledError.
+    if ((err as { userCancelled?: boolean } | null)?.userCancelled) return;
+    throw err;
+  }
+}
+
 /** True once the SDK for this platform has configured successfully. */
 export function purchasesReady(): boolean {
   return ready;
@@ -260,6 +312,10 @@ export async function presentPaywall(): Promise<boolean> {
   try {
     const { RevenueCatUI, PAYWALL_RESULT } = await sdk();
     if (!ready) return unlimited;
+    if (!(await canPresentNativeRevenueCatPaywall())) {
+      await purchaseLifetimeFallback();
+      return unlimited;
+    }
     // Ignored by V2 dashboard paywalls (their close button is an editor
     // component); kept so an original-template fallback still gets one.
     const { result } = await RevenueCatUI.presentPaywall({ displayCloseButton: true });
