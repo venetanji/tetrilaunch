@@ -1728,6 +1728,52 @@ export function accountScreen(account: NonNullable<StoreState["account"]>): stri
   </div>`;
 }
 
+/**
+ * THE ACCOUNT-DELETION CONFIRMATION — the seal notice's panel, asked of the
+ * other irreversible press in the meta.
+ *
+ * It replaces a `window.confirm`, which was the one dialog in the game drawn by
+ * the browser rather than by the game: no neon, no pad focus, no reading of the
+ * pause card's own rules about which answer a stray press lands on — and on the
+ * native shells a system alert over a fullscreen canvas, which is precisely the
+ * moment a player is least able to tell what they just agreed to.
+ *
+ * TWO PARAGRAPHS, AND THE SECOND IS THE POINT, exactly as sealBreakModal argues:
+ * the first says what goes, the second says what does NOT. What deletion
+ * actually removes is the purchase-RECOVERY identity — the RevenueCat customer
+ * named by `${provider}:${sub}` (docs/AUTH.md) — and nothing else. The purchase
+ * itself belongs to the store account that made it and Restore finds it again;
+ * the save is local and is not part of the account at all. Without that
+ * sentence the panel reads as "delete your purchase and your progress", which
+ * is false in both halves and would stop a player exercising a control the
+ * store rules require to be reachable.
+ *
+ * KEEPING THE ACCOUNT IS THE PRIMARY, for the reason the seal notice states:
+ * padnav's focusInitial lands a pad on `.btn--primary`, and the button a stray
+ * press finds must never be the one that spends something permanent.
+ */
+export function accountDeleteModal(): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal account-note pop">
+      <div class="eyebrow" style="color:var(--danger)">Account</div>
+      <h2 class="display">Delete this player account?</h2>
+      <p class="account-note__body">This removes the <b>purchase-recovery identity</b> — the
+      customer record your Google or Apple sign-in names at RevenueCat — and the sign-in stored
+      on this device. It cannot be undone, and signing in again creates a new, empty one.</p>
+      <p class="account-note__body"><b>Your Full Game purchase is not deleted.</b> It stays with
+      the Apple, Google or web store account that bought it, and <b>Restore Purchases</b> finds
+      it again. Your progress is untouched too — salvage, unlocks, seals and best scores are
+      saved on this device and were never part of the account.</p>
+      <div class="row">
+        <button class="btn btn--primary" data-action="account-delete-back">Keep Account</button>
+        <button class="btn btn--secondary btn--danger" data-action="account-delete-go"
+          aria-label="Delete Account — removes the purchase-recovery identity, and cannot be undone"
+        >Delete Account</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 /** One rendered board line. `rank` is the player's TRUE standing, carried
  *  explicitly rather than derived from array position — the end modal shows a
  *  discontiguous slice, where the last row might be #23 sitting under #5.

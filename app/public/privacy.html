@@ -78,7 +78,7 @@
     <main>
       <p class="eyebrow">Tetrilaunch</p>
       <h1>Privacy Policy</h1>
-      <p class="updated">Last updated: 31 August 2026</p>
+      <p class="updated">Last updated: 1 September 2026</p>
 
       <div class="callout">
         <p>
@@ -98,15 +98,22 @@
 
       <h2>What is sent, and only when you choose to</h2>
       <p>
-        When you submit a score to the online leaderboard, we receive exactly four
-        things plus the time of submission:
+        When you submit a score to the online leaderboard, we receive the run's
+        result and nothing else:
       </p>
       <ul>
         <li>the <strong>display name you typed</strong> — capped at 12 characters, and
           stripped to letters, digits, spaces, hyphens and underscores</li>
         <li>your <strong>score</strong></li>
-        <li>the <strong>level</strong> reached</li>
+        <li>the <strong>board</strong> the run was flown on — the Tier, or Tier S, or
+          the Skydeck. Boards are ranked separately, so a score has to say which one
+          it belongs to</li>
+        <li>the <strong>highest bay reached</strong></li>
         <li>the number of <strong>lines</strong> cleared</li>
+        <li>for a Skydeck run only, the <strong>board day</strong> it was flown on —
+          a calendar date in UTC, because the Skydeck is ranked one day at a time.
+          Every other board is all-time and stores no day at all</li>
+        <li>the <strong>time of submission</strong></li>
       </ul>
       <p>
         That is the whole leaderboard record. We do not ask for your phone number,
@@ -146,8 +153,11 @@
       <p>
         You can sign out or delete the account from Settings → Player Account.
         Deletion removes the purchase-identity record (the RevenueCat customer) and
-        the identity stored on your device. Apple, Google and RevenueCat may retain
-        transaction records where required for purchases, fraud prevention, tax or law.
+        the identity stored on your device. It does not cancel or refund a purchase —
+        that stays with the store account that bought it, and Restore Purchases can
+        find it again — and it does not touch your local progress. Apple, Google and
+        RevenueCat may retain transaction records where required for purchases, fraud
+        prevention, tax or law.
       </p>
 
       <h2>Playtest recording</h2>
@@ -174,9 +184,11 @@
       </p>
       <p>
         Outbound connections may go to our leaderboard API; to Google or
-        Apple when you use player-account features; and to Apple, Google, RevenueCat
-        or its web payment provider when you open the store or make a purchase. The
-        purchase screen is rendered by RevenueCat and may load its own resources.
+        Apple when you use player-account features; and to RevenueCat, which the app
+        contacts when it starts in order to find out whether you already own the Full
+        Game, and again when you open the store or make a purchase. Apple, Google or
+        a web payment provider handle the payment itself. The purchase screen is
+        rendered by RevenueCat and may load its own resources.
       </p>
 
       <h2>Your choices</h2>

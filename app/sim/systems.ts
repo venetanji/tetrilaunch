@@ -20573,6 +20573,94 @@ section("Player accounts (social login + RevenueCat identity)");
   check("a bad token is refused with 401", accountRoute.includes("401"));
   check("an unconfigured Worker refuses with 503", accountRoute.includes("503"));
   check("a RevenueCat 404 is a successful deletion", accountRoute.includes("404"));
+
+  // -------------------------------------------------------------------------
+  // THE DELETION CONFIRMATION (screens.ts's accountDeleteModal).
+  //
+  // The press it guards is the only irreversible one on the account screen, and
+  // it used to be guarded by `window.confirm` — the one dialog in the game the
+  // browser drew, with no pad focus and no say in which answer a stray press
+  // finds. These pin the two properties that make the replacement a guard
+  // rather than a speed bump: the safe answer is the one padnav lands on, and
+  // the panel says what deletion does NOT take.
+  const del = S.accountDeleteModal();
+  const delButtons = [...del.matchAll(/<button[^>]*data-action="(account-delete-[a-z]+)"/g)]
+    .map((m) => m[1]);
+  check("the notice offers exactly the two answers, cancel first",
+    delButtons.length === 2
+      && delButtons[0] === "account-delete-back" && delButtons[1] === "account-delete-go",
+    delButtons.join(","));
+  // padnav's focusInitial takes the FIRST .btn--primary, so the primary is
+  // where a pad and a stray Enter land. On this panel that must be the
+  // reversible answer, exactly as it is on the seal notice.
+  check("keeping the account is the primary — the button a pad lands on",
+    /class="btn btn--primary"[^>]*data-action="account-delete-back"/.test(del));
+  // …and the destructive half is DRAWN destructive. Not colour alone: the
+  // class, the face and the accessible name all say it.
+  check("deleting is styled as the destructive answer",
+    /class="btn btn--secondary btn--danger"[^>]*data-action="account-delete-go"/.test(del));
+  check("the destructive button's accessible name states the price",
+    /aria-label="Delete Account — removes the purchase-recovery identity[^"]*cannot be undone"/
+      .test(del));
+  // THE SECOND PARAGRAPH IS THE POINT, the same argument sealBreakModal makes.
+  // Deletion removes the RevenueCat customer and nothing else (docs/AUTH.md):
+  // a policy that let the panel imply otherwise would scare players off a
+  // control the store rules require to be reachable.
+  check("the notice names what deletion removes — the recovery identity",
+    del.includes("purchase-recovery identity") && del.includes("RevenueCat"));
+  check("...and that the purchase survives it, recoverable by Restore",
+    del.includes("Full Game purchase is not deleted") && del.includes("Restore Purchases"));
+  check("...and that local progress is untouched",
+    /progress is untouched/.test(del) && del.includes("saved on this device"));
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // The whole point of the panel: no browser dialog stands between a player and
+  // this action any more. Asked of the file rather than of the handler, because
+  // the failure mode is a `window.confirm` growing back anywhere in it.
+  check("no browser confirm() guards anything in main.ts",
+    !/window\.confirm\s*\(/.test(mainSrc));
+
+  // -------------------------------------------------------------------------
+  // THE INTERRUPTED PURCHASE (main.ts's paywallReturn).
+  //
+  // The web tier gate sends a signed-out player to the account screen before
+  // the paywall — accounts-before-purchase, so the purchase lands on a durable
+  // identity. What it must also do is COME BACK: signing in is the player
+  // finishing the errand the gate sent them on, and stranding them on the
+  // account screen made them walk back and press the floor again.
+  const paywallBody = mainSrc.slice(
+    mainSrc.indexOf("private async onPaywall("),
+    mainSrc.indexOf("private async onAccountSignIn("),
+  );
+  check("the gate remembers the screen it interrupted",
+    /this\.paywallReturn = this\.state;[\s\S]*this\.setState\("account"\)/.test(paywallBody),
+    "onPaywall does not arm paywallReturn before routing to the account screen");
+  const signInBody = mainSrc.slice(
+    mainSrc.indexOf("private async onAccountSignIn("),
+    mainSrc.indexOf("private async onAccountSignOut("),
+  );
+  // Consumed, not merely read: a destination that survived its own resume would
+  // make the NEXT sign-in from Settings open a paywall nobody asked for.
+  check("a successful sign-in consumes the pending destination",
+    /const back = this\.paywallReturn;\s*\n\s*this\.paywallReturn = null;/.test(signInBody));
+  check("...and a sign-in that was not interrupted lands nowhere",
+    /if \(back === null\) return;/.test(signInBody));
+  check("...and a failed or cancelled sign-in drops it",
+    /catch[\s\S]*this\.paywallReturn = null;\s*\n\s*return;/.test(signInBody));
+  // The resume waits for the RevenueCat identify onAuthChange started. Without
+  // it the paywall can take a payment against the anonymous customer the
+  // sign-in is in the middle of moving off — which is the exact outcome
+  // accounts-before-purchase exists to prevent, arrived at by a different road.
+  check("the resumed paywall waits for the identity to land first",
+    signInBody.indexOf("await this.identifying") > 0
+      && signInBody.indexOf("await this.identifying") < signInBody.indexOf("this.onPaywall()"));
+  // And the destination cannot outlive the visit: every exit from the account
+  // screen is a setState to something else, so this one line is the clear.
+  check("leaving the account screen clears the pending destination",
+    /if \(s !== "account"\) this\.paywallReturn = null;/.test(mainSrc));
 }
 
 console.log(
