@@ -67,8 +67,8 @@
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/screen-orientation": "^8.0.1",
     "@capgo/capacitor-social-login": "^8.5.0",
-    "@revenuecat/purchases-capacitor": "^13.2.5",
-    "@revenuecat/purchases-capacitor-ui": "^13.2.5",
+    "@revenuecat/purchases-capacitor": "^13.4.2",
+    "@revenuecat/purchases-capacitor-ui": "^13.4.2",
     "@revenuecat/purchases-js": "^1.55.0",
     "matter-js": "^0.20.0"
   },
