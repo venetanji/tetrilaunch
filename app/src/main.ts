@@ -97,7 +97,7 @@ import {
   type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
 import { sandboxScreen } from "./ui/sandbox-screen";
-import { render } from "./game/render";
+import { render, renderScale } from "./game/render";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
 import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
@@ -3421,9 +3421,16 @@ class App {
   };
 
   private onResize = (): void => {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = window.innerWidth;
     const h = window.innerHeight;
+    // How many device pixels of canvas backing store one CSS px gets. The
+    // ceiling depends on the viewport — a phone-sized one gets a lower one,
+    // because the frame is fill-bound and a 2017 phone cannot hold the budget
+    // at the ratio a desktop can. The whole derivation, with the numbers,
+    // is over renderScale in game/render.ts. Only the CANVAS is affected: the
+    // DOM chrome keeps the device's real ratio, so every letterform on screen
+    // stays as crisp as the panel can draw it.
+    this.dpr = renderScale(window.devicePixelRatio || 1, w, h);
     this.canvas.width = Math.floor(w * this.dpr);
     this.canvas.height = Math.floor(h * this.dpr);
 

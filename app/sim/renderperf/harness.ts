@@ -66,6 +66,32 @@ export interface RenderPerfOptions {
 export type Variant = "loose" | "cliques" | "mixed";
 export const VARIANTS: readonly Variant[] = ["loose", "cliques", "mixed"];
 
+/**
+ * THE GAME'S OWN CONTEXT, not a default one — `{ alpha: false }`, exactly as
+ * main.ts asks for it.
+ *
+ * This harness exists to price the frame the app draws, and the context flags
+ * are part of what a frame IS. An alpha-less 2D context is opaque: the
+ * rasteriser may skip the per-pixel blend against a transparent backdrop, the
+ * compositor has no alpha channel to carry, and on the tile-based GPUs this
+ * measurement is ultimately aimed at, an opaque layer is the difference between
+ * one pass and two. Timing the app's draw calls through a context the app never
+ * creates measures a plausible frame rather than the real one — and the flag
+ * that differs is precisely the one the whole background-blit design depends
+ * on (render() paints no clearRect because the opaque blit covers every device
+ * pixel, which is only sound on an opaque canvas).
+ *
+ * ONE HELPER RATHER THAN FOUR CALL SITES, because the options only apply to the
+ * call that CREATES the context: every later getContext("2d") on the same
+ * element returns the one already made and ignores what it was passed. The
+ * harness reuses a single #game element across every mode in a page session, so
+ * whichever site ran first would silently decide the flags for all of them. A
+ * helper makes "first" irrelevant.
+ */
+function gameContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
+  return canvas.getContext("2d", { alpha: false });
+}
+
 export interface SceneLayers {
   cubes: boolean;
   seams: boolean;
@@ -298,7 +324,7 @@ function prepare(opts: RenderPerfOptions): {
   canvas.style.height = `${opts.cssH}px`;
   canvas.width = Math.round(opts.cssW * opts.dpr);
   canvas.height = Math.round(opts.cssH * opts.dpr);
-  const ctx = canvas.getContext("2d");
+  const ctx = gameContext(canvas);
   if (!ctx) throw new Error("no 2d context");
 
   const g = buildGame(opts.variant, opts.count);
@@ -351,7 +377,7 @@ function prepare(opts: RenderPerfOptions): {
 
 export function runRenderPerf(opts: RenderPerfOptions): RenderPerfResult {
   const { canvas, g, draw, now: t0now } = prepare(opts);
-  const ctx = canvas.getContext("2d")!;
+  const ctx = gameContext(canvas)!;
   let now = t0now;
 
   const durations = new Array<number>(opts.frames);
@@ -445,7 +471,7 @@ export interface BlitAbResult {
 
 export function blitAb(opts: RenderPerfOptions): BlitAbResult {
   const { canvas, g, draw, now: t0now } = prepare(opts);
-  const ctx = canvas.getContext("2d")!;
+  const ctx = gameContext(canvas)!;
   let now = t0now;
   let skip = false;
   setBlitSkipper(() => skip);
@@ -509,7 +535,7 @@ export function snapshotScene(opts: RenderPerfOptions & { png?: boolean }): Snap
   canvas.style.height = `${opts.cssH}px`;
   canvas.width = Math.round(opts.cssW * opts.dpr);
   canvas.height = Math.round(opts.cssH * opts.dpr);
-  const ctx = canvas.getContext("2d");
+  const ctx = gameContext(canvas);
   if (!ctx) throw new Error("no 2d context");
 
   const g = buildGame(opts.variant, opts.count);

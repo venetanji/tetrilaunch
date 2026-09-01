@@ -55,6 +55,98 @@ export function fitViewport(cssW: number, cssH: number): Viewport {
   };
 }
 
+/**
+ * HOW MANY DEVICE PIXELS THE CANVAS BACKING STORE GETS PER CSS PIXEL — the one
+ * number that decides how much rasterising a frame costs, and the only knob in
+ * this renderer whose effect is linear in the whole frame rather than in one
+ * layer of it.
+ *
+ * THE MEASUREMENT THIS IS BUILT ON. sim/renderperf at an iPhone X's landscape
+ * viewport (css 812x375, N=300 mixed, busy, headless Chromium, p50 of 180
+ * timed frames):
+ *
+ *     dpr 1   -> 4.8 ms      dpr 2  -> 12.2 ms
+ *     dpr 1.5 -> 8.0 ms      dpr 3  -> 23.9 ms
+ *
+ * That is a straight line through the origin in DEVICE PIXELS — the frame is
+ * fill-bound, not call-bound, which the draw-call census corroborates: the same
+ * scene issues the same ~1460 calls per frame at every one of those four
+ * resolutions. --breakdown puts 9.4 of those 11.8 ms (80%) in the cube layer,
+ * which is 150 sprite stamps covering 0.66 MP; the rest is the background blit
+ * (1.0 ms), the aim arc (1.4 ms) and the chrome (1.3 ms). Nothing in that list
+ * gets cheaper by drawing fewer things. All of it gets cheaper, proportionally,
+ * by drawing the same things onto fewer pixels.
+ *
+ * WHY A CAP AT ALL, AND WHY THIS ONE. Uncapped, an iPhone X asks for
+ * devicePixelRatio 3 and a 2436x1125 backing store. The 2 that was already here
+ * removed the worst of that (23.9 ms -> 12.2 ms). What it did not do is notice
+ * that a phone and a desktop are asking the same question with very different
+ * hardware behind them: at css 1280x720 a desktop rasterises a 1196x673 FIELD,
+ * and a retina laptop at 1440x900 rasterises 2712x1526 — four times the iPhone
+ * X's field at dpr 2 — on a GPU that does not care. A single global ceiling
+ * cannot be right for both, so the ceiling is now two ceilings and the viewport
+ * chooses between them.
+ *
+ * COMPACT_SHORT_EDGE_CSS IS THE TEST, and it is deliberately a measurement of
+ * the VIEWPORT rather than a guess about the device. No user-agent string, no
+ * hardwareConcurrency (an iPhone X reports 6, the same as a workstation),
+ * no deviceMemory (Safari does not implement it). A short edge of 480 CSS px or
+ * less is every phone in either orientation and nothing else: an iPad's short
+ * edge is 768, a desktop window that narrow is a sliver nobody plays in. The
+ * one thing it does not catch is a phone-shaped window on a fast machine, which
+ * loses sharpness it could have afforded — a fair price for never mistaking a
+ * slow phone for a fast one.
+ *
+ * WHAT IT COSTS, STATED PLAINLY, BECAUSE IT IS A REAL REGRESSION. On the iPhone
+ * X the canvas goes from 1624x750 to 1218x562: 44% fewer device pixels, and the
+ * measured frame goes from 12.2 ms to 8.0 ms (-34% — the gap between 44 and 34
+ * is the per-call work that does not scale with area). In physical terms the
+ * field is rasterised at ~239 ppi instead of ~318 ppi across a 5.1-inch-wide
+ * display area, which is below the ~300 ppi that a phone at arm's length can
+ * resolve. It IS softer. Two things make it the right trade anyway:
+ *
+ *   - Every glyph the player reads is DOM, and the DOM keeps the device's full
+ *     ratio — the HUD, the plant crest, the rail, every modal. This changes the
+ *     resolution of neon glow art whose edges are Gaussian by construction, and
+ *     of nothing with a letterform in it.
+ *   - The alternative is worse than soft. main.ts's accumulator caps catch-up at
+ *     MAX_CATCHUP_STEPS, so a frame that misses 30fps does not drop frames, it
+ *     runs the SIMULATION slow. Over-budget frames are not a smoothness problem
+ *     on this codebase, they are the game visibly playing in slow motion —
+ *     which is exactly what the first iPhone X run reported.
+ *
+ * FREE ON THE SPRITE CACHES, which is worth stating because it is not obvious.
+ * syncSpriteScale clamps the bake scale to [1, 3], and at css 812x375 the world
+ * scale is 0.426, so the bake target is 0.85 at dpr 2 and 0.64 at dpr 1.5 —
+ * both clamp to 1. The two resolutions bake the SAME sprites at the SAME scale
+ * and differ only in how large each one is stamped. No extra bakes, no extra
+ * sprite memory, and no cache flush when a device crosses the threshold by
+ * rotating.
+ *
+ * THIS IS THE STATIC HALF OF THE RIGHT ANSWER. The honest version measures the
+ * frame it is actually achieving and steps the scale down a rung when it cannot
+ * hold the budget — no viewport heuristic at all, and a fast phone keeps its
+ * pixels. That needs a governor with a feedback path back into the canvas
+ * backing size, which is a bigger seam than this pass owns; see the PR for the
+ * shape of it. A fixed rung that is right for the slow case is a better place to
+ * start than a ratio that is wrong for it.
+ */
+export const MAX_RENDER_DPR = 2;
+/** @see renderScale — the ceiling for a phone-sized viewport. */
+export const COMPACT_MAX_RENDER_DPR = 1.5;
+/** @see renderScale — short edge, in CSS px, at or under which a viewport is
+ *  treated as a phone's. */
+export const COMPACT_SHORT_EDGE_CSS = 480;
+
+export function renderScale(deviceRatio: number, cssW: number, cssH: number): number {
+  // A ratio of 0, NaN or undefined is a browser that has not laid out yet, not
+  // a request for a zero-pixel canvas.
+  const ratio = Number.isFinite(deviceRatio) && deviceRatio > 0 ? deviceRatio : 1;
+  const shortEdge = Math.min(cssW, cssH);
+  const compact = shortEdge > 0 && shortEdge <= COMPACT_SHORT_EDGE_CSS;
+  return Math.min(ratio, compact ? COMPACT_MAX_RENDER_DPR : MAX_RENDER_DPR);
+}
+
 /** Map a client (CSS px) point to world coordinates. */
 export function screenToWorld(
   cssW: number,
@@ -938,9 +1030,26 @@ function getBackgroundLayer(
   if (bgLayer && bgLayerKey === key) return bgLayer;
 
   if (!bgLayer) bgLayer = document.createElement("canvas");
-  bgLayer.width = w; // also resets the context's transform
-  bgLayer.height = h;
+  // RESIZE ONLY WHEN THE SIZE ACTUALLY CHANGED. Assigning canvas.width throws
+  // the backing store away and allocates a fresh one — on a phone that is a new
+  // GPU surface for a 1218x562 layer — and it used to happen on every re-bake.
+  // Most re-bakes are not resizes: the cache key also carries the congestion
+  // rows, whose `lit` count steps once per compactorMinLineCells cubes, so a
+  // busy bay re-bakes several times a second at a size that never moved. The
+  // opaque fill below covers every device pixel of the layer, so there is
+  // nothing a realloc would clear that the repaint does not.
+  //
+  // What the assignment ALSO did was reset the context transform, and the fill
+  // that follows is in device space. Now that it may not run, the reset is
+  // explicit — without it the second re-bake at a given size would fill (0,0,w,h)
+  // through the previous bake's world transform and paint the backdrop over a
+  // fraction of the layer.
+  if (bgLayer.width !== w || bgLayer.height !== h) {
+    bgLayer.width = w;
+    bgLayer.height = h;
+  }
   const bctx = bgLayer.getContext("2d")!;
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
   bctx.fillStyle = COLORS.bg;
   bctx.fillRect(0, 0, w, h);
   bctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
