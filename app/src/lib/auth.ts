@@ -188,16 +188,22 @@ export async function initAuth(): Promise<AuthState> {
   initPromise = (async () => {
     if (!providers.google && !providers.apple) return;
     const social = await plugin();
+    // On web, pin the OAuth redirect to the bare origin. Left unset, the
+    // plugin falls back to the current page URL — for Apple that is the full
+    // href, query string included — so opening the game through any link with
+    // parameters would send a redirect_uri no console has registered and
+    // every sign-in would fail. The registered URIs are exactly `origin/`.
+    const webRedirect = platform === "web" ? `${location.origin}/` : undefined;
     await social.initialize({
       ...(providers.google && {
         google: platform === "ios"
           ? { iOSClientId: GOOGLE_IOS_ID }
-          : { webClientId: GOOGLE_WEB_ID },
+          : { webClientId: GOOGLE_WEB_ID, ...(webRedirect && { redirectUrl: webRedirect }) },
       }),
       // Web needs the Services ID; native iOS Sign in with Apple is keyed to
       // the app's own bundle id, so an empty object is the whole config.
       ...(providers.apple && {
-        apple: platform === "ios" ? {} : { clientId: APPLE_WEB_ID },
+        apple: platform === "ios" ? {} : { clientId: APPLE_WEB_ID, redirectUrl: webRedirect },
       }),
     });
   })();

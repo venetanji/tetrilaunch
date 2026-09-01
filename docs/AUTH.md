@@ -55,11 +55,20 @@ Worker vars (`wrangler.jsonc`, public — not secrets):
 
 Google (one Cloud project for all three clients):
 
-1. **Web application** client — authorized JavaScript origins:
-   `https://tetrilaunch.com`, the staging Worker URL
-   (`https://tetrilaunch-staging.<account>.workers.dev`), and
-   `http://localhost:5173` for dev. This id is `VITE_GOOGLE_WEB_CLIENT_ID`
-   and the Worker's `GOOGLE_WEB_CLIENT_ID`.
+1. **Web application** client. The plugin's web flow opens a classic OAuth
+   popup whose `redirect_uri` is the page's own URL (`origin + pathname` —
+   the app lives at the root, so that is the origin **with a trailing
+   slash**), so both lists matter and redirect URIs are matched exactly:
+   - Authorized JavaScript origins: `https://tetrilaunch.com`,
+     `https://tetrilaunch-staging.<account>.workers.dev`,
+     `http://localhost:5173`.
+   - Authorized redirect URIs: `https://tetrilaunch.com/`,
+     `https://tetrilaunch-staging.<account>.workers.dev/`,
+     `http://localhost:5173/` — trailing slash included, or Google answers
+     `Error 400: redirect_uri_mismatch`.
+
+   This id is `VITE_GOOGLE_WEB_CLIENT_ID` and the Worker's
+   `GOOGLE_WEB_CLIENT_ID`.
 2. **iOS** client for bundle id `com.tetrilaunch.game` →
    `VITE_GOOGLE_IOS_CLIENT_ID` / `GOOGLE_IOS_CLIENT_ID`. Its REVERSED client
    id also goes into `Info.plist` as a URL scheme — see docs/ios.md.
@@ -74,8 +83,11 @@ Apple:
 1. Enable **Sign in with Apple** on the App ID `com.tetrilaunch.game`
    (docs/ios.md — the Xcode capability registers it).
 2. Create a **Services ID** for the web popup, enable Sign in with Apple on
-   it, and register the site origins (`tetrilaunch.com`, the staging Worker
-   host) as its web domains/return URLs. That Services ID is
+   it, and register `tetrilaunch.com` and the staging Worker host as its
+   web domains, with `https://tetrilaunch.com/` and the staging Worker URL
+   + `/` as return URLs (the popup's `redirectURI` is the page's own URL).
+   Apple accepts only https — there is no localhost entry, so the Apple web
+   button is tested on staging, not in dev. That Services ID is
    `VITE_APPLE_WEB_CLIENT_ID` and the Worker's `APPLE_WEB_CLIENT_ID`.
 
 ## Test matrix

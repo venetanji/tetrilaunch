@@ -240,9 +240,19 @@ export async function presentPaywall(): Promise<boolean> {
   if (!isNative) {
     try {
       if (!ready || !webPurchases) return unlimited;
-      const result = await webPurchases.presentPaywall({});
+      // Without onBack the overlay is a one-way door: the SDK only wires a
+      // back/close affordance when the callback exists, so a player who
+      // opened the paywall by mistake was stuck on it (observed on staging).
+      const result = await webPurchases.presentPaywall({
+        onBack: (closePaywall) => closePaywall(),
+      });
       setUnlimited(readUnlimited(result.customerInfo));
     } catch (err) {
+      // Walking away is the paywall working, not the paywall failing.
+      const { PurchasesError, ErrorCode } = await import("@revenuecat/purchases-js");
+      if (err instanceof PurchasesError && err.errorCode === ErrorCode.UserCancelledError) {
+        return unlimited;
+      }
       console.warn("[purchases] web paywall failed", err);
     }
     return unlimited;
@@ -250,7 +260,9 @@ export async function presentPaywall(): Promise<boolean> {
   try {
     const { RevenueCatUI, PAYWALL_RESULT } = await sdk();
     if (!ready) return unlimited;
-    const { result } = await RevenueCatUI.presentPaywall();
+    // Ignored by V2 dashboard paywalls (their close button is an editor
+    // component); kept so an original-template fallback still gets one.
+    const { result } = await RevenueCatUI.presentPaywall({ displayCloseButton: true });
     if (result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED) {
       await refresh();
     }

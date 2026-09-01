@@ -59,5 +59,17 @@
 	     export-compliance question on every upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Google's native sign-in returns to the app through this scheme: the
+	     iOS OAuth client id, reversed (docs/ios.md §2.3). Nothing else routes
+	     through custom schemes. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.714329523893-gj701r86l0jkqaisq1bfvrft6glncrhe</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
