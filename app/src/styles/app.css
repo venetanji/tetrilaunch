@@ -246,7 +246,52 @@ body.crt-off #app::after { display: none; }
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
   min-height: 0;
-  padding: var(--hud-pad);
+  /* PER SIDE, and never less than the device says is reachable.
+     `padding: var(--hud-pad)` was the whole of this rule, and .build-tag's
+     comment twelve lines below already admitted what that costs — "--hud-pad
+     alone (the .screen padding) is not safe-area-aware, so on a notched
+     landscape phone the tag would otherwise sit inside the cutout". The tag
+     got the corner workaround. The screens it sits on never did, and an owner
+     found the difference on an iPhone X: "some screens are cut like the
+     contracts screen". At 812px wide --hud-pad clamps to 17.9px against a
+     44px cutout, so the Contracts header, its first card and the ✕ were each
+     26px under the camera and the corner radius. Forty-three of the eighty
+     uifit fixtures were doing it (see run.ts's `safearea`, which is the
+     assertion that can finally see this — `offscreen` measures the VIEWPORT
+     edges, and a notch is not off the viewport, it is 44px inside it).
+
+     max() per side rather than `calc(--hud-pad + inset)`: the inset is not
+     extra breathing room to add, it is a floor the padding must clear. A
+     44px cutout with 18px of design padding wants 44, not 62 — the corner
+     controls use the additive form because a control pushed off the cutout
+     still wants its own margin from the edge, and a screen's content does
+     not want two paddings.
+
+     DELIBERATELY NOT DIVIDED BY --chrome-zoom, and this is the one subtlety
+     worth writing down, because `zoom` does scale padding and the naive
+     reading says a 44px inset under zoom Z covers 44*Z. That reading is
+     right, and it is safe in the only direction that matters here: layout.ts
+     clamps chromeZoom to [1, UI_ZOOM_MAX], so the error is always toward MORE
+     clearance than the cutout needs, never less. And it is inert on every row
+     in the matrix, which is arithmetic rather than hope. Zoom exceeds 1 only
+     when the usable box clears 1000x720 on BOTH axes (uiScaleFor takes the
+     smaller ratio), and no device with a side cutout comes close: every
+     notched iPhone row is 440px tall or less, so all of them solve to exactly
+     zoom 1. The two rows that ARE magnified, the iPads at 1.02 and 1.37, carry
+     only the 20px home indicator, and --hud-pad is already 22.5px and 28px
+     there — so max() picks --hud-pad and the inset term never binds at all.
+     sim/systems.ts pins the load-bearing half (a side inset implies zoom 1).
+     What is NOT written here is `calc(var(--inset-l) / var(--chrome-zoom))`:
+     dividing a length by a var()-held number is CSS Values 4, and if any
+     engine we ship to declines to parse it the WHOLE padding declaration is
+     dropped — leaving these screens with no padding at all, on the exact
+     platform this fix exists for. A provably-zero gain is not worth that
+     failure mode. */
+  padding:
+    max(var(--hud-pad), var(--inset-t))
+    max(var(--hud-pad), var(--inset-r))
+    max(var(--hud-pad), var(--inset-b))
+    max(var(--hud-pad), var(--inset-l));
   overflow: hidden;
 }
 .screen > * { min-height: 0; }
@@ -5550,11 +5595,28 @@ body.crt-off #app::after { display: none; }
   display: flex;
   overflow-y: auto;
   animation: fade var(--dur) var(--ease);
-  /* Deliberately NO padding, unlike `.screen`. The refit yard asks for
+  /* Deliberately NO --hud-pad, unlike `.screen`. The refit yard asks for
      `96vw` inline (screens.ts) — wider than a --hud-pad inset would leave —
      and insetting the scrim would quietly overrule the one modal that was
      measured to want the extra 3px. `.modal`'s height cap is written to
-     work under either parent instead; see the note on it below. */
+     work under either parent instead; see the note on it below.
+
+     THE SAFE AREA IS NOT --hud-pad AND IS NOT OPTIONAL, which is why this is
+     no longer "no padding" flat. Design padding is a choice about how much
+     air a panel wants; a notch is a statement about which pixels the device
+     can display at all, and `96vw` of an 812px iPhone X is 779px centred in
+     812 — 16px of margin against a 44px cutout, so the draft, refit and
+     inspection panels each ran 15px under the camera on both sides. Nothing
+     else could see it: the panel was inside the viewport (`offscreen` green),
+     inside its own box (`textclip` green) and overlapped nothing.
+
+     Insets only, so this is EXACTLY the previous rule on every device without
+     them — every Android row, every desktop window, the iPads horizontally —
+     and the 96vw measurement it protects is untouched there. Where there IS a
+     cutout the panel is a flex item and simply shrinks into the box that is
+     left, which is the honest answer: 96% of the screen you can see, rather
+     than 96% of the screen you have. */
+  padding: var(--inset-t) var(--inset-r) var(--inset-b) var(--inset-l);
 }
 /* `.modal` never exceeds the visible viewport (dvh with a vh fallback for
    WebViews without dvh support), and centers itself with `margin: auto`
@@ -5606,6 +5668,28 @@ body.crt-off #app::after { display: none; }
      axis ratios, so zoom > 1 implies at least 1000px of width). */
   max-height: min(100%, calc(100vh - (var(--hud-pad) * 2)));
   max-height: min(100%, calc(100dvh - (var(--hud-pad) * 2)));
+  /* THE WIDTH HALF OF THE SAME CAP, and the two lines that make the scrim's
+     new safe-area padding actually bind.
+     Every `width` a modal carries is `min(<design px>, <n>vw)`, and `vw` is
+     the whole viewport — cutout included. So on a notched phone a modal keeps
+     asking for a width that does not exist: Settings wants min(720px, 94vw) =
+     720 on an iPhone 13 mini whose usable box is 680, and without these it got
+     it, overflowing the padded scrim by 40px and putting Restore Purchases and
+     the ✕ back under the camera. `max-width: 100%` is the one expression that
+     caps all of them at once — the scrim's content box under a scrim, the
+     screen's under `.screen.center` — without editing nine `vw` guards and the
+     three inline `min(940px, 96vw)` styles in screens.ts, and without teaching
+     any of them what an inset is.
+     `min-width: 0` is what lets the cap take effect at all. A flex item's
+     automatic minimum is its min-content width, so a modal whose columns are
+     wider than the safe box refuses to shrink and simply overflows — measured
+     on Settings, which sat at exactly its declared 720px inside a 680px
+     content box. Its cross-axis twin `min-height: 0` is deliberately NOT here:
+     the height cap above is already explicit, and .end/.end__side own that
+     argument (see the note on .end__main's automatic minimum, which exists
+     precisely because taking it away let a column paint over the buttons). */
+  max-width: 100%;
+  min-width: 0;
   margin: auto;
   padding: clamp(20px, 4vw, 40px);
   text-align: center;
@@ -8999,6 +9083,27 @@ button.panel { color: var(--text); }
      MENU, and at 10px a side it is still 65px wide and its full height. */
   .end .end__actions { column-gap: var(--sp-2); }
   .end .end__actions .btn { padding-left: 10px; padding-right: 10px; }
+  /* THE SALVAGE SENTENCE JOINS ITS OWN NEIGHBOURS AT 1.3, and it is here
+     because the safe-area work made this column narrower still. `.end` is now
+     capped at the box the device can actually show (see .modal's max-width
+     note), so on an iPhone 13 mini the panel is 680px rather than the 733px of
+     raw viewport it used to take — 100px of that screen is under the notch —
+     and the outcome column went from ~395px to 367px with it.
+     The salvage row spends that width exactly the way the grid's own note
+     warns it will: the sentence sits between a fixed button and the amount, so
+     28px off the column is 28px off the sentence, and the Tier S practice-run
+     copy took a FIFTH wrapped line. Measured on that row: the grid asked for
+     246.4 + 8 + 50 = 304.4px inside a 300.4px content box, 4.0px over.
+     Five lines at 11.5px go from 80.5px to 74.8px here, which pays it with
+     1.7px to spare. Widening the sentence instead does not work and was tried:
+     10px a side off the button's padding hands it 8px and it still wraps to
+     five — a line costs ~25% more width, not 8px.
+     This is a step DOWN A STAIRCASE THAT ALREADY EXISTS rather than a new
+     number: the base sets 1.5, the middle tier 1.4, and two of this very
+     block's own rules — .end__next and .end__seal — are already at 1.3. The
+     salvage sentence was the one wrapped paragraph on the card still at 1.4,
+     so this makes the tightest tier internally consistent as well as fitting. */
+  .end .salvage-row__body span { line-height: 1.3; }
   /* BACKSTOP, inert unless the panel actually overflows. Every rule above is a
      height budget, and a budget can be blown by something none of them
      anticipated — a longer bay name, a four-digit bankroll, a translation, or
