@@ -178,7 +178,7 @@ function systemTopics(): GuideTopic[] {
     summary: u.blurb,
     body:
       `${u.blurb}<br><b>Tier 1</b> ${u.tiers[0]}. <b>Tier ${MAX_TIER}</b> ${u.tiers[MAX_TIER - 1]}.`
-      + ` Tiers 1-2 are Workshop purchases — salvage, once, yours forever, on the Tier's`
+      + ` Tiers 1-2 are Workshop purchases — salvage, once, yours forever, on your`
       + ` build budget; the rest up to tier ${MAX_TIER} is scrap at a refit stop, for the run.`,
     tier: gate[u.id] ?? 1,
     system: u.id,
