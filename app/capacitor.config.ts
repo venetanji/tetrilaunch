@@ -54,6 +54,17 @@ const config: CapacitorConfig = {
     limitsNavigationsToAppBoundDomains: false,
   },
   plugins: {
+    // hidden:true is two statements in one, both wanted: the status bar stays
+    // hidden (restating Info.plist's UIStatusBarHidden through the plugin that
+    // owns it at runtime) and — the reason this entry exists — iOS's home
+    // indicator auto-hides. Capacitor's SystemBars plugin overrides
+    // prefersHomeIndicatorAutoHidden on the bridge view controller and feeds
+    // it from THIS config; a subclass cannot override the property (it is
+    // public, not open — the first CI build tried). On Android the same flag
+    // hides the system bars for the same fullscreen reasons.
+    SystemBars: {
+      hidden: true,
+    },
     ScreenOrientation: {
       // Handled at runtime via @capacitor/screen-orientation (lock landscape —
       // see lib/platform's lockLandscape).
