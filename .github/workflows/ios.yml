@@ -161,7 +161,12 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          # Integers only: App Store Connect rejects CFBundleShortVersionString
+          # with any prerelease suffix ("1.0.1-alpha.1" failed run #5's upload
+          # after a clean archive). The policy is plain major.minor.patch in
+          # package.json from now on; the split is the belt to that policy's
+          # suspenders, so a future -beta.N can never reach Apple.
+          VERSION=$(node -p "require('./package.json').version.split('-')[0]")
           xcodebuild archive \
             -project ios/App/App.xcodeproj \
             -scheme App \
