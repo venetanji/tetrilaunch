@@ -180,10 +180,13 @@ import {
   RAIL_SLOTS_BASE,
   RAIL_SLOTS_MAX,
   railSlotsFor,
+  readingOf,
   setRailSlots,
   setSafeAreaInsets,
+  sizeChanged,
   skyTop,
   UI_SCALE_MIN,
+  viewportChanged,
 } from "../src/game/layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
@@ -4647,7 +4650,120 @@ section("Layout solver (layout.ts)");
   setSafeAreaInsets({ left: 60, right: 0, top: 0, bottom: 20 });
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
+  // ...and the BOTTOM inset must come out of the HEIGHT, which until now
+  // nothing here said. The pin above is about the notch, and the solver's own
+  // header reinforces the same half of the story — it describes the insets as
+  // eating "the left or right edge, not the top", which reads like a claim
+  // that only the horizontal matters in landscape. It is not: an iPhone in
+  // landscape gives up ~44px a side to the notch AND 21px at the foot to the
+  // home indicator, and a field that spent that 21px would put its bottom rail
+  // (and the compactor sweep behind it) inside the system's swipe zone.
+  //
+  // Stated as a DIFFERENCE rather than as a bound, because a bound does not
+  // bite. On the reported iPhone X box the rail's reserved bottom band is 68px
+  // — three times the home indicator — so "the field ends above y=354" is true
+  // whether or not the inset was ever subtracted, and a pin written that way
+  // passes against a solver that ignores it completely (measured: it does).
+  // What only holds when the inset is really spent is that adding it costs the
+  // field exactly its own height.
+  setRailSlots(RAIL_SLOTS_MAX);
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 0 });
+  const noIndicator = computeLayout(812, 375);
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 21 });
+  const iphone = computeLayout(812, 375);
+  const cost = (noIndicator.oy + noIndicator.fh) - (iphone.oy + iphone.fh);
+  check("the home indicator costs the field its own 21px",
+    Math.abs(cost - 21) < 0.5,
+    `bottom edge moved up ${cost.toFixed(1)}px, not 21px`);
+  check("...and the field still clears it outright",
+    iphone.oy + iphone.fh <= 375 - 21 + 0.5,
+    `field ends at ${(iphone.oy + iphone.fh).toFixed(1)} of ${375 - 21}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Stale-viewport detection (layout.ts viewportChanged)");
+// The predicate behind main.ts's dimension watchdog, and the reason it is a
+// pure function in layout.ts rather than an inline comparison in the resize
+// handler: the bug it answers (iPhone X / iOS 16.7 WKWebView, the HUD solved
+// against a portrait-sized viewport and left hanging below the real screen)
+// cannot be reproduced on this side of the device, so the part that CAN be
+// checked without one has to be checkable without one.
+//
+// computeLayout is pure, so "is the published layout stale?" is exactly "does a
+// fresh reading of its six inputs differ from the reading it was made from?".
+// These pin that equivalence in both directions — a reading that differs must
+// be reported, and one that does not must not be, because a predicate that
+// answered true too often would re-solve (and throw away the canvas backing
+// store) on every frame.
+// ---------------------------------------------------------------------------
+{
+  const flat = { left: 0, right: 0, top: 0, bottom: 0 };
+  const notch = { left: 44, right: 44, top: 0, bottom: 21 };
+  const solved = readingOf(812, 375, notch);
+
+  check("nothing solved yet disagrees with everything",
+    viewportChanged(null, solved));
+  check("the same box read twice agrees",
+    !viewportChanged(solved, readingOf(812, 375, notch)));
+
+  // THE REPORTED SHAPE. A boot that solved the portrait box, or any of the
+  // half-rotated intermediates iOS reports on the way, has to be caught — this
+  // is the reading that produced a "tall" solve with its rail band below the
+  // real screen bottom.
+  check("a portrait boot box disagrees with the landscape one",
+    viewportChanged(readingOf(375, 812, notch), solved));
+  check("a stale HEIGHT alone is enough to disagree",
+    viewportChanged(readingOf(812, 812, notch), solved));
+  check("a stale WIDTH alone is enough to disagree",
+    viewportChanged(readingOf(375, 375, notch), solved));
+
+  // The cousin bug the settle timers were written for: the size never changes,
+  // the insets arrive late. The watchdog's interval tick is the only caller
+  // that measures insets, and this is why it has to.
+  check("insets arriving late at an unchanged size disagree",
+    viewportChanged(readingOf(812, 375, flat), solved));
+  check("each inset edge counts on its own",
+    [
+      { ...notch, left: 0 }, { ...notch, right: 0 },
+      { ...notch, top: 8 }, { ...notch, bottom: 0 },
+    ].every((safe) => viewportChanged(readingOf(812, 375, safe), solved)));
+
+  // ...and the other direction, which is what keeps the per-frame caller free.
+  check("sub-pixel wobble is not a change",
+    !viewportChanged(readingOf(812.2, 374.8, notch), solved));
+  check("a whole pixel IS a change",
+    viewportChanged(readingOf(812, 374, notch), solved));
+
+  // THE FRAME LOOP'S HALF. main.ts calls sizeChanged sixty times a second and
+  // viewportChanged five times a second, so the two must not be able to
+  // disagree about a SIZE — a frame path with its own epsilon, or its own
+  // idea of what a null previous reading means, is a second implementation of
+  // the same rule that only ever runs where nobody can see it.
+  for (const [w, h] of [[812, 375], [812.2, 374.8], [812, 374], [375, 812], [812, 812]]) {
+    check(`sizeChanged and viewportChanged agree about ${w}x${h}`,
+      sizeChanged(solved, w, h) === viewportChanged(solved, readingOf(w, h, notch)),
+      `${sizeChanged(solved, w, h)} vs ${viewportChanged(solved, readingOf(w, h, notch))}`);
+  }
+  check("the frame path also treats an unsolved layout as stale",
+    sizeChanged(null, 812, 375));
+  // ...and the one thing it deliberately CANNOT see, which is why the interval
+  // exists at all. Stated rather than left implicit: a reader who assumes the
+  // per-frame check covers everything would delete the interval.
+  check("the frame path is blind to an inset-only change",
+    !sizeChanged(solved, 812, 375)
+      && viewportChanged(solved, readingOf(812, 375, flat)));
+
+  // readingOf must COPY the insets. lib/platform's applySafeAreaInsets hands
+  // back a fresh object but layout.ts's module cache is overwritten in place,
+  // so a reading that held the caller's object by reference would mutate along
+  // with it and agree with every future reading — a watchdog that could never
+  // fire, passing every test that only ever compared literals.
+  const live = { ...notch };
+  const held = readingOf(812, 375, live);
+  live.bottom = 0;
+  check("a reading keeps its own copy of the insets",
+    viewportChanged(held, readingOf(812, 375, live)));
 }
 
 // ---------------------------------------------------------------------------
