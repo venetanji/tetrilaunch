@@ -2,9 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- height=device-height is the half of the classic iPhone-X recipe this
+         tag was missing (viewport-fit=cover being the famous half, present
+         since the notch work). Without it WKWebView may size the LAYOUT
+         viewport taller than the visible screen, and everything keyed to that
+         height lays out with a band of itself below the glass — the shape of
+         the HUD clip TestFlight 1.0.2 (7)-(11) showed on iOS 16. Browsers
+         derive height from width and ignore this value, so the web build is
+         unaffected. -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#07070f" />
     <meta name="mobile-web-app-capable" content="yes" />
