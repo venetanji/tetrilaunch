@@ -3025,7 +3025,66 @@ body.crt-off #app::after { display: none; }
      height meant ANY future overflow (a longer label, wider font metrics, a
      translation) would silently clip content, and that's the class of bug worth
      designing out rather than re-tuning. */
-  bottom: calc(100% - var(--field-y) - 0.9703 * var(--field-h));
+  /* ...AND CLAMPED TO THE SCREEN THE PLAYER CAN SEE, which is the half this
+     rule was missing.
+     Reported from an iPhone X (iOS 16.7, WKWebView) on a build already
+     carrying the dimension watchdog and the notch fix: the HUD "drops
+     everything after the reload bar" — the funds readout and RELOAD draw, and
+     the meta line, the notch line and the ship rack below them are off the
+     bottom of the screen. The rail, the belt and the bay banner are fine.
+
+     That list is the diagnosis. Every other piece of HUD chrome is
+     TOP-anchored off the same solved field rect (.belt, .bay-banner,
+     .settle-note and the vertical .side-rail all read `top: calc(var(--field-y)
+     + …)`), and the one form of the rail that is not — the horizontal strip in
+     "tall" mode — already clamps itself with `max(calc(4px + var(--inset-b)),
+     …)`. This panel was the only thing in the HUD anchored to the BOTTOM of
+     the field with nothing tying it to the viewport, so whatever puts the
+     field's bottom edge below the screen's leaves every sibling untouched and
+     walks THIS panel's tail off the fold. One unclamped anchor, one symptom.
+
+     Two things put it there, and one `max()` answers both:
+       1. A SOLVE against a viewport taller than the real one. main.ts's
+          watchdog is a STALENESS detector — it re-solves when a fresh reading
+          disagrees with the one the published layout was made from — so it
+          cannot help while the reading itself goes on being wrong the same way
+          every time. `var(--inset-b)` is the floor for that case: the panel
+          stops at the home indicator instead of walking past it.
+       2. A CONTAINING BLOCK taller than the visible viewport. `100%` here is
+          #app, which is `position: fixed; inset: 0` — the LAYOUT viewport, a
+          box .modal's own max-height cap below already describes as taller
+          than the visible one on a mobile WebView. `bottom` is measured from
+          ITS bottom edge, so a container hanging below the screen takes the
+          panel with it while window.innerHeight and the solver agree
+          perfectly. `100% - 100dvh` is exactly that overhang, and it is zero
+          whenever the two viewports agree.
+
+     TWO DECLARATIONS, `vh` first, on .modal's own precedent: a WebView without
+     `dvh` drops the second line and keeps the first, where the viewport term
+     collapses to nothing and `--inset-b` is left holding case 1 on its own.
+
+     NEVER THE BINDING TERM ON A CORRECT SOLVE, and that is pinned rather than
+     asserted: sim/systems.ts walks every row of sim/uifit's device matrix at
+     every rail budget a run can build and fails if the solved anchor does not
+     already clear the visible bottom. The tightest row in the matrix (iPhone X,
+     snug) clears it by 10.5px, so this changes nothing the harness measures on
+     either engine — it is a guard, and a clamp that fired on a correct solve
+     would be a regression wearing a guard's clothes.
+
+     WHICH MAKES IT AN INSTRUMENT TOO, and that is worth knowing on a device
+     with no console open. Because the clamp cannot bind on a correct solve,
+     a computed `bottom` that reads back as --inset-b instead of the solved
+     fraction is proof the layout was already wrong — one number, read once,
+     that separates "this panel is misplaced" from "this panel is too big"
+     without needing to know which of the two cases above put it there. */
+  bottom: max(
+    calc(100% - 100vh + var(--inset-b)),
+    calc(100% - var(--field-y) - 0.9703 * var(--field-h))
+  );
+  bottom: max(
+    calc(100% - 100dvh + var(--inset-b)),
+    calc(100% - var(--field-y) - 0.9703 * var(--field-h))
+  );
   height: auto;
   min-height: calc(0.4296 * var(--field-h));
   z-index: 6;
