@@ -565,5 +565,46 @@
   ],
   "iOS · iPhone SE 3|menu|tap": [
     ".tower__floor 82x27"
+  ],
+  "iOS · iPhone X|menu-first|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu-live|tap": [
+    ".tower__floor 108x27"
+  ],
+  "iOS · iPhone X|menu-nostore-live|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu-nostore|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu-skydeck-live|tap": [
+    ".tower__floor 108x27"
+  ],
+  "iOS · iPhone X|menu-skydeck|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu-tier-s-live|tap": [
+    ".tower__head 114x22",
+    ".tower__floor 108x27"
+  ],
+  "iOS · iPhone X|menu-tier-s|tap": [
+    ".tower__head 114x22",
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu-tower-top-live|tap": [
+    ".tower__floor 108x27"
+  ],
+  "iOS · iPhone X|menu-tower-top|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu-unlimited-live|tap": [
+    ".tower__floor 108x27"
+  ],
+  "iOS · iPhone X|menu-unlimited|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone X|menu|tap": [
+    ".tower__floor 108x26"
   ]
 }
