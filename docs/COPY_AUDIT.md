@@ -170,32 +170,52 @@ game modules — is what `tierIncluded`/`FREE_TIER_LIMIT` in effect became.
 
 ### Privacy and data disclosures
 
-*Still open, and out of scope for the terminology pass.* Re-verified against the
-current tree: `public/privacy.html` still says a leaderboard record is “exactly
-four things plus the time of submission” and still calls the highest bay the
-“level reached”, and `store/play/data-safety.csv` is still the declaration the
-policy has to be reconciled with. These want a store-review owner, not a copy
-diff, so this pass left them alone rather than half-answering them.
+*Mostly implemented.* Four of the five findings below were answered by the
+account/paywall pass; the fifth is a classification question Google has to
+settle and is the only one still open. Each bullet now carries its own verdict,
+because “still open” as a section heading was hiding the fact that most of this
+was a copy diff after all — what wanted a store-review owner was the *last*
+bullet, not the section.
 
-- `public/privacy.html:98-109` says a leaderboard record contains exactly four
-  things plus time. The client also sends the board key (`mark`) and a board day;
-  the Worker persists the board key for all scores and the UTC day for Skydeck
-  scores (`lib/api.ts:280-295`, `worker/index.ts:186-188`, `245-248`). The policy
-  should disclose display name, score, board/Tier, highest bay reached, lines,
-  Skydeck board day when applicable, and submission time.
-- `public/privacy.html:105` calls the highest bay the “level reached.” “Highest
-  bay reached” matches the game and the code's own schema commentary.
-- `public/privacy.html:82-84`, `156-159`, and `164` say nothing leaves the device
-  without a score and that RevenueCat is contacted only when the store opens or
-  a purchase occurs. Native startup calls `initPurchases()`, which configures
-  RevenueCat and fetches customer information (`main.ts:985-993`,
-  `lib/purchases.ts:149-155`).
-- `store/play/data-safety.csv:252-258` declares purchase history for app
+- ~~`public/privacy.html:98-109` says a leaderboard record contains exactly four
+  things plus time.~~ **Resolved.** Re-read against the Worker and the schema
+  rather than against the old sentence: `POST /api/scores` binds `name`, `score`,
+  `mark`, `level`, `lines`, `created_at` and takes `day`'s column default of 0,
+  and `POST /api/daily` binds the same seven with a real `day`
+  (`worker/index.ts`, `migrations/0003_daily_boards.sql`). The policy now lists
+  all seven in player-facing words — display name, score, the **board** (the
+  Tier, Tier S, or the Skydeck), the highest **bay** reached, lines, the Skydeck
+  **board day** where there is one, and the submission time — and says outright
+  that every other board is all-time and stores no day.
+- ~~`public/privacy.html:105` calls the highest bay the “level reached.”~~
+  **Resolved.** It reads “highest bay reached”. The `level` column keeps its
+  name (the contract's rule: `level` is the wire field, Bay is the player's
+  word), and nothing in the schema or the API moved.
+- ~~`public/privacy.html:82-84`, `156-159`, and `164` … RevenueCat is contacted
+  only when the store opens or a purchase occurs.~~ **Resolved.** Startup calls
+  `initPurchases()` on both web and native and it fetches customer information
+  on each (`lib/purchases.ts`), so the outbound-connections paragraph now says
+  RevenueCat is contacted when the app starts, in order to find out whether the
+  Full Game is already owned, as well as at the store.
+- ~~`store/play/data-safety.csv:252-258` declares purchase history for app
   functionality and analytics, while `public/privacy.html:82` says there is no
-  analytics of any kind. The store declaration and policy must be reconciled.
-- The privacy policy describes RevenueCat's random anonymous identifier, while
-  the data-safety form leaves “Device or other IDs” unchecked. Confirm Google's
-  classification before changing either declaration.
+  analytics of any kind.~~ **Resolved, in the CSV's favour of the policy.** The
+  policy is the true one: nothing in the app analyses purchase data, and the
+  RevenueCat call exists to answer one question (is the entitlement active),
+  which is App functionality. `PSL_PURCHASE_HISTORY:…:PSL_ANALYTICS` is
+  unchecked; App functionality stays checked and nothing else on that data type
+  changed. The two leaderboard data types were re-checked against the same facts
+  and were already right — Name and “Other actions”, both *collected* only, both
+  optional, both App functionality — so neither was touched.
+- **Still open.** The privacy policy describes RevenueCat's random anonymous
+  identifier, while the data-safety form leaves “Device or other IDs”
+  unchecked. Unchanged deliberately: this is Google's classification of a
+  third-party pseudonymous id, not a fact about our code, and guessing at it in
+  either direction is a worse answer than a store-review owner's. The same goes
+  for the form's account-creation question (`PSL_ACM_NONE` is checked, while the
+  app offers Google and Apple sign-in that creates no account of ours —
+  docs/AUTH.md): it is a classification call, and it is recorded here rather
+  than changed.
 
 ### Platform and general UI wording
 
@@ -222,7 +242,11 @@ Android, iPhone and iPad”, which is correct only while desktop is unreleased.
 ## Implementation order, and where it stands
 
 1. Correct the privacy policy and Play data-safety mismatch before store review.
-   **Not done** — see *Privacy and data disclosures* above.
+   **Done, bar one classification question.** The leaderboard record, the highest
+   bay's name, the RevenueCat-at-startup claim and the purchase-history/analytics
+   contradiction are all fixed; “Device or other IDs” and the account-creation
+   answer are left for a store-review owner. See *Privacy and data disclosures*
+   above for the per-bullet verdicts.
 2. Replace literal Mark strings in UI and guide copy, with a check on each
    surface. **Done.** `ui/screens.ts`, `ui/sandbox-screen.ts`, `main.ts` and
    `game/guide.ts` carry no player-visible “Mark” any more, and every pin in

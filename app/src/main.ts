@@ -161,7 +161,8 @@ import {
 } from "./lib/audio";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "account" | "controls" | "leaderboard" | "workshop"
+  | "splash" | "menu" | "howto" | "settings" | "account" | "account-delete"
+  | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
@@ -493,6 +494,44 @@ class App {
    *  runs `sealBreakOwed` is already false and asking it again would draw the
    *  short panel on the one occasion the long one is owed. */
   private sealBreakExplain = false;
+  /**
+   * THE PURCHASE THE ACCOUNT SCREEN INTERRUPTED, and the screen it interrupted.
+   *
+   * The web tier-3 gate sends a signed-out player to the account screen before
+   * the paywall (onPaywall) — "accounts-before-purchase", because a purchase
+   * should land on a durable identity rather than on an anonymous customer that
+   * a cleared browser takes with it. That routing used to END there: the player
+   * signed in and was left standing on the account screen, with nothing saying
+   * the thing they actually pressed was still waiting, and had to walk back and
+   * press it again.
+   *
+   * Non-null means "this visit to the account screen is an interrupted
+   * purchase, and this is where it was interrupted". Consumed by
+   * onAccountSignIn on success — the same field is the flag and the
+   * destination, on the sealBreakBack pattern above. An AppState here rather
+   * than a hardcoded "menu": the gate also fires from the settings store row
+   * and from the run-end card's Play Again (startGame), and the honest resume
+   * is the screen the player was actually on.
+   *
+   * SET BEFORE setState("account"), which is what makes the clear in setState
+   * below correct: every exit from the account screen is a setState to some
+   * other state, so a pending destination cannot outlive the visit that armed
+   * it — a Back out to Settings and a later trip through Settings → Player
+   * Account is a plain sign-in, not a resumed purchase.
+   */
+  private paywallReturn: AppState | null = null;
+  /**
+   * The RevenueCat identify started by the last auth change (see onAuthChange).
+   *
+   * Held so the resumed purchase can WAIT for it. `identifyPurchasesUser` is
+   * what moves the SDK off the anonymous customer and onto `${provider}:${sub}`
+   * (lib/purchases.ts), and it is async: presenting the paywall the instant
+   * sign-in resolves would race it, and a purchase that won the race would be
+   * filed against exactly the identity this whole route exists to establish
+   * first. It never rejects (it logs and returns), so awaiting it is safe
+   * without a catch of its own.
+   */
+  private identifying: Promise<unknown> = Promise.resolve();
   /** The pause card's Quit, mid-arming (ui/padnav.ts's arm machine): whether
    *  the first activation has landed, and whether it has been released yet.
    *  A second, DISTINCT press is what ends the run — see requestQuitRun.
@@ -1007,7 +1046,9 @@ class App {
       const previous = this.auth.user ? appUserIdFor(this.auth.user) : undefined;
       this.auth = auth;
       const next = auth.user ? appUserIdFor(auth.user) : undefined;
-      if (next && next !== previous) void identifyPurchasesUser(next);
+      // Kept rather than voided: an interrupted purchase resuming into the
+      // paywall has to wait for this to land first (see `identifying`).
+      if (next && next !== previous) this.identifying = identifyPurchasesUser(next);
       else if (!next && previous) void resetPurchasesUser();
       if (this.state === "account" || this.state === "settings" || this.state === "menu") {
         this.renderOverlay();
@@ -1112,6 +1153,13 @@ class App {
     // clock, so an arm that expired under a reader's eyes would only make the
     // visible warning a lie about what the next press does.
     if (s !== "paused") this.disarmQuit();
+    // AN INTERRUPTED PURCHASE DIES WITH THE VISIT THAT ARMED IT (paywallReturn).
+    // Leaving the account screen by any door — its own Back, the pad's B, a
+    // completed deletion — is the player answering "not now", so the next
+    // sign-in from Settings is a plain sign-in and lands nowhere. onPaywall
+    // sets the field and THEN calls setState("account"), so arming it does not
+    // trip this on the way in.
+    if (s !== "account") this.paywallReturn = null;
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -2901,6 +2949,14 @@ class App {
         break;
       case "account":
         this.overlay.innerHTML = S.accountScreen(this.storeState().account!);
+        break;
+      // Over the account screen it was pressed on, the way the seal notice
+      // renders over the paused bay it is priced against — the screen behind
+      // the question is what the question is about, and it names the account
+      // ("Signed in as …") the panel deliberately does not interpolate.
+      case "account-delete":
+        this.overlay.innerHTML =
+          S.accountScreen(this.storeState().account!) + S.accountDeleteModal();
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -6185,6 +6241,10 @@ class App {
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
       case "account": return '[data-action="settings"]';
+      // Like the seal notice, and for the identical reason: the deletion panel
+      // is one action being priced, not a choice between exits, so B gives the
+      // reversible answer rather than dismissing the question.
+      case "account-delete": return '[data-action="account-delete-back"]';
       case "settings": case "workshop": case "contracts":
       case "howto": case "leaderboard": case "sandbox":
         return '[data-action="menu"]';
@@ -6445,7 +6505,12 @@ class App {
       case "account-google": void this.onAccountSignIn("google"); break;
       case "account-apple": void this.onAccountSignIn("apple"); break;
       case "account-signout": void this.onAccountSignOut(); break;
-      case "account-delete": void this.onAccountDelete(); break;
+      // Three doors now, not one: the account screen's button opens the
+      // notice, and the notice's own two buttons answer it (screens.ts's
+      // accountDeleteModal). The same split seal-break-go/seal-break-back use.
+      case "account-delete": this.requestAccountDelete(); break;
+      case "account-delete-go": this.onAccountDeleteAnswer(true); break;
+      case "account-delete-back": this.onAccountDeleteAnswer(false); break;
       // Two CLICKABLE doors into Controls — Settings and the guide's Controls
       // row — and the screen goes back through whichever one was used.
       // Remembered here rather than inferred from history: the screen
@@ -7139,15 +7204,45 @@ class App {
    *  do here but celebrate. */
   private async onPaywall(): Promise<void> {
     if (!isNative && !this.auth.user) {
+      // The gate remembers what it interrupted; onAccountSignIn resumes it.
+      // Written BEFORE setState, which leaves it alone for "account" and
+      // clears it for every other destination.
+      this.paywallReturn = this.state;
       this.setState("account");
       return;
     }
     if (await presentPaywall()) void successHaptic();
   }
 
+  /** Sign-in, and — when this visit to the account screen was the tier gate
+   *  interrupting a purchase — the purchase it interrupted.
+   *
+   *  A sign-in started from Settings → Player Account has no pending
+   *  destination and so lands nowhere, which is the honest answer: nothing was
+   *  interrupted, and taking that player to a paywall would be the screen
+   *  selling to somebody who came to read their own account. A cancelled or
+   *  failed sign-in drops the destination for the same reason — the player did
+   *  not sign in, so there is nothing to resume onto. */
   private async onAccountSignIn(provider: "google" | "apple"): Promise<void> {
-    try { await signIn(provider); }
-    catch (err) { console.warn("[auth] sign-in failed", err); }
+    try {
+      await signIn(provider);
+    } catch (err) {
+      console.warn("[auth] sign-in failed", err);
+      this.paywallReturn = null;
+      return;
+    }
+    const back = this.paywallReturn;
+    this.paywallReturn = null;
+    if (back === null) return;
+    // The identify onAuthChange just started, before the paywall can take a
+    // payment against the customer it is moving off (see `identifying`).
+    await this.identifying;
+    // …and the player may have walked out during it. Re-asked rather than
+    // assumed, the same guard onSealBreak opens with: a resume is only a resume
+    // while the screen it is resuming FROM is still up.
+    if (this.state !== "account") return;
+    this.setState(back);
+    void this.onPaywall();
   }
 
   private async onAccountSignOut(): Promise<void> {
@@ -7155,13 +7250,40 @@ class App {
     catch (err) { console.warn("[auth] sign-out failed", err); }
   }
 
+  /** Opens the deletion notice (screens.ts's accountDeleteModal) — a state of
+   *  its own, on the seal notice's pattern, rather than a `window.confirm`.
+   *
+   *  Guarded on actually being signed in: the panel is only reachable from the
+   *  signed-in face of the account screen, and deleteAccount throws without a
+   *  user, so a stale card must not be able to open a question whose only
+   *  honest answer is already "nothing to delete". */
+  private requestAccountDelete(): void {
+    if (this.state !== "account" || !this.auth.user) return;
+    this.setState("account-delete");
+  }
+
+  /** The notice's two answers. "Keep Account" hands the account screen back;
+   *  "Delete Account" does what the button that opened the panel meant. */
+  private onAccountDeleteAnswer(go: boolean): void {
+    if (this.state !== "account-delete") return;
+    if (!go) {
+      this.setState("account");
+      return;
+    }
+    void this.onAccountDelete();
+  }
+
+  /** The deletion itself. Success lands on Settings — the account screen's own
+   *  door, and the screen the player is now signed out on; a failure hands the
+   *  account screen back rather than leaving the confirmation up, so the panel
+   *  can never be the thing standing between a player and a retry. */
   private async onAccountDelete(): Promise<void> {
-    if (!window.confirm("Delete this player account? This cannot be undone.")) return;
     try {
       await deleteAccount();
       this.setState("settings");
     } catch (err) {
       console.warn("[auth] account deletion failed", err);
+      this.setState("account");
     }
   }
 

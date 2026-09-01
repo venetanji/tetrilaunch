@@ -8817,6 +8817,31 @@ button.panel { color: var(--text); }
   .seal-note__body { font-size: 12px; line-height: 1.35; }
 }
 
+/* ---------- The account-deletion confirmation (screens.ts's accountDeleteModal)
+   The seal notice's block, reused shape for reused reasoning: two short
+   paragraphs of prose that the player is meant to read every word of, and a
+   two-button row where the reversible answer is the primary. Its own selectors
+   rather than borrowing `.seal-note` because the two panels are free to drift —
+   this one has no glyph and one more sentence — and a shared name would make
+   every later tweak to either of them a change to both.
+
+   .btn--danger is the destructive HALF of that row, and it is a modifier on
+   .btn--secondary rather than a button of its own: the shape, the size and the
+   focus ring all stay the row's, and only the ink changes. The hover override
+   is not optional — .btn--secondary:hover pulls to --accent, which would turn
+   the delete button cyan under a mouse resting on it, exactly as the armed
+   Quit's own hover rule exists to stop (.btn--quit[data-armed="true"]). Colour
+   is never the only carrier: the face says "Delete Account", the accessible
+   name says what it removes, and the panel above it says it twice. */
+.account-note { width: min(460px, 92vw); text-align: left; }
+.account-note__body { margin: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-dim); }
+.account-note .row { justify-content: flex-end; }
+.btn--danger { color: var(--danger); border-color: var(--danger); }
+.btn--danger:hover { color: var(--danger); border-color: var(--danger); }
+@media (max-height: 480px) {
+  .account-note__body { font-size: 12px; line-height: 1.35; }
+}
+
 /* ---------- The bay retry's price ----------
    One line above the action row, saying what the seal glyph on Retry Bay
    cannot: the seal breaks, the tier does not (screens.ts's endModal).

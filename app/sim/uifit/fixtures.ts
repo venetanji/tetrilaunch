@@ -67,6 +67,22 @@ const SETTINGS: Settings = {
 
 const STORE = { available: true, unlimited: false };
 
+/** A SIGNED-IN account, which is the only face of the account screen the
+ *  deletion notice can be opened from — and the taller of the two faces, since
+ *  it draws the "Signed in as" pair plus two block buttons.
+ *
+ *  Its own constant rather than a field on STORE: adding one there would put a
+ *  Player Account row on the `settings` fixture, which measures a screen this
+ *  change does not touch. The label is a long one on purpose — a Google display
+ *  name is whatever the provider returns, and the panel is measured over the
+ *  widest thing the screen behind it can print. */
+const ACCOUNT = {
+  available: true,
+  ready: true,
+  label: "commander.vasquez@example.com",
+  providers: { google: true, apple: true },
+};
+
 /** A FIXED Skydeck day.
  *
  *  Everything about the mode is a function of the date (game/skydeck.ts), and a
@@ -635,6 +651,14 @@ export const SCREENS: Record<string, () => string> = {
       brief: DRILLS["mat-cryo"].brief,
     }),
   settings: () => S.settingsScreen(SETTINGS, STORE),
+  // The account screen's signed-in face, and the deletion notice over it — the
+  // pair main.ts renders for the "account-delete" state. Measured because the
+  // notice is a NEW modal and every new modal has to fit the whole device
+  // matrix; measured over the screen behind it rather than alone because that
+  // is the composition that ships, and the scrim is the only thing between two
+  // stacks of block buttons.
+  account: () => S.accountScreen(ACCOUNT),
+  "account-delete": () => S.accountScreen(ACCOUNT) + S.accountDeleteModal(),
   // The Controls screen (canvas D1), one fixture per family: the keyboard tab
   // in its capture state (the widest row copy), the gamepad tab with a real
   // pad id detected (the longest Detected line).
