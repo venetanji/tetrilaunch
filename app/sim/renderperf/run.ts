@@ -6,6 +6,8 @@
  *   npx tsx sim/renderperf/run.ts
  *   npx tsx sim/renderperf/run.ts --counts 100,200,300 --frames 240
  *   npx tsx sim/renderperf/run.ts --dpr 3 --css 844x390     # a phone's numbers
+ *   npx tsx sim/renderperf/run.ts --dprs 1,1.5,2,3          # what resolution costs
+ *   npx tsx sim/renderperf/run.ts --engine webkit           # WebKit, where installed
  *   npx tsx sim/renderperf/run.ts --breakdown               # cost per scene layer
  *   npx tsx sim/renderperf/run.ts --breakdown --boom        # …on a chain detonation
  *   npx tsx sim/renderperf/run.ts --breakdown --boom --reduced   # …the same, motion off
@@ -28,6 +30,18 @@
  * CAVEAT worth stating up front: a headless desktop Chromium is not a phone.
  * These numbers are for comparing a BEFORE against an AFTER on one machine, and
  * for ranking which draw path costs the most. They are not a device budget.
+ *
+ * WHICH ENGINE, AND WHY IT IS NOW A FLAG. The app ships inside WKWebView on iOS,
+ * which is WebKit, and WebKit's 2D canvas makes different choices from Blink's
+ * about nearly everything this renderer leans on — when a canvas is GPU-backed
+ * at all, how a source canvas is uploaded, what a getImageData does to a
+ * surface's acceleration. Chromium remains the DEFAULT because every number in
+ * sim/results was taken on it and a comparison across engines is not a
+ * comparison. `--engine webkit` (or `firefox`) runs the identical harness on
+ * another rasteriser, for the question "does this draw path behave differently
+ * over there", which is the only question a second engine can answer honestly.
+ * It requires that Playwright browser to be present already; where the
+ * environment ships Chromium alone, this flag reports what is missing and stops.
  */
 import { createServer } from "vite";
 import * as playwright from "playwright";
@@ -74,6 +88,29 @@ const COUNTS = (opt("counts") ?? "0,100,200,300")
   .filter((n) => Number.isFinite(n) && n >= 0);
 const FRAMES = parseInt(opt("frames") ?? "240", 10);
 const DPR = parseFloat(opt("dpr") ?? "2");
+/**
+ * THE RESOLUTION LADDER. Every other mode here holds the canvas size fixed and
+ * varies the scene; this one holds the scene fixed and varies the only number
+ * that multiplies the whole frame at once.
+ *
+ * It earns a mode of its own because the answer is not obvious in advance and
+ * the shell loop that used to produce it re-launched the browser per rung, which
+ * is four different JIT warmups and four different machine states pretending to
+ * be one measurement. One browser, one page per rung held open for the whole
+ * run, and the rungs interleaved round-robin so the rows are comparable — see
+ * the block that implements it for why the interleave is not optional.
+ *
+ * Read the ratios, not the milliseconds: if cost is linear in device pixels the
+ * frame is fill-bound and a resolution cap is the biggest lever available; if it
+ * is flat, the frame is call-bound and the cap would buy nothing. render.ts's
+ * renderScale is built on the answer this mode gives.
+ */
+const DPRS = (opt("dprs") ?? "")
+  .split(",")
+  .map((s) => parseFloat(s.trim()))
+  .filter((n) => Number.isFinite(n) && n > 0);
+/** chromium (default) | webkit | firefox — see the note at the top of the file. */
+const ENGINE = (opt("engine") ?? "chromium") as "chromium" | "webkit" | "firefox";
 const [CSS_W, CSS_H] = (opt("css") ?? "1280x720").split("x").map((s) => parseInt(s, 10));
 const JSON_OUT = opt("json");
 const BREAKDOWN = argv.includes("--breakdown");
@@ -124,7 +161,28 @@ if (!base) {
   process.exit(1);
 }
 
-const browser = await playwright.chromium.launch();
+const launcher = playwright[ENGINE];
+if (!launcher) {
+  console.error(`✗ unknown --engine "${ENGINE}" (chromium | webkit | firefox)`);
+  await server.close();
+  process.exit(1);
+}
+// A missing browser build throws out of launch() with Playwright's own
+// "Executable doesn't exist" text. Catching it here turns that into one line
+// that says which engine is absent, rather than a stack trace that reads like
+// the harness is broken.
+let browser: playwright.Browser;
+try {
+  browser = await launcher.launch();
+} catch (err) {
+  console.error(
+    `✗ could not launch ${ENGINE}: ${(err as Error).message.split("\n")[0]}\n` +
+    `  This environment may ship only some Playwright browsers. Run with ` +
+    `--engine chromium, or use an environment where ${ENGINE} is installed.`,
+  );
+  await server.close();
+  process.exit(1);
+}
 const page = await browser.newPage({
   viewport: { width: CSS_W, height: CSS_H },
   deviceScaleFactor: DPR,
@@ -136,6 +194,22 @@ await page.goto(`${base}harness.html`, { waitUntil: "networkidle" });
 // resolve to a fallback if the file has not landed. Timed frames must all
 // rasterise the same glyphs.
 await page.evaluate(() => document.fonts.ready);
+
+/** A fresh page at a given device scale factor, warmed the same way the main
+ *  one is. The DPR sweep needs one per rung: deviceScaleFactor is fixed at page
+ *  creation, and reusing a page across rungs would leave every rung but the
+ *  first drawing at a backing size its page does not believe in. */
+async function harnessPage(dpr: number): Promise<playwright.Page> {
+  const p = await browser.newPage({
+    viewport: { width: CSS_W, height: CSS_H },
+    deviceScaleFactor: dpr,
+  });
+  p.on("pageerror", (err) => console.error("✗ page error:", err.message));
+  if (REDUCED) await p.emulateMedia({ reducedMotion: "reduce" });
+  await p.goto(`${base}harness.html`, { waitUntil: "networkidle" });
+  await p.evaluate(() => document.fonts.ready);
+  return p;
+}
 
 const rows: Row[] = [];
 const layerRows: { label: string; p50Ms: number; deltaMs: number }[] = [];
@@ -152,6 +226,77 @@ interface ProbeRow {
   redundantByProp: Record<string, number>;
 }
 const probeRows: ProbeRow[] = [];
+
+if (DPRS.length) {
+  /**
+   * INTERLEAVED, AND ROUND-ROBIN RATHER THAN RUNG-BY-RUNG, for the same reason
+   * --blit-ab alternates every frame: the rungs are only comparable if they met
+   * the same machine. Walking the ladder once from the bottom measures the first
+   * rung on whatever the box was doing two minutes before the last one, and on a
+   * shared CI runner that difference is larger than the effect under test —
+   * measured here, a rung-by-rung ladder put dpr 1 at 5.4 ms on a quiet box and
+   * 9.5 ms while a sibling checkout ran its test suite, which is most of the
+   * span the whole ladder is trying to resolve.
+   *
+   * Each rung keeps its own page (deviceScaleFactor is fixed at creation) and
+   * every round gives every rung an equal, adjacent slice of wall clock. The
+   * reported number is the BEST round per rung, not the mean of them: contention
+   * only ever adds time, so the minimum is the closest each rung got to the
+   * machine's own cost, and it is the statistic that survives a noisy neighbour
+   * without pretending the noise was signal.
+   */
+  const count = COUNTS[COUNTS.length - 1] ?? 300;
+  const ROUNDS = 5;
+  const perRound = Math.max(30, Math.round(FRAMES / ROUNDS));
+  const pages = new Map<number, playwright.Page>();
+  for (const dpr of DPRS) pages.set(dpr, await harnessPage(dpr));
+  const best = new Map<number, Awaited<ReturnType<typeof window.__renderperf.run>>>();
+  for (let round = 0; round < ROUNDS; round++) {
+    for (const dpr of DPRS) {
+      const r = await pages.get(dpr)!.evaluate(
+        (o) => window.__renderperf.run(o),
+        {
+          count, variant: PROBE_VARIANT, frames: perRound,
+          cssW: CSS_W, cssH: CSS_H, dpr, busy: true, boom: BOOM,
+        },
+      );
+      const prev = best.get(dpr);
+      if (!prev || r.p50Ms < prev.p50Ms) best.set(dpr, r);
+    }
+  }
+  for (const p of pages.values()) await p.close();
+
+  console.log("# Tetrilaunch render cost vs resolution\n");
+  console.log(
+    `css=${CSS_W}x${CSS_H} N=${count} variant=${PROBE_VARIANT} busy=yes ` +
+    `engine=${ENGINE}(headless) ${ROUNDS} interleaved rounds of ${perRound} frames, ` +
+    `best round per rung${BOOM ? " fx=chain-detonation" : ""}\n`,
+  );
+  console.log("| dpr | canvas | MP | p50 ms | avg ms | p95 ms | ms/MP | vs dpr 1 |");
+  console.log("|---|---|---|---|---|---|---|---|");
+  let firstP50 = 0;
+  for (const dpr of DPRS) {
+    const r = best.get(dpr)!;
+    const w = Math.round(CSS_W * dpr);
+    const h = Math.round(CSS_H * dpr);
+    const mp = (w * h) / 1e6;
+    if (!firstP50) firstP50 = r.p50Ms;
+    console.log(
+      `| ${dpr} | ${w}x${h} | ${mp.toFixed(2)} | ${r.p50Ms.toFixed(3)} | ${r.avgMs.toFixed(3)} | ` +
+      `${r.p95Ms.toFixed(3)} | ${(r.p50Ms / mp).toFixed(2)} | ${(r.p50Ms / firstP50).toFixed(2)}x |`,
+    );
+    rows.push({ variant: PROBE_VARIANT, busy: true, count, ...r });
+  }
+  console.log(
+    `\nA flat ms/MP column is a FILL-BOUND frame: the cost is the pixels, the draw ` +
+    `calls are the same at every rung, and capping the backing store is the largest ` +
+    `single lever there is. A ms/MP that climbs as the canvas shrinks is the fixed ` +
+    `per-call cost becoming visible — that part no resolution cap can reach.`,
+  );
+  await browser.close();
+  await server.close();
+  process.exit(0);
+}
 
 if (SNAPSHOT) {
   // The digest is the whole point: run it on the branch point, run it again on

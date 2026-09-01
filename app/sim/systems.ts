@@ -75,7 +75,8 @@ import {
   type Rec,
 } from "./canvasrec";
 import {
-  debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark, THAW_REACH, THAW_REACH_MS,
+  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark,
+  MAX_RENDER_DPR, renderScale, THAW_REACH, THAW_REACH_MS,
 } from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -19834,6 +19835,221 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
 // like — sim/renderperf owns that question, and the two harnesses answer
 // different halves of the same one.
 // ===========================================================================
+// ===========================================================================
+// HOW MANY DEVICE PIXELS A FRAME IS RASTERISED ONTO (render.ts's renderScale).
+//
+// sim/renderperf --dprs measured the frame as FILL-BOUND at a phone's viewport:
+// css 812x375, N=300 mixed busy, the same ~1460 draw calls at every rung, and
+// p50 4.7 / 8.8 / 14.4 ms at dpr 1 / 1.5 / 2. So the backing-store ratio is the
+// one number that multiplies the whole frame, and it is now a policy rather
+// than a constant: a phone-sized viewport gets a lower ceiling than a desktop
+// one, because a 2017 phone and a desktop GPU are not the same machine being
+// asked the same question.
+//
+// FOUR THINGS THAT WOULD SILENTLY UNDO IT, which is why they are pinned rather
+// than left to the function's own comment:
+//
+//   1. THE PHONE CASE ACTUALLY BINDS. An iPhone X in landscape must come out at
+//      the compact ceiling, not the desktop one. Get the threshold wrong by one
+//      orientation and the device the change was written for keeps its old cost.
+//   2. THE DESKTOP CASE IS UNTOUCHED. Every viewport that was capped at 2 before
+//      is still capped at 2 — this pass buys frame time on phones, it does not
+//      spend sharpness anywhere else.
+//   3. IT IS THE SHORT EDGE, NOT THE WIDTH. A phone rotates; the policy must not.
+//   4. main.ts ACTUALLY ASKS. The policy is only worth anything if the canvas
+//      is sized through it, and a resize path that quietly went back to its own
+//      Math.min would leave every number above describing code nobody runs.
+// ===========================================================================
+section("The canvas is sized by policy, and phones get a lower ceiling (render.ts's renderScale)");
+{
+  // THE NUMBERS, NOT THE NAMES. Written against 1.5 and 2 as literals on
+  // purpose: `renderScale(...) === COMPACT_MAX_RENDER_DPR` is satisfied by any
+  // value of that constant, INCLUDING 2, which is the exact edit that would
+  // undo this pass while leaving every check green. A pin that moves with the
+  // thing it pins is not a pin. The one relation stated symbolically is the
+  // one that has to hold whatever the two numbers become.
+  check("the compact ceiling is genuinely lower than the desktop one",
+    COMPACT_MAX_RENDER_DPR < MAX_RENDER_DPR,
+    `compact ${COMPACT_MAX_RENDER_DPR} vs desktop ${MAX_RENDER_DPR}`);
+  // An iPhone X (the device the first real-hardware report came from), in the
+  // landscape the game locks to and in the portrait it boots through.
+  check("an iPhone X in landscape rasterises at 1.5x, not the 3x it asks for",
+    renderScale(3, 812, 375) === 1.5,
+    `${renderScale(3, 812, 375)} at 812x375, dpr 3`);
+  check("...and in portrait, because the test is the SHORT edge",
+    renderScale(3, 375, 812) === 1.5,
+    `${renderScale(3, 375, 812)} at 375x812, dpr 3`);
+  // The other phone in the repo's notes, and a larger modern one — the ceiling
+  // is a viewport measurement, so it has to catch a phone it has never seen.
+  check("...as does every other phone-shaped viewport",
+    renderScale(3, 844, 390) === 1.5 && renderScale(2.75, 932, 430) === 1.5,
+    `${renderScale(3, 844, 390)} at 844x390, ${renderScale(2.75, 932, 430)} at 932x430`);
+
+  // AND NOTHING ELSE MOVES. A tablet's short edge is 768 and a desktop's is
+  // larger still; both keep exactly the ceiling they had before this existed.
+  check("a tablet keeps the desktop ceiling",
+    renderScale(2, 1024, 768) === 2,
+    `${renderScale(2, 1024, 768)} at 1024x768`);
+  check("...and so does a retina laptop, which is where the 2 was always aimed",
+    renderScale(2, 1440, 900) === 2 && renderScale(3, 1440, 900) === 2,
+    `${renderScale(2, 1440, 900)} / ${renderScale(3, 1440, 900)} at 1440x900`);
+  // A CEILING, never a floor: a 1x display asks for 1 and gets 1, on any
+  // viewport. Returning the ceiling unconditionally would UPSCALE a cheap
+  // canvas into an expensive one, which is the bug this shape of function
+  // invites.
+  check("a 1x display is never scaled UP to meet a ceiling",
+    renderScale(1, 1440, 900) === 1 && renderScale(1, 812, 375) === 1,
+    `${renderScale(1, 1440, 900)} desktop, ${renderScale(1, 812, 375)} phone`);
+  // devicePixelRatio is 0 or absent before the first layout in some shells; a
+  // zero-pixel backing store is a black screen, not a fast one.
+  check("a browser that has not laid out yet still gets a drawable canvas",
+    renderScale(0, 0, 0) === 1 && renderScale(Number.NaN, 812, 375) === 1,
+    `${renderScale(0, 0, 0)} / ${renderScale(Number.NaN, 812, 375)}`);
+
+  // THE WIRE. main.ts's resize path must size the canvas through the policy,
+  // and the canvas must be the only thing it sizes — the DOM chrome keeps the
+  // device's real ratio, which is what keeps every letterform on screen crisp
+  // while the field softens.
+  const renderMainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  check("main.ts sizes the canvas through renderScale, not its own Math.min",
+    /this\.dpr = renderScale\(window\.devicePixelRatio \|\| 1, w, h\)/.test(renderMainSrc)
+      && !/this\.dpr = Math\.min\(/.test(renderMainSrc));
+  check("...and the ratio it hands the canvas is the ratio it hands render()",
+    /this\.canvas\.width = Math\.floor\(w \* this\.dpr\)/.test(renderMainSrc)
+      && /render\(this\.ctx, window\.innerWidth, window\.innerHeight, this\.dpr,/.test(renderMainSrc));
+}
+
+// ===========================================================================
+// THE BACKGROUND LAYER RE-BAKES WITHOUT REALLOCATING (render.ts's
+// getBackgroundLayer).
+//
+// The layer's cache key carries the CONGESTION ROWS as well as the viewport,
+// and `lit` steps once per compactorMinLineCells cubes — so a bay taking
+// deliveries re-bakes several times a second at a canvas size that has not
+// moved. Assigning canvas.width throws the backing store away and allocates a
+// fresh one; on a phone that is a new GPU surface for a full-canvas layer,
+// several times a second, for no reason at all.
+//
+// TWO HALVES OF ONE CHANGE, and the pin holds both because either alone is a
+// bug. Skipping the resize is the saving. Resetting the transform explicitly is
+// what makes the skip SAFE: the assignment used to reset it as a side effect,
+// and the opaque fill that follows is in device space — so a re-bake that keeps
+// its backing store and forgets the reset fills (0,0,w,h) through the PREVIOUS
+// bake's world transform and paints the backdrop over a corner of the layer.
+// That failure is invisible to a draw-call count and obvious on screen, which
+// is exactly the kind a pin has to state rather than imply.
+// ===========================================================================
+section("The background layer re-bakes in place, it does not reallocate (render.ts)");
+{
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevDoc = glob.document;
+  const prevWin = glob.window;
+  const prevPath = glob.Path2D;
+
+  // A createElement stub of this section's own, because the shared one in
+  // sim/canvasrec.ts hands every getContext a FRESH recorder and forgets the
+  // canvas as soon as render.ts stops holding it. Both are exactly what the
+  // other pins want and exactly what this one cannot use: the question here is
+  // what happened to ONE offscreen canvas across SEVERAL frames.
+  interface OffCanvas { widths: number[]; rec: Rec; }
+  const offs: OffCanvas[] = [];
+  glob.document = {
+    createElement: (): Record<string, unknown> => {
+      const rec = newRec();
+      const widths: number[] = [];
+      let w = 0;
+      let h = 0;
+      const off: Record<string, unknown> = {};
+      Object.defineProperty(off, "width", {
+        get: () => w,
+        set: (v: number) => { w = v; widths.push(v); },
+      });
+      Object.defineProperty(off, "height", { get: () => h, set: (v: number) => { h = v; } });
+      const ctx = makeRecCtx(off, rec, ["setTransform", "fillRect"]);
+      off.getContext = (): unknown => ctx;
+      offs.push({ widths, rec });
+      return off;
+    },
+  };
+  glob.window = { matchMedia: () => ({ matches: false }) };
+  glob.Path2D = class { constructor(_d?: string) { void _d; } };
+
+  const g = new Game(makeBaseLevel(0), {}, 23);
+  g.status = "playing";
+  const perLine = Math.max(1, g.level.compactorMinLineCells);
+  const addCubes = (n: number): void => {
+    for (let i = 0; i < n; i++) {
+      const body = Matter.Bodies.rectangle(
+        700 + (i % 8) * CELL, 690 - Math.floor(i / 8) * CELL, CELL, CELL,
+        { friction: 0.5, frictionAir: 0.012, restitution: 0.05, density: 0.001, label: "cube" },
+      );
+      Matter.Composite.add(g.phys.world, body);
+      g.cubes.push({
+        body, type: "O", color: PIECE_COLORS.O, blinkStart: null,
+        material: "standard", struck: true,
+      });
+    }
+  };
+
+  const CSS_W = 812;
+  const CSS_H = 375;
+  const DPR = 2;
+  const DEV_W = Math.floor(CSS_W * DPR);
+  const liveRec = newRec();
+  const liveCanvas: Record<string, unknown> = { width: DEV_W, height: Math.floor(CSS_H * DPR) };
+  const liveCtx = makeRecCtx(liveCanvas, liveRec);
+  const paint = (): void => {
+    render(liveCtx as unknown as CanvasRenderingContext2D, CSS_W, CSS_H, DPR, {
+      cubes: g.cubes, constraints: [], compactor: g.compactor, cannon: g.cannon,
+      trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+  };
+
+  // Warm everything (sprites and the layer itself), then walk the pile across
+  // four line boundaries. Every crossing changes `lit`, so every crossing is a
+  // cache miss and a re-bake — which is the whole point: the frames in between
+  // are free either way and would prove nothing.
+  addCubes(perLine * 2);
+  paint();
+  const bg = offs.find((o) => o.widths.includes(DEV_W));
+  check("the background layer is the offscreen canvas sized to the live canvas",
+    bg !== undefined, `${offs.length} offscreen canvases, none ${DEV_W} wide`);
+  if (bg) {
+    const allocsAfterFirst = bg.widths.length;
+    for (let i = 0; i < 4; i++) { addCubes(perLine); paint(); }
+    // drawBackground opens every bake with the field's radial gradient, so this
+    // counts BAKES — without it "no reallocation" would also be satisfied by a
+    // layer that quietly stopped re-baking at all, which is the same pixels
+    // frozen at the first pile height.
+    const bakes = callCount(bg.rec, "createRadialGradient");
+    check("crossing four line boundaries really did re-bake the layer",
+      bakes >= 5, `${bakes} bakes over 5 painted frames`);
+    check("...and not one of those re-bakes threw the backing store away",
+      bg.widths.length === allocsAfterFirst,
+      `${bg.widths.length - allocsAfterFirst} reallocations after the first`);
+    // The coupling. Each bake's first two traced commands must be the identity
+    // transform and then the opaque fill — in that order, or the fill lands
+    // through whatever matrix the previous bake left behind.
+    const traced = bg.rec.args.filter(([n]) => n === "setTransform" || n === "fillRect");
+    const firstReset = traced.findIndex(
+      ([n, a]) => n === "setTransform" && (a as number[]).join(",") === "1,0,0,1,0,0",
+    );
+    check("...because every bake resets the transform itself before the opaque fill",
+      firstReset === 0 && traced[1]?.[0] === "fillRect",
+      `first traced commands: ${traced.slice(0, 2).map(([n]) => n).join(" -> ")}`);
+  }
+
+  g.destroy();
+  glob.document = prevDoc;
+  glob.window = prevWin;
+  glob.Path2D = prevPath;
+}
+
 section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSeams)");
 {
   const rec = newRec();
