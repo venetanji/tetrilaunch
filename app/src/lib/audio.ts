@@ -34,10 +34,12 @@
  *
  *   music/stinger  an <audio> element, and a play() the platform allows.
  *                  That is the entire list. Routing the element through the
- *                  graph for the congestion lowpass is best-effort and FAILS
- *                  OPEN — routeMusic's own note: with no context, or a capture
+ *                  graph — music for the congestion lowpass, both for the
+ *                  gain-node fades iOS demands (see setLevel) — is
+ *                  best-effort and FAILS OPEN: with no context, or a capture
  *                  that throws, the element goes on playing to the output by
- *                  itself, unfiltered but audible.
+ *                  itself, unfiltered and fading by volume where the
+ *                  platform honours it.
  *
  *   effect         a constructed AudioContext, a context that actually reached
  *                  "running", a fetch that resolves under the app's own URL
@@ -1574,15 +1576,38 @@ function cancelFade(el: HTMLAudioElement): void {
   if (t !== undefined) { clearInterval(t); fades.delete(el); }
 }
 
+/**
+ * Set an element's audible level through whichever control actually works.
+ *
+ * Routed (the graph captured it): the GainNode is the level and el.volume is
+ * left alone at 1 — driving both would multiply them into a squared fade on
+ * every platform where volume works. Unrouted: el.volume, exactly as before,
+ * which is a real control everywhere but iOS — and on iOS every element this
+ * module plays is routed unless the capture itself threw.
+ */
+function setLevel(el: HTMLAudioElement, v: number): void {
+  const clamped = Math.max(0, Math.min(1, v));
+  levels.set(el, clamped);
+  const gain = routedGains.get(el);
+  if (gain) {
+    gain.gain.value = clamped;
+    return;
+  }
+  try {
+    el.volume = clamped;
+  } catch { /* element torn down mid-fade */ }
+}
+
 function fadeTo(el: HTMLAudioElement, to: number, done?: () => void): void {
   cancelFade(el);
-  const from = el.volume;
+  // From the TRACKED level, never from el.volume: iOS reads volume back as 1
+  // no matter what was set, so a fade-out computed from it would restart from
+  // full on every step.
+  const from = levels.get(el) ?? el.volume;
   const started = Date.now();
   const timer = setInterval(() => {
     const t = Math.min(1, (Date.now() - started) / FADE_MS);
-    try {
-      el.volume = Math.max(0, Math.min(1, from + (to - from) * t));
-    } catch { /* element torn down mid-fade */ }
+    setLevel(el, from + (to - from) * t);
     if (t >= 1) { cancelFade(el); done?.(); }
   }, FADE_STEP_MS);
   fades.set(el, timer);
@@ -1603,7 +1628,7 @@ function fadeOutAndStop(el: HTMLAudioElement | null): void {
 }
 
 function fadeIn(el: HTMLAudioElement, to: number): void {
-  el.volume = 0;
+  setLevel(el, 0);
   fadeTo(el, to);
 }
 
@@ -1684,13 +1709,18 @@ export function playStinger(name: StingerName, keepBed = false): void {
     stinger = el;
     stingerName = name;
     stingerKeptBed = keepBed;
-    // Clamped at 1: the trim is a correction, not a second volume control, and
-    // an element gain over unity is not a thing the Web Audio graph accepts
-    // here anyway — a piece needing more than this needs a better master.
+    // Routed past the congestion filter — see routeStinger for why stingers
+    // enter the graph at all (fades and trims must survive iOS) and why not
+    // through the filter (a jingle does not go muffled for the bay it ends).
+    routeStinger(el);
+    // Clamped at 1: the trim is a correction, not a second volume control.
+    // The routed GainNode would technically take more, but a piece needing
+    // over unity needs a better master, not a hotter fader.
     const gain = Math.min(1, STINGER_GAIN * 10 ** ((STINGER_TRIM_DB[name] ?? 0) / 20));
     void el.play().then(() => { if (stinger === el) fadeIn(el, gain); })
       .catch(() => { /* ignore */ });
     el.addEventListener("ended", () => {
+      unrouteMusic(el);
       if (stinger !== el) return;
       stinger = null;
       stingerName = null;
@@ -1804,6 +1834,25 @@ export function resumeMidBayStinger(): boolean {
  * it, nothing here should be the reason it stays.
  */
 const musicSources = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+/**
+ * The level control for every ROUTED element, and the reason it exists is that
+ * `HTMLMediaElement.volume` is a documented no-op on iOS — the setter is
+ * ignored and reads back 1. Every fade in this module used to be a volume
+ * fade, so on the one platform this app ships to first, fade-ins were
+ * instant, fade-outs played at full level until the final pause(), and the
+ * broke-state's "mute the bed under the stinger" muted nothing: two pieces in
+ * two keys, both at full volume — the exact overlap playStinger's design
+ * notes call wrong. A GainNode in the element's routed path answers to every
+ * platform equally, so where the graph owns an element, the graph owns its
+ * level; el.volume stays at 1 there (setting both would square the
+ * attenuation everywhere volume works). The volume fade remains as the
+ * fallback for an element the graph could not capture.
+ */
+const routedGains = new WeakMap<HTMLAudioElement, GainNode>();
+/** What a fade last set, per element. Tracked here rather than read back from
+ *  el.volume because on iOS that read is always 1 — a fade-out computed from
+ *  it would start from full every step. */
+const levels = new WeakMap<HTMLAudioElement, number>();
 
 function routeMusic(el: HTMLAudioElement): void {
   if (!ctx || !musicFilter) return;
@@ -1813,21 +1862,52 @@ function routeMusic(el: HTMLAudioElement): void {
   resumeStoppedContext();
   try {
     const node = ctx.createMediaElementSource(el);
-    node.connect(musicFilter);
+    const gain = ctx.createGain();
+    node.connect(gain);
+    gain.connect(musicFilter);
     musicSources.set(el, node);
+    routedGains.set(el, gain);
+  } catch {
+    /* left playing to the output on its own — see above */
+  }
+}
+
+/**
+ * Stingers route too — but PAST the congestion filter, straight at the
+ * master. They used to play unrouted entirely, and the "by design" half of
+ * that was only ever about the filter: a bay-clear jingle has no business
+ * going muffled because the bay it just cleared was congested. The unrouted
+ * half was an accident that iOS exposed: an element outside the graph can
+ * only fade by volume, which iOS ignores, so stinger fade-ins, fade-outs and
+ * the per-piece trim were all silent no-ops there. Same fail-open contract as
+ * routeMusic: no context or a refused capture leaves the element playing to
+ * the output on its own.
+ */
+function routeStinger(el: HTMLAudioElement): void {
+  if (!ctx) return;
+  resumeStoppedContext();
+  try {
+    const node = ctx.createMediaElementSource(el);
+    const gain = ctx.createGain();
+    node.connect(gain);
+    gain.connect(master ?? ctx.destination);
+    musicSources.set(el, node);
+    routedGains.set(el, gain);
   } catch {
     /* left playing to the output on its own — see above */
   }
 }
 
 /** Release a routed element back out of the graph. A no-op for anything that
- *  was never routed — stingers play unrouted by design (see playStinger), and
- *  a capture that threw stored nothing to release. */
+ *  was never routed — a capture that threw stored nothing to release. */
 function unrouteMusic(el: HTMLAudioElement): void {
   const node = musicSources.get(el);
-  if (!node) return;
+  const gain = routedGains.get(el);
   musicSources.delete(el);
-  try { node.disconnect(); } catch { /* graph already torn down */ }
+  routedGains.delete(el);
+  levels.delete(el);
+  try { node?.disconnect(); } catch { /* graph already torn down */ }
+  try { gain?.disconnect(); } catch { /* graph already torn down */ }
 }
 
 /** The running loop take. Replaced, not restarted, on every rotation — a
@@ -2083,6 +2163,47 @@ export function musicLevel(): number {
  * resume rather than restart from the top. The AudioContext is suspended too,
  * so no queued effect fires into a screen nobody is looking at.
  */
+/**
+ * The lock screen's play button answers to THIS module, not to WebKit.
+ *
+ * On iOS, WKWebView promotes a playing <audio> element into a system media
+ * session — the app appears in Control Center and on the lock screen with
+ * transport controls, as if it were a music player (observed on the iPhone X:
+ * "Tetrilaunch" with a play button while the app was suspended). Left alone,
+ * that play button goes straight to WebKit's element resume: music starts
+ * over a backgrounded game, and none of this module's state — `suspended`
+ * above all — is consulted. Registering our own MediaSession handlers puts
+ * this module back in the loop: play while suspended is refused (the app is
+ * not being looked at; resumeAudio on foreground is the sanctioned way back),
+ * play in the foreground resumes what was current, pause pauses it.
+ *
+ * The CARD itself cannot be removed while the beds stream through <audio>
+ * under the .playback session category (AppDelegate.swift's documented
+ * choice) — this guard makes it inert, not invisible. Best-effort on
+ * purpose: engines without MediaSession, or with partial action support,
+ * throw on registration and lose nothing but the guard they don't need.
+ */
+(() => {
+  const ms = typeof navigator === "undefined" ? undefined : navigator.mediaSession;
+  if (!ms) return;
+  const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+    ["play", () => {
+      if (suspended || !musicOn) return;
+      const m = music;
+      if (m) void m.play().catch(() => { /* ignore */ });
+      const s = stinger;
+      if (s) void s.play().catch(() => { /* ignore */ });
+    }],
+    ["pause", () => {
+      try { music?.pause(); } catch { /* ignore */ }
+      try { stinger?.pause(); } catch { /* ignore */ }
+    }],
+  ];
+  for (const [action, handler] of handlers) {
+    try { ms.setActionHandler(action, handler); } catch { /* unsupported action */ }
+  }
+})();
+
 export function suspendAudio(): void {
   if (suspended) return;
   suspended = true;

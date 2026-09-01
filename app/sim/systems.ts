@@ -12364,6 +12364,55 @@ section("Audio session policy and on-device diagnostics");
     loadFx.replace(/\s+/g, " ").slice(0, 140),
   );
 
+  /* ---- Fades answer to the graph, because iOS ignores el.volume ---------
+   * HTMLMediaElement.volume is a documented no-op on iOS: the setter is
+   * ignored and reads back 1. Every fade here used to be a volume fade, so on
+   * the shipping platform fade-ins were instant, fade-outs cut, and the
+   * broke-state's "mute the bed under the stinger" muted nothing — two pieces
+   * in two keys at full volume, on device (TestFlight 1.0.2 (12)). The level
+   * therefore lives in a routed GainNode wherever the graph captured the
+   * element, with el.volume as the fallback for a capture that failed. */
+  {
+    const fade = /function fadeTo\(el: HTMLAudioElement[\s\S]*?\n\}/.exec(audioCode)?.[0] ?? "";
+    check("fadeTo is still where this pin looks for it", fade.length > 0);
+    // The fade must not write el.volume itself — that path forks inside
+    // setLevel, which knows whether the graph owns the element.
+    check("a fade moves the level through setLevel, not el.volume",
+      /setLevel\(el,/.test(fade) && !/el\.volume\s*=/.test(fade),
+      fade.replace(/\s+/g, " ").slice(0, 140));
+    // ...and computes its start from the TRACKED level: on iOS el.volume
+    // always reads 1, so a fade-out sourced from it restarts from full.
+    check("...and starts from the tracked level, not the element's lie",
+      /levels\.get\(el\) \?\? el\.volume/.test(fade));
+    const level = /function setLevel\(el: HTMLAudioElement[\s\S]*?\n\}/.exec(audioCode)?.[0] ?? "";
+    check("setLevel is still where this pin looks for it", level.length > 0);
+    // Exactly one control moves per element: the gain when routed (volume
+    // stays 1), the volume when not. Driving both squares the fade wherever
+    // volume works.
+    check("a routed element's level is the gain's alone",
+      /if \(gain\) \{\s*\n\s*gain\.gain\.value = clamped;\s*\n\s*return;/.test(level)
+      && /el\.volume = clamped;/.test(level),
+      level.replace(/\s+/g, " ").slice(0, 140));
+    // Stingers enter the graph so their fades and trims survive iOS — but
+    // PAST the congestion filter: a bay-clear jingle does not go muffled for
+    // the bay it just ended.
+    const stingRoute = /function routeStinger\(el: HTMLAudioElement[\s\S]*?\n\}/.exec(audioCode)?.[0] ?? "";
+    check("stingers route to the master, not through the congestion filter",
+      /gain\.connect\(master \?\? ctx\.destination\);/.test(stingRoute)
+      && !/musicFilter/.test(stingRoute),
+      stingRoute.replace(/\s+/g, " ").slice(0, 140));
+    check("...and playStinger actually routes its element",
+      /routeStinger\(el\);/.test(audioCode));
+    // The lock screen's play button goes through this module's own handler,
+    // which refuses to restart music behind a suspended app — WebKit's
+    // default resume consults nothing (the Now Playing card observed on the
+    // iPhone X would start music outside the app).
+    check("the media-session play handler consults suspended",
+      /setActionHandler/.test(audioCode)
+      && /\["play", \(\) => \{\s*\n\s*if \(suspended/.test(audioCode),
+      (audioCode.match(/\["play"[\s\S]{0,80}/) ?? [""])[0].replace(/\s+/g, " "));
+  }
+
   // playFx COUNTS EVERY EXIT. This is what separates "buffers never loaded"
   // from "buffers loaded and inaudible" — the two halves of the remaining
   // search space, and the pair the tester's sentence cannot distinguish.
