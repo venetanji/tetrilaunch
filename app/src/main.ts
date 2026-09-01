@@ -107,7 +107,11 @@ import {
   RAIL_GAP,
   RAIL_SLOTS_BASE,
   railSlotsFor,
+  readingOf,
   setRailSlots,
+  sizeChanged,
+  viewportChanged,
+  type ViewportReading,
 } from "./game/layout";
 
 import { InputController } from "./game/input";
@@ -201,6 +205,74 @@ const STEP = 1000 / 60;
  *  little sooner, but its frames stay short enough to recover next vsync,
  *  which reads as smooth-but-briefly-slow instead of stuttering. */
 const MAX_CATCHUP_STEPS = 2;
+
+/* ---------------------------------------------------------------------------
+ * THE DIMENSION WATCHDOG — re-solve on disagreement, not on notification.
+ *
+ * Reported from the first real iOS device test (iPhone X, iOS 16.7, WKWebView
+ * via Capacitor): "the missing ui elements have fallen below the visible
+ * screen, below the hud". The field itself looked right.
+ *
+ * That asymmetry is the whole diagnosis. Two consumers read the solver, and
+ * they read it on different clocks:
+ *
+ *   - the CANVAS re-derives its viewport EVERY FRAME, from live
+ *     window.innerWidth/innerHeight (loop() -> render() -> computeViewport ->
+ *     computeLayout), so it is self-healing by construction;
+ *   - the DOM chrome reads --field-* / --gutter-* / --rail-btn / data-layout,
+ *     and onResize is the only thing in this file that writes them.
+ *
+ * So a solve made against a stale viewport leaves the game looking correct
+ * while every DOM-anchored element stays parked where the stale numbers put
+ * it. And there is a stale reading to be had at boot: lockLandscape() is
+ * asynchronous and nothing waited on it, so between "the WebView came up
+ * portrait-sized" and "iOS finished the forced rotation" the app's picture of
+ * the viewport is whatever the last event it happened to receive said. Solve
+ * 375x812 (or any half-rotated intermediate: 812 wide by a not-yet-shrunk
+ * height) and computeLayout takes the "tall" branch, reserving a bottom band
+ * BELOW the real screen bottom. That is the reported symptom exactly.
+ *
+ * The old defence was three settle re-measures — visualViewport's resize plus
+ * timers at 250ms and 1000ms — which is a bet on iOS firing an event, or on
+ * the rotation finishing inside a second on a cold first launch. Both are bets
+ * this side of the device cannot verify.
+ *
+ * The watchdog replaces the bet with a comparison. computeLayout is pure, so
+ * the published layout is stale exactly when a fresh reading of its six inputs
+ * disagrees with the reading it was made from (game/layout.ts's
+ * viewportChanged). Checking that costs nothing and needs no event to fire.
+ * Two clocks share the work, split by what each reading costs:
+ *
+ *   - w/h alone, EVERY FRAME, forever. loop() already reads both numbers to
+ *     hand them to render(); comparing them against the last solve is two
+ *     subtractions on top of that. This is the belt.
+ *   - w/h AND the insets, on an interval, in bursts. Insets need a mounted
+ *     probe and a getComputedStyle (lib/platform's applySafeAreaInsets), which
+ *     is a forced style recalc — cheap at 5Hz, not something to do at 60. This
+ *     is the suspenders, and it is what catches the cousin bug the settle
+ *     timers were written for: insets that arrive late at a size that never
+ *     changed.
+ * ------------------------------------------------------------------------- */
+
+/** How often an armed watchdog re-reads the viewport INCLUDING its insets. */
+const WATCHDOG_TICK_MS = 200;
+/** How long the boot burst stays armed. Ten seconds is chosen against the
+ *  failure it covers rather than against a typical boot: a cold first launch
+ *  that is still rotating past the old 1000ms settle timer is by definition a
+ *  slow one, and the cost of being wrong in this direction is 50 style
+ *  recalcs on a screen the player is still reading the splash on. */
+const WATCHDOG_BOOT_MS = 10_000;
+/** ...and how long a resume gets. Shorter because the app is already solved
+ *  correctly for SOME size here; what this covers is iOS handing the WebView
+ *  back at a different one (a call banner, Control Centre, the app switcher,
+ *  a Split View resize on iPad) without a resize event the page believes. */
+const WATCHDOG_RESUME_MS = 3_000;
+/** A beat after lockLandscape() resolves, because the promise resolving is the
+ *  OS ACCEPTING the lock, not the rotation being over — the interface
+ *  animation is still running, and a measurement taken mid-animation reads an
+ *  intermediate box. The watchdog would catch the settled size on its next
+ *  tick anyway; this just gets there first, in one frame instead of five. */
+const LOCK_SETTLE_MS = 400;
 
 /**
  * States whose overlay covers the canvas outright, so the field behind it is
@@ -770,6 +842,16 @@ class App {
   private endScrimTimer: number | null = null;
 
   private dpr = 1;
+  /** The viewport reading the CURRENTLY PUBLISHED layout was solved from —
+   *  written by onResize, read by the watchdog. Null until the first solve,
+   *  which viewportChanged treats as "disagrees with everything". */
+  private lastSolve: ViewportReading | null = null;
+  /** Live handle for the watchdog interval; non-null exactly while a burst is
+   *  armed. */
+  private watchdogTimer: number | null = null;
+  /** Wall-clock time the current burst expires at. Arming while a burst is
+   *  already running EXTENDS it rather than starting a second interval. */
+  private watchdogUntil = 0;
   private last = 0;
   private acc = 0;
   /** Composite render key so the HUD's queue tiles refresh on rotation, bomb
@@ -953,6 +1035,14 @@ class App {
     // visualViewport events plus a couple of settle re-measures make sure the
     // layout solver eventually sees the real insets instead of keeping
     // boot-time zeros forever (which parked the button rail on the field).
+    //
+    // KEPT, not replaced, now that the watchdog exists. These fire whether or
+    // not anything looks wrong, which is the one thing a disagreement-driven
+    // check cannot do — and the two settle timers are the cheapest possible
+    // cover for the first second, where the reported bug lives. The watchdog
+    // is what makes them no longer LOAD-BEARING: it does not matter any more
+    // whether iOS finishes rotating before the 1000ms timer, because a
+    // disagreement after it is still caught.
     window.visualViewport?.addEventListener("resize", this.onResize);
     window.setTimeout(this.onResize, 250);
     window.setTimeout(this.onResize, 1000);
@@ -961,13 +1051,35 @@ class App {
     window.addEventListener("pointerup", this.onGlobalPointerUp);
     window.addEventListener("pointercancel", this.onGlobalPointerUp);
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden) suspendAudio(); else resumeAudio();
+      if (document.hidden) { suspendAudio(); return; }
+      resumeAudio();
+      // Coming back is the other moment the OS can hand this WebView a
+      // different box than it took away — a call banner, Control Centre, the
+      // app switcher, an iPad Split View drag — and a page that was hidden
+      // through the change is precisely the page least likely to have received
+      // the resize event for it. Re-solve now, then watch for a beat, because
+      // the handback animates too.
+      this.onResize();
+      this.armWatchdog(WATCHDOG_RESUME_MS);
     });
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
 
-    lockLandscape();
+    // NOT fire-and-forget any more. The rotation this asks for is the single
+    // biggest viewport change the app will ever see, and it happens AFTER the
+    // first solve by construction — the promise cannot resolve before this
+    // constructor returns. Re-measuring when it resolves is the one moment we
+    // are actually told the rotation was accepted; the LOCK_SETTLE_MS timer
+    // after it is for the interface animation that follows the acceptance.
+    // Neither is load-bearing on its own (the watchdog armed below covers a
+    // lock that resolves late, never, or without either measurement landing on
+    // the settled size) — they are what make the common case correct in one
+    // frame instead of one tick.
+    void lockLandscape().then(() => {
+      this.onResize();
+      window.setTimeout(this.onResize, LOCK_SETTLE_MS);
+    });
     // Before the first solve: the boot screens carry no abilities, so the rail
     // budget is the base buttons (one fewer wherever no fullscreen toggle
     // mounts — the native shells, iPhone Safari). Without this the solver's
@@ -989,6 +1101,9 @@ class App {
     // input says otherwise (D2 — the profile follows the last input seen).
     this.setProfile(this.finePointer() ? "keyboard" : "touch");
     this.onResize();
+    // The boot burst. Everything above this line is a guess about WHEN the
+    // viewport settles; this is the thing that does not have to guess.
+    this.armWatchdog(WATCHDOG_BOOT_MS);
 
     // Profile detection: the LAST input seen wins. Touch contact flips to
     // touch; any mouse/pen contact or keypress flips to keyboard; gamepad
@@ -1092,6 +1207,7 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     this.attract.stop();
+    this.disarmWatchdog();
     this.clearHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
@@ -3420,6 +3536,55 @@ class App {
     this.syncFullscreenButtons();
   };
 
+  /** Arm (or extend) the dimension watchdog for `ms`. See the WATCHDOG_*
+   *  constants at the top of this file for what it is and why it exists.
+   *
+   *  Extending rather than restarting matters: boot arms a ten-second burst and
+   *  the landscape lock resolving inside it must not shorten that, nor start a
+   *  second interval racing the first. */
+  private armWatchdog(ms: number): void {
+    this.watchdogUntil = Math.max(this.watchdogUntil, Date.now() + ms);
+    if (this.watchdogTimer !== null) return;
+    this.watchdogTimer = window.setInterval(this.watchdogTick, WATCHDOG_TICK_MS);
+  }
+
+  private disarmWatchdog(): void {
+    if (this.watchdogTimer !== null) window.clearInterval(this.watchdogTimer);
+    this.watchdogTimer = null;
+  }
+
+  private watchdogTick = (): void => {
+    // Disarm on EXPIRY, not on a clean tick: the whole point is that the
+    // viewport can go on being wrong for a while, so "it agreed once" is not
+    // evidence that the burst is finished.
+    if (Date.now() >= this.watchdogUntil) {
+      this.disarmWatchdog();
+      return;
+    }
+    this.resolveIfStale(true);
+  };
+
+  /**
+   * Re-solve the layout if a fresh reading disagrees with the one the published
+   * layout was made from. The heart of the watchdog, and the only place that
+   * decides a stale layout is stale.
+   *
+   * `withInsets` is the cost dial. The frame loop calls this with `false`
+   * sixty times a second and pays nothing for it: no probe, no allocation,
+   * just the two numbers it is about to hand render() anyway (layout.ts's
+   * sizeChanged). An inset-only change is invisible to that path by design —
+   * the interval calls this with `true`, and owns exactly that case.
+   */
+  private resolveIfStale(withInsets: boolean): void {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (!withInsets) {
+      if (sizeChanged(this.lastSolve, w, h)) this.onResize();
+      return;
+    }
+    if (viewportChanged(this.lastSolve, readingOf(w, h, applySafeAreaInsets()))) this.onResize();
+  }
+
   private onResize = (): void => {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -3438,7 +3603,11 @@ class App {
     // box, so they have to be current before computeLayout runs. Measured from
     // real CSS env() values (see lib/platform's applySafeAreaInsets) rather
     // than guessed per-device.
-    applySafeAreaInsets();
+    const safe = applySafeAreaInsets();
+    // Everything this solve is a function of, recorded BEFORE the solve so the
+    // watchdog's question ("does a fresh reading still agree?") is asked
+    // against the numbers actually used, whatever happens downstream.
+    this.lastSolve = readingOf(w, h, safe);
 
     // Publish the solved layout (see game/layout.ts) to CSS: the letterboxed
     // field rect the canvas actually draws in, the rail's button size, and the
@@ -5466,6 +5635,15 @@ class App {
 
   // ---------------- main loop ----------------
   private loop = (now: number): void => {
+    // THE BELT (see the WATCHDOG_* block at the top of this file). render()
+    // below re-derives its own viewport from window.innerWidth/innerHeight
+    // every frame, so the canvas is self-healing and the DOM chrome — which
+    // only moves when onResize publishes --field-* — is not. Asking the same
+    // two numbers whether the published layout still matches them closes that
+    // gap permanently and costs two subtractions: no probe, no style recalc,
+    // no event, no expiry. `false` is exactly that promise — insets are the
+    // interval's job, because they cannot be read without a forced recalc.
+    this.resolveIfStale(false);
     // The Gamepad API is a state snapshot, not events — poll once per frame,
     // in every state: the Controls screen needs the Detected chip and rebind
     // capture, and Start has to pause/resume from anywhere.

@@ -181,10 +181,13 @@ import {
   RAIL_SLOTS_BASE,
   RAIL_SLOTS_MAX,
   railSlotsFor,
+  readingOf,
   setRailSlots,
   setSafeAreaInsets,
+  sizeChanged,
   skyTop,
   UI_SCALE_MIN,
+  viewportChanged,
 } from "../src/game/layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
@@ -4648,7 +4651,120 @@ section("Layout solver (layout.ts)");
   setSafeAreaInsets({ left: 60, right: 0, top: 0, bottom: 20 });
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
+  // ...and the BOTTOM inset must come out of the HEIGHT, which until now
+  // nothing here said. The pin above is about the notch, and the solver's own
+  // header reinforces the same half of the story — it describes the insets as
+  // eating "the left or right edge, not the top", which reads like a claim
+  // that only the horizontal matters in landscape. It is not: an iPhone in
+  // landscape gives up ~44px a side to the notch AND 21px at the foot to the
+  // home indicator, and a field that spent that 21px would put its bottom rail
+  // (and the compactor sweep behind it) inside the system's swipe zone.
+  //
+  // Stated as a DIFFERENCE rather than as a bound, because a bound does not
+  // bite. On the reported iPhone X box the rail's reserved bottom band is 68px
+  // — three times the home indicator — so "the field ends above y=354" is true
+  // whether or not the inset was ever subtracted, and a pin written that way
+  // passes against a solver that ignores it completely (measured: it does).
+  // What only holds when the inset is really spent is that adding it costs the
+  // field exactly its own height.
+  setRailSlots(RAIL_SLOTS_MAX);
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 0 });
+  const noIndicator = computeLayout(812, 375);
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 21 });
+  const iphone = computeLayout(812, 375);
+  const cost = (noIndicator.oy + noIndicator.fh) - (iphone.oy + iphone.fh);
+  check("the home indicator costs the field its own 21px",
+    Math.abs(cost - 21) < 0.5,
+    `bottom edge moved up ${cost.toFixed(1)}px, not 21px`);
+  check("...and the field still clears it outright",
+    iphone.oy + iphone.fh <= 375 - 21 + 0.5,
+    `field ends at ${(iphone.oy + iphone.fh).toFixed(1)} of ${375 - 21}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Stale-viewport detection (layout.ts viewportChanged)");
+// The predicate behind main.ts's dimension watchdog, and the reason it is a
+// pure function in layout.ts rather than an inline comparison in the resize
+// handler: the bug it answers (iPhone X / iOS 16.7 WKWebView, the HUD solved
+// against a portrait-sized viewport and left hanging below the real screen)
+// cannot be reproduced on this side of the device, so the part that CAN be
+// checked without one has to be checkable without one.
+//
+// computeLayout is pure, so "is the published layout stale?" is exactly "does a
+// fresh reading of its six inputs differ from the reading it was made from?".
+// These pin that equivalence in both directions — a reading that differs must
+// be reported, and one that does not must not be, because a predicate that
+// answered true too often would re-solve (and throw away the canvas backing
+// store) on every frame.
+// ---------------------------------------------------------------------------
+{
+  const flat = { left: 0, right: 0, top: 0, bottom: 0 };
+  const notch = { left: 44, right: 44, top: 0, bottom: 21 };
+  const solved = readingOf(812, 375, notch);
+
+  check("nothing solved yet disagrees with everything",
+    viewportChanged(null, solved));
+  check("the same box read twice agrees",
+    !viewportChanged(solved, readingOf(812, 375, notch)));
+
+  // THE REPORTED SHAPE. A boot that solved the portrait box, or any of the
+  // half-rotated intermediates iOS reports on the way, has to be caught — this
+  // is the reading that produced a "tall" solve with its rail band below the
+  // real screen bottom.
+  check("a portrait boot box disagrees with the landscape one",
+    viewportChanged(readingOf(375, 812, notch), solved));
+  check("a stale HEIGHT alone is enough to disagree",
+    viewportChanged(readingOf(812, 812, notch), solved));
+  check("a stale WIDTH alone is enough to disagree",
+    viewportChanged(readingOf(375, 375, notch), solved));
+
+  // The cousin bug the settle timers were written for: the size never changes,
+  // the insets arrive late. The watchdog's interval tick is the only caller
+  // that measures insets, and this is why it has to.
+  check("insets arriving late at an unchanged size disagree",
+    viewportChanged(readingOf(812, 375, flat), solved));
+  check("each inset edge counts on its own",
+    [
+      { ...notch, left: 0 }, { ...notch, right: 0 },
+      { ...notch, top: 8 }, { ...notch, bottom: 0 },
+    ].every((safe) => viewportChanged(readingOf(812, 375, safe), solved)));
+
+  // ...and the other direction, which is what keeps the per-frame caller free.
+  check("sub-pixel wobble is not a change",
+    !viewportChanged(readingOf(812.2, 374.8, notch), solved));
+  check("a whole pixel IS a change",
+    viewportChanged(readingOf(812, 374, notch), solved));
+
+  // THE FRAME LOOP'S HALF. main.ts calls sizeChanged sixty times a second and
+  // viewportChanged five times a second, so the two must not be able to
+  // disagree about a SIZE — a frame path with its own epsilon, or its own
+  // idea of what a null previous reading means, is a second implementation of
+  // the same rule that only ever runs where nobody can see it.
+  for (const [w, h] of [[812, 375], [812.2, 374.8], [812, 374], [375, 812], [812, 812]]) {
+    check(`sizeChanged and viewportChanged agree about ${w}x${h}`,
+      sizeChanged(solved, w, h) === viewportChanged(solved, readingOf(w, h, notch)),
+      `${sizeChanged(solved, w, h)} vs ${viewportChanged(solved, readingOf(w, h, notch))}`);
+  }
+  check("the frame path also treats an unsolved layout as stale",
+    sizeChanged(null, 812, 375));
+  // ...and the one thing it deliberately CANNOT see, which is why the interval
+  // exists at all. Stated rather than left implicit: a reader who assumes the
+  // per-frame check covers everything would delete the interval.
+  check("the frame path is blind to an inset-only change",
+    !sizeChanged(solved, 812, 375)
+      && viewportChanged(solved, readingOf(812, 375, flat)));
+
+  // readingOf must COPY the insets. lib/platform's applySafeAreaInsets hands
+  // back a fresh object but layout.ts's module cache is overwritten in place,
+  // so a reading that held the caller's object by reference would mutate along
+  // with it and agree with every future reading — a watchdog that could never
+  // fire, passing every test that only ever compared literals.
+  const live = { ...notch };
+  const held = readingOf(812, 375, live);
+  live.bottom = 0;
+  check("a reading keeps its own copy of the insets",
+    viewportChanged(held, readingOf(812, 375, live)));
 }
 
 // ---------------------------------------------------------------------------
@@ -11726,6 +11842,110 @@ section("Effect and stinger names (lib/audio.ts vs scripts/prepare-audio.mjs)");
   // the prompt sheet and the one mistake this seam makes easy.
   const both = fxUnion.filter((n) => stingerUnion.includes(n));
   check("no name is both an effect and a stinger", both.length === 0, both.join(", "));
+}
+
+
+// ---------------------------------------------------------------------------
+// THE EFFECTS PATH ON A STRICT PLATFORM.
+//
+// A first real-device iOS pass (iPhone X, iOS 16.7, Capacitor WKWebView) played
+// every bed and every stinger and produced no sound effect at all. That is not
+// a mix problem, it is a dependency problem: music needs an <audio> element and
+// a play() the platform allows, and effects need a constructed AudioContext, a
+// context that reached "running", thirty-three fetches and thirty-three
+// decodes. lib/audio.ts used to make one attempt at the second list and latch
+// the outcome whatever it was — `unlocked = true` on the first line of
+// unlockAudio, under main.ts's `{ once: true }` pointerdown.
+//
+// Scanned from source for the reason the name census above gives: audio.ts
+// reads import.meta.env at load and reaches for AudioContext, so no Node
+// harness can import it. That means these pins can only assert the SHAPE of the
+// module, and the shape is exactly what regressed — a latch in the wrong place
+// and an empty catch are both perfectly typed.
+// ---------------------------------------------------------------------------
+section("Effects unlock (lib/audio.ts, iOS)");
+{
+  const audioSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "audio.ts"),
+    "utf8",
+  );
+  const bare = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const code = bare(audioSrc);
+
+  // THE LATCH. `unlocked` is what makes unlockAudio idempotent, and where it is
+  // written decides whether a refused context gets a second gesture or a whole
+  // silent session. It may be set in exactly one place, and that place has to
+  // be looking at the context's own state — anything else is latching intent.
+  const latch = /function markUnlocked\(\): void \{([\s\S]*?)\n\}/.exec(code)?.[1] ?? "";
+  check("markUnlocked is still where this pin looks for it", latch.length > 0);
+  check(
+    "the unlock latch trips only against a running context",
+    /"running"/.test(latch) && /unlocked = true/.test(latch),
+    latch.replace(/\s+/g, " ").slice(0, 120),
+  );
+  const latches = code.match(/\bunlocked = true\b/g) ?? [];
+  check(
+    "...and nothing else in the module latches it",
+    latches.length === 1, `${latches.length} assignments`,
+  );
+
+  // THE RE-ARM. main.ts's hook is `{ once: true }`, so a retry needs a gesture
+  // this module owns. touchend is the one that matters on the platform this
+  // was found on — WebKit's user-activation window is at its widest there, and
+  // pointerdown alone is what shipped and what failed.
+  const events = [...(/const UNLOCK_EVENTS = \[([^\]]*)\]/.exec(code)?.[1] ?? "")
+    .matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  check(
+    "the module arms its own unlock gestures, touchend among them",
+    events.length > 0 && events.includes("touchend") && events.includes("pointerdown"),
+    events.join(", "),
+  );
+
+  // LOUD, NOT SILENT. Every way an effect can fail to arrive has to name itself
+  // — that is the whole reason the device report could say nothing more than
+  // "sound effects are silent". Asserted as: the fetch/decode path reports the
+  // asset, and playFx's missing-buffer case reports the cue.
+  const loader = /async function loadEffect\(name: FxName\): Promise<void> \{([\s\S]*?)\n\}/
+    .exec(code)?.[1] ?? "";
+  check("loadEffect is still where this pin looks for it", loader.length > 0);
+  const warns = loader.match(/warnOnce\(/g) ?? [];
+  check(
+    "every way one effect can fail to load says so by name",
+    warns.length >= 3 && /catch \(err\)/.test(loader),
+    `${warns.length} warnOnce calls`,
+  );
+  const reach = /function fxBuffer\(name: FxName\): AudioBuffer \| undefined \{([\s\S]*?)\n\}/
+    .exec(code)?.[1] ?? "";
+  check(
+    "a cue with no decoded buffer reports itself and asks for a repair",
+    /warnOnce\(/.test(reach) && /repairFx\(\)/.test(reach),
+    reach.replace(/\s+/g, " ").slice(0, 120),
+  );
+  // …and every caller goes through it. A bare buffers.get outside fxBuffer is
+  // the silent early return this section exists to prevent coming back.
+  const gets = code.match(/buffers\.get\(/g) ?? [];
+  check(
+    "nothing reaches past fxBuffer for a one-shot",
+    gets.length === 2, `${gets.length} buffers.get call sites`,
+  );
+
+  // THE CONGESTION CUE IS SCORED OR IT IS NOT. The synthesized white noise this
+  // shipped with was kept on as a fallback after the three congestionLoop takes
+  // landed, and it was reported still audible underneath them. There is no
+  // second source any more: no generated buffer, no bandpass, no per-source
+  // peak variable to choose between two levels.
+  check(
+    "no synthesized congestion source survives",
+    !/Math\.random\(\) \* 2 - 1/.test(code)
+    && !/"bandpass"/.test(code)
+    && !/\bstaticPeak\b/.test(code)
+    && !/\bSTATIC_GAIN\b/.test(code),
+    [/Math\.random\(\) \* 2 - 1/.test(code) && "noise fill",
+      /"bandpass"/.test(code) && "bandpass",
+      /\bstaticPeak\b/.test(code) && "staticPeak",
+      /\bSTATIC_GAIN\b/.test(code) && "STATIC_GAIN"].filter(Boolean).join(", "),
+  );
 }
 
 

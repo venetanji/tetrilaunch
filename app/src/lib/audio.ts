@@ -23,6 +23,39 @@
  *
  * Nothing here throws. Audio is decoration: a missing file, a decode failure or
  * a browser that refuses playback must never interrupt a run.
+ *
+ * THE TWO MECHANISMS ARE NOT EQUALLY EXPOSED, and the first real-device iOS
+ * pass is what made that matter. An iPhone X on iOS 16.7 in the Capacitor
+ * WKWebView played every bed and every stinger and produced NO sound effect at
+ * all — the whole of one mechanism, none of the other, which is the shape of a
+ * dependency and not of a mix.
+ *
+ * Count what each path actually needs:
+ *
+ *   music/stinger  an <audio> element, and a play() the platform allows.
+ *                  That is the entire list. Routing the element through the
+ *                  graph for the congestion lowpass is best-effort and FAILS
+ *                  OPEN — routeMusic's own note: with no context, or a capture
+ *                  that throws, the element goes on playing to the output by
+ *                  itself, unfiltered but audible.
+ *
+ *   effect         a constructed AudioContext, a context that actually reached
+ *                  "running", a fetch that resolves under the app's own URL
+ *                  scheme, and a decodeAudioData the engine accepts — thirty-
+ *                  three times over, all of it during the first gesture.
+ *
+ * Any single break anywhere in the second list yields exactly the reported
+ * symptom, and the module used to make that outcome permanent twice over: the
+ * unlock latched before it had proven anything (so the one gesture iOS grants
+ * was the only attempt a session ever made), and every failure in the chain was
+ * swallowed without a word (so there was nothing to read afterwards). Both are
+ * fixed below — see unlockAudio's latch, loadEffects's bounded retry, and warnOnce.
+ *
+ * What is NOT the cause, checked rather than assumed: the codec. Every shipped
+ * effect and every shipped bed is MPEG-1 Layer III at 44.1kHz, 128kbps CBR
+ * (effects mono, long-form stereo) — one family, and the same one the music
+ * that plays is in. A container WebKit cannot decode would have to be
+ * introduced by prepare-audio.mjs's `--codec`, which is pinned to LONG_EXT.
  */
 
 import type { ContractBed } from "../game/contracts";
@@ -38,6 +71,47 @@ const BASE = import.meta.env.BASE_URL;
  *  files and this constant disagree, so a codec swap is these two moves and
  *  cannot half-happen. */
 const LONG_EXT = ".mp3";
+
+/* ------------------------------------------------------------ diagnostics */
+
+/**
+ * WHY THIS MODULE TALKS NOW.
+ *
+ * The no-throw promise at the top of this file was kept by swallowing every
+ * failure in silence, and an empty `catch` is indistinguishable from a working
+ * one. That is what turned a single iOS defect into a bug report that said only
+ * "sound effects are silent": four different things can produce that sentence
+ * and none of them left a trace.
+ *
+ * The guarantee is unchanged — nothing below throws, and a broken asset is
+ * still exactly as harmless as it was. What changed is that each distinct
+ * failure now says so ONCE, by asset name and by reason.
+ *
+ * NOT gated on import.meta.env.DEV, deliberately. The builds that reach a phone
+ * are production builds (vite --mode native), so a DEV-only warning is a
+ * warning that is absent from every environment where this class of bug is
+ * actually found. A device tester with Safari's Web Inspector or `adb logcat`
+ * attached is the exact reader this text is written for, and a player never
+ * opens a console. The cost is one line per broken asset, in a session where
+ * something is already broken.
+ *
+ * Deduped by key, because these live on the hot path: playFx runs several times
+ * a second and a missing buffer would otherwise print several times a second.
+ */
+const said = new Set<string>();
+function warnOnce(key: string, message: string): void {
+  if (said.has(key)) return;
+  said.add(key);
+  console.warn(`[audio] ${message}`);
+}
+
+/** Whatever a rejected promise handed us, as something readable. DOMException
+ *  (which is what a refused resume and a failed decode both are) carries its
+ *  useful half in `name`, and a bare string is what some engines reject with. */
+function why(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
+}
 
 export type FxName =
   | "shoot"
@@ -309,18 +383,25 @@ const FADE_MS = 450;
  * muffled, so a bay filling up sounds like a signal degrading rather than
  * sounding like nothing at all.
  *
- * The cue prefers a SHIPPED texture and synthesizes its old self as the
- * fallback: one of the congestionLoop takes — a designed loop, 160-300 KB
- * mono depending on which take the session rolled (see SESSION_LOOP), whatever
- * the sound design wants congestion to BE (interference, clanking cargo
- * strain) —
- * plays when its buffer has arrived, and white noise through a bandpass still
- * covers a missing file, a failed decode, or a bay that congests before the
- * effects finish loading. Whatever the texture is, it must stay CONTINUOUS:
- * discrete events with silence between them would read as more of the real
- * impact one-shots this plays under, not as a state. The noise-only form was
- * defended here as "an mp3 would have cost ~2.5 MB"; a short mono loop costs a
- * tenth of that, which buys character Math.random cannot say.
+ * The texture is a SHIPPED TAKE and nothing else: one of the congestionLoop
+ * takes — a designed loop, 160-300 KB mono depending on which take the rotation
+ * reached, whatever the sound design wants congestion to BE (interference,
+ * clanking cargo strain). It must stay CONTINUOUS: discrete events with silence
+ * between them would read as more of the real impact one-shots this plays
+ * under, not as a state.
+ *
+ * IT USED TO BE WHITE NOISE THROUGH A BANDPASS, and that is gone. The synth was
+ * what this cue was before the three takes existed — defended at the time as
+ * "an mp3 would have cost ~2.5 MB", which a short mono loop then disproved at a
+ * tenth of the price. When the takes landed the synth was kept on as a fallback
+ * for a missing file or a slow decode, and that turned out to be the wrong
+ * trade in play: the two are not the same cue at two qualities, they are two
+ * different sounds, and the hiss was reported still audible UNDER the loops.
+ * Congestion is now scored or it is not scored — a bay that congests before the
+ * takes have decoded gets the lowpass closing over the bed, which is half the
+ * cue and the half that never depended on a file, plus a repair pass on the
+ * asset (see fxBuffer). Silence that means "this asset is missing" is worth
+ * more than a texture that means nothing.
  *
  * Muffling means a lowpass, which means the music has to reach the audio graph
  * — so playMusic now routes its element through createMediaElementSource. That
@@ -333,26 +414,14 @@ const FADE_MS = 450;
  *  and where it lands at full congestion. */
 const MUSIC_OPEN_HZ = 20000;
 const MUSIC_MUFFLED_HZ = 900;
-/**
- * Peak static, before the effects bus applies its own gain. Broadband noise
- * reads far louder than its amplitude suggests, and this cue is meant to nag
- * from under the music rather than take the mix over.
- *
- * Congestion is the one thing allowed to interfere with the bed, so this is
- * pinned to the bed's level rather than left to drift against it. The cue was
- * tuned at 0.1 through a 0.75 effects bus against a 0.45 bed; 0.21 through
- * 0.6 against a 0.75 bed was the same ratio, arrived at the same way — and
- * the later by-ear drop to today's 0.45 bus and 0.55 bed moved both sides
- * almost proportionally (0.21 x 0.45 / 0.55 lands within a quarter dB of
- * that pinned ratio), so 0.21 still holds. Raising the music without
- * bringing the static with it would have quietly retired the only cue that
- * is supposed to cut through.
- */
-const STATIC_GAIN = 0.21;
-/** The shipped loop at the same job. Separate from STATIC_GAIN because the two
- *  sources arrive at very different levels: raw ±1.0 noise loses most of its
- *  energy in the bandpass, while the sample is peak-normalised to -3dBFS and
- *  bypasses the filter.
+/** PEAK LEVEL OF THE CONGESTION TEXTURE, before the effects bus applies its
+ *  own gain. There used to be a second constant beside this one — STATIC_GAIN
+ *  0.21, the level of the synthesized noise — because the two sources arrived
+ *  at wildly different levels: raw ±1.0 noise lost most of its energy in the
+ *  bandpass, where a take is peak-normalised to -3dBFS and reaches the gain
+ *  untouched. With the synth gone there is one source and one number, and
+ *  setCongestion no longer has to carry a `staticPeak` variable to remember
+ *  which of the two won.
  *
  *  Tuned BY EAR to 1.0, and the number is hot for a reason the peak math
  *  hides: the pipeline levels these takes by PEAK like every one-shot, but a
@@ -387,8 +456,8 @@ let musicFilter: BiquadFilterNode | null = null;
  *  if the context could not build one, in which case the buses fall back to
  *  connecting straight at the destination exactly as they used to. */
 let master: DynamicsCompressorNode | null = null;
-/** The static's level. Null until the first congested bay — a player who never
- *  fills one never pays for the noise source at all. */
+/** The cue's level. Null until the first congested bay — a player who never
+ *  fills one never pays for the node at all. */
 let staticGain: GainNode | null = null;
 let congestion = 0;
 const buffers = new Map<FxName, AudioBuffer>();
@@ -456,9 +525,24 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
 /* ------------------------------------------------------------------ unlock */
 
 /**
+ * THE UNLOCK, AND WHY IT GETS MORE THAN ONE GO.
+ *
  * Browsers start an AudioContext suspended until a user gesture, and iOS is
- * stricter still. main.ts calls this from the first pointerdown; it is cheap
- * and idempotent after the first success.
+ * stricter still. main.ts calls this from the first pointerdown — with
+ * `{ once: true }`, which is the detail that turned a stricter platform into a
+ * silent one: this function used to set `unlocked = true` on its FIRST LINE,
+ * before it had built a context, before resume() had resolved, before a single
+ * byte had been fetched. One gesture, one attempt, and a permanent latch on the
+ * outcome whatever the outcome was. On Chrome the first attempt always wins and
+ * nobody ever saw the shape of it. On iOS 16.7 in a WKWebView it did not, and
+ * every effect for the rest of the session was a `!ctx` early return in playFx
+ * while music — which needs none of this (see the module note) — played on.
+ *
+ * So the latch now trips on PROOF rather than on intent: markUnlocked only
+ * fires when the context reports "running", and until then this module keeps
+ * its own gesture listeners armed and tries again on the next touch. main.ts's
+ * once-only hook is still the first and usually the last attempt; it is simply
+ * no longer the only one the session is allowed.
  *
  * Decoding happens here rather than at module load so a player who never
  * touches the screen never pays for it, and so the fetches do not compete with
@@ -466,10 +550,116 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
  */
 export function unlockAudio(): void {
   if (unlocked) return;
+  buildGraph();
+  if (!ctx) return;
+  // INSIDE the gesture, before anything asynchronous. WebKit does not hand the
+  // page a live output unit for merely constructing a context and calling
+  // resume(); it wants a source to have actually run under the user's gesture,
+  // and the canonical way to give it one is a single silent frame. Free on
+  // every other engine, and the difference between silence and sound on this
+  // one. It goes straight to the destination rather than through fxBus, which
+  // the Sound toggle can be holding at zero.
+  try {
+    const kick = ctx.createBufferSource();
+    kick.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    kick.connect(ctx.destination);
+    kick.start(0);
+  } catch (err) {
+    warnOnce("kick", `silent-frame unlock kick failed — ${why(err)}`);
+  }
+  unlockTries += 1;
+  void ctx.resume().then(markUnlocked, (err) => {
+    // Not fatal and not final: the listeners below are still armed, so the
+    // player's next touch tries again. Reported because a context that never
+    // reaches "running" is the single most likely reason a platform has music
+    // and no effects.
+    warnOnce("resume", `AudioContext.resume() refused — ${why(err)} (state ${ctx?.state})`);
+    armUnlockGestures();
+  });
+  markUnlocked();
+  if (!unlocked) armUnlockGestures();
+  if (!fxLoadStarted) {
+    fxLoadStarted = true;
+    void loadEffects(FX_NAMES);
+  }
+}
+
+/** How many gestures have asked for a running context. Only interesting when
+ *  it climbs: one is the norm, and a handful means the platform is refusing
+ *  something this module cannot see. */
+let unlockTries = 0;
+const UNLOCK_COMPLAINT_AT = 3;
+
+/**
+ * Trip the latch — but only against a context that says it is running.
+ *
+ * `state` is the only honest evidence available here. "suspended" means the
+ * gesture did not take, "interrupted" is WebKit's own state for an audio
+ * session the OS has taken away, and both of those used to be latched as
+ * success.
+ */
+function markUnlocked(): void {
+  if (unlocked || !ctx || ctx.state !== "running") {
+    if (!unlocked && unlockTries >= UNLOCK_COMPLAINT_AT) {
+      warnOnce("unlock", `AudioContext still ${ctx?.state ?? "absent"} after ${unlockTries} gestures`
+        + " — effects will stay silent while music plays");
+    }
+    return;
+  }
   unlocked = true;
+  disarmUnlockGestures();
+}
+
+/**
+ * THE RE-ARM, owned here rather than in main.ts.
+ *
+ * A retry needs a user gesture to run in, and the only hook main.ts offers is
+ * consumed by the first touch. Rather than ask for a second hook over there,
+ * this module listens for its own — capture phase and passive so it can never
+ * interfere with the aim drag or the button rail, removed the moment the latch
+ * trips, and never armed at all on a platform with no Web Audio to unlock.
+ *
+ * `touchend` is in the list for iOS specifically. WebKit's user-activation
+ * window is at its most generous there, and it is the event the platform's own
+ * unlock recipes have always used; `pointerdown` alone is what this shipped
+ * with and what the device pass caught.
+ */
+const UNLOCK_EVENTS = ["pointerdown", "touchend", "click", "keydown"] as const;
+let unlockArmed = false;
+const onUnlockGesture = (): void => { unlockAudio(); };
+
+function armUnlockGestures(): void {
+  if (unlockArmed || unlocked || !ctx || typeof window === "undefined") return;
+  unlockArmed = true;
+  for (const ev of UNLOCK_EVENTS) {
+    window.addEventListener(ev, onUnlockGesture, { capture: true, passive: true });
+  }
+}
+
+function disarmUnlockGestures(): void {
+  if (!unlockArmed) return;
+  unlockArmed = false;
+  for (const ev of UNLOCK_EVENTS) {
+    window.removeEventListener(ev, onUnlockGesture, { capture: true });
+  }
+}
+
+/** Build the graph once. Separate from unlockAudio because that function is now
+ *  re-entrant: a second gesture must resume and re-latch, not rebuild the buses
+ *  under the sources already connected to them. */
+function buildGraph(): void {
+  if (ctx) return;
   try {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return;
+    if (!Ctor) {
+      // The one failure with nothing to retry: no Web Audio means no effects on
+      // this engine at all, ever. Said out loud rather than left as a silent
+      // return, and the gesture listeners are never armed for it (armUnlockGestures
+      // requires a context) so nothing sits on window for a session that cannot
+      // be rescued.
+      warnOnce("noctor", "no AudioContext on this engine — effects are unavailable, music will still play");
+      return;
+    }
     // "playback", NOT the default "interactive". The default asks for the
     // smallest buffer the device will give, which on the OnePlus test phone is
     // a HAL frame count of 192 — 4ms. That is the buffer the whole Web Audio
@@ -543,12 +733,17 @@ export function unlockAudio(): void {
     // "audio died", and it stays that way for the rest of the session. Resume
     // on any stop we did not ask for; while backgrounded, suspendAudio owns
     // the state and this stays out of its way.
+    //
+    // It is also where a late unlock is NOTICED. resume() can resolve against a
+    // context that is still suspended (WebKit grants the promise and the audio
+    // session separately), so the latch cannot rely on the promise alone — this
+    // is the event that says "running" for real, whenever that turns out to be.
     ctx.addEventListener("statechange", () => {
       resumeStoppedContext();
+      markUnlocked();
     });
-    void ctx.resume();
-    void loadEffects();
-  } catch {
+  } catch (err) {
+    warnOnce("graph", `could not build the Web Audio graph — ${why(err)}; effects are unavailable`);
     ctx = null;
   }
 }
@@ -564,17 +759,152 @@ function resumeStoppedContext(): void {
   }
 }
 
-async function loadEffects(): Promise<void> {
-  await Promise.all(FX_NAMES.map(async (name) => {
+/* ----------------------------------------------------------- effect assets */
+
+/**
+ * decodeAudioData, BOTH WAYS AT ONCE.
+ *
+ * The promise-returning form is what this shipped with and what every current
+ * engine answers to. The callback form is what the older WebKits answer to —
+ * the legacy webkitAudioContext returns undefined and settles only through its
+ * two callbacks, so an `await` on it waits on a value that is not a promise and
+ * the buffer never arrives. Passing both and taking whichever settles is one
+ * wrapper, and it removes an entire "but it decoded on the desktop" from the
+ * next diagnosis at no cost to the engines that do not need it.
+ *
+ * A rejection here is a REAL answer and is reported as one: it means the engine
+ * has the bytes and will not turn them into audio, which is a codec the
+ * platform does not decode. Everything shipped today is MPEG-1 Layer III at
+ * 44.1kHz — the same family as the music that already plays on every device —
+ * so this should not fire; if it ever does, the fix is prepare-audio.mjs's
+ * `--codec` (its own note names aac as the safe cross-platform pick), not here.
+ */
+function decodeFx(bytes: ArrayBuffer): Promise<AudioBuffer> {
+  return new Promise<AudioBuffer>((resolve, reject) => {
+    const c = ctx;
+    if (!c) { reject(new Error("no AudioContext")); return; }
+    let ret: unknown;
     try {
-      const res = await fetch(`${BASE}audio/fx/${name}.mp3`);
-      if (!res.ok) return;
-      const buf = await ctx!.decodeAudioData(await res.arrayBuffer());
-      buffers.set(name, buf);
-    } catch {
-      /* a missing effect is silence, not a crash */
+      ret = c.decodeAudioData(bytes, resolve, reject);
+    } catch (err) { reject(err); return; }
+    if (ret && typeof (ret as Promise<AudioBuffer>).then === "function") {
+      (ret as Promise<AudioBuffer>).then(resolve, reject);
     }
-  }));
+  });
+}
+
+/**
+ * THE FETCHES ARE BOUNDED NOW, and the bound is the device lesson.
+ *
+ * This used to fire all thirty-three requests into one Promise.all, on the
+ * first pointerdown, i.e. at the busiest moment of the app's life. On a desktop
+ * that is free. On a phone the bundle is served by the native shell's own URL
+ * scheme handler reading files off local storage, and thirty-three concurrent
+ * reads competing with the first paint is a load nobody tested — a handler that
+ * drops one under it drops it into a `!res.ok` or a rejected promise, and the
+ * old loader turned both into an empty catch. Four at a time still has the
+ * whole ~1.1MB set decoded well inside the menu.
+ */
+const FX_LOAD_CONCURRENCY = 4;
+
+/** Names whose load did not produce a buffer, and why. Kept rather than
+ *  forgotten so playFx can ask for another attempt — see repairFx. */
+const fxFailures = new Map<FxName, string>();
+/** Set on the first unlock, so a re-entrant unlockAudio resumes the context
+ *  without re-fetching the whole set behind it. */
+let fxLoadStarted = false;
+let fxLoading = false;
+
+async function loadEffect(name: FxName): Promise<void> {
+  const url = `${BASE}audio/fx/${name}.mp3`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      // The shape a scheme-handler miss takes: a response arrived and it is not
+      // the file. Worth separating from a thrown fetch, which is the network
+      // layer refusing outright.
+      fxFailures.set(name, `HTTP ${res.status}`);
+      warnOnce(`fx:${name}`, `${name} — ${url} returned HTTP ${res.status}`);
+      return;
+    }
+    const bytes = await res.arrayBuffer();
+    if (bytes.byteLength === 0) {
+      fxFailures.set(name, "empty body");
+      warnOnce(`fx:${name}`, `${name} — ${url} returned 0 bytes`);
+      return;
+    }
+    buffers.set(name, await decodeFx(bytes));
+    fxFailures.delete(name);
+  } catch (err) {
+    fxFailures.set(name, why(err));
+    warnOnce(`fx:${name}`, `${name} — ${url} failed: ${why(err)}`);
+  }
+}
+
+/** Load the named effects, at most FX_LOAD_CONCURRENCY at a time. Re-entrant
+ *  by refusal rather than by queueing: a repair pass that arrives while the
+ *  boot pass is still running has nothing to add. */
+async function loadEffects(names: FxName[]): Promise<void> {
+  if (fxLoading || !ctx) return;
+  fxLoading = true;
+  try {
+    const queue = [...names];
+    const worker = async (): Promise<void> => {
+      for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
+        await loadEffect(name);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(FX_LOAD_CONCURRENCY, queue.length) }, worker),
+    );
+  } finally {
+    fxLoading = false;
+  }
+  if (fxFailures.size) {
+    // One line for the whole set, on top of the per-asset ones — this is the
+    // number a device tester reads first, and "33 of 33 failed" and "1 of 33
+    // failed" are completely different bugs wearing the same symptom.
+    warnOnce("fxsummary",
+      `${fxFailures.size} of ${FX_NAMES.length} effects failed to load: `
+      + [...fxFailures.keys()].join(", "));
+  }
+}
+
+/**
+ * A SECOND CHANCE, taken at the moment the cue is actually wanted.
+ *
+ * The boot pass runs inside the first gesture, against a WebView that is also
+ * painting the menu and inflating the native shell. An asset lost there used to
+ * be lost for the session; here it is retried the next time the game asks for
+ * it, and the cooldown keeps a genuinely-missing file (the pipeline's own
+ * degrade-to-silence contract) from re-fetching on every impact.
+ */
+const FX_REPAIR_COOLDOWN_MS = 5000;
+let lastRepairAt = -Infinity;
+function repairFx(): void {
+  if (!ctx || fxLoading || fxFailures.size === 0) return;
+  const now = Date.now();
+  if (now - lastRepairAt < FX_REPAIR_COOLDOWN_MS) return;
+  lastRepairAt = now;
+  void loadEffects([...fxFailures.keys()]);
+}
+
+/**
+ * The one way this module reaches for a decoded effect.
+ *
+ * A `buffers.get` that came back empty used to be an early return and nothing
+ * else — the exact silence the iOS pass could not explain. Every caller goes
+ * through here instead, so a cue that cannot play says so once and asks for the
+ * asset to be fetched again.
+ */
+function fxBuffer(name: FxName): AudioBuffer | undefined {
+  const buf = buffers.get(name);
+  if (buf) return buf;
+  warnOnce(`silent:${name}`,
+    `${name} has no decoded buffer — this cue is silent`
+    + (fxFailures.has(name) ? ` (${fxFailures.get(name)})` : " (never loaded)"));
+  repairFx();
+  return undefined;
 }
 
 /* ----------------------------------------------------------------- effects */
@@ -586,7 +916,7 @@ async function loadEffects(): Promise<void> {
  */
 export function playFx(name: FxName, opts: { rate?: number; gain?: number } = {}): void {
   if (!soundOn || !ctx || !fxBus) return;
-  const buf = buffers.get(name);
+  const buf = fxBuffer(name);
   if (!buf) return;
   try {
     const src = ctx.createBufferSource();
@@ -627,7 +957,7 @@ const CHARGE_RELEASE_MS = 70;
 export function startHoldCharge(gain = 0.45): void {
   stopHoldCharge();
   if (!soundOn || !ctx || !fxBus) return;
-  const buf = buffers.get("holdCharge");
+  const buf = fxBuffer("holdCharge");
   if (!buf) return;
   try {
     const src = ctx.createBufferSource();
@@ -723,7 +1053,7 @@ export function setWind(level: number): void {
     // on a bay with no wind at all — a source running permanently at zero is
     // just a voice held open for a bay that will never use it.
     if (want <= 0) return;
-    const buf = buffers.get(WIND_LOOP);
+    const buf = fxBuffer(WIND_LOOP);
     if (!buf) return;
     try {
       const src = ctx.createBufferSource();
@@ -1257,23 +1587,21 @@ function unrouteMusic(el: HTMLAudioElement): void {
  *  BufferSource cannot be started twice — while the gain it plays through
  *  persists (see ensureStatic).
  *
- *  Which source it is gets decided per EPISODE: the next take in the rotation
- *  if its buffer has arrived (loadEffects), synthesized noise otherwise. The
- *  cue is met a dozen times in a run, which is exactly the frequency at which
- *  hearing the same clank every time starts to read as one sound effect rather
- *  than as a machine under strain — so startStaticTake steps through the takes
- *  instead of holding one.
+ *  Which take it is gets decided per EPISODE: the next one in the rotation
+ *  whose buffer has arrived (loadEffects). The cue is met a dozen times in a run,
+ *  which is exactly the frequency at which hearing the same clank every time
+ *  starts to read as one sound effect rather than as a machine under strain —
+ *  so startStaticTake steps through the takes instead of holding one.
  *
  *  Rotating costs the source teardown this used to avoid, and the reason that
  *  was worth avoiding still stands: swapping mid-cue would be audible as a
  *  glitch nobody asked for. So a swap only ever happens between episodes, with
  *  the envelope proven quiet — see staticSilentAt, which is what makes the
- *  bookkeeping safe rather than merely cheap. A bay that congests before any
- *  decode lands still gets the noise fallback, which is the cue this shipped
- *  with for months. */
+ *  bookkeeping safe rather than merely cheap. A bay that congests before ANY
+ *  take has decoded now starts nothing at all: the synthesized hiss that used
+ *  to cover that case is gone (see the cue's note above), so the bed's lowpass
+ *  carries the moment alone and the next episode picks up the take. */
 let staticSrc: AudioBufferSourceNode | null = null;
-/** Peak level for setCongestion to scale — depends on which source won. */
-let staticPeak = STATIC_GAIN;
 /**
  * The persistent half of the cue's graph: one gain, built on the first
  * congested bay and kept for good.
@@ -1353,53 +1681,43 @@ function stopStaticSource(): void {
  */
 function startStaticTake(): void {
   if (!ctx || !staticGain) return;
+  // Whichever takes have decoded are the pool — a partial drop (one variant
+  // shipped, two pending) rotates over what exists.
+  const pool = LOOP_TAKES
+    .map((n) => buffers.get(n))
+    .filter((b): b is AudioBuffer => b !== undefined);
+  if (!pool.length) {
+    // Nothing to play, and nothing SUBSTITUTED for it. Checked before the
+    // source is retired rather than after, so an episode that opens against a
+    // momentarily empty pool leaves the take already running alone instead of
+    // stopping it for a silence. The takes are ordinary effects, so this asks
+    // for the same repair pass every other missing cue gets.
+    warnOnce("congestion",
+      `no congestion take decoded (${LOOP_TAKES.join(", ")}) — the cue is the bed's lowpass alone`);
+    repairFx();
+    return;
+  }
   stopStaticSource();
   try {
     const src = ctx.createBufferSource();
-    // Whichever takes have decoded are the pool — a partial drop (one variant
-    // shipped, two pending) rotates over what exists.
-    const pool = LOOP_TAKES
-      .map((n) => buffers.get(n))
-      .filter((b): b is AudioBuffer => b !== undefined);
     staticTake += 1;
-    const sample = pool.length
-      ? pool[(staticTake + takeOffset) % pool.length]
-      : undefined;
-    if (sample) {
-      src.buffer = sample;
-      src.loop = true;
-      // Loop an INTERIOR region: mp3 carries encoder padding at both ends and
-      // the pipeline's 30ms fade-out sits inside the last 60ms, so looping
-      // edge-to-edge would put a dip and a click on every cycle. 60ms in from
-      // each end the seam is texture against texture.
-      const pad = Math.min(0.06, sample.duration / 8);
-      src.loopStart = pad;
-      src.loopEnd = sample.duration - pad;
-      staticPeak = STATIC_SAMPLE_GAIN;
-      // No bandpass: the sample IS the designed spectrum. Straight to gain.
-      src.connect(staticGain);
-    } else {
-      // Two seconds is long enough that the loop point is inaudible in noise.
-      const frames = Math.floor(ctx.sampleRate * 2);
-      const buf = ctx.createBuffer(1, frames, ctx.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
-      src.buffer = buf;
-      src.loop = true;
-      // Flat white noise is a hiss. A wide bandpass through the presence range
-      // is what makes it read as a signal breaking up, not a blown speaker.
-      const band = ctx.createBiquadFilter();
-      band.type = "bandpass";
-      band.frequency.value = 2000;
-      band.Q.value = 0.6;
-      staticPeak = STATIC_GAIN;
-      src.connect(band).connect(staticGain);
-    }
+    const sample = pool[(staticTake + takeOffset) % pool.length];
+    src.buffer = sample;
+    src.loop = true;
+    // Loop an INTERIOR region: mp3 carries encoder padding at both ends and
+    // the pipeline's 30ms fade-out sits inside the last 60ms, so looping
+    // edge-to-edge would put a dip and a click on every cycle. 60ms in from
+    // each end the seam is texture against texture.
+    const pad = Math.min(0.06, sample.duration / 8);
+    src.loopStart = pad;
+    src.loopEnd = sample.duration - pad;
+    // No filter of any kind: the take IS the designed spectrum. Straight to
+    // gain — the bandpass that used to sit here belonged to the synthesized
+    // noise, which is gone.
+    src.connect(staticGain);
     // Started at a random offset into the loop region, so the cue does not
-    // open on the same clank even when the rotation comes back around. On the
-    // noise fallback loopStart and loopEnd are both 0, so the offset is 0 and
-    // nothing changes.
-    src.start(0, src.loopStart + Math.random() * Math.max(0, src.loopEnd - src.loopStart));
+    // open on the same clank even when the rotation comes back around.
+    src.start(0, src.loopStart + Math.random() * (src.loopEnd - src.loopStart));
     staticSrc = src;
   } catch {
     staticSrc = null;
@@ -1435,11 +1753,10 @@ export function setCongestion(level: number): void {
     staticSilentAt = now;
   }
   const tau = rising ? CUE_RISE_TAU : CUE_FALL_TAU;
-  staticGain?.gain.setTargetAtTime(staticPeak * next, now, tau);
+  staticGain?.gain.setTargetAtTime(STATIC_SAMPLE_GAIN * next, now, tau);
   // A congesting bay also drags the texture's pitch up a shade, so the cue
   // reads as getting WORSE, not merely louder. Small on purpose: ±12% is a
-  // timbre shift, not a note — the loop stays atonal against every bed. On the
-  // noise fallback resampling is near-inaudible, which is fine.
+  // timbre shift, not a note — the loop stays atonal against every bed.
   staticSrc?.playbackRate.setTargetAtTime(1 + 0.12 * next, now, tau);
   // GEOMETRIC between the two corners, because pitch is. Interpolating hertz
   // linearly would spend the first half of the travel between 20kHz and 10kHz,
