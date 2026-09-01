@@ -14,13 +14,16 @@ name: UI fit
 # (branch pushes, the PR, staging, main) could queue six runs of two browser
 # jobs each inside an hour, none of which said anything the PR run and the
 # local ritual had not already said. So: pushes build only where the tree is
-# authoritative (main, staging), pull requests cover every working branch,
-# and a superseded run is cancelled rather than finished for a commit nobody
-# ships. A branch with no PR is validated by the local ritual; if you want CI
+# authoritative (staging — main only moves by fast-forward from it), pull
+# requests cover every working branch, and a superseded run is cancelled
+# rather than finished for a commit nobody ships. A branch with no PR is validated by the local ritual; if you want CI
 # on it anyway, that is what the dispatch button is for.
 on:
   push:
-    branches: [main, staging]
+    # staging only, no main: main only ever moves by fast-forward from
+    # staging, so its sha was measured when staging built it — a second run
+    # under a different branch name says nothing (android.yml's reasoning).
+    branches: [staging]
     paths:
       - "app/src/**"
       - "app/sim/uifit/**"
@@ -42,8 +45,8 @@ on:
   workflow_dispatch:
 
 # A new push to the same ref supersedes the running measurement of a commit
-# that will never ship. main/staging pushes get distinct groups per ref, so a
-# staging deploy never cancels main's.
+# that will never ship, each ref in its own group.
+
 concurrency:
   group: ui-fit-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -115,7 +118,7 @@ jobs:
   # continue-on-error off in the same commit that lands the baseline.
   #
   # Until that baseline exists this job can only ever be advisory-red, so it
-  # does not spend a WebKit install on every PR sync: it runs on main/staging
+  # does not spend a WebKit install on every PR sync: it runs on staging
   # pushes (keeping the report fresh enough to record the baseline from) and
   # on dispatch. Re-widen it to PRs in the commit that lands the baseline.
   fit-webkit:

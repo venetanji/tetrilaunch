@@ -15,18 +15,23 @@ name: Android debug APK
 # identical commit passed on a retry, which is the shape of the whole problem —
 # a red check nobody can act on teaches people to ignore red checks.
 #
-# So the expensive half now runs only where an actual APK is wanted: `main`, a
-# published release, or a hand-triggered dispatch. Staging pushes and pull
-# requests still run every cheap gate — typecheck, the systems smoke test, the
-# store-bundle check — because those need no network beyond npm and catch
-# nearly everything the APK step would. `push` is also branch-filtered so a PR
-# stops being built twice.
+# So the expensive half now runs only where an actual APK is deliberately
+# wanted: a published release, or a hand-triggered dispatch. Staging pushes
+# and pull requests still run every cheap gate — typecheck, the systems smoke
+# test, the store-bundle check — because those need no network beyond npm and
+# catch nearly everything the APK step would. `push` is also branch-filtered
+# so a PR stops being built twice, and `main` is not in the filter at all:
+# main only ever moves by fast-forward from staging, so its sha was already
+# gated when staging built it — a second run on the same commit under a
+# different branch name says nothing. (Building an APK on every main push
+# was the same waste one tier up: one debug APK per merge train, downloaded
+# by nobody.)
 #
 # If you want an APK for a branch, dispatch it by hand; that is what the button
 # is for.
 on:
   push:
-    branches: [main, staging]
+    branches: [staging]
     paths:
       - "app/**"
       - ".github/workflows/android.yml"
@@ -48,6 +53,13 @@ on:
         type: boolean
         default: false
 
+# A newer push to the same ref supersedes the running gate of a commit that
+# will never ship — same rationing as ui-fit.yml. Dispatches and releases get
+# distinct refs, so nothing deliberate is ever cancelled.
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -56,7 +68,7 @@ jobs:
       # gates. Computed once here so the steps below read as a single decision
       # rather than five copies of the same condition drifting apart. See the
       # rationing note at the top of the file.
-      BUILD_APK: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || github.ref == 'refs/heads/main' }}
+      BUILD_APK: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
     defaults:
       run:
         working-directory: app
