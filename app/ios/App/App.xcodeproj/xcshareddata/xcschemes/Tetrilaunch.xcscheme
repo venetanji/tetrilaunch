@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Shared on purpose: xcodebuild -scheme App on a fresh checkout (CI) only
+<!-- Shared on purpose: xcodebuild -scheme Tetrilaunch on a fresh checkout (CI) only
      sees schemes under xcshareddata; per-user schemes live in the ignored
      xcuserdata and exist only on machines that have opened Xcode. -->
 <Scheme
@@ -18,8 +18,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "504EC3031FED79650016851F"
-               BuildableName = "App.app"
-               BlueprintName = "App"
+               BuildableName = "Tetrilaunch.app"
+               BlueprintName = "Tetrilaunch"
                ReferencedContainer = "container:App.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -48,8 +48,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "504EC3031FED79650016851F"
-            BuildableName = "App.app"
-            BlueprintName = "App"
+            BuildableName = "Tetrilaunch.app"
+            BlueprintName = "Tetrilaunch"
             ReferencedContainer = "container:App.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -65,8 +65,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "504EC3031FED79650016851F"
-            BuildableName = "App.app"
-            BlueprintName = "App"
+            BuildableName = "Tetrilaunch.app"
+            BlueprintName = "Tetrilaunch"
             ReferencedContainer = "container:App.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

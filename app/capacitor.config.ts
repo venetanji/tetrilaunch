@@ -35,6 +35,13 @@ const config: CapacitorConfig = {
   },
   ios: {
     backgroundColor: "#07070f",
+    // The Xcode target/scheme is "Tetrilaunch", not Capacitor's default
+    // "App": Xcode 16+/26 mis-links targets named App (also UI*/SwiftUI*
+    // prefixes) against SwiftUICore, which doesn't exist before iOS 18, so
+    // the app aborts at launch on iOS 16/17 (purchases-ios#7567). The CLI
+    // only reads this for `cap run`/`cap build`; `cap sync` goes by folder
+    // layout, which keeps the default ios/App/App.xcodeproj paths.
+    scheme: "Tetrilaunch",
     // "never", not "always": the app draws its own safe-area handling (the
     // layout solver reads env(safe-area-inset-*) via lib/platform's
     // applySafeAreaInsets and reserves the notch/home-indicator bands itself —

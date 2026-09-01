@@ -179,12 +179,17 @@ jobs:
           # package.json from now on; the split is the belt to that policy's
           # suspenders, so a future -beta.N can never reach Apple.
           VERSION=$(node -p "require('./package.json').version.split('-')[0]")
+          # The target/scheme is "Tetrilaunch", not Capacitor's default "App":
+          # Xcode 16+/26 mis-links apps whose target is named App (also UI*/
+          # SwiftUI* prefixes) against SwiftUICore, which doesn't exist before
+          # iOS 18 — dyld aborts at launch on iOS 16/17. Renaming the target
+          # removes the bad strong link at the source (purchases-ios#7567).
           xcodebuild archive \
             -project ios/App/App.xcodeproj \
-            -scheme App \
+            -scheme Tetrilaunch \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -archivePath $RUNNER_TEMP/Tetrilaunch.xcarchive \
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8 \
             -authenticationKeyID "$ASC_API_KEY_ID" \
@@ -220,7 +225,7 @@ jobs:
           </plist>
           EOF
           xcodebuild -exportArchive \
-            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -archivePath $RUNNER_TEMP/Tetrilaunch.xcarchive \
             -exportOptionsPlist $RUNNER_TEMP/export-options.plist \
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8 \

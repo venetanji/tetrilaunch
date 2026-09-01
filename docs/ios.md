@@ -93,25 +93,41 @@ npm run ios:open              # opens ios/App/App.xcodeproj
 
 ### iOS 15-17 and Xcode 26
 
-RevenueCat's V2 SwiftUI paywall currently cannot be rendered on iOS 15-17 when
-Xcode 26 compiles it into Capacitor's static SPM target. The app target weak-links
-`SwiftUICore` so those systems can launch, but weak-linking alone only moves the
-failure to the first paywall render. Until
-[RevenueCat purchases-ios#7567](https://github.com/RevenueCat/purchases-ios/issues/7567)
-is fixed upstream, `src/lib/purchases.ts` does not enter RevenueCatUI below iOS
-18. It fetches the current offering's `$rc_lifetime` package, shows its localized
-StoreKit price, and purchases it through RevenueCat's core SDK instead. Restore
-and entitlement refresh already use the core SDK and are unaffected.
+Xcode 16+/26 mis-links app targets with certain names — the literal `App`
+(Capacitor's default) among them, along with `UI*`/`SwiftUI*` prefixes —
+emitting a **strong** load command for `SwiftUICore`, a framework that only
+exists on iOS 18+. On iOS 16/17 dyld aborts at launch, and even with that
+worked around, RevenueCat's V2 SwiftUI paywall crashes on null SwiftUI type
+metadata. Both symptoms were chased in
+[RevenueCat purchases-ios#7567](https://github.com/RevenueCat/purchases-ios/issues/7567),
+where RevenueCat pointed to the name-collision bug.
 
-Do not remove either half of this workaround independently:
+Two defenses are in place:
 
-- `-weak_framework SwiftUICore` in both App target configurations prevents the
-  pre-iOS-18 launch-time dyld abort.
-- The runtime iOS check prevents the subsequent null SwiftUI metadata crash.
+- **The Xcode target/product is named `Tetrilaunch`, not `App`.** This removes
+  the bad strong link at the source. If you ever regenerate the iOS platform
+  with `cap add ios`, the fresh project will be named `App` again — re-apply
+  the rename (target name, productName, product reference, scheme file,
+  `Main.storyboard`'s `customModule`, `ios.scheme` in `capacitor.config.ts`,
+  `-scheme` in `.github/workflows/ios.yml`) or iOS 16/17 launches break again.
+- **`src/lib/purchases.ts` does not enter RevenueCatUI below iOS 18**
+  (`canPresentNativeRevenueCatPaywall`). It fetches the current offering's
+  `$rc_lifetime` package and purchases it through RevenueCat's core SDK
+  instead. Restore and entitlement refresh already use the core SDK and are
+  unaffected. This gate stays as a safety net even with the rename in place:
+  it fails closed, and the crash class it guards against is upstream code we
+  don't control.
 
-When RevenueCat ships a confirmed fix, verify an Xcode 26 **Release** archive on
-physical iOS 16 and 17 devices before removing the fallback; simulator success
-or an iOS 18+ test does not exercise the failing path.
+An earlier `-weak_framework SwiftUICore` in `OTHER_LDFLAGS` (both App target
+configurations) papered over the launch abort before the rename; it was
+removed when the target was renamed so a device run could confirm the rename
+alone fixes the strong link. If iOS 16/17 launches ever regress, check
+`otool -l` output for a non-weak `SwiftUICore` load command before reaching
+for the weak-link again.
+
+Any change here must be verified on an Xcode 26 **Release** archive on a
+physical iOS 16 or 17 device; simulator success or an iOS 18+ test does not
+exercise the failing path.
 
 ### Dashboard
 
