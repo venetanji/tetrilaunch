@@ -58,7 +58,8 @@ npm run ios:open              # opens ios/App/App.xcodeproj
    Enable **Sign in with Apple** on that identifier. No push, Associated Domains or App
    Groups capabilities are needed.
 
-3. **Google sign-in URL scheme** — owner step, once the iOS OAuth client exists.
+3. **Google sign-in URL scheme** — done: `Info.plist` carries the scheme for
+   the current iOS client. For a fork (or a re-created client) the step is:
    Google's native flow returns to the app through a URL scheme that is the iOS
    client id REVERSED (`com.googleusercontent.apps.<number>`). Create the iOS
    OAuth client for `com.tetrilaunch.game` in the Google Cloud console (it also
