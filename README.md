@@ -163,11 +163,13 @@ app/                      Capacitor + Vite + TypeScript web app
   worker/index.ts         Cloudflare Worker: serves the app + /api/scores (D1)
   capacitor.config.ts     native shell config
   ios/                    committed Xcode project (see docs/ios.md)
+  desktop/                Electron shell for the desktop/Steam build (own package)
   resources/              icon/splash SVG sources → native asset catalogs
 design/                   design-system source (synced to claude.ai/design via /design-sync)
   foundations/ components/ screens/    HTML preview cards
 docs/ECONOMY.md           three-currency economy + ship-upgrade design rationale
 docs/NATIVE.md            Android/iOS pipeline + the layout solver
+docs/STEAM.md             Steam release plan (depots, Steamworks, roadmap)
 wrangler.jsonc            Worker config: static assets + D1 binding
 migrations/               D1 schema
 design/prototype/         original pygame prototype (reference)
