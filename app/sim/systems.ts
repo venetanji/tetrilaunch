@@ -11999,6 +11999,319 @@ section("Effects unlock (lib/audio.ts, iOS)");
 
 
 // ---------------------------------------------------------------------------
+// THE PANEL THAT CAN SEE THE DEVICE, AND ONE SESSION POLICY WHILE WE ARE HERE.
+//
+// Third device pass, same iPhone X: still no effects, music still fine. The
+// silent-switch theory that the audio session change was first written for is
+// DEAD — the owner confirmed the Ring/Silent switch was on ringer for every
+// failing pass, so the hardware mute was never in play. What that leaves is a
+// bug nobody has been able to observe, on a phone whose owner has no Mac and
+// therefore no Web Inspector, which means the console lines the previous pass
+// added have never been read by anyone.
+//
+// So the order of importance here is the reverse of how it started:
+//
+//   1. THE SNAPSHOT IS THE DELIVERABLE. audioDiagnostics() plus main.ts's knock
+//      is the only instrument pointed at that device, and it is worth exactly
+//      as much as its power to DISCRIMINATE. The suspects left are: no context;
+//      a context that never runs; a context that ran and was taken away; assets
+//      that never fetched; assets that fetched and would not decode; a bus
+//      sitting at zero; and everything healthy with the loss below Web Audio.
+//      Each of those has to produce a different reading, which is why the pins
+//      below are about the CONTENT of the snapshot and not merely its
+//      existence — a panel that prints four fields is a panel that sends the
+//      next tester back for a fourth pass.
+//
+//   2. The native side sets .playback in AppDelegate.swift. Kept as correct
+//      product behaviour — one app should not have its elements ignore a mute
+//      its Web Audio obeys — and NOT as the fix for this bug. Pinned because
+//      that file is stock Capacitor scaffolding: a `cap sync`, an Xcode upgrade
+//      or a regenerated ios/ would put the template back with no TypeScript
+//      anywhere to notice.
+//
+// Source-scanned for the same reason the section above is: audio.ts and main.ts
+// both reach for browser globals at load, and AppDelegate.swift is not
+// TypeScript at all. The shape is the whole assertion.
+// ---------------------------------------------------------------------------
+section("Audio session policy and on-device diagnostics");
+{
+  const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const swift = fs.readFileSync(
+    path.join(appDir, "ios", "App", "App", "AppDelegate.swift"), "utf8",
+  );
+  const audioSrc = fs.readFileSync(path.join(appDir, "src", "lib", "audio.ts"), "utf8");
+  const mainSrc = fs.readFileSync(path.join(appDir, "src", "main.ts"), "utf8");
+  const bare = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  // Comments AND STRING LITERALS come out of the Swift. The literals are not
+  // tidiness: the failure messages inside NSLog name the very calls these
+  // checks look for ("AVAudioSession.setCategory(.playback) failed",
+  // "setActive(true) failed"), and the first draft of this section passed a
+  // mutation that changed the category to .ambient because the log line still
+  // said .playback. A pin that can be satisfied by an error message is not a
+  // pin. Swift interpolation never contains an unescaped quote, so one
+  // literal-eating pass is enough.
+  const swiftCode = swift
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/\/?[^\n]*/g, "")
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  const audioCode = bare(audioSrc);
+  const mainCode = bare(mainSrc);
+
+  // --- 1. The native session category ---------------------------------------
+  check(
+    "AppDelegate imports the framework that owns the audio session",
+    /^import AVF(oundation|Audio)$/m.test(swiftCode),
+    swiftCode.match(/^import .+$/gm)?.join(", ") ?? "no imports",
+  );
+  // `.playback` specifically. `.ambient` and `.soloAmbient` are both muted by
+  // the switch, and `.playAndRecord` would ask the player for a microphone
+  // this game has no use for.
+  check(
+    "the audio session category is .playback",
+    /setCategory\(\s*\.playback/.test(swiftCode),
+    /setCategory\(\s*\.(\w+)/.exec(swiftCode)?.[1] ?? "no setCategory",
+  );
+  // Setting the category without activating leaves the OS to activate whatever
+  // it likes at the first sound, which on some paths is the ambient default the
+  // category was chosen to escape.
+  check(
+    "...and the session is actually activated",
+    /setActive\(\s*true/.test(swiftCode),
+  );
+  // Inside didFinishLaunchingWithOptions, i.e. before the WebView exists and
+  // before the menu bed starts. A category set later is a category set after
+  // the first element has already promoted the session for itself.
+  const launch = /func application\([^)]*didFinishLaunchingWithOptions[\s\S]*?\n    \}/
+    .exec(swiftCode)?.[0] ?? "";
+  check("didFinishLaunchingWithOptions is still where this pin looks for it",
+    launch.length > 0);
+  check(
+    "the session is configured from didFinishLaunchingWithOptions",
+    /configureAudioSession\(\)|setCategory\(/.test(launch),
+    launch.replace(/\s+/g, " ").slice(0, 120),
+  );
+  // The no-throw contract, in Swift. `try!` and `try?`-less propagation both
+  // turn a refused session — a call in progress at launch is enough — into a
+  // crash on the one screen every player sees.
+  check(
+    "a refused session is logged, never thrown",
+    /\bcatch\b/.test(swiftCode) && /NSLog|print\(/.test(swiftCode)
+    && !/try!/.test(swiftCode),
+    /try!/.test(swiftCode) ? "try! present" : "",
+  );
+  // AND RE-ACTIVATED ON FOREGROUND. An interruption the OS owns — a call, an
+  // alarm, Siri — DEACTIVATES the session on its way out and does not hand it
+  // back. Configure it only at launch and "audio worked until I took a call"
+  // is permanent for the rest of that session, which from the web layer looks
+  // like a context that will not leave "interrupted" for reasons it cannot
+  // explain. That is a plausible shape for the bug still open on the device,
+  // and it costs one call to rule out.
+  const active = /func applicationDidBecomeActive[\s\S]*?\n    \}/.exec(swiftCode)?.[0] ?? "";
+  check("applicationDidBecomeActive is still where this pin looks for it", active.length > 0);
+  check(
+    "the session is re-activated when the app comes back to the foreground",
+    /reactivateAudioSession\(\)|setActive\(/.test(active),
+    active.replace(/\s+/g, " ").slice(0, 120),
+  );
+
+  // --- 2. The snapshot ------------------------------------------------------
+  const diag = /export function audioDiagnostics\(\): string \{([\s\S]*?)\n\}/
+    .exec(audioCode)?.[1] ?? "";
+  check("audioDiagnostics is exported and still where this pin looks for it",
+    diag.length > 0);
+  // THE READINGS THAT TELL THE SUSPECTS APART. Each entry here is a bug that
+  // looks identical to the others from the tester's side of the glass, and the
+  // field that separates it. Dropping any one of them puts a whole diagnosis
+  // back out of reach of the only instrument on that device.
+  for (const [what, re] of [
+    ["the context's existence and state", /ctx \? ctx\.state : "ABSENT"/],
+    ["the sample rate", /ctx\.sampleRate/],
+    ["the context clock (a graph whose time never advances)", /ctx\.currentTime/],
+    ["the unlock latch and how many gestures it took", /\$\{unlocked\}[\s\S]*?unlockTries/],
+    ["decoded buffers over the total", /buffers\.size\}\/\$\{total/],
+    ["whether anything was ever SENT to the bus", /fxTally\.sent/],
+    ["the fx bus's own gain value, read off the node", /fxBus\.gain\.value/],
+    ["the state history, with timestamps", /for \(const event of trace\)/],
+    ["each failed asset with its reason", /for \(const \[name, reason\] of fxFailures\)/],
+  ] as const) {
+    check(`the snapshot reports ${what}`, re.test(diag), diag.replace(/\s+/g, " ").slice(0, 140));
+  }
+
+  // THE TRACE IS STAMPED AND BOUNDED. Stamped because a context that reached
+  // "running" and lost it reads, at rest, exactly like one that never ran —
+  // and those are opposite bugs. Bounded because the unlock re-arms on every
+  // touch while a platform refuses, and an unbounded log would push the first
+  // second (the only second that matters) out of a panel sized for a phone.
+  check(
+    "the trace stamps every event with a time",
+    /trace\.push\(`\$\{\(\(clockMs\(\) - traceStart\)/.test(audioCode),
+  );
+  check(
+    "...and is bounded, counting what it drops rather than growing",
+    /trace\.length >= TRACE_MAX/.test(audioCode) && /traceDropped \+= 1/.test(audioCode),
+  );
+  // The transitions that have to be in it. A trace missing statechange is a
+  // trace that cannot see an OS interruption at all.
+  for (const [what, re] of [
+    ["the graph being built", /note\(`ctx built/],
+    ["every context state transition", /note\(`state -> /],
+    ["the unlock latch tripping", /note\(`UNLOCKED/],
+    ["a refused resume", /note\(`resume refused/],
+    ["the effect load starting and finishing", /note\(`fx load done/],
+  ] as const) {
+    check(`the trace records ${what}`, re.test(audioCode));
+  }
+
+  // FETCH AND DECODE ARE DIFFERENT BUGS AND MUST READ DIFFERENTLY. A fetch that
+  // fails is the native scheme handler not producing the file (a packaging
+  // fix); a decode that fails is the file arriving and the engine refusing it
+  // (a codec fix, in prepare-audio.mjs). They shared one catch and one message
+  // until now, which made the panel's per-asset list unable to say which.
+  const loadFx = /async function loadEffect\(name: FxName\): Promise<void> \{([\s\S]*?)\n\}/
+    .exec(audioCode)?.[1] ?? "";
+  check("loadEffect is still where this pin looks for it", loadFx.length > 0);
+  check(
+    "a fetch failure and a decode failure label themselves differently",
+    /fxFailures\.set\(name, `fetch /.test(loadFx)
+    && /fxFailures\.set\(name, `decode /.test(loadFx),
+    loadFx.replace(/\s+/g, " ").slice(0, 140),
+  );
+
+  // playFx COUNTS EVERY EXIT. This is what separates "buffers never loaded"
+  // from "buffers loaded and inaudible" — the two halves of the remaining
+  // search space, and the pair the tester's sentence cannot distinguish.
+  const play = /export function playFx\(name: FxName, opts[\s\S]*?\n\}/.exec(audioCode)?.[0] ?? "";
+  check("playFx is still where this pin looks for it", play.length > 0);
+  check(
+    "playFx counts what it was asked for and what it actually sent",
+    /fxTally\.asked \+= 1/.test(play) && /fxTally\.sent \+= 1/.test(play)
+    && /fxTally\.gated \+= 1/.test(play) && /fxTally\.missing \+= 1/.test(play),
+    play.replace(/\s+/g, " ").slice(0, 140),
+  );
+  // The one empty catch left in the effects path is gone with it: a running
+  // context that refuses start() is the last failure in the chain and the only
+  // one that can happen after every other reading already looks healthy.
+  check(
+    "...and a refused start() is counted and named, not swallowed",
+    /fxTally\.threw \+= 1/.test(play) && /warnOnce\(`start:/.test(play)
+    && !/catch \{/.test(play),
+  );
+
+  // THE VERDICT LINE. The panel has to end in a sentence a non-author can act
+  // on, and the branch that matters most is the healthy one: everything this
+  // module can observe is fine, therefore the loss is somewhere it cannot see.
+  // Without that sentence the next report is "no sound effects" for a fourth
+  // time; with it, it is "everything green and still silent", which is a
+  // different bug entirely.
+  const verdict = /function fxVerdict\(\): string \{([\s\S]*?)\n\}/.exec(audioCode)?.[1] ?? "";
+  check("fxVerdict is still where this pin looks for it", verdict.length > 0);
+  check(
+    "the verdict says so when the loss is below Web Audio",
+    /BELOW WEB AUDIO/.test(verdict),
+    verdict.replace(/\s+/g, " ").slice(-140),
+  );
+  // …and it is a funnel, not a single sentence: the earlier suspects each get
+  // their own answer, so the panel names the FIRST thing that is wrong.
+  check(
+    "...and it names the earlier suspects separately",
+    /no AudioContext/.test(verdict)
+    && /the gesture unlock never took/.test(verdict)
+    && /NO effect decoded/.test(verdict)
+    && /fx bus is at zero/.test(verdict),
+    verdict.replace(/\s+/g, " ").slice(0, 140),
+  );
+  // The warnings themselves, verbatim. `said` was a Set of dedupe KEYS while
+  // its only reader was a console; the messages are the half a phone with no
+  // console needs, and a revert to a Set would leave the panel printing a
+  // count of complaints it could not quote.
+  check(
+    "warnOnce keeps the message text, not just the dedupe key",
+    /const said = new Map<string, string>\(\)/.test(audioCode)
+    && /said\.set\(key, message\)/.test(audioCode),
+    /const said = new \w+/.exec(audioCode)?.[0] ?? "no said",
+  );
+  check(
+    "...and the snapshot prints them",
+    /said\.values\(\)/.test(diag),
+  );
+  // Same no-throw promise as the rest of the module: a diagnostic that crashes
+  // the app is worse than no diagnostic.
+  check(
+    "the snapshot cannot throw",
+    /try \{/.test(diag) && /catch \(err\)/.test(diag),
+  );
+
+  // --- 3. The trigger -------------------------------------------------------
+  check(
+    "main.ts imports the snapshot",
+    /\baudioDiagnostics\b/.test(mainCode),
+  );
+  // Hung off the SOUND toggle, which is the toggle the diagnostic is about, and
+  // an EVEN number of flips so the knock leaves the setting as it found it.
+  const toggle = /private onToggle\(key: string, el: HTMLElement\): void \{([\s\S]*?)\n  \}/
+    .exec(mainCode)?.[1] ?? "";
+  check("onToggle is still where this pin looks for it", toggle.length > 0);
+  check(
+    "the knock is counted on the Sound toggle",
+    /key === "sound"/.test(toggle) && /audioKnock\(\)/.test(toggle),
+    toggle.replace(/\s+/g, " ").slice(-120),
+  );
+  const flips = parseInt(/const AUDIO_KNOCK_FLIPS = (\d+)/.exec(mainCode)?.[1] ?? "0", 10);
+  check(
+    "it takes an even number of flips, so the setting comes back where it was",
+    flips >= 4 && flips % 2 === 0, `${flips} flips`,
+  );
+  check(
+    "...within a window a deliberate knock fits and a fidget does not",
+    /const AUDIO_KNOCK_MS = \d+/.test(mainCode),
+    /const AUDIO_KNOCK_MS = \d+/.exec(mainCode)?.[0] ?? "absent",
+  );
+  // THE PANEL BUILDS AND REMOVES ITSELF. This is the boundary the affordance
+  // was designed around: screens.ts and app.css belong to the game's screens,
+  // and a once-a-release tester panel that took a template in one and a rule in
+  // the other would sit in everyone's way permanently. Asserted from the other
+  // side too — neither file may learn the panel's id.
+  const panel = /private showAudioDiagnostics\(\): void \{([\s\S]*?)\n  \}/
+    .exec(mainCode)?.[1] ?? "";
+  check("showAudioDiagnostics is still where this pin looks for it", panel.length > 0);
+  check(
+    "the panel injects its own element, styles it inline and removes it on a tap",
+    /document\.createElement\("div"\)/.test(panel)
+    && /style\.cssText/.test(panel)
+    && /\.remove\(\)/.test(panel)
+    && /addEventListener\("pointerdown"/.test(panel),
+    panel.replace(/\s+/g, " ").slice(0, 140),
+  );
+  // textContent, never innerHTML: the lines quote asset URLs and engine error
+  // strings, none of which this app wrote.
+  check(
+    "...and the failure text goes in as text, not as markup",
+    /textContent =/.test(panel) && !/innerHTML/.test(panel),
+  );
+  // A TAP CLOSES, A DRAG SCROLLS. The snapshot is now a trace plus a per-asset
+  // list — taller than a phone — and dismissing on pointerdown made every
+  // attempt to scroll it close the panel on the first touch. The panel is only
+  // an instrument if the whole of it can be read.
+  check(
+    "the panel scrolls, and only a tap that stayed put dismisses it",
+    /overflow:auto/.test(panel)
+    && /addEventListener\("pointerup"/.test(panel)
+    && /scrollTop/.test(panel),
+    panel.replace(/\s+/g, " ").slice(-140),
+  );
+  const screensSrc = fs.readFileSync(path.join(appDir, "src", "ui", "screens.ts"), "utf8");
+  const appCss = fs.readFileSync(path.join(appDir, "src", "styles", "app.css"), "utf8");
+  check(
+    "no screen template or stylesheet rule knows about the panel",
+    !/audio-diag/.test(screensSrc) && !/audio-diag/.test(appCss),
+    [/audio-diag/.test(screensSrc) && "screens.ts",
+      /audio-diag/.test(appCss) && "app.css"].filter(Boolean).join(", "),
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // GESTURE MISFIRE PREVENTION — the firing floor, the strand warning, the chute.
 // ---------------------------------------------------------------------------
 section("Misfire prevention");

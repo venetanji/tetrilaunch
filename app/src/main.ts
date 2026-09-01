@@ -155,6 +155,7 @@ import {
   signIn, signOut, type AuthState,
 } from "./lib/auth";
 import {
+  audioDiagnostics,
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
   startHoldCharge, stopHoldCharge, restoreBed, setWind, stopWind,
@@ -501,6 +502,38 @@ const PAD_CONTROLS_DOORS: Partial<Record<AppState, S.ControlsDoor>> = {
   contracts: "contracts",
   sandbox: "sandbox",
 };
+
+/**
+ * THE AUDIO KNOCK — a permanent tester affordance, not a temporary hack.
+ *
+ * lib/audio.ts reports every way its effects path can fail, on the console, in
+ * production builds, deliberately (its warnOnce note). None of that has ever
+ * been read: the phone the audio bugs live on is an iPhone, and reaching a
+ * WKWebView console means Safari's Web Inspector, which means a Mac, which the
+ * owner of that phone does not have. A diagnostic nobody can open is a
+ * diagnostic that does not exist, so this hands the same snapshot to the only
+ * output every device has — its screen.
+ *
+ * Four flips of the SOUND toggle (off, on, off, on) inside AUDIO_KNOCK_MS. The
+ * choice of gesture is not arbitrary:
+ *
+ *  - it is on the SETTINGS screen, which no one reaches mid-run and which
+ *    already exists on every platform;
+ *  - it is the toggle the diagnostic is ABOUT, so the tester is already there
+ *    when they think to ask;
+ *  - it is idempotent in even numbers: the knock leaves Sound exactly as it
+ *    was found, so a player who fidgets with the switch has changed nothing
+ *    and dismisses a panel;
+ *  - it needs no new control, no new string to translate, and nothing in
+ *    screens.ts or app.css — the overlay below builds and removes itself.
+ *
+ * Kept after the device bug is closed, on purpose. The next audio report from
+ * a phone will arrive with the same three words ("no sound effects") and the
+ * same absent console, and this is the difference between a week of guesses
+ * and one screenshot.
+ */
+const AUDIO_KNOCK_FLIPS = 4;
+const AUDIO_KNOCK_MS = 2000;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -7382,6 +7415,109 @@ class App {
     // silence (playFx already gates on the new state) and switching it ON
     // clicks audibly — the click doubles as proof the toggle took effect.
     playUiClick(next ? 1.08 : 0.92);
+    // Last, so the toggle has fully done its ordinary job before the knock is
+    // even counted: a tester who trips this still gets the setting they asked
+    // for, and a knock that opens the panel has already played its click.
+    if (key === "sound") this.audioKnock();
+  }
+
+  /** Flip timestamps of the Sound toggle, newest last. See AUDIO_KNOCK_FLIPS. */
+  private audioKnocks: number[] = [];
+
+  /** One flip of Sound. Opens the diagnostics panel when AUDIO_KNOCK_FLIPS of
+   *  them land inside AUDIO_KNOCK_MS.
+   *
+   *  performance.now() rather than Date.now(): this is a duration between two
+   *  touches on one device, which is exactly what a monotonic clock is for, and
+   *  a wall clock that steps (a timezone change, an NTP correction) would
+   *  either arm or disarm the knock for reasons no tester could see. */
+  private audioKnock(): void {
+    const now = performance.now();
+    this.audioKnocks.push(now);
+    // Prune to the window rather than counting a fixed-length buffer. Flips are
+    // rare and the array is small, and this way a slow tester's earlier attempt
+    // cannot half-fill the count for a later one.
+    while (this.audioKnocks.length && now - this.audioKnocks[0] > AUDIO_KNOCK_MS) {
+      this.audioKnocks.shift();
+    }
+    if (this.audioKnocks.length < AUDIO_KNOCK_FLIPS) return;
+    this.audioKnocks.length = 0;
+    this.showAudioDiagnostics();
+  }
+
+  /**
+   * The panel itself: built here, styled here, removed here.
+   *
+   * SELF-CONTAINED ON PURPOSE, and that is a boundary rather than a shortcut.
+   * screens.ts renders the game's screens and app.css styles them; a tester
+   * affordance that only ever appears when someone knocks four times on a
+   * toggle has no business adding a template to one or a rule to the other,
+   * where it would sit in everyone's way forever to be read once a release.
+   * Inline styles, one element, no class names to collide with, and the whole
+   * thing gone from the DOM on the next tap.
+   *
+   * Monospace and pre-wrapped because the snapshot is a column of aligned
+   * labels (audioDiagnostics builds it that way) and a proportional font turns
+   * it into a paragraph. Highest z-index in the app and pinned to the layout
+   * viewport so it clears the HUD, the rail and the notch inset alike — this
+   * is meant to be legible from a phone held at arm's length and photographed.
+   */
+  private showAudioDiagnostics(): void {
+    // A second knock while the panel is up replaces it rather than stacking a
+    // second copy underneath — the tester is asking for a FRESH reading.
+    document.getElementById("audio-diag")?.remove();
+    const box = document.createElement("div");
+    box.id = "audio-diag";
+    box.setAttribute("role", "status");
+    box.style.cssText = [
+      "position:fixed", "inset:0", "z-index:2147483647",
+      // TOP-ALIGNED AND SCROLLABLE, not centred. The snapshot grew a trace and
+      // a per-asset failure list, and centred content taller than the viewport
+      // overflows in BOTH directions — the first lines, which are the ones that
+      // matter, end up above the top of a box that cannot be scrolled back to.
+      "padding:20px", "box-sizing:border-box",
+      "overflow:auto", "-webkit-overflow-scrolling:touch",
+      "background:rgba(4,8,12,0.94)",
+      "font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+      "color:#cfe9ff", "white-space:pre-wrap", "word-break:break-word",
+      // The panel is the dismiss target, so it must take the tap that a
+      // pointer-events:none decoration would let through to the toggle
+      // underneath — which would count as a fifth flip.
+      "pointer-events:auto",
+      // Selectable on purpose: a tester who can reach a share sheet can send
+      // the text instead of a photograph of it.
+      "-webkit-user-select:text", "user-select:text",
+    ].join(";");
+    // textContent, not innerHTML. Every line of this comes from a failure
+    // message that may quote a URL or an engine's own error text, and none of
+    // it is markup this app wrote.
+    box.textContent = `[audio] diagnostics\n\n${audioDiagnostics()}`
+      + "\n\ntap to close — drag to scroll";
+    // A TAP CLOSES, A DRAG SCROLLS. Closing on pointerdown was the first shape
+    // of this and it made the panel unreadable the moment the snapshot grew a
+    // trace: every attempt to scroll the list dismissed it on the first touch.
+    // So the decision waits for the release and asks whether the finger stayed
+    // put — the same distinction main.ts already draws for a press inside a
+    // scroller (see pressFeedback).
+    const SLOP = 10;
+    let down: { x: number; y: number; top: number } | null = null;
+    box.addEventListener("pointerdown", (e: PointerEvent) => {
+      // Stopped here: the app's own press handlers sit on the overlay and the
+      // window, and a touch meant for this panel must not blip a button the
+      // player cannot see behind it.
+      e.stopPropagation();
+      down = { x: e.clientX, y: e.clientY, top: box.scrollTop };
+    }, { capture: true });
+    box.addEventListener("pointerup", (e: PointerEvent) => {
+      e.stopPropagation();
+      const from = down;
+      down = null;
+      if (!from) return;
+      if (Math.abs(e.clientX - from.x) > SLOP || Math.abs(e.clientY - from.y) > SLOP) return;
+      if (box.scrollTop !== from.top) return; // momentum scrolling counts as a drag
+      box.remove();
+    }, { capture: true });
+    document.body.appendChild(box);
   }
 
   /** The paywall itself is native UI configured in the RevenueCat dashboard —
