@@ -18137,30 +18137,75 @@ section("Aiming strategies — three holes review found (sim/ — winnability, l
       applyUpgrades(cfg, loadoutFor(PRIORITY_ORDERS.material, 7));
       return applyRatchets(cfg, { volatile: 6 });
     };
-    const flyWith = (id: string, attempt: number): BayOutcome =>
-      runBay(congested(), strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS[id] })(attempt), attempt);
-    // SEVERAL FIXTURES, DIVERGENCE ON ANY. A single bay is a coin balanced on
-    // its edge: whether the two pilots' flights separate there is downstream
-    // of chaotic physics, and the iOS workflow's arm64 runner proved it — the
-    // same bay that separates them on x64 came out 53 shots/11 lines under
-    // BOTH pilots when libm rounded differently. The property being pinned is
-    // the wiring, and a broken wiring (both pilots flying `aim`) converges on
-    // every fixture — so any one diverging is proof, and four chances make
-    // the proof hold on any architecture. Attempt 3 first: it is the one that
-    // separates on x64, so the extra flights cost nothing there.
-    const attempts = [3, 1, 2, 4];
-    const flown = new Map<number, { aim: BayOutcome; patient: BayOutcome }>();
-    const diverged = attempts.some((attempt) => {
-      const pair = { aim: flyWith("aim", attempt), patient: flyWith("patient", attempt) };
-      flown.set(attempt, pair);
-      return pair.aim.shots !== pair.patient.shots || pair.aim.lines !== pair.patient.lines;
-    });
+    // THE DECISION, NOT THE FLIGHT. This used to fly the whole bay under both
+    // pilots and demand the outcomes diverge — a proof by chaos that the iOS
+    // workflow's arm64 runner dismantled twice: first one fixture converged,
+    // then all four retries did, because whatever separates the platforms'
+    // floating point separates the flights wholesale and no outcome
+    // comparison survives it. The property was never the flight; it is that
+    // the patient pilot CONSULTS pileTier where aim does not. So consult it:
+    // two identical games are driven under `aim` to the same congested,
+    // shootable moment, then each pilot flies its own copy for a span chosen
+    // inside the patient hold cap — aim keeps shooting, patient must not fire
+    // once. A broken wiring (the historical bug: `patient` rows flying plain
+    // aim) shoots on both and fails loudly, on every architecture.
+    const congestible = (): LevelConfig => {
+      const cfg = congested();
+      // Thresholds at zero make congestion undeniable from the first landed
+      // cargo. The rule under test reads `pileTier !== null`; the staircase's
+      // calibration is someone else's pin.
+      cfg.pileTiers = cfg.pileTiers.map((t) => ({ ...t, cubes: 0 }));
+      cfg.pileAllowance = 0;
+      return cfg;
+    };
+    const SIM_DT = 1000 / 60;
+    const frozen = (id: string) => {
+      const fired = { count: 0 };
+      const game = new Game(congestible(), { onShoot: () => { fired.count += 1; } }, 3);
+      const driver = strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS.aim })(3);
+      let now = 0;
+      // Drive under aim until the bay is congested AND the next tick could
+      // legally shoot — the exact moment the two pilots' rules disagree.
+      while (
+        game.status === "playing" && now < 60_000
+        && (game.pileTier === null || !game.cannon.canShoot(now + SIM_DT)
+          || game.score < game.level.launchCost)
+      ) {
+        now += SIM_DT;
+        driver.act(game, now);
+        game.update(now);
+      }
+      return { game, now, fired, pilot: strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS[id] })(3) };
+    };
+    const A = frozen("aim");
+    const P = frozen("patient");
+    check(
+      "the congestion fixture reaches a congested, shootable moment",
+      A.game.pileTier !== null && P.game.pileTier !== null
+        && A.now === P.now && A.fired.count === P.fired.count,
+      `aim game at ${A.now.toFixed(0)}ms/${A.fired.count} shots, patient game at ${P.now.toFixed(0)}ms/${P.fired.count}`,
+    );
+    // Fly each copy for 80% of the patient cap (bots.ts's
+    // PATIENT_MAX_WAIT_CYCLES = 2 compactor cycles): long enough that aim
+    // provably shoots, safely inside the window where patient must not.
+    const capMs = (A.game.compactor.cycleSteps / 60) * 1000 * 2;
+    const span = Math.floor((capMs * 0.8) / SIM_DT);
+    const flyOn = (s: ReturnType<typeof frozen>): number => {
+      const before = s.fired.count;
+      let now = s.now;
+      for (let i = 0; i < span && s.game.status === "playing"; i++) {
+        now += SIM_DT;
+        s.pilot.act(s.game, now);
+        s.game.update(now);
+      }
+      return s.fired.count - before;
+    };
+    const aimShots = flyOn(A);
+    const patientShots = flyOn(P);
     check(
       "...and a `patient` strategy pilot really flies the congestion rule, not `aim`",
-      diverged,
-      [...flown].map(([attempt, { aim, patient }]) =>
-        `attempt ${attempt}: aim ${aim.shots}/${aim.lines} vs patient ${patient.shots}/${patient.lines}`,
-      ).join("; "),
+      aimShots > 0 && patientShots === 0,
+      `over ${span} congested steps: aim fired ${aimShots}, patient fired ${patientShots}`,
     );
   }
 
