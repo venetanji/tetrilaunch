@@ -22,6 +22,13 @@ name: iOS TestFlight build
 # one registered device — neither of which a TestFlight pipeline needs, and
 # run #3 failed on exactly that ("team has no devices").
 #
+# The manual settings live in the App target's RELEASE config in
+# project.pbxproj, NOT as command-line overrides: a CLI build setting hits
+# every target in the build, and Swift package resource bundles
+# (GoogleUtilities and friends) refuse a provisioning profile outright —
+# run #4 failed on exactly that. Debug stays Automatic so local ⌘R
+# development needs none of this.
+#
 # The secrets live in the `ios-build` ENVIRONMENT (same reasoning as
 # android-build: an environment can carry protection rules repo secrets
 # cannot). The job fails at its guard steps rather than uploading a build
@@ -166,9 +173,6 @@ jobs:
             -authenticationKeyID "$ASC_API_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="Tetrilaunch App Store" \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
 
