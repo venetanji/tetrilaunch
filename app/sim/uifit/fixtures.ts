@@ -1235,13 +1235,13 @@ export const SCREENS: Record<string, () => string> = {
   // The rig/axis columns are at their WORST CASE deliberately: Mark 10 opens
   // every axis hazards.ts has, which is the longest that column can be, and
   // the belt row carries all six materials plus both overrides at every Mark.
-  sandbox: () => sandboxScreen({ s: SANDBOX_BAY, meta: midMeta(), best: 98_760 }),
+  sandbox: () => sandboxScreen({ s: SANDBOX_BAY, meta: midMeta(), best: 98_760, fullGame: true }),
   "sandbox-contract": () =>
-    sandboxScreen({ s: SANDBOX_CONTRACT, meta: midMeta(), best: 0 }),
+    sandboxScreen({ s: SANDBOX_CONTRACT, meta: midMeta(), best: 0, fullGame: true }),
   // The developer build: one extra row, in a column that already scrolls.
   "sandbox-dev": () =>
     sandboxScreen({
-      s: SANDBOX_BAY, meta: midMeta(), best: 98_760, cheats: cheatRowHTML(midMeta()),
+      s: SANDBOX_BAY, meta: midMeta(), best: 98_760, fullGame: true, cheats: cheatRowHTML(midMeta()),
     }),
 
   "contract-end": () =>

@@ -75,7 +75,7 @@ import {
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
-  FREE_TIER_LIMIT,
+  FREE_TIER_LIMIT, tierIncluded,
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -2988,6 +2988,9 @@ class App {
               // lib/sandbox-cheats.ts for why this is a string rather than a
               // flag the screen branches on.
               cheats: SANDBOX ? cheatRowHTML(this.meta) : "",
+              // Tier S is a level SELECT, not a level GRANT — the sandbox
+              // obeys the same tier gate as the tower it hides under.
+              fullGame: this.fullGame(),
             })
           : "";
         break;
@@ -6871,7 +6874,19 @@ class App {
       // leaderboard's own tab, or the sandbox build's menu chip. Gated on the
       // door being open rather than on the build, and re-checked here because
       // four callers is four chances for one of them to be wrong.
-      case "sandbox": if (this.sandboxOpen()) this.setState("sandbox"); break;
+      case "sandbox":
+        if (this.sandboxOpen()) {
+          // A save can hold a Tier the account no longer reaches — set while
+          // the game was owned on this device's web build, or before the gate
+          // shipped. Clamp on the way in so the screen never opens pointed at
+          // a locked chip; the launch gate below would catch it anyway, but a
+          // panel briefing a flight it will refuse is a lie with extra steps.
+          if (!tierIncluded(this.sandbox.tier, this.fullGame())) {
+            this.sandbox.tier = FREE_TIER_LIMIT;
+          }
+          this.setState("sandbox");
+        }
+        break;
       default:
         // Every Tier S action funnels through one guarded call rather than a
         // case each, so there is exactly ONE place the door is checked — and
@@ -6909,7 +6924,12 @@ class App {
         break;
       }
       case "sbx-tier": {
-        this.sandbox.tier = Number(el.getAttribute("data-tier") ?? "1");
+        const asked = Number(el.getAttribute("data-tier") ?? "1");
+        // The gated chips render disabled, so this branch is the re-check for
+        // routes the DOM cannot police (a stale card, a synthetic event) —
+        // and it answers like the tower does: with the paywall, not silence.
+        if (!tierIncluded(asked, this.fullGame())) { void this.onPaywall(); break; }
+        this.sandbox.tier = asked;
         // Selecting a tier below the current variant's rung would leave the
         // panel pointing at something it cannot generate. Fall back to the
         // variant every tier has rather than silently generating a different
@@ -7003,6 +7023,11 @@ class App {
         this.sandbox.seed = (this.sandbox.seed + 1) % 1_000_000_007;
         break;
       case "sbx-launch":
+        // The launch re-asks the gate the chips and the tier handler already
+        // asked — same reasoning as the tower's tierOpen before newRun: a
+        // state reachable by a route nobody has thought of yet must still
+        // refuse to fly a Tier the account does not hold.
+        if (!tierIncluded(this.sandbox.tier, this.fullGame())) { void this.onPaywall(); break; }
         this.launchSandbox();
         return; // startContract/startLevel render for us
       default: {

@@ -13008,7 +13008,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
 
   // THE SCREEN. It ships, so every control it draws has to be one main.ts
   // routes — and the ones that must never ship have to be absent.
-  const sScreen = sandboxScreen({ s: sbx, meta: newMeta(), best: 0 });
+  const sScreen = sandboxScreen({ s: sbx, meta: newMeta(), best: 0, fullGame: true });
   check("the screen offers every mode",
     ["bay", "pattern", "lines"].every((m) => sScreen.includes(`data-mode="${m}"`)));
   check("the screen offers every axis the Mark deals",
@@ -13026,7 +13026,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // 10 would not produce has something on the panel accounting for it.
   const sInspect = sandboxScreen({
     s: { ...sbx, target: { kind: "bay", bay: SANDBOX_FINAL_BAY }, final: sandboxFinals(9)[0].id },
-    meta: newMeta(), best: 0,
+    meta: newMeta(), best: 0, fullGame: true,
   });
   check("the briefing names the clause in force",
     sInspect.includes(sandboxFinals(9)[0].name));
@@ -13035,8 +13035,39 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the shipping screen carries no save-editing controls",
     !sScreen.includes("sbx-wipe") && !sScreen.includes("sbx-grant-mark"));
   check("the developer render does",
-    sandboxScreen({ s: sbx, meta: newMeta(), best: 0, cheats: cheatRowHTML(newMeta()) })
+    sandboxScreen({ s: sbx, meta: newMeta(), best: 0, fullGame: true, cheats: cheatRowHTML(newMeta()) })
       .includes("sbx-wipe"));
+
+  // TIER S IS A LEVEL SELECT, NOT A LEVEL GRANT. Without the gate the easter
+  // egg was a free tour of every Tier's hazards, materials and finals — the
+  // exact content the tier-3 gate sells. Free accounts keep the sandbox for
+  // the Tiers they hold (the tower's own tierIncluded rule); the rest render
+  // as the variant row's locked-chip idiom, disabled with the reason on them.
+  {
+    const gated = sandboxScreen({ s: { ...sbx, tier: 2 }, meta: newMeta(), best: 0, fullGame: false });
+    const tierChip = (html: string, t: number): string =>
+      html.match(new RegExp(`<button[^>]*data-action="sbx-tier"[^>]*data-tier="${t}"[^>]*>`))?.[0] ?? "";
+    check("a free account's sandbox locks the tiers past the gate",
+      tierChip(gated, 4).includes("disabled") && tierChip(gated, 10).includes("disabled"),
+      tierChip(gated, 4) || "no tier-4 chip");
+    check("...says why on the chip",
+      tierChip(gated, 4).includes("Full Game required"));
+    check("...and keeps the free tiers flyable",
+      !tierChip(gated, 1).includes("disabled") && !tierChip(gated, 3).includes("disabled"));
+    check("a full-game sandbox locks nothing",
+      !tierChip(sScreen, 10).includes("disabled"));
+    // The DOM cannot police a stale card or a synthetic event, so main.ts
+    // re-asks at the tier handler AND the launch — and clamps a saved tier
+    // the account no longer reaches before the screen opens on it.
+    const mainSrcSbx = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"), "utf8");
+    check("the tier handler answers a locked ask with the paywall",
+      /case "sbx-tier"[\s\S]{0,400}tierIncluded\(asked, this\.fullGame\(\)\)[\s\S]{0,40}onPaywall/.test(mainSrcSbx));
+    check("...and so does the launch",
+      /case "sbx-launch"[\s\S]{0,400}tierIncluded\(this\.sandbox\.tier, this\.fullGame\(\)\)[\s\S]{0,40}onPaywall/.test(mainSrcSbx));
+    check("...and a stale saved tier is clamped before the screen opens",
+      /sandboxOpen\(\)[\s\S]{0,600}this\.sandbox\.tier = FREE_TIER_LIMIT/.test(mainSrcSbx));
+  }
   // The cheats themselves, checked here because nothing else can: they are
   // eliminated from every build the app ships, so the only place their effect
   // is ever observed is a test that imports them directly.

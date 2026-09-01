@@ -52,6 +52,7 @@ import { levelForRun, RUN_LEVELS } from "../game/run";
 import { finalById } from "../game/finals";
 import { MAX_TIER, tiersCost, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 import type { MetaState } from "../game/meta";
+import { tierIncluded } from "../game/meta";
 
 export interface SandboxScreenOpts {
   s: SandboxState;
@@ -67,6 +68,12 @@ export interface SandboxScreenOpts {
    *  call and the whole cheats module from every shippable bundle. A boolean
    *  here would have put the row's markup in this module — which ships. */
   cheats?: string;
+  /** Whether the tier-3 gate is open (main.ts's fullGame()). Tier S is a
+   *  level SELECT, not a level GRANT: without this the easter egg was a free
+   *  tour of all ten Tiers' hazards, materials and finals — the exact content
+   *  the gate sells. Free accounts keep the sandbox for the Tiers they hold,
+   *  the tower's own rule (meta.ts's tierIncluded). */
+  fullGame: boolean;
 }
 
 /* ---------------------------------------------------------------------------
@@ -307,7 +314,14 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
           <h3 class="sbx-col__ttl">What</h3>
           ${chipRow("Mode", "", "sbx-mode", "mode", modes)}
           ${chipRow("Tier", "difficulty rung", "sbx-tier", "tier",
-            SANDBOX_TIERS.map((t) => ({ value: t, text: String(t), on: t === s.tier })))}
+            // Locked, not hidden — the same choice the variant row makes one
+            // row down ("locked ones show their rung"): a chip that vanishes
+            // teaches nothing, a chip that says why it refuses sells the why.
+            SANDBOX_TIERS.map((t) => ({
+              value: t, text: String(t), on: t === s.tier,
+              off: !tierIncluded(t, opts.fullGame),
+              title: tierIncluded(t, opts.fullGame) ? undefined : "Full Game required",
+            })))}
           ${
             isBay
               ? chipRow("Bay", `start cold at any of the ${RUN_LEVELS}`, "sbx-target", "target",
