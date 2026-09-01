@@ -111,20 +111,33 @@ jobs:
   # iPhone/iPad rows actually ship in; without it every iOS row is tested in
   # Blink's rasteriser only. It asserts against its OWN baseline
   # (sim/uifit/baseline.webkit.json — the harness keys baselines per engine,
-  # since every number is one engine's text measurement). Non-gating until
-  # that baseline is recorded from this job's first runs:
-  # `npm run test:uifit -- --engine=webkit --update-baseline` locally on a
-  # machine with WebKit installed, or from this job's uploaded report. Flip
-  # continue-on-error off in the same commit that lands the baseline.
+  # since every number is one engine's text measurement).
   #
-  # Until that baseline exists this job can only ever be advisory-red, so it
-  # does not spend a WebKit install on every PR sync: it runs on staging
-  # pushes (keeping the report fresh enough to record the baseline from) and
-  # on dispatch. Re-widen it to PRs in the commit that lands the baseline.
+  # GATING, which is what the two paragraphs this replaces promised for the
+  # commit that landed the baseline. That file is recorded off a full local
+  # WebKit matrix and holds 208 entries — and the shape of it is the argument
+  # for gating: every one of the Chromium baseline's 190 keys is in there, the
+  # same 181 `tap` and 9 `scrollers` rows restated in WebKit's numbers, and the
+  # 18 extra are all `inkline`, the two Contract HUD fixtures on the nine
+  # regular/roomy rows sitting 0.51-0.99px out of one optical line. That is
+  # `--pixel-cap-drop` (derived from Chromium's actualBoundingBoxDescent)
+  # meeting a rasteriser with a different one, which the commit that first
+  # recorded a WebKit baseline already spelled out. Every phone row is clean
+  # of it.
+  #
+  # What is NOT in it is the part worth stating: across all nineteen rows and
+  # every screen, WebKit reports zero `fit`, zero `plant`, zero `clipped`,
+  # zero `offscreen` and zero `safearea` — so no screen in this app fits in
+  # Blink and overflows in WebKit, and the two engines' HUD panels agree to
+  # under a pixel (WebKit's is the SHORTER of the two).
+  #
+  # It runs on pull requests again too. The old narrowing to staging pushes
+  # and dispatch existed because an advisory-red job says nothing worth
+  # spending a WebKit install on per PR sync. A gating one does: it is the
+  # only tier in this repo that can catch an iOS-only regression before it
+  # reaches a device, which is the whole reason the tier exists.
   fit-webkit:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: app

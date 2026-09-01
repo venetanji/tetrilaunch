@@ -14,7 +14,7 @@
  *     The harness exercises the path the device uses.
  */
 import "../../src/styles/app.css";
-import { computeLayout, railSlotsFor, setRailSlots, type Insets } from "../../src/game/layout";
+import { computeLayout, RAIL_GAP, railSlotsFor, setRailSlots, type Insets } from "../../src/game/layout";
 import { setPadFamily, type PadFamily } from "../../src/game/bindings";
 import { applySafeAreaInsets } from "../../src/lib/platform";
 import { focusBoxes, focusOn, focusTargets } from "../../src/ui/padnav";
@@ -95,8 +95,29 @@ function publishLayout(): void {
   // supposed to be looking for.
   rs.setProperty("--fscale", String(l.scale));
   rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
+  // The LEFT gutter, which main.ts publishes beside the right one and this
+  // function did not. Exactly one rule reads it — the left-handed rail's
+  // mirror, `:root[data-rail-side="left"]:not([data-layout="tall"])
+  // .side-rail` — and the harness stamps no `data-rail-side`, so nothing here
+  // can match it today and this line changes not one measured pixel. It is
+  // published anyway because the omission was invisible rather than harmless:
+  // the moment a fixture measures the mirrored rail, an unpublished
+  // `--gutter-l` makes that whole `left: max(…)` invalid at computed-value
+  // time and parks the column at `left: auto`, which is a bug in the harness
+  // reported as a bug in the app. The left-handed rail is still uncovered
+  // (nothing calls layout.ts's setRailSide here); this is the half of that gap
+  // that costs nothing to close now.
+  rs.setProperty("--gutter-l", `${Math.max(0, l.ox)}px`);
   rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
   rs.setProperty("--rail-btn", `${l.railSize}px`);
+  // ...and the gap the solver budgeted that column with. app.css spells a
+  // fallback — `gap: var(--rail-gap, 6px)` — that happens to equal RAIL_GAP,
+  // so the rail has been measured at the right pitch here by COINCIDENCE
+  // rather than by construction. The day RAIL_GAP moves, the app's column and
+  // this harness's would silently disagree by a pixel per slot and every rail
+  // number in the matrix would be measured against a stack the app does not
+  // build. main.ts publishes it for exactly that reason; so does this.
+  rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
   // The chrome magnification the screen-anchored scaffolds put into `zoom`.
   // Load-bearing here for the same reason --fscale is: a harness that left it
   // at its stylesheet default would measure all 19 device rows at 1:1, which

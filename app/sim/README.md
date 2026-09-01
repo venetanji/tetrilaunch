@@ -1130,6 +1130,29 @@ rasteriser, so a WebKit run judged against the Chromium-recorded file could
 never be green even with nothing wrong. The engine has to be part of the key,
 and a file per engine is that key.
 
+That file is recorded and the CI tier that reads it gates now
+(`.github/workflows/ui-fit.yml`'s `fit-webkit`, which used to be
+`continue-on-error` waiting for exactly this). It holds 208 entries and it is
+the Chromium baseline plus one assertion: **every one of Chromium's 190 keys
+appears in it**, the same 181 `tap` and 9 `scrollers` rows restated in WebKit's
+numbers, and the 18 extra are all `inkline` — the two Contract HUD fixtures on
+the nine regular/roomy rows, each 0.51px to 0.99px out of one optical line.
+That is the `--pixel-cap-drop` correction, measured against Chromium's
+`actualBoundingBoxDescent`, meeting a rasteriser that reports a different one
+(the commit that first recorded a WebKit baseline says so at length). Every
+compact row — every phone — is clean of it.
+
+**The absences are the finding.** Across all nineteen rows and every screen,
+WebKit reports zero `fit`, zero `plant`, zero `clipped`, zero `offscreen` and
+zero `safearea`. Nothing in this app fits in Blink and overflows in WebKit —
+measured per element on the four `hud*` fixtures at the iPhone X row (812x375,
+insets 44/44/0/21), the two engines' plant panels agree to within 0.9px and
+WebKit's is the SHORTER of the two. So an iOS-only HUD crop is not an engine's
+text metrics, and looking for one here is looking in the wrong place; what the
+device can still have that this harness cannot is a viewport the page is wrong
+about, which is app.css's `.plant` anchor clamp and sim/systems.ts's "The plant
+panel never hangs below the fold".
+
 `uifit/crest-shots.ts` (`npm run sim:crest`) borrows this harness — real
 `app.css`, real `hudHTML`, real layout vars — to shoot the plant panel at a few
 values of `--crest-heat` and the `--h0..--h6` rotation, so the audio colour path

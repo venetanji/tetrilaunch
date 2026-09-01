@@ -4773,6 +4773,168 @@ section("Stale-viewport detection (layout.ts viewportChanged)");
 }
 
 // ---------------------------------------------------------------------------
+section("The plant panel never hangs below the fold (app.css .plant's anchor)");
+// ---------------------------------------------------------------------------
+// THE ASYMMETRY IN THE SECOND iPhone X REPORT, and why the watchdog above did
+// not close it.
+//
+// Reported against a build already carrying the watchdog and the notch fix:
+// the in-game HUD "drops everything after the reload bar". The funds readout
+// and the RELOAD bar draw; the meta line, the notch line and the ship rack
+// under them are below the visible screen. The rail, the belt and the bay
+// banner are all where they belong.
+//
+// That list is not arbitrary, and it is the diagnosis. Every other piece of
+// HUD chrome is TOP-anchored off the same solved field rect — `.belt`,
+// `.bay-banner`, `.settle-note` and the vertical `.side-rail` all read
+// `top: calc(var(--field-y) + …)` — and the one form of the rail that is not
+// (the horizontal strip in "tall" mode) clamps itself with
+// `bottom: max(calc(4px + var(--inset-b)), …)`. `.plant` was the only element
+// in the HUD anchored to the BOTTOM of the field with nothing tying it to
+// anything the player can actually see. So whatever puts the field's bottom
+// edge below the screen's leaves every top-anchored sibling exactly where it
+// was and walks the panel's tail — which is precisely the rows after RELOAD —
+// off the fold. One unclamped anchor, one symptom, and it names its own
+// element.
+//
+// Two things can put it there, and the `max()` app.css now writes covers both:
+//
+//   1. A SOLVE against a viewport taller than the real one. The watchdog is a
+//      STALENESS detector, not a truth detector: it re-solves when a fresh
+//      reading disagrees with the reading the published layout was made from,
+//      which can never help while the reading itself goes on being wrong in
+//      the same way. The section above pins that behaviour; this one pins what
+//      happens downstream of it.
+//   2. A CONTAINING BLOCK taller than the visible viewport. `#app` is
+//      `position: fixed; inset: 0`, i.e. the LAYOUT viewport — a box that is
+//      taller than the visible one on a mobile WebView, which is a fact
+//      app.css's own `.modal` cap already states from the other side.
+//      `.plant`'s `bottom` is measured from that box's bottom edge, so a
+//      container hanging below the screen takes the panel down with it while
+//      `window.innerHeight` and the solver agree with each other perfectly.
+//
+// The clamp's first term is `100% - 100dvh + var(--inset-b)` (with a `vh` line
+// under it for a WebView with no `dvh`): how far the containing block's bottom
+// hangs below the visible one, plus the home indicator. When the two viewports
+// agree it collapses to `--inset-b`, which is case 1's guard standing alone.
+//
+// WHAT THIS SECTION PINS is that the guard is a guard and never a layout
+// change. On every row of sim/uifit's matrix, at every rail budget a run can
+// build, the SOLVED anchor already clears the visible bottom — so the clamp
+// cannot be the binding term anywhere the harness measures, on either engine.
+// Without this the `max()` would be free to start lifting panels the solver
+// placed correctly and no fixture would say so: a clamp that fires on a
+// correct solve is a regression wearing a guard's clothes.
+// ---------------------------------------------------------------------------
+{
+  // The anchor is read back out of the stylesheet rather than restated here.
+  // Two files own halves of one rule — the fraction and the panel that has to
+  // land on it — which is the same instrument the dial collapse's duration
+  // check and the chute's geometry check already use.
+  //
+  // COMMENTS STRIPPED FIRST, and that is not tidiness. This is now among the
+  // most heavily commented rules in the stylesheet and its prose quotes every
+  // token the checks below look for — `100dvh`, `100vh`, `--inset-b` — so a
+  // check run over the raw text would go green on a rule whose DECLARATIONS
+  // had been deleted and whose explanation had not. Same move the per-frame
+  // writes section makes, for the same reason.
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const decl = css.slice(css.indexOf("\n.plant {"));
+  const anchor = decl.slice(0, decl.indexOf("\n}"));
+  const frac = anchor.match(/var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)/);
+  check("the plant's bottom anchor is still a fraction of the field",
+    frac !== null, anchor.slice(0, 240));
+  const BOTTOM_FRAC = Number(frac?.[1] ?? NaN);
+  // BOTH spellings. The `dvh` line is the one that catches a containing block
+  // taller than the visible viewport; the `vh` line beneath it is what a
+  // WebView with no `dvh` support gets instead of nothing, and it still
+  // carries case 1's `--inset-b` guard. Losing either is losing a case.
+  const clamps = [...anchor.matchAll(
+    /bottom:\s*max\(\s*calc\(100%\s*-\s*100(d?vh)\s*\+\s*var\(--inset-b\)\)\s*,\s*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)\s*\)/g,
+  )];
+  check("the anchor is clamped to the visible bottom, in both spellings",
+    clamps.length === 2 && clamps[0][1] === "vh" && clamps[1][1] === "dvh",
+    clamps.map((m) => m[1]).join(",") || anchor.slice(0, 240));
+  // ...and the two spellings anchor to the SAME row of the field. They are one
+  // declaration written twice for a WebView that may only understand the first
+  // (the cascade keeps whichever it parsed), so a fraction edited in one and
+  // not the other would ship two different panels to two halves of the install
+  // base — the half that would have to be told apart by eye.
+  check("both spellings place the panel on the same row",
+    clamps.length === 2 && clamps[0][2] === clamps[1][2] && Number(clamps[1][2]) === BOTTOM_FRAC,
+    clamps.map((m) => m[2]).join(" vs "));
+
+  // Every budget a RUN can build: three on a shell that mounts no fullscreen
+  // toggle (the native builds — see the rail section above), seven at the
+  // deepest reachable rail. Reported per device rather than per pair, because
+  // nineteen lines is a scoreboard and ninety-five is a wall.
+  let worst = Infinity;
+  let worstAt = "";
+  for (const d of DEVICES) {
+    let least = Infinity;
+    let leastSlots = 0;
+    for (let slots = RAIL_SLOTS_BASE - 1; slots <= RAIL_SLOTS_MAX - 1; slots++) {
+      setSafeAreaInsets(d.insets);
+      setRailSlots(slots);
+      const l = computeLayout(d.w, d.h);
+      // The clamp's own arithmetic in the harness's coordinates: the panel's
+      // bottom edge against the lowest row the player can see.
+      const clearance = d.h - (l.oy + BOTTOM_FRAC * l.fh) - d.insets.bottom;
+      if (clearance < least) { least = clearance; leastSlots = slots; }
+    }
+    if (least < worst) { worst = least; worstAt = `${d.name} at ${leastSlots} rail slots`; }
+    check(`${d.name} solves the plant clear of the fold`,
+      least >= 0, `${least.toFixed(2)}px at ${leastSlots} rail slots`);
+  }
+  // Stated as a number, because the MARGIN is the whole argument. Ten and a
+  // half pixels on the tightest row in the matrix is not a rounding step, so
+  // the clamp is nowhere near binding and changes nothing sim/uifit measures.
+  // A future layout that ate into this would fail here first, next to the
+  // reasoning, rather than by quietly handing the max() a job it was never
+  // meant to have.
+  check("the tightest row clears the fold by a real margin",
+    worst > 8, `${worst.toFixed(2)}px at ${worstAt}`);
+
+  // ...AND THE FAILURE THE CLAMP EXISTS FOR, measured rather than asserted.
+  // main.ts's WATCHDOG_* block names the shape — 812 wide by a height that has
+  // not finished shrinking — and this walks that height up from the real 375
+  // to the portrait 812 on the reported device's own box. The panel's bottom
+  // edge crosses the visible one immediately and keeps going: +5px at a solved
+  // 400, +45px at 480, +107px at 560, +233px at 812.
+  //
+  // The reported crop is the ~560 row. 107px of overshoot puts the meta line
+  // on the home-indicator rule and the notch line and the rack past it, which
+  // is "everything after the reload bar" in the words of the report — so the
+  // symptom reads BACKWARDS to a height, and a device tester can check the one
+  // number instead of guessing at a cause.
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 21 });
+  setRailSlots(RAIL_SLOTS_MAX - 1);
+  const overshootAt = (h: number): number => {
+    const l = computeLayout(812, h);
+    return l.oy + BOTTOM_FRAC * l.fh - (375 - 21);
+  };
+  check("a solve against the true box needs no clamp at all",
+    overshootAt(375) < 0, overshootAt(375).toFixed(2));
+  check("a solve 25px too tall already crosses the fold",
+    overshootAt(400) > 0, overshootAt(400).toFixed(2));
+  check("the reported crop is a solve about 1.5x too tall",
+    overshootAt(560) > 100, overshootAt(560).toFixed(2));
+  // Monotonic, so the three readings above are a curve and not three modes
+  // that happen to line up. This is what lets the overshoot be read backwards
+  // to a height at all.
+  const sweep = [375, 400, 440, 480, 520, 560, 600, 700, 812].map(overshootAt);
+  check("a taller wrong reading is always a worse crop",
+    sweep.every((v, i) => i === 0 || v > sweep[i - 1]),
+    sweep.map((v) => v.toFixed(0)).join(" "));
+
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+}
+
+// ---------------------------------------------------------------------------
 section("A side cutout is never magnified (layout.ts chromeZoom vs the matrix)");
 // THE INVARIANT app.css's `.screen` padding rule is written against, promoted
 // out of that comment and into something that fails.
@@ -12478,7 +12640,14 @@ section("Misfire prevention");
     };
     const left = frac(/left:\s*calc\(var\(--field-x\)\s*\+\s*([\d.]+)\s*\*\s*var\(--field-w\)\)/);
     const width = frac(/width:\s*calc\(([\d.]+)\s*\*\s*var\(--field-w\)\)/);
-    const bottom = frac(/bottom:\s*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)/);
+    // `bottom:` is no longer a bare calc(): the anchor is a `max()` against the
+    // visible viewport now (see "The plant panel never hangs below the fold"
+    // above for what that guard is and why), so the fraction this check is
+    // after is one term inside it rather than the whole declaration. `[^;]*`
+    // reaches across the wrapped lines to it — a negated class matches
+    // newlines where `.` would not — and stops at the semicolon, so it can
+    // only ever find the fraction inside the SAME declaration.
+    const bottom = frac(/bottom:[^;]*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)/);
     const height = frac(/min-height:\s*calc\(([\d.]+)\s*\*\s*var\(--field-h\)\)/);
     check("the plant panel's frame fractions are still readable from app.css",
       left !== null && width !== null && bottom !== null && height !== null,
