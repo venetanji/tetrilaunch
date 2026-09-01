@@ -66,6 +66,14 @@ code-signing step:
 | macOS | dmg + zip, x64 and arm64 | `Tetrilaunch-<version>-mac-<arch>.dmg` / `.zip` |
 | Linux | AppImage, x64 | `Tetrilaunch-<version>-linux-x86_64.AppImage` |
 
+A fourth target, `dir`, is declared in each platform block and produces no
+installer at all — just the **unpacked application directory** the installers
+are made from, which is the artifact a Steam depot wants. `npm run
+desktop:dist:steam` from `app/` builds only that (and runs the desktop
+monetization check over the bundle first); `store/steam/README.md` pins the
+per-platform paths. Measured on x64 Linux: `release/linux-unpacked/`, 71 files,
+315 MB, `tetrilaunch` at the root, and no AppImage beside it.
+
 Output goes to `release/` (gitignored). `npm run desktop:dist` from `app/`
 builds the `--mode native` bundle first and then packages; `desktop:dist:win`,
 `:mac` and `:linux` pin the platform. Cross-building is limited: a dmg needs
@@ -209,6 +217,11 @@ No auto-update and no Steamworks. Achievements, Steam Cloud and an update
 channel are their own piece of work; `publish` is explicitly `null` in
 `electron-builder.yml` so nothing generates half an update manifest in the
 meantime.
+
+The Steam half of that is planned in **[docs/STEAM.md](../../docs/STEAM.md)** —
+including the one thing this package's targets do not yet produce, which is the
+*unpacked* application directory a depot actually wants rather than the three
+installers above.
 
 ## Measured (2026-08-26, on the reference Windows box)
 
