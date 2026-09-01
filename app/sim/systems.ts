@@ -1128,8 +1128,8 @@ section("Installs — what salvage buys (meta.ts)");
     (menuSeal.match(/next-badge/g) ?? []).length === 1);
   check("...and it is the run, because a seal is flown and not bought",
     playButton(menuSeal).includes("next-badge"));
-  check("...and the button says how many Marks are left to seal",
-    menuSeal.includes(`${MARK_COUNT - 3} Marks left to seal`), "no seal count on the primary");
+  check("...and the button says how many Tiers are left to seal",
+    menuSeal.includes(`${MARK_COUNT - 3} Tiers left to seal`), "no seal count on the primary");
 
   // A BADGE IS A CLAIM ABOUT THE BUTTON UNDER IT, and at the finished ladder
   // that button flies ONE floor: the one the car is parked on (screens.ts —
@@ -1159,7 +1159,7 @@ section("Installs — what salvage buys (meta.ts)");
   // …and it still answers the question the badge stopped answering: how many
   // are owed, and where to pick one.
   check("...while naming the count and pointing at the tower",
-    menuSealed.includes(`${MARK_COUNT - 2} Marks still owed`)
+    menuSealed.includes(`${MARK_COUNT - 2} Tiers still owed`)
       && /pick one on the tower/.test(menuSealed));
 
   // ONE SUBTITLE RULE. main.ts patches this line by id while the elevator
@@ -1193,7 +1193,7 @@ section("Installs — what salvage buys (meta.ts)");
     !/no refits?/i.test(menuPlaySub(S.SKYDECK_TIER, 3, null)),
     menuPlaySub(S.SKYDECK_TIER, 3, null));
   check("...it names the step above the ladder instead",
-    menuPlaySub(S.SKYDECK_TIER, 3, null).includes(`step above Mark ${MARK_COUNT}`),
+    menuPlaySub(S.SKYDECK_TIER, 3, null).includes(`step above Tier ${MARK_COUNT}`),
     menuPlaySub(S.SKYDECK_TIER, 3, null));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
@@ -2846,7 +2846,7 @@ section("Pattern variants (contracts.ts VARIANTS)");
   // seals are what the roof is waiting for — so the card names both rather
   // than trailing off. A card that only stops lying is not yet an endgame.
   check("...and names the two things still worth flying for",
-    /maxed rig/.test(ceTop) && /every Mark sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
+    /maxed rig/.test(ceTop) && /every Tier sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
 }
 
 
@@ -12984,9 +12984,9 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
   // aria-hidden, so the locked floor's accessible name is the only place the
   // count reaches a screen-reader user — and the count is the whole gate
   // (meta.ts's skydeckOpen).
-  check("a locked roof states how many Marks are sealed",
+  check("a locked roof states how many Tiers are sealed",
     S.tierTowerHTML({ unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, sealed: [1, 2, 4] })
-      .includes(`aria-label="Skydeck — locked — 3 of ${MARK_COUNT} Marks sealed"`));
+      .includes(`aria-label="Skydeck — locked — 3 of ${MARK_COUNT} Tiers sealed"`));
   // …and an OPEN one says only its name, which is what the top-floor naming
   // pins below assert verbatim.
   check("...and an open one says only its name",
@@ -13174,8 +13174,8 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     const sealLine = (h: string): string =>
       (/<p class="muted end__seal">([\s\S]*?)<\/p>/.exec(h)?.[1] ?? "")
         .replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    check("the held line names the Mark whose stamp it is",
-      /Mark 3 is already sealed/.test(sealLine(held)), sealLine(held) || "no line");
+    check("the held line names the Tier whose stamp it is",
+      /Tier 3 is already sealed/.test(sealLine(held)), sealLine(held) || "no line");
     check("...and says the press is free",
       /costs nothing/.test(sealLine(held)));
     // Case-INSENSITIVE, which is not fussiness: the spent line opens with
@@ -13192,7 +13192,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       /already broken/.test(sealLine(spent)));
     // It reaches a screen reader too — the shape is aria-hidden in all three.
     check("...and the button says so as well",
-      /aria-label="Retry Bay \d+ — Mark 3 is already sealed, so this costs nothing"/.test(held));
+      /aria-label="Retry Bay \d+ — Tier 3 is already sealed, so this costs nothing"/.test(held));
     // The bay is still offered: this is the FORGIVING state, and gating the
     // button on it would take the retry away exactly where it is free.
     check("a held seal still offers the bay back",
@@ -13243,9 +13243,9 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     check("the button names the cost as well as drawing it",
       restart(paused({ state: "at-stake", mark: 4 }))
         .includes('aria-label="Restart Bay — retrying breaks this run\'s seal"'));
-    check("...and names the Mark in the held state",
+    check("...and names the Tier in the held state",
       restart(paused({ state: "held", mark: 3 }))
-        .includes("Mark 3 is already sealed, so this costs nothing"));
+        .includes("Tier 3 is already sealed, so this costs nothing"));
     // ONE RULE, TWO CALLERS. The loss card and the pause modal must produce
     // byte-identical faces for the same state, which is the property that
     // makes "don't fork a second face" checkable rather than a comment.
@@ -13315,7 +13315,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       railName(hud({ state: "spent", mark: 4 })));
     check("...and when the press is free",
       railName(hud({ state: "held", mark: 3 }))
-        === `${HOLD} — Mark 3 is already sealed, so this costs nothing`,
+        === `${HOLD} — Tier 3 is already sealed, so this costs nothing`,
       railName(hud({ state: "held", mark: 3 })));
     check("...and is the name it always had when no seal is in play",
       railName(hud()) === HOLD, railName(hud()));
@@ -13400,7 +13400,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // a retry forfeits the tier will abandon runs they could still win.
     check("the notice promises the tier still opens", /Tier 4 still opens/.test(note));
     check("...and quotes the roof's price in the tower's own numbers",
-      note.includes(`${MARK_COUNT} Marks carry a stamp`) && /3 of 10 so far/.test(note));
+      note.includes(`${MARK_COUNT} Tiers carry a stamp`) && /3 of 10 so far/.test(note));
     check("...and offers both answers", note.includes('data-action="seal-break-go"')
       && note.includes('data-action="seal-break-back"'));
     // Same reasoning as the end card's primary, one screen further in: the
@@ -13414,8 +13414,8 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // nothing at all. It names the run's own Mark now, and drops the tier
     // clause entirely when there is no tier to open.
     const refly = S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9, explain: true });
-    check("a re-fly names the Mark whose seal is actually at stake",
-      /Mark 3<\/b> cannot be\s+sealed/.test(refly) && !/Mark 10/.test(refly));
+    check("a re-fly names the Tier whose seal is actually at stake",
+      /Tier 3<\/b> cannot be\s+sealed/.test(refly) && !/Tier 10/.test(refly));
     check("...and promises no tier it cannot open", !/Tier \d+ still opens/.test(refly));
     // …and still says the run is not wasted, which is the half that is true on
     // every run and the half the player is actually afraid of losing.
@@ -13424,7 +13424,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // The frontier panel names the Mark too — the two numbers agree there, and
     // a build that printed the tier in the seal sentence would pass the re-fly
     // check above by accident.
-    check("the frontier panel names its Mark as well", /Mark 4<\/b> cannot be/.test(note));
+    check("the frontier panel names its Tier as well", /Tier 4<\/b> cannot be/.test(note));
 
     // ---- LONG ONCE, SHORT EVERY TIME AFTER --------------------------------
     // The watermark's whole remaining job. The LESSON — what a seal is, what
@@ -13433,16 +13433,16 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // the lesson taken out.
     const brief = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: false });
     check("the first panel teaches what a seal is",
-      note.includes(`${MARK_COUNT} Marks carry a stamp`));
+      note.includes(`${MARK_COUNT} Tiers carry a stamp`));
     check("...and every one after it does not",
-      !brief.includes(`${MARK_COUNT} Marks carry a stamp`));
+      !brief.includes(`${MARK_COUNT} Tiers carry a stamp`));
     check("...and is genuinely shorter for it", brief.length < note.length,
       `${brief.length} vs ${note.length}`);
     // WHAT THE SHORT FORM MUST KEEP is everything the decision needs: the cost,
     // the correction to the fear (tierOpenableBy's promise, still branch-aware)
     // and both answers. A confirmation stripped to a bare "are you sure?" is a
     // dialog people dismiss without reading.
-    check("...while still stating the cost", /Mark 4<\/b> cannot be\s+sealed/.test(brief));
+    check("...while still stating the cost", /Tier 4<\/b> cannot be\s+sealed/.test(brief));
     check("...and still correcting the fear", /Tier 4 still opens/.test(brief));
     check("...and still offering both answers",
       brief.includes('data-action="seal-break-go"')

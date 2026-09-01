@@ -548,7 +548,7 @@ function floorHTML(state: TowerState, tier: number): string {
   // has no other way to count. Open, it says nothing extra: the price has been
   // paid and the label is the floor's name, which is what the sim pins.
   const sealsHeld = (state.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
-  const sealsNote = sky && !open ? ` — ${sealsHeld} of ${MARK_COUNT} Marks sealed` : "";
+  const sealsNote = sky && !open ? ` — ${sealsHeld} of ${MARK_COUNT} Tiers sealed` : "";
   const accessNote = paywalled ? " — Full Game required" : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
@@ -655,7 +655,7 @@ function towerHeadHTML(state: TowerState): string {
   const sel = state.selected === SANDBOX_TIER;
   return `<button class="tower__head tower__head--floor${sel ? " is-selected" : ""}" type="button"
     data-action="pick-tier" data-tier="${SANDBOX_TIER}" aria-pressed="${sel}"
-    aria-label="Tier S — sandbox. Any Mark, any bay, any Contract. Scores are kept on a separate board."
+    aria-label="Tier S — sandbox. Any Tier, any bay, any Contract. Scores are kept on a separate board."
     >${lamps}</button>`;
 }
 
@@ -700,7 +700,7 @@ export function tierTowerHTML(state: TowerState): string {
       // and desynchronise it from the timer that ends it.
       + `;--tower-rise-elapsed:${Math.max(0, Math.floor(state.celebrateElapsed ?? 0))}ms`
     : "";
-  return `<div class="tower${off ? " tower--off" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
+  return `<div class="tower${off ? " tower--off" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}${ride}">
       ${towerHeadHTML(state)}
       <div class="tower__rail" aria-hidden="true"></div>
@@ -795,7 +795,7 @@ function beltLadderHTML(mark: number, unknown = false): string {
 function unknownBayPanelHTML(best: number, extras: string): string {
   const cell = (name: IconName, label: string, tint: string): string =>
     statCellHTML(name, label, `<span class="bay-stat__q">?</span>`, tint);
-  return `<div class="panel base-bay base-bay--unknown" aria-label="Tier S — set on the level select">
+  return `<div class="panel base-bay base-bay--unknown" aria-label="Tier S — set on the sandbox setup screen">
     <div class="base-bay__head">
       <div class="base-bay__best">Best ${best || "—"}</div>
     </div>
@@ -983,7 +983,7 @@ export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
 ): string {
   if (tier === null) return "Elevator moving…";
-  if (tier === SANDBOX_TIER) return "Any Mark, bay or Contract · own board";
+  if (tier === SANDBOX_TIER) return "Any Tier, bay or Contract · own board";
   // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
   // once · no mercy", which described a floor that was not playable yet and
   // promised something the mode does not do — the Skydeck flies Mark 10's
@@ -997,7 +997,7 @@ export function menuPlaySub(
   // what the panel beside this button is quoting in dollars. The clause count
   // stays public and the clause NAMES stay a surprise, which is why this line
   // counts them rather than listing them.
-  if (tier === SKYDECK_TIER) return `Today's run · a step above Mark ${MARK_COUNT} · ${clauses} standing clauses`;
+  if (tier === SKYDECK_TIER) return `Today's run · a step above Tier ${MARK_COUNT} · ${clauses} standing clauses`;
   // THE ENDGAME, STATED. With the ladder beaten there is no tier left to open
   // and the roof is the only thing still locked, so the primary stops
   // advertising the bay count and names the price instead: a Mark won with no
@@ -1014,7 +1014,7 @@ export function menuPlaySub(
   // that owes a stamp. It is deliberately not a refusal: re-flying a sealed
   // Mark for the board is a real thing to want, and this button still does it.
   if (seal) {
-    const owed = `${seal.owed} Mark${seal.owed === 1 ? "" : "s"}`;
+    const owed = `${seal.owed} Tier${seal.owed === 1 ? "" : "s"}`;
     return seal.sealed
       ? `Sealed · ${owed} still owed — pick one on the tower`
       : `${owed} left to seal · win with no bay retried`;
@@ -3441,7 +3441,7 @@ export function refitScreen(opts: {
     <div class="panel modal modal--refit pop" style="width:min(940px,96vw)">
       <div class="refit__hdr">
         <div style="text-align:left">
-          <div class="eyebrow">Mark ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
+          <div class="eyebrow">Tier ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
           <h2 class="display">Yard &amp; Dry Dock</h2>
           <p class="muted refit__blurb" style="margin:0">The compactor rig is your ship. Stage what you want; Undock installs the lot. Next up: ${opts.nextBayName}.</p>
         </div>
@@ -3873,7 +3873,7 @@ export function sealFaceLabel(seal: SealState, mark: number): string {
   return seal === "at-stake"
     ? "retrying breaks this run's seal"
     : seal === "held"
-      ? `Mark ${mark} is already sealed, so this costs nothing`
+      ? `Tier ${mark} is already sealed, so this costs nothing`
       : "this run's seal is already broken";
 }
 
@@ -4677,7 +4677,7 @@ function tierOpenedClause(tier: number): string {
     ? `Tier ${opened} is open`
     // One dash, not two: the caller has already spent the sentence's dash on
     // "cleared — ", so the second half is a sentence of its own.
-    : "the ladder is finished. Contracts still pay, and what's left is a maxed rig and every Mark sealed";
+    : "the ladder is finished. Contracts still pay, and what's left is a maxed rig and every Tier sealed";
 }
 
 /**
@@ -5034,7 +5034,7 @@ export function endModal(opts: {
             ? opts.retryBay.seal === "at-stake"
               ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
               : opts.retryBay.seal === "held"
-                ? `<p class="muted end__seal">Mark ${opts.retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
+                ? `<p class="muted end__seal">Tier ${opts.retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
                 : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
             : ""
         }
@@ -5199,12 +5199,12 @@ export function sealBreakModal(opts: {
         // already ask the question, and two titles is two strings to keep true
         // of the same moment.
         opts.explain
-          ? `<p class="seal-note__body">A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
+          ? `<p class="seal-note__body">A Tier is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
       in one run without retrying a single one. The tower stamps that floor, and the
-      <b>Skydeck opens when all ${MARK_COUNT} Marks carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>`
+      <b>Skydeck opens when all ${MARK_COUNT} Tiers carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>`
           : ""
       }
-      <p class="seal-note__body">Retry bay ${opts.bayNum} and <b>Mark ${opts.mark}</b> cannot be
+      <p class="seal-note__body">Retry bay ${opts.bayNum} and <b>Tier ${opts.mark}</b> cannot be
       sealed by this run. ${
         // THE PROMISE, ONLY WHERE IT IS TRUE. On the frontier the thing a
         // player most fears losing is the tier, so the tier is named. On a
@@ -5217,7 +5217,7 @@ export function sealBreakModal(opts: {
           : `<b>Everything else this run can earn, it still earns</b> — the run counts and its`
             + ` salvage banks. The`
       }
-      seal can be taken on any later run — including a re-fly of a Mark you have
+      seal can be taken on any later run — including a re-fly of a Tier you have
       already beaten.</p>
       <!-- KEEPING THE SEAL IS THE PRIMARY, on the same reasoning the run-end
            card's own row uses: padnav's focusInitial lands a pad on the
