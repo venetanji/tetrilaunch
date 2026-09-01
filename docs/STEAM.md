@@ -44,7 +44,9 @@ and both were solved for reasons that happen to be Steam reasons:
   build ever gets a store (Steam)." **The revisit resolves to: leave it
   alone.** Steam is a paid-up-front release, so ownership of the app *is* the
   entitlement, and Steam enforces that at the store — before a single line of
-  our code runs. See "Monetization" for the part that does need work.
+  our code runs. See "Monetization" for the part that does need work, and
+  "Direct download, post-Steam" for the one future that does force it to
+  change.
 
 ## Monetization
 
@@ -65,10 +67,42 @@ Today it is inert only because `VITE_REVENUECAT_WEB_KEY` is unset in the native
 build and the store disables itself with a warning — which is an accident of
 configuration, not a guarantee.
 
-So: gate the purchase surface on `isDesktop` explicitly, and extend
-`scripts/verify-store-bundle.mjs` — which already exists to stop the wrong key
-reaching a shippable bundle — with an assertion that the desktop bundle carries
-no RevenueCat key and no paywall entry point at all.
+**Done.** The gate is in `purchases.ts` at the two doors a purchase can come
+through: `initPurchases` returns before configuring anything, and
+`presentPaywall` refuses. Nothing else needed its own gate as a consequence —
+with `initPurchases` short-circuiting, `ready` stays false and `webPurchases`
+stays null, so `identifyPurchasesUser`, `resetPurchasesUser`,
+`restorePurchases` and `refresh` all take the nothing-configured exits the
+module already had. That is the module's normal degrade path, not a new one.
+
+`scripts/verify-store-bundle.mjs --desktop` is the other half, and it asks the
+question of the EMITTED bundle the way the rest of that script does:
+
+- **No RevenueCat key of any shape** — `appl_`, `goog_`, `rcb_` or `test_`.
+  Strict about all four rather than just the web one, because an `appl_`/`goog_`
+  key is inert on desktop only for the same reason the web path was inert:
+  something else happens not to be there. A depot bundle carries no billing
+  credential.
+- **The gate's two marker strings are present.** It would be nicer to assert
+  the paywall is simply *absent*, and it cannot be done — `presentPaywall` is
+  also a string the RevenueCat Capacitor bridge emits, and that bridge
+  legitimately ships in this same bundle because iOS and Android build from it
+  too. So the positive evidence is the gate itself. `isDesktop` is a runtime
+  test (`location.protocol === "app:"`), not an inlined build constant, so
+  nothing folds those branches away and their warning strings survive
+  minification.
+
+`npm run desktop:dist:steam` runs it. The four installer scripts deliberately
+do not: they are the direct-download channel, they are unchanged, and a
+developer with a populated `app/.env` building one locally is not doing
+anything wrong. The Steam path is the one with a distribution agreement
+attached.
+
+The source half is pinned in `sim/systems.ts` ("The desktop monetization
+boundary"), including the coupling between the two: the pins read the marker
+literals out of `purchases.ts` and assert the verifier greps for exactly those,
+because a reworded string would otherwise leave a check that passes forever
+against a marker nobody emits.
 
 ## Phase 1 — the packaging shape
 
@@ -92,16 +126,33 @@ app/desktop/release/win-unpacked/    73 files, 398 MB, Tetrilaunch.exe at the ro
 
 That directory, verbatim, is the content root for the Windows depot.
 
-Work in this phase:
+Work in this phase — **done**:
 
-- Add a `dir` target per platform so the unpacked tree is a declared output
-  rather than an artifact of building an installer, and add a
-  `desktop:dist:steam` script that builds only that.
-- Keep the installer targets. They are the direct-download release and are not
-  going away; Steam is an additional channel, not a replacement.
-- Pin the per-platform output paths (`win-unpacked/`, `linux-unpacked/`, `mac/`
-  and `mac-arm64/`) in the depot scripts rather than globbing, so a rename
-  fails loudly instead of uploading an empty depot.
+- A `dir` target per platform block in `electron-builder.yml`, so the unpacked
+  tree is a declared output rather than an artifact of building an installer,
+  and a `desktop:dist:steam` script (`app/package.json` →
+  `desktop/package.json`'s `dist:steam` → `electron-builder --dir`) that builds
+  only that.
+- The installer targets are untouched. They are the direct-download release and
+  are not going away; Steam is an additional channel, not a replacement.
+  `sim/systems.ts` pins that all four still exist, because the tempting
+  "simplification" here is to trade them away.
+- The per-platform output paths are pinned in **`store/steam/README.md`** — the
+  depot scripts' future home — rather than globbed, so a rename fails loudly
+  instead of uploading an empty depot. That file also records what must never
+  reach a depot (`steam_appid.txt`) and the traps below, so whoever writes the
+  `.vdf`s reads them first.
+
+Measured on x64 Linux, 2026-09-01:
+
+| Command | Emits |
+| --- | --- |
+| `npm run desktop:dist:steam` | `release/linux-unpacked/` only — **71 files, 315 MB**, launch binary `tetrilaunch` at the root, `resources/app.asar` 33.6 MB. No AppImage. |
+| `npm run desktop:dist:linux` | the same tree **plus** `Tetrilaunch-1.0.2-linux-x86_64.AppImage`, 152 MB — unchanged. |
+
+Windows and macOS are unbuilt here for the same reason `desktop/README.md`
+records: no Wine and no Mac in this container. Their `dir` targets are declared
+identically and their paths are pinned; CI is where they are first exercised.
 
 ## Phase 2 — linking Steamworks
 
@@ -140,9 +191,41 @@ it: a young single-maintainer package, and a wrong FFI signature is a segfault
 rather than a type error.
 
 Spike both against the smallest possible target — `SteamAPI_Init()`, the
-player's persona name, and the overlay drawing over the game — on Windows
-first. Decide on evidence. Record the decision and the losing option's failure
-mode here, in the shape the rest of this repo's docs use.
+player's persona name, one achievement **written**, and the overlay drawing
+over the game — on Windows first. Decide on evidence. Record the decision and
+the losing option's failure mode here, in the shape the rest of this repo's
+docs use.
+
+**The write is not optional, and it is the point.** A spike that only reads
+(init, persona name) exercises the easy half of an FFI surface: return values
+that are pointers to strings the library owns. Writes take our data across the
+boundary — a `const char*` achievement id, a struct, a callback registration —
+and a wrong FFI signature there is a **segfault**, not a type error. That is
+the specific risk `steamworks-ffi-node`'s youth carries, and reads will not
+find it. Unlock a test achievement, `StoreStats()`, and confirm it in the
+Steamworks web UI; a binding that survives one write survives the shape of
+everything Phase 3 asks of it.
+
+**And the overlay has a wrinkle beyond process placement.** The overlay hooks
+the GPU process, and Electron games commonly need
+
+```js
+app.commandLine.appendSwitch("in-process-gpu");
+```
+
+for it to draw at all — steamworks.js's own docs mention it. That flag is not
+free on a game whose whole rendering story is one canvas: it moves GPU work
+into the browser process, and the thing this shell has that most Electron apps
+do not is a **measured** 120 fps flat frame pacing (median 8.30 ms, p95
+8.40 ms, `app/desktop/README.md`). Measure with the switch on before accepting
+it — same box, same method, and `sim/renderperf` for the drawing half — and
+compare against those numbers rather than against a feeling.
+
+If the overlay costs that flatness, **"no overlay" is a legitimate outcome**.
+The overlay buys chat, invites and the browser; this game has no chat surface,
+no invites and no multiplayer. Achievements and Cloud do not need it — they are
+API calls, not overlay features — and a Steam game with achievements, Cloud
+saves and no overlay is unremarkable. A game that stutters is not.
 
 ### Where the SDK calls run
 
@@ -250,11 +333,14 @@ live.
 ### Scripts
 
 Copied from `tools/steamworks/sdk/tools/ContentBuilder/scripts/` and kept in
-the repo (`store/steam/`, alongside the existing `store/play/`), because they
-are ours and the SDK tree is a gitignored vendor download.
+the repo (**`store/steam/`**, alongside the existing `store/play/`), because
+they are ours and the SDK tree is a gitignored vendor download. That directory
+exists now and holds a README with the content roots and launch binaries
+already pinned — everything about the depots that does not need an App ID.
 
 Two traps in the templates, both already noted in
-`tools/steamworks/README.md`:
+`tools/steamworks/README.md` and repeated in `store/steam/README.md` where the
+scripts will land:
 
 - `app_build_1000.vdf` ships with **`"Preview" "1"`**. Copy it, forget the
   flag, and you get a green run that uploaded nothing.
@@ -303,13 +389,119 @@ Not code, and the long pole once the account clears:
 
 ## Sequencing
 
-Phases 1–4 need no App ID and can start now. Phase 5's scripts can be written
-and dry-run with `preview "1"`; only the actual upload waits. Phase 6 is gated
+Phases 1–4 need no App ID and can start now. **Phase 1 and the subtractive half
+of Monetization are done** (this branch); Phase 5's scripts can be written and
+dry-run with `preview "1"`, and only the actual upload waits. Phase 6 is gated
 on the account and on art.
 
 The one thing worth doing before anything else is the Phase 2 spike, because
 the binding choice decides how much of `electron-builder.yml` changes, and that
 in turn decides how much of Phase 1 is throwaway.
+
+## Direct download, post-Steam
+
+**Analysis, not a plan, and deliberately sequenced after the Steam release.**
+Recorded here because the conclusion constrains a decision Phase 1 has already
+made ("leave `fullGame()` alone"), and a constraint nobody wrote down is a
+constraint nobody honours.
+
+The question: could the *direct-download* desktop build sell the full game the
+way the web build does — buy on the site, unlock in the app?
+
+### The entitlement check already works anywhere
+
+This is the part that surprises. RevenueCat's `purchases-js` needs a store only
+to *sell*. To **read** an entitlement it needs an identity and a key: configure
+with the durable App User ID this repo already mints — `${provider}:${sub}`,
+`auth.ts`, the same string the Worker derives — call `getCustomerInfo()`, and
+ask whether `entitlements.active["full_game"]` is there. No checkout, no
+billing surface, no Valve problem: a purchase made in a browser on
+tetrilaunch.com would be visible to a desktop build that can prove who it is.
+
+So the unlock is not the missing piece.
+
+### The missing piece is desktop OAuth
+
+Signing in is. `main.ts`'s `fullGame()` comment already names the reason the
+desktop carve-out exists — "no workable OAuth to recover a web purchase with
+(Google refuses embedded browsers)" — and that is accurate as far as it goes:
+an in-app popup is dead. Google's policy on embedded user-agents rejects
+exactly what an Electron `BrowserWindow` is, and the flow fails at Google's end
+with `disallowed_useragent`, not at ours.
+
+What replaces it is a well-trodden shape, and it is the *only* supported one:
+
+1. A Google OAuth client of type **Desktop app** — a third client id beside the
+   Web and iOS ones already in `.env.example`. Desktop clients are public
+   clients: they have no usable secret, which is why the flow needs PKCE.
+2. The **system browser**, opened with `shell.openExternal` from the main
+   process. The user signs in in Chrome/Safari/Firefox, where their session and
+   their password manager already are.
+3. A **loopback redirect**: the main process listens on `127.0.0.1` on an
+   ephemeral port and uses `http://127.0.0.1:<port>` as the redirect URI. Google
+   allows loopback for desktop clients precisely for this.
+4. **PKCE** ties the two together — the browser gets the code, the loopback
+   listener receives it, and only the process holding the verifier can exchange
+   it.
+5. The id token's subject crosses into the renderer over the same narrow
+   `contextBridge` Phase 2 builds for Steam. No `nodeIntegration`, no second
+   security posture.
+
+Two follow-on costs, both small and both easy to forget:
+
+- **The Worker's audience allowlist** (`/api/account`, which verifies `aud`)
+  would need the desktop client id added beside `GOOGLE_WEB_CLIENT_ID` and
+  `GOOGLE_IOS_CLIENT_ID`. See `docs/AUTH.md`.
+- **Apple has no loopback story.** Sign in with Apple requires an `https`
+  redirect, so a desktop build is Google-only unless the flow bounces through a
+  hosted redirect on tetrilaunch.com. Given that any purchase to recover was
+  made on the web, Google-only is a defensible first cut.
+
+### The policy consequence, which is why this waits
+
+Doing this **forces `fullGame()` to change**, and that is the whole reason it
+is post-Steam rather than pre-.
+
+`fullGame()` is `isUnlimited() || isDesktop` today, and the carve-out is
+honest: the desktop build has no way to sell the unlock and no way to restore
+one, so gating it could only ever say "buy elsewhere and you still can't
+restore it here". Give desktop a working entitlement check and that
+justification evaporates — and, more sharply, **the carve-out cannot coexist
+with a paid Steam SKU**. Selling the game on Steam while handing the identical
+build away unlocked from our own download page is not a pricing strategy; it is
+an argument with the players who paid.
+
+So the shape it would have to take:
+
+- Distributed desktop builds become **gated** — `fullGame()` drops `isDesktop`
+  and reads the entitlement like everywhere else.
+- The free-everything behaviour survives **only in development**: the
+  unpackaged shell / `import.meta.env.DEV`, never a packaged build.
+- Steam builds are unaffected either way. Ownership is the entitlement there
+  and Steam enforces it before our code runs — which is also why the
+  monetization gate above stays exactly as it is.
+
+That is a change to a shipped entitlement, it touches `main.ts`, and it takes
+something away from players who have the current build. Doing it *before* a
+paid channel exists would be taking it away for a benefit that does not exist
+yet. Doing it *with* the Steam release means the gate arrives alongside the
+store that explains it. One PR, its own, after Steam ships.
+
+### The other two storefronts
+
+- **Mac App Store: possible, weak ROI, not scheduled.** Electron has a `mas`
+  target, and paid-up-front works there on the same terms as Steam — ownership
+  is the entitlement, no StoreKit wiring, no in-app purchase surface, so the
+  monetization gate above covers it unchanged. Against it: the App Sandbox
+  entitlements and provisioning profile are their own build leg, App Review is
+  a real gate, it is 30%, and premium desktop games are not what that store
+  sells. The certificate work it needs (Developer ID for direct download,
+  3rd Party Mac Developer for MAS) partly overlaps what the macOS signing gap
+  below already owes.
+- **Microsoft Store: skipped.** Windows is where Steam is strongest, MSIX is a
+  third packaging format to maintain, and the store adds another review queue
+  for an audience Steam already reaches. Revisit only if something changes on
+  the distribution side, not because the target exists.
 
 ## Open questions and known gaps
 
@@ -330,8 +522,12 @@ in turn decides how much of Phase 1 is throwaway.
   *execute*. Notarization remains the right thing to do and is what the
   direct-download channel needs regardless.
 - **Which binding.** Phase 2's spike decides it. Do not pick from the tutorials.
-- **Does the overlay work from the main process** with `contextIsolation: true`?
-  First thing the spike answers.
+- **Does the overlay work from the main process** with `contextIsolation: true`,
+  and **what does `in-process-gpu` cost the frame?** First two things the spike
+  answers, in that order, and "no overlay" is an allowed answer to the second.
+- **Desktop OAuth** — a Google "Desktop app" client, system browser, PKCE,
+  127.0.0.1 loopback — is scoped in "Direct download, post-Steam" and is
+  deliberately not part of any phase above.
 - **Achievement art** has no owner yet.
 - **Steam's `--no-sandbox` question.** Some Electron games need it under Proton
   and in the Steam runtime. Untested here; find out on the Deck rather than from

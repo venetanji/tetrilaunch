@@ -66,6 +66,14 @@ code-signing step:
 | macOS | dmg + zip, x64 and arm64 | `Tetrilaunch-<version>-mac-<arch>.dmg` / `.zip` |
 | Linux | AppImage, x64 | `Tetrilaunch-<version>-linux-x86_64.AppImage` |
 
+A fourth target, `dir`, is declared in each platform block and produces no
+installer at all — just the **unpacked application directory** the installers
+are made from, which is the artifact a Steam depot wants. `npm run
+desktop:dist:steam` from `app/` builds only that (and runs the desktop
+monetization check over the bundle first); `store/steam/README.md` pins the
+per-platform paths. Measured on x64 Linux: `release/linux-unpacked/`, 71 files,
+315 MB, `tetrilaunch` at the root, and no AppImage beside it.
+
 Output goes to `release/` (gitignored). `npm run desktop:dist` from `app/`
 builds the `--mode native` bundle first and then packages; `desktop:dist:win`,
 `:mac` and `:linux` pin the platform. Cross-building is limited: a dmg needs

@@ -13,7 +13,8 @@
     "dist": "npm run check:version && electron-builder --publish never",
     "dist:win": "npm run check:version && electron-builder --win --publish never",
     "dist:mac": "npm run check:version && electron-builder --mac --publish never",
-    "dist:linux": "npm run check:version && electron-builder --linux --publish never"
+    "dist:linux": "npm run check:version && electron-builder --linux --publish never",
+    "dist:steam": "npm run check:version && electron-builder --dir --publish never"
   },
   "devDependencies": {
     "electron": "^44.0.0",
