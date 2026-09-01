@@ -18137,15 +18137,30 @@ section("Aiming strategies — three holes review found (sim/ — winnability, l
       applyUpgrades(cfg, loadoutFor(PRIORITY_ORDERS.material, 7));
       return applyRatchets(cfg, { volatile: 6 });
     };
-    const flyWith = (id: string): BayOutcome =>
-      runBay(congested(), strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS[id] })(3), 3);
-    const asAim = flyWith("aim");
-    const asPatient = flyWith("patient");
+    const flyWith = (id: string, attempt: number): BayOutcome =>
+      runBay(congested(), strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS[id] })(attempt), attempt);
+    // SEVERAL FIXTURES, DIVERGENCE ON ANY. A single bay is a coin balanced on
+    // its edge: whether the two pilots' flights separate there is downstream
+    // of chaotic physics, and the iOS workflow's arm64 runner proved it — the
+    // same bay that separates them on x64 came out 53 shots/11 lines under
+    // BOTH pilots when libm rounded differently. The property being pinned is
+    // the wiring, and a broken wiring (both pilots flying `aim`) converges on
+    // every fixture — so any one diverging is proof, and four chances make
+    // the proof hold on any architecture. Attempt 3 first: it is the one that
+    // separates on x64, so the extra flights cost nothing there.
+    const attempts = [3, 1, 2, 4];
+    const flown = new Map<number, { aim: BayOutcome; patient: BayOutcome }>();
+    const diverged = attempts.some((attempt) => {
+      const pair = { aim: flyWith("aim", attempt), patient: flyWith("patient", attempt) };
+      flown.set(attempt, pair);
+      return pair.aim.shots !== pair.patient.shots || pair.aim.lines !== pair.patient.lines;
+    });
     check(
       "...and a `patient` strategy pilot really flies the congestion rule, not `aim`",
-      asAim.shots !== asPatient.shots || asAim.lines !== asPatient.lines,
-      `aim ${asAim.shots} shots/${asAim.lines} lines`
-        + ` vs patient ${asPatient.shots}/${asPatient.lines}`,
+      diverged,
+      [...flown].map(([attempt, { aim, patient }]) =>
+        `attempt ${attempt}: aim ${aim.shots}/${aim.lines} vs patient ${patient.shots}/${patient.lines}`,
+      ).join("; "),
     );
   }
 
