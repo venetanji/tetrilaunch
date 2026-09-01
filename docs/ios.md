@@ -91,6 +91,28 @@ npm run ios:open              # opens ios/App/App.xcodeproj
 
 ## 3. RevenueCat
 
+### iOS 15-17 and Xcode 26
+
+RevenueCat's V2 SwiftUI paywall currently cannot be rendered on iOS 15-17 when
+Xcode 26 compiles it into Capacitor's static SPM target. The app target weak-links
+`SwiftUICore` so those systems can launch, but weak-linking alone only moves the
+failure to the first paywall render. Until
+[RevenueCat purchases-ios#7567](https://github.com/RevenueCat/purchases-ios/issues/7567)
+is fixed upstream, `src/lib/purchases.ts` does not enter RevenueCatUI below iOS
+18. It fetches the current offering's `$rc_lifetime` package, shows its localized
+StoreKit price, and purchases it through RevenueCat's core SDK instead. Restore
+and entitlement refresh already use the core SDK and are unaffected.
+
+Do not remove either half of this workaround independently:
+
+- `-weak_framework SwiftUICore` in both App target configurations prevents the
+  pre-iOS-18 launch-time dyld abort.
+- The runtime iOS check prevents the subsequent null SwiftUI metadata crash.
+
+When RevenueCat ships a confirmed fix, verify an Xcode 26 **Release** archive on
+physical iOS 16 and 17 devices before removing the fallback; simulator success
+or an iOS 18+ test does not exercise the failing path.
+
 ### Dashboard
 
 1. Create a project → add an **App Store** app with bundle ID `com.tetrilaunch.game`.
