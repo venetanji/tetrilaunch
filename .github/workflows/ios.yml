@@ -11,11 +11,16 @@ name: iOS TestFlight build
 # workflow combined. A dispatch is the rehearsal button; a v* tag is a
 # release, mirroring desktop.yml.
 #
-# Signing is Xcode "cloud signing": the runner holds the Apple Distribution
-# certificate in a throwaway keychain, and -allowProvisioningUpdates plus an
-# App Store Connect API key lets xcodebuild fetch (or create) the App Store
-# provisioning profile itself. No profile is stored as a secret, so a profile
-# regenerated in the portal never strands this workflow.
+# Signing: the runner holds the Apple Distribution certificate in a
+# throwaway keychain and archives with MANUAL distribution signing against
+# the App Store profile named "Tetrilaunch App Store", which
+# -allowProvisioningUpdates downloads via the App Store Connect API key. The
+# profile is created ONCE in the portal (Profiles → + → App Store Connect →
+# com.tetrilaunch.game → the Distribution cert → that exact name) and never
+# stored as a secret. Manual, not automatic: automatic signing archives with
+# a DEVELOPMENT profile first, which wants a development cert and at least
+# one registered device — neither of which a TestFlight pipeline needs, and
+# run #3 failed on exactly that ("team has no devices").
 #
 # The secrets live in the `ios-build` ENVIRONMENT (same reasoning as
 # android-build: an environment can carry protection rules repo secrets
@@ -161,6 +166,9 @@ jobs:
             -authenticationKeyID "$ASC_API_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_API_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="Tetrilaunch App Store" \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
 
@@ -180,6 +188,11 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
             <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.tetrilaunch.game</key><string>Tetrilaunch App Store</string>
+            </dict>
             <key>uploadSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
           </dict>
