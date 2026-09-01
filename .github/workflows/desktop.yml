@@ -70,9 +70,9 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # 22, matching android.yml and ui-fit.yml.
           node-version: "22"
@@ -90,7 +90,7 @@ jobs:
       # minute or two off every leg and takes the build off the network for the
       # part of it most likely to be flaky.
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # The Windows locations differ; listing all of them is harmless
           # because a path that does not exist is skipped.
@@ -186,7 +186,7 @@ jobs:
             --config.mac.notarize=true \
             --config.dmg.sign=true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.os }}
           # Installers only. release/ also holds the unpacked app trees and
@@ -220,7 +220,7 @@ jobs:
       # this job, so the packaging matrix still cannot start a workflow.
       actions: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           merge-multiple: true

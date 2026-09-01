@@ -34,9 +34,9 @@ jobs:
       name: staging
       url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # Matches android.yml: the Capacitor 8 CLI floor is >=22, and using
           # one node across workflows keeps the lockfile resolution identical.

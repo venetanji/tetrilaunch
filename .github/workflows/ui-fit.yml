@@ -58,9 +58,9 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -77,7 +77,7 @@ jobs:
       # the same reason: a Playwright bump is a new browser build, so it must
       # be a new cache entry. On a hit, `install` skips the download and only
       # the OS packages are fetched.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
@@ -100,7 +100,7 @@ jobs:
         if: failure()
         run: npm run test:uifit:shots || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: uifit-screenshots
@@ -129,9 +129,9 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -140,7 +140,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webkit-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
@@ -155,7 +155,7 @@ jobs:
         if: failure()
         run: npm run test:uifit:shots -- --engine=webkit || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: uifit-webkit-screenshots
