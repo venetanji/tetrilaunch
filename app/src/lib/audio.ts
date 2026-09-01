@@ -97,12 +97,202 @@ const LONG_EXT = ".mp3";
  *
  * Deduped by key, because these live on the hot path: playFx runs several times
  * a second and a missing buffer would otherwise print several times a second.
+ *
+ * A MAP, not a Set, and the value is the message itself. The key alone was
+ * enough while the only reader was a console, and a console is exactly what the
+ * owner of the test phone does not have: Safari's Web Inspector needs a Mac.
+ * Keeping the text costs one string per distinct failure — the map is bounded
+ * by the number of things that can go wrong, not by playtime — and it is what
+ * audioDiagnostics() below can put on the screen of the device that has the bug.
  */
-const said = new Set<string>();
+const said = new Map<string, string>();
 function warnOnce(key: string, message: string): void {
   if (said.has(key)) return;
-  said.add(key);
+  said.set(key, message);
   console.warn(`[audio] ${message}`);
+}
+
+/* -------------------------------------------------------------- black box */
+
+/**
+ * A FLIGHT RECORDER, BECAUSE A SNAPSHOT OF THE END IS NOT THE STORY.
+ *
+ * The state that explains this bug is mostly state that no longer exists by
+ * the time anyone can look. A context that reached "running" and was
+ * "interrupted" three seconds later reads, at rest, exactly like one that never
+ * ran — and the difference between those two is the difference between a
+ * gesture problem and an OS problem. The same goes for an unlock that took on
+ * the fourth touch, a load pass that finished after the first shot was fired,
+ * or a resume that was refused once and granted later.
+ *
+ * So transitions are stamped as they happen and kept. Seconds since module
+ * load, one line each, oldest first.
+ *
+ * BOUNDED, and the bound is not decoration: armUnlockGestures re-arms on every
+ * touch while the context refuses to run, so a genuinely stuck platform would
+ * otherwise write a line per tap for the length of a session and push the
+ * interesting early lines out of a panel that has to fit on a phone. Past the
+ * cap the recorder counts what it dropped and says so, which is itself a
+ * reading — "24 events and 300 dropped" is a platform thrashing, not a quiet
+ * failure.
+ */
+const TRACE_MAX = 24;
+const trace: string[] = [];
+let traceDropped = 0;
+
+/** Monotonic where the engine has one. Durations between two touches on one
+ *  device is exactly what performance.now() is for, and a wall clock that
+ *  steps mid-session would put the trace out of order. */
+function clockMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+const traceStart = clockMs();
+
+function note(event: string): void {
+  if (trace.length >= TRACE_MAX) { traceDropped += 1; return; }
+  trace.push(`${((clockMs() - traceStart) / 1000).toFixed(2)}s  ${event}`);
+}
+
+/**
+ * WHAT playFx ACTUALLY DID, counted.
+ *
+ * The one question the console lines could never answer: was a sound ever SENT?
+ * "No effects" collapses four different failures into one sentence, and only
+ * this tally separates them —
+ *
+ *   asked 0                the game never called playFx at all (a wiring bug in
+ *                          main.ts/game.ts, nothing to do with this module)
+ *   gated                  soundOn false, or no context, or no fxBus
+ *   missing                called, but the cue had no decoded buffer
+ *   threw                  the engine refused start() on a live context
+ *   sent > 0, still silent THE IMPORTANT ONE. Buffers existed, the graph
+ *                          accepted them, sources ran — so the loss is
+ *                          downstream of everything this module can observe.
+ *
+ * That last row is the whole reason the tally exists. Without it "buffers never
+ * loaded" and "buffers loaded and inaudible" look identical from the outside,
+ * and they point at opposite halves of the stack.
+ */
+const fxTally = { asked: 0, gated: 0, missing: 0, sent: 0, threw: 0 };
+
+/**
+ * THE WHOLE STATE OF THIS MODULE, AS TEXT, FOR A PHONE WITH NO INSPECTOR.
+ *
+ * Everything above is written for a reader with a console attached. The device
+ * these reports come from belongs to someone with no Mac, so every warnOnce
+ * line the previous pass added has been invisible on the one machine that
+ * produces them. This is the same information delivered through the only output
+ * that device definitely has: its screen. main.ts owns the gesture that shows
+ * it (a knock on the Sound toggle) and the overlay it goes in; this function
+ * owns what it says, because this module is the only thing that knows.
+ *
+ * IT IS BUILT TO BE DECISIVE, not to be complete. Each block below exists to
+ * eliminate one suspect, and the suspects are what is left after the silent
+ * switch was ruled out on the device (confirmed ON — ringer — through every
+ * failing pass, so the hardware mute never entered into it):
+ *
+ *   ctx / trace   No context at all → no Web Audio, or a graph that threw.
+ *                 A context that never leaves "suspended" → the gesture is not
+ *                 taking. A context that reached "running" and then LEFT it was
+ *                 taken away by the OS, and the trace is the only place that
+ *                 fact survives — at rest it looks exactly like one that never
+ *                 ran at all.
+ *   rate          48000/44100 is a normal media session. 8000 or 16000 means
+ *                 the OS handed this app a VOICE route, which is audible as
+ *                 "thin and quiet" rather than as silence, and is not a bug in
+ *                 this file.
+ *   buffers       Decoded over asked-for. 0/N under a running context is the
+ *                 loader; the per-asset failures below say whether it was the
+ *                 fetch (an HTTP status from the native scheme handler) or the
+ *                 decode (a codec the engine will not take).
+ *   fx tally      Whether anything was ever SENT. See fxTally's note.
+ *   gain          fxBus's own value, read off the node rather than from the
+ *                 soundOn flag that is supposed to set it. A bus sitting at 0
+ *                 with Sound on is a real possibility (setTargetAtTime against
+ *                 a context whose clock never advanced) and it is silent in a
+ *                 way that every other reading here calls healthy.
+ *   verdict       The line that says which half of the stack to go and look in.
+ *
+ * No-throw like everything else here: a getter the engine dislikes must not
+ * turn a diagnostic into a crash, so the body is wrapped and reports its own
+ * failure as the snapshot.
+ */
+export function audioDiagnostics(): string {
+  try {
+    const total = FX_NAMES.length;
+    const gain = fxBus ? fxBus.gain.value.toFixed(3) : "no bus";
+    const lines = [
+      `ctx      ${ctx ? ctx.state : "ABSENT"}${master ? "" : " (no limiter)"}`,
+      `rate     ${ctx ? `${Math.round(ctx.sampleRate)} Hz` : "-"}`
+        + `${ctx ? `  clock ${ctx.currentTime.toFixed(2)}s` : ""}`,
+      `unlocked ${unlocked} after ${unlockTries} gesture${unlockTries === 1 ? "" : "s"}`,
+      `buffers  ${buffers.size}/${total} decoded`,
+      `fx       asked ${fxTally.asked}  sent ${fxTally.sent}`
+        + `  gated ${fxTally.gated}  no-buffer ${fxTally.missing}  threw ${fxTally.threw}`,
+      `gain     fxBus ${gain}  (sound=${soundOn} music=${musicOn})`,
+      `music    ${musicName ?? "none"}${stingerName ? ` +stinger ${stingerName}` : ""}`,
+      "",
+      `verdict  ${fxVerdict()}`,
+      "",
+      `trace    ${trace.length} event${trace.length === 1 ? "" : "s"}`
+        + `${traceDropped ? `, ${traceDropped} dropped` : ""}`,
+    ];
+    for (const event of trace) lines.push(`  ${event}`);
+    // Per-asset, with the reason attached. The names matter as much as the
+    // count: one failure is a bad file, all of them is the scheme handler or
+    // the codec, and a handful is the concurrency this loader already bounds.
+    lines.push("", `failed   ${fxFailures.size} of ${total}`);
+    for (const [name, reason] of fxFailures) lines.push(`  ${name}: ${reason}`);
+    lines.push("", `said     ${said.size} message${said.size === 1 ? "" : "s"}`);
+    for (const message of said.values()) lines.push(`  - ${message}`);
+    return lines.join("\n");
+  } catch (err) {
+    return `audioDiagnostics failed: ${why(err)}`;
+  }
+}
+
+/**
+ * ONE SENTENCE NAMING THE SUSPECT — the line a tester photographs.
+ *
+ * Ordered as a funnel: each branch is only reached once the one above it has
+ * been cleared, so the sentence that comes out is about the FIRST thing in the
+ * chain that is wrong rather than about all of them at once.
+ *
+ * The last branch is the one that had to be written down. If every observable
+ * in this module is healthy — a running context, decoded buffers, an open bus,
+ * sources that started — and the phone is still silent, then nothing above the
+ * Web Audio output is at fault and the next place to look is the audio session,
+ * the route, or the hardware. Saying that in the panel is the difference
+ * between a tester reporting "no sound effects" for a third time and reporting
+ * something that moves the diagnosis.
+ */
+function fxVerdict(): string {
+  if (!ctx) return "no AudioContext — effects cannot play on this engine at all";
+  if (ctx.state !== "running") {
+    return `context is "${ctx.state}" — the gesture unlock never took`
+      + `${unlockTries ? ` in ${unlockTries} tries` : ""}; effects are gated before the graph`;
+  }
+  if (buffers.size === 0) {
+    return fxFailures.size
+      ? "context runs but NO effect decoded — see the per-asset failures below"
+      : "context runs and no effect has loaded yet — snapshot taken too early?";
+  }
+  if (!soundOn) return "Sound is switched OFF — effects are muted by the setting, not by a fault";
+  if (fxBus && fxBus.gain.value <= 0.0001) {
+    return "fx bus is at zero with Sound on — the bus never took the setting";
+  }
+  if (fxTally.asked === 0) {
+    return "nothing has called playFx yet — play a bay before reading this";
+  }
+  if (fxTally.sent === 0) {
+    return `playFx ran ${fxTally.asked} times and sent nothing`
+      + ` (gated ${fxTally.gated}, no-buffer ${fxTally.missing}, threw ${fxTally.threw})`;
+  }
+  return `all ${buffers.size} buffers loaded, context running, ${fxTally.sent} fx sent`
+    + " — IF STILL SILENT THE LOSS IS BELOW WEB AUDIO (audio session, route or hardware),"
+    + " not in this module";
 }
 
 /** Whatever a rejected promise handed us, as something readable. DOMException
@@ -568,11 +758,16 @@ export function unlockAudio(): void {
     warnOnce("kick", `silent-frame unlock kick failed — ${why(err)}`);
   }
   unlockTries += 1;
+  // Only the first few, and the trace's cap would hold anyway: a platform that
+  // keeps refusing re-arms on every touch, and a hundred identical "gesture"
+  // lines would push the interesting first second out of the panel.
+  if (unlockTries <= 3) note(`gesture #${unlockTries} (ctx ${ctx.state})`);
   void ctx.resume().then(markUnlocked, (err) => {
     // Not fatal and not final: the listeners below are still armed, so the
     // player's next touch tries again. Reported because a context that never
     // reaches "running" is the single most likely reason a platform has music
     // and no effects.
+    note(`resume refused: ${why(err)} (ctx ${ctx?.state ?? "gone"})`);
     warnOnce("resume", `AudioContext.resume() refused — ${why(err)} (state ${ctx?.state})`);
     armUnlockGestures();
   });
@@ -607,6 +802,10 @@ function markUnlocked(): void {
     return;
   }
   unlocked = true;
+  // The latch tripping is the single most useful line in the trace: WHEN it
+  // happened separates "unlocked on the first touch" from "unlocked forty
+  // seconds in, after the first bay was already played in silence".
+  note(`UNLOCKED (gesture ${unlockTries})`);
   disarmUnlockGestures();
 }
 
@@ -739,10 +938,16 @@ function buildGraph(): void {
     // session separately), so the latch cannot rely on the promise alone — this
     // is the event that says "running" for real, whenever that turns out to be.
     ctx.addEventListener("statechange", () => {
+      // Recorded BEFORE the repair attempts, so the trace shows the state the
+      // OS put us in rather than the state resumeStoppedContext left behind.
+      note(`state -> ${ctx?.state ?? "gone"}`);
       resumeStoppedContext();
       markUnlocked();
     });
+    note(`ctx built: ${ctx.state} @ ${Math.round(ctx.sampleRate)}Hz`
+      + `${master ? "" : ", NO limiter"}`);
   } catch (err) {
+    note(`graph failed: ${why(err)}`);
     warnOnce("graph", `could not build the Web Audio graph — ${why(err)}; effects are unavailable`);
     ctx = null;
   }
@@ -815,8 +1020,23 @@ const fxFailures = new Map<FxName, string>();
 let fxLoadStarted = false;
 let fxLoading = false;
 
+/**
+ * THE FETCH AND THE DECODE ARE RECORDED SEPARATELY.
+ *
+ * They used to share one `catch`, which made every failure read as `${name} —
+ * ${url} failed`. Those are opposite bugs. A fetch that fails is the native
+ * shell's URL scheme handler not producing the file — a packaging problem,
+ * fixed in cap sync or in what got committed to public/audio. A DECODE that
+ * fails is the file arriving intact and the engine refusing to turn it into
+ * audio — a codec problem, fixed in prepare-audio.mjs's `--codec`. A tester
+ * reading the on-screen panel has to be able to tell those apart from the
+ * reason string alone, so each one now labels itself and the byte count comes
+ * along with the decode failures (an HTML error page decodes as badly as a
+ * broken mp3, and its length says which one arrived).
+ */
 async function loadEffect(name: FxName): Promise<void> {
   const url = `${BASE}audio/fx/${name}.mp3`;
+  let bytes: ArrayBuffer;
   try {
     const res = await fetch(url);
     if (!res.ok) {
@@ -827,17 +1047,24 @@ async function loadEffect(name: FxName): Promise<void> {
       warnOnce(`fx:${name}`, `${name} — ${url} returned HTTP ${res.status}`);
       return;
     }
-    const bytes = await res.arrayBuffer();
-    if (bytes.byteLength === 0) {
-      fxFailures.set(name, "empty body");
-      warnOnce(`fx:${name}`, `${name} — ${url} returned 0 bytes`);
-      return;
-    }
+    bytes = await res.arrayBuffer();
+  } catch (err) {
+    fxFailures.set(name, `fetch ${why(err)}`);
+    warnOnce(`fx:${name}`, `${name} — ${url} failed: ${why(err)}`);
+    return;
+  }
+  if (bytes.byteLength === 0) {
+    fxFailures.set(name, "empty body");
+    warnOnce(`fx:${name}`, `${name} — ${url} returned 0 bytes`);
+    return;
+  }
+  try {
     buffers.set(name, await decodeFx(bytes));
     fxFailures.delete(name);
   } catch (err) {
-    fxFailures.set(name, why(err));
-    warnOnce(`fx:${name}`, `${name} — ${url} failed: ${why(err)}`);
+    fxFailures.set(name, `decode ${why(err)} (${bytes.byteLength}B)`);
+    warnOnce(`fx:${name}`,
+      `${name} — ${bytes.byteLength} bytes arrived and would not decode: ${why(err)}`);
   }
 }
 
@@ -847,6 +1074,7 @@ async function loadEffect(name: FxName): Promise<void> {
 async function loadEffects(names: FxName[]): Promise<void> {
   if (fxLoading || !ctx) return;
   fxLoading = true;
+  note(`fx load start (${names.length})`);
   try {
     const queue = [...names];
     const worker = async (): Promise<void> => {
@@ -860,6 +1088,11 @@ async function loadEffects(names: FxName[]): Promise<void> {
   } finally {
     fxLoading = false;
   }
+  // WHEN the set finished is as diagnostic as whether it did: a pass that lands
+  // after the player has already fired ten shots explains ten silent impacts
+  // with nothing wrong at rest.
+  note(`fx load done: ${buffers.size}/${FX_NAMES.length}`
+    + `${fxFailures.size ? `, ${fxFailures.size} failed` : ""}`);
   if (fxFailures.size) {
     // One line for the whole set, on top of the per-asset ones — this is the
     // number a device tester reads first, and "33 of 33 failed" and "1 of 33
@@ -915,9 +1148,13 @@ function fxBuffer(name: FxName): AudioBuffer | undefined {
  * needing four files.
  */
 export function playFx(name: FxName, opts: { rate?: number; gain?: number } = {}): void {
-  if (!soundOn || !ctx || !fxBus) return;
+  // COUNTED AT EVERY EXIT, and the counters are the point rather than a bonus:
+  // "no sound effects" is four different bugs and only this tally tells them
+  // apart on a device with no console. See fxTally's note.
+  fxTally.asked += 1;
+  if (!soundOn || !ctx || !fxBus) { fxTally.gated += 1; return; }
   const buf = fxBuffer(name);
-  if (!buf) return;
+  if (!buf) { fxTally.missing += 1; return; }
   try {
     const src = ctx.createBufferSource();
     src.buffer = buf;
@@ -930,8 +1167,13 @@ export function playFx(name: FxName, opts: { rate?: number; gain?: number } = {}
       src.connect(fxBus);
     }
     src.start();
-  } catch {
-    /* ignore */
+    fxTally.sent += 1;
+  } catch (err) {
+    // Was a bare `/* ignore */`. A running context that refuses start() is a
+    // real and reportable state — and it is the one failure that can happen
+    // AFTER everything else in the chain has already looked healthy.
+    fxTally.threw += 1;
+    warnOnce(`start:${name}`, `${name} — BufferSource.start() threw: ${why(err)}`);
   }
 }
 
