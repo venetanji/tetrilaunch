@@ -78,6 +78,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The image's DEFAULT Xcode trails what the App Store accepts: run #6
+      # archived cleanly on the default (Xcode 16 / iOS 18.5 SDK) and the
+      # upload validator refused it — "all apps must be built with the iOS 26
+      # SDK or later". The runner ships several Xcodes side by side, so pick
+      # the newest by version sort and say which, so the log answers "what SDK
+      # did this build?" before Apple does.
+      - name: Select the newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+
       - name: Require signing and store secrets
         env:
           IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
