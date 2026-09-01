@@ -135,21 +135,32 @@ async function canPresentNativeRevenueCatPaywall(): Promise<boolean> {
   }
 }
 
-/** Purchase the configured lifetime package without loading RevenueCatUI. */
+/**
+ * Purchase the configured lifetime package without loading RevenueCatUI.
+ *
+ * NO CONFIRMATION OF OUR OWN, and that is a decision, not an omission:
+ * purchasePackage immediately presents Apple's payment sheet, which shows the
+ * localized price and demands Face ID/passcode — the real, binding
+ * confirmation. A browser-drawn confirm in front of it would be a second ask
+ * from outside the game (the exact dialog account deletion just got rid of),
+ * showing a price string one step removed from the one Apple will actually
+ * charge. The sim pins that absence.
+ */
 async function purchaseLifetimeFallback(): Promise<void> {
   const { Purchases } = await sdk();
   const offering = (await Purchases.getOfferings()).current;
   const lifetime = offering?.lifetime;
   if (!lifetime) throw new Error("current RevenueCat offering has no lifetime package");
 
-  const product = lifetime.product;
-  const accepted = window.confirm(
-    `Unlock Full Game for ${product.priceString}?\n\nThis is a one-time purchase.`,
-  );
-  if (!accepted) return;
-
-  const { customerInfo } = await Purchases.purchasePackage({ aPackage: lifetime });
-  setUnlimited(readUnlimited(customerInfo));
+  try {
+    const { customerInfo } = await Purchases.purchasePackage({ aPackage: lifetime });
+    setUnlimited(readUnlimited(customerInfo));
+  } catch (err) {
+    // Walking away from the sheet is the sheet working — same rule the web
+    // paywall applies to UserCancelledError.
+    if ((err as { userCancelled?: boolean } | null)?.userCancelled) return;
+    throw err;
+  }
 }
 
 /** True once the SDK for this platform has configured successfully. */

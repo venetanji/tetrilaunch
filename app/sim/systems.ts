@@ -21459,6 +21459,49 @@ section("Player accounts (social login + RevenueCat identity)");
   // screen is a setState to something else, so this one line is the clear.
   check("leaving the account screen clears the pending destination",
     /if \(s !== "account"\) this\.paywallReturn = null;/.test(mainSrc));
+
+  /* ---- The iOS 16/17 paywall gate (purchases.ts, purchases-ios#7567) ------
+   * RevenueCatUI compiled by the iOS 26 SDK into Capacitor's static SPM
+   * target dereferences SwiftUI type metadata that exists only on iOS 18+ —
+   * two TestFlight builds crashed on an iPhone X proving it, on two SDK
+   * versions, at two different call sites. So the pretty paywall runs only
+   * where the frameworks it references exist, and everything older buys
+   * through the core SDK, whose one confirmation is Apple's own payment
+   * sheet. These pins hold the gate's shape; the crash they prevent cannot be
+   * reproduced on this side of a device. */
+  {
+    // The gate stands between ready-check and RevenueCatUI in the native
+    // branch — source order is the wiring here, exactly as the resume pin
+    // above reads main.ts.
+    const nativePaywall = purchasesSrc.slice(purchasesSrc.indexOf("export async function presentPaywall"));
+    const gateAt = nativePaywall.indexOf("canPresentNativeRevenueCatPaywall()");
+    const rcuiAt = nativePaywall.indexOf("RevenueCatUI.presentPaywall(");
+    check("the native paywall asks the OS gate before RevenueCatUI",
+      gateAt > 0 && rcuiAt > 0 && gateAt < rcuiAt);
+    // Fail CLOSED: an unreadable OS version routes to the fallback, because
+    // guessing wrong the other way terminates the process.
+    const gateBody = purchasesSrc.slice(
+      purchasesSrc.indexOf("async function canPresentNativeRevenueCatPaywall"),
+      purchasesSrc.indexOf("async function purchaseLifetimeFallback"),
+    );
+    check("the gate fails closed when the OS cannot be read",
+      /catch[\s\S]*return false;/.test(gateBody));
+    // 18 is the floor because the missing metadata is the SwiftUICore split,
+    // which is an iOS-18 boundary — not 17, which no one here can test.
+    check("...and the floor is iOS 18", gateBody.includes("major >= 18"));
+    // The fallback buys the SAME lifetime package the dashboard paywall
+    // sells, through the core SDK.
+    check("the fallback purchases the offering's lifetime package",
+      purchasesSrc.includes("purchasePackage({ aPackage: lifetime })"));
+    // Apple's payment sheet is the confirmation. The one browser-drawn
+    // dialog in the game was removed by the account-deletion work; the
+    // purchase path must not reintroduce one.
+    check("no browser dialog stands in front of the payment sheet",
+      !purchasesSrc.includes("window.confirm"));
+    // Walking away from the sheet is the sheet working.
+    check("a cancelled sheet is quiet, not a failure",
+      /userCancelled[\s\S]{0,40}return;/.test(purchasesSrc));
+  }
 }
 
 console.log(
