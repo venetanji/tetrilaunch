@@ -250,6 +250,7 @@ const ASSERTIONS = [
   { id: "fit", desc: "screen fits without page scrolling" },
   { id: "scrollers", desc: "only allowlisted regions scroll vertically" },
   { id: "offscreen", desc: "no text or control is clipped off-viewport" },
+  { id: "safearea", desc: "no text or control sits under a notch or home indicator" },
   { id: "tap", desc: "every control is at least 44x44" },
   { id: "textclip", desc: "no text is hard-clipped by its box" },
   { id: "clipped", desc: "no content is cut off by an ancestor's overflow edge" },
@@ -285,12 +286,16 @@ function measure(cfg: {
   screen: string;
   /** The chute mouth's drawn span, as fractions of the world — see MOUTH. */
   mouth: { x0: number; x1: number };
+  /** This device row's safe-area insets, for the `safearea` assertion. The
+   *  same four numbers harness.ts feeds the .safe-probe rule, so the check and
+   *  the stylesheet are reading one source. */
+  insets: Insets;
 }): Findings {
-  const { allowedScrollers, decorative, singleLine, noOverlap, screen, mouth } = cfg;
+  const { allowedScrollers, decorative, singleLine, noOverlap, screen, mouth, insets } = cfg;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const out: Findings = {
-    fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
+    fit: [], scrollers: [], offscreen: [], safearea: [], tap: [], textclip: [],
     clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
     plant: [], crest: [], rail: [], twocol: [], oneline: [], rack: [], badge: [],
     inkline: [], padfocus: [], warn: [],
@@ -371,6 +376,99 @@ function measure(cfg: {
       );
     }
   });
+
+  // --- safearea: content must clear the notch and the home indicator --------
+  // THE ASSERTION THE NOTCH REPORT NEEDED, and the reason `offscreen` above
+  // could not be it: `offscreen` measures against the VIEWPORT edges (0..vw,
+  // 0..vh), and an iPhone's cutout is not off the viewport. It is 44 CSS px
+  // INSIDE it — real, addressable, paintable pixels that the player simply
+  // cannot see, because there is a camera and a rounded corner in front of
+  // them. So every screen in this app could bleed its first and last 44px
+  // under the cutout with `offscreen`, `fit`, `clipped` and `textclip` all
+  // green, which is exactly what shipped: an owner on an iPhone X reported
+  // "some screens are cut like the contracts screen" while the whole matrix
+  // was green.
+  //
+  // The rule is the same sentence `offscreen` states, moved in by the insets:
+  // no text and no control may sit outside the box the device can actually
+  // show. Same population, too — leaf text and controls, decorative chrome
+  // excluded — so the two read as one pair rather than as two opinions.
+  //
+  // MEASURED ON THE VISIBLE BOX, not the layout box, and that distinction is
+  // load-bearing rather than fussy. A scroller's rows exist at every offset
+  // its content reaches — the refit shelf's last card is laid out 400px down a
+  // 250px pane — and asking whether THAT rect clears the home indicator is
+  // asking about a box the player cannot see at all, which reported 55px of
+  // "cut" on a card that is simply scrolled away. Clipping the rect to every
+  // ancestor that hides its overflow first, and skipping what is left with
+  // nothing on screen, makes this a statement about pixels a player is
+  // actually looking at.
+  //
+  // It also settles the scroller question `offscreen` has to answer with an
+  // exemption. There, content parked outside a scroller is reachable by
+  // scrolling, so the axis is excused wholesale. Here no excuse is needed or
+  // wanted: scrolling moves content THROUGH the cutout, it never moves the
+  // cutout, so a pane that reaches under one is a defect on every row it will
+  // ever show — and clipping to the pane is what leaves exactly that claim
+  // standing, without the noise of rows that are not on screen yet.
+  //
+  // Zero insets means zero findings, so every Android and web row is inert
+  // here by construction and only the notched rows (the iPhones, the Pixel 7
+  // cutout, the iPads' home indicator) can say anything at all.
+  if (insets.left || insets.right || insets.top || insets.bottom) {
+    const safeL = insets.left;
+    const safeT = insets.top;
+    const safeR = vw - insets.right;
+    const safeB = vh - insets.bottom;
+    const seenSafe = new Set<string>();
+    // The BORDER box of each clipping ancestor, deliberately, where `clipped`
+    // above uses the padding box. The two differ by a border width (1-2px in
+    // this stylesheet), and taking the larger box here makes this check
+    // slightly PERMISSIVE — it can miss a hairline, it cannot invent a
+    // finding. That trade buys immunity from the units trap `clipped`
+    // documents at length: clientTop/clientWidth are layout px in the
+    // element's own space while getBoundingClientRect is the scaled box, and
+    // the screen scaffolds carry `zoom: var(--chrome-zoom)`.
+    const visibleBox = (el: Element): DOMRect | null => {
+      const r = el.getBoundingClientRect();
+      let l = r.left, t = r.top, rt = r.right, b = r.bottom;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const cs = getComputedStyle(p);
+        if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+        const pr = p.getBoundingClientRect();
+        if (cs.overflowX !== "visible") { l = Math.max(l, pr.left); rt = Math.min(rt, pr.right); }
+        if (cs.overflowY !== "visible") { t = Math.max(t, pr.top); b = Math.min(b, pr.bottom); }
+      }
+      if (rt - l <= 2 || b - t <= 2) return null;      // nothing of it is on screen
+      return new DOMRect(l, t, rt - l, b - t);
+    };
+    document.querySelectorAll("#overlay *").forEach((el) => {
+      const isControl = el.matches("button, .btn, .icon-btn, .toggle, input");
+      const isTextLeaf = el.childElementCount === 0 && (el.textContent ?? "").trim().length > 0;
+      if (!isControl && !isTextLeaf) return;
+      if (el.closest(decorative.join(","))) return;   // bleeds past the edge by design
+      const box = el.getBoundingClientRect();
+      if (box.width <= 2 || box.height <= 2) return;     // visually-hidden a11y text
+      if (getComputedStyle(el).visibility === "hidden") return;
+      const r = visibleBox(el);
+      if (!r) return;
+      // How far into the unusable band the visible box reaches, per edge. The
+      // 1px slack is the same rounding allowance every other assertion here
+      // uses: these edges come out of calc() chains over fractional viewport
+      // dimensions and land within a rounding step of the inset.
+      const cut = Math.max(
+        safeL - r.left, safeT - r.top, r.right - safeR, r.bottom - safeB,
+      );
+      if (cut <= 1) return;
+      const key = `${label(el)} reaches ${Math.round(cut)}px into the safe area`;
+      if (seenSafe.has(key)) return;
+      seenSafe.add(key);
+      out.safearea.push(
+        `${key} ([${Math.round(r.left)},${Math.round(r.top)} → ${Math.round(r.right)},${Math.round(r.bottom)}]` +
+          ` vs safe [${Math.round(safeL)},${Math.round(safeT)} → ${Math.round(safeR)},${Math.round(safeB)}])`,
+      );
+    });
+  }
 
   // --- tap: WCAG 2.5.5 / iOS HIG minimum -----------------------------------
   // Scoped to things a finger is meant to hit: real <button>s, form controls,
@@ -1359,6 +1457,7 @@ for (const device of devices) {
       noOverlap: NO_OVERLAP,
       screen,
       mouth: MOUTH,
+      insets: device.insets,
     });
     for (const { id } of ASSERTIONS) {
       if (res[id]?.length) found[`${device.name}|${screen}|${id}`] = res[id];
