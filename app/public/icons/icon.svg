@@ -1,24 +1,61 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Tetrilaunch PWA / manifest icon - the "6a Rising Arc" mark, same art as
+       resources/icon.svg (the app icon) so the installed web app, the launcher
+       icon and the store listings all read as one thing. Declared in
+       vite.config.ts at 192, 512 and 512-maskable: the mark sits inside the
+       centre ~70%, so a maskable crop keeps all four tiles. No wordmark - the
+       previous "TETRI" needed Orbitron, which no rasterizer here has. -->
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#00f0ff"/>
-      <stop offset="1" stop-color="#7a5cff"/>
-    </linearGradient>
-    <radialGradient id="bg" cx="50%" cy="35%" r="80%">
-      <stop offset="0" stop-color="#161636"/>
-      <stop offset="1" stop-color="#07070f"/>
+    <radialGradient id="bg" cx="256" cy="184.32" r="415.8247" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17173a"/><stop offset="0.78" stop-color="#07070f"/>
     </radialGradient>
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="8" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <rect width="64" height="0.5" fill="#2e2e4a" fill-opacity="0.55"/>
+      <rect width="0.5" height="64" fill="#2e2e4a" fill-opacity="0.55"/>
+    </pattern>
+    <pattern id="hatch" width="25.344" height="25.344" patternUnits="userSpaceOnUse" patternTransform="rotate(45) translate(0 15.5)">
+      <rect width="25.344" height="25.344" fill="#b026ff"/>
+      <rect width="25.344" height="4.224" fill="#6a00b9"/>
+    </pattern>
+    <filter id="tileGlow" x="-70%" y="-70%" width="240%" height="240%">
+      <feDropShadow dx="0" dy="0" stdDeviation="22.528" flood-color="#b026ff" flood-opacity="1"/>
+    </filter>
+    <filter id="dg0" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="7.68" flood-color="#00ff85" flood-opacity="0.32"/>
+    </filter>
+    <filter id="dg1" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="8.704" flood-color="#00ff85" flood-opacity="0.45"/>
+    </filter>
+    <filter id="dg2" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="9.728" flood-color="#00ff85" flood-opacity="0.61"/>
+    </filter>
+    <filter id="dg3" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="10.752" flood-color="#00ff85" flood-opacity="0.74"/>
+    </filter>
+    <filter id="dg4" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="11.776" flood-color="#00ff85" flood-opacity="0.83"/>
+    </filter>
+    <filter id="dg5" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="12.8" flood-color="#00ff85" flood-opacity="0.9"/>
     </filter>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <g filter="url(#glow)" fill="none" stroke-linejoin="round">
-    <rect x="70" y="266" width="96" height="96" rx="14" stroke="url(#g)" stroke-width="18"/>
-    <path d="M172 300 Q300 40 442 320" stroke="#00ff85" stroke-width="12" stroke-dasharray="10 26" stroke-linecap="round"/>
-    <rect x="372" y="262" width="70" height="70" rx="12" fill="#ffe500" stroke="#fff6a0" stroke-width="6"/>
+  <rect width="512" height="512" fill="url(#grid)"/>
+  <g filter="url(#tileGlow)">
+    <g transform="translate(79.36 130.56)"><rect x="3.52" y="3.52" width="105.6" height="105.6" rx="10.56" fill="url(#hatch)" stroke="#dd53ff" stroke-width="7.04"/></g>
+    <g transform="translate(199.68 130.56)"><rect x="3.52" y="3.52" width="105.6" height="105.6" rx="10.56" fill="url(#hatch)" stroke="#dd53ff" stroke-width="7.04"/></g>
+    <g transform="translate(320 130.56)"><rect x="3.52" y="3.52" width="105.6" height="105.6" rx="10.56" fill="url(#hatch)" stroke="#dd53ff" stroke-width="7.04"/></g>
+    <g transform="translate(199.68 250.88)"><rect x="3.52" y="3.52" width="105.6" height="105.6" rx="10.56" fill="url(#hatch)" stroke="#dd53ff" stroke-width="7.04"/></g>
   </g>
-  <text x="256" y="452" text-anchor="middle" font-family="Orbitron, sans-serif" font-weight="900"
-        font-size="64" letter-spacing="6" fill="#eaeaff">TETRI</text>
+  <g fill="#2f313c" fill-opacity="0.73">
+    <rect x="191.488" y="155.648" width="9.216" height="62.976"/>
+    <rect x="311.808" y="155.648" width="9.216" height="62.976"/>
+    <rect x="224.768" y="242.688" width="62.976" height="9.216"/>
+  </g>
+  <circle cx="43.52" cy="468.48" r="7.68" fill="#00ff85" fill-opacity="0.35" filter="url(#dg0)"/>
+  <circle cx="105.984" cy="451.584" r="8.704" fill="#00ff85" fill-opacity="0.5" filter="url(#dg1)"/>
+  <circle cx="173.568" cy="434.688" r="9.728" fill="#00ff85" fill-opacity="0.68" filter="url(#dg2)"/>
+  <circle cx="246.272" cy="420.352" r="10.752" fill="#00ff85" fill-opacity="0.82" filter="url(#dg3)"/>
+  <circle cx="324.096" cy="410.112" r="11.776" fill="#00ff85" fill-opacity="0.92" filter="url(#dg4)"/>
+  <circle cx="407.04" cy="404.992" r="12.8" fill="#00ff85" fill-opacity="1.0" filter="url(#dg5)"/>
 </svg>

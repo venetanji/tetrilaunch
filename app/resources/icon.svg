@@ -1,30 +1,71 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- App-store icon source. Same neon mark as public/icons/icon.svg, minus the
-       "TETRI" wordmark: iOS renders the icon as small as 40px and small text
-       turns to mush (and the wordmark needs Orbitron, which isn't available to
-       the rasterizer). Regenerate the native asset catalogs with:
-         npm run assets:generate      (app/, writes ios/App/App/Assets.xcassets) -->
+  <!-- Tetrilaunch app icon - "6a Rising Arc", the design marked Final in the
+       Game icon design options handoff (Icon Set sheet; AppIcon variant
+       arc-rise). Geometry is a direct translation of that prototype's CSS:
+       every coordinate below is its percentage of the 1024 canvas, and the
+       glows are its box-shadow blur radii at the spec's stdDeviation = r/2.
+       No wordmark - iOS renders this as small as 40px. Regenerate the
+       downstream PNGs with:  npm run assets:generate  and  npm run store:graphics -->
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#00f0ff"/>
-      <stop offset="1" stop-color="#7a5cff"/>
-    </linearGradient>
-    <radialGradient id="bg" cx="50%" cy="35%" r="80%">
-      <stop offset="0" stop-color="#161636"/>
-      <stop offset="1" stop-color="#07070f"/>
+    <radialGradient id="bg" cx="512" cy="368.64" r="831.649" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17173a"/>
+      <stop offset="0.78" stop-color="#07070f"/>
     </radialGradient>
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="16" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <pattern id="grid" x="0" y="0" width="128" height="128" patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="128" height="1" fill="#2e2e4a" fill-opacity="0.55"/>
+      <rect x="0" y="0" width="1" height="128" fill="#2e2e4a" fill-opacity="0.55"/>
+    </pattern>
+    <pattern id="hatch" width="50.688" height="50.688" patternUnits="userSpaceOnUse" patternTransform="rotate(45) translate(0 31.000)">
+      <rect x="0" y="0" width="50.688" height="50.688" fill="#b026ff"/>
+      <rect x="0" y="0" width="50.688" height="8.448" fill="#6a00b9"/>
+    </pattern>
+    <filter id="tileGlow" x="-70%" y="-70%" width="240%" height="240%">
+      <feDropShadow dx="0" dy="0" stdDeviation="45.056" flood-color="#b026ff" flood-opacity="1"/>
+    </filter>
+    <filter id="dotGlow0" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="15.36" flood-color="#00ff85" flood-opacity="0.32"/>
+    </filter>
+    <filter id="dotGlow1" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="17.408" flood-color="#00ff85" flood-opacity="0.45"/>
+    </filter>
+    <filter id="dotGlow2" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="19.456" flood-color="#00ff85" flood-opacity="0.61"/>
+    </filter>
+    <filter id="dotGlow3" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="21.504" flood-color="#00ff85" flood-opacity="0.74"/>
+    </filter>
+    <filter id="dotGlow4" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="23.552" flood-color="#00ff85" flood-opacity="0.83"/>
+    </filter>
+    <filter id="dotGlow5" x="-200%" y="-200%" width="500%" height="500%">
+      <feDropShadow dx="0" dy="0" stdDeviation="25.6" flood-color="#00ff85" flood-opacity="0.9"/>
     </filter>
   </defs>
   <rect width="1024" height="1024" fill="url(#bg)"/>
-  <!-- The mark's ink bbox is x 61-445, y 169-371 in the 512-space it was drawn
-       in; this centres that box on the 1024 canvas at ~81% width, inside the
-       ~10% margin iOS masks away. -->
-  <g transform="translate(512 512) scale(2.15) translate(-253 -270)" filter="url(#glow)" fill="none" stroke-linejoin="round">
-    <rect x="70" y="266" width="96" height="96" rx="14" stroke="url(#g)" stroke-width="18"/>
-    <path d="M172 300 Q300 40 442 320" stroke="#00ff85" stroke-width="12" stroke-dasharray="10 26" stroke-linecap="round"/>
-    <rect x="372" y="262" width="70" height="70" rx="12" fill="#ffe500" stroke="#fff6a0" stroke-width="6"/>
+  <rect width="1024" height="1024" fill="url(#grid)"/>
+  <g filter="url(#tileGlow)">
+    <g transform="translate(158.72 261.12)">
+      <rect x="7.04" y="7.04" width="211.2" height="211.2" rx="21.12" fill="url(#hatch)" stroke="#dd53ff" stroke-width="14.08"/>
+    </g>
+    <g transform="translate(399.36 261.12)">
+      <rect x="7.04" y="7.04" width="211.2" height="211.2" rx="21.12" fill="url(#hatch)" stroke="#dd53ff" stroke-width="14.08"/>
+    </g>
+    <g transform="translate(640 261.12)">
+      <rect x="7.04" y="7.04" width="211.2" height="211.2" rx="21.12" fill="url(#hatch)" stroke="#dd53ff" stroke-width="14.08"/>
+    </g>
+    <g transform="translate(399.36 501.76)">
+      <rect x="7.04" y="7.04" width="211.2" height="211.2" rx="21.12" fill="url(#hatch)" stroke="#dd53ff" stroke-width="14.08"/>
+    </g>
   </g>
+  <g fill="#2f313c" fill-opacity="0.73">
+    <rect x="382.976" y="311.296" width="18.432" height="125.952"/>
+    <rect x="623.616" y="311.296" width="18.432" height="125.952"/>
+    <rect x="449.536" y="485.376" width="125.952" height="18.432"/>
+  </g>
+  <circle cx="87.04" cy="936.96" r="15.36" fill="#00ff85" fill-opacity="0.35" filter="url(#dotGlow0)"/>
+  <circle cx="211.968" cy="903.168" r="17.408" fill="#00ff85" fill-opacity="0.5" filter="url(#dotGlow1)"/>
+  <circle cx="347.136" cy="869.376" r="19.456" fill="#00ff85" fill-opacity="0.68" filter="url(#dotGlow2)"/>
+  <circle cx="492.544" cy="840.704" r="21.504" fill="#00ff85" fill-opacity="0.82" filter="url(#dotGlow3)"/>
+  <circle cx="648.192" cy="820.224" r="23.552" fill="#00ff85" fill-opacity="0.92" filter="url(#dotGlow4)"/>
+  <circle cx="814.08" cy="809.984" r="25.6" fill="#00ff85" fill-opacity="1.0" filter="url(#dotGlow5)"/>
 </svg>
