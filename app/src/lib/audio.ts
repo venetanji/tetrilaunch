@@ -2214,7 +2214,7 @@ export function musicLevel(): number {
  *  [src, position, whether it was actually playing]. Keyed by element because
  *  music/stinger can be swapped while the app is hidden — an element replaced
  *  mid-suspension keeps its parked entry but is simply never unparked. */
-const parked = new Map<HTMLAudioElement, [string, number, boolean]>();
+const parked = new Map<HTMLAudioElement, [string, number]>();
 
 /** The suspend/resume history, for the diagnostics panel. Build 16 proved a
  *  fix can be RIGHT and still not RUN: the element parking kills the
@@ -2245,7 +2245,7 @@ function parkElement(el: HTMLAudioElement | null): number {
   try {
     const src = el.currentSrc || el.src;
     if (!src) return 0;
-    parked.set(el, [src, el.currentTime, !el.paused]);
+    parked.set(el, [src, el.currentTime]);
     el.pause();
     el.removeAttribute("src");
     el.load();
@@ -2259,7 +2259,7 @@ function unparkElement(el: HTMLAudioElement | null): void {
   const p = parked.get(el);
   parked.delete(el);
   if (!p) return;
-  const [src, at, wasPlaying] = p;
+  const [src, at] = p;
   try {
     el.src = src;
     el.load();
@@ -2270,7 +2270,10 @@ function unparkElement(el: HTMLAudioElement | null): void {
       () => { try { el.currentTime = at; } catch { /* ignore */ } },
       { once: true },
     );
-    if (wasPlaying && musicOn && !suspended) void el.play().catch(() => { /* ignore */ });
+    // No play() here — resumeAudio owns that decision, unconditionally for
+    // the current elements, because on a plain lock nothing gets parked at
+    // all (the page freezes first) and a play gated on parked state left
+    // the beds silent until the next track swap.
   } catch { /* ignore */ }
 }
 
@@ -2299,4 +2302,16 @@ export function resumeAudio(source = "visibility"): void {
   // out of the map with it).
   unparkElement(music);
   unparkElement(stinger);
+  if (!musicOn) return;
+  // ...and the CURRENT elements are played unconditionally, parked or not.
+  // This line predates the parking and came back by owner report: on a plain
+  // lock the page freezes before any suspend JS runs, so nothing is parked —
+  // the beds were paused NATIVELY (AppDelegate's setAllMediaPlaybackSuspended)
+  // — and a resume that only unparks leaves them silent until the next track
+  // swap (build 17 on hardware). An element replaced while hidden is not
+  // `music` any more, so this cannot wake one that is meant to stay down.
+  const m = music;
+  if (m) void m.play().catch(() => { /* ignore */ });
+  const s = stinger;
+  if (s) void s.play().catch(() => { /* ignore */ });
 }

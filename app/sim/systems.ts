@@ -12615,6 +12615,16 @@ section("Audio session policy and on-device diagnostics");
     /function unparkElement[\s\S]{0,900}?el\.src = src;[\s\S]{0,700}?el\.currentTime = at/.test(audioCode)
     && /export function resumeAudio[\s\S]{0,400}?unparkElement\(music\);\s*\n\s*unparkElement\(stinger\)/.test(audioCode),
   );
+  // ...AND PLAYS THE CURRENT ELEMENTS WHETHER OR NOT ANYTHING WAS PARKED. On
+  // a plain lock the page freezes before any suspend JS runs, so the park map
+  // is empty and the beds were paused natively — build 17 on hardware: music
+  // stayed silent after unlock until the next track swap, because the resume
+  // only unparked. The play must be resumeAudio's own, gated on musicOn but
+  // never on parked state.
+  check(
+    "...and resume plays the current elements even when nothing was parked",
+    /export function resumeAudio[\s\S]{0,1600}?if \(!musicOn\) return;[\s\S]{0,900}?if \(m\) void m\.play\(\)[\s\S]{0,300}?if \(s\) void s\.play\(\)/.test(audioCode),
+  );
   // ...AND THE PARK ACTUALLY RUNS ON A SCREEN LOCK, which visibilitychange
   // alone cannot promise: WKWebView does not reliably fire it when the screen
   // locks with the app frontmost, and the lock screen is the one place the
