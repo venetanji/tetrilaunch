@@ -7521,8 +7521,9 @@ class App {
    * 44/44/0/21) and the .plant clamp solves to a bottom 31.5px above the
    * glass — yet the run still clips everything after the reload bar. So the
    * lie is only tellable while the run is live, and this takes the deposition:
-   * the panel's rect against the live innerHeight, its computed bottom (the
-   * #208 clamp's instrument — --inset-b means the clamp fired), the solver's
+   * the panel's rect against the live innerHeight, its computed bottom (on a
+   * bleeding solve the #208 clamp's floor is the visible viewport now, so a
+   * bottom of 0px is the clamp binding as designed, not a fault), the solver's
    * published band at that instant, and the panel's own inner overflow
    * (scrollHeight past clientHeight + the last child's real bottom), which
    * separates "the panel is misplaced" from "the panel clips its own tail".
