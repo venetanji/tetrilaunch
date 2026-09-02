@@ -3072,8 +3072,10 @@ body.crt-off #app::after { display: none; }
           watchdog is a STALENESS detector — it re-solves when a fresh reading
           disagrees with the one the published layout was made from — so it
           cannot help while the reading itself goes on being wrong the same way
-          every time. `var(--inset-b)` is the floor for that case: the panel
-          stops at the home indicator instead of walking past it.
+          every time. The floor is what stops that case: the panel comes to
+          rest on the last row the player can see instead of walking past it.
+          (It used to stop at the home indicator; see THE FLOOR IS THE VISIBLE
+          VIEWPORT below for what the field bleed cost this case and why.)
        2. A CONTAINING BLOCK taller than the visible viewport. `100%` here is
           #app, which is `position: fixed; inset: 0` — the LAYOUT viewport, a
           box .modal's own max-height cap below already describes as taller
@@ -3085,30 +3087,87 @@ body.crt-off #app::after { display: none; }
 
      TWO DECLARATIONS, `vh` first, on .modal's own precedent: a WebView without
      `dvh` drops the second line and keeps the first, where the viewport term
-     collapses to nothing and `--inset-b` is left holding case 1 on its own.
+     collapses to nothing and the floor holds case 1 on its own.
 
-     NEVER THE BINDING TERM ON A CORRECT SOLVE, and that is pinned rather than
-     asserted: sim/systems.ts walks every row of sim/uifit's device matrix at
-     every rail budget a run can build and fails if the solved anchor does not
-     already clear the visible bottom. The tightest row in the matrix (iPhone X,
-     snug) clears it by 10.5px, so this changes nothing the harness measures on
-     either engine — it is a guard, and a clamp that fired on a correct solve
-     would be a regression wearing a guard's clothes.
+     THE FLOOR IS THE VISIBLE VIEWPORT, NOT THE FOLD, and that is the one term
+     layout.ts's FIELD BLEED changed. It used to read `+ var(--inset-b)`: the
+     panel stopped at the home indicator, because the FIELD stopped there too
+     and any anchor below it could only have come from a bad solve. The bay now
+     descends INTO that band on purpose — its floor lands on the glass — and
+     this panel is bolted to the bay, not to the viewport: it hangs 2.97% of a
+     field height above the bay floor, the crest's skirt (.plant__crest--skirt)
+     spans exactly that sliver with its teeth reaching for the floor's glowing
+     wall, and render.ts draws the intake's lip along the panel's top edge in
+     world space. Lift the panel to the fold and the whole machine unbolts: the
+     skirt's teeth stop ~16px short of a wall they are drawn to touch, the drag
+     hint's gesture — anchored to the panel's top through the same fractions —
+     plays under the panel, and the machine floats above the floor it grinds
+     into. Measured on the four notched rows: 64 crest findings and 24 drag-hint
+     findings, on a layout the solver had placed correctly.
 
-     WHICH MAKES IT AN INSTRUMENT TOO, and that is worth knowing on a device
-     with no console open. Because the clamp cannot bind on a correct solve,
-     a computed `bottom` that reads back as --inset-b instead of the solved
-     fraction is proof the layout was already wrong — one number, read once,
-     that separates "this panel is misplaced" from "this panel is too big"
-     without needing to know which of the two cases above put it there. */
+     So the box rides the field down, and the CONTENT is what the indicator
+     holds back — see the padding-bottom pair below, which absorbs exactly the
+     part of this panel that is under the indicator so no readout, control or
+     rivet-row ever is. That split is what keeps sim/uifit's `safearea`
+     assertion green while the panel's own border sits in the band, and it is
+     the same split the field itself is making one layer down.
+
+     WHAT THE FLOOR STILL CATCHES: both cases above, one of them less kindly. A
+     containing block taller than the visible viewport (case 2) is caught
+     exactly as before — that is the `100% - 100dvh` term, untouched. A solve
+     against a viewport taller than the real one (case 1) is still stopped from
+     walking the panel's tail off the screen, but it now parks the panel's
+     bottom ON the glass instead of above the indicator, because at the anchor
+     level a bay that legitimately bled and a viewport read 200px too tall look
+     the same — both put the field's floor low. Twenty-one pixels of a failure
+     state, in exchange for the machine staying in one piece in the normal one.
+
+     THE INSTRUMENT IS GONE, and that is worth stating rather than quietly
+     dropping: a computed `bottom` that read back as --inset-b used to be proof
+     the layout was already wrong. There is no such tell any more. What replaces
+     it is a BOUND, pinned in sim/systems.ts: on a correct solve this anchor
+     falls past the fold by exactly `--inset-b` less the skirt (2.97% of the
+     field height), so it can never fall past it by more than `--inset-b` —
+     that band is the whole of what the field was allowed to descend into, and
+     an overhang deeper than it is still a solve against the wrong box. */
   bottom: max(
-    calc(100% - 100vh + var(--inset-b)),
+    calc(100% - 100vh),
     calc(100% - var(--field-y) - 0.9703 * var(--field-h))
   );
   bottom: max(
-    calc(100% - 100dvh + var(--inset-b)),
+    calc(100% - 100dvh),
     calc(100% - var(--field-y) - 0.9703 * var(--field-h))
   );
+  /* THE BLEED ABSORBER — the panel's box may sit under the home indicator, its
+     readable content may not.
+
+     Exactly the overhang and never a pixel more: the panel's own bottom edge
+     (`--field-y + 0.9703 * --field-h`, the anchor above read from the top)
+     against the fold (`100dvh - --inset-b`). Zero everywhere the two do not
+     cross, which is every device with no bottom inset and every "tall" solve —
+     so this line is inert on thirteen of sim/uifit's nineteen rows and adds
+     nothing to a desktop window's padding.
+
+     PADDING RATHER THAN A SHORTER PANEL: `box-sizing: border-box` is global
+     (the reset at the top of this file), so this takes the room out of the
+     content box and leaves the border box exactly where the anchor put it —
+     which is the whole point. The crest's four strips register on the BORDER
+     box, and the skirt hangs off its bottom edge; a panel that answered the
+     indicator by shrinking would drag them off the bay floor again.
+
+     TWO DECLARATIONS, `vh` first, for the same reason the anchor above has two:
+     a WebView with no `dvh` keeps the first line and still absorbs, against a
+     viewport height it may be measuring generously. Not a custom property, and
+     that is deliberate — one `--plant-fold` var would parse fine on a WebView
+     with no `dvh` and then be invalid at computed-value time, which for
+     padding-bottom means ZERO absorption with nothing in the cascade to fall
+     back to. Two real declarations degrade; one var does not. */
+  padding-bottom: max(0px, calc(
+    var(--field-y) + 0.9703 * var(--field-h) + var(--inset-b) - 100vh
+  ));
+  padding-bottom: max(0px, calc(
+    var(--field-y) + 0.9703 * var(--field-h) + var(--inset-b) - 100dvh
+  ));
   height: auto;
   min-height: calc(0.4296 * var(--field-h));
   z-index: 6;

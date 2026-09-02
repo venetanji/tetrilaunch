@@ -4656,14 +4656,21 @@ section("Layout solver (layout.ts)");
   setSafeAreaInsets({ left: 60, right: 0, top: 0, bottom: 20 });
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
-  // ...and the BOTTOM inset must come out of the HEIGHT, which until now
-  // nothing here said. The pin above is about the notch, and the solver's own
-  // header reinforces the same half of the story — it describes the insets as
-  // eating "the left or right edge, not the top", which reads like a claim
-  // that only the horizontal matters in landscape. It is not: an iPhone in
-  // landscape gives up ~44px a side to the notch AND 21px at the foot to the
-  // home indicator, and a field that spent that 21px would put its bottom rail
-  // (and the compactor sweep behind it) inside the system's swipe zone.
+  // ...and the BOTTOM inset must come out of the height OF THE CHROME, which
+  // until now nothing here said, and which is now half the story rather than
+  // all of it. The pin above is about the notch, and the solver's own header
+  // reinforces the same half — it describes the insets as eating "the left or
+  // right edge, not the top", which reads like a claim that only the horizontal
+  // matters in landscape. It is not: an iPhone in landscape gives up ~44px a
+  // side to the notch AND 21px at the foot to the home indicator.
+  //
+  // WHERE THE BAND BELONGS TO THE RAIL, the field still pays for it in full.
+  // That is the "tall" branch: at a fully drafted rail the column cannot stack
+  // on a 375px-tall phone, the solver reserves a bottom band for the horizontal
+  // strip, and the indicator's 21px sits under that strip where the strip's own
+  // `bottom: max(calc(4px + var(--inset-b)), …)` keeps it clear. A field that
+  // spent that 21px there would put its floor — and the compactor sweep across
+  // it — under the buttons AND in the system's swipe zone.
   //
   // Stated as a DIFFERENCE rather than as a bound, because a bound does not
   // bite. On the reported iPhone X box the rail's reserved bottom band is 68px
@@ -4678,13 +4685,105 @@ section("Layout solver (layout.ts)");
   setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 21 });
   const iphone = computeLayout(812, 375);
   const cost = (noIndicator.oy + noIndicator.fh) - (iphone.oy + iphone.fh);
-  check("the home indicator costs the field its own 21px",
-    Math.abs(cost - 21) < 0.5,
-    `bottom edge moved up ${cost.toFixed(1)}px, not 21px`);
+  check("a rail that owns the bottom band still costs the field the indicator",
+    iphone.mode === "tall" && Math.abs(cost - 21) < 0.5,
+    `${iphone.mode}: bottom edge moved up ${cost.toFixed(1)}px, not 21px`);
   check("...and the field still clears it outright",
     iphone.oy + iphone.fh <= 375 - 21 + 0.5,
     `field ends at ${(iphone.oy + iphone.fh).toFixed(1)} of ${375 - 21}`);
+
+  // WHERE THE BAND BELONGS TO NOBODY, the field takes it — layout.ts's FIELD
+  // BLEED, and the reason the pair above had to grow a mode into its name.
+  //
+  // Three rail slots is not a synthetic minimum: it is the loadout the native
+  // shells BOOT with (no fullscreen toggle — see railSlotsFor — pause and the
+  // rotate pair, no abilities drafted yet), so this is the first thing an
+  // iPhone player sees. The column fits, the solver goes "snug", and the band
+  // below the field holds nothing but backdrop — 21px of black under the bay
+  // floor, which is what the owner reported and what the bleed removes.
+  //
+  // TWO claims, because either alone can be satisfied by the wrong layout. The
+  // indicator costs the field NOTHING (the height budget stopped subtracting
+  // it) and the field's floor lands ON THE GLASS (it is bottom-anchored, so the
+  // letterbox that a near-16:9 phone cannot scale away is spent as sky above
+  // instead of as a strip below). A solver that only did the first would put
+  // half the slack back under the bay; one that only did the second would
+  // bottom-anchor a field it had already shortened.
+  setRailSlots(RAIL_SLOTS_BASE - 1);
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 0 });
+  const bootNoIndicator = computeLayout(812, 375);
+  setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 21 });
+  const boot = computeLayout(812, 375);
+  check("a booting iPhone solves snug, where the bottom band is nobody's",
+    boot.mode === "snug" && bootNoIndicator.mode === "snug",
+    `${boot.mode} / ${bootNoIndicator.mode}`);
+  check("...so the home indicator costs the bay no height at all",
+    Math.abs(boot.fh - bootNoIndicator.fh) < 0.5,
+    `${boot.fh.toFixed(1)} tall with the indicator, ${bootNoIndicator.fh.toFixed(1)} without`);
+  check("...and the bay's floor lands on the glass, not above it",
+    Math.abs(boot.oy + boot.fh - 375) < 0.5,
+    `field ends at ${(boot.oy + boot.fh).toFixed(1)} of 375`);
+  // The letterbox did not vanish — it MOVED. 15px of it is above the field on
+  // this box, where render.ts's skyTop already paints open sky (the shaft is
+  // unbounded upward by design), and none of it is below.
+  check("...with the letterbox spent as sky overhead",
+    boot.oy > 0 && Math.abs(boot.oy - (375 - boot.fh)) < 0.5,
+    `${boot.oy.toFixed(2)}px above, ${(375 - boot.oy - boot.fh).toFixed(2)}px below`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+
+  // ...AND THE BLEED IS A NO-OP EVERYWHERE ELSE, walked over the whole device
+  // matrix rather than argued from the source.
+  //
+  // The rule has exactly two branches and this states both as one predicate.
+  // The field is CENTRED in its vertical box — the box being the usable height
+  // less whatever band the solver reserved, which is the letterboxing this app
+  // has always done — unless it was handed an indicator band to bleed into, in
+  // which case it is bottom-anchored to the glass. So:
+  //
+  //   inset.bottom === 0  ->  centred, on every row and every mode. This is the
+  //                           "desktop and Android must solve exactly as they
+  //                           did" clause, and it is a clause rather than a
+  //                           hope: thirteen of the nineteen rows have no
+  //                           bottom inset, and a bleed that leaked into the
+  //                           general path would move every one of them.
+  //   inset.bottom > 0    ->  centred in "tall" (the bottom band is the rail
+  //                           strip's, so there is nothing down there to take)
+  //                           and bottom-anchored otherwise.
+  //
+  // Written off `l.reserve.bottom` so it covers the reserved-band "tall" as
+  // well as the natural one without either branch being spelled out twice, and
+  // reported ONE LINE PER DEVICE over every rail budget a run can build — the
+  // same scoreboard-not-a-wall rule the plant section below states at length.
+  for (const d of DEVICES) {
+    let bad = "";
+    let bled = 0;
+    for (let slots = RAIL_SLOTS_BASE - 1; slots <= RAIL_SLOTS_MAX; slots++) {
+      setSafeAreaInsets(d.insets);
+      setRailSlots(slots);
+      const l = computeLayout(d.w, d.h);
+      const above = l.oy - d.insets.top;
+      const below = (d.h - d.insets.bottom - l.reserve.bottom) - (l.oy + l.fh);
+      const bleeds = d.insets.bottom > 0 && l.mode !== "tall";
+      if (bleeds) bled += 1;
+      const ok = bleeds
+        ? Math.abs(l.oy + l.fh - d.h) < 0.5
+        : Math.abs(above - below) < 0.5;
+      if (!ok && !bad) {
+        bad = `${slots} slots, ${l.mode}: ${above.toFixed(2)} above / ${below.toFixed(2)} below, `
+          + `floor at ${(l.oy + l.fh).toFixed(2)} of ${d.h}`;
+      }
+    }
+    check(
+      d.insets.bottom
+        ? `${d.name} bleeds to the glass in ${bled} of its 6 budgets and letterboxes in the rest`
+        : `${d.name} letterboxes exactly as it did, at every budget`,
+      bad === "",
+      bad,
+    );
+  }
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
 }
 
 // ---------------------------------------------------------------------------
@@ -4893,18 +4992,63 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
 //      container hanging below the screen takes the panel down with it while
 //      `window.innerHeight` and the solver agree with each other perfectly.
 //
-// The clamp's first term is `100% - 100dvh + var(--inset-b)` (with a `vh` line
-// under it for a WebView with no `dvh`): how far the containing block's bottom
-// hangs below the visible one, plus the home indicator. When the two viewports
-// agree it collapses to `--inset-b`, which is case 1's guard standing alone.
+// The clamp's first term is `100% - 100dvh` (with a `vh` line under it for a
+// WebView with no `dvh`): how far the containing block's bottom hangs below the
+// visible one. When the two viewports agree it collapses to zero — the last row
+// the player can see — which is case 1's guard standing alone.
 //
-// WHAT THIS SECTION PINS is that the guard is a guard and never a layout
-// change. On every row of sim/uifit's matrix, at every rail budget a run can
-// build, the SOLVED anchor already clears the visible bottom — so the clamp
-// cannot be the binding term anywhere the harness measures, on either engine.
-// Without this the `max()` would be free to start lifting panels the solver
-// placed correctly and no fixture would say so: a clamp that fires on a
-// correct solve is a regression wearing a guard's clothes.
+// WHAT THIS SECTION USED TO PIN was that the guard is a guard and never a
+// layout change: on every row of sim/uifit's matrix, at every rail budget a run
+// can build, the SOLVED anchor already cleared the visible bottom, so the clamp
+// could not be the binding term anywhere the harness measures. A clamp that
+// fired on a correct solve would have been a regression wearing a guard's
+// clothes.
+//
+// IT STILL NEVER FIRES ON A CORRECT SOLVE. What changed is where its floor is,
+// and the reason is layout.ts's FIELD BLEED: the bay's floor now lands on the
+// glass on a notched phone rather than stopping at the home indicator ("the bay
+// should extend all the way down"). This panel is bolted to the BAY, not to the
+// viewport — it hangs 2.97% of a field height above the bay floor, the crest's
+// skirt spans exactly that sliver, and render.ts draws the intake's lip along
+// the panel's top edge in world space — so when the bay descends the machine
+// descends with it, and its bottom border ends up inside the indicator band by
+// `inset.bottom - 0.0297 * fh`, about 10px on every iPhone row.
+//
+// A floor at `--inset-b` would have lifted it back out, and that was measured
+// rather than argued: 64 `crest` findings (the skirt's teeth stop ~16px short of
+// the floor wall they are drawn to touch) and 24 `draghint` findings (the
+// gesture, anchored to the panel's top through the same fractions, plays under
+// the panel) across the four notched rows — a machine unbolted from its bay on a
+// layout the solver had placed correctly. So the floor is the visible viewport
+// now, and the READABLE CONTENT is what the indicator holds back instead: the
+// padding-bottom pair in app.css absorbs exactly the overhang, which is what
+// keeps sim/uifit's `safearea` assertion green with the border box in the band.
+//
+// Three claims, then:
+//
+//   1. THE ANCHOR still clears the fold wherever the field does not bleed —
+//      thirteen rows with no bottom inset plus every "tall" solve, whose bottom
+//      band belongs to the rail strip. Unchanged, and it is where a bleed
+//      leaking out of its two modes would show up first.
+//   2. WHERE IT DOES BLEED the overhang is exactly `inset.bottom -
+//      (1 - 0.9703) * fh` and therefore never more than the indicator band
+//      itself. That identity is the safety argument in one line: the field's
+//      floor is on the glass, the panel's anchor is (1 - frac) of a field height
+//      above that floor, so the deepest the panel can reach past the fold is the
+//      band the field was given. Anything deeper is a bad solve, which is what
+//      the sweep at the end of this block reads.
+//   3. AND THE CONTENT CLEARS THE FOLD ANYWAY, absorber included — the claim
+//      the old check was really making, now stated about the edge that matters.
+//      A panel whose border box bleeds and whose last row does not is the whole
+//      design; a panel whose last row bleeds is the bug the report opened with.
+//
+// WHAT IS LOST is the instrument the stylesheet's comment used to advertise: a
+// computed `bottom` reading back as `--inset-b` was proof the layout had been
+// solved against the wrong box. There is no such tell any more, and case 1's
+// rescue now parks the panel on the glass rather than above the indicator,
+// because at the anchor level a bay that legitimately bled and a viewport read
+// 200px too tall look the same. That is a real cost of this change, not an
+// oversight. What survives is the BOUND in claim 2.
 // ---------------------------------------------------------------------------
 {
   // The anchor is read back out of the stylesheet rather than restated here.
@@ -4930,14 +5074,32 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
   const BOTTOM_FRAC = Number(frac?.[1] ?? NaN);
   // BOTH spellings. The `dvh` line is the one that catches a containing block
   // taller than the visible viewport; the `vh` line beneath it is what a
-  // WebView with no `dvh` support gets instead of nothing, and it still
-  // carries case 1's `--inset-b` guard. Losing either is losing a case.
+  // WebView with no `dvh` support gets instead of nothing, and it still floors
+  // the panel on the last row the player can see. Losing either is losing a
+  // case.
   const clamps = [...anchor.matchAll(
-    /bottom:\s*max\(\s*calc\(100%\s*-\s*100(d?vh)\s*\+\s*var\(--inset-b\)\)\s*,\s*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)\s*\)/g,
+    /bottom:\s*max\(\s*calc\(100%\s*-\s*100(d?vh)\)\s*,\s*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)\s*\)/g,
   )];
   check("the anchor is clamped to the visible bottom, in both spellings",
     clamps.length === 2 && clamps[0][1] === "vh" && clamps[1][1] === "dvh",
     clamps.map((m) => m[1]).join(",") || anchor.slice(0, 240));
+  // ...AND THE ABSORBER, in both spellings and off the same fraction. This is
+  // the half that keeps the readouts out of the band now that the box is
+  // allowed in, so a fraction edited in the anchor and not here would put the
+  // panel's last row under the indicator with every other check in this file
+  // still green. Read back rather than restated for exactly that reason.
+  const pads = [...anchor.matchAll(
+    /padding-bottom:\s*max\(\s*0px\s*,\s*calc\(\s*var\(--field-y\)\s*\+\s*([\d.]+)\s*\*\s*var\(--field-h\)\s*\+\s*var\(--inset-b\)\s*-\s*100(d?vh)\s*\)\s*\)/g,
+  )];
+  check("the bleed absorber is spelled out in both spellings",
+    pads.length === 2 && pads[0][2] === "vh" && pads[1][2] === "dvh",
+    pads.map((m) => m[2]).join(",") || anchor.slice(0, 400));
+  check("...and it absorbs against the same row the anchor hangs from",
+    pads.length === 2 && pads.every((m) => Number(m[1]) === BOTTOM_FRAC),
+    pads.map((m) => m[1]).join(" vs ") + ` vs anchor ${BOTTOM_FRAC}`);
+  /** The absorber's own fraction, kept separate from the anchor's on purpose —
+   *  see the content-edge walk below. */
+  const PAD_FRAC = Number(pads[0]?.[1] ?? NaN);
   // ...and the two spellings anchor to the SAME row of the field. They are one
   // declaration written twice for a WebView that may only understand the first
   // (the cascade keeps whichever it parsed), so a fraction edited in one and
@@ -4951,11 +5113,24 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
   // toggle (the native builds — see the rail section above), seven at the
   // deepest reachable rail. Reported per device rather than per pair, because
   // nineteen lines is a scoreboard and ninety-five is a wall.
+  //
+  // Each (device, budget) pair is sorted into claim 1 or claim 2 by whether ITS
+  // OWN solve put the field's floor past the fold — read off the field rather
+  // than off the mode name, so a mode that changed its mind about bleeding
+  // would be re-classified here instead of silently mis-measured. One device
+  // can land in both: an iPhone X bleeds at three to six rail slots and takes
+  // the reserved-band "tall" at seven.
   let worst = Infinity;
   let worstAt = "";
+  let bledPairs = 0;
+  let boundPairs = 0;
   for (const d of DEVICES) {
-    let least = Infinity;
+    let least = Infinity;          // claim 1: tightest clearance where it does not bleed
     let leastSlots = 0;
+    let deepest = -Infinity;       // claim 2: deepest overhang where it does
+    let deepestSlots = 0;
+    let identity = 0;              // ...and how far off the identity ever gets
+    let worstContent = Infinity;   // claim 3: the CONTENT edge, absorber applied
     for (let slots = RAIL_SLOTS_BASE - 1; slots <= RAIL_SLOTS_MAX - 1; slots++) {
       setSafeAreaInsets(d.insets);
       setRailSlots(slots);
@@ -4963,52 +5138,124 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
       // The clamp's own arithmetic in the harness's coordinates: the panel's
       // bottom edge against the lowest row the player can see.
       const clearance = d.h - (l.oy + BOTTOM_FRAC * l.fh) - d.insets.bottom;
-      if (clearance < least) { least = clearance; leastSlots = slots; }
+      // Does the CLAMP bind? Its floor is the visible viewport's own bottom
+      // now, so the question is whether the solved anchor put the panel's
+      // bottom edge below the glass — which no correct solve ever does, on a
+      // bleeding row or any other.
+      if (l.oy + BOTTOM_FRAC * l.fh > d.h) boundPairs += 1;
+      if (l.oy + l.fh > d.h - d.insets.bottom + 0.5) {
+        bledPairs += 1;
+        identity = Math.max(
+          identity,
+          Math.abs(-clearance - (d.insets.bottom - (1 - BOTTOM_FRAC) * l.fh)),
+        );
+        if (-clearance > deepest) { deepest = -clearance; deepestSlots = slots; }
+      } else if (clearance < least) {
+        least = clearance;
+        leastSlots = slots;
+      }
+      // Claim 3 in the same walk: app.css's absorber takes the overhang out of
+      // the CONTENT box, so the panel's last row lands on the fold or above it
+      // at every budget, bleeding or not. This is the sentence sim/uifit's
+      // `safearea` assertion enforces in a browser, held here against the
+      // arithmetic that produces it.
+      //
+      // The absorber is computed from the PADDING declaration's own fraction
+      // and the box from the ANCHOR's, which is what stops this from being a
+      // tautology: they are two declarations a future edit can move apart, and
+      // a panel padded against a row it is not hung from would absorb the wrong
+      // number of pixels on exactly the rows that need it.
+      const absorb = Math.max(0, l.oy + PAD_FRAC * l.fh + d.insets.bottom - d.h);
+      worstContent = Math.min(worstContent, clearance + absorb);
     }
     if (least < worst) { worst = least; worstAt = `${d.name} at ${leastSlots} rail slots`; }
-    check(`${d.name} solves the plant clear of the fold`,
-      least >= 0, `${least.toFixed(2)}px at ${leastSlots} rail slots`);
+    if (least < Infinity) {
+      check(`${d.name} solves the plant clear of the fold where it does not bleed`,
+        least >= 0, `${least.toFixed(2)}px at ${leastSlots} rail slots`);
+    }
+    if (deepest > -Infinity) {
+      check(`${d.name} never overhangs by more than its indicator band`,
+        deepest <= d.insets.bottom + 0.5 && identity < 0.5,
+        `${deepest.toFixed(2)}px past the fold of a ${d.insets.bottom}px band `
+          + `at ${deepestSlots} rail slots; identity off by ${identity.toFixed(4)}`);
+    }
+    check(`${d.name} keeps the panel's content above the fold`,
+      worstContent >= -0.5, `${worstContent.toFixed(2)}px`);
   }
-  // Stated as a number, because the MARGIN is the whole argument. Ten and a
-  // half pixels on the tightest row in the matrix is not a rounding step, so
-  // the clamp is nowhere near binding and changes nothing sim/uifit measures.
-  // A future layout that ate into this would fail here first, next to the
-  // reasoning, rather than by quietly handing the max() a job it was never
-  // meant to have.
-  check("the tightest row clears the fold by a real margin",
+  // Stated as a number, because the MARGIN is the whole argument on the rows
+  // that still make the old claim. Ten and a half pixels on the tightest of
+  // them is not a rounding step, so the clamp is nowhere near binding there and
+  // changes nothing sim/uifit measures on those rows. A future layout that ate
+  // into this would fail here first, next to the reasoning, rather than by
+  // quietly handing the max() a job it was never meant to have.
+  check("the tightest non-bleeding row clears the fold by a real margin",
     worst > 8, `${worst.toFixed(2)}px at ${worstAt}`);
-
-  // ...AND THE FAILURE THE CLAMP EXISTS FOR, measured rather than asserted.
-  // main.ts's WATCHDOG_* block names the shape — 812 wide by a height that has
-  // not finished shrinking — and this walks that height up from the real 375
-  // to the portrait 812 on the reported device's own box. The panel's bottom
-  // edge crosses the visible one immediately and keeps going: +5px at a solved
-  // 400, +45px at 480, +107px at 560, +233px at 812.
+  // ...and the guard is STILL a guard, which is the half of the old pin that
+  // survives the redesign intact. The floor moved from the fold to the visible
+  // viewport's own bottom, and no correct solve reaches it: the panel's anchor
+  // is 2.97% of a field height above a bay floor that is itself never below the
+  // glass, so the clamp cannot be the binding term anywhere in the matrix, on
+  // either engine. A clamp that fired on a correct solve would still be a
+  // regression wearing a guard's clothes — it would now mean the machine had
+  // come unbolted from the bay rather than that the panel was misplaced.
   //
-  // The reported crop is the ~560 row. 107px of overshoot puts the meta line
-  // on the home-indicator rule and the notch line and the rack past it, which
-  // is "everything after the reload bar" in the words of the report — so the
-  // symptom reads BACKWARDS to a height, and a device tester can check the one
-  // number instead of guessing at a cause.
+  // `bledPairs` is reported beside it because a zero there would mean the bay
+  // stopped reaching the glass entirely, which every other check in this block
+  // would sail through.
+  check("the clamp is still never the binding term on a correct solve",
+    boundPairs === 0 && bledPairs > 0,
+    `${boundPairs} solves would bind it; ${bledPairs} bleed`);
+
+  // ...AND THE FAILURE THE GUARD EXISTS FOR, measured rather than asserted.
+  // main.ts's WATCHDOG_* block names the shape — 812 wide by a height that has
+  // not finished shrinking — and this walks that height up from the real 375 on
+  // the reported device's own box.
+  //
+  // THREE SLOTS, not seven, and the change of budget is what makes this measure
+  // the shipping bay at all. Seven is a fully drafted rail, which on a 375px
+  // phone cannot stack its column and takes the reserved-band "tall" — a mode
+  // that does not bleed, so the sweep used to walk a layout the reported device
+  // never boots into. Three is what the native shell mounts on the first bay
+  // (no fullscreen toggle, no abilities), it solves "snug", and it bleeds.
+  //
+  // THE THRESHOLD IS THE BAND, NOT ZERO. On the true box the panel's BORDER now
+  // hangs 10.3px past the fold by design — the field's floor is on the glass and
+  // the panel rides 2.97% of a field height above it — and app.css's absorber
+  // takes exactly that much out of the content box, so nothing readable follows
+  // it down. What no correct solve can produce is an overhang bigger than the
+  // indicator band itself (21px here), because that is the whole of what the
+  // field was allowed to descend into, and past it the absorber is eating room
+  // the content needs. So the reading a device tester takes is unchanged in kind
+  // and changed in its zero: over the band means the box was wrong.
   setSafeAreaInsets({ left: 44, right: 44, top: 0, bottom: 21 });
-  setRailSlots(RAIL_SLOTS_MAX - 1);
+  setRailSlots(RAIL_SLOTS_BASE - 1);
   const overshootAt = (h: number): number => {
     const l = computeLayout(812, h);
     return l.oy + BOTTOM_FRAC * l.fh - (375 - 21);
   };
-  check("a solve against the true box needs no clamp at all",
-    overshootAt(375) < 0, overshootAt(375).toFixed(2));
-  check("a solve 25px too tall already crosses the fold",
-    overshootAt(400) > 0, overshootAt(400).toFixed(2));
+  check("a solve against the true box overhangs by the band and no more",
+    overshootAt(375) > 0 && overshootAt(375) <= 21,
+    overshootAt(375).toFixed(2));
+  check("a solve 25px too tall already crosses it",
+    overshootAt(400) > 21, overshootAt(400).toFixed(2));
   check("the reported crop is a solve about 1.5x too tall",
     overshootAt(560) > 100, overshootAt(560).toFixed(2));
-  // Monotonic, so the three readings above are a curve and not three modes
-  // that happen to line up. This is what lets the overshoot be read backwards
-  // to a height at all.
-  const sweep = [375, 400, 440, 480, 520, 560, 600, 700, 812].map(overshootAt);
-  check("a taller wrong reading is always a worse crop",
+  // Monotonic WITHIN A MODE, which is the honest form of this claim now.
+  // Bottom-anchoring makes the crop grow twice as fast with a wrong height as
+  // centring did (the field's floor chases the fake viewport's bottom edge
+  // instead of half-chasing it), so the curve is steeper — and it RESETS where
+  // the wrong height gets tall enough to flip the solve into "tall" (~540 on
+  // this box), because a mode that letterboxes symmetrically starts the panel
+  // from a different place. 375..520 is the whole snug range on this box, and
+  // reading the overshoot backwards to a height is only ever a statement about
+  // the mode the device is actually in.
+  const sweep = [375, 400, 440, 480, 520].map(overshootAt);
+  check("a taller wrong reading is always a worse crop, up to the mode flip",
     sweep.every((v, i) => i === 0 || v > sweep[i - 1]),
     sweep.map((v) => v.toFixed(0)).join(" "));
+  check("...and the flip is above the range that was swept",
+    computeLayout(812, 520).mode === "snug" && computeLayout(812, 560).mode === "tall",
+    `${computeLayout(812, 520).mode} at 520, ${computeLayout(812, 560).mode} at 560`);
 
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
   setRailSlots(RAIL_SLOTS_MAX);
