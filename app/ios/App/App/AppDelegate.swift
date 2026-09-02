@@ -1,6 +1,7 @@
 import UIKit
 import AVFoundation
 import Capacitor
+import WebKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -128,8 +129,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             .bridge?.triggerWindowJSEvent(eventName: event)
     }
 
+    private var bridgeWebView: WKWebView? {
+        (window?.rootViewController as? CAPBridgeViewController)?.bridge?.webView
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
         notifyWebView("native-resign-active")
+        // The SYNCHRONOUS half, and the one that cannot lose the race. The
+        // relay above goes through evaluateJavaScript, which is asynchronous —
+        // on a plain screen lock the WebContent process can freeze before the
+        // event is delivered, and build 16 showed exactly that: the web-side
+        // parking is correct and the lock-screen card survived anyway.
+        // Suspending the web view's media playback here runs entirely in
+        // native code before the lock screen renders, which ends WebKit's
+        // media session for the <audio> beds — the session the Now Playing
+        // card is built from. Media only: Web Audio (the effects graph) is
+        // not "media playback" and is suspended web-side by suspendAudio.
+        if #available(iOS 15.0, *) {
+            bridgeWebView?.setAllMediaPlaybackSuspended(true)
+        }
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
@@ -143,6 +161,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        // Unsuspend FIRST: the web layer's resume handler below calls play()
+        // on the beds it rebuilds, and a play() into a media-suspended web
+        // view is silently dropped.
+        if #available(iOS 15.0, *) {
+            bridgeWebView?.setAllMediaPlaybackSuspended(false)
+        }
         reactivateAudioSession()
         // After the session re-assert, so the beds the web layer rebuilds on
         // this event play into the re-configured session (see notifyWebView).

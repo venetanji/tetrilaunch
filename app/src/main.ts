@@ -1107,8 +1107,8 @@ class App {
     // re-solve on the active edge: resign/active does not change the
     // viewport the way a real hide can, and visibilitychange still covers
     // the cases that do.
-    window.addEventListener("native-resign-active", () => suspendAudio());
-    window.addEventListener("native-did-become-active", () => resumeAudio());
+    window.addEventListener("native-resign-active", () => suspendAudio("native"));
+    window.addEventListener("native-did-become-active", () => resumeAudio("native"));
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
@@ -7756,7 +7756,12 @@ class App {
     // is not an instruction the one test device's owner can follow. Same
     // knock, both snapshots, one photograph.
     const rulerOn = this.toggleGeoRuler();
-    box.textContent = `[audio] diagnostics\n\n${audioDiagnostics()}`
+    // The build id rides along so a photograph of this panel names the build
+    // it came from — same guarded read as screens.ts's .build-tag, same
+    // reasons for both fallbacks.
+    const build = typeof import.meta.env !== "undefined"
+      ? ((import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev") : "dev";
+    box.textContent = `[build] ${build}\n\n[audio] diagnostics\n\n${audioDiagnostics()}`
       + `\n\n[layout]\n${this.layoutDiagnostics()}`
       + `\n\n[hud, last in-run sample]\n${this.hudSample
         ?? "none yet — play a bay first, then knock again"}`

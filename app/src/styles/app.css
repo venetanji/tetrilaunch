@@ -326,11 +326,20 @@ body.crt-off #app::after { display: none; }
    the thing that pushes a button past a floor. */
 .build-tag {
   position: absolute;
-  /* calc(spacing + inset), matching the corner-anchored controls above —
-     --hud-pad alone (the .screen padding) is not safe-area-aware, so on a
-     notched landscape phone the tag would otherwise sit inside the cutout. */
+  /* The horizontal offset keeps the side-cutout clearance (--hud-pad alone
+     is not safe-area-aware); the VERTICAL offset deliberately does not.
+     This tag sits INSIDE the home-indicator band, on the owner's call: the
+     bottom-right corner above the band does not exist on a 375px-tall phone
+     (the menu's button columns run to within ~7px of it, so the tag sat on
+     the Workshop button's corner — reported twice), and the band itself is
+     free real estate for untouchable decoration — the indicator bar is
+     CENTRED and never reaches the corner, the bay already bleeds under it,
+     and this tag is aria-hidden, pointer-events:none debug chrome that no
+     player reads or taps. uifit's safearea rule exempts it by name in
+     DECORATIVE (run.ts), where the same argument is written down; interactive
+     or informative content must never follow it in here. */
   right: calc(var(--sp-2) + var(--inset-r));
-  bottom: calc(var(--sp-1) + var(--inset-b));
+  bottom: var(--sp-1);
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-faint);

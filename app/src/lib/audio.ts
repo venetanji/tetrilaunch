@@ -235,6 +235,8 @@ export function audioDiagnostics(): string {
         + `  gated ${fxTally.gated}  no-buffer ${fxTally.missing}  threw ${fxTally.threw}`,
       `gain     fxBus ${gain}  (sound=${soundOn} music=${musicOn})`,
       `music    ${musicName ?? "none"}${stingerName ? ` +stinger ${stingerName}` : ""}`,
+      `suspend  ${lifecycle.length ? "" : "never ran"}`,
+      ...lifecycle.map((e) => `  ${e}`),
       "",
       `verdict  ${fxVerdict()}`,
       "",
@@ -2214,6 +2216,20 @@ export function musicLevel(): number {
  *  mid-suspension keeps its parked entry but is simply never unparked. */
 const parked = new Map<HTMLAudioElement, [string, number, boolean]>();
 
+/** The suspend/resume history, for the diagnostics panel. Build 16 proved a
+ *  fix can be RIGHT and still not RUN: the element parking kills the
+ *  lock-screen card wherever it executes, but a plain screen lock froze the
+ *  page before the relayed resign event was delivered, so the card survived
+ *  and nothing said why. Each entry records when, which trigger (visibility
+ *  or the native relay), and what actually got parked — so the next photo
+ *  distinguishes "the path never ran" from "the path ran and iOS kept the
+ *  card anyway". Capped; oldest out. */
+const lifecycle: string[] = [];
+function logLifecycle(entry: string): void {
+  lifecycle.push(`${(performance.now() / 1000).toFixed(1)}s ${entry}`);
+  if (lifecycle.length > 10) lifecycle.shift();
+}
+
 /** Unload one element's media entirely — pause is NOT enough on iOS.
  *
  *  A paused <audio> still owns a WebKit-managed media session, and iOS offers
@@ -2224,16 +2240,18 @@ const parked = new Map<HTMLAudioElement, [string, number, boolean]>();
  *  session at all, so the card has nothing to describe: src comes off and
  *  load() commits the removal. resumeAudio rebuilds src/position from the
  *  parked entry, so the player hears a seamless resume. */
-function parkElement(el: HTMLAudioElement | null): void {
-  if (!el) return;
+function parkElement(el: HTMLAudioElement | null): number {
+  if (!el) return 0;
   try {
     const src = el.currentSrc || el.src;
-    if (!src) return;
+    if (!src) return 0;
     parked.set(el, [src, el.currentTime, !el.paused]);
     el.pause();
     el.removeAttribute("src");
     el.load();
+    return 1;
   } catch { /* ignore — worst case the element stays paused, as before */ }
+  return 0;
 }
 
 function unparkElement(el: HTMLAudioElement | null): void {
@@ -2256,11 +2274,11 @@ function unparkElement(el: HTMLAudioElement | null): void {
   } catch { /* ignore */ }
 }
 
-export function suspendAudio(): void {
-  if (suspended) return;
+export function suspendAudio(source = "visibility"): void {
+  if (suspended) { logLifecycle(`suspend(${source}) — already suspended`); return; }
   suspended = true;
-  parkElement(music);
-  parkElement(stinger);
+  const n = parkElement(music) + parkElement(stinger);
+  logLifecycle(`suspend(${source}) parked ${n}`);
   // Belt and braces on the lock-screen card: an emptied media session should
   // already say nothing, and this makes the say-nothing explicit for engines
   // that report the last-known state instead.
@@ -2271,9 +2289,10 @@ export function suspendAudio(): void {
   void ctx?.suspend().catch(() => { /* ignore */ });
 }
 
-export function resumeAudio(): void {
-  if (!suspended) return;
+export function resumeAudio(source = "visibility"): void {
+  if (!suspended) { logLifecycle(`resume(${source}) — not suspended`); return; }
   suspended = false;
+  logLifecycle(`resume(${source}) unparking ${parked.size}`);
   void ctx?.resume().catch(() => { /* ignore */ });
   // Only the elements still current are rebuilt — one replaced while hidden is
   // already being faded out and must stay down (its parked entry just ages

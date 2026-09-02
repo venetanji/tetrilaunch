@@ -149,7 +149,17 @@ const ALLOWED_SCROLLERS = [
  * Kept as a short explicit list rather than inferred from `pointer-events:
  * none`, because .hud carries that too and is full of real content.
  */
-const DECORATIVE = [".belt", ".bayclear__rays", ".lose-fx"];
+const DECORATIVE = [
+  ".belt", ".bayclear__rays", ".lose-fx",
+  // The build stamp lives INSIDE the home-indicator band by explicit owner
+  // decision (the bay bleeds under the indicator now, and the stamp follows
+  // it into the corner the centred indicator bar never covers). It is
+  // aria-hidden, pointer-events:none debug decoration — nothing a player
+  // reads or taps — so the safearea rule's "no text under the indicator"
+  // deliberately does not apply to it. Anything else joining this list for
+  // that reason needs the same argument written next to it.
+  ".build-tag",
+];
 
 /**
  * Rows whose design contract is ONE line, so a second line is a defect rather

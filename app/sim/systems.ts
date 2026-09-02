@@ -12608,7 +12608,7 @@ section("Audio session policy and on-device diagnostics");
   check(
     "suspending parks the media elements (src comes off, load() commits)",
     /function parkElement[\s\S]{0,700}?removeAttribute\("src"\);\s*\n\s*el\.load\(\)/.test(audioCode)
-    && /export function suspendAudio[\s\S]{0,300}?parkElement\(music\);\s*\n\s*parkElement\(stinger\)/.test(audioCode),
+    && /export function suspendAudio[\s\S]{0,400}?parkElement\(music\)\s*\+\s*parkElement\(stinger\)/.test(audioCode),
   );
   check(
     "...and resuming rebuilds them from the parked src and position",
@@ -12636,8 +12636,19 @@ section("Audio session policy and on-device diagnostics");
   );
   check(
     "...and main.ts suspends/resumes audio on the relayed events",
-    /addEventListener\("native-resign-active", \(\) => suspendAudio\(\)\)/.test(mainCode)
-    && /addEventListener\("native-did-become-active", \(\) => resumeAudio\(\)\)/.test(mainCode),
+    /addEventListener\("native-resign-active", \(\) => suspendAudio\("native"\)\)/.test(mainCode)
+    && /addEventListener\("native-did-become-active", \(\) => resumeAudio\("native"\)\)/.test(mainCode),
+  );
+  // The native media suspension, because the relay is ASYNC and a plain lock
+  // can freeze the page before the event lands (build 16 on hardware: correct
+  // web-side parking, card still there). setAllMediaPlaybackSuspended runs in
+  // native code before the lock screen renders — the layer that cannot lose
+  // that race. Resign suspends (true), active unsuspends (false), and the
+  // unsuspend must precede the relay or the rebuilt beds' play() is dropped.
+  check(
+    "a lock suspends web-view media natively, and active unsuspends it first",
+    /applicationWillResignActive[\s\S]{0,900}?setAllMediaPlaybackSuspended\(true\)/.test(swiftCode)
+    && /applicationDidBecomeActive[\s\S]{0,900}?setAllMediaPlaybackSuspended\(false\)[\s\S]{0,900}?notifyWebView\(""\)/.test(swiftCode),
   );
   // The no-throw contract, in Swift. `try!` and `try?`-less propagation both
   // turn a refused session — a call in progress at launch is enough — into a
