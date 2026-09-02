@@ -2177,11 +2177,15 @@ export function musicLevel(): number {
  * not being looked at; resumeAudio on foreground is the sanctioned way back),
  * play in the foreground resumes what was current, pause pauses it.
  *
- * The CARD itself cannot be removed while the beds stream through <audio>
- * under the .playback session category (AppDelegate.swift's documented
- * choice) — this guard makes it inert, not invisible. Best-effort on
- * purpose: engines without MediaSession, or with partial action support,
- * throw on registration and lose nothing but the guard they don't need.
+ * The CARD was the .playback session category's doing, and AppDelegate.swift
+ * has since traded that category for .ambient precisely to stop registering
+ * it — so on current builds no card should appear at all. These handlers
+ * stay: they cost nothing, they are the only defence if a future category
+ * change (or a WebKit behaviour shift) brings the card back, and on any
+ * platform that surfaces media keys they keep the resume path answering to
+ * this module's state instead of WebKit's. Best-effort on purpose: engines
+ * without MediaSession, or with partial action support, throw on
+ * registration and lose nothing but the guard they don't need.
  */
 (() => {
   const ms = typeof navigator === "undefined" ? undefined : navigator.mediaSession;

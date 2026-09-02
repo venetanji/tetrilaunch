@@ -4773,6 +4773,49 @@ section("Stale-viewport detection (layout.ts viewportChanged)");
 }
 
 // ---------------------------------------------------------------------------
+section("The stylesheet opts out of iOS text autosizing (app.css html rule)");
+// ---------------------------------------------------------------------------
+// THE THIRD iPhone X HUD REPORT, the one the two sections below could not
+// close because the layout was never lying. Build 13's in-run sampler put the
+// numbers side by side: the plant panel's box solved correctly, sat exactly
+// where designed, clamp unfired — and its CONTENT laid out at 367px where
+// this harness fits it in ~148px. Same CSS, same 375px viewport. The
+// difference is iOS WebKit's text autosizing: on a page laid out wider than
+// the device's portrait width it inflates text it judges too small to read,
+// by up to the landscape/portrait ratio (~2.2x on an iPhone X), and this UI
+// is built almost entirely from 9-13px type. Geometry stays truthful
+// throughout, which is why every viewport diagnostic on the device came back
+// innocent. The same pass grew the menu column down over the build tag.
+//
+// WHY A SOURCE PIN AND NOT A FIXTURE: desktop WebKit — the engine uifit
+// runs — has no autosizer, so no fixture on either engine can ever render
+// this bug or its fix. The opt-out (`-webkit-text-size-adjust: 100%`) is one
+// declaration on `html`, verified on hardware, and a refactor that drops it
+// would green every gate this repo has while re-breaking every landscape
+// iPhone. Comments stripped before matching, as always: the rule's own
+// prose quotes the token.
+// ---------------------------------------------------------------------------
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const html = /(^|\n)html\s*\{[^}]*\}/g;
+  const blocks = [...css.matchAll(html)].map((m) => m[0]);
+  check(
+    "an html rule pins -webkit-text-size-adjust to 100%",
+    blocks.some((b) => /-webkit-text-size-adjust:\s*100%/.test(b)),
+    blocks.join(" | ").slice(0, 200) || "no html rule",
+  );
+  // The unprefixed spelling rides along for engines that dropped the prefix.
+  // 100% and not `none`: `none` is the legacy spelling Safari once treated as
+  // an accessibility override and modern guidance warns off it.
+  check(
+    "...and the unprefixed text-size-adjust matches",
+    blocks.some((b) => /(^|[^-])text-size-adjust:\s*100%/.test(b)),
+  );
+}
+
 section("The plant panel never hangs below the fold (app.css .plant's anchor)");
 // ---------------------------------------------------------------------------
 // THE ASYMMETRY IN THE SECOND iPhone X REPORT, and why the watchdog above did
@@ -12184,12 +12227,13 @@ section("Effects unlock (lib/audio.ts, iOS)");
 //      existence — a panel that prints four fields is a panel that sends the
 //      next tester back for a fourth pass.
 //
-//   2. The native side sets .playback in AppDelegate.swift. Kept as correct
-//      product behaviour — one app should not have its elements ignore a mute
-//      its Web Audio obeys — and NOT as the fix for this bug. Pinned because
-//      that file is stock Capacitor scaffolding: a `cap sync`, an Xcode upgrade
-//      or a regenerated ios/ would put the template back with no TypeScript
-//      anywhere to notice.
+//   2. The native side sets .ambient in AppDelegate.swift (.playback until
+//      build 13 grew a lock-screen Now Playing card — the category pin below
+//      carries that history). Kept as correct product behaviour — one app
+//      should not have its elements ignore a mute its Web Audio obeys — and
+//      NOT as the fix for this bug. Pinned because that file is stock
+//      Capacitor scaffolding: a `cap sync`, an Xcode upgrade or a regenerated
+//      ios/ would put the template back with no TypeScript anywhere to notice.
 //
 // Source-scanned for the same reason the section above is: audio.ts and main.ts
 // both reach for browser globals at load, and AppDelegate.swift is not
@@ -12207,12 +12251,12 @@ section("Audio session policy and on-device diagnostics");
     src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   // Comments AND STRING LITERALS come out of the Swift. The literals are not
   // tidiness: the failure messages inside NSLog name the very calls these
-  // checks look for ("AVAudioSession.setCategory(.playback) failed",
+  // checks look for ("AVAudioSession.setCategory(.ambient) failed",
   // "setActive(true) failed"), and the first draft of this section passed a
-  // mutation that changed the category to .ambient because the log line still
-  // said .playback. A pin that can be satisfied by an error message is not a
-  // pin. Swift interpolation never contains an unescaped quote, so one
-  // literal-eating pass is enough.
+  // mutation that changed the category — the log line still named the old
+  // one. A pin that can be satisfied by an error message is not a pin. Swift
+  // interpolation never contains an unescaped quote, so one literal-eating
+  // pass is enough.
   const swiftCode = swift
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\/\/\/?[^\n]*/g, "")
@@ -12226,13 +12270,28 @@ section("Audio session policy and on-device diagnostics");
     /^import AVF(oundation|Audio)$/m.test(swiftCode),
     swiftCode.match(/^import .+$/gm)?.join(", ") ?? "no imports",
   );
-  // `.playback` specifically. `.ambient` and `.soloAmbient` are both muted by
-  // the switch, and `.playAndRecord` would ask the player for a microphone
-  // this game has no use for.
+  // `.ambient` specifically, and the history matters because this pin has
+  // pointed at two different categories now. `.playback` shipped in exactly
+  // one build (13) and hardware showed its cost in a WKWebView: the streaming
+  // <audio> beds register a Now Playing card on the lock screen with a play
+  // button that resumes the soundtrack outside the app. The owner traded that
+  // away for `.ambient`'s costs (the Ring/Silent switch mutes the game; other
+  // audio mixes instead of being interrupted) — both coherent, because
+  // `.ambient` still puts elements and Web Audio under ONE hardware policy,
+  // which was always the point of configuring a session at all. NOT
+  // `.soloAmbient` (the unconfigured default this function exists to escape:
+  // it lets WKWebView re-promote elements on its own) and not `.playAndRecord`
+  // (a microphone prompt for a game with no microphone).
+  // EVERY call site, not "some call site". There are two setCategory calls
+  // now (launch + the foreground re-assert), and a pin satisfied by either
+  // one alone waved through a mutation that flipped only the launch call —
+  // leaving an app that lands in one category and switches to another the
+  // first time it comes back from the background.
+  const categories = [...swiftCode.matchAll(/setCategory\(\s*\.(\w+)/g)].map((m) => m[1]);
   check(
-    "the audio session category is .playback",
-    /setCategory\(\s*\.playback/.test(swiftCode),
-    /setCategory\(\s*\.(\w+)/.exec(swiftCode)?.[1] ?? "no setCategory",
+    "the audio session category is .ambient, at every call site",
+    categories.length > 0 && categories.every((c) => c === "ambient"),
+    categories.join(",") || "no setCategory",
   );
   // Setting the category without activating leaves the OS to activate whatever
   // it likes at the first sound, which on some paths is the ambient default the

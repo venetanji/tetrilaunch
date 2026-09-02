@@ -310,3 +310,17 @@ developer portal.
 - **No Mac?** Xcode Cloud, a GitHub Actions `macos-latest` runner, or Ionic Appflow can
   archive and upload; all need signing secrets. An App Store Connect API key plus
   `xcodebuild -allowProvisioningUpdates` is the least painful. Not set up in this repo.
+- **iOS text autosizing** (found the hard way, three device builds deep): on a landscape
+  page, iOS WebKit silently inflates any text it judges too small — by up to the
+  landscape/portrait width ratio (~2.2× on an iPhone X) — while every viewport metric,
+  inset and CSS unit keeps reading true, so layout diagnostics come back innocent while
+  dense small-type UI drowns in its own containers. Desktop WebKit (what the uifit
+  harness runs) has no autosizer, so no test can render it. The opt-out is the
+  `-webkit-text-size-adjust: 100%` rule on `html` in `app/src/styles/app.css`, and
+  sim/systems.ts pins its presence; if small text ever looks mysteriously huge on a
+  phone again, check that rule survived before measuring anything else.
+- **Audio session category** is `.ambient` (AppDelegate.swift, set at launch and
+  re-asserted on foreground). `.playback` was tried once and registers the game as a
+  lock-screen Now Playing card with transport controls — the streaming `<audio>` music
+  beds are enough for WKWebView to promote it. `.ambient` means the Ring/Silent switch
+  mutes the game and other apps' audio mixes underneath; both were accepted trade-offs.

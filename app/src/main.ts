@@ -7560,6 +7560,23 @@ class App {
         return probe.getBoundingClientRect().height;
       };
       const vh = unit("100vh"), dvh = unit("100dvh"), svh = unit("100svh"), lvh = unit("100lvh");
+      // Text-autosizing probe (the build-13 culprit): iOS WebKit inflates
+      // small text on landscape pages unless html opts out with
+      // -webkit-text-size-adjust — geometry stays truthful, so only a
+      // RENDERED line's height can testify. A shaped block with real text,
+      // because the autosizer skips degenerate boxes; visibility:hidden
+      // still lays out. Healthy readings are ~1.2x the declared size; a
+      // 10px line measuring 20px+ is the autosizer at work.
+      const text = (px: number): number => {
+        probe.style.width = "300px";
+        probe.style.height = "auto";
+        probe.style.font = `${px}px/1.2 sans-serif`;
+        probe.textContent = "Xg";
+        const h = probe.getBoundingClientRect().height;
+        probe.textContent = "";
+        return h;
+      };
+      const t10 = text(10), t16 = text(16);
       probe.remove();
       const rect = (sel: string): string => {
         const el = document.querySelector(sel);
@@ -7576,6 +7593,7 @@ class App {
           : "absent"}`,
         `client   ${de.clientWidth}x${de.clientHeight}  screen ${screen.width}x${screen.height}`,
         `units    vh ${vh.toFixed(1)}  dvh ${dvh.toFixed(1)}  svh ${svh.toFixed(1)}  lvh ${lvh.toFixed(1)}`,
+        `text     10px line ${t10.toFixed(1)}  16px line ${t16.toFixed(1)}  (healthy ~12/19.2)`,
         `insets   t ${cssVar("--inset-t")}  r ${cssVar("--inset-r")}  b ${cssVar("--inset-b")}  l ${cssVar("--inset-l")}`,
         `field    y ${cssVar("--field-y")}  h ${cssVar("--field-h")}  gutter-b ${cssVar("--gutter-b")}  zoom ${cssVar("--chrome-zoom")}`,
         `plant    ${rect(".plant")}${plant ? `  css-bottom ${getComputedStyle(plant).bottom}` : ""}`,

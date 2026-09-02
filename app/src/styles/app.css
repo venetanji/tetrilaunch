@@ -16,6 +16,30 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
+/* OPT OUT OF iOS TEXT AUTOSIZING, and this line is load-bearing on every
+   landscape iPhone — do not remove it without re-testing on hardware.
+
+   WebKit on iOS runs a "text autosizing" pass meant for desktop pages read on
+   a phone: when the laid-out page is wider than the device's portrait width,
+   text it judges too small to read is inflated — and only that text, so big
+   headings keep their size while dense small type (this UI is built almost
+   entirely from 9-13px type) grows by up to the landscape/portrait width
+   ratio (~2.2x on an iPhone X). Nothing else changes: the viewport, the
+   insets and every CSS unit still measure true, which is why three builds of
+   viewport diagnostics on a real device came back unanimously innocent while
+   the HUD kept drowning. Build 13's in-run sampler caught it at last: the
+   plant panel's box solved and sat exactly where designed, but its CONTENT
+   laid out at 367px where the harness fits it in ~148px — same CSS, same
+   375px viewport, text alone inflated. The same pass grew the menu buttons
+   down over the build tag's corner. The uifit harness can never see this
+   bug: desktop WebKit has no autosizer, so a source pin in sim/systems.ts
+   guards this rule instead. `text-size-adjust: 100%` is the standard opt-out
+   (a no-op everywhere else); the -webkit- form is the one iOS actually
+   honours. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 body {
   font-family: var(--font-ui);
   background: var(--bg-deep);

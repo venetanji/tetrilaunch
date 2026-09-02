@@ -34,20 +34,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// trap the last diagnosis fell into: the asymmetry is real and it is not
     /// what produced this bug.)
     ///
-    /// `.playback` is the category for audio that IS the point of the app, and
-    /// it puts both mechanisms under one rule — the rule the soundtrack already
-    /// follows today, so nothing a player has heard so far changes.
+    /// `.ambient`, and it was `.playback` for exactly one build. `.playback`
+    /// is the category for audio that IS the point of the app, and it looked
+    /// right — until build 13 on hardware showed what it costs in a WKWebView:
+    /// the streaming <audio> beds register the game on the lock screen as a
+    /// Now Playing card with transport controls, and the system's play button
+    /// would resume the soundtrack OUTSIDE the app (the web layer's
+    /// MediaSession handlers now decline that resume, but the card itself is
+    /// unremovable while an element streams under `.playback`). A game
+    /// masquerading as a music app on the lock screen is worse than any of
+    /// `.ambient`'s costs, and the owner called the trade.
     ///
-    /// mixWithOthers: NOT set, deliberately. The option would let a podcast or
-    /// a music app keep playing underneath, which is the right choice for an
-    /// app whose own audio is incidental. This one ships ~29MB of beds, scores
-    /// each bay to its own track and drops the bed entirely under a stinger so
-    /// the jingle lands into silence (playStinger's whole design). Two
-    /// soundtracks at once is not a mix anyone chose, and the ducking that
-    /// would make it bearable does not exist here. Plain `.playback` therefore
-    /// INTERRUPTS other audio, which is the normal and expected behaviour for a
-    /// game and what the player can undo by muting us in Settings or not
-    /// launching us over their podcast.
+    /// What `.ambient` trades away, knowingly: it MIXES with other audio
+    /// instead of interrupting it (a podcast keeps playing under the game —
+    /// two soundtracks at once is now the player's choice to resolve), and
+    /// the hardware Ring/Silent switch silences the game. Both are coherent
+    /// here: the one-policy-for-both-mechanisms argument above survives the
+    /// category swap intact, because `.ambient` also covers elements and Web
+    /// Audio alike — mute obeys the switch everywhere or nowhere, which was
+    /// the whole point. What it buys: no Now Playing registration, no remote
+    /// controls, no lock-screen card.
     ///
     /// Errors are logged, never thrown. Same contract the web module keeps:
     /// audio is decoration, and a session the OS refuses to configure must
@@ -56,9 +62,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default)
+            try session.setCategory(.ambient, mode: .default)
         } catch {
-            NSLog("[audio] AVAudioSession.setCategory(.playback) failed: \(error.localizedDescription)")
+            NSLog("[audio] AVAudioSession.setCategory(.ambient) failed: \(error.localizedDescription)")
             return
         }
         do {
@@ -67,7 +73,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             // Activation is the half that can lose to something outside the app
             // (a call in progress at launch). The category is already set, so a
             // later activation — the system's own, when the first sound plays —
-            // still gets .playback.
+            // still gets .ambient.
             NSLog("[audio] AVAudioSession.setActive(true) failed: \(error.localizedDescription)")
         }
     }
@@ -87,8 +93,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// until I took a call" is a permanent state for the rest of the session and
     /// the web layer sees only a context that will not leave "interrupted".
     private func reactivateAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        // The CATEGORY is re-asserted too, not just activation: WKWebView is
+        // the other writer of this session (promoting it for a playing
+        // element is how the stock unconfigured app behaves at all), so a
+        // category it swapped while we were backgrounded would otherwise
+        // survive into the foreground session untouched.
         do {
-            try AVAudioSession.sharedInstance().setActive(true)
+            try session.setCategory(.ambient, mode: .default)
+        } catch {
+            NSLog("[audio] AVAudioSession re-setCategory(.ambient) failed: \(error.localizedDescription)")
+        }
+        do {
+            try session.setActive(true)
         } catch {
             NSLog("[audio] AVAudioSession re-activation failed: \(error.localizedDescription)")
         }
