@@ -4816,6 +4816,43 @@ section("The stylesheet opts out of iOS text autosizing (app.css html rule)");
   );
 }
 
+section("The plant panel's rows are a flex column, never a grid (app.css)");
+// ---------------------------------------------------------------------------
+// THE FOURTH iPhone X HUD REPORT — the one the autosizing opt-out above did
+// not fix, because there were two engine-only bugs stacked on one panel.
+// Build 15's ruler photo cleared the native presentation (every CSS row on
+// the glass) and its deep scan named the victim: `.pl-mods` laid out at
+// y 528-560 in a 375px viewport, content 367px inside a 148px body. The
+// mechanism: at compact density `.plant__body` was re-templated as a
+// named-area GRID, and iOS 16's WebKit sizes a grid's auto row tracks from
+// each item's INTRINSIC height — for `.pl-read`, a flex-wrap row, that
+// intrinsic is the fully-wrapped stack, so its track ballooned to ~280px
+// and pushed every later row off the glass. Desktop WebKit sizes the same
+// track correctly, so all 208 webkit fixtures stayed green while the phone
+// broke — engine-invisible, hence a source pin. The grid earned nothing: a
+// 0.8/1.2 column split retired long ago was its only reason to exist, and
+// since then it was a list of what the base flex column does anyway. This
+// pin keeps anyone from re-templating the panel back into the bug class.
+// ---------------------------------------------------------------------------
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const bodyRules = [...css.matchAll(/[^{}]*\.plant__body[^{]*\{[^}]*\}/g)].map((m) => m[0]);
+  check(
+    "no .plant__body rule declares a grid",
+    bodyRules.length > 0 && bodyRules.every((r) => !/display:\s*grid|grid-template/.test(r)),
+    bodyRules.filter((r) => /grid/.test(r)).join(" | ").slice(0, 200),
+  );
+  check(
+    "...and the base rule is still the flex column the panel relies on",
+    bodyRules.some((r) =>
+      /display:\s*flex/.test(r) && /flex-direction:\s*column/.test(r)
+      && /justify-content:\s*space-between/.test(r)),
+  );
+}
+
 section("The plant panel never hangs below the fold (app.css .plant's anchor)");
 // ---------------------------------------------------------------------------
 // THE ASYMMETRY IN THE SECOND iPhone X REPORT, and why the watchdog above did
@@ -12330,6 +12367,30 @@ section("Audio session policy and on-device diagnostics");
     "...and resuming rebuilds them from the parked src and position",
     /function unparkElement[\s\S]{0,900}?el\.src = src;[\s\S]{0,700}?el\.currentTime = at/.test(audioCode)
     && /export function resumeAudio[\s\S]{0,400}?unparkElement\(music\);\s*\n\s*unparkElement\(stinger\)/.test(audioCode),
+  );
+  // ...AND THE PARK ACTUALLY RUNS ON A SCREEN LOCK, which visibilitychange
+  // alone cannot promise: WKWebView does not reliably fire it when the screen
+  // locks with the app frontmost, and the lock screen is the one place the
+  // card appears (build 15, iPhone X: card gone after app-switching, still
+  // there after a plain lock). So AppDelegate relays willResignActive /
+  // didBecomeActive into the page as window events, and main.ts pairs them
+  // with the visibilitychange handlers. Both halves pinned — the Swift relay
+  // alone is a message nobody listens to, the listener alone never fires.
+  // The literal-eating pass blanks the event names out of swiftCode, so the
+  // shape (each lifecycle hook calls the relay) is checked on the eaten text
+  // and the NAMES — which must match main.ts's listeners exactly — on the raw.
+  check(
+    "a screen lock reaches the web layer (AppDelegate relays resign/active)",
+    /applicationWillResignActive[\s\S]{0,200}?notifyWebView\(""\)/.test(swiftCode)
+    && /applicationDidBecomeActive[\s\S]{0,400}?notifyWebView\(""\)/.test(swiftCode)
+    && /triggerWindowJSEvent/.test(swiftCode)
+    && swift.includes("\"native-resign-active\"")
+    && swift.includes("\"native-did-become-active\""),
+  );
+  check(
+    "...and main.ts suspends/resumes audio on the relayed events",
+    /addEventListener\("native-resign-active", \(\) => suspendAudio\(\)\)/.test(mainCode)
+    && /addEventListener\("native-did-become-active", \(\) => resumeAudio\(\)\)/.test(mainCode),
   );
   // The no-throw contract, in Swift. `try!` and `try?`-less propagation both
   // turn a refused session — a call in progress at launch is enough — into a

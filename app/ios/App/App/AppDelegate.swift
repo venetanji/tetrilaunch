@@ -111,9 +111,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
     }
 
+    /// The web layer cannot see a SCREEN LOCK on its own: WKWebView does not
+    /// reliably fire `visibilitychange` when the screen locks with the app
+    /// frontmost, so the audio module's suspend path (which unloads the music
+    /// elements precisely so iOS has no media session to put on the lock
+    /// screen) never ran for the one gesture that shows the lock screen.
+    /// Observed on the iPhone X: the Now Playing card gone after app-switching
+    /// (where visibilitychange fires) but still present after a plain lock.
+    /// willResignActive is the notification iOS DOES send for a lock — and for
+    /// calls, Control Center and the app switcher, all moments a game should
+    /// go quiet anyway — so it is relayed into the page as a window event that
+    /// lib/audio.ts pairs with its visibilitychange handling (both paths are
+    /// idempotent, so the double fire on a normal backgrounding is free).
+    private func notifyWebView(_ event: String) {
+        (window?.rootViewController as? CAPBridgeViewController)?
+            .bridge?.triggerWindowJSEvent(eventName: event)
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
-        // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
-        // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.
+        notifyWebView("native-resign-active")
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
@@ -128,6 +144,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
         reactivateAudioSession()
+        // After the session re-assert, so the beds the web layer rebuilds on
+        // this event play into the re-configured session (see notifyWebView).
+        notifyWebView("native-did-become-active")
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

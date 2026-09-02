@@ -4666,12 +4666,11 @@ body.crt-off #app::after { display: none; }
    top of a distributed gap, and on an explicit one they only make the rhythm
    uneven again.
 
-   `justify-content` reaches this panel at every density. Deep Run's
-   `.plant__body` becomes a named-area grid at compact, where it would be inert
-   — but a Contract already opts out of that grid further down, because the
-   template names `meta` and `mods` rows a Contract does not render. It is a
-   flex column at every density, which is why one rule suffices. Do not
-   re-template it as a grid to fit the rows above. */
+   `justify-content` reaches this panel at every density: `.plant__body` is a
+   flex column everywhere now (the compact named-area grid is gone — see the
+   compact section for the iOS 16 track-sizing bug that killed it), which is
+   why one rule suffices. Do not re-template it as a grid to fit the rows
+   above. */
 .hud--contract .plant__body { justify-content: flex-start; }
 /* `.hud.hud--contract` for the WEIGHT, not the meaning — both classes are on
    the same element. The compact section further down sets this same gap at
@@ -4898,71 +4897,43 @@ body.crt-off #app::after { display: none; }
 
    It comes out of the row's CONTENT, not its count. The reload bar is a label
    plus a flexible bar and is happy at any width; the meta line is not. */
-[data-density="compact"] .plant__body {
-  display: grid;
-  /* The meta line gets its own full-width row, and the reload bar gets one.
-     This used to share a row on a 0.8/1.2 split, under a comment claiming the
-     meta line "wraps to two lines at anything under ~120px" and that 0.8/1.2
-     was "the one where both sit on a single line". Measured on-device in a
-     Deep Run it needs 238.5px and was handed 165.2 — short by 73.3px, so it
-     wrapped, and `justify-content: flex-end` right-aligned the remainder and
-     stranded a "·" separator at the head of the second line. No split fixes
-     that: 238.5 of the 278.3px row is 86%, and the word "Reload" alone is
-     50.2px, so the two cannot share a row at all once the launch cost is
-     present. The ~120px figure holds only in contract/pattern mode, where
-     screens.ts drops the "Launch $N" span — almost certainly what it was
-     measured against.
+/* NO GRID AT COMPACT ANY MORE — the flex column the base rule already is,
+   with only the tighter gap stated here. This is the fix for the iPhone X
+   HUD clip that survived three instrumented builds, and the mechanism is
+   worth recording because no harness can show it: the named-area grid's
+   AUTO row tracks are sized from each item's INTRINSIC height, and
+   `.pl-read` is a `flex-wrap: wrap` row — iOS 16's WebKit computes that
+   intrinsic as the fully-wrapped stack (every stat column on its own line),
+   so the `read` track ballooned to ~280px and pushed `meta`, `notch` and
+   `mods` clean off the glass (build 15's in-run sampler: content 367px in a
+   148px body, `.pl-mods` at y 528-560 against a 375px viewport). Desktop
+   WebKit — the engine uifit runs — sizes the same track correctly, which is
+   why 208 green fixtures coexisted with a broken phone. A flex COLUMN never
+   consults intrinsic track math: children are laid out at the container's
+   definite width, on every engine back to the ones we ship to.
 
-     The extra row is free: `align-content: space-between` absorbs it, and
-     unwrapping the meta line gives back the 12px the second line cost. The
-     panel measures 154.7px tall either way. */
-  grid-template-columns: minmax(0, 1fr);
-  /* `notch` is named here for Deep Run's Notches row (screens.ts's hudHTML) to
-     land in — a named row costs its share of the row gap even when nothing
-     renders into it, the same trap the retired title row left behind in
-     exactly these templates. Not named in a contract template because there
-     is no such template: a Contract's own `.pl-notch` row (the Bay
-     conditions line) shares the class and would inherit this exact grid-area
-     if it ever sat inside this grid, but it never does — Contract opts out
-     via `display: flex` below at compact, and nothing re-templates it at
-     regular/roomy either. */
-  grid-template-areas:
-    "read"
-    "load"
-    "meta"
-    "notch"
-    "mods";
-  align-content: space-between;
+   The grid cost nothing to lose. It existed for a 0.8/1.2 column split
+   retired long ago; since then every row it named is full-width and in DOM
+   order — the template was a list of what flex does anyway, plus one trap
+   (an empty named row still cost its share of the gap; flex charges only
+   rows that render). The meta line's own-full-width-row measurements from
+   the grid era (238.5px needed vs 165.2 handed on a shared row) argue for
+   the flex column just as well: every row full-width.
+
+   The base rule's `justify-content: space-between` replaces the grid's
+   `align-content: space-between` — same leftover, same distribution. */
+[data-density="compact"] .plant__body {
   gap: max(2px, calc(6 * var(--fpx)));
 }
-/* No `margin-top: 0` on the three rows below any more: the base rules stopped
-   nudging (see the "one rhythm" note under .pl-notch b), so undoing it here
-   would be undoing nothing. */
-[data-density="compact"] .pl-read { grid-area: read; }
-[data-density="compact"] .pl-notch { grid-area: notch; }
-[data-density="compact"] .pl-load { grid-area: load; }
 /* flex-start, not flex-end: on its own full-width row the line has room to
-   spare, and every other row in this panel starts at the same left edge. */
-[data-density="compact"] .pl-meta { grid-area: meta; justify-content: flex-start; align-items: center; }
-[data-density="compact"] .pl-mods { grid-area: mods; }
-/* Contract mode opts OUT of the grid entirely, at every density, and keeps the
-   compact gap. The grid above exists to give Deep Run's five rows an explicit
-   template; a Contract renders four or five, all full-width, all in DOM
-   order, and a template for that is just a list of the rows flex would lay out
-   anyway — one that has to be kept in step with which of them render.
-   It could not be, either: two of the five named areas are still empty on a
-   Contract that inherits this template, just not the same two any more.
-   `notch` now fills — a Contract's own `.pl-notch` row (the Bay conditions
-   line) would land there, same class, same grid-area. `mods` takes its old
-   place: `.pl-mods` never renders in a Contract at all (`plates || bondChip
-   || demoChip` are all falsy there — see the Build row's comment, and the Bay
-   row's NOT `.pl-mods` note, in screens.ts), so that area would be empty too.
-   `meta` still is, same as always. A Contract inheriting the base template
-   would still pay two rows' worth of gap for nothing — `meta` and `mods` now,
-   not `notch` and `meta`. (This scope used to carry a 0.8/1.2 column split,
-   justified by a measurement of the meta line WITHOUT its "Launch $N" span.
-   There is no meta line here at all now.) */
-[data-density="compact"] .hud--contract .plant__body { display: flex; }
+   spare, and every other row in this panel starts at the same left edge.
+   (The grid-area assignments that used to sit around this rule went with the
+   grid above.) */
+[data-density="compact"] .pl-meta { justify-content: flex-start; align-items: center; }
+/* The `[data-density="compact"] .hud--contract .plant__body { display: flex }`
+   opt-out is gone WITH the grid it opted out of: Deep Run and Contract now
+   run the same flex column at every density, which is what the Contract rule
+   was asking for all along. */
 /* And at compact a Contract has no build row at all. The ability chips are
    hidden at this density (the rail is the touch control surface and carries
    the same two triggers, counts included), the BUILD tag is hidden with them,

@@ -1095,6 +1095,20 @@ class App {
       this.onResize();
       this.armWatchdog(WATCHDOG_RESUME_MS);
     });
+    // The native pair of the visibilitychange handler above, relayed by
+    // AppDelegate.swift's notifyWebView. A SCREEN LOCK with the app frontmost
+    // does not reliably fire visibilitychange in WKWebView, so the audio
+    // suspend path — the one that unloads the beds precisely so iOS has no
+    // media session to show on the lock screen — never ran for the one
+    // gesture that shows the lock screen (build 15, iPhone X: card gone
+    // after app-switching, still there after a plain lock). willResignActive
+    // is the signal iOS does send; both handlers are idempotent, so the
+    // double fire on a normal backgrounding costs nothing. No layout
+    // re-solve on the active edge: resign/active does not change the
+    // viewport the way a real hide can, and visibilitychange still covers
+    // the cases that do.
+    window.addEventListener("native-resign-active", () => suspendAudio());
+    window.addEventListener("native-did-become-active", () => resumeAudio());
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
@@ -7545,9 +7559,12 @@ class App {
         if (b > deep) { deep = b; deepEl = d; }
       }
       const dcs = deepEl === plant ? null : getComputedStyle(deepEl);
-      // The panel's own rows (crest decoration filtered out — twelve strips
-      // of border art would drown the six lines that matter).
-      const rows = [...plant.children]
+      // The panel's REAL rows — .plant__body's children, one level deeper
+      // than build 14's scan looked (which is exactly why that scan missed
+      // .pl-mods sitting at y 528). Falls back to the panel's own children
+      // if the body ever goes away; crest decoration filtered out either way.
+      const rowHost = plant.querySelector(".plant__body") ?? plant;
+      const rows = [...rowHost.children]
         .filter((c) => !name(c).startsWith("plant__crest"))
         .map((c) => {
           const kr = c.getBoundingClientRect();
