@@ -7527,16 +7527,42 @@ class App {
       const cs = getComputedStyle(plant);
       const root = getComputedStyle(document.documentElement);
       const v = (name: string): string => root.getPropertyValue(name).trim() || "unset";
-      const kids = [...plant.children].map((c) => c.getBoundingClientRect().bottom);
-      const deepest = kids.length ? Math.max(...kids) : r.bottom;
       const app = document.getElementById("app")?.getBoundingClientRect();
+      // Build 14 established that direct-child rects look healthy while
+      // scrollHeight balloons to 2.5x the client box — so whatever overflows
+      // is DEEPER than the direct children, and this scan names it: every
+      // element inside the panel, deepest rendered bottom wins. Its class and
+      // computed position are the forensics; a row of the readout appearing
+      // here at a bottom past the viewport IS the missing HUD.
+      const name = (e: Element): string => {
+        const cls = typeof e.className === "string" ? e.className.split(" ")[0] : "";
+        return cls || e.tagName.toLowerCase();
+      };
+      let deepEl: Element = plant;
+      let deep = r.bottom;
+      for (const d of plant.querySelectorAll("*")) {
+        const b = d.getBoundingClientRect().bottom;
+        if (b > deep) { deep = b; deepEl = d; }
+      }
+      const dcs = deepEl === plant ? null : getComputedStyle(deepEl);
+      // The panel's own rows (crest decoration filtered out — twelve strips
+      // of border art would drown the six lines that matter).
+      const rows = [...plant.children]
+        .filter((c) => !name(c).startsWith("plant__crest"))
+        .map((c) => {
+          const kr = c.getBoundingClientRect();
+          return `${name(c)} ${kr.top.toFixed(0)}..${kr.bottom.toFixed(0)}`;
+        })
+        .join("  ");
       this.hudSample = [
         `sampled  in-run, ${(now / 1000).toFixed(0)}s after boot`,
         `inner    ${window.innerWidth}x${window.innerHeight}`,
         `app      ${app ? `top ${app.top.toFixed(1)} bottom ${app.bottom.toFixed(1)}` : "absent"}`,
-        `plant    top ${r.top.toFixed(1)} bottom ${r.bottom.toFixed(1)} h ${r.height.toFixed(1)}  css-bottom ${cs.bottom}`,
-        `inside   scroll ${plant.scrollHeight}/${plant.clientHeight}  deepest child bottom ${deepest.toFixed(1)}`,
-        `field    y ${v("--field-y")}  h ${v("--field-h")}  inset-b ${v("--inset-b")}`,
+        `plant    top ${r.top.toFixed(1)} bottom ${r.bottom.toFixed(1)} h ${r.height.toFixed(1)} w ${r.width.toFixed(1)}  css-bottom ${cs.bottom}`,
+        `inside   scroll ${plant.scrollHeight}/${plant.clientHeight}`,
+        `deepest  ${deepEl === plant ? "(none past the panel)" : `${name(deepEl)}  bottom ${deep.toFixed(1)}  pos ${dcs?.position} top ${dcs?.top} h ${dcs?.height}`}`,
+        `rows     ${rows || "none"}`,
+        `field    x ${v("--field-x")} y ${v("--field-y")}  w ${v("--field-w")} h ${v("--field-h")}  inset-b ${v("--inset-b")}`,
       ].join("\n");
     } catch {
       // Swallowed by design: see the doc block.
@@ -7606,6 +7632,60 @@ class App {
   }
 
   /**
+   * A screen ruler for one photograph, toggled by the same knock that opens
+   * the diagnostics panel (on with one knock, off with the next).
+   *
+   * WHAT IT SETTLES. Three builds of viewport metrics on the iPhone X read
+   * innocent while the HUD stayed broken, which leaves a class of fault no
+   * web API can testify about: the native layer presenting the page displaced
+   * or scaled relative to the glass. Every line here is position:fixed at a
+   * known LAYOUT-viewport coordinate — so one photo of the glass answers it:
+   * if the magenta line sits exactly on the screen's bottom edge, all 375 CSS
+   * rows are visible and the fault is inside the page; if it is missing or
+   * floating, the presentation itself is off and by how much (count the
+   * 50px ticks). The dashed outline is .plant's border box (via a stylesheet
+   * rule so it survives every overlay remount): rows drawn outside the dashes
+   * convict the panel's interior, dashes cut by the glass convict the glass.
+   *
+   * Survives screen changes on purpose (appended to body, nothing removes it
+   * but the next knock): the tester knocks in Settings, plays a bay with the
+   * ruler up, and photographs the game itself.
+   */
+  private toggleGeoRuler(): boolean {
+    const old = document.getElementById("geo-ruler");
+    if (old) { old.remove(); return false; }
+    const ruler = document.createElement("div");
+    ruler.id = "geo-ruler";
+    ruler.style.cssText =
+      "position:fixed;inset:0;z-index:2147483646;pointer-events:none;" +
+      "font:9px/1 ui-monospace,Menlo,monospace;color:#0ff";
+    const line = (css: string, label?: string): void => {
+      const el = document.createElement("div");
+      el.style.cssText = `position:fixed;pointer-events:none;${css}`;
+      if (label) el.textContent = label;
+      ruler.appendChild(el);
+    };
+    const h = window.innerHeight;
+    for (let y = 0; y <= h; y += 50) {
+      line(`left:0;right:0;top:${y}px;height:1px;background:rgba(0,255,255,0.55)`);
+      line(`left:90px;top:${Math.min(y + 2, h - 12)}px;color:#0ff`, `y=${y}`);
+    }
+    // The two verdict lines: the layout viewport's bottom edge, and the
+    // inset floor above it.
+    line("left:0;right:0;bottom:0;height:3px;background:#f0f", "");
+    line(`left:150px;top:${h - 14}px;color:#f0f`, `bottom edge (y=${h})`);
+    line("left:0;right:0;bottom:var(--inset-b,0px);height:1px;background:rgba(0,255,0,0.8)");
+    // Side-inset verticals (the notch bands in landscape).
+    line("top:0;bottom:0;left:44px;width:1px;background:rgba(255,255,0,0.4)");
+    line("top:0;bottom:0;right:44px;width:1px;background:rgba(255,255,0,0.4)");
+    const style = document.createElement("style");
+    style.textContent = ".plant{outline:2px dashed #f0f !important;outline-offset:0}";
+    ruler.appendChild(style);
+    document.body.appendChild(ruler);
+    return true;
+  }
+
+  /**
    * The panel itself: built here, styled here, removed here.
    *
    * SELF-CONTAINED ON PURPOSE, and that is a boundary rather than a shortcut.
@@ -7657,10 +7737,14 @@ class App {
     // needs desktop Safari, so "read getComputedStyle(...) off the console"
     // is not an instruction the one test device's owner can follow. Same
     // knock, both snapshots, one photograph.
+    const rulerOn = this.toggleGeoRuler();
     box.textContent = `[audio] diagnostics\n\n${audioDiagnostics()}`
       + `\n\n[layout]\n${this.layoutDiagnostics()}`
       + `\n\n[hud, last in-run sample]\n${this.hudSample
         ?? "none yet — play a bay first, then knock again"}`
+      + `\n\n[ruler] ${rulerOn
+        ? "ON — close this panel, play, and photograph the game with the grid up"
+        : "off (knock again to draw it)"}`
       + "\n\ntap to close — drag to scroll";
     // A TAP CLOSES, A DRAG SCROLLS. Closing on pointerdown was the first shape
     // of this and it made the panel unreadable the moment the snapshot grew a

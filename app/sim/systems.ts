@@ -12312,6 +12312,25 @@ section("Audio session policy and on-device diagnostics");
     /configureAudioSession\(\)|setCategory\(/.test(launch),
     launch.replace(/\s+/g, " ").slice(0, 120),
   );
+  // THE LOCK-SCREEN CARD DIES ON THE WEB SIDE, not the native one. Moving the
+  // category to .ambient stopped the app REGISTERING as a music player, but
+  // the card survived it on hardware: WKWebView keeps its own media session
+  // for <audio> elements (iOS 15+) without consulting the host app's, and a
+  // paused bed is still a "recently played, resumable" card. The only thing
+  // with no media session is an element with no source — so suspendAudio
+  // parks the elements (src off, load() to commit) and resumeAudio rebuilds
+  // src and position from the parked entry. Both halves pinned: losing the
+  // park brings the card back, losing the unpark silences every resume.
+  check(
+    "suspending parks the media elements (src comes off, load() commits)",
+    /function parkElement[\s\S]{0,700}?removeAttribute\("src"\);\s*\n\s*el\.load\(\)/.test(audioCode)
+    && /export function suspendAudio[\s\S]{0,300}?parkElement\(music\);\s*\n\s*parkElement\(stinger\)/.test(audioCode),
+  );
+  check(
+    "...and resuming rebuilds them from the parked src and position",
+    /function unparkElement[\s\S]{0,900}?el\.src = src;[\s\S]{0,700}?el\.currentTime = at/.test(audioCode)
+    && /export function resumeAudio[\s\S]{0,400}?unparkElement\(music\);\s*\n\s*unparkElement\(stinger\)/.test(audioCode),
+  );
   // The no-throw contract, in Swift. `try!` and `try?`-less propagation both
   // turn a refused session — a call in progress at launch is enough — into a
   // crash on the one screen every player sees.

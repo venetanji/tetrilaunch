@@ -324,3 +324,8 @@ developer portal.
   lock-screen Now Playing card with transport controls — the streaming `<audio>` music
   beds are enough for WKWebView to promote it. `.ambient` means the Ring/Silent switch
   mutes the game and other apps' audio mixes underneath; both were accepted trade-offs.
+  The category alone did NOT kill the card: WKWebView keeps its own media session for
+  `<audio>` elements (iOS 15+) without consulting the host app's, so a paused bed still
+  shows up as a resumable lock-screen card. `lib/audio.ts`'s `suspendAudio` therefore
+  unloads the elements entirely while backgrounded (src off + `load()`) and rebuilds
+  src/position on resume — no source, no media session, no card.

@@ -2208,11 +2208,66 @@ export function musicLevel(): number {
   }
 })();
 
+/** What suspendAudio stripped off each element so resumeAudio can rebuild it:
+ *  [src, position, whether it was actually playing]. Keyed by element because
+ *  music/stinger can be swapped while the app is hidden — an element replaced
+ *  mid-suspension keeps its parked entry but is simply never unparked. */
+const parked = new Map<HTMLAudioElement, [string, number, boolean]>();
+
+/** Unload one element's media entirely — pause is NOT enough on iOS.
+ *
+ *  A paused <audio> still owns a WebKit-managed media session, and iOS offers
+ *  it on the lock screen as a resumable Now Playing card — observed on the
+ *  iPhone X surviving even the AppDelegate's move to the .ambient category,
+ *  because WKWebView manages its own session for media elements (iOS 15+)
+ *  without consulting the host app's. An element with NO source has no media
+ *  session at all, so the card has nothing to describe: src comes off and
+ *  load() commits the removal. resumeAudio rebuilds src/position from the
+ *  parked entry, so the player hears a seamless resume. */
+function parkElement(el: HTMLAudioElement | null): void {
+  if (!el) return;
+  try {
+    const src = el.currentSrc || el.src;
+    if (!src) return;
+    parked.set(el, [src, el.currentTime, !el.paused]);
+    el.pause();
+    el.removeAttribute("src");
+    el.load();
+  } catch { /* ignore — worst case the element stays paused, as before */ }
+}
+
+function unparkElement(el: HTMLAudioElement | null): void {
+  if (!el) return;
+  const p = parked.get(el);
+  parked.delete(el);
+  if (!p) return;
+  const [src, at, wasPlaying] = p;
+  try {
+    el.src = src;
+    el.load();
+    // The position can only be applied once metadata exists; setting it
+    // against an empty element is silently dropped by some engines.
+    el.addEventListener(
+      "loadedmetadata",
+      () => { try { el.currentTime = at; } catch { /* ignore */ } },
+      { once: true },
+    );
+    if (wasPlaying && musicOn && !suspended) void el.play().catch(() => { /* ignore */ });
+  } catch { /* ignore */ }
+}
+
 export function suspendAudio(): void {
   if (suspended) return;
   suspended = true;
-  try { music?.pause(); } catch { /* ignore */ }
-  try { stinger?.pause(); } catch { /* ignore */ }
+  parkElement(music);
+  parkElement(stinger);
+  // Belt and braces on the lock-screen card: an emptied media session should
+  // already say nothing, and this makes the say-nothing explicit for engines
+  // that report the last-known state instead.
+  try {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.playbackState = "none";
+  } catch { /* no MediaSession — nothing to clear */ }
   void ctx?.suspend().catch(() => { /* ignore */ });
 }
 
@@ -2220,11 +2275,9 @@ export function resumeAudio(): void {
   if (!suspended) return;
   suspended = false;
   void ctx?.resume().catch(() => { /* ignore */ });
-  if (!musicOn) return;
-  // Only the element still current is resumed — one replaced while hidden is
-  // already being faded out and must stay down.
-  const m = music;
-  if (m) void m.play().catch(() => { /* ignore */ });
-  const s = stinger;
-  if (s) void s.play().catch(() => { /* ignore */ });
+  // Only the elements still current are rebuilt — one replaced while hidden is
+  // already being faded out and must stay down (its parked entry just ages
+  // out of the map with it).
+  unparkElement(music);
+  unparkElement(stinger);
 }
