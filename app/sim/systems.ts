@@ -12613,17 +12613,45 @@ section("Audio session policy and on-device diagnostics");
   check(
     "...and resuming rebuilds them from the parked src and position",
     /function unparkElement[\s\S]{0,900}?el\.src = src;[\s\S]{0,700}?el\.currentTime = at/.test(audioCode)
-    && /export function resumeAudio[\s\S]{0,400}?unparkElement\(music\);\s*\n\s*unparkElement\(stinger\)/.test(audioCode),
+    && /export function resumeAudio[\s\S]{0,1600}?unparkElement\(music\);\s*\n\s*unparkElement\(stinger\)/.test(audioCode),
   );
   // ...AND PLAYS THE CURRENT ELEMENTS WHETHER OR NOT ANYTHING WAS PARKED. On
   // a plain lock the page freezes before any suspend JS runs, so the park map
   // is empty and the beds were paused natively — build 17 on hardware: music
   // stayed silent after unlock until the next track swap, because the resume
-  // only unparked. The play must be resumeAudio's own, gated on musicOn but
-  // never on parked state.
+  // only unparked. The play must be resumeAudio's own, gated on musicOn (and,
+  // for the stinger, on the pause screen's own deliberate hold) but never on
+  // parked state.
   check(
     "...and resume plays the current elements even when nothing was parked",
-    /export function resumeAudio[\s\S]{0,1600}?if \(!musicOn\) return;[\s\S]{0,900}?if \(m\) void m\.play\(\)[\s\S]{0,300}?if \(s\) void s\.play\(\)/.test(audioCode),
+    /export function resumeAudio[\s\S]{0,1600}?if \(!musicOn\) return;[\s\S]{0,900}?if \(m\) void m\.play\(\)[\s\S]{0,400}?if \(s && !stingerSuspended\) void s\.play\(\)/.test(audioCode),
+  );
+  // ...AND THAT PLAY IS REACHABLE ON THE EMPTY-PARK PATH. Build 18 shipped
+  // the unconditional play and left the whole function gated on `suspended`
+  // one line above it — on a plain lock the freeze beats the suspend JS, so
+  // the flag is false at unlock and resume bailed before the very play it
+  // existed to run. Same symptom, one build later, with the play sitting
+  // right there in the source: existence is not reachability. Pinned as
+  // structure rather than as another substring — between resumeAudio's
+  // opening brace and the musicOn gate no `return` of any kind is allowed,
+  // so no future guard can quietly re-create the dead zone.
+  {
+    const fn = audioCode.slice(audioCode.indexOf("export function resumeAudio"));
+    const gate = fn.indexOf("if (!musicOn) return;");
+    check(
+      "...and no guard can bail resume out before that play runs",
+      gate > 0 && !/\breturn\b/.test(fn.slice(fn.indexOf("{") + 1, gate)),
+    );
+  }
+  // ...AND A SWALLOWED PLAY IS RETRIED ONCE. WKWebView drops (not queues) a
+  // play() that lands while its media playback is natively suspended, and
+  // unlock is a pile of racing deliveries whose order the device has now
+  // falsified two builds of reasoning about. So resume no longer argues about
+  // ordering: 400ms later, a bed still paused with music on and no
+  // suspension in force is a swallowed play — logged and fired again.
+  check(
+    "...and a play swallowed by the unlock races is retried once",
+    /window\.clearTimeout\(resumeRecheck\);[\s\S]{0,700}?bed\.paused[\s\S]{0,300}?void bed\.play\(\)/.test(audioCode),
   );
   // ...AND THE PARK ACTUALLY RUNS ON A SCREEN LOCK, which visibilitychange
   // alone cannot promise: WKWebView does not reliably fire it when the screen

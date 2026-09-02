@@ -2292,26 +2292,66 @@ export function suspendAudio(source = "visibility"): void {
   void ctx?.suspend().catch(() => { /* ignore */ });
 }
 
+const RESUME_RECHECK_MS = 400;
+let resumeRecheck = 0;
+
 export function resumeAudio(source = "visibility"): void {
-  if (!suspended) { logLifecycle(`resume(${source}) — not suspended`); return; }
-  suspended = false;
-  logLifecycle(`resume(${source}) unparking ${parked.size}`);
+  // THE FLAG DOES NOT GATE THIS FUNCTION, and build 18 on hardware is why. On
+  // a plain lock the freeze beats every line of suspend JS, so `suspended` is
+  // still false when the unlock event arrives: the park map is empty, the
+  // flag knows nothing, and the beds sit paused NATIVELY (AppDelegate's
+  // setAllMediaPlaybackSuspended). Build 18 added the unconditional play
+  // below — and bailed out on its first line whenever the flag said "not
+  // suspended", which is exactly the state that play exists FOR. So the flag
+  // now gates only the bookkeeping it actually tracks, and every resume falls
+  // through to the play. (A systems pin holds this shape: no exit of any kind
+  // may sit between here and the musicOn gate.)
+  if (suspended) {
+    suspended = false;
+    logLifecycle(`resume(${source}) unparking ${parked.size}`);
+  } else {
+    logLifecycle(`resume(${source}) not suspended — playing current anyway`);
+  }
   void ctx?.resume().catch(() => { /* ignore */ });
   // Only the elements still current are rebuilt — one replaced while hidden is
   // already being faded out and must stay down (its parked entry just ages
-  // out of the map with it).
+  // out of the map with it). No-ops when the map is empty.
   unparkElement(music);
   unparkElement(stinger);
   if (!musicOn) return;
   // ...and the CURRENT elements are played unconditionally, parked or not.
-  // This line predates the parking and came back by owner report: on a plain
-  // lock the page freezes before any suspend JS runs, so nothing is parked —
-  // the beds were paused NATIVELY (AppDelegate's setAllMediaPlaybackSuspended)
-  // — and a resume that only unparks leaves them silent until the next track
-  // swap (build 17 on hardware). An element replaced while hidden is not
-  // `music` any more, so this cannot wake one that is meant to stay down.
+  // On a plain lock nothing was parked and the beds were paused natively — a
+  // resume that only unparks leaves them silent until the next track swap
+  // (build 17 on hardware). An element replaced while hidden is not `music`
+  // any more, so this cannot wake one that is meant to stay down.
   const m = music;
   if (m) void m.play().catch(() => { /* ignore */ });
+  // A mid-bay stinger the pause screen deliberately holds down stays down
+  // through an unlock over that screen — resumeMidBayStinger owns that wake.
   const s = stinger;
-  if (s) void s.play().catch(() => { /* ignore */ });
+  if (s && !stingerSuspended) void s.play().catch(() => { /* ignore */ });
+  // ONE RECHECK, because a play() fired at the wrong instant is DROPPED, not
+  // queued. Unlock is a pile of racing deliveries — the pending
+  // visibilitychange, a stale resign relay, the native did-become-active — and
+  // WKWebView swallows any play() that lands while its media playback is
+  // still natively suspended (AppDelegate lifts that suspension in
+  // applicationDidBecomeActive, which nothing guarantees has run when the
+  // first of those deliveries gets here). The device has now falsified two
+  // builds of reasoning about which delivery arrives last, so the last word
+  // goes to evidence instead: 400ms after any resume, a bed that is still
+  // paused with music on and no suspension in force is a play that was
+  // swallowed — say so in the lifecycle log and fire it again. One timer,
+  // newest resume wins; a deliberate stop nulls `music`, so this cannot
+  // restart a bed that is meant to be down.
+  if (typeof window !== "undefined") {
+    window.clearTimeout(resumeRecheck);
+    resumeRecheck = window.setTimeout(() => {
+      if (suspended || !musicOn) return;
+      const bed = music;
+      if (bed && bed.paused) {
+        logLifecycle("resume recheck: bed still paused — replaying");
+        void bed.play().catch(() => { /* ignore */ });
+      }
+    }, RESUME_RECHECK_MS);
+  }
 }
