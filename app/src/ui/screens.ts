@@ -1,6 +1,6 @@
 import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
-import { baseBayFor } from "../game/level";
+import { baseBayFor, payoutMult } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
 import type { GradeTally } from "../game/grades";
 import {
@@ -2120,17 +2120,139 @@ const BELT_ARROWS = Array.from({ length: 8 }, (_, i) => `<i style="--i:${i}"></i
  *  and the gesture is named in exactly one of them. */
 export const PAUSE_HOLD_NAME = "Pause — hold to restart the bay";
 
+/* ---------------------------------------------------------------------------
+ * THE CHAIN LADDER (R3 "Chainline") — the combo streak, drawn as a ladder to
+ * the bay's own ceiling instead of said as "Combo ×3".
+ *
+ * WHY A LADDER AND NOT A NUMBER. "×3" is a fact about the past; the thing a
+ * player is actually deciding is whether the NEXT crush is worth waiting for a
+ * cleaner shot, and the multiplier alone never quoted that. The ladder draws
+ * the rungs already earned, outlines the one the next crush lights, and prices
+ * it in dollars beside a star that is the bay's promise — a full chain. Every
+ * part of it answers "what does the next row pay", which is the question the
+ * old meta line was standing in front of.
+ *
+ * TWELVE RUNGS, and the number is a WIDTH verdict rather than a cap on the
+ * mechanic. The combo is unbounded (game.ts increments it once per crush), so a
+ * ladder that ended at the true maximum would end nowhere; twelve is what the
+ * row can draw and still have each rung read as a bar rather than a tick. On
+ * the tightest notched handset in sim/uifit's matrix — the iPhone X, whose
+ * plant panel gets 229 CSS px of content — the label, star and price quote take
+ * ~103px of the full-width row, leaving the rungs ~126px: about 7.5px each on a
+ * 6px height, with 2px between them. Thirteen would cross under the height and
+ * start reading as dots. Twelve is also comfortably past any streak a real bay
+ * produces, and a combo past it simply leaves every rung lit, which is the
+ * honest picture of "you are at the top of this".
+ * ------------------------------------------------------------------------ */
+export const CHAIN_RUNGS = 12;
+
+/** Everything the ladder is a pure function of. */
+export type ChainState = {
+  /** Crushes in the current streak (game.ts's Game.combo). */
+  combo: number;
+  /** Index into level.pileTiers of the congestion in force, or -1 for a clean
+   *  bay — the same read syncHud already makes for the congest classes. */
+  tierIdx: number;
+  /** What the capped multiplier is while congested (PileTier.payMult). Unread
+   *  on a clean bay. */
+  capMult: number;
+  /** This bay's base line payout (level.scorePerLine); 0 to quote nothing. */
+  scorePerLine: number;
+  /** The bay was finished with a perfect chain (game.ts's Game.fullChain). */
+  full: boolean;
+};
+
+/** The ladder as a bay opens: nothing crushed, nothing congested, and no price
+ *  to quote. What a caller that has no game behind it renders — see hudHTML's
+ *  `chain` option. */
+export const CHAIN_AT_REST: ChainState = {
+  combo: 0, tierIdx: -1, capMult: 1, scorePerLine: 0, full: false,
+};
+
+/**
+ * The ladder, in whatever state the caller's numbers put it.
+ *
+ * PURE, and shared by the mount render below and main.ts's syncHud, which is
+ * the whole reason it is a function: the panel's mount state has to be spelled
+ * the same way the next live patch will spell it, or that write is a mechanism
+ * change rather than a value change (the same rule the three bar fills' inline
+ * `transform:scaleX(1)` follows). syncHud rewrites the row through this same
+ * call, and only when its state actually moves — see its chainShown cache.
+ *
+ * `scorePerLine` of 0 means "this caller cannot quote a price" (a fixture
+ * measuring the row's geometry, a surface with no bay behind it), and the label
+ * goes empty rather than advertising "$0" — a price of nothing is a worse lie
+ * than no price at all.
+ */
+export function chainLadderHTML(state: ChainState): string {
+  const { combo, tierIdx, capMult, scorePerLine, full } = state;
+  const congested = tierIdx >= 0 && !full;
+  // WHAT EACH RUNG SAYS. On a full chain every rung is gold — the bay is over
+  // and the ladder is the trophy. Congested, every rung is dark behind the gate
+  // line: the streak is not merely stalled, it is CAPPED, and a half-lit ladder
+  // would read as "still going". Otherwise it is the streak itself, plus one
+  // outlined rung showing exactly which crush the price beside it is for.
+  const lit = full ? CHAIN_RUNGS : congested ? 0 : Math.min(combo, CHAIN_RUNGS);
+  const next = full || congested ? -1 : lit + 1;
+  const rungs = Array.from({ length: CHAIN_RUNGS }, (_, i) => {
+    const n = i + 1;
+    const cls = n <= lit ? " is-lit" : n === next ? " is-next" : "";
+    return `<i class="pl-chain__rung${cls}"></i>`;
+  }).join("");
+  // THE PRICE, and it is the point of the row. Clean: what the NEXT crush's
+  // line fetches, quoted through the same payoutMult the payout itself runs
+  // through, so the readout cannot drift from the till. Congested: the CEILING
+  // the tier holds the streak under, which is the congestion tax's one
+  // invisible half made visible (the other three — money, clock, reload — are
+  // all already on screen).
+  const label = full
+    ? "Full chain"
+    : scorePerLine <= 0
+      ? ""
+      : congested
+        ? `Cap $${Math.round(scorePerLine * capMult)}`
+        : `Next $${Math.round(scorePerLine * payoutMult(combo + 1, null))}`;
+  const mod = full
+    ? " pl-chain--full"
+    : congested
+      ? ` pl-chain--congest pl-chain--congest-${Math.min(tierIdx, 1)}`
+      : "";
+  return `<div class="pl-chain${mod}" id="hud-chain">
+            <span class="lbl">Chain</span>
+            <div class="pl-chain__rungs" aria-hidden="true">${rungs}<b class="pl-chain__gate"></b></div>
+            <span class="pl-chain__star" aria-hidden="true">${icon("star", 11)}</span>
+            <span class="pl-chain__val" id="hud-chain-val">${label}</span>
+          </div>`;
+}
+
 export function hudHTML(opts: {
   /** What rides the belt: the shot AFTER the muzzle's (see game.ts's
    *  Game.beltPreview). */
   beltPreview: BeltPreview;
   target: number;
   score: number;
-  /** Cost per launch this bay — shown in the plant readout together with how
-   *  many launches the current funds afford (#hud-launches, live-synced).
-   *  Deep Run only: the meta line that quotes it does not render in a
+  /** Cost per launch this bay — quoted on the stat rail's launches row, right
+   *  beside how many launches the current funds afford (#hud-launches,
+   *  live-synced). Deep Run only: the rail that quotes it does not render in a
    *  Contract, which has no bankroll to price a launch against. */
   launchCost: number;
+  /** THE CHAIN LADDER'S WHOLE STATE (chainLadderHTML), Deep Run only for the
+   *  same reason the ladder is — a Contract's clear pays no money, so there is
+   *  no streak to price.
+   *
+   *  THE LIVE STATE, not a rest state, and that is the point of passing it at
+   *  all. This panel is re-rendered wholesale mid-bay — the pause card, the
+   *  draft and the refit yard all mount it behind them, and syncHud does not
+   *  run while any of them is up — so a ladder that always mounted empty would
+   *  wipe a nine-crush streak the moment a player pressed ⏸, and would replace
+   *  the gold full-chain with a blank row on the bay-clear card that is
+   *  supposed to be celebrating it. The mount has to be spelled the way the
+   *  next live patch will spell it; here that means BEING it.
+   *
+   *  Optional, like `seal` and `slots` above it: a caller with no game behind
+   *  it (a fixture measuring the row at rest) gets CHAIN_AT_REST, which draws
+   *  an empty ladder and quotes no price — "$0" is a worse lie than silence. */
+  chain?: ChainState;
   bayNum: number;
   timeLimitSec: number;
   timeLeftMs: number;
@@ -2351,9 +2473,25 @@ export function hudHTML(opts: {
     funds: !contract,
     clock: timeLimitSec > 0,
   });
+  // THE CLOCK, IN TWO SHAPES, because the readout it sits in is now two
+  // different readouts. A Contract keeps the stacked label-over-value column
+  // it always had, beside Lines/Goal and the supply count; a Deep Run's clock
+  // is one row of the vertical STAT RAIL (an icon and a figure) that replaced
+  // that block. Same id, same danger class, same dial-collapse hook in both —
+  // main.ts and collapsingDial cannot tell them apart, and must not have to.
+  //
+  // `pl-time` before `dial-collapse` in both class lists, deliberately:
+  // sim/systems.ts anchors the collapse hook on the readout's OWN class so the
+  // cue can never be proved against the wrong column, and it reads them in
+  // that order.
+  const timeCollapse = collapse === "time" ? " dial-collapse" : "";
   const timeBlock =
     timeLimitSec > 0
-      ? `<div class="pl-stat pl-time${collapse === "time" ? " dial-collapse" : ""}" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
+      ? `<div class="pl-stat pl-time${timeCollapse}" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
+      : "";
+  const timeRow =
+    timeLimitSec > 0
+      ? `<div class="pl-stat pl-stat--rail pl-time${timeCollapse}" id="hud-time-chip">${icon("clock", 12)}<span class="v" id="hud-time">${formatMMSS(timeLeftMs)}</span></div>`
       : "";
   // ABILITIES (Bond Breaker, Demolition Charges) each get TWO triggers on
   // screen at once when drafted — a chip in the plant's ability row and a
@@ -2620,6 +2758,23 @@ export function hudHTML(opts: {
              decorative rivets that were the title's counterweight — was the
              row's whole remaining content, and a row of three dots is not a
              readout. Every row left in the panel is a live number. -->
+        <!-- THE READOUT, and it is TWO readouts sharing one row class.
+
+             A CONTRACT keeps the three-column shape the panel has always had:
+             Lines/Goal taking the leftover width, then equal fixed columns for
+             the supply count and (on a lines bay) Lost, each a label stacked
+             over its value.
+
+             A DEEP RUN is the R3 "Chainline" redesign. The left column is the
+             funds block plus the CHAIN LADDER (chainLadderHTML above); the
+             right is a vertical STAT RAIL — launches with the shot's live
+             price, the clock, scrap — three icon-and-figure rows behind a
+             hairline. The two shapes exist because the two bays are answering
+             different questions: a Contract is counting DOWN a supply against
+             a line goal, where a column heading per number is the clearest
+             thing on the panel, while a Deep Run is running an ECONOMY, where
+             the rail's job is to stay out of the way of the two things that
+             actually move a decision — the money and the streak. -->
         <div class="pl-read">
           ${
             contract
@@ -2636,19 +2791,63 @@ export function hudHTML(opts: {
             contract.kind === "lines"
               ? `<div class="pl-stat pl-lost"><div class="lbl">Lost</div><div class="v" id="hud-lost">${contract.lost}</div></div>`
               : ""
-          }`
+          }
+          ${timeBlock}`
               : `<div class="pl-funds${collapse === "funds" ? " dial-collapse" : ""}">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>
-          <div class="pl-stat pl-launches" id="hud-launches-chip">
-            <div class="lbl">Launches</div>
-            <div class="v" id="hud-launches">${launches}</div>
+          <div class="pl-rail">
+            <!-- THE SHOT'S PRICE rides the launches figure rather than owning a
+                 row, and it is the one line of the old meta row that had to
+                 survive it: congestion re-prices a launch WHILE the bay runs
+                 (level.ts's PILE_TIERS), and a surcharge a player only infers
+                 from a faster-falling bankroll teaches nothing. "@ $24" beside
+                 "22" also states the arithmetic between them — this many shots,
+                 at this price — which two separate readouts never did.
+
+                 It keeps id="hud-launch" and the warn/danger escalation the
+                 meta line's span carried, in the same amber and red, in the
+                 same order, as the rows lighting the bay floor beneath it
+                 (render.ts's drawCongestionRows). -->
+            <div class="pl-stat pl-stat--rail pl-launches" id="hud-launches-chip">
+              ${icon("crosshair", 12)}<span class="v" id="hud-launches">${launches}</span><span class="pl-stat__quote" id="hud-launch">@ $${launchCost}</span>
+            </div>
+            ${timeRow}
+            <!-- SCRAP takes the currency's own glyph (icons.ts's "scrap"), not
+                 a second drawing of the same pocket: the yard and the workshop
+                 already price things in it, and a currency with two faces is
+                 the confusion that set exists to have fixed. -->
+            <div class="pl-stat pl-stat--rail pl-scrap">${icon("scrap", 12)}<span class="v" id="hud-scrap">0</span></div>
           </div>`
           }
-          ${timeBlock}
         </div>
+        ${
+          // THE CHAIN LADDER, on its own row spanning the panel rather than
+          // inside the funds column the mock drew it in — and the reason is a
+          // measurement, not a preference.
+          //
+          // The mock is 500px wide. The narrowest NOTCHED panel this app ships
+          // to (iPhone X, 812x375 with 44px insets either side) gives the plant
+          // 229px of content, and the readout spends most of that on the funds
+          // figure and the stat rail beside it. Inside the funds column the row
+          // has ~148px to hold a pixel label, a star, a "Next $1080" quote —
+          // all three unbreakable — and twelve rungs, which leaves the rungs
+          // 45px: under 4px each, TALLER than they are wide. That is a run of
+          // tick marks, which is the dot-counter this readout exists to
+          // replace. Full width the same row hands the rungs ~126px, so each
+          // is about 7.5px on a 6px height and the ladder reads as a ladder at
+          // roughly the proportions the mock actually drew.
+          //
+          // It still lands directly UNDER the goal bar on screen: `.pl-read` is
+          // `align-items: flex-end` and the goal bar is the last thing in the
+          // funds column, so the two are adjacent exactly as designed — the row
+          // simply runs on under the rail as well, which is also the honest
+          // picture (the streak prices every line, not just the ones the funds
+          // column happens to be over).
+          contract ? "" : chainLadderHTML(opts.chain ?? CHAIN_AT_REST)
+        }
         <!-- Reload: fills as the launch cooldown runs down (see
              cannon.reloadRatio). Goes .ready the instant the cannon can fire
              again, which is the only state change that matters here.
@@ -2663,30 +2862,41 @@ export function hudHTML(opts: {
              it has to be spelled the same way syncHud will spell it or the
              first write would be a mechanism change rather than a value
              change. -->
-        <div class="pl-load" id="hud-load-row">
+        ${
+          // Reload — a CONTRACT's row now, and only a Contract's.
+          //
+          // "What a Contract keeps is the reload bar and its modifiers" was
+          // already the doctrine when the meta line went; this finishes the
+          // sentence from the other end. render.ts's drawReloadRing
+          // (render.ts:588) draws the SAME value as a ring around the muzzle,
+          // and the two views were justified as "the ring is what you read
+          // mid-aim with your eyes on the cannon, this is what you catch in
+          // peripheral vision while looking at the pile". That argument holds
+          // for a Contract, whose panel is otherwise four quiet rows. It does
+          // not hold for the R3 readout above: the chain ladder and the stat
+          // rail are what peripheral vision is now spending itself on, and a
+          // duplicate of a number already drawn on the cannon is the cheapest
+          // row on the panel to give them.
+          //
+          // A Contract has no ladder to lose it to — no bankroll, no payout,
+          // no streak worth money — so nothing there is competing for the
+          // glance, and the bar keeps its .ready flip, its will-change
+          // promotion and its inline mount state unchanged.
+          contract
+            ? `<div class="pl-load" id="hud-load-row">
           <span class="lbl">Reload</span>
           <div class="pl-load__track"><i id="hud-load" style="transform:scaleX(1)"></i></div>
-        </div>
-        ${
-          // COMBO / LAUNCH COST / SCRAP — the small meta line, and Deep Run
-          // only. Every number on it is an economy number, and a Contract has
-          // no economy: no bankroll to price a launch against, no salvage
-          // payout, and a combo multiplier that multiplies a score nothing
-          // reads. The row used to render here regardless and the removal was
-          // half-done — a PATTERN contract dropped the launch quote and kept
-          // "Combo ×0 · Scrap 0" for the whole bay, a LINES contract kept all
-          // three — which is three permanent zeroes on the one panel the
-          // player checks mid-shot. What a Contract keeps is the reload bar
-          // and its modifiers; the rest is Deep Run furniture.
-          contract
-            ? ""
-            : `<div class="pl-meta">
-          <span>Combo <b id="hud-combo">×0</b></span>
-          <span class="pl-meta__sep">·</span><span class="pl-meta__launch" id="hud-launch">Launch $${launchCost}</span>
-          <span class="pl-meta__sep">·</span>
-          <span>Scrap <b id="hud-scrap">0</b></span>
         </div>`
+            : ""
         }
+        <!-- NO META LINE. .pl-meta was "Combo ×0 · Launch $20 · Scrap 0",
+             Deep Run only, and every one of its three numbers is now somewhere
+             it can be read without being parsed: the combo is the chain ladder
+             above, the launch price is the quote riding the launches figure on
+             the rail, and scrap is a rail row wearing the currency's own glyph.
+             A row of three labelled figures in 8px pixel type, on the panel a
+             player checks mid-shot, was the least legible way to say any of
+             them. -->
         ${
           // The remaining manifest gets its OWN row rather than riding the
           // meta line: the tally is the widest thing the plant can hold (six

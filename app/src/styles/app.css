@@ -4134,17 +4134,55 @@ body.crt-off #app::after { display: none; }
    own border, hard shadow and gradient, which are all still here. */
 
 /* ---------- Plant readout: information hierarchy ----------
-   Three columns, weighted by how much each number changes the next decision:
-   the funds/target block takes all the leftover width (tier 1), launches-left
-   and time are equal fixed columns beside it (tier 2), and the reload bar +
-   meta line sit under them (tiers 4 and 5). See screens.ts's hudHTML for the
-   full rationale. */
+   TWO SHAPES, one row class, because the panel serves two bays that are asking
+   different questions (see screens.ts's hudHTML for the markup):
+
+   A CONTRACT is the shape this section was written for. Three columns weighted
+   by how much each number changes the next decision: Lines/Goal takes all the
+   leftover width (tier 1), the supply count and Lost/Time are equal fixed
+   columns beside it (tier 2), and the reload bar sits under them.
+
+   A DEEP RUN is the R3 "Chainline" readout. The left column keeps Funds/Target
+   and its goal bar and gains the CHAIN LADDER under it; the right is a vertical
+   STAT RAIL behind a hairline — launches with the shot's live price, the clock,
+   scrap — three icon-and-figure rows instead of three stacked label columns.
+   The reload bar and the meta line are both gone from it: the ring on the
+   muzzle already draws the reload (render.ts's drawReloadRing) and the meta
+   line's three numbers each moved somewhere they can be read rather than
+   parsed.
+
+   WHY THE RAIL IS VERTICAL. The Deep Run readout carries THREE tier-2 numbers
+   where a Contract carries two, and as stacked columns they cost the funds
+   figure two gaps and two labels' worth of width — on the 360dp phones this
+   panel is measured against, "$1259 / 1700" has essentially no horizontal
+   slack to give (see .pl-funds .v below). Rotated, the three rows cost ONE
+   gap and no labels at all, because a 10px glyph says "launches"/"time"/
+   "scrap" in the width of half a character. */
 /* flex-wrap is the last-resort fallback: if a viewport is so narrow that the
    three columns genuinely cannot share a row, the stat columns drop to a second
    row — which the auto-height panel above can now absorb — rather than
    squeezing the funds figure until it wraps. */
 .pl-read { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: max(4px, calc(12 * var(--fpx))); }
 .pl-funds { flex: 1 1 auto; min-width: 0; }
+/* FLEX-BASIS 0 ON THE DEEP RUN BLOCK, and it is what keeps the stat rail beside
+   the funds figure instead of under it.
+   `flex-wrap` collects items into lines using each one's HYPOTHETICAL main size
+   — its max-content width, before any shrinking — so `min-width: 0` does not
+   help here at all: it lets an item shrink once it is ON a line, not before the
+   line is chosen. With `flex-basis: auto` the funds block's hypothetical size is
+   its widest child laid out unbroken, and the R3 readout gave it two more of
+   those (the chain row's pixel label and its "Next $1080" quote are both
+   `nowrap`, on top of the funds figure that always was). On the iPhone X —
+   229px of panel content, the narrowest NOTCHED box in the matrix — that
+   crossed the line width and threw the rail onto a second row — 169px of panel
+   against a 123px design box, with the ladder's rungs squeezed into a funds
+   column that had just been handed the whole width for nothing. Basis 0 makes
+   the funds block ask for nothing and take the leftover, which is what "tier 1
+   gets the remaining width" meant all along.
+   Deep Run only: a Contract's three columns are all `auto` and sized against
+   each other, and dropping this in there would re-solve a split that is
+   measured and passing. */
+.hud:not(.hud--contract) .pl-funds { flex-basis: 0; }
 .pl-funds .lbl { font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 /* The tier-2 columns are sized by their LABEL at phone scale, not their value
    ("LAUNCHES" is 8 pixel-font glyphs; "22" is two mono digits) — and the pixel
@@ -4267,6 +4305,233 @@ body.crt-off #app::after { display: none; }
   .pl-funds.pl-stat--danger .pl-goal i { animation: none; }
 }
 
+/* ---------- THE STAT RAIL (Deep Run only) ----------
+   The same three `.pl-stat` blocks, stood on end. They keep that class — and
+   with it `.pl-time`, `.pl-launches`, `.pl-stat--danger` and the dial-collapse
+   hook — because every one of those is a STATE the rest of the app writes onto
+   this readout, and a redesign that renamed them would have quietly detached
+   the urgency pulse, the loss crunch and the tutorial's reveal from the column
+   they describe. `--rail` changes the SHAPE and nothing else.
+
+   The three below are therefore overrides of the column rules above, stated
+   once each: the stacked column's right alignment, its left gutter and the
+   hairline that separated two side-by-side columns all belong to a horizontal
+   row of columns and none of them mean anything in a vertical stack. The
+   hairline moves to the rail itself, where it does the same job it always did
+   — telling the eye that what is to its right is a different reading from the
+   funds figure — with one line instead of two. */
+.pl-rail {
+  flex: none;
+  display: flex; flex-direction: column; justify-content: center;
+  gap: max(2px, calc(6 * var(--fpx)));
+  padding-left: max(7px, calc(13 * var(--fpx)));
+  border-left: 1px solid var(--line);
+}
+.pl-rail .pl-stat { text-align: left; padding-left: 0; }
+.pl-rail .pl-stat + .pl-stat { margin-left: 0; border-left: 0; }
+.pl-stat--rail {
+  display: flex; align-items: center; gap: max(3px, calc(6 * var(--fpx)));
+  color: var(--text-muted);
+}
+/* THE GLYPH IS THE LABEL. `.pl-stat .lbl`'s pixel type stops shrinking at its
+   6px floor while the panel keeps shrinking (see that rule's own note), which
+   is exactly what made three labelled columns unaffordable here; a mark drawn
+   on a 16-unit grid has no such floor. `flex: none` is already on `.ico`, so a
+   four-digit figure can never squeeze it out of square.
+
+   SIZED IN CSS rather than by the `icon(name, px)` call site, because on this
+   row the glyph is a LAYOUT DIMENSION and not a decoration: three rail rows
+   stacked set `.pl-read`'s height (see the value rule below), so an icon that
+   did not shrink with the panel would be the floor those rows could not go
+   under. A CSS `width`/`height` beats the SVG presentation attributes the
+   helper writes, which is what lets every other call site keep stating its own
+   size. */
+.pl-stat--rail .ico {
+  color: var(--text-muted);
+  width: max(10px, calc(13 * var(--fpx)));
+  height: max(10px, calc(13 * var(--fpx)));
+}
+/* No `margin-top: 3px` — that nudge separates a stacked label from the value
+   under it, and there is no label above this one.
+
+   SMALLER THAN `.pl-stat .v`'s max(15px, 30 --fpx), and the four pixels are
+   bought rather than saved by taste. `.pl-read` is `align-items: flex-end`, so
+   the row's height is whichever of its two children is taller — and stacked,
+   the rail is the taller one: three rows of it against a label, a figure and a
+   bar. At `.pl-stat`'s own sizes the rail stood proud of the funds column by
+   most of a row, which is panel height spent on nothing, and this panel's box
+   is a measured fit: on the iPhone 13 mini, the tightest box in sim/uifit's
+   matrix, it came to 120.5px against a 116px design box. Bringing the rail's
+   figures and glyphs down until the three rows sit level with the funds column
+   put it at 116.4px. The figures lose nothing they need — still half again the
+   size of the price quote beside them, and nearly twice the 6px pixel type this
+   readout replaced. */
+.pl-stat--rail .v { margin-top: 0; font-size: max(11px, calc(22 * var(--fpx))); }
+.pl-stat--rail.pl-stat--danger .ico { color: var(--danger); }
+/* Scrap is the one figure here that is never urgent and never a countdown — it
+   is money already earned — so it wears the currency's own yellow rather than
+   the readout white the two live counters share. */
+.pl-scrap .v { color: var(--piece-o); }
+
+/* THE SHOT'S PRICE, riding the launches figure. Smaller and quieter than the
+   count it qualifies, because it is the second half of one reading ("22 shots,
+   at $24 each") rather than a fourth number on the rail.
+
+   The two congestion states are what the old meta line's `.pl-meta__launch--*`
+   pair carried, kept whole: the plant quotes the CONGESTED price (main.ts feeds
+   it launchCostNow), and a number that silently went from $25 to $38 reads as a
+   misprint rather than as a rule. Same amber and red, in the same order, as the
+   rows lighting the bay floor beneath them (render.ts's drawCongestionRows), so
+   a player watching either one sees the price move for a reason they can point
+   at. Glow rather than colour alone: this is small type over brightly coloured
+   cargo, where a hue change on four characters is easy to miss. */
+.pl-stat__quote {
+  font-family: var(--font-mono); font-weight: 700;
+  font-size: max(8px, calc(13 * var(--fpx)));
+  color: var(--text-faint); white-space: nowrap;
+}
+.pl-stat__quote--warn {
+  color: var(--warn);
+  text-shadow: 0 0 6px rgba(255, 176, 32, 0.85);
+}
+.pl-stat__quote--danger {
+  color: var(--danger);
+  text-shadow: 0 0 6px rgba(255, 45, 85, 0.9);
+}
+
+/* ---------- THE CHAIN LADDER (screens.ts's chainLadderHTML) ----------
+   The combo streak as twelve rungs, an end-of-ladder star and a price, on the
+   panel row directly under the goal bar. Under it deliberately: what the ladder
+   quotes is what the next crush pays, which is the same money the bar above it
+   is filling toward — two readings of one economy, stacked. It takes the FULL
+   panel width rather than the funds column the mock drew it in, and screens.ts
+   carries the measurement that forced that (twelve rungs in the funds column
+   come out under 4px each on the tightest notched handset, which is a row of
+   tick marks rather than a ladder).
+
+   THE RUNGS TAKE THE GOAL BAR'S OWN GRADIENT — cyan into violet, left to right
+   across the whole run of them — so a lit chain reads as the same substance as
+   a filling bar rather than as a second, unrelated indicator. Each rung carries
+   its slice of it via `background-attachment`-free means: the gradient is
+   painted per rung at the same two stops, which at this size (a ~7.5px rung on
+   a phone) is indistinguishable from one gradient across the row and costs no
+   positioning arithmetic that a change to CHAIN_RUNGS would then have to
+   chase. */
+/* NO margin-top: this is a row of `.plant__body`, which is a flex column
+   carrying the panel's one row-gap rhythm — see the "one rhythm" note under
+   `.pl-notch b` for what the per-row nudges cost and why they all went. */
+.pl-chain {
+  display: flex; align-items: center;
+  gap: max(4px, calc(8 * var(--fpx)));
+  min-width: 0;
+}
+/* `line-height: 1` on both pixel-type ends of this row, and it is a HEIGHT
+   decision rather than a typographic one. Press Start 2P's default leading adds
+   ~40% of its own size above and below a 5px glyph, which on a row whose whole
+   job is to be one thin ladder is three wasted pixels — and the plant panel's
+   height is a measured fit on the tightest handset in sim/uifit's matrix, where
+   three pixels is the difference between fitting and not. Nothing is clipped:
+   the pixel face has no descenders and the row centres what it holds. */
+.pl-chain .lbl {
+  flex: none; line-height: 1;
+  font-family: var(--font-pixel); font-size: max(5px, calc(8 * var(--fpx)));
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+}
+/* `position: relative` for the gate line only — see .pl-chain__gate. */
+.pl-chain__rungs {
+  position: relative;
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center;
+  gap: max(2px, calc(4 * var(--fpx)));
+  height: max(6px, calc(11 * var(--fpx)));
+}
+/* 1px, not `--r-pill`'s 3px. That token is sized for buttons and meter tracks,
+   and on a rung this narrow — twelve of them share what the label, star and
+   price leave of the row, about 7.5px each on a phone — a 3px radius on both
+   ends is a circle. Twelve circles read as a dot counter, which is the readout
+   this replaced. A 1px chamfer keeps the run reading as bars at every width and
+   is the steppier shape the pixel design system asks for anyway. */
+.pl-chain__rung {
+  flex: 1 1 0; min-width: 0; height: 100%;
+  border-radius: 1px;
+  background: var(--surface-3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pl-chain__rung.is-lit {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+}
+/* THE PROMISE. One outlined rung, and only one: it is the crush the price
+   beside it is quoting, so a second outlined rung would be quoting a number
+   that is not on screen. Outline rather than a dim fill, because the rung is
+   not half-earned — it is empty, and the ring is where it will land. */
+.pl-chain__rung.is-next { border-color: var(--accent); }
+/* THE GATE. Congestion does not stall the chain, it CAPS it (level.ts's
+   PileTier.payMult), and a ladder that merely went dark would read as "stalled,
+   keep going". The line is the lid: everything to the right of it is out of
+   reach until the bay is tidied. Near the left edge rather than at the cap's
+   proportional height on purpose — payMult is a ceiling on the MULTIPLIER, not
+   a rung count, so there is no honest rung to draw it at, and the one true
+   thing to say is "not past here". */
+.pl-chain__gate {
+  display: none;
+  position: absolute; left: 2%; top: -3px; bottom: -3px; width: 2px;
+  background: var(--warn);
+  box-shadow: 0 0 6px rgba(255, 176, 32, 0.8);
+}
+.pl-chain--congest .pl-chain__gate { display: block; }
+.pl-chain--congest-1 .pl-chain__gate {
+  background: var(--danger);
+  box-shadow: 0 0 6px rgba(255, 45, 85, 0.8);
+}
+.pl-chain--congest .lbl,
+.pl-chain--congest .pl-chain__val { color: var(--warn); }
+.pl-chain--congest-1 .lbl,
+.pl-chain--congest-1 .pl-chain__val { color: var(--danger); }
+/* THE STAR is the bay's promise: a full chain. It is `icons.ts`'s one star
+   glyph in both states, told apart by COLOUR rather than by an outline/fill
+   pair — at the size this draws (9px on a phone), an outlined star on the
+   16-unit grid at the set's 1.8 stroke has about two units of interior left,
+   which is a blur rather than a shape. Dim-to-gold is the same state change,
+   and it is legible at half the size.
+   Congested it goes darker still: no full chain is possible this bay, and the
+   promise saying so is the honest reading. */
+.pl-chain__star { flex: none; display: inline-flex; color: var(--text-faint); }
+/* Sized in CSS for the reason the rail's glyphs are: this row holds nothing
+   taller than the star, so the star IS the row's height, and a fixed size would
+   be the one thing in the panel that never shrank with it. It floors at 9px,
+   which still reads as a star at a glance — it is a silhouette, not a legend. */
+.pl-chain__star .ico {
+  width: max(9px, calc(13 * var(--fpx)));
+  height: max(9px, calc(13 * var(--fpx)));
+}
+.pl-chain--congest .pl-chain__star { color: var(--surface-3); }
+.pl-chain__val {
+  flex: none; line-height: 1;
+  font-family: var(--font-pixel); font-size: max(5px, calc(8 * var(--fpx)));
+  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+  color: var(--accent);
+}
+/* FULL CHAIN — the bay finished with every crush in one streak (game.ts's
+   fullChain latch). Gold end to end: rungs, star and label together, because
+   the achievement is the WHOLE ladder and lighting one part of it would read as
+   another state rather than as the state.
+
+   The funds figure deliberately stays cyan, where the mock turned it gold. It
+   already has a gold state that means something else — `.pl-funds .v .tgt` is
+   goal-yellow, and a met target is the thing that just happened — so a gold
+   figure beside a gold target would be two different facts wearing one colour
+   at the exact moment they are both true. */
+.pl-chain--full .pl-chain__rung {
+  background: linear-gradient(90deg, var(--piece-o), var(--warn));
+  border-color: transparent;
+  box-shadow: 0 0 7px rgba(255, 229, 0, 0.6);
+}
+.pl-chain--full .lbl,
+.pl-chain--full .pl-chain__val,
+.pl-chain--full .pl-chain__star { color: var(--piece-o); }
+
 /* ---------- THE DIAL COLLAPSE (screens.ts's collapsingDial) ----------
    The dial that emptied, crunched flat the moment the bay is lost. The danger
    class above is the WARNING — a pulse that says "this is about to run
@@ -4316,6 +4581,20 @@ body.crt-off #app::after { display: none; }
   animation: dial-collapse var(--dial-collapse) cubic-bezier(0.5, 0, 0.3, 1) both;
 }
 .pl-stat.dial-collapse .v { transform-origin: 100% 100%; }
+/* …and back to the left edge on the STAT RAIL, where the clock is no longer a
+   right-aligned column: it is an icon with its figure beside it, so the
+   figure's own text edge — the edge the crush has to spread inward from, per
+   the note above — is the left one again. Stated here rather than in the rail
+   section because it is a fact about the COLLAPSE, and the rule it is
+   correcting is the line above it. */
+.pl-stat--rail.dial-collapse .v { transform-origin: 0% 100%; }
+/* …and the GLYPH takes the red the label would have, because on the rail the
+   glyph IS the label (see the stat rail section). Without this the clock mark
+   would sit there in muted grey beside a crushed red figure — half a readout
+   going over, which is the exact fault `.dial-collapse .v .tgt` fixes on the
+   funds column. Colour only: nothing here animates, so the keyframes' no-layout
+   contract is untouched. */
+.pl-stat--rail.dial-collapse .ico { color: var(--danger); }
 /* The target half of the Funds reading carries its own goal-yellow (see
    `.pl-funds .v .tgt`), which would have sat there unchanged while the figure
    beside it drained — half a readout going over. `inherit` hands it the
@@ -4400,29 +4679,16 @@ body.crt-off #app::after { display: none; }
 .pl-load.ready .lbl { color: var(--accent); }
 .pl-load.ready .pl-load__track i { background: var(--accent); box-shadow: var(--glow-accent); }
 
-/* margin-top: 4px gone with .pl-load's — same note, same reason. */
-.pl-meta { display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.pl-meta b { color: var(--piece-o); font-weight: 700; }
-.pl-meta__sep { color: var(--text-faint); }
-/* The Launch price under congestion (level.ts's PILE_TIERS). The plant already
-   quotes the CONGESTED price — main.ts feeds it launchCostNow — but a number
-   that silently went from $25 to $38 reads as a misprint rather than a rule.
-   These two states say the increase is being applied, in the same amber and
-   red, in the same order, as the rows lighting the bay floor beneath them
-   (render.ts's drawCongestionRows). A player watching either one sees the
-   price move for a reason they can point at.
-
-   Glow rather than colour alone: this line is 8px pixel type at compact
-   density, where a hue change on four characters is easy to miss against
-   cargo that is itself brightly coloured. */
-.pl-meta__launch--warn {
-  color: var(--warn);
-  text-shadow: 0 0 6px rgba(255, 176, 32, 0.85);
-}
-.pl-meta__launch--danger {
-  color: var(--danger);
-  text-shadow: 0 0 6px rgba(255, 45, 85, 0.9);
-}
+/* NO `.pl-meta` RULES. The meta line — "Combo ×0 · Launch $20 · Scrap 0",
+   Deep Run only — is gone with the row (screens.ts's hudHTML). Its three
+   numbers each moved somewhere legible: the combo is the chain ladder above,
+   the launch price is `.pl-stat__quote` on the rail's launches row (which
+   inherited both congestion states whole), and scrap is a rail row wearing the
+   currency's own glyph. What went with the row is a wrap risk the harness had
+   to be taught to see — sim/uifit's SINGLE_LINE list exists because this line
+   wrapped inside the plant's grid and grew the row 8px -> 20px with nothing in
+   CI having an opinion. The list now guards `.pl-chain`, which is one row for
+   the same reason and can fail the same way. */
 
 /* Three rows share one shell — label on the left in pixel type, mono value on
    the right, `align-items: baseline` lining the row up on an edge (see the
@@ -4993,11 +5259,11 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .plant__body {
   gap: max(2px, calc(6 * var(--fpx)));
 }
-/* flex-start, not flex-end: on its own full-width row the line has room to
-   spare, and every other row in this panel starts at the same left edge.
-   (The grid-area assignments that used to sit around this rule went with the
-   grid above.) */
-[data-density="compact"] .pl-meta { justify-content: flex-start; align-items: center; }
+/* The `[data-density="compact"] .pl-meta { justify-content: flex-start }` rule
+   that sat here went with the meta row itself. Nothing replaces it: the chain
+   ladder that took over the combo reading is a flex row whose RUNGS are the
+   flexible item, so it fills whatever width it is given at every density and
+   has no leftover to distribute. */
 /* The `[data-density="compact"] .hud--contract .plant__body { display: flex }`
    opt-out is gone WITH the grid it opted out of: Deep Run and Contract now
    run the same flex column at every density, which is what the Contract rule
@@ -8922,19 +9188,20 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Progressive stat reveal (tutorial only) ----------
-   The plant panel is eight stacked readouts — PWR, Funds/Target, the goal
-   bar, Launches, Time, Reload, Combo/Launch-cost/Scrap, Build. All of it
-   lands on a first-time player at once, before a single piece has been fired,
-   which is the "overwhelming" half of the same playtest complaint that moved
-   the coach off the field.
+   The plant panel is seven stacked readouts — PWR, Funds/Target, the goal
+   bar, the chain ladder, the stat rail's three rows (Launches with the shot's
+   price, Time, Scrap), Notches, Build. All of it lands on a first-time player
+   at once, before a single piece has been fired, which is the "overwhelming"
+   half of the same playtest complaint that moved the coach off the field.
 
    So during the tutorial each block waits for the step that teaches it
    (the four-step deck: fire, rotate, row, resources — see coachSteps):
      step 0 (Aim & fire) → PWR is already visible: power is part of the one
                            drag gesture this step teaches, and PWR is the
                            number that moves while the player pulls
-     step 1 (Rotate)     → Reload, Launches — the first shot just spent one
-     tutorial over       → Funds/Target, Time, the meta row, Notches, Build
+     step 1 (Rotate)     → Launches — the first shot just spent one
+     tutorial over       → Funds/Target (and the chain ladder inside it), the
+                           shot's price, Time, Scrap, Notches, Build
    The notch line is on that last list for two reasons, not one: a first bay
    has no ratchets to show (they are drafted between bays), and the ~9px it
    costs comes straight out of the coach card's body, which is written to a
@@ -8946,56 +9213,56 @@ button.panel { color: var(--text); }
    WHY THE ECONOMY TIER WAITS FOR DISMISSAL, measured rather than chosen. The
    card now shares the panel's column with the readout, so every block it
    reveals lengthens the panel, and the panel is bottom-anchored — it grows
-   UPWARD, into the field. Revealing Funds and Time/meta on their teaching
-   steps took the panel to 226px tall with its top edge at y=124 of a 360px
+   UPWARD, into the field. Revealing Funds and the economy rows beside it on
+   their teaching steps took the panel to 226px tall with its top edge at y=124 of a 360px
    viewport, which buried the cannon (screen y≈144) and its PWR cap under the
    readout the step had just introduced. The budget is unforgiving: keeping
    the panel clear of the cannon leaves ~179px, and the economy blocks alone
    want ~121px of it against a final card that is 127px on its own.
    So the tutorial reveals only what is cheap in height — PWR rides above the
-   panel and costs nothing, Reload and Launches are 6px and 24px — and hands
-   over the economy when the card leaves and its space comes back. The final
-   card carries the actual figures in its own copy ("each launch costs $X, each
-   row pays $Y, reach $Z"), so nothing it teaches depends on the readout being
-   visible behind it, and Skip reveals everything at once.
+   panel and costs nothing, Launches is one stat-rail row — and hands over the
+   economy when the card leaves and its space comes back. (Reload used to be
+   revealed with it, at 6px; that row is a Contract's now, so a tutorial bay —
+   which is a Deep Run — renders none at all, and the budget above is 6px
+   better off than the measurement it was written from.) The final card carries
+   the actual figures in its own copy ("each launch costs $X, each row pays $Y,
+   reach $Z"), so nothing it teaches depends on the readout being visible behind
+   it, and Skip reveals everything at once.
 
    These are HIDE rules only, never `display: <value>` reveals — the blocks
    here are variously flex/block/grid, and stating a display value to un-hide
    them would silently pin the wrong one. A block is visible exactly when no
    rule below selects it. */
-.hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
-.hud[data-coach] :is(.pl-funds, .pl-time, .pl-notch, .pl-meta, .pl-mods) { display: none; }
+.hud[data-coach="0"] .pl-launches { display: none; }
+/* `.pl-load` left this list with the row: a tutorial bay is a Deep Run, and a
+   Deep Run renders no reload row at all now. A selector that can never match is
+   not a safety net, it is a claim about the markup that has stopped being true.
+   `.pl-meta` left it the same way. `.pl-chain`, `.pl-scrap` and the shot's
+   price quote are new here for the reason the whole economy tier is: they are
+   money, and money waits for the final card. The ladder is the most economic
+   of the three — it quotes a price in dollars — and it is also the row a
+   first-timer has nothing to read yet, having crushed nothing. */
+.hud[data-coach] :is(.pl-funds, .pl-chain, .pl-time, .pl-scrap, .pl-notch, .pl-mods) { display: none; }
+.hud[data-coach] .pl-stat__quote { display: none; }
 
 /* One consequence of that hide list, which has to be styled rather than left
-   to fall out: with Funds and Time gone, Launches is the only thing left in
-   the readout, and `.pl-stat` is built for neither of the jobs it now has.
-   It is a narrow RIGHT-hand column beside the funds block — `text-align:
-   right` plus a left gutter, label STACKED over value, because vertical is
-   the only way a column that narrow fits its own heading. Alone it inherited
-   all of that: the label sat 6px in from the panel's content edge, the number
-   was right-aligned under the label's last glyph, and the two sat on separate
-   lines. Directly above RELOAD, which is a label with its content beside it,
-   that reads as a figure pushed onto a line of its own and left hanging.
-   So during the tutorial it becomes what it actually is here — one full-width
-   ROW: same flex, same gap and same left edge as `.pl-load` below it, label
-   and number sharing a baseline. The stacked column is right in the full
-   readout and returns with it the moment the coach is gone. */
-.hud[data-coach] .pl-launches { text-align: left; padding-left: 0; }
-/* The row is made by turning the two CHILDREN inline, deliberately, rather
-   than by making `.pl-launches` a flex container. `display: flex` here would
-   be a display value on a block the reveal above HIDES at step 0 — same
-   specificity as that rule (0,3,0) and later in the file, so it won wins and
-   Launches appeared on the aim-and-fire card, one step before the shot that
-   is supposed to introduce it. That is the exact trap the "HIDE rules only,
-   never display reveals" note above is warning about, and it costs a step of
-   the tutorial's pacing to fall into.
-   Inline children have no such reach: while `.pl-launches` is `display: none`
-   nothing inside it lays out at all, whatever display it is given. They also
-   share a baseline for free, and an inline box ignores the stacked layout's
-   `margin-top: 3px` without needing it reset. */
-.hud[data-coach] .pl-launches .lbl,
-.hud[data-coach] .pl-launches .v { display: inline; }
-.hud[data-coach] .pl-launches .v { margin-left: max(2px, calc(6 * var(--fpx))); }
+   to fall out: with Funds, Time and Scrap gone, Launches is the only thing left
+   in the readout — one row, alone, inside a rail whose hairline exists to
+   separate it from a funds block that is not on screen. A rule with nothing on
+   its left reads as a stray line down the middle of the panel, so the rail
+   flattens to a plain full-width row for the length of the tutorial and comes
+   back the moment the coach is gone.
+
+   This is a rule about the RAIL, not about `.pl-launches`, which is the change
+   from what stood here before. The old pair of rules had to manufacture a
+   full-width label-beside-value row out of a stacked right-aligned column —
+   and had to do it by turning the CHILDREN inline, because a `display` value on
+   `.pl-launches` itself would have won over the step-0 hide above (same (0,3,0)
+   specificity, later in the file) and put Launches on the aim-and-fire card a
+   step early. The rail row already IS what those rules were manufacturing: an
+   icon and a figure, on one line, at the panel's own left edge. So the trap is
+   avoided by not needing the rule at all. */
+.hud[data-coach] .pl-rail { border-left: 0; padding-left: 0; }
 
 /* ---------- Game-over "why" ----------
    The plain-language cause + one concrete adjustment, between the headline

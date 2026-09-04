@@ -206,6 +206,7 @@ import {
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
   menuScreen, menuPlaySub, salvageHTML,
   collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
+  chainLadderHTML, CHAIN_RUNGS, CHAIN_AT_REST,
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
@@ -4260,6 +4261,190 @@ section("Tier milestones pay the salvage (meta.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("The full chain (game.ts's fullChain latch)");
+// ---------------------------------------------------------------------------
+// A bay finished with every crush in one unbroken streak, nothing lost and
+// congestion never crossed into — the achievement the HUD's chain ladder paints
+// gold (screens.ts's chainLadderHTML).
+//
+// THE LATCH IS THE THING UNDER TEST, not the predicate. Any of the four
+// conditions could be written correctly and the feature would still be broken,
+// because the question a getter cannot answer is WHEN. chargeLostCubes keeps
+// running for the whole post-win settle window — that window exists precisely
+// because the field is still moving — so a bay that was perfect at the moment
+// it was won can pick up a lost cube a second later, and the ladder, which is
+// live, would turn gold and then take it back on screen. The last case below is
+// the one that would catch that, and it is the reason this section exists.
+//
+// Driven against a real Game rather than read out of the source: the state is
+// reachable in four lines (the settle window opens on `score >= target`, which
+// the section below this one already drives the same way), so proving the
+// behaviour costs no more than proving the text.
+{
+  const DT = 1000 / 60;
+  /** A bay wound to the given end state and stepped ONCE, which is the step the
+   *  target is crossed on and therefore the step the latch is read on. */
+  const wonWith = (end: { crushes: number; combo: number; lost: number; crossings: number }): Game => {
+    const g = new Game(makeBaseLevel(0), {}, 3);
+    g.crushes = end.crushes;
+    g.combo = end.combo;
+    g.lostTotal = end.lost;
+    g.congestionUpCrossings = end.crossings;
+    g.score = g.target + 10;
+    g.update(DT);
+    return g;
+  };
+
+  const clean = wonWith({ crushes: 5, combo: 5, lost: 0, crossings: 0 });
+  check("the settle window is what the latch is read on", clean.settling);
+  check("a clean bay latches a full chain", clean.fullChain);
+
+  check("a bay that never cleared a row has no chain to have completed",
+    !wonWith({ crushes: 0, combo: 0, lost: 0, crossings: 0 }).fullChain);
+  // The case `combo` alone cannot see: seven crushes, a break somewhere in the
+  // middle, four in the current streak. The counter reads ×4 exactly as a clean
+  // four-crush bay does.
+  check("a streak that broke and rebuilt is not a full chain",
+    !wonWith({ crushes: 7, combo: 4, lost: 0, crossings: 0 }).fullChain);
+  check("a cube lost out of the bay is not a full chain",
+    !wonWith({ crushes: 5, combo: 5, lost: 1, crossings: 0 }).fullChain);
+  // Belt and braces with the case above, deliberately: crossing up into
+  // congestion resets the combo, so a bay that crossed would usually fail the
+  // combo test anyway — unless it crossed on a step with no crushes yet, or the
+  // reset were ever removed. The chain is a claim about the WHOLE bay.
+  check("crossing into congestion is not a full chain",
+    !wonWith({ crushes: 5, combo: 5, lost: 0, crossings: 1 }).fullChain);
+
+  // THE TIMING. The bay above was won perfect; now it loses a cube during the
+  // settle window, exactly as chargeLostCubes does while the field comes to
+  // rest, and keeps being stepped. The chain is the player's.
+  let t = DT;
+  clean.lostTotal += 3;
+  for (let i = 0; i < 60 && clean.status === "playing"; i++) clean.update((t += DT));
+  check("a cube lost AFTER the win cannot retract the chain",
+    clean.fullChain, `lost ${clean.lostTotal}, status ${clean.status}`);
+  // ...and the latch is READ-ONLY from outside, so nothing downstream can be
+  // the thing that clears it.
+  check("the latch is exposed read-only",
+    !Object.getOwnPropertyDescriptor(Object.getPrototypeOf(clean), "fullChain")?.set);
+
+  // A bay still being played has no verdict yet — the ladder must not go gold
+  // mid-streak on a bay that has cleared five rows and is about to lose.
+  const live = new Game(makeBaseLevel(0), {}, 3);
+  live.crushes = 5;
+  live.combo = 5;
+  live.update(DT);
+  check("a bay in progress has no chain yet", !live.fullChain && !live.settling);
+}
+
+// ---------------------------------------------------------------------------
+section("The chain ladder (screens.ts's chainLadderHTML)");
+// ---------------------------------------------------------------------------
+// The combo streak drawn as rungs, and the three states the R3 readout has.
+// Pinned on the rendered markup because that is what the player sees and what
+// main.ts's syncHud rebuilds — the mount render and every live patch go through
+// this one function, so a state proved here is proved on both.
+{
+  // The class name has to be terminated, not merely prefixed: `.pl-chain__rungs`
+  // is the CONTAINER, so a bare prefix match counts thirteen where there are
+  // twelve — which is exactly how this helper shipped first and exactly what a
+  // deliberately-wrong expectation (CHAIN_RUNGS + 1, and it passed) caught.
+  const rungs = (html: string): number => (html.match(/class="pl-chain__rung[" ]/g) ?? []).length;
+  const lit = (html: string): number => (html.match(/pl-chain__rung is-lit/g) ?? []).length;
+  const label = (html: string): string =>
+    html.match(/id="hud-chain-val">([^<]*)</)?.[1] ?? "";
+
+  const clean = chainLadderHTML({ combo: 3, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false });
+  check("the ladder is drawn to the bay's ceiling, every time",
+    rungs(clean) === CHAIN_RUNGS, `${rungs(clean)} rungs`);
+  check("a streak lights one rung per crush", lit(clean) === 3, `${lit(clean)} lit`);
+  check("exactly one rung is outlined as the next one",
+    (clean.match(/pl-chain__rung is-next/g) ?? []).length === 1);
+  // THE QUOTE IS THE POINT OF THE ROW: what the NEXT crush's line fetches,
+  // through the same payoutMult the till runs through. Restated here from the
+  // multiplier rather than from a remembered number, so a COMBO_STEP re-tune
+  // moves both together or fails.
+  check("the clean label quotes the next crush at the live multiplier",
+    label(clean) === `Next $${Math.round(100 * payoutMult(4, null))}`, label(clean));
+  check("...and that is more than the crush before it",
+    payoutMult(4, null) > payoutMult(3, null));
+
+  // A streak past the ladder's end leaves every rung lit and outlines none:
+  // there is no rung left to promise, and an outline past the twelfth would be
+  // pointing off the panel.
+  const overflow = chainLadderHTML({ combo: 40, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false });
+  check("a streak past the ladder fills it and outlines nothing",
+    lit(overflow) === CHAIN_RUNGS && !overflow.includes("is-next"));
+
+  // CONGESTED: the chain snaps dark behind the gate and the label switches from
+  // a promise to a CEILING. Amber at the first tier, red at the second, the
+  // same order as the rows lighting the bay floor (render.ts).
+  const amber = chainLadderHTML({ combo: 3, tierIdx: 0, capMult: 0.6, scorePerLine: 100, full: false });
+  const red = chainLadderHTML({ combo: 3, tierIdx: 1, capMult: 0.4, scorePerLine: 100, full: false });
+  check("congestion darkens every rung — a half-lit ladder reads as still going",
+    lit(amber) === 0 && !amber.includes("is-next"));
+  check("congestion quotes the CAP, not the next crush",
+    label(amber) === "Cap $60" && label(red) === "Cap $40", `${label(amber)} / ${label(red)}`);
+  check("the first congestion tier is amber and the second is red",
+    amber.includes("pl-chain--congest-0") && red.includes("pl-chain--congest-1"));
+
+  // FULL CHAIN: gold end to end, and it OUTRANKS congestion — the latch is a
+  // verdict on the finished bay, and a bay can be won on a congested field.
+  const full = chainLadderHTML({ combo: 5, tierIdx: 1, capMult: 0.4, scorePerLine: 100, full: true });
+  check("a full chain lights every rung", lit(full) === CHAIN_RUNGS);
+  check("a full chain says so instead of quoting a price", label(full) === "Full chain");
+  check("a full chain outranks a congested field",
+    full.includes("pl-chain--full") && !full.includes("pl-chain--congest"));
+
+  // A caller that cannot quote a price quotes NOTHING. "$0" is a worse lie than
+  // silence.
+  check("no line price, no quote",
+    label(chainLadderHTML({ ...CHAIN_AT_REST, combo: 1 })) === "");
+
+  // --- and the panel MOUNTS the live ladder, not a ladder at rest ----------
+  // The one thing about this row that the builder cannot get wrong and the
+  // panel can. hudHTML is re-rendered WHOLESALE mid-bay — the pause card, the
+  // draft and the refit yard all mount it behind them, and syncHud does not run
+  // while any of them is up — so a mount hard-wired to combo 0 would blank a
+  // nine-crush streak the instant a player pressed pause, and would replace the
+  // gold full chain with an empty row on the bay-clear card that exists to
+  // celebrate it. Neither is a fit failure, a wrap or a scroll: sim/uifit would
+  // measure the wrong ladder happily.
+  const panelOpts = {
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: null, tier: 4, target: 900, score: 500, launchCost: 25, bayNum: 5,
+    timeLimitSec: 150, timeLeftMs: 90_000, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0, autoloaderOwned: false,
+    ratchets: {} as Ratchets, tiers: newTiers(), contract: null,
+  };
+  const won = hudHTML({
+    ...panelOpts,
+    chain: { combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true },
+  });
+  check("the panel mounts the ladder it is handed, not one at rest",
+    lit(won) === CHAIN_RUNGS && label(won) === "Full chain",
+    `${lit(won)} lit, label "${label(won)}"`);
+  const atRest = hudHTML(panelOpts);
+  check("...and a caller with no bay behind it mounts the resting ladder",
+    rungs(atRest) === CHAIN_RUNGS && lit(atRest) === 0 && label(atRest) === "");
+  // A Contract has no bankroll, no payout and therefore no streak worth money.
+  // Same reasoning that took the meta line out of it, checked from the markup
+  // rather than assumed from the mode.
+  check("a Contract renders no chain ladder at all",
+    !hudHTML({
+      ...panelOpts,
+      timeLimitSec: 0, timeLeftMs: 0,
+      chain: { combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true },
+      contract: {
+        name: "Foundry Overrun", kind: "lines" as const, goal: 6, lines: 2,
+        launchesLeft: 9, remaining: [], lost: 1, conditions: "crosswind", tier: 2,
+        progress: null,
+      },
+    }).includes("pl-chain"));
+}
+
+// ---------------------------------------------------------------------------
 section("Demolition charges + settle window (game.ts)");
 // ---------------------------------------------------------------------------
 {
@@ -6207,19 +6392,40 @@ section("The HUD's per-frame writes (main.ts syncHud, app.css bar fills)");
   // the bar renders at full width until that first frame lands — and on a
   // screen that renders the HUD without ever running syncHud (the draft and
   // refit overlays mount it behind them), it stays there.
-  const hud = hudHTML({
+  const hudBase = {
     beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
     loaded: { bomb: false, type: "L" as const, quarterTurns: 1, empty: false, hidden: false, material: "standard" as const },
     tier: null, target: 800, score: 200, launchCost: 20, bayNum: 1,
+    chain: { ...CHAIN_AT_REST, scorePerLine: 110 },
     timeLimitSec: 180, timeLeftMs: 180_000, pieceSize: "std" as const,
     bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
     thawOwned: false, thawCharges: 0,
     autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
+  };
+  const hud = hudHTML(hudBase);
+  // The reload bar is a CONTRACT's row now (screens.ts's hudHTML): the R3
+  // readout spends a Deep Run's peripheral vision on the chain ladder and the
+  // stat rail, and the same value is already drawn as a ring on the muzzle.
+  // So the mount-state proof has to be taken off a panel that renders one —
+  // asserted here rather than left to the `hud` above, which would otherwise
+  // pass the "no inline width" half while quietly proving nothing about a bar
+  // that is no longer in it.
+  const contractHud = hudHTML({
+    ...hudBase,
+    timeLimitSec: 0, timeLeftMs: 0,
+    contract: {
+      name: "Foundry Overrun", kind: "lines" as const, goal: 6, lines: 2,
+      launchesLeft: 9, remaining: [], lost: 1, conditions: "crosswind", tier: 2,
+      progress: null,
+    },
   });
   check("the goal bar mounts empty, as a scale",
     hud.includes('id="hud-goal" style="transform:scaleX(0)"'));
-  check("the reload bar mounts full, as a scale",
-    hud.includes('id="hud-load" style="transform:scaleX(1)"'));
+  check("a Contract's reload bar mounts full, as a scale",
+    contractHud.includes('id="hud-load" style="transform:scaleX(1)"'));
+  check("...and a Deep Run renders no reload row to mount",
+    !hud.includes('id="hud-load-row"') && !hud.includes('class="pl-load"'),
+    hud.slice(hud.indexOf("pl-load") - 40, hud.indexOf("pl-load") + 40));
   check("no HUD element mounts carrying an inline width",
     !/style="[^"]*width:/.test(hud), (hud.match(/style="[^"]*width:[^"]*"/) ?? [""])[0]);
 
@@ -9009,9 +9215,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       thawOwned: false, thawCharges: 0,
       autoloaderOwned: false, ratchets: {}, tiers: newTiers(), contract: null,
     });
-    const quoted = plain(oddHud.match(/<span class="pl-meta__launch"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? "");
+    // The quote moved with the R3 readout: it used to be the meta line's
+    // "Launch $37" span and is now "@ $37" riding the stat rail's launches
+    // figure (screens.ts's hudHTML). Same id, same fact, same two surfaces —
+    // and read off the rendered panel for the same reason as before, so this
+    // fails if either surface starts quoting its own number.
+    const quoted = plain(oddHud.match(/<span class="pl-stat__quote" id="hud-launch">([\s\S]*?)<\/span>/)?.[1] ?? "");
     check("the tutorial and the panel quote the same launch cost",
-      quoted.trim() === `Launch $${oddBay.launchCost}` && oddEconomy.includes(`cost $${oddBay.launchCost}`),
+      quoted.trim() === `@ $${oddBay.launchCost}` && oddEconomy.includes(`cost $${oddBay.launchCost}`),
       `${quoted.trim()} vs the card's copy`);
     // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
     // release are one continuous drag, so they must be taught on one card —

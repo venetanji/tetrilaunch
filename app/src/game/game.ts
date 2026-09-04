@@ -580,6 +580,42 @@ export class Game {
 
   score: number;
   combo = 0;
+  /* ---------------------------------------------------------------------
+   * THE FULL CHAIN — the facts that decide whether a bay was finished
+   * perfectly, and the latch that reads them at the one moment they are all
+   * still true.
+   *
+   * `combo` alone cannot answer it. A streak that was broken and rebuilt reads
+   * exactly like a streak that never broke, because the counter is reset to 0
+   * and climbs again from there — so a bay with six crushes and one congestion
+   * stumble can end on the same ×4 as a bay with four clean ones. The two
+   * counters below are what tell them apart: a chain is FULL when every crush
+   * the bay ever produced is still in the current streak.
+   * ------------------------------------------------------------------------ */
+  /** Line-clear events this bay — how many times `combo` has been INCREMENTED,
+   *  which is not the same as `linesTotal` (a four-row collapse is one crush
+   *  and four lines) and not the same as `combo` (which a break resets). */
+  crushes = 0;
+  /** How many times this bay has crossed UP into a congestion tier. The same
+   *  transition that ends the streak (see update's congestion block), counted
+   *  rather than merely acted on — because "the streak survived" is a fact
+   *  about the whole bay, and by the end of it the streak has already been
+   *  reset and rebuilt with no memory of having been charged. */
+  congestionUpCrossings = 0;
+  /** Set ONCE, on the step the bay's objective is first met: every crush this
+   *  bay produced is in one unbroken chain, no cargo was lost and congestion
+   *  was never crossed into. Read by the HUD's chain ladder, which paints gold.
+   *
+   *  THE TIMING IS THE WHOLE POINT, and it is why this is a latch rather than a
+   *  getter over the three fields. `chargeLostCubes` keeps running through the
+   *  post-win SETTLE window (resolveWin holds the bay open until the field
+   *  comes to rest, and cubes are still in the air when the target is hit), so
+   *  a getter — or a latch evaluated anywhere later in the resolution ladder —
+   *  would let a cube that bounced out AFTER the money was already banked erase
+   *  a bay that was, at the moment it was won, perfect. The player earned the
+   *  chain on the crush that finished the bay; nothing after it is theirs to
+   *  lose. */
+  private fullChainLatch = false;
   /** Index into level.pileTiers of the congestion tier in force as of the top
    *  of the current step, or -1 for a clean bay. Set once per update() before
    *  the physics runs, and read twice after: to detect crossing UP (which ends
@@ -894,6 +930,13 @@ export class Game {
   get objectiveMet(): boolean {
     if (this.level.objectiveLines > 0) return this.linesTotal >= this.level.objectiveLines;
     return this.score >= this.target;
+  }
+
+  /** This bay was won on a perfect chain — read-only, and false for the whole
+   *  of a bay that has not been won yet. See fullChainLatch for why it is
+   *  latched on the winning step rather than computed on demand. */
+  get fullChain(): boolean {
+    return this.fullChainLatch;
   }
 
   /** 0..1 progress toward whichever objective this bay is running, for the HUD. */
@@ -2069,7 +2112,16 @@ export class Game {
     // to red charges again, while dropping back down and re-crossing later is
     // a new offence rather than a free pass.
     const tierIdx = congestion ? this.level.pileTiers.indexOf(congestion) : -1;
-    if (tierIdx > this.lastCongestionIdx) this.combo = 0;
+    if (tierIdx > this.lastCongestionIdx) {
+      this.combo = 0;
+      // …and the crossing is REMEMBERED, not just charged. The combo reset
+      // above is the whole of the penalty in play terms, but it also destroys
+      // the only evidence that it happened — a streak rebuilt from 0 is
+      // indistinguishable from one that was never broken. The full-chain latch
+      // needs the difference (see fullChainLatch), so the crossing is counted
+      // here, on exactly the transition the tax is levied on.
+      this.congestionUpCrossings += 1;
+    }
     // Either direction, unlike the combo break above: a cue has to be taken
     // BACK when the bay is tidied, or the first mess a player cleans up would
     // leave the bay sounding congested for the rest of the level.
@@ -2259,6 +2311,11 @@ export class Game {
       // bookkeeping that must not be able to return early past it.
       this.noteClearForSettle();
       this.combo += 1;
+      // The bay's LIFETIME crush count, incremented in lockstep with the combo
+      // and never reset. `combo === crushes` is then exactly "every crush this
+      // bay has produced is still in the current streak", which is the
+      // full-chain test — see fullChainLatch.
+      this.crushes += 1;
       // Congestion's fourth pressure (level.ts's PileTier.payMult): a clear
       // taken out of a cluttered bay pays less. The other three price the shot,
       // which left stack-until-it-collapses paying full rate for every row the
@@ -2395,6 +2452,25 @@ export class Game {
     if (this.objectiveMet || this.winPendingStep !== null) {
       if (this.winPendingStep === null) {
         this.winPendingStep = this.stepCount;
+        // THE FULL CHAIN, judged HERE — on the transition into the settle
+        // window, which is the last instant these four facts still describe the
+        // bay the player actually played.
+        //
+        // Not in resolveWin, and not as a getter. chargeLostCubes still runs
+        // for the whole settle window (the field is by definition still moving,
+        // which is why the window exists at all), so a cube that leaves the bay
+        // after the target was already banked would retract a perfect chain
+        // that had been earned and, worse, would do it on screen — the ladder
+        // is live, so the gold would appear and then be taken away.
+        //
+        // `crushes > 0` because a bay won without clearing a single row —
+        // possible on a target met by demolition salvage alone — has no chain
+        // to have completed. Zero of zero is not perfect, it is empty.
+        this.fullChainLatch =
+          this.crushes > 0 &&
+          this.combo === this.crushes &&
+          this.lostTotal === 0 &&
+          this.congestionUpCrossings === 0;
         this.events.onSettleStart?.();
       }
       this.resolveWin(now);

@@ -820,6 +820,10 @@ class App {
    *  write a second — this is what stops the other 119 frames of that second
    *  from even building the string to find out it is the same one. */
   private timeSecShown = -1;
+  /** The chain ladder's state as last drawn, serialised (see syncHud's THE
+   *  CHAIN LADDER). Empty string is the remount sentinel — a real key is always
+   *  a JSON object, so the first frame after a render always writes. */
+  private chainShown = "";
   /** Each ability's `charges:armed` as last pushed to its pair of triggers
    *  (see syncAbility). The triggers are found by querySelectorAll rather than
    *  by id — there are two of them per ability and either can be absent — so
@@ -1776,6 +1780,34 @@ class App {
    *  Also the one choke point where the rail's button set is decided, so it
    *  feeds the layout solver's slot budget (see railSlotsLatch above) as a
    *  side effect — every mount of the HUD re-solves with the real loadout. */
+  /**
+   * The chain ladder's whole state, off the live Game (screens.ts's
+   * chainLadderHTML).
+   *
+   * ONE derivation, read by BOTH the mount render (hudOpts) and the live patch
+   * (syncHud). They have to agree exactly: the panel is re-rendered wholesale
+   * mid-bay and patched every frame in between, and a mount that derived the
+   * ladder differently from the patch would show one ladder behind the pause
+   * card and a different one the frame after it closed. It is the same reason
+   * hudOpts asks `linesBay` for the contract block rather than inferring the
+   * mode — the panel cannot be built as one shape and updated as another.
+   */
+  private chainState(g: Game): S.ChainState {
+    return {
+      combo: g.combo,
+      // The tier in force RIGHT NOW, which is what the readout is describing —
+      // not game.ts's latched stepPileTier, which exists to price a clear
+      // against the bay as it stood before the crush removed the cubes.
+      tierIdx: g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1,
+      capMult: g.pileTier?.payMult ?? 1,
+      // The BASE line price, not a congested one: the ladder prices the next
+      // crush through payoutMult itself, which is where the congestion cap
+      // belongs and where the payout already applies it.
+      scorePerLine: g.level.scorePerLine,
+      full: g.fullChain,
+    };
+  }
+
   private hudOpts(g: Game): Parameters<typeof S.hudHTML>[0] {
     const slots = railSlotsFor({
       bond: g.bondCharges > 0,
@@ -1834,6 +1866,11 @@ class App {
       // A surcharge you only discover from a faster-falling bankroll teaches
       // nothing except that the game is cheating.
       launchCost: g.launchCostNow,
+      // The ladder MOUNTS LIVE (see chainState above and screens.ts's `chain`
+      // option): this render is as likely to be a pause card going up mid-run
+      // as it is the first frame of a bay, and a ladder that mounted at rest
+      // would wipe the streak on screen every time one did.
+      chain: this.chainState(g),
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
@@ -5800,6 +5837,7 @@ class App {
     this.crestStepShown = -1;
     this.crestMatShown = null;
     this.timeSecShown = -1;
+    this.chainShown = "";
   }
 
   /**
@@ -6104,10 +6142,10 @@ class App {
     // shots than the same bankroll bought a minute ago, and the number falling
     // as the pile grows is the clearest statement of the rule the HUD can make.
     if (!this.linesBay(g)) {
-      // The meta line's three economy numbers, patched in the same Deep-Run-only
-      // branch that owns the readout above them: a Contract renders no meta line
-      // at all, so writing them there would be writing into nothing.
-      set("#hud-combo", "×" + g.combo);
+      // The economy readouts, patched in the same Deep-Run-only branch that
+      // owns the readout above them: a Contract renders neither the chain
+      // ladder nor the stat rail, so writing them there would be writing into
+      // nothing.
       set("#hud-scrap", String(g.scrapEarned));
       const launches = Math.floor(g.score / Math.max(1, g.launchCostNow));
       set("#hud-launches", String(launches));
@@ -6129,9 +6167,49 @@ class App {
         // classList toggles beside it were always free: DOMTokenList.toggle
         // with an explicit force is specified to skip its update steps when
         // the class is already in the state asked for.
-        set("#hud-launch", `Launch $${g.launchCostNow}`);
-        launchEl.classList.toggle("pl-meta__launch--warn", tierIdx === 0);
-        launchEl.classList.toggle("pl-meta__launch--danger", tierIdx >= 1);
+        set("#hud-launch", `@ $${g.launchCostNow}`);
+        launchEl.classList.toggle("pl-stat__quote--warn", tierIdx === 0);
+        launchEl.classList.toggle("pl-stat__quote--danger", tierIdx >= 1);
+      }
+      // THE CHAIN LADDER (screens.ts's chainLadderHTML), rewritten only when
+      // its state actually moves.
+      //
+      // The write is a whole subtree — nineteen elements, twelve of them rungs
+      // — which is the most expensive spelling on this panel, and that is
+      // exactly why the guard is a CACHE rather than a comparison against the
+      // DOM: doing it per frame would undo on one row everything the split
+      // above this function buys on the rest. The key is the state the markup
+      // is a pure function of, so a frame that changes none of it does not even
+      // build the string. A typical bay writes this on each CRUSH, on each
+      // congestion crossing and once on the winning step — call it a dozen
+      // writes against ten thousand frames.
+      //
+      // Cached in its own field rather than in `hudShown` because what it
+      // guards is not a value written to one node: it is the whole subtree's
+      // state, and hudShown's contract is "the string this selector was last
+      // given". Dropped in forgetHudCache with the rest.
+      // The key is four PRIMITIVES rather than the state object, and the object
+      // is built only when they move: `capMult` is a pure function of `tierIdx`
+      // (both come off the same PileTier), so it carries no information the key
+      // does not already have, and keeping it out means the unchanged frame
+      // allocates one short string and nothing else.
+      const chainKey = `${g.combo}|${tierIdx}|${g.level.scorePerLine}|${g.fullChain ? 1 : 0}`;
+      if (chainKey !== this.chainShown) {
+        this.chainShown = chainKey;
+        const chain = this.hudEl<HTMLElement>("#hud-chain");
+        if (chain) {
+          // outerHTML, not innerHTML: the state modifiers (--congest, --full)
+          // live on the row's OWN class list, and the pure builder is what owns
+          // them. Replacing the node means the mount render and every live
+          // patch go through one spelling of the ladder — the same discipline
+          // the three bar fills' inline transforms follow — instead of this
+          // call site keeping a second, hand-maintained copy of which class
+          // goes with which state. The replacement detaches the node the cache
+          // is holding, so hudNodes is told to forget it; nothing else looks
+          // anything up inside this row.
+          chain.outerHTML = S.chainLadderHTML(this.chainState(g));
+          this.hudNodes.delete("#hud-chain");
+        }
       }
       this
         .hudEl("#hud-launches-chip")
@@ -6205,6 +6283,20 @@ class App {
     // ring is what you read mid-aim with your eyes on the cannon, this is what
     // you catch in peripheral vision while looking at the pile.
     //
+    // ON A CONTRACT ONLY, now: the R3 readout spends a Deep Run's peripheral
+    // vision on the chain ladder and the stat rail instead, and screens.ts
+    // renders no `.pl-load` row there at all. The RATIO is still computed on
+    // every bay, because the ready cue below is not a readout — it is the
+    // haptic and the sound a player aiming at the pile is actually waiting for,
+    // and the ring on the muzzle carries the picture.
+    //
+    // GATED RATHER THAN LEFT TO MISS. Both writes are already miss-safe —
+    // hudEl remembers a null, barFill declines to cache one — but "safe" is not
+    // "free": barFill still formats a fresh `scaleX(...)` string and takes two
+    // Map lookups on every frame of every Deep Run bay, for an element that
+    // provably cannot exist there. `linesBay` is the exact predicate hudOpts
+    // builds the panel from, so this cannot drift out of step with the markup.
+    //
     // THE ONE READOUT THAT REALLY DOES MOVE EVERY FRAME, and the reason the
     // fix here is a split rather than a throttle: measured over 600 frames of
     // live play, this fill's inline style changed on 563 of them (sim/hudperf).
@@ -6218,9 +6310,11 @@ class App {
     // finish — and the one thing it did change, the snap back to empty on a
     // launch, reads better instant.
     const reload = g.cannon.reloadRatio(performance.now());
-    this.barFill("#hud-load", reload);
     const ready = reload >= 1;
-    this.hudEl("#hud-load-row")?.classList.toggle("ready", ready);
+    if (this.linesBay(g)) {
+      this.barFill("#hud-load", reload);
+      this.hudEl("#hud-load-row")?.classList.toggle("ready", ready);
+    }
     // Audible AND felt, on the RISING edge only. syncHud runs every frame, so
     // testing `ready` alone would retrigger ~60x/sec for as long as the player
     // takes to aim — which, per the telemetry note in cannon.ts, is most of the

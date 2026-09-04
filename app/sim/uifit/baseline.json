@@ -310,6 +310,14 @@
   "Web · 800x600 window|draft|scrollers": [
     ".draft__body scrolls 75px"
   ],
+  "Web · 800x600 window|hud-congested|tap": [
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
+  ],
+  "Web · 800x600 window|hud-fullchain|tap": [
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
+  ],
   "Web · 800x600 window|hud-lance|tap": [
     "#bond-chip 44x43",
     "#demo-chip 44x43",

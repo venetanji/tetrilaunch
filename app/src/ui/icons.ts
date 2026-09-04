@@ -67,6 +67,16 @@ export type IconName =
   // control — nothing about it is pressable — so it sits with the currencies
   // below rather than with the rail's control set above.
   | "clock"
+  // THE LAUNCH RETICLE, for the plant panel's stat rail (screens.ts's hudHTML).
+  // A READOUT glyph like `clock` beside it: it heads the "how many launches the
+  // bankroll still affords" figure, which is a number, not a button.
+  //
+  // NOT `launcher`, which is the obvious reuse and the wrong one. That glyph is
+  // already on screen in the same HUD as the Autoloader's rail button, where it
+  // means "press this to fire" — the one thing a readout must not be mistaken
+  // for. Two meanings on one screen out of one drawing is how a player learns
+  // to tap a number.
+  | "crosshair"
   // THE NUMBER AXES that have no material to borrow a glyph from
   // (components.ts's axisIconHTML): the draft's cards give every MATERIAL its
   // belt icon, and a two-letter text code beside real glyphs read as a
@@ -308,6 +318,15 @@ const PATHS: Record<IconName, string> = {
   // 16px circle is the one shape that cannot be, so a round clock would be the
   // single anti-aliased blur in a set that is otherwise crisp at 13px.
   clock: `<path d="M3 8h10"/><path d="M8 3v10"/><path d="M8 8l3-2"/><path d="M2 2h2"/><path d="M12 2h2"/>`,
+  // The launch reticle: a square sight with a tick out of each face. SQUARE for
+  // the same reason the clock above is — every glyph in this table is built out
+  // of straight runs on the pixel grid, and a ring at the 12px this renders at
+  // would be the one anti-aliased blur in a set that is otherwise crisp. The
+  // ticks stop one unit short of the box on the inside and one short of the
+  // edge on the outside, so the mark reads as a sight rather than as a window.
+  crosshair:
+    `<path d="M4.5 4.5h7v7h-7z"/>` +
+    `<path d="M8 1.5v3"/><path d="M8 11.5v3"/><path d="M1.5 8h3"/><path d="M11.5 8h3"/>`,
 };
 
 /**

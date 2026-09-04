@@ -344,6 +344,23 @@ const PAUSE_SEAL = { state: "at-stake" as const, mark: 4 };
  *  the seal's story above — one run, one screenshot. */
 const PAUSE_QUIT = { armed: false, bayNum: 4 };
 
+/**
+ * The per-line price the HUD fixtures quote the chain ladder at, chosen so the
+ * row is measured at the WIDEST label a live bay ever puts in it.
+ *
+ * hudHTML mounts whatever ladder state it is handed, and the fixtures hand it a
+ * bay at rest — combo 0, where the quote is scorePerLine itself, since
+ * payoutMult(1, null) is 1. What a live bay actually draws is that price times
+ * a streak multiplier that keeps climbing past the ladder's twelfth rung:
+ * level.ts's per-line price tops out at 100 + 9*10 = 190 on bay 10, and
+ * payoutMult puts a 20-crush chain at x5.75 of it — "Next $1092", a four-digit
+ * label. So this is the price that makes a RESTING render come out the width a
+ * live row reaches, which is the only width the harness can see. Same
+ * worst-case-by-construction reasoning as HUD_BASE's four-digit funds figure,
+ * which is likewise not a number bay 7 hands out.
+ */
+const CHAIN_QUOTE = 1_080;
+
 const HUD_BASE = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "cryo" as const },
   // The transport's held slot (canvas A5's two-deep queue) — a bulk-adjacent
@@ -353,6 +370,9 @@ const HUD_BASE = {
   target: 1_700,
   score: 1_259,
   launchCost: 25,
+  // The chain ladder, at rest but priced for the WIDEST label the row ever
+  // carries — see CHAIN_QUOTE.
+  chain: { ...S.CHAIN_AT_REST, scorePerLine: CHAIN_QUOTE },
   bayNum: 7,
   timeLimitSec: 150,
   timeLeftMs: 127_000,
@@ -474,6 +494,10 @@ const HUD_TUTORIAL = {
   target: BAY_1.targetScore,
   score: BAY_1.startingFunds,
   launchCost: BAY_1.launchCost,
+  // The tutorial bay's REAL line price, not HUD_BASE's worst case: this fixture
+  // exists to measure the panel a first-timer sees, and the reveal hides the
+  // ladder outright until the deck is done anyway.
+  chain: { ...S.CHAIN_AT_REST, scorePerLine: BAY_1.scorePerLine },
   bayNum: 1,
   timeLimitSec: BAY_1.timeLimitSec,
   timeLeftMs: BAY_1.timeLimitSec * 1000,
@@ -499,6 +523,18 @@ const withCoach = (hud: string, step: number, coach: string): string =>
   hud
     .replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-coach="${step}">`)
     .replace('<div class="plant">', `<div class="plant">${coach}`);
+
+/**
+ * A Deep Run HUD with the chain ladder in a state main.ts's syncHud would have
+ * written — congested, or a finished full chain.
+ *
+ * Through hudHTML's own `chain` option, not a string edit: the panel mounts the
+ * LIVE ladder (a pause card can go up nine crushes into a streak), so passing a
+ * state here is what the app itself does rather than a harness trick. That also
+ * means these two fixtures measure the real render path, markup and all.
+ */
+const withChain = (chain: S.ChainState): string =>
+  S.hudHTML({ ...HUD_BASE, contract: null, chain });
 
 /** main.ts adds `is-live` to .menu__demo once the attract demo is running on a
  *  real canvas. Applied here as a string edit rather than by mounting the demo:
@@ -851,6 +887,26 @@ export const SCREENS: Record<string, () => string> = {
         cryo: 1, rebar: 1, slag: 1, volatile: 1,
       } as Ratchets,
     }),
+  // THE CHAIN LADDER'S OTHER TWO STATES. Every HUD fixture above hands the
+  // panel a ladder AT REST — nothing crushed, nothing congested — because that
+  // is the state a bay opens in and the state most of them are measuring the
+  // rest of the panel against. Rendered only from those, the harness would be
+  // measuring one ladder twelve times over and the other two never.
+  //
+  // Passed through hudHTML's own `chain` option, which is the same door main.ts
+  // uses (its chainState), so these measure the real render path rather than a
+  // hand-written stand-in.
+  //
+  // WHAT IS NEW IN THEM is geometry, not just colour, which is why they are
+  // worth a row of the matrix each. Congested mounts the GATE — a 2px rule
+  // absolutely positioned 3px proud of the rungs' box top and bottom, the only
+  // thing on this row that deliberately leaves its container — and swaps the
+  // label from a price to a cap. Full chain carries the longest label the row
+  // can hold at the state where every rung also has a glow.
+  "hud-congested": () =>
+    withChain({ combo: 4, tierIdx: 1, capMult: 0.6, scorePerLine: CHAIN_QUOTE, full: false }),
+  "hud-fullchain": () =>
+    withChain({ combo: 9, tierIdx: -1, capMult: 1, scorePerLine: CHAIN_QUOTE, full: true }),
 
   "hud-contract": () =>
     S.hudHTML({
@@ -1487,6 +1543,14 @@ export function railLoadoutFor(
 ): { bond: boolean; demo: boolean; thaw: boolean; auto: boolean } {
   if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
   return id === "hud" || id === "hud-pad" || id === "hud-rich" || id === "hud-notched"
+    // …and the two chain-state fixtures, which are `hud` with one row swapped
+    // and therefore render `hud`'s three ability buttons. Same failure as every
+    // entry below if they are missed: the harness sizes the rail for a bare
+    // loadout while the markup draws the full one, and the buttons hang off the
+    // bottom of every handset — findings that belong to the fixture, not the
+    // screen. (This one was reproduced, not assumed: two `offscreen` and two
+    // `safearea` findings on the iPhone X before the ids were added here.)
+    || id === "hud-congested" || id === "hud-fullchain"
     || id === "pause" || id === "pause-pad"
     // …and "pause-armed", which is `pause` with one more row on the card and
     // the SAME HUD behind it. It reproduced the identical eleven `offscreen`

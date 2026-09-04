@@ -176,9 +176,15 @@ const DECORATIVE = [
  * split, and the comment justifying that split had measured the WRONG case (a
  * contract HUD, where screens.ts drops the "Launch $N" span). A number in a
  * comment cannot be trusted to stay true across a content change; this can.
+ *
+ * `.pl-meta` is gone with the R3 readout and `.pl-chain` inherits its place on
+ * this list. It is the row most able to fail this way now: a pixel label, a
+ * flexible run of twelve rungs, a star and a price quote whose width follows
+ * the bay's economy — four items whose only defence against wrapping is that
+ * the rungs shrink first.
  */
 const SINGLE_LINE = [
-  ".pl-meta", ".pl-load", ".bay-banner",
+  ".pl-chain", ".pl-load", ".bay-banner",
   // Launches, DURING THE TUTORIAL ONLY — scoped, because the same block is a
   // stacked label-over-value column in the full readout and a wrap is its
   // design there. With Funds and Time hidden it is a full-width row above
@@ -1190,8 +1196,16 @@ function measure(cfg: {
   // viewport, inside its box, and does not overlap a thing.
   // Restated as a list rather than derived from the stylesheet on purpose:
   // read off the CSS it would agree with any bug the CSS has.
+  //
+  // `.pl-meta` and `.pl-load` left this list with the R3 readout: a tutorial
+  // bay is a Deep Run, and a Deep Run now renders neither row at all. A
+  // selector that cannot match is not a stricter test, it is a silent pass.
+  // `.pl-chain` and `.pl-scrap` take their place — the ladder and the scrap
+  // figure are the economy tier the reveal holds back, and the ladder is the
+  // most economic of the two: it quotes a line's price in dollars, on a card
+  // that has not yet taught the player what a line is.
   if (screen === "coach") {
-    [".pl-funds", ".pl-time", ".pl-notch", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
+    [".pl-funds", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-notch", ".pl-mods", ".pl-launches"]
       .forEach((sel) => {
         const el = document.querySelector(sel);
         if (el && el.getBoundingClientRect().height > 0) {
