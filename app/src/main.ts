@@ -3156,6 +3156,19 @@ class App {
           nextInstall: sky ? null : this.nextInstall(),
           allowance: this.contractAllowance(),
         });
+        // THE BOARD INTRODUCES ITSELF, once. This is where a Tier is actually
+        // completed — half of it is a Deep Run clear and the other half is
+        // first-clear Contracts — and nothing had ever said so. Not on the
+        // roof's board: the Skydeck's Contracts bank no milestone and tick no
+        // tier, so a card promising both would be describing the wrong screen.
+        if (!sky && !this.meta.seenContractBoard) {
+          const progress = tierProgressFor(this.meta);
+          this.overlay.innerHTML += S.contractsIntroModal({
+            needed: progress.needed,
+            daily: this.todaysContracts().length,
+            milestone: progress.milestone,
+          });
+        }
         break;
       }
       case "contract-end":
@@ -7117,6 +7130,18 @@ class App {
         else this.setState("workshop");
         break;
       }
+      case "contracts-intro-done":
+        if (!this.meta.seenContractBoard) {
+          this.meta = { ...this.meta, seenContractBoard: true };
+          saveMeta(this.meta);
+        }
+        // Re-render rather than removing the scrim by hand: the board behind it
+        // is already correct, and re-rendering is what drops the modal AND
+        // hands pad focus back to the board (padNavRoot scopes to the scrim
+        // while one exists).
+        this.setState("contracts");
+        this.renderOverlay();
+        break;
       case "sys-drill-skip":
         this.drillOffer = null;
         this.setState("workshop");

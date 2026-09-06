@@ -588,6 +588,15 @@ export interface MetaState {
    *  Absent reads as empty, so an existing save gets the offer on its next
    *  purchase rather than a backlog of nine of them. */
   systemDrillsSeen: UpgradeId[];
+  /** Whether the Contract board has introduced itself (screens.ts's
+   *  contractsIntroModal). Shown once, on the first opening.
+   *
+   *  Absent reads as NOT SEEN, unlike the licence beside it, and the asymmetry
+   *  is deliberate: the licence gates a mode and defaulting it wrong locks
+   *  people out, while this costs an existing player one dismissible card that
+   *  explains a screen they already understand. Erring toward showing it is the
+   *  cheap mistake. */
+  seenContractBoard: boolean;
   /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
    *  time the Mark advances). One half of tier completion — see recordRunEnd. */
   tierRunDone: boolean;
@@ -674,7 +683,8 @@ export interface MetaState {
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
-    licence: 0, systemDrillsSeen: [], tierRunDone: false, tierContracts: 0,
+    licence: 0, systemDrillsSeen: [], seenContractBoard: false,
+    tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), slots: SLOT_BASE, stowed: [],
     claimedContracts: [], sealedMarks: [],
     celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,

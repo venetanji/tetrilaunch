@@ -307,6 +307,7 @@ export function loadMeta(): MetaState {
     if (!Array.isArray(meta.systemDrillsSeen)) meta.systemDrillsSeen = [];
     meta.systemDrillsSeen = meta.systemDrillsSeen
       .filter((u): u is UpgradeId => typeof u === "string");
+    meta.seenContractBoard = meta.seenContractBoard === true;
     meta.tierRunDone = meta.tierRunDone === true;
     meta.tierContracts = Number.isFinite(meta.tierContracts)
       ? Math.max(0, Math.floor(meta.tierContracts))

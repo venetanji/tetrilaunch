@@ -1268,6 +1268,18 @@ export const SCREENS: Record<string, () => string> = {
       brief: LESSONS[8].brief, lines: 2, shotsUsed: 14, launches: 22, licence: true,
     }),
 
+  // The board introducing itself, over the board (screens.ts's
+  // contractsIntroModal). Two paragraphs is the most copy any modal in the app
+  // carries, so this is the one that decides whether `.end__main` can hold two.
+  "contracts-intro": () =>
+    S.contractsScreen({
+      contracts: dailyContracts(3, 20_260_815),
+      tier: 1,
+      cleared: [],
+      progress: PROGRESS,
+      nextInstall: { name: "Press Hydraulics", cost: 30 },
+    }) + S.contractsIntroModal({ needed: PROGRESS.needed, daily: 3, milestone: PROGRESS.milestone }),
+
   // The purchase that explains itself (screens.ts's systemDrillOfferModal),
   // over the Workshop it was bought from. The Incinerator's is the worst case
   // of the ten: the longest system name paired with the longest drill brief.

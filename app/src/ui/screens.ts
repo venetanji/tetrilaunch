@@ -5800,6 +5800,53 @@ export function drillEndModal(opts: {
 }
 
 /**
+ * THE CONTRACT BOARD, ON FIRST OPENING (main.ts's contracts state).
+ *
+ * The board is where a Tier is actually COMPLETED — half of it is a Deep Run
+ * clear and the other half is first-clear Contracts — and it introduced itself
+ * nowhere. A player arriving from a freshly opened Tier 1 met three cards, a
+ * daily seed and a salvage figure, with no statement of what any of it was for
+ * or that failing here costs nothing.
+ *
+ * Shown ONCE, over the board it describes, and the numbers come from the same
+ * tables the board's own cards read so the card and the board cannot disagree
+ * about what a clear is worth.
+ *
+ * A modal over the screen rather than a state of its own: main.ts's padNavRoot
+ * already scopes pad focus to a `.modal-scrim` when one is present, so this
+ * takes the pad without any routing of its own.
+ */
+export function contractsIntroModal(opts: {
+  /** Contracts a tier asks for (meta.ts's TIER_CONTRACTS_REQUIRED). */
+  needed: number;
+  /** Contracts the day deals. */
+  daily: number;
+  /** Salvage a first clear pays. */
+  milestone: number;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--accent)">The Contract Board</div>
+        <h2 class="display">Free to fail</h2>
+        <p class="muted" style="margin-top:-6px">
+          <b>${opts.daily} a day</b>, from a shared seed — everyone gets the same three.
+          <b>No clock and no bankroll</b>: what limits you is a launch budget, so a lost
+          attempt costs nothing and you can retry as often as you like.
+        </p>
+        <p class="muted">
+          A <b>first clear</b> pays ${salvageHTML(opts.milestone, 11)} and ticks the tier.
+          Clear <b>${opts.needed}</b> of them and win the Tier's Deep Run, and the next Tier opens.
+        </p>
+      </div>
+      <div class="row end__actions">
+        <button class="btn btn--primary" data-action="contracts-intro-done">Got it</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
  * THE PURCHASE THAT EXPLAINS ITSELF — offered once, at the moment a system is
  * first installed in the Workshop (main.ts's onBuyInstall).
  *
