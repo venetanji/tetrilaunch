@@ -1280,7 +1280,15 @@ export function updateLineClear(
       y: rowY, landing: closing, raw, grade,
       congested: ctx.congested, participation, capped: grade !== raw,
     });
-    for (const c of filled) toRemove.add(c);
+    // THE ROW IS GRADED AND PAID OFF `filled`, ABOVE, AND EMPTIED HERE — and
+    // the two are deliberately not the same set. A persisting cube (theme.ts's
+    // MATERIAL_SPEC.persists, which is gold and only gold) filled its slot, so
+    // it counted toward `needed`, it is eligible to be the row's newest landing
+    // and it earns its share of the payout exactly like any other cube. It just
+    // does not leave. Skipping it HERE rather than in the candidate scan is the
+    // whole difference between "scaffolding" and "a hole": a cube held out of
+    // the scan would have read as a gap and the row would never have closed.
+    for (const c of filled) if (!MATERIAL_SPEC[c.material].persists) toRemove.add(c);
     rows.push(rowY);
   }
 

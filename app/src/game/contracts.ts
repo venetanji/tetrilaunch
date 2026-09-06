@@ -37,7 +37,7 @@ import { tilingQueue } from "./tiling";
 import { bayMusic, RUN_LEVELS, type BayTrack } from "./run";
 import { MARK_COUNT } from "./upgrades";
 import {
-  MATERIAL_SPEC, PIECE_TYPES, type Material, type PieceSize, type PieceType,
+  MATERIAL_SPEC, PIECE_TYPES, type BeltMaterial, type PieceSize, type PieceType,
 } from "./theme";
 
 /**
@@ -237,7 +237,7 @@ export type ObjectiveKind = "lines" | "pattern";
  *  launch budget priced on "cubes that can reach a row" can be honest about it.
  *  Every other material is countable, which is what makes it priceable — see
  *  MATERIAL_WASTE below. */
-export type ContractMaterial = Exclude<Material, "standard" | "slag">;
+export type ContractMaterial = Exclude<BeltMaterial, "slag">;
 
 /* -------------------------------------------------------------------------
  * PATTERN VARIANTS — what makes one zero-waste bay different from another.

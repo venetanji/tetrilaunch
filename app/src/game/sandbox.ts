@@ -19,7 +19,7 @@ import { finalsForTier, type FinalDef, type FinalId } from "./finals";
 import { hazardsForMark, type HazardDef, type HazardId, type Ratchets } from "./hazards";
 import { NO_MATERIALS, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
-import { MATERIALS, type Material } from "./theme";
+import { MATERIALS, type BeltMaterial } from "./theme";
 
 /** What the sandbox will launch when the LAUNCH button is pressed. */
 export type SandboxTarget =
@@ -100,10 +100,18 @@ export const SANDBOX_RATCHET_MAX = 3;
  * never "what is this" in isolation — it is "which of these two is this", and
  * that needs both of them on the belt within a few shipments of each other.
  */
-export type SandboxMaterial = "mix" | "all" | Material;
+export type SandboxMaterial = "mix" | "all" | BeltMaterial | "standard";
 
-/** Every material except standard, in MATERIALS order. */
-export const SANDBOX_MATERIALS: Material[] = MATERIALS.filter((m) => m !== "standard");
+/** Every material the BELT can roll, in MATERIALS order.
+ *
+ *  Which is to say: not standard (the absence of a material) and not gold —
+ *  gold is Flight School scaffolding that no cannon ever loads (theme.ts's
+ *  BeltMaterial), so parading it here would be the one place in the app that
+ *  put training stock on a real belt. Typed as BeltMaterial rather than
+ *  filtered-and-cast, so an eighth material lands in this parade by existing
+ *  rather than by somebody remembering this line. */
+export const SANDBOX_MATERIALS: BeltMaterial[] =
+  MATERIALS.filter((m): m is BeltMaterial => m !== "standard" && m !== "gold");
 
 /**
  * Point a level's material mix at whatever the sandbox selected.
@@ -135,9 +143,9 @@ export function applySandboxMaterials(cfg: LevelConfig, choice: SandboxMaterial)
     // end, so leaving a sliver keeps the occasional ordinary shipment in the
     // parade. Comparing a material against a plain one is half the job.
     const each = (0.94 / SANDBOX_MATERIALS.length) * denorm;
-    for (const m of SANDBOX_MATERIALS) mix[m as Exclude<Material, "standard">] = each;
+    for (const m of SANDBOX_MATERIALS) mix[m] = each;
   } else if (choice !== "standard") {
-    mix[choice as Exclude<Material, "standard">] = denorm;
+    mix[choice] = denorm;
   }
   cfg.materialMix = mix;
   return cfg;

@@ -8150,7 +8150,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check("every non-standard material carries a rule, not just a colour",
     MATERIALS.filter((m) => m !== "standard").every((m) => {
       const sp = MATERIAL_SPEC[m];
-      return !sp.countsForLines || sp.needsStrike || sp.rigid || sp.detonates || sp.welds || sp.aligns;
+      return !sp.countsForLines || sp.needsStrike || sp.rigid || sp.detonates || sp.welds
+        || sp.aligns || sp.persists;
     }));
   // The four late materials are answered by systems the ship already has, or
   // deliberately by nothing — cryo and magnetic are the two rungs that teach a

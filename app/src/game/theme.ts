@@ -134,10 +134,10 @@ export const PIECE_COLORS: Record<PieceType, string> = {
  *                 welcome.
  */
 export type Material =
-  | "standard" | "slag" | "cryo" | "rebar" | "volatile" | "tar" | "magnetic";
+  | "standard" | "slag" | "cryo" | "rebar" | "volatile" | "tar" | "magnetic" | "gold";
 
 export const MATERIALS: Material[] = [
-  "standard", "slag", "cryo", "rebar", "volatile", "tar", "magnetic",
+  "standard", "slag", "cryo", "rebar", "volatile", "tar", "magnetic", "gold",
 ];
 
 /**
@@ -176,6 +176,17 @@ export const MATERIAL_SPEC: Record<
      *  magnetic — the one material that HELPS, and the reason the vocabulary
      *  isn't uniformly hostile. */
     aligns?: boolean;
+    /** Does this cube SURVIVE the clear it just completed? True for gold, and
+     *  only for gold.
+     *
+     *  Every other material answers "what is this cube worth"; this one answers
+     *  "is it still there afterwards". lineClear.ts's updateLineClear keeps a
+     *  persisting cube out of the removal set while still counting it in the
+     *  row — so a gold-scaffolded row grades, pays and clears exactly like any
+     *  other, and then rebuilds itself for free. That is the whole of what
+     *  makes a Flight School bay a repeatable one-shot exercise instead of a
+     *  bay the player has to restart after every attempt. */
+    persists?: boolean;
   }
 > = {
   standard: { name: "Standard", color: null, countsForLines: true, needsStrike: false },
@@ -213,7 +224,40 @@ export const MATERIAL_SPEC: Record<
   // Cold steel-violet, deliberately close to the wall colour: magnetic is the
   // one material that behaves like part of the bay rather than against it.
   magnetic: { name: "Magnetic", color: "#8f9bd6", countsForLines: true, needsStrike: false, aligns: true },
+  // TRAINING STOCK, and the only material that never reaches a real bay: the
+  // belt cannot roll it (materialMix carries no weight for it) and no hazard
+  // axis ships it. game/school.ts stands it up as a Flight School bay's
+  // scaffolding and nothing else ever writes it.
+  //
+  // Pale champagne, and the hex was SEARCHED rather than chosen — the same
+  // exercise rebar's #e54c00 records above, run again with gold in the field.
+  // The note there says the palette is full at a worst case of 21, and that
+  // was true of the question it was asking (a thirteenth colour that had to
+  // beat every other swatch). Gold is allowed to be duller than a shipment,
+  // so the frontier reopens: #d9bd68 clears dE00 14.2 against its nearest
+  // neighbour (the O shipment's #ffe500) and holds 14.2 under deuteranopia and
+  // protanopia too, against a floor of 10 (sim/systems.ts). Brighter, more
+  // saturated golds score better under normal vision and collapse to ~2 under
+  // both CVD sims — #d4a017 is 16.1/2.2/2.2 — which is the trap the rebar
+  // audit was written to catch, so the pale one wins.
+  gold: { name: "Gold", color: "#d9bd68", countsForLines: true, needsStrike: false, persists: true },
 };
+
+/**
+ * What the BELT can roll — every material except the two that are not cargo.
+ *
+ * `standard` is excluded because it is the absence of a material rather than
+ * one of them (a mix names the odds of NOT being standard). `gold` is excluded
+ * because it is training stock: game/school.ts stands it up as a Flight School
+ * bay's scaffolding and nothing launches it, so a rate for it would be a number
+ * with no path to the field.
+ *
+ * A TYPE rather than a runtime check, and that is the point — level.ts's
+ * MaterialMix and contracts.ts's ContractMaterial are both built on this, so
+ * "gold never reaches a real bay" is something the compiler refuses rather than
+ * something a test has to remember to look for.
+ */
+export type BeltMaterial = Exclude<Material, "standard" | "gold">;
 
 /**
  * The colour a shipment is DRAWN in: its material's, or its shape's when the
@@ -295,6 +339,17 @@ export const MATERIAL_GLYPH: Record<Exclude<Material, "standard">, MaterialGlyph
   // A horseshoe magnet, drawn heavy so the closed arch reads as one mass rather
   // than as another set of radiating lines.
   magnetic: { d: "M5.4 19V12a6.6 6.6 0 0 1 13.2 0V19", stroke: 3.6 },
+  // An anchor — ring, stem, crossbar, flukes. A seventh SILHOUETTE CLASS and
+  // not merely a seventh drawing (see the header): nothing else here has a
+  // vertical spine, and the spine is what survives at belt-tile size where a
+  // detail difference would collapse. It also says the rule outright — this
+  // cube does not leave — which no other glyph in the table had the chance to
+  // do, every one of them describing a cost instead.
+  gold: {
+    d: "M9.7 5A2.3 2.3 0 1 0 14.3 5A2.3 2.3 0 1 0 9.7 5M12 7.3V20.4"
+      + "M6.6 10.6H17.4M4.8 14.6Q12 22.4 19.2 14.6",
+    stroke: 2.2,
+  },
 };
 
 /**
@@ -308,6 +363,11 @@ export const MATERIAL_GLYPH: Record<Exclude<Material, "standard">, MaterialGlyph
  * row cannot be squeezed and needs a Bond Breaker. Tar yes, so a Bond Breaker is
  * not wasted on a weld that will not break.
  *
+ * Gold yes, and it is the clearest yes in the table: the scaffolding is the
+ * part of the pile the player must NOT try to clear, and a Flight School bay is
+ * unreadable if the four cubes that will still be there afterwards look like the
+ * four that will not.
+ *
  * Magnetic is the one that is genuinely done: its whole effect happens as it
  * settles, and afterwards it is an ordinary cube. Giving it a permanent mark
  * would be noise on a pile that is already carrying four other marks.
@@ -318,7 +378,7 @@ export const MATERIAL_GLYPH: Record<Exclude<Material, "standard">, MaterialGlyph
  * material, and that state is the only thing worth knowing about a landed cryo
  * cube. A static glyph would say less, not more.
  */
-export const BAY_GLYPH_MATERIALS: Material[] = ["slag", "rebar", "volatile", "tar"];
+export const BAY_GLYPH_MATERIALS: Material[] = ["slag", "rebar", "volatile", "tar", "gold"];
 
 /**
  * Ink for a glyph drawn on top of `hex` — near-black on a light material, near-

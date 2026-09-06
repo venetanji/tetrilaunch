@@ -1,4 +1,4 @@
-import type { Material, PieceSize, PieceType } from "./theme";
+import type { BeltMaterial, Material, PieceSize, PieceType } from "./theme";
 
 /**
  * A single level's tunables. This is the primary ROADMAP SEAM: future levels and
@@ -1236,7 +1236,7 @@ export const MARK_SPEED_STEP = 0;
 
 /** Per-shipment probability of each non-standard material. See
  *  LevelConfig.materialMix. */
-export type MaterialMix = Record<Exclude<Material, "standard">, number>;
+export type MaterialMix = Record<BeltMaterial, number>;
 
 /** A bay with no materials at all — the pre-materials behaviour, and the
  *  explicit default for every caller that builds a LevelConfig by hand. */

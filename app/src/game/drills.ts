@@ -1,6 +1,6 @@
 import { makeBaseLevel, NO_MATERIALS, WIND_GUST_FRACTION, type LevelConfig } from "./level";
 import { applyUpgrades, newTiers, type UpgradeId, type UpgradeTiers } from "./upgrades";
-import type { PieceSize, PieceType, Material } from "./theme";
+import type { BeltMaterial, Material, PieceSize, PieceType } from "./theme";
 
 /**
  * DRILLS — a mock bay per lesson.
@@ -71,7 +71,7 @@ export interface DrillSpec {
   launches: number;
   /** The material the belt carries, and how much of it. Rate 1 means every
    *  shipment (see the header on why these are not ladder rates). */
-  material?: Exclude<Material, "standard">;
+  material?: BeltMaterial;
   materialRate?: number;
   /** Size class of every shipment in the bay. */
   pieceSize?: PieceSize;

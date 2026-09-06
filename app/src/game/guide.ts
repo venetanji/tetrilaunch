@@ -519,6 +519,25 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` shatter. Size is the bay's, not a per-shot choice.`,
     drill: DRILLS.sizes,
   },
+  {
+    /* THE ONE MATERIAL WITH NO AXIS, which is why it is written out here
+       instead of coming off materialTopics' spec list: every row that list
+       builds quotes a HazardDef's own `desc` as its summary, and gold has no
+       hazard to quote. Nothing drafts it and no belt can roll it (theme.ts's
+       BeltMaterial refuses the type outright).
+
+       FIRST IN CARGO, ahead of the six the ladder deals, because the chapter's
+       stated order is the order a player MEETS things and this is the only one
+       they meet before Tier 1 is even open. */
+    id: "mat-gold", chapter: "cargo", tier: 1,
+    name: MATERIAL_SPEC.gold.name,
+    summary: "Flight School scaffolding: it fills a slot, then survives the clear.",
+    material: "gold",
+    body: `Training stock — the one cargo that never ships. A gold cube fills a slot and`
+      + ` pays like any other. It just <b>does not leave</b>: the clear steps over it.`
+      + ` So a lesson bay rebuilds itself, and the same shot can be practised until it`
+      + ` is yours.`,
+  },
   ...materialTopics(lv),
   /**
    * THE ONE TECHNIQUE TOPIC IN THE CATALOGUE, and it is here because it was
