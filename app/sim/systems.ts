@@ -20959,7 +20959,14 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   /** Loose cubes onto exact slot centres — a PERFECT shot, without asking a bot
    *  to fly one. Same construction createStandingWall uses, which is what makes
    *  the placement a fact about the grid rather than about an aiming policy. */
-  const place = (g: Game, cells: Array<[number, number]>, type: PieceType): void => {
+  const place = (
+    g: Game, cells: Array<[number, number]>, type: PieceType,
+    /** Which shipment these cubes belong to. The board reset is a comparison
+     *  between shipments (lineClear.ts's sweepStaleCubes), so a test of it has
+     *  to say which attempt each cube arrived in; the geometry tests do not
+     *  care and leave it alone. */
+    shipment?: number,
+  ): void => {
     for (const [k, row] of cells) {
       const body = Matter.Bodies.rectangle(
         WALL_INNER - CELL / 2 - k * CELL,
@@ -20975,6 +20982,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       g.cubes.push({
         body, type, color: shipmentColor(type, "standard"),
         blinkStart: null, material: "standard", struck: true, framed: false,
+        ...(shipment === undefined ? {} : { shipment }),
       });
     }
   };
@@ -20987,8 +20995,15 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   const FILL: Record<string, { cells: Array<[number, number]>; type: PieceType; want: number }> = {
     "close-the-row": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
     "two-at-once": { cells: [[3, 0], [4, 0], [3, 1], [4, 1]], type: "O", want: 2 },
-    "four-in-the-well": { cells: [[3, 0], [3, 1], [3, 2], [3, 3]], type: "I", want: 4 },
-    "lob-or-skim": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+    // The well is TWO deep now and its four rows arrive as a cascade, so the
+    // first crush takes two — the whole four are pinned separately below.
+    "four-in-the-well": { cells: [[3, 0], [3, 1], [3, 2], [3, 3]], type: "I", want: 2 },
+    // Lob or Skim has a gap at each END now, and one shipment cannot fill both —
+    // which is the lesson. Its own pin is below; the shared one takes both.
+    "lob-or-skim": {
+      cells: [[0, 0], [1, 0], [0, 1], [1, 1], [6, 0], [7, 0], [6, 1], [7, 1]],
+      type: "O", want: 2,
+    },
     "time-the-row": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
     "the-bankroll": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
     "the-streak": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
@@ -21113,8 +21128,12 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const four = lessonById("four-in-the-well")!.wall!;
     check("the gap narrows from four columns to two to one",
       gapOf(one) === 4 && gapOf(two) === 2 && gapOf(four) === 1);
-    check("...and deepens from one cube to two to four",
-      Math.max(...one) === 1 && Math.max(...two) === 2 && Math.max(...four) === 4);
+    // ...and deepens one, two, two. The well used to be four deep and that made
+    // it the hardest shot in the game as lesson three; two pays the same four
+    // rows through a cascade (see school.ts's WELL) and asks for a drop instead
+    // of a thread.
+    check("...and deepens from one cube to two, and no further",
+      Math.max(...one) === 1 && Math.max(...two) === 2 && Math.max(...four) === 2);
     // AN INTERIOR GAP, never an edge one. A gap at an edge is open on one side,
     // so a shipment that overshoots slides away into the bay and the exercise
     // silently becomes a different one.
@@ -21129,10 +21148,16 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   // opposite of what it teaches. These are the lessons that need LessonGoal.
   {
     const wells = LESSONS.filter((l) => l.goal?.kind === "atOnce");
-    check("the two well lessons are graded on a SINGLE crush",
-      wells.length === 2 && wells.every((l) => levelForLesson(l).objectiveLines === 0));
-    check("...at two rows and four",
-      wells.map((l) => (l.goal as { kind: "atOnce"; lines: number }).lines).join() === "2,4");
+    check("the notch lesson is graded on a SINGLE crush",
+      wells.length === 1 && wells.every((l) => levelForLesson(l).objectiveLines === 0));
+    check("...at two rows",
+      wells.map((l) => (l.goal as { kind: "atOnce"; lines: number }).lines).join() === "2");
+    // The well is CUMULATIVE, and that is the shallow well's whole point: its
+    // four rows arrive as two clears, so `atOnce` would be asking for the
+    // 4-deep well — and the hardest shot in the game — back.
+    check("the well counts its four rows cumulatively",
+      lessonById("four-in-the-well")!.lines === 4
+        && lessonById("four-in-the-well")!.goal === undefined);
     check("a lesson with a goal sets no line objective, and vice versa",
       LESSONS.every((l) => (l.goal ? l.lines === 0 : true)));
     check("every lesson can be passed by something",
@@ -21142,13 +21167,13 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   // The goals themselves, through Game.objectiveMet rather than by re-reading
   // the fields — the accessor is what actually ends a bay.
   {
-    const well = lessonById("four-in-the-well")!;
-    const g = new Game(levelForLesson(well), {}, lessonSeed(2));
-    check("a well lesson is unmet on an untouched bay", !g.objectiveMet);
-    g.bestClear = 3;
-    check("...still unmet at three rows in one crush", !g.objectiveMet);
-    g.bestClear = 4;
-    check("...met at four", g.objectiveMet);
+    const notch = lessonById("two-at-once")!;
+    const g = new Game(levelForLesson(notch), {}, lessonSeed(1));
+    check("an at-once lesson is unmet on an untouched bay", !g.objectiveMet);
+    g.bestClear = 1;
+    check("...still unmet at one row in a crush", !g.objectiveMet);
+    g.bestClear = 2;
+    check("...met at two", g.objectiveMet);
     g.destroy();
 
     const streak = lessonById("the-streak")!;
@@ -21200,6 +21225,131 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       check(`${l.id}'s brief fits its card`, plain(l.brief) <= 120,
         `${plain(l.brief)} > 120`);
     }
+  }
+
+  // ---- THE DIFFICULTY PASS ----------------------------------------------
+  // Three claims the ladder was re-shaped around after it played too hard, and
+  // each is a measurement rather than a preference.
+  //
+  // 1. THE WELL CASCADES. It was one column wide and FOUR deep — a 4-tall I
+  //    threaded down a 4-deep slot, i.e. the hardest shot in the game, as
+  //    lesson three. Two deep pays the same four rows: the I closes rows 0-1,
+  //    they go, its top two cubes fall into the channel the clear just emptied
+  //    onto gold that persisted, and close them again.
+  {
+    const well = lessonById("four-in-the-well")!;
+    const i = LESSONS.indexOf(well);
+    const clears: number[] = [];
+    const g = new Game(levelForLesson(well), { onLineClear: (n) => clears.push(n) }, lessonSeed(i));
+    for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+    place(g, [[3, 0], [3, 1], [3, 2], [3, 3]], "I");
+    for (let s = 0; s < 60 * 25; s++) g.update(STEP_MS);
+    check("one upended shipment still pays the well's four rows",
+      g.linesTotal === 4, `${g.linesTotal} via [${clears.join(",")}]`);
+    check("...as a cascade rather than one crush", clears.length === 2, clears.join(","));
+    check("...and the scaffold is untouched by it",
+      g.cubes.filter((c) => c.material === "gold").length
+        === (well.wall ?? []).reduce((a, b) => a + b, 0));
+    g.destroy();
+  }
+  // 2. LOB OR SKIM NEEDS BOTH SHOTS. It had one central gap, so it could not
+  //    demonstrate the two arcs it is named for. A gap at each end — the far one
+  //    behind the pile, which is a lob; the near one open to the cannon, which
+  //    is a skim — and NEITHER ALONE CLOSES ANYTHING.
+  {
+    const lesson = lessonById("lob-or-skim")!;
+    const i = LESSONS.indexOf(lesson);
+    const FAR: Array<[number, number]> = [[0, 0], [1, 0], [0, 1], [1, 1]];
+    const NEAR: Array<[number, number]> = [[6, 0], [7, 0], [6, 1], [7, 1]];
+    const fly = (fills: Array<Array<[number, number]>>): number => {
+      let lines = 0;
+      const g = new Game(levelForLesson(lesson), { onLineClear: (n) => { lines += n; } }, lessonSeed(i));
+      for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+      for (const f of fills) { place(g, f, "O"); for (let s = 0; s < 60 * 12; s++) g.update(STEP_MS); }
+      g.destroy();
+      return lines;
+    };
+    check("the far gap alone closes nothing", fly([FAR]) === 0);
+    check("the near gap alone closes nothing", fly([NEAR]) === 0);
+    check("...and both together close the lesson's two rows", fly([FAR, NEAR]) === 2);
+    // Slot 0 is the column nearest the wall, so this is the "gap on the right
+    // AND on the left" the board is for — an edge gap at each end rather than
+    // the interior one every other set piece keeps.
+    const w = lesson.wall!;
+    check("the gaps are at the ENDS, one each", w[0] === 0 && w[w.length - 1] === 0);
+  }
+  // 3. IT IS ACTUALLY PASSABLE. The claim "too hard" is about win rates, so
+  //    this is the pin that would catch a future tune making it hard again.
+  //    Flown by `lob-tall` — a pilot that stands its shipments on end, which is
+  //    what every card here tells the player to do — over a bay's worth of
+  //    shots. Not a difficulty TARGET: it is a floor, well under what the
+  //    measured rates are, because a bot with a fixed 35-degree arc that never
+  //    aims at the gap is a far worse pilot than the person this is written for.
+  {
+    // THE PLACEMENT LESSONS ONLY. The three below are passed by putting cargo
+    // somewhere, which is what a bot does. The others are not, and measuring
+    // them here would measure the wrong thing: the streak breaks on LOST cargo
+    // (game.ts's chargeLostCubes), so a pilot that sprays cubes out of the bay
+    // is being scored on the exact habit the lesson is about not having; the
+    // timing lesson is graded on reading the press, which a bot firing on
+    // cooldown never does; and the bankroll lesson is a money problem. All
+    // three are measured by playing, and the numbers are in the commit.
+    for (const id of ["close-the-row", "two-at-once", "lob-or-skim"]) {
+      const lesson = lessonById(id)!;
+      const i = LESSONS.indexOf(lesson);
+      let wins = 0;
+      for (let seed = 1; seed <= 8; seed++) {
+        const g = new Game(levelForLesson(lesson), {}, lessonSeed(i));
+        const bot = BOTS["lob-tall"](seed);
+        let now = 0;
+        for (let s = 0; s < 60 * 60 && g.status === "playing"; s++) {
+          now += STEP_MS; bot.act(g, now); g.update(now);
+        }
+        if (g.status === "won") wins += 1;
+        g.destroy();
+      }
+      check(`${id} is passable by a pilot that never aims`, wins >= 4, `${wins}/8`);
+    }
+  }
+
+  // 4. THE BOARD RESET MUST NOT BREAK THE STREAK, which is where the two
+  //    systems meet: the streak lesson is scaffolded, so its own board is
+  //    writing cargo off underneath a goal that counts consecutive clears. A
+  //    sweep routed through the lost-cargo path would reset the combo every few
+  //    seconds and make that lesson unpassable by construction. They are
+  //    separate paths (Cube.swept) and this is the pin that says why it matters.
+  {
+    const lesson = lessonById("the-streak")!;
+    const i = LESSONS.indexOf(lesson);
+    const g = new Game(levelForLesson(lesson), {}, lessonSeed(i));
+    // A RUNNING CLOCK, not a repeated instant. Game.update takes a TIMESTAMP,
+    // and the removal half of a board reset serves a 1.4s blink against it — so
+    // a loop that hands it the same STEP_MS every tick steps the physics
+    // forward and time not at all, and nothing ever finishes blinking. (The
+    // geometry checks above are immune: a clear is decided by positions.)
+    let now = 0;
+    const run = (secs: number): void => {
+      for (let s = 0; s < 60 * secs; s++) { now += STEP_MS; g.update(now); }
+    };
+    run(2);
+    g.combo = 3;
+    // Cargo stranded ON TOP of the scaffold, where it can never complete a row —
+    // so the only thing that can happen to it is the board taking it back.
+    place(g, [[0, 1], [1, 1], [0, 2], [1, 2]], "O", 1);
+    run(6);
+    // ...and a SECOND attempt landing, which is what ends the first.
+    place(g, [[6, 1], [7, 1], [6, 2], [7, 2]], "O", 2);
+    run(40);
+    // COUNTED BY SHIPMENT, not by total: the second attempt is still standing
+    // (it is the current one), so a bare cube count comes out unchanged and
+    // would pass whether the reset ran or not.
+    const left = (n: number): number => g.cubes.filter((c) => c.shipment === n).length;
+    check("the board takes the older attempt back", left(1) === 0, `${left(1)} left`);
+    check("...and leaves the current one standing", left(2) === 4, `${left(2)}`);
+    // NOT ZEROED, which is the claim. Whether it also climbed is beside the
+    // point — a sweep routed through the lost-cargo path would have reset it.
+    check("...without breaking the combo streak", g.combo >= 3, String(g.combo));
+    g.destroy();
   }
 
   // ---- THE SCAFFOLD IS FIXED, AND THE BOARD RESETS ----------------------

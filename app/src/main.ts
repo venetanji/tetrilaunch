@@ -4631,6 +4631,12 @@ class App {
     if (!hud) return;
     if (!this.lesson || this.lesson.reveal >= REVEAL.all) delete hud.dataset.reveal;
     else hud.dataset.reveal = String(this.lesson.reveal);
+    // ...and the rail control this lesson wants pointed at (Lesson.spotlight).
+    // Published on the same node and in the same place, because both are "what
+    // this lesson is showing the player" and a second sync would be a second
+    // thing to remember to call.
+    if (!this.lesson?.spotlight) delete hud.dataset.hilite;
+    else hud.dataset.hilite = this.lesson.spotlight;
   }
 
   /**

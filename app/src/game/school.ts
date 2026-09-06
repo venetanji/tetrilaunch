@@ -135,6 +135,16 @@ export interface Lesson extends BayDials {
   economy?: boolean;
   /** Keep the spill fine, at Tier 1's price. Lesson 8 and nothing before it. */
   fine?: boolean;
+  /** A rail control to SPOTLIGHT for this lesson's bay — main.ts publishes it as
+   *  `data-hilite` and app.css pulses the buttons.
+   *
+   *  The rail is seven near-identical buttons and a first-timer scanning it
+   *  mid-bay has no reason to know which two a card means by "⟲ / ⟳". The
+   *  retired four-card coach already had this spotlight and nothing drove it any
+   *  more; it belongs to whichever lesson actually needs the control. Scoped to
+   *  the lesson, not to the ladder: a highlight that never turns off is chrome
+   *  rather than teaching. */
+  spotlight?: "rotate";
 }
 
 /* ---------------------------------------------------------------------------
@@ -169,9 +179,31 @@ const TRENCH: number[] = [1, 1, 0, 0, 0, 0, 1, 1];
  *  whole and closes both rows on the same crush. */
 const NOTCH: number[] = [2, 2, 2, 0, 0, 2, 2, 2];
 
-/** Four rows, one upended I. The well: one column wide, four deep, which is
- *  the shape the tetris has always been played into. */
-const WELL: number[] = [4, 4, 4, 0, 4, 4, 4, 4];
+/** Four rows, one upended I — and the depth is the whole trick.
+ *
+ *  It was four deep, which is the shape a tetris has always been played into
+ *  and, as lesson three, the hardest shot in the game: a 4-tall piece threaded
+ *  down a 4-deep slot. Two deep pays exactly the same four rows and asks for
+ *  almost nothing, because the clear CASCADES — the I closes rows 0-1, they go,
+ *  its top two cubes fall into the channel the clear just emptied onto gold that
+ *  persisted, and close them again. Measured through the real clear check: at
+ *  depth 2 the bay reports clears of [2,2], at depth 3 [3,1], at depth 4 [4].
+ *  Four rows every time.
+ *
+ *  So the lesson keeps its name, its payoff and its subject — a flat I still
+ *  cannot enter a one-column channel, so rotation is still the thing being
+ *  taught — and loses only the precision. */
+const WELL: number[] = [2, 2, 2, 0, 2, 2, 2, 2];
+
+/** A gap at each END, gold in the middle: the board that needs both shots.
+ *
+ *  Slot 0 is the column nearest the wall, so the far gap is on the RIGHT —
+ *  behind a two-tall pile, which is a lob — and the near one on the LEFT, open
+ *  to the cannon, which is a flat skim. One square fills each. Neither alone
+ *  closes anything (measured: 0 lines for either gap on its own, 2 for both), so
+ *  the lesson cannot be passed with one kind of shot, which is the only reason
+ *  it exists. */
+const ENDS: number[] = [0, 0, 2, 2, 2, 2, 0, 0];
 
 /**
  * THE LADDER. Order is the curriculum; the array index is the licence
@@ -233,60 +265,71 @@ export const LESSONS: Lesson[] = [
   {
     id: "four-in-the-well",
     name: "Four in the Well",
-    brief: "One column open, four deep. Turn the shipment on its end and thread it.",
-    conditions: "Rotate · four rows at once",
+    brief: "One column open. Stand the shipment on its end and drop it in.",
+    conditions: "Rotate · four rows",
     reveal: REVEAL.reload,
-    lines: 0,
-    goal: { kind: "atOnce", lines: 4 },
+    // FOUR ROWS, CUMULATIVE, because they arrive as two clears rather than one
+    // — the cascade WELL's note describes. `atOnce` would be asking for the
+    // 4-deep well back.
+    lines: 4,
     launches: 0,
     wall: WELL,
     wallMaterial: "gold",
     sequence: ["I"],
+    // The rail is seven near-identical buttons and this is the one lesson that
+    // needs two of them by name.
+    spotlight: "rotate",
     cards: [
       {
         title: "Turn it upright",
-        body: `The well is <b>one column wide</b>. The shipment arrives flat, so turn it`
-          + ` <b>90°</b> with the ⟲ / ⟳ rail before you fire.`,
+        body: `The well is <b>one column wide</b> and the shipment arrives flat, so turn it`
+          + ` <b>90°</b> first — the glowing <b>⟲ / ⟳</b> buttons.`,
       },
       {
-        title: "Four at once",
-        body: `Upright, it fills all four rows and they sell in one stroke. Nothing in the`
-          + ` bay pays better than a well you kept open.`,
+        title: "Four rows, one drop",
+        body: `Upright it fills the channel, the bottom rows sell, and what is left drops in`
+          + ` and sells them again. <b>Four rows from one shipment.</b>`,
       },
     ],
   },
   {
     id: "lob-or-skim",
     name: "Lob or Skim",
-    brief: "Two ways into the same gap. Learn what each one costs before it matters.",
-    conditions: "Two arcs · same gap",
+    brief: "A gap at each end. One is behind the pile, one is in front — take both.",
+    conditions: "Two gaps · two arcs",
     reveal: REVEAL.reload,
-    lines: 3,
+    lines: 2,
     launches: 0,
-    wall: TRENCH,
+    wall: ENDS,
     wallMaterial: "gold",
-    sequence: ["I"],
+    sequence: ["O"],
     cards: [
       {
         title: "The lob",
-        body: `A <b>high, soft arc</b> drops in steeply and lands where you put it. It is slow,`
-          + ` and it is the shot that almost never spills.`,
+        body: `The <b>far</b> gap sits behind the pile. Only a <b>high, soft arc</b> drops into`
+          + ` it — slow, and the shot that almost never spills.`,
       },
       {
         title: "The skim",
-        body: `A <b>flat, fast arc</b> skims the top of the pile — far more reach, and it can`
-          + ` <b>bounce back out</b> of the zone. Worth it when the clock is the thing you are short of.`,
+        body: `The <b>near</b> gap takes a <b>flat, fast</b> one straight across the top. More`
+          + ` reach, and it can <b>bounce back out</b>. Fill both and the rows sell together.`,
       },
     ],
   },
   {
     id: "time-the-row",
     name: "Time the Row",
-    brief: `Close two rows inside ${EXCELLENT_WINDOW_MS}ms of the shipment settling. That is EXCELLENT.`,
-    conditions: `2 × EXCELLENT · ×${GRADE_PAY.excellent}`,
+    brief: "Close two rows on a stroke that was already running. Beat the press, don't wait for it.",
+    conditions: `2 × timed · up to ×${GRADE_PAY.excellent}`,
     reveal: REVEAL.grade,
     lines: 0,
-    goal: { kind: "grade", grade: "excellent", count: 2 },
+    // GOOD, NOT EXCELLENT. Excellent is a 100ms window and asking for two of
+    // them made this the hardest bay on the ladder — harder than anything a
+    // Tier 1 run contains. GOOD is the wide one ("land while the bar is coming
+    // in and let that sweep finish it"), and because the bands are ORDERED an
+    // excellent row counts toward it for free (game.ts's objectiveMet), so the
+    // player who nails the tight window is rewarded rather than required to.
+    goal: { kind: "grade", grade: "good", count: 2 },
     launches: 0,
     wall: TRENCH,
     wallMaterial: "gold",
@@ -294,13 +337,14 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "A row has a price",
-        body: `Every row is graded on <b>when</b> it closed. Land into a stroke already running:`
-          + ` <b>EXCELLENT</b>, ×${GRADE_PAY.excellent}. Ground flat by the press: <b>SWEPT</b>, ×1.`,
+        body: `Every row is graded on <b>when</b> it closed. Beat the press to it and it pays`
+          + ` more; let the press grind it flat and it is <b>SWEPT</b>, ×1.`,
       },
       {
         title: "Wait for the bar",
         body: `So do not fire the moment you can. <b>Hold the shot until the bar is coming in</b>,`
-          + ` then put the piece in front of it. Two EXCELLENT rows and this bay is yours.`,
+          + ` then land in front of it: <b>GOOD</b>, ×${GRADE_PAY.good}. Inside`
+          + ` ${EXCELLENT_WINDOW_MS}ms it is <b>EXCELLENT</b>, ×${GRADE_PAY.excellent}. Two timed rows passes.`,
       },
     ],
   },
@@ -348,9 +392,9 @@ export const LESSONS: Lesson[] = [
           + ` what the next one pays. Keep closing rows and the same play earns more.`,
       },
       {
-        title: "It breaks",
-        body: `A stroke that clears nothing ends it, and so does letting the bay fill up. The`
-          + ` skim is the shot that risks a streak; the lob is the shot that protects one.`,
+        title: "Losing cargo breaks it",
+        body: `<b>A cube that misses the zone takes the streak with it</b> — and so does letting`
+          + ` the bay clutter up. The skim risks a streak; the lob protects one.`,
       },
     ],
   },
@@ -411,6 +455,16 @@ export const LESSONS: Lesson[] = [
   },
 ];
 
+/** Shots the bankroll lesson's float buys before a single row is sold — the
+ *  runway a beginner gets to miss with. Twelve against a Deep Run bay's eight
+ *  (level.ts's LAUNCH_BUDGET_SHOTS): the bay is teaching that shots cost money,
+ *  not testing whether you can afford them yet. */
+const BANKROLL_FLOAT_SHOTS = 12;
+/** Rows of PROFIT the lesson asks for on top of that float. Three, because
+ *  three is enough to feel the loop — spend, clear, bank — and eleven is a bay
+ *  rather than a lesson. */
+const BANKROLL_ROWS = 3;
+
 /** Lessons in the ladder — the count a completed licence has to reach. */
 export const LESSON_COUNT = LESSONS.length;
 
@@ -453,6 +507,18 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
     cfg.timeLimitSec = 0;
     cfg.objectiveLines = 0;
     cfg.launchBudget = 0;
+    // ...but SIZED FOR A LESSON, not for a bay. Inherited whole, this asked for
+    // Tier 1 bay 1's own numbers — $1080 off a $160 float, which is eleven rows
+    // and a bay you can go broke in twice over on the way. Measured, a pilot
+    // that never aims went broke on ten seeds of twelve without ever reaching
+    // a quarter of it.
+    //
+    // Both numbers are DERIVED from the bay's own rates rather than typed, so
+    // the lesson still teaches Tier 1's real economy — the same launch price
+    // and the same line payout — over a runway and a finish line a first bankroll
+    // can actually cross.
+    cfg.startingFunds = BANKROLL_FLOAT_SHOTS * cfg.launchCost;
+    cfg.targetScore = cfg.startingFunds + BANKROLL_ROWS * cfg.scorePerLine;
   } else {
     // The Contract stripping (contracts.ts's levelForContract), for the reason
     // stated there: nothing is spent, so nothing needs to be earned back.

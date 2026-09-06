@@ -271,12 +271,25 @@ export function createStandingWall(
         CELL,
         CELL,
         {
-          friction: 0.5,
+          // SCAFFOLDING CATCHES, ORDINARY CARGO SLIDES. A standing wall of a
+          // persisting material is a board a beginner is aiming AT, and the
+          // three numbers below are what decide whether a near-miss settles on
+          // it or skids off into the bay.
+          //
+          // The chamfer is the one that matters most, and it is what made
+          // static gold read as unforgiving: a 3px rounded corner turns a
+          // static block into a RAMP, so a cube landing on the lip of the well
+          // slid off instead of dropping in. Square corners, full friction and
+          // no bounce mean the piece stops where it landed. Cargo keeps its own
+          // numbers (createTetrisPiece below) — this softens the BOARD, not the
+          // physics of the thing the player is throwing, so a lesson still
+          // teaches the bay they actually own.
+          friction: MATERIAL_SPEC[material].persists ? 0.9 : 0.5,
           frictionAir: 0.012,
-          restitution: 0.05,
+          restitution: MATERIAL_SPEC[material].persists ? 0 : 0.05,
           density: CUBE_DENSITY,
           label: "cube",
-          chamfer: { radius: 3 },
+          chamfer: MATERIAL_SPEC[material].persists ? undefined : { radius: 3 },
           // SCAFFOLDING DOES NOT MOVE. A wall of a persisting material
           // (theme.ts's MATERIAL_SPEC.persists — gold, and only gold) is the
           // BOARD of an authored exercise rather than cargo lying on it, so it

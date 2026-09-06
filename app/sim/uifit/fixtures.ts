@@ -535,6 +535,13 @@ const LESSON_HUD = (l: (typeof LESSONS)[number]) => ({
 const withReveal = (hud: string, stage: number): string =>
   hud.replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-reveal="${stage}">`);
 
+/** The rail spotlight a lesson asks for (game/school.ts's Lesson.spotlight,
+ *  published by main.ts's syncRevealStage as `data-hilite`). Same trick
+ *  withReveal uses: stamp the attribute the app stamps, so the harness measures
+ *  the rail the player actually sees rather than a reconstruction of it. */
+const withHilite = (hud: string, what: string): string =>
+  hud.replace('<div class="hud" id="hud"', `<div class="hud" id="hud" data-hilite="${what}"`);
+
 const withCoach = (hud: string, step: number, coach: string): string =>
   hud
     .replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-coach="${step}">`)
@@ -1250,6 +1257,14 @@ export const SCREENS: Record<string, () => string> = {
     `lesson-hud-${i}`,
     () => withReveal(S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(l) }), l.reveal),
   ])),
+  // THE ROTATE SPOTLIGHT, on the lesson that asks for it. The two rail buttons
+  // grow a lit ring and a pulse, which is the only thing on this screen that
+  // changes a control's box — so it is the one that could push the rail's
+  // column and needs measuring.
+  "lesson-hilite-rotate": () => withHilite(
+    withReveal(S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[2]) }), LESSONS[2].reveal),
+    "rotate",
+  ),
   // The result, both ways, and the licence itself — which is the one card in
   // the app that gets to say Tier 1 is open.
   "lesson-end-won": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]) })
