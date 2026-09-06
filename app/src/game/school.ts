@@ -83,18 +83,25 @@ export const REVEAL = {
   aim: 0,
   /** + Reload. */
   reload: 1,
-  /** + Launches — the shipment budget. */
-  launches: 2,
   /** + the timing grade's callout over the payout. */
-  grade: 3,
+  grade: 2,
   /** + Funds / Target and the launch quote. */
-  funds: 4,
+  funds: 3,
   /** + the Combo readout. */
-  combo: 5,
-  /** + the Lost counter. */
-  lost: 6,
+  combo: 4,
+  /** + the launch budget and the Lost counter, which arrive together on the
+   *  one lesson that has both.
+   *
+   *  NOT EARLIER, and the reason is that there was nothing to show. The set
+   *  pieces hand out unlimited shipments — a "nothing to lose" bay cannot also
+   *  be counting down — and hudOpts maps an unlimited budget to 0, so a stage
+   *  that turned the block on before a budget existed put a permanent
+   *  "LAUNCHES 0" on the panel: a readout that says the player is out of shots
+   *  while they keep firing. Seen on device. The budget is a real number for
+   *  the first time on Lost Cargo, which is where it now appears. */
+  lost: 5,
   /** Everything, which is what every bay outside Flight School shows. */
-  all: 7,
+  all: 6,
 } as const;
 
 export type RevealStage = (typeof REVEAL)[keyof typeof REVEAL];
@@ -228,7 +235,7 @@ export const LESSONS: Lesson[] = [
     name: "Four in the Well",
     brief: "One column open, four deep. Turn the shipment on its end and thread it.",
     conditions: "Rotate · four rows at once",
-    reveal: REVEAL.launches,
+    reveal: REVEAL.reload,
     lines: 0,
     goal: { kind: "atOnce", lines: 4 },
     launches: 0,
@@ -253,7 +260,7 @@ export const LESSONS: Lesson[] = [
     name: "Lob or Skim",
     brief: "Two ways into the same gap. Learn what each one costs before it matters.",
     conditions: "Two arcs · same gap",
-    reveal: REVEAL.launches,
+    reveal: REVEAL.reload,
     lines: 3,
     launches: 0,
     wall: TRENCH,
@@ -464,6 +471,16 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
   cfg.penaltyPerLostPiece = lesson.fine ? penaltyPerLostPieceFor(0, 1) : 0;
 
   cfg.lessonGoal = lesson.goal ?? null;
+
+  // A SCAFFOLDED BAY HAS NO PILE (level.ts's boardResets). The gold says where
+  // the answer goes and the belt deals the shape that fits it; a second
+  // shipment lying on top of that is not the exercise that was authored, and —
+  // measured, driving the lob bot at the ladder — it is what buried the well
+  // under fifteen rows of stray cargo in a bay with no launch limit to fail out
+  // of. Keyed off the scaffolding rather than a flag of its own, because the
+  // two are the same statement: a bay whose board is drawn for it is a bay that
+  // has to be able to get its board back.
+  cfg.boardResets = lesson.wallMaterial === "gold";
 
   applyBayDials(cfg, lesson);
   return cfg;

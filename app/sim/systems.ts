@@ -99,6 +99,7 @@ import {
   cushionedTrigger, cushionEdgeX, cushionAbsorbed, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
   stampLandings, landingOf, newestLanding, headlineGrade, headlineRow,
+  sweepExpired,
   rowParticipation, IMPACT_ASSIST_X_TOL, IMPACT_ASSIST_Y_MAX, IMPACT_ASSIST_Y_MIN,
   type GradedRow,
 } from "../src/game/lineClear";
@@ -21016,6 +21017,18 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       LESSONS.map((l) => l.reveal).join(","));
     check("the last lesson shows the whole readout",
       LESSONS[LESSONS.length - 1].reveal === REVEAL.all);
+    // A REVEALED BLOCK HAS TO HAVE SOMETHING TO SAY. The set pieces hand out
+    // unlimited shipments — a bay with nothing to lose cannot also be counting
+    // down — and main.ts's hudOpts maps an unlimited budget to 0, so a stage
+    // that turned Launches on before a budget existed put a permanent
+    // "LAUNCHES 0" on the panel: a readout telling the player they are out of
+    // shots while they keep firing. Seen on device.
+    check("no lesson reveals the launch budget before it has one",
+      LESSONS.every((l) => l.reveal < REVEAL.lost || l.launches > 0),
+      LESSONS.filter((l) => l.reveal >= REVEAL.lost && l.launches === 0)
+        .map((l) => l.id).join(","));
+    check("...and the lesson that does have one shows it",
+      LESSONS.filter((l) => l.launches > 0).every((l) => l.reveal >= REVEAL.lost));
     check("the first lesson shows only the power meter", LESSONS[0].reveal === REVEAL.aim);
   }
 
@@ -21187,6 +21200,121 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       check(`${l.id}'s brief fits its card`, plain(l.brief) <= 120,
         `${plain(l.brief)} > 120`);
     }
+  }
+
+  // ---- THE SCAFFOLD IS FIXED, AND THE BOARD RESETS ----------------------
+  // Two defects the ladder shipped with, both found by playing it.
+  //
+  // 1. GOLD WAS DYNAMIC. The press shoved it, landings knocked it, and a
+  //    scaffold that has crept half a cell is an exercise that has silently
+  //    become unsolvable — the row it was cut to complete no longer lines up
+  //    with the slot grid updateLineClear reads.
+  //
+  // 2. THE BAY KEPT A PILE. An authored exercise is a board plus one shipment,
+  //    and once a second one lands badly it is no longer the exercise that was
+  //    authored. Measured before the fix, driving the lob bot at the ladder for
+  //    sixty seconds: `four-in-the-well` finished under thirty stray cubes with
+  //    the pile fifteen rows deep and the well buried — unfinishable, and with
+  //    no launch limit, unfailable too.
+  {
+    const well = lessonById("four-in-the-well")!;
+    const g = new Game(levelForLesson(well), {}, lessonSeed(2));
+    for (let s = 0; s < 60 * 3; s++) g.update(STEP_MS);
+    const gold = g.cubes.filter((c) => c.material === "gold");
+    check("a lesson's scaffolding is static", gold.length > 0 && gold.every((c) => c.body.isStatic));
+    check("...and nothing else in the bay is",
+      g.cubes.filter((c) => c.material !== "gold").every((c) => !c.body.isStatic));
+    check("a scaffolded lesson resets its board", levelForLesson(well).boardResets);
+    check("...and the two ordinary lessons do not",
+      !levelForLesson(lessonById("lost-cargo")!).boardResets
+        && !levelForLesson(lessonById("clutter")!).boardResets);
+    check("no bay outside Flight School resets its board",
+      !makeBaseLevel(0).boardResets
+        && !levelForDrill("row", DRILLS.row).boardResets);
+    g.destroy();
+  }
+  // THE PILE IS BOUNDED, through the real game, with a pilot that never aims at
+  // the gap. The claim is not "the board is always pristine" — the current
+  // attempt and the one the press may still be finishing are both allowed to be
+  // standing — it is that the pile cannot RUN AWAY, which is the failure that
+  // made a lesson unplayable.
+  {
+    const worst = { id: "", junk: 0, row: 0 };
+    for (const id of ["close-the-row", "two-at-once", "four-in-the-well", "the-streak"]) {
+      const lesson = lessonById(id)!;
+      const i = LESSONS.indexOf(lesson);
+      const g = new Game(levelForLesson(lesson), {}, lessonSeed(i));
+      const bot = BOTS.lob(7);
+      let now = 0;
+      for (let s = 0; s < 60 * 45 && g.status === "playing"; s++) {
+        now += STEP_MS;
+        bot.act(g, now);
+        g.update(now);
+        const settled = g.cubes.filter(
+          (c) => c.material !== "gold" && c.blinkStart === null && landingOf(c),
+        );
+        if (settled.length > worst.junk) { worst.junk = settled.length; worst.id = id; }
+        for (const c of settled) {
+          const row = Math.round((WORLD.height - CELL / 2 - c.body.position.y) / CELL);
+          if (row > worst.row) worst.row = row;
+        }
+      }
+      // The scaffold is still every cube of it, in the right places, after all
+      // that — which is the static half of the fix seen from the other side.
+      check(`${id}'s scaffold survives a bay of bad shots`,
+        g.cubes.filter((c) => c.material === "gold").length
+          === (lesson.wall ?? []).reduce((a, b) => a + b, 0));
+      g.destroy();
+    }
+    // Twenty and twelve are ceilings with real headroom over what was measured
+    // (16 cubes, row 9), not the measurement itself: the point is that the pile
+    // is bounded, and pinning the exact number would fail on any physics tune.
+    // Before the reset the same run reached thirty cubes and row fifteen.
+    check("a scaffolded bay's pile cannot run away — cubes",
+      worst.junk <= 20, `${worst.junk} on ${worst.id}`);
+    check("...nor climb the bay", worst.row <= 12, String(worst.row));
+  }
+  // A swept cube is NOT a lost one. Both end in the same blink and they are
+  // billed differently — the board taking its own scaffolding back is nobody's
+  // mistake — so markLostPieces must leave a swept cube alone. It did not: its
+  // rescue clause un-marked every blinking cube the bar could still reach,
+  // which is every cube a reset writes off, so the reset re-marked the same
+  // cargo every frame and removed none of it.
+  {
+    const lesson = lessonById("close-the-row")!;
+    const g = new Game(levelForLesson(lesson), {}, lessonSeed(0));
+    const bot = BOTS.lob(3);
+    let now = 0, everSwept = false;
+    for (let s = 0; s < 60 * 30 && g.status === "playing"; s++) {
+      now += STEP_MS;
+      bot.act(g, now);
+      g.update(now);
+      if (g.cubes.some((c) => c.swept)) everSwept = true;
+    }
+    check("a scaffolded bay actually writes cargo off", everSwept);
+    g.destroy();
+  }
+  // ...and the two removals stay separate, asserted on the functions rather
+  // than through a bay — a lesson bay ALSO produces genuinely lost cargo (a
+  // shot that misses the zone is still a miss), so counting `lostTotal` there
+  // would be asking a question neither function answers.
+  {
+    const world = createPhysics(makeBaseLevel(0)).world;
+    const mk = (swept: boolean): Cube => {
+      const body = Matter.Bodies.rectangle(0, 0, CELL, CELL, { label: "cube" });
+      Matter.Composite.add(world, body);
+      return {
+        body, type: "O", color: "#fff", blinkStart: 0, material: "standard",
+        struck: true, framed: false, ...(swept ? { swept: true } : {}),
+      };
+    };
+    const cubes: Cube[] = [mk(false), mk(true)];
+    const lost = updateBlinking(world, cubes, 5_000, []);
+    check("updateBlinking takes the lost cube and leaves the swept one",
+      lost.length === 1 && cubes.length === 1 && cubes[0].swept === true);
+    const swept = sweepExpired(world, cubes, 5_000, []);
+    check("...and sweepExpired takes exactly the other one",
+      swept.length === 1 && cubes.length === 0);
   }
 
   // ---- THE FIRST-ENCOUNTER CARDS ----------------------------------------

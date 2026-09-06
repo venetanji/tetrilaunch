@@ -1478,6 +1478,15 @@ export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number)
   const cutoff = compactor.strandCutoffX;
   for (const c of cubes) {
     const b = c.body;
+    // A SWEPT CUBE IS NOT RESCUABLE, and this line is load-bearing: the rescue
+    // below un-marks any blinking cube the bar can still reach, which is EVERY
+    // cube a board reset writes off — they are sitting in the middle of the bay
+    // by definition. Without this the reset re-marked the same cargo on every
+    // frame and removed none of it, because the two rules were arguing over one
+    // field. The rescue answers "did this bounce back into play"; a swept cube
+    // was never out of play, it is being taken off a board that has finished
+    // with it (see sweepStaleCubes).
+    if (c.swept) continue;
     if (c.blinkStart !== null) {
       // RESCUED: the mark used to be a one-way latch, but a blinking cube
       // keeps full physics for its whole 1.4s blink — a breaking piece, a
@@ -1517,6 +1526,9 @@ export function updateBlinking(
   const lost: { x: number; y: number }[] = [];
   for (let i = cubes.length - 1; i >= 0; i--) {
     const c = cubes[i];
+    // A SWEPT cube blinks on the same clock and is removed by sweepExpired
+    // instead, because the two removals are billed differently — see Cube.swept.
+    if (c.swept) continue;
     if (c.blinkStart !== null && now - c.blinkStart > BLINK_MS) {
       // Same dangling-joint hazard as updateLineClear: a joined cube may
       // blink out alone while its piece-mate stays behind.
@@ -1531,6 +1543,106 @@ export function updateBlinking(
   // settling toward the floor rather than freezing mid-air.
   for (const p of lost) wakeNear(cubes, p.x, p.y);
   return lost;
+}
+
+/**
+ * THE BOARD RESET — a scaffolded lesson bay clearing its own field between
+ * attempts (level.ts's `boardResets`).
+ *
+ * WHY A LESSON BAY CANNOT HAVE A PILE. An authored exercise is a board plus one
+ * shipment: the gold says where the answer goes and the belt deals the shape
+ * that fits it. Nothing in that describes a SECOND shipment, and once one lands
+ * badly the exercise is no longer the one that was authored. Measured, driving
+ * the lob bot at the ladder for sixty seconds: `four-in-the-well` finished under
+ * thirty stray cubes with the pile fifteen rows deep and the well buried — an
+ * exercise the player cannot finish and, because a lesson has no launch limit,
+ * cannot fail out of either. Every scaffolded lesson did some version of it.
+ *
+ * So a shipment the press has had its chances at is written off, and the board
+ * is byte-identical at the start of every attempt. That is what "a one-shot
+ * exercise" has to mean mechanically: fire, and either it closes the row or it
+ * is gone and you fire again.
+ *
+ * THE CLOCK IS THE PRESS, not a timer, for the same reason the timing grade's
+ * is: strokes are what actually decide whether a row can still sell, and they
+ * are frame-rate independent by construction. Measured in STROKES, the unit
+ * grades.ts counts sweeps in (`clock.stroke - landing.stroke`) — a half-cycle
+ * threshold would have been half the grace it read as.
+ *
+ * SCAFFOLDING IS NEVER SWEPT: it is static, it never lands, and it carries no
+ * stamp to age.
+ */
+/** Full press strokes a shipment must survive before the board can take it
+ *  back — the second of the two conditions below.
+ *
+ *  ONE. `stroke` advances at the bar's full-advance stop, which is the same
+ *  stop a row clears on, so a cube that lands and sells does it within one
+ *  stroke of its landing. Requiring one completed stroke means the press has
+ *  been all the way in since the landing and did not sell it. */
+export const SWEEP_STROKES = 1;
+export function sweepStaleCubes(cubes: Cube[], clock: ClearClock, now: number): void {
+  // THE NEWEST ATTEMPT ON THE BOARD, which is the thing everything else is
+  // measured against. Only SETTLED cargo counts: a shipment still in the air is
+  // not yet an attempt, and letting it disown the one on the floor is exactly
+  // the race this rule exists to avoid.
+  let newest = 0;
+  for (const cube of cubes) {
+    if (MATERIAL_SPEC[cube.material].persists) continue;
+    if (cube.shipment === undefined || cube.shipment <= newest) continue;
+    if (landingOf(cube)) newest = cube.shipment;
+  }
+  if (newest <= 0) return;
+
+  for (const cube of cubes) {
+    if (cube.blinkStart !== null) continue;
+    if (MATERIAL_SPEC[cube.material].persists) continue;
+    const stamp = landingOf(cube);
+    if (!stamp) continue;
+    // A LATER SHIPMENT HAS LANDED — the condition that makes this an exercise
+    // rather than a timer: the board holds ONE attempt, and firing the next one
+    // is what ends the last. Press-independent, which matters because a stroke
+    // is a round trip of several seconds and a reload is not; measured, a
+    // stroke-only rule let six shipments pile up between sweeps and buried the
+    // well exactly as before.
+    if (cube.shipment === undefined || cube.shipment >= newest) continue;
+    // AND THE PRESS HAS HAD ITS GO — a completed stroke since this cube's own
+    // landing. `stroke` advances at the full-advance stop, which is the stop a
+    // row clears on, so this is exactly "the bar came all the way in and did
+    // not sell it".
+    //
+    // NOT NEGOTIABLE, and that is a measurement rather than a preference. A
+    // tighter rule was tried — anything more than one attempt old goes at once,
+    // whatever the bar is doing — because a stroke is slow next to a reload and
+    // it bounds the field at a tidy eight cubes. It also takes rows the press
+    // was about to sell: across twelve pilots a lesson it stole from went 12/12
+    // wins to 7/12, another 12/12 to 2/12, and the streak lesson 7/12 to 0/12.
+    // A board reset that can cost the player a row they had already earned is a
+    // worse bug than the one it was tightening.
+    if (clock.stroke - stamp.stroke < SWEEP_STROKES) continue;
+    cube.swept = true;
+    cube.blinkStart = now;
+  }
+}
+
+/** Remove swept cubes once their blink is done. updateBlinking's twin, split
+ *  from it so the two removals can be billed differently — see Cube.swept. */
+export function sweepExpired(
+  world: Matter.World,
+  cubes: Cube[],
+  now: number,
+  constraints: Matter.Constraint[],
+): { x: number; y: number; color: string }[] {
+  const gone: { x: number; y: number; color: string }[] = [];
+  for (let i = cubes.length - 1; i >= 0; i--) {
+    const c = cubes[i];
+    if (!c.swept || c.blinkStart === null || now - c.blinkStart <= BLINK_MS) continue;
+    removeConstraintsFor(world, constraints, c.body);
+    Matter.Composite.remove(world, c.body);
+    cubes.splice(i, 1);
+    gone.push({ x: c.body.position.x, y: c.body.position.y, color: c.color });
+  }
+  for (const p of gone) wakeNear(cubes, p.x, p.y);
+  return gone;
 }
 
 export function blinkVisible(cube: Cube, now: number): boolean {

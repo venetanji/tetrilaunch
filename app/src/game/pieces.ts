@@ -18,6 +18,16 @@ export interface Cube {
   color: string;
   /** Timestamp (ms) when this cube began blinking before despawn, or null. */
   blinkStart: number | null;
+  /** WRITTEN OFF BY A BOARD RESET rather than lost off the field
+   *  (level.ts's `boardResets`, lineClear.ts's sweepStaleCubes).
+   *
+   *  Both end in the same 1.4s blink, and they must not end in the same
+   *  ACCOUNTING: a cube that missed the zone is the player's mistake and is
+   *  fined for it, while a cube a Flight School bay clears off its own board
+   *  between attempts is the bay resetting itself and is nobody's fault. Absent
+   *  on every cube outside a scaffolded lesson, which is every cube in the
+   *  game's other modes. */
+  swept?: boolean;
   /** What this cube is made of — see theme.ts's Material. Stamped at spawn and
    *  never changed: materials of different kinds coexist on the field for the
    *  whole bay, so this has to travel with the cube rather than be read off the
@@ -267,6 +277,25 @@ export function createStandingWall(
           density: CUBE_DENSITY,
           label: "cube",
           chamfer: { radius: 3 },
+          // SCAFFOLDING DOES NOT MOVE. A wall of a persisting material
+          // (theme.ts's MATERIAL_SPEC.persists — gold, and only gold) is the
+          // BOARD of an authored exercise rather than cargo lying on it, so it
+          // is a static body: the press cannot shove it, a landing cannot knock
+          // it off its slot, and it cannot drift a pixel over a bay the player
+          // may spend twenty attempts in.
+          //
+          // Dynamic was the bug. Every one of those three moves it, and a
+          // scaffold that has crept half a cell is an exercise that has
+          // silently become unsolvable — the row it was cut to complete no
+          // longer lines up with the slot grid updateLineClear reads.
+          //
+          // SAFE AGAINST THE PRESS rather than lucky: the compactor is itself a
+          // static body, and Matter resolves no collision between two of them —
+          // but the bar's full-advance stop is compactorMinLineCells from the
+          // wall and a standing profile is capped at that many columns
+          // (drills.ts's BayDials.wall), so the face stops on the outer edge of
+          // the last column and never reaches into one.
+          isStatic: MATERIAL_SPEC[material].persists === true,
         },
       );
       Matter.Body.setVelocity(body, { x: 0, y: 0 });

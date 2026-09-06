@@ -32,6 +32,8 @@ import {
   shatterColdCryo,
   type CryoShatter,
   markLostPieces,
+  sweepExpired,
+  sweepStaleCubes,
   updateBlinking,
   resetLineClear,
   settleZoneCubes,
@@ -2366,6 +2368,20 @@ export class Game {
     // already left of the strand cutoff, so running markLostPieces first would
     // sentence the same cubes to a 1.4s blink they are not going to serve.
     this.shredChute(now);
+
+    // THE BOARD RESET, before the lost-piece path and never instead of it: a
+    // scaffolded lesson bay writes off cargo the press has had its chances at,
+    // so the exercise is the one that was authored at the start of every
+    // attempt (level.ts's boardResets). A cube already sentenced by either path
+    // is skipped by the other — both read blinkStart.
+    if (this.level.boardResets) {
+      sweepStaleCubes(this.cubes, this.stepClock, now);
+      const swept = sweepExpired(this.phys.world, this.cubes, now, this.constraints);
+      // Wreckage, not a penalty. The cubes get the same puff a shattered piece
+      // gets and no "−$" of any kind: nothing was lost and nothing is owed —
+      // see Cube.swept for why the two removals are billed differently.
+      for (const c of swept) this.effects.push({ kind: "shatter", x: c.x, y: c.y, color: c.color, t0: now });
+    }
 
     // ...or when they bounce OUT before the compactor (blink away, lose points).
     markLostPieces(this.cubes, this.compactor, now);

@@ -9046,12 +9046,21 @@ button.panel { color: var(--text); }
      0 aim      PWR only — power is part of the one drag gesture lesson 1
                 teaches, and it is the number that moves while you pull
      1 reload   + Reload, on the lesson where a second shot is waited for
-     2 launches + Launches, on the lesson that first hands out a budget
-     3 grade    + the timing callout over the payout
-     4 funds    + Funds / Target and the launch quote
-     5 combo    + the Combo readout
-     6 lost     + the Lost counter
-     7 all      everything, which is the absent-attribute state
+     2 grade    + the timing callout, which is an effect over the payout rather
+                than a block, so this hides exactly what the stage below does
+     3 funds    + Funds / Target and the launch quote
+     4 combo    + the Combo readout
+     5 lost     + Launches and the Lost counter, together, on the one lesson
+                that has a real budget to count and a fine to charge
+     6 all      everything, which is the absent-attribute state
+
+   LAUNCHES ARRIVES LATE ON PURPOSE. It used to have a stage of its own, three
+   lessons earlier, and the block it turned on read "LAUNCHES 0" for the rest of
+   the bay: the set pieces hand out UNLIMITED shipments (a bay with nothing to
+   lose cannot also be counting down) and main.ts maps an unlimited budget to 0.
+   A readout telling the player they are out of shots while they keep firing is
+   worse than no readout, so the block waits for a bay whose number means
+   something.
 
    HIDE RULES ONLY, NEVER `display: <value>` REVEALS — the same trap the block
    above documents, and it cost that one a step of its pacing to fall into. The
@@ -9070,26 +9079,17 @@ button.panel { color: var(--text); }
 .hud[data-reveal] :is(.pl-notch, .pl-mods) { display: none; }
 .hud[data-reveal="0"] :is(.pl-load, .pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
 .hud[data-reveal="1"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="2"] :is(.pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="3"] :is(.pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="4"] :is(.pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="5"] :is(.pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="6"] :is(.pl-time) { display: none; }
+.hud[data-reveal="2"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="3"] :is(.pl-launches, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="4"] :is(.pl-launches, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="5"] :is(.pl-time) { display: none; }
 
-/* Launches alone in the readout takes the same treatment the coach's note
-   above explains at length: `.pl-stat` is a narrow right-hand column beside the
-   funds block, label stacked over value, and alone it reads as a number pushed
-   onto a line of its own and left hanging. Stages 2 and 3 are the ones where
-   that happens — Funds arrives at 4 and gives it its column back. INLINE
-   CHILDREN, not `display: flex` on the parent, for the exact reason stated
-   there: a display value on a block an earlier stage HIDES would win by
-   specificity and leak the block a stage early. */
-.hud[data-reveal="2"] .pl-launches,
-.hud[data-reveal="3"] .pl-launches { text-align: left; padding-left: 0; }
-.hud[data-reveal="2"] .pl-launches :is(.lbl, .v),
-.hud[data-reveal="3"] .pl-launches :is(.lbl, .v) { display: inline; }
-.hud[data-reveal="2"] .pl-launches .v,
-.hud[data-reveal="3"] .pl-launches .v { margin-left: max(2px, calc(6 * var(--fpx))); }
+/* No "Launches alone in the readout" rule here, unlike the four-card deck's
+   block above. That styling exists because `.pl-stat` is a narrow right-hand
+   column beside the funds block and reads as a number left hanging when it is
+   the only thing in the row — and on this ladder it never is: Launches first
+   appears at stage 5, where Funds is already up and has given it its column
+   back. */
 
 /* One consequence of that hide list, which has to be styled rather than left
    to fall out: with Funds and Time gone, Launches is the only thing left in

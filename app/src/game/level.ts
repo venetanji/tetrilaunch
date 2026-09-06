@@ -340,6 +340,16 @@ export interface LevelConfig {
   /** This bay's pass condition when the two above cannot state it — a Flight
    *  School lesson, and nothing else (see LessonGoal). Null everywhere else. */
   lessonGoal: LessonGoal | null;
+  /** THE BAY HAS NO PILE: cargo the press has had its chances at is written off
+   *  and the board returns to how it was authored (lineClear.ts's
+   *  sweepStaleCubes).
+   *
+   *  True only on a SCAFFOLDED Flight School bay, where the board plus one
+   *  shipment IS the exercise and a second shipment landing badly makes it a
+   *  different one. False everywhere else in the game, including the two
+   *  lessons that deliberately deal an ordinary bay — building a pile is the
+   *  whole subject of those. */
+  boardResets: boolean;
   /** Thaw Lance charges available in THIS BAY — the "thaw one settled frozen
    *  cube" ability (see game.ts's useThawLance). Cryo's bought counter: it pays
    *  strikeCryo's sequencing cost ("land it, then spend a second shot hitting
@@ -1679,6 +1689,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // so a restarted bay replays its exact deal.
     pieceSequence: null,
     lessonGoal: null,
+    boardResets: false,
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
     standingWall: [],
