@@ -14,6 +14,7 @@ import { CLAUSE_COUNT, CLAUSE_STOPS } from "./skydeck";
 import { MATERIAL_SPEC, type Material } from "./theme";
 import { MARK_COUNT, MAX_TIER, UPGRADES, type UpgradeId } from "./upgrades";
 import { DRILLS, type DrillSpec } from "./drills";
+import { LESSON_COUNT } from "./school";
 
 /**
  * THE GUIDE — every rule the game plays by, as data.
@@ -315,16 +316,16 @@ function buildTopics(mark: number): GuideTopic[] {
   /* ---- BASICS ---------------------------------------------------------- */
   {
     id: "tutorial", chapter: "basics", tier: 1,
-    name: "Guided Tutorial",
-    summary: "A coached first bay — four cards, one per action, as you do it.",
-    body: `A real Deep Run bay with a coach riding along: four cards, each one waiting until`
-      + ` you have actually done the thing it describes. It runs on bay 1 and hands the bay`
-      + ` back rather than ending the run if you lose, so there is nothing to be careful about.`
-      + ` Start here if you have never fired the cannon.`,
+    name: "Flight School",
+    summary: `The licence — ${LESSON_COUNT} short bays, one idea each, and Tier 1 opens at the end.`,
+    body: `The ground floor of the tower, and the only thing standing between a new pilot and`
+      + ` Tier 1. <b>${LESSON_COUNT} authored bays</b>: the board arrives already set, the belt`
+      + ` deals the one shape the exercise needs, and gold scaffolding stays put through the`
+      + ` clear — so a shot can be taken until it lands. No clock, no bankroll, nothing to lose.`,
     cta: {
       action: "tutorial",
-      label: "Start tutorial",
-      note: "Replays the coached bay from the beginning.",
+      label: "Start Flight School",
+      note: "Opens at the first lesson, whatever the licence already holds.",
     },
   },
   {

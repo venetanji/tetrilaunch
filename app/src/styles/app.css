@@ -1611,6 +1611,26 @@ body.crt-off #app::after { display: none; }
 }
 /* The slab the building stands on: square-bottomed, so the shaft above it
    cannot read as a floating card. */
+/* THE LOBBY'S RECAP PANEL (screens.ts's licencePanelHTML) — the four stat cells
+   replaced by a progress track and one sentence, because a Deep Run bay's terms
+   are exactly what Flight School does not have. Same panel box, same head row,
+   so the column's height does not jump as the car moves between the lobby and
+   the ladder. */
+.base-bay--licence .lic-track {
+  display: flex; gap: 4px; margin: 6px 0 8px;
+}
+.lic-pip {
+  flex: 1 1 0; height: 6px; min-width: 6px;
+  background: var(--surface-3);
+  border: var(--bw) solid var(--line-strong);
+  border-radius: 2px;
+}
+.lic-pip--done { background: var(--warn); border-color: var(--warn); }
+.lic-note {
+  margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45;
+}
+.lic-note b { color: var(--text); }
+
 /* THE LOBBY — Flight School, in the plinth under the shaft (screens.ts's
    towerLobbyHTML). The headhouse's opposite number, and drawn on the same
    terms: OUTSIDE the shaft's own box, so the eleven floors above keep every

@@ -910,6 +910,39 @@ function beltLadderHTML(mark: number, unknown = false): string {
  * wobbled as the selection changed. The belt lights all six instead — which is
  * also true, since Tier S can deal any material and a parade of all of them.
  */
+/**
+ * THE LOBBY'S RECAP — what Flight School is, in the slot a Mark's terms sit in.
+ *
+ * Not the four stat cells with question marks in them (unknownBayPanelHTML's
+ * answer for Tier S): a "?" says the terms exist and are not known yet, and
+ * here they do not exist at all. What the panel says instead is the only thing
+ * a player standing in the lobby needs — how far through they are, and that
+ * nothing in the building can be lost.
+ *
+ * No `best` either. The lobby files to no board, so a high score on it would be
+ * a number about a mode that does not keep one.
+ */
+function licencePanelHTML(licence: { done: number; total: number } | null, extras: string): string {
+  const done = licence?.done ?? 0;
+  const total = licence?.total ?? LESSON_COUNT;
+  const pips = Array.from(
+    { length: total },
+    (_, i) => `<span class="lic-pip${i < done ? " lic-pip--done" : ""}"></span>`,
+  ).join("");
+  return `<div class="panel base-bay base-bay--licence" aria-label="Flight School — ${done} of ${total} lessons">
+    <div class="base-bay__head">
+      <div class="base-bay__best">${licence ? `${done} / ${total}` : "Licence earned"}</div>
+    </div>
+    <div class="lic-track" role="img" aria-label="${done} of ${total} lessons cleared">${pips}</div>
+    <p class="lic-note">${
+      licence
+        ? `Nine short bays, one idea each. <b>No clock, no bankroll, nothing to lose</b> — the board is already set and the gold stays put, so a shot can be taken until it lands.`
+        : `Every lesson is open to re-fly. Nothing here is banked and nothing is spent.`
+    }</p>
+    <div class="base-bay__extras">${extras}</div>
+  </div>`;
+}
+
 function unknownBayPanelHTML(best: number, extras: string): string {
   const cell = (name: IconName, label: string, tint: string): string =>
     statCellHTML(name, label, `<span class="bay-stat__q">?</span>`, tint);
@@ -958,9 +991,20 @@ export function baseBayPanelHTML(opts: {
   best: number;
   /** The entitlement chips, if this build has any. */
   extras?: string;
+  /** Flight School's progress, when the lobby is the floor being described.
+   *  Null once the licence is earned; absent on every caller that predates the
+   *  ground floor. */
+  licence?: { done: number; total: number } | null;
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
+  // THE LOBBY QUOTES NOTHING EITHER, and for a sharper reason than Tier S's:
+  // every cell on this panel is a Deep Run bay's terms — a funding target, a
+  // launch price, a shift clock, a bond multiplier, a belt of materials — and
+  // Flight School has none of them. The panel sat directly above a button
+  // reading "Flight School" and described a ten-bay run with a bankroll, which
+  // is the one thing the ground floor exists to stop the player meeting first.
+  if (opts.tier === LICENCE_TIER) return licencePanelHTML(opts.licence ?? null, opts.extras ?? "");
   const sky = opts.tier === SKYDECK_TIER;
   // The Skydeck flies the top of the ladder's bay TABLE — same ten bays, same
   // clock, same bonds — with the money curves read one rung further along
@@ -1341,7 +1385,7 @@ export function menuScreen(
              thing under it — across the screen from it (where it started) the
              player had to hold four numbers in their head while their eye
              travelled past the whole tower to reach the button they qualify. -->
-        ${baseBayPanelHTML({ tier: sel, best })}
+        ${baseBayPanelHTML({ tier: sel, best, licence })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -2370,8 +2414,14 @@ export function hudHTML(opts: {
    *  flag governs: the bay banner names the drill instead of claiming a bay
    *  number the player is not on, the tier row goes (a drill banks nothing, so
    *  a tier deal is not a thing it can advertise), and the ship rack goes with
-   *  it — a drill's rig is granted by the lesson, not built by the player. */
-  drill?: { name: string } | null;
+   *  it — a drill's rig is granted by the lesson, not built by the player.
+   *
+   *  A FLIGHT SCHOOL LESSON TAKES THE SAME FLAG, because all three of those are
+   *  true of it too, and only `kind` differs — the banner has to say which of
+   *  the two authored bays this is, since one is optional practice reached from
+   *  How to Play and the other is the licence. Defaults to "Drill", so every
+   *  caller that predates the ladder reads exactly as it did. */
+  drill?: { name: string; kind?: "Drill" | "Lesson" } | null;
   /** The run's seal state and flown Mark (run.ts's sealStateFor), for the ⏸
    *  button's accessible name — the hold restarts the bay, so its name is
    *  where that gesture's price belongs. Absent on every bay with no seal
@@ -2567,7 +2617,7 @@ export function hudHTML(opts: {
   // there is no run position to report.
   const bayBanner = drill
     ? `<div class="bay-banner bay-banner--contract" role="status">
-        <span class="bay-banner__mode">Drill</span> ${drill.name}
+        <span class="bay-banner__mode">${drill.kind ?? "Drill"}</span> ${drill.name}
       </div>`
     : contract
     ? `<div class="bay-banner bay-banner--contract" role="status">

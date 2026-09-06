@@ -1958,7 +1958,7 @@ class App {
         // A lesson names itself in the banner on the same terms, and drops the
         // tier row and the ship rack with it — neither means anything on a bay
         // that is not on the ladder.
-        : this.lesson ? { name: this.lesson.name } : null,
+        : this.lesson ? { name: this.lesson.name, kind: "Lesson" as const } : null,
       // The ⏸ hold restarts the bay, so the price of that gesture rides its
       // accessible name — the same words the two retry BUTTONS wear, from the
       // same read (sealFace). Null on a Contract or a drill, where this.run is
@@ -3082,7 +3082,15 @@ class App {
           {
             step: nextStep(this.meta),
             install: this.nextInstall(),
-            firstLaunch: !this.settings.seenTutorial,
+            // THE ONE DIRECTIVE (A3), and while the licence is owed it belongs
+            // to the tower's ground floor rather than to the demo panel: the
+            // primary button IS the tutorial's door now, and a START HERE chip
+            // over the artwork beside a badged Flight School button is the
+            // two-directive screen menuPlayBadged's own note warns about. The
+            // chip survives only for a licensed save that never finished the
+            // old coach, which the migration makes vanishingly rare and which
+            // it still reads correctly for.
+            firstLaunch: !this.settings.seenTutorial && licenceDone(this.meta),
           },
           this.towerState(),
           // HOW MANY standing clauses the roof's run carries, for the primary
@@ -3290,9 +3298,19 @@ class App {
           if (this.tutorialStep !== null) {
             this.mountCoach(S.coachHTML(this.tutorialStep, g.level, this.profile));
           }
+          // Flight School's deck, on the same terms and in the same place. This
+          // is the mount that actually puts a lesson's first card on screen —
+          // the copy in relabelHintSurfaces only redraws one that is already
+          // there, when the input profile changes under it.
+          if (this.lesson && this.lessonCard !== null) {
+            this.mountCoach(S.lessonCardHTML(
+              this.lesson, this.lessonIndex, this.lessonCard, LESSON_COUNT, this.profile,
+            ));
+          }
           this.lastNext = null;
           this.lastNextId = null;
           this.syncCoachReveal();
+          this.syncRevealStage();
         }
         break;
       case "paused":
@@ -4670,6 +4688,16 @@ class App {
         if (next !== this.meta) {
           this.meta = next;
           saveMeta(this.meta);
+        }
+        // THE LICENCE RETIRES THE OLD COACH. Nothing else sets seenTutorial for
+        // a player who never met it, so a school graduate's first Deep Run bay
+        // would otherwise open with the four-card deck over it — the system
+        // this ladder replaced, teaching the same four things again on a
+        // randomly dealt bay. The flag stays the honest record of "this player
+        // has been taught"; what changed is which teacher.
+        if (licenceDone(this.meta) && !this.settings.seenTutorial) {
+          this.settings.seenTutorial = true;
+          saveSettings(this.settings);
         }
       } else {
         void impactHaptic();
@@ -7018,12 +7046,18 @@ class App {
         this.drill = null;
         this.setState("howto");
         break;
-      // How to Play's "Guided Tutorial": replay the interactive coach on a
-      // fresh run, even for a player who already finished or skipped it.
+      // ONE DOOR INTO THE TEACHING, and it is Flight School (game/school.ts).
+      // This used to clear seenTutorial and start a coached Deep Run, which is
+      // the system the ladder replaces — leaving both reachable would be two
+      // tutorials for one player to choose between, and the coached bay is the
+      // weaker of them: a randomly dealt bay 1 with four cards over it.
+      //
+      // FROM LESSON 1, unlike the primary's own route (which resumes where the
+      // licence left off). Reaching for the tutorial by name is a request to be
+      // taught from the beginning, and a licensed player pressing it wants the
+      // first lesson rather than the last one they happened to fly.
       case "tutorial":
-        this.settings.seenTutorial = false;
-        saveSettings(this.settings);
-        this.startGame();
+        this.startLesson(0);
         break;
       case "coach-done":
       case "coach-skip":
