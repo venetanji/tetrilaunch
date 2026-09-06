@@ -36,6 +36,10 @@ import {
   budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost, UPGRADES,
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
+// The ladder's LENGTH, imported rather than restated: "the licence is done" is
+// a statement about game/school.ts's LESSONS, and a copy of that number here
+// would be a second answer to it the day a lesson is added.
+import { LESSON_COUNT } from "./school";
 
 export { MARK_COUNT };
 
@@ -556,6 +560,23 @@ export interface MetaState {
    *  be back-filled for every save in the world, and any save it missed would
    *  have undocked with an empty rack. */
   stowed: UpgradeId[];
+  /** Flight School lessons completed — the LICENCE (game/school.ts).
+   *
+   *  A count rather than a set of ids, because the ladder is an order: the
+   *  lessons build on each other, so "which ones" is never a different question
+   *  from "how many". It only ever climbs; replaying a lesson from How to Play
+   *  cannot lower it.
+   *
+   *  THE ONE GATE ON TIER 1. Every other floor of the tower is opened by
+   *  beating the one below it, and Tier 1 had nothing below it — so a first
+   *  launch put the player straight into a ten-bay run with a bankroll, a
+   *  clock and permadeath. The ground floor is what was missing, and this is
+   *  its progress. See licenceDone.
+   *
+   *  ABSENT ON EVERY SAVE WRITTEN BEFORE IT EXISTED, which lib/store.ts's
+   *  loadMeta grandfathers rather than defaulting — a player who has already
+   *  beaten tiers must not find Tier 1 locked. */
+  licence: number;
   /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
    *  time the Mark advances). One half of tier completion — see recordRunEnd. */
   tierRunDone: boolean;
@@ -642,7 +663,7 @@ export interface MetaState {
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
-    tierRunDone: false, tierContracts: 0,
+    licence: 0, tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), slots: SLOT_BASE, stowed: [],
     claimedContracts: [], sealedMarks: [],
     celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
@@ -802,9 +823,32 @@ export function skydeckCelebrated(meta: MetaState): MetaState {
 }
 
 /** The Mark the player may currently attempt: one above their best clear, held
- *  at MARK_COUNT once the ladder is finished. */
+ *  at MARK_COUNT once the ladder is finished.
+ *
+ *  DELIBERATELY BLIND TO THE LICENCE. It would have been tidy to answer 0 while
+ *  Flight School is owed and let every gate fall out of that, and it would have
+ *  been wrong: this number is also the Mark the Workshop budgets against, the
+ *  Mark the guide prices its copy at and the Mark the hazard ladder is read
+ *  from, none of which want to be told the player has no tier at all. The
+ *  licence gates the DOOR (screens.ts's tierOpen), which is the one place that
+ *  actually asks whether a floor may be flown. */
 export function markUnlocked(meta: MetaState): number {
   return Math.min(MARK_COUNT, meta.mark + 1);
+}
+
+/** Has the player earned their licence — every Flight School lesson cleared?
+ *  The ground floor's own completion, and the gate on Tier 1. */
+export function licenceDone(meta: MetaState): boolean {
+  return meta.licence >= LESSON_COUNT;
+}
+
+/** Record a lesson cleared. Monotone: the ladder is an order, so finishing
+ *  lesson 3 means lessons 1 and 2 are behind you whether or not this save
+ *  watched them happen — which is what makes replaying one from How to Play
+ *  free rather than a way to lose progress. Never mutates. */
+export function recordLesson(meta: MetaState, index: number): MetaState {
+  const done = Math.min(LESSON_COUNT, Math.max(0, Math.floor(index) + 1));
+  return done > meta.licence ? { ...meta, licence: done } : meta;
 }
 
 /** Ladder points the player has to spend on a loadout right now. */
@@ -1343,7 +1387,7 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * sockets. So the finished ladder gets its own answer, and it names the only
  * objective left: fly a Mark clean.
  * ---------------------------------------------------------------------- */
-export type NextStepId = "workshop" | "contracts" | "run" | "seal";
+export type NextStepId = "licence" | "workshop" | "contracts" | "run" | "seal";
 
 /** The cheapest system the player could install right now, or null. */
 export function cheapestInstall(meta: MetaState): InstallDef | null {
@@ -1353,6 +1397,12 @@ export function cheapestInstall(meta: MetaState): InstallDef | null {
 }
 
 export function nextStep(meta: MetaState): NextStepId {
+  // THE LICENCE IS ASKED FIRST, and nothing below it can win while it is owed.
+  // The branches under this one all name a door that Tier 1 opens — a Workshop
+  // that spends salvage a run has to earn, a Contract board filed against a
+  // tier, the run itself — so pointing at any of them before the ground floor
+  // is cleared would send a first-time player at a locked button.
+  if (!licenceDone(meta)) return "licence";
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
   // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame

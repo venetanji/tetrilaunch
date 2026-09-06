@@ -4,6 +4,7 @@ import {
   newMeta, ownedTracks, refundRetiredUnlocks, SLOT_BASE, SLOT_CAP, type MetaState,
 } from "../game/meta";
 import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
+import { LESSON_COUNT } from "../game/school";
 
 export interface Settings {
   sound: boolean;
@@ -276,6 +277,27 @@ export function loadMeta(): MetaState {
     // which is the flag doing its job rather than a migration.
     meta.sealBreakSeen = meta.sealBreakSeen === true;
     meta.skydeckCelebrated = meta.skydeckCelebrated === true;
+    // THE LICENCE (meta.ts's `licence`), and this is the migration that matters
+    // most in this file: it gates Tier 1, so reading a missing value as 0 would
+    // lock every existing player out of the game on the first launch after the
+    // update. A save that predates the field is GRANDFATHERED — anyone who has
+    // finished a run, reached a second bay, beaten a tier or been shown the old
+    // coach has already been taught what Flight School teaches, and by a
+    // harder teacher.
+    //
+    // Migrated on `raw` rather than on the merged object, the same way
+    // celebratedMark is and for the same reason: newMeta()'s 0 is
+    // indistinguishable from a real 0 once the spread has happened, and the
+    // question here is precisely whether the key was ever written.
+    //
+    // Clamped from above as well, so a hand-edited save cannot claim more
+    // lessons than the ladder has and skip the last one silently.
+    const rawLicence = (raw as Record<string, unknown>).licence;
+    const played = meta.runs > 0 || meta.mark > 0 || meta.bestBay > 1
+      || loadSettings().seenTutorial;
+    meta.licence = typeof rawLicence === "number" && Number.isFinite(rawLicence)
+      ? Math.min(LESSON_COUNT, Math.max(0, Math.floor(rawLicence)))
+      : (played ? LESSON_COUNT : 0);
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.

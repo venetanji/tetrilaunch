@@ -16,6 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
+import { LESSONS, LESSON_COUNT } from "../../src/game/school";
 import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
@@ -454,6 +455,19 @@ const TOWER_TOP: S.TowerState = {
  *  one change to this column that cannot be caught by measuring the shaft. */
 const TOWER_SANDBOX: S.TowerState = { ...TOWER_TOP, sandbox: true };
 
+/** THE GROUND FLOOR, mid-licence — the state every other menu fixture cannot
+ *  reach, because `licensed` absent reads as earned (screens.ts's tierOpen).
+ *
+ *  It is the tower a first-time player actually opens on: the car parked in the
+ *  lobby, every Mark in the shaft locked, and the lobby carrying a count
+ *  instead of its name. Worth its own fixture for the same reason menu-first
+ *  is — it is the screen the most people will ever see, and it was the one no
+ *  fixture measured. */
+const TOWER_LICENCE: S.TowerState = {
+  unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
+  licensed: false, licenceDone: 3, licenceTotal: LESSON_COUNT,
+};
+
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
  *  NEXT STEP badge on Workshop (salvage covers an install) and the live
  *  numbers the subtitles state the offer in. */
@@ -495,6 +509,32 @@ const HUD_TUTORIAL = {
  *  the progressive-reveal CSS keys off. Reproduced as string edits so the
  *  harness measures the DOM the app actually shows mid-tutorial, not a
  *  sibling layout it never renders. */
+/** A lesson's Contract block, the way main.ts's hudOpts fills one — so the
+ *  fixture measures the panel the bay actually renders rather than a
+ *  hand-written approximation of it. */
+const LESSON_HUD = (l: (typeof LESSONS)[number]) => ({
+  name: l.name,
+  kind: "lines" as const,
+  goal: l.goal
+    ? (l.goal.kind === "atOnce" ? l.goal.lines : l.goal.kind === "combo" ? l.goal.to : l.goal.count)
+    : l.lines,
+  lines: 1,
+  launchesLeft: l.launches,
+  remaining: [],
+  lost: 2,
+  conditions: l.conditions,
+  tier: 1,
+  progress: null,
+});
+
+/** main.ts's syncRevealStage, as the harness needs it: the stage stamped onto
+ *  #hud as `data-reveal`, which is what app.css hides the readout's blocks
+ *  against. Same trick withCoach uses below and for the same reason — the
+ *  harness must measure the DOM the app actually shows mid-lesson, not a
+ *  reconstruction of it. */
+const withReveal = (hud: string, stage: number): string =>
+  hud.replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-reveal="${stage}">`);
+
 const withCoach = (hud: string, step: number, coach: string): string =>
   hud
     .replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-coach="${step}">`)
@@ -576,6 +616,19 @@ export const SCREENS: Record<string, () => string> = {
     S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX),
   "menu-tier-s-live": () =>
     live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX)),
+  // THE FIRST SCREEN OF ALL — the lobby parked, the ladder locked, and the
+  // primary wearing its third face ("Flight School") over the longest subtitle
+  // that face carries ("Lesson 4 of 9 · pick up where you left off"). Paired
+  // live and not, like every other menu state, because the brand column's
+  // height is what the row is measured against.
+  "menu-licence": () =>
+    S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_LICENCE),
+  "menu-licence-live": () =>
+    live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_LICENCE)),
   // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
   // the upsell chip — the tallest menu the app can produce, which is exactly
   // why it is its own fixture.
@@ -1165,6 +1218,56 @@ export const SCREENS: Record<string, () => string> = {
     withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 0, S.coachHTML(0, BAY_1, "gamepad")),
   "coach-final-pad": () =>
     withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 3, S.coachHTML(3, BAY_1, "gamepad")),
+  /* FLIGHT SCHOOL (game/school.ts). Two things need measuring and they are
+     independent, so they get separate fixtures.
+
+     THE CARD, on the two lessons whose copy is worst-case: the deck's bodies
+     are budgeted in sim/systems.ts by character count, but characters are not
+     pixels — a card is measured here. "Time the row" carries the longest body
+     in the ladder and "Clutter" the one with the most interpolated numbers.
+
+     THE REVEAL, at EVERY stage, for the reason the coach's own note gives about
+     shipping all four of its steps: the budget is the readout against what the
+     stage has already spent, and those vary independently, so a middle stage
+     can be tighter than either end. Rendered with NO card over it, which is the
+     state a lesson's bay is actually played in (screens.ts's lessonCardHTML
+     says why the deck plays first). */
+  "lesson-card": () => withCoach(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
+    S.lessonCardHTML(LESSONS[4], 4, 0, LESSON_COUNT),
+  ),
+  "lesson-card-last": () => withCoach(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
+    S.lessonCardHTML(LESSONS[8], 8, 1, LESSON_COUNT),
+  ),
+  // The pad's route to the card's one button (screens.ts's padKey), on the
+  // widest button label the deck has.
+  "lesson-card-pad": () => withCoach(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 0,
+    S.lessonCardHTML(LESSONS[4], 4, 1, LESSON_COUNT, "gamepad"),
+  ),
+  ...Object.fromEntries(LESSONS.map((l, i) => [
+    `lesson-hud-${i}`,
+    () => withReveal(S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(l) }), l.reveal),
+  ])),
+  // The result, both ways, and the licence itself — which is the one card in
+  // the app that gets to say Tier 1 is open.
+  "lesson-end-won": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]) })
+    + S.lessonEndModal({
+      won: true, name: LESSONS[0].name, index: 0, total: LESSON_COUNT,
+      brief: LESSONS[0].brief, lines: 1, shotsUsed: 3, launches: 0, licence: false,
+    }),
+  "lesson-end-lost": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) })
+    + S.lessonEndModal({
+      won: false, name: LESSONS[8].name, index: 8, total: LESSON_COUNT,
+      brief: LESSONS[8].brief, lines: 1, shotsUsed: 22, launches: 22, licence: false,
+    }),
+  "lesson-end-licence": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) })
+    + S.lessonEndModal({
+      won: true, name: LESSONS[8].name, index: 8, total: LESSON_COUNT,
+      brief: LESSONS[8].brief, lines: 2, shotsUsed: 14, launches: 22, licence: true,
+    }),
+
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
   "coach-fail": () =>

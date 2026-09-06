@@ -1611,6 +1611,17 @@ body.crt-off #app::after { display: none; }
 }
 /* The slab the building stands on: square-bottomed, so the shaft above it
    cannot read as a floating card. */
+/* THE LOBBY — Flight School, in the plinth under the shaft (screens.ts's
+   towerLobbyHTML). The headhouse's opposite number, and drawn on the same
+   terms: OUTSIDE the shaft's own box, so the eleven floors above keep every
+   pixel of their height arithmetic. A twelfth rung inside the shaft would have
+   compressed every floor in the building to make room for one that is not a
+   Mark.
+
+   It was a 6px decorative plinth. It is 15px and a <button> now, which is the
+   whole cost of the ground floor in this stylesheet — the shaft is `flex: 1`,
+   so the nine extra pixels come out of the shaft's own height rather than off
+   the bottom of the column. */
 .tower__base {
   flex: none; height: 6px;
   background: var(--surface-3);
@@ -1618,6 +1629,37 @@ body.crt-off #app::after { display: none; }
   border-top: 0;
   border-radius: 0 0 var(--r-md) var(--r-md);
 }
+.tower__base--floor {
+  /* 22px, which is the floors' own target rounded down rather than a number
+     chosen for this row: sim/uifit records `.tower__floor 82x26` as an accepted
+     tap violation on the budget phone, because eleven floors in a fixed shaft
+     cannot each be 44px and still be a building. The lobby is the twelfth
+     control of that same component and takes the same trade — but it must not
+     be a WORSE target than the floors above it, which 15px was. The extra
+     pixels come out of the shaft (it is `flex: 1`), so the floors shed a
+     fraction of a pixel each rather than the column growing. */
+  height: 22px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 0 6px; margin: 0;
+  color: var(--ink-dim); font: inherit; font-size: 8px; letter-spacing: 0.06em;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.tower__base-mark { font-size: 9px; line-height: 1; color: var(--line-strong); }
+.tower__base-txt { font-variant-numeric: tabular-nums; }
+/* OWED READS AS LIVE, EARNED READS AS FURNITURE — the inverse of every other
+   floor in this building, and deliberate. A Mark lights up when you have
+   beaten it; the licence is the one floor whose job is finished the moment it
+   is done, so it goes quiet instead. */
+.tower__base--floor:not(.is-earned) {
+  color: var(--warn); border-color: var(--warn);
+}
+.tower__base--floor:not(.is-earned) .tower__base-mark { color: var(--warn); }
+.tower__base--floor.is-selected {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 var(--bw) var(--accent);
+}
+.tower__base--floor.is-selected,
+.tower__base--floor.is-selected .tower__base-mark { color: var(--accent); }
 /* The car still MOVES with reduced motion — where it is parked is the screen's
    state, not decoration — it just gets there at once, and the two idle
    animations (the lamp, the car's own glow) stop entirely. */
@@ -8314,6 +8356,12 @@ button.panel { color: var(--text); }
    is full, and a distinction that exists only as a hue is not one everybody
    can see. */
 .tier-plate--sbx { background: rgba(255, 176, 32, 0.22); }
+/* And the lobby, which is the third floor that is not a Mark. Same tint, told
+   apart by the glyph (screens.ts's LICENCE_MARK) and by the only label slot in
+   the set that does not read "Tier" — for exactly the reason above: the palette
+   is full and a distinction carried by hue alone is not one everybody can
+   see. */
+.tier-plate--lic { background: rgba(255, 176, 32, 0.22); }
 .tier-plate--menu { width: 58px; height: 52px; margin-inline: 2px 4px; }
 .tier-plate--menu .tier-plate__n { font-size: 24px; }
 /* The compact variant the canvas never drew: measured at 640x360 the menu
@@ -8965,6 +9013,63 @@ button.panel { color: var(--text); }
    rule below selects it. */
 .hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
 .hud[data-coach] :is(.pl-funds, .pl-time, .pl-notch, .pl-meta, .pl-mods) { display: none; }
+
+/* ---------- FLIGHT SCHOOL'S REVEAL (game/school.ts's REVEAL) --------------
+   The same idea as the four-card deck's above, on a ladder rather than a deck,
+   and it is a SEPARATE ATTRIBUTE for a reason that is not stylistic:
+   `data-coach` carries a card POSITION and this carries a lesson STAGE, and a
+   lesson has one stage and a deck of two or three cards. Folding them together
+   would force the two numbers to be the same one, which they are not.
+
+   Which block each lesson turns on, and what earns it:
+
+     0 aim      PWR only — power is part of the one drag gesture lesson 1
+                teaches, and it is the number that moves while you pull
+     1 reload   + Reload, on the lesson where a second shot is waited for
+     2 launches + Launches, on the lesson that first hands out a budget
+     3 grade    + the timing callout over the payout
+     4 funds    + Funds / Target and the launch quote
+     5 combo    + the Combo readout
+     6 lost     + the Lost counter
+     7 all      everything, which is the absent-attribute state
+
+   HIDE RULES ONLY, NEVER `display: <value>` REVEALS — the same trap the block
+   above documents, and it cost that one a step of its pacing to fall into. The
+   blocks here are variously flex/block/grid, and a rule that stated a display
+   value to un-hide one would both pin the wrong one AND outrank the hide rule
+   that was supposed to be withholding it. A block is visible exactly when no
+   rule below selects it.
+
+   THE HEIGHT BUDGET IS WHY THE DECK PLAYS FIRST. The card is ~127px of the
+   ~179px that keeps the panel clear of the cannon, and the economy blocks alone
+   want ~121px — measured on the four-card deck, whose note above records what
+   revealing them under a live card did to a 360px viewport. Flight School does
+   not have to solve that: a lesson's cards are played out and dismissed before
+   the bay is handed over (screens.ts's lessonCardHTML), so the card and the
+   blocks it earned are never on screen at once. */
+.hud[data-reveal] :is(.pl-notch, .pl-mods) { display: none; }
+.hud[data-reveal="0"] :is(.pl-load, .pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="1"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="2"] :is(.pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="3"] :is(.pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="4"] :is(.pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="5"] :is(.pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="6"] :is(.pl-time) { display: none; }
+
+/* Launches alone in the readout takes the same treatment the coach's note
+   above explains at length: `.pl-stat` is a narrow right-hand column beside the
+   funds block, label stacked over value, and alone it reads as a number pushed
+   onto a line of its own and left hanging. Stages 2 and 3 are the ones where
+   that happens — Funds arrives at 4 and gives it its column back. INLINE
+   CHILDREN, not `display: flex` on the parent, for the exact reason stated
+   there: a display value on a block an earlier stage HIDES would win by
+   specificity and leak the block a stage early. */
+.hud[data-reveal="2"] .pl-launches,
+.hud[data-reveal="3"] .pl-launches { text-align: left; padding-left: 0; }
+.hud[data-reveal="2"] .pl-launches :is(.lbl, .v),
+.hud[data-reveal="3"] .pl-launches :is(.lbl, .v) { display: inline; }
+.hud[data-reveal="2"] .pl-launches .v,
+.hud[data-reveal="3"] .pl-launches .v { margin-left: max(2px, calc(6 * var(--fpx))); }
 
 /* One consequence of that hide list, which has to be styled rather than left
    to fall out: with Funds and Time gone, Launches is the only thing left in

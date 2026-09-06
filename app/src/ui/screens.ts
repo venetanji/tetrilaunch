@@ -21,6 +21,7 @@ import {
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
+import { LESSON_COUNT } from "../game/school";
 import { DAILY_COUNT } from "../game/contracts";
 import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
@@ -63,9 +64,18 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   // where there is no width to spend.
   const sky = tier === SKYDECK_TIER;
   const sbx = tier === SANDBOX_TIER;
-  const label = sky ? "Skydeck" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
-  const tint = sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
-  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? SKY_STAR : sbx ? "S" : tier}</span></span>`;
+  // The lobby wears the plate on the same terms the roof does — it is a floor
+  // of the same building, and the ladder having one face is the whole point of
+  // this component. "Flight" in the 4ch label slot (the slot is why it is not
+  // "School"), and the licence mark where every other floor puts a digit.
+  const lic = tier === LICENCE_TIER;
+  const label = lic
+    ? "Flight School — the licence"
+    : sky ? "Skydeck" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
+  const tint = lic
+    ? " tier-plate--lic"
+    : sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${lic ? "Flight" : sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${lic ? LICENCE_MARK : sky ? SKY_STAR : sbx ? "S" : tier}</span></span>`;
 }
 
 /** The Skydeck's mark, in the plate's number slot where every other floor puts
@@ -74,6 +84,12 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
  *  whose identity differs between the tower and the board it files to is two
  *  floors to the player. */
 export const SKY_STAR = "★";
+
+/** The licence's mark, in the plate's number slot where every other floor puts
+ *  a digit. A wing, for the school that issues it — and, like SKY_STAR, named
+ *  rather than inlined so the plate, the lobby and any copy that reaches for it
+ *  can never disagree about what the ground floor looks like. */
+export const LICENCE_MARK = "✦";
 
 /** The tier as running text — "Tier 7", "Tier S", "Tier SKY" — for the lines
  *  that name a tier mid-sentence (the draft eyebrow, the bay banner's
@@ -85,6 +101,10 @@ export const SKY_STAR = "★";
 export function tierText(tier: number): string {
   if (tier === SKYDECK_TIER) return "Tier SKY";
   if (tier === SANDBOX_TIER) return "Tier S";
+  // NOT "Tier ✦". The lobby is the one floor that is not a rung of the ladder
+  // and does not file to a board, so naming it as a Tier would put a licence
+  // lesson in the same sentence shape as a ten-bay run.
+  if (tier === LICENCE_TIER) return "Flight School";
   return `Tier ${tier}`;
 }
 
@@ -279,6 +299,27 @@ export const SKYDECK_TIER = MARK_COUNT + 1;
  */
 export const SANDBOX_TIER = -1;
 
+/**
+ * THE LOBBY — Flight School, and the ground floor of the ladder (game/school.ts).
+ *
+ * Every other floor of this tower is opened by beating the one below it, and
+ * Tier 1 had nothing below it: a first launch put the player straight into a
+ * ten-bay run with a bankroll, a clock and permadeath. So the building gains
+ * the floor it was always missing, and it is where a licence is earned.
+ *
+ * DRAWN BELOW THE SHAFT'S OWN BOX, in the plinth that was already there, and
+ * NOT counted in TOWER_FLOORS — the exact arrangement the headhouse has above
+ * (see SANDBOX_TIER). That is what keeps the eleven floors' height arithmetic
+ * byte-identical: a twelfth rung inside the shaft would have compressed every
+ * floor in the building to make room for one that is not a Mark.
+ *
+ * THE LIFT DOES NOT SERVE IT, for the same reason it does not serve the roof.
+ * The shaft is the LADDER; the lobby is the door you come in by. Selecting it
+ * parks the car at the bottom of the shaft and lights the lobby, which is what
+ * a lift at ground level looks like.
+ */
+export const LICENCE_TIER = -2;
+
 /** How many floors the shaft holds: the Marks, plus the Skydeck on top. Tier S
  *  is deliberately NOT counted — it is drawn above the shaft's own box, in the
  *  headhouse, and takes no height from the floors (see SANDBOX_TIER). */
@@ -298,6 +339,20 @@ export interface TowerState {
    *  screen that guessed at it would open the roof for a player holding ten
    *  seals and two owed Contracts. */
   skydeck: boolean;
+  /** Whether Flight School has been finished (meta.ts's licenceDone). False
+   *  locks every Mark in the shaft — see tierOpen, which is the one place that
+   *  asks. Absent reads as licensed, so every caller that predates the ground
+   *  floor renders the tower it always did.
+   *
+   *  A separate field from `unlocked` rather than a value of it, because the
+   *  two answer different questions: `unlocked` is how far up the ladder this
+   *  player has climbed, and this is whether they may be on the ladder. */
+  licensed?: boolean;
+  /** Lessons finished, for the lobby's own readout. Absent reads as none. */
+  licenceDone?: number;
+  /** Lessons in the ladder, so the lobby can print "3 / 9" without importing
+   *  the ladder into a fixture. Absent reads as the shipped count. */
+  licenceTotal?: number;
   /** Whether Tier S is a floor at all (lib/store.ts's Settings.devMode, set by
    *  the beacon gesture — see lib/devmode.ts). Absent reads as off, so every
    *  caller that predates the mode renders the tower it always did. */
@@ -358,8 +413,23 @@ export interface TowerState {
  *  a floor, so the two questions that used to be separate are one again. */
 export function tierOpen(state: TowerState, tier: number): boolean {
   if (tier === SANDBOX_TIER) return sandboxOpen(state);
+  // THE ONE FLOOR NOTHING GATES. It is the door into the building, and a locked
+  // front door on a first launch is the whole failure this floor exists to fix.
+  // It stays open after the licence is earned too, so a lesson can be replayed.
+  if (tier === LICENCE_TIER) return true;
   if (tier === SKYDECK_TIER) return state.skydeck;
   const included = tierIncluded(tier, state.fullGame !== false);
+  // THE LICENCE GATES THE LADDER, and it is asked HERE rather than folded into
+  // `unlocked` — meta.ts's markUnlocked is also the Mark the Workshop budgets
+  // against, the Mark the guide prices its copy at and the Mark the hazard
+  // ladder is read from, none of which want to be told the player has no tier
+  // at all. This is the one function that answers "may the car fly this floor",
+  // so this is where the answer belongs.
+  //
+  // ABSENT READS AS LICENSED, which is what keeps every caller that predates
+  // the ground floor — menuScreen's fallback tower, every uifit fixture —
+  // rendering the tower it always did.
+  if (state.licensed === false) return false;
   return included && tier >= 1 && tier <= state.unlocked;
 }
 
@@ -380,6 +450,12 @@ export function sandboxOpen(state: TowerState): boolean {
  *  Mark 10 and not, as its raw id would suggest, below Mark 1. */
 export function towerIndexOf(tier: number): number {
   if (tier === SANDBOX_TIER) return -1;
+  // ONE PAST THE GROUND FLOOR, and the CAR never uses it either — the lift does
+  // not serve the lobby (see LICENCE_TIER). What does use it is everything that
+  // needs the licence ORDERED against the ladder: towerTravelMs, and the plate
+  // roll's direction, both of which have to know that the lobby is below Mark 1
+  // rather than, as its raw id would suggest, above the roof.
+  if (tier === LICENCE_TIER) return MARK_COUNT + 1;
   return tier === SKYDECK_TIER ? 0 : MARK_COUNT - tier + 1;
 }
 
@@ -659,6 +735,41 @@ function towerHeadHTML(state: TowerState): string {
     >${lamps}</button>`;
 }
 
+/**
+ * THE LOBBY — Flight School, drawn in the plinth under the shaft.
+ *
+ * towerHeadHTML's opposite number, and deliberately the same shape of thing: a
+ * strip outside the shaft's own box that is a decoration in one state and a
+ * real floor in another, so the eleven rungs inside keep every pixel of their
+ * height arithmetic (see LICENCE_TIER).
+ *
+ * It is ALWAYS a floor, though — unlike the headhouse, which is a secret until
+ * it is found. It is the door the player comes in by, so it is labelled, it is
+ * in the tab order, and it is selectable from the very first launch. What
+ * changes with the licence is only what it SAYS: a progress count while the
+ * ladder above it is locked, and the offer of a re-fly once it is not.
+ */
+function towerLobbyHTML(state: TowerState): string {
+  const total = state.licenceTotal ?? LESSON_COUNT;
+  const done = Math.max(0, Math.min(total, state.licenceDone ?? 0));
+  const earned = state.licensed !== false;
+  const sel = state.selected === LICENCE_TIER;
+  const cls = ["tower__base", "tower__base--floor"];
+  if (sel) cls.push("is-selected");
+  if (earned) cls.push("is-earned");
+  // THE COUNT IS THE LABEL while the licence is owed, because it is the only
+  // number on this screen that says how far from flying the player is. Earned,
+  // it drops to the floor's name: a finished ladder restating "9 / 9" for the
+  // rest of the save's life is a bill that has been paid.
+  const note = earned ? "licence earned" : `${done} of ${total} lessons`;
+  return `<button class="${cls.join(" ")}" type="button"`
+    + ` data-action="pick-tier" data-tier="${LICENCE_TIER}" aria-pressed="${sel}"`
+    + ` aria-label="Flight School — ${note}. The licence that opens Tier 1.">`
+    + `<span class="tower__base-mark" aria-hidden="true">${LICENCE_MARK}</span>`
+    + `<span class="tower__base-txt" aria-hidden="true">${earned ? "SCHOOL" : `${done}/${total}`}</span>`
+    + `</button>`;
+}
+
 export function tierTowerHTML(state: TowerState): string {
   // Roof first, ground floor last.
   const floors: string[] = [];
@@ -675,7 +786,14 @@ export function tierTowerHTML(state: TowerState): string {
   // when the building is off": wherever it last was, and on a first render that
   // is as far up as it goes.
   const off = state.selected === SANDBOX_TIER;
-  const idx = towerIndexOf(off ? SKYDECK_TIER : state.selected);
+  // THE LIFT SERVES NEITHER END OF THE BUILDING. Tier S parks the car at the
+  // top of the shaft and switches the building off (above); the lobby parks it
+  // at the BOTTOM and leaves the building lit, because a lift at ground level
+  // is not a lift that has stopped working. Both are the same rule — the shaft
+  // is the ladder, and the two floors that are not rungs of it are drawn
+  // outside its box — and neither writes an index the shaft cannot hold.
+  const lobby = state.selected === LICENCE_TIER;
+  const idx = towerIndexOf(off ? SKYDECK_TIER : lobby ? 1 : state.selected);
   // THE CEREMONY (TowerState.celebrate). The car's RESTING position is still
   // the selected floor — `--tower-idx` is untouched — and the ride is drawn as
   // an animation that starts at the ground floor and ends at that rest, so the
@@ -687,7 +805,7 @@ export function tierTowerHTML(state: TowerState): string {
   // Never while the lift is out of service. Tier S is not a rung, nothing
   // unlocks it, and a car riding to a floor it does not serve would contradict
   // the one rule the roof is built on.
-  const rising = state.celebrate === true && !off;
+  const rising = state.celebrate === true && !off && !lobby;
   const ride = rising
     ? `;--tower-rise-from:${towerIndexOf(TOWER_RISE_FROM)}`
       + `;--tower-rise-hold:${TOWER_RISE_HOLD_MS}ms`
@@ -707,7 +825,7 @@ export function tierTowerHTML(state: TowerState): string {
       <div class="tower__car" aria-hidden="true"><span></span></div>
       ${floors.join("")}
     </div>
-    <div class="tower__base" aria-hidden="true"></div>
+    ${towerLobbyHTML(state)}
   </div>`;
 }
 
@@ -935,6 +1053,12 @@ export function menuPlayBadged(
 ): boolean {
   if (firstLaunch) return false;
   if (tier === SANDBOX_TIER) return false;
+  // THE LICENCE STEP BADGES ONE FLOOR — the lobby, and never a Mark. The badge
+  // is a directive (A3 allows exactly one on the screen), and pointing it at a
+  // floor the player cannot fly yet would be a directive to press a locked
+  // button.
+  if (step === "licence") return tier === LICENCE_TIER;
+  if (tier === LICENCE_TIER) return false;
   if (step === "run") return true;
   if (step !== "seal") return false;
   return tier >= 1 && tier <= MARK_COUNT && !sealed;
@@ -981,9 +1105,26 @@ export function menuContractsSub(tier: number, progress?: TierProgress): string 
 
 export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
+  /** Flight School's progress, when the licence is still owed. Null once it is
+   *  earned, and on every caller that predates the ground floor. */
+  licence: { done: number; total: number } | null = null,
 ): string {
   if (tier === null) return "Elevator moving…";
   if (tier === SANDBOX_TIER) return "Any Tier, bay or Contract · own board";
+  // THE LOBBY, and it is asked before the licence gate below because the lobby
+  // is the one floor the licence does not gate — a line telling the player to
+  // finish Flight School, on the Flight School button, would be a button
+  // refusing to do the thing it is for.
+  if (tier === LICENCE_TIER) {
+    if (!licence) return "Licence earned · re-fly any lesson";
+    return licence.done === 0
+      ? `${licence.total} short lessons · nothing to lose`
+      : `Lesson ${Math.min(licence.total, licence.done + 1)} of ${licence.total} · pick up where you left off`;
+  }
+  // A LADDER FLOOR WITH THE LICENCE STILL OWED says what is in the way, and
+  // says it on the button the player just pressed rather than in a toast over
+  // it — the same argument the tower's own refusals make.
+  if (licence) return `Finish Flight School first · ${licence.done} of ${licence.total}`;
   // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
   // once · no mercy", which described a floor that was not playable yet and
   // promised something the mode does not do — the Skydeck flies Mark 10's
@@ -1089,6 +1230,14 @@ export function menuScreen(
   const sel = twr.selected;
   const skySel = sel === SKYDECK_TIER;
   const sbxSel = sel === SANDBOX_TIER;
+  const licSel = sel === LICENCE_TIER;
+  // THE LICENCE, as the button's subtitle needs it: null once earned, so every
+  // line below can ask "is the licence still owed" by asking whether this is
+  // there. Absent on the fallback tower and every fixture that predates the
+  // ground floor, which is what keeps them rendering the menu they always did.
+  const licence = twr.licensed === false
+    ? { done: twr.licenceDone ?? 0, total: twr.licenceTotal ?? LESSON_COUNT }
+    : null;
   // THE SEAL STEP RIDES THE PRIMARY, because a seal is flown and not bought
   // (meta.ts's nextStep). It is the run's badge under another name, so it
   // lights the same button — what changes is the subtitle, which is the only
@@ -1210,11 +1359,13 @@ export function menuScreen(
         <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play">${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
-          sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
+          licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
         }</span><span class="btn__sub" id="menu-play-sub">${
           // The rule lives in menuPlaySub, because the ride rewrites this exact
           // node by id and two copies of it would drift — see the note there.
-          menuPlaySub(sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
+          menuPlaySub(
+            sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null, licence,
+          )
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
           THE TIER'S CONTRACT PIPS, on the button that leads to them. They
@@ -3150,6 +3301,65 @@ export function coachHTML(
             ? `<button class="btn btn--primary coach__btn" data-action="coach-done">${padKey}Got it!</button>`
             : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">${padKey}Skip tutorial</button>`
         }
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * A FLIGHT SCHOOL CARD (game/school.ts's LessonCard).
+ *
+ * Deliberately the coach's own markup rather than a component of its own: every
+ * rule in app.css that makes a card share the plant panel's column without
+ * pushing it — the height cap, the aiming fade, the pointer-events release —
+ * is written against `.coach`, and a second class would need all of them again
+ * and would drift from them the first time one moved.
+ *
+ * THE DECK PLAYS BEFORE THE BAY, not alongside it, and that is a layout
+ * decision as much as a teaching one. The card is ~127px of a ~179px allowance
+ * (see app.css's reveal block), so a card and a readout cannot both be up: the
+ * old coach could only hand over the economy blocks at the moment its last card
+ * LEFT. Playing the deck out first makes that the rule rather than the
+ * exception — the cards say what the lesson is, the last one dismisses, and the
+ * bay the player then gets has the readout the lesson earned and nothing over
+ * it. What holds the pass condition for the rest of the bay is the plant
+ * panel's own complications row (Lesson.conditions), which is where a drill has
+ * always kept it.
+ *
+ * ONE BUTTON. main.ts routes the pad's B to a single `.coach__btn` while the
+ * bay is live, because every other face button is spoken for by gameplay — so a
+ * second button here would leave a pad-only player unable to advance at all.
+ * Leaving the ladder is the pause modal's job, which is a real pad-navigable
+ * screen.
+ */
+export function lessonCardHTML(
+  lesson: { name: string; cards: { title: string; body: string }[] },
+  index: number,
+  card: number,
+  total: number,
+  profile: InputProfile = "touch",
+): string {
+  const i = Math.max(0, Math.min(card, lesson.cards.length - 1));
+  const c = lesson.cards[i];
+  const last = i >= lesson.cards.length - 1;
+  const dots = lesson.cards
+    .map((_, n) => `<i class="${n < i ? "done" : n === i ? "cur" : ""}"></i>`)
+    .join("");
+  // The pad's route to this button, on the same terms coachHTML states: while
+  // the game is live every pad face button is spoken for except B.
+  const padKey = profile === "gamepad"
+    ? `<span class="kbd coach__padkey">${padLabel(PAD_BACK)}</span>`
+    : "";
+  return `<div class="coach" id="coach">
+    <div class="coach__card">
+      <div class="coach__eyebrow">Flight School · ${index + 1}/${total}</div>
+      <div class="coach__title">${c.title}</div>
+      <p class="coach__body">${c.body}</p>
+      <div class="coach__foot">
+        <span class="coach__dots" aria-hidden="true">${dots}</span>
+        <button class="btn btn--primary coach__btn" data-action="coach-done">${padKey}${
+          last ? "Fly it" : "Next"
+        }</button>
       </div>
     </div>
   </div>`;
@@ -5534,6 +5744,73 @@ export function drillEndModal(opts: {
       <div class="row end__actions">
         <button class="btn btn--primary" data-action="drill-retry">${icon("retry", 12)}Try Again</button>
         <button class="btn btn--ghost" data-action="drill-exit">Back to Guide</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * End-of-lesson modal (game/school.ts) — drillEndModal's sibling, on the same
+ * end-screen skeleton every other way out of a bay uses.
+ *
+ * What it does that a drill's does not is CARRY THE LADDER: a cleared lesson
+ * offers the next one as its primary, because the whole difference between
+ * Flight School and the guide's drills is that this is a sequence with an end
+ * that opens something. A failed one offers the same lesson again, and the
+ * brief is repeated over it for the reason drillEndModal repeats its own — a
+ * player who just failed it is exactly the player who did not finish reading it.
+ *
+ * The last lesson's primary says so, and its subtitle is the only place in the
+ * app that gets to announce the licence.
+ */
+export function lessonEndModal(opts: {
+  won: boolean;
+  /** The lesson's name. */
+  name: string;
+  /** 0-based position in the ladder, for the eyebrow. */
+  index: number;
+  total: number;
+  /** The pass condition, repeated on a failure. */
+  brief: string;
+  lines: number;
+  shotsUsed: number;
+  /** 0 when the lesson hands out unlimited shipments, which most do. */
+  launches: number;
+  /** True when this win was the LAST lesson — the licence itself. */
+  licence: boolean;
+}): string {
+  const budget = opts.launches > 0
+    ? `<div class="stat"><b style="color:var(--warn)">${Math.min(opts.launches, opts.shotsUsed)}/${opts.launches}</b><span>Launches</span></div>`
+    : `<div class="stat"><b style="color:var(--warn)">${opts.shotsUsed}</b><span>Launches</span></div>`;
+  const stats = `<div class="stat-row">
+      <div class="stat"><b style="color:var(--accent)">${opts.lines}</b><span>Lines</span></div>
+      ${budget}
+    </div>`;
+  const title = opts.won ? (opts.licence ? "Licence Earned" : "Lesson Landed") : "Run It Again";
+  const blurb = opts.won
+    ? (opts.licence
+      ? `That is the licence. <b>Tier 1 is open</b> — ten bays, a bankroll and a clock.`
+      : `${opts.name} cleared.`)
+    : opts.brief;
+  // ONE primary, and it is the way FORWARD wherever there is one. A cleared
+  // lesson that offered "Try again" first would be pointing at the thing the
+  // player has just finished doing.
+  const primary = opts.won
+    ? (opts.licence
+      ? `<button class="btn btn--primary" data-action="lesson-exit">To the tower →</button>`
+      : `<button class="btn btn--primary" data-action="lesson-next">Next lesson →</button>`)
+    : `<button class="btn btn--primary" data-action="lesson-retry">${icon("retry", 12)}Try Again</button>`;
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--warn)"}">Flight School · ${opts.index + 1}/${opts.total}</div>
+        <h2 class="display">${title}</h2>
+        <p class="muted" style="margin-top:-6px">${blurb}</p>
+        ${stats}
+      </div>
+      <div class="row end__actions">
+        ${primary}
+        <button class="btn btn--ghost" data-action="lesson-exit">${opts.won ? "Back to the tower" : "Leave school"}</button>
       </div>
     </div>
   </div>`;

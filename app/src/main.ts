@@ -70,7 +70,8 @@ import {
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked,
+  INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, licenceDone,
+  markUnlocked, recordLesson,
   markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
@@ -88,6 +89,9 @@ import {
   GUIDE_TOPICS, topicById, topicsIn, drillUnlocked, type ChapterId, type GuideTopic,
 } from "./game/guide";
 import { levelForDrill } from "./game/drills";
+import {
+  LESSON_COUNT, REVEAL, lessonAt, lessonSeed, levelForLesson, type Lesson,
+} from "./game/school";
 import { SANDBOX } from "./lib/sandbox";
 import { DEV_TAP_WINDOW_MS, TapStreak } from "./lib/devmode";
 import { applyCheat, cheatRowHTML } from "./lib/sandbox-cheats";
@@ -169,7 +173,7 @@ type AppState =
   | "splash" | "menu" | "howto" | "settings" | "account" | "account-delete"
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
-  | "contracts" | "contract-end" | "coach-fail"
+  | "contracts" | "contract-end" | "coach-fail" | "lesson-end"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
   // state rather than a flag on "paused" or "lost" because it is reachable
   // from BOTH of those and has to know which one to hand back — and because
@@ -952,6 +956,20 @@ class App {
    *  could be farmed would turn the guide into a grind. */
   private drill: GuideTopic | null = null;
 
+  /* ---------------- Flight School (game/school.ts) ----------------------- */
+  /** The lesson being flown, or null. Read FIRST by onGameStatus, above the
+   *  drill and Contract branches, for the same reason the drill is read above
+   *  the Contract one: a lesson is not a run, and none of their bookkeeping may
+   *  touch the save on its behalf. The one thing it DOES write is the licence
+   *  count itself. */
+  private lesson: Lesson | null = null;
+  /** Its index in the ladder — the number the licence records, and the number
+   *  the card's eyebrow prints. */
+  private lessonIndex = 0;
+  /** Which card of the lesson's deck is up, or null once the deck has been
+   *  played out and the bay is the player's. */
+  private lessonCard: number | null = null;
+
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
    *  settings.seenTutorial is set (finish or skip); each step advances when
@@ -1599,6 +1617,16 @@ class App {
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
+    // Flight School's deck, on the same terms and in the same place — the two
+    // can never both be up (startLesson clears tutorialStep, and the old coach
+    // only ever runs on a Deep Run bay), but they are mounted separately
+    // because they carry different copy and a different eyebrow.
+    if (this.lesson && this.lessonCard !== null && this.state === "playing") {
+      this.mountCoach(S.lessonCardHTML(
+        this.lesson, this.lessonIndex, this.lessonCard, LESSON_COUNT, p,
+      ));
+    }
+    this.syncRevealStage();
   }
 
   /** Flip the input family (D2) and refresh every surface that renders from
@@ -1696,7 +1724,40 @@ class App {
    * disagreed the panel would be built as one thing and updated as another —
    * `#hud-score` written with a dollar figure into a slot labelled Lines.
    */
+  /**
+   * The number a Flight School bay's goal bar counts UP TO.
+   *
+   * `objectiveLines` on the six lessons that are graded on rows, and the goal's
+   * own count on the three that are not: a well lesson asks for rows in ONE
+   * crush, the timing lesson for graded rows, the streak lesson for a streak
+   * length (level.ts's LessonGoal). All three set objectiveLines to 0, and a
+   * goal bar reading "/ 0" is worse than no goal bar at all.
+   *
+   * The bar's numerator is `linesTotal` in every case, which is honest for the
+   * atOnce lessons (rows are rows) and approximate for the other two — the
+   * exact progress lives in the pass condition on the complications row beside
+   * it, and a second progress readout for a two-row lesson would be furniture.
+   */
+  private lessonGoalCount(g: Game): number {
+    const goal = this.lesson?.goal;
+    if (!goal) return g.level.objectiveLines;
+    if (goal.kind === "atOnce") return goal.lines;
+    if (goal.kind === "combo") return goal.to;
+    return goal.count;
+  }
+
   private linesBay(g: Game): boolean {
+    // A FLIGHT SCHOOL BAY IS ONE TOO, on the same predicate and for the same
+    // reason — it has a goal and a shipment supply, read out of exactly the two
+    // columns the Contract block draws. The bankroll lesson deliberately falls
+    // through to false the way the two ECONOMY drills do: its whole subject is
+    // the funds-against-target readout a Contract block would replace.
+    //
+    // `objectiveLines` alone is not the test any more, because the three
+    // lessons graded on a LessonGoal set none — a well lesson counts rows in
+    // one crush, not rows in total (level.ts's LessonGoal). So a lesson bay is
+    // a lines bay whenever it is not the economy one.
+    if (this.lesson) return !this.lesson.economy;
     return this.contract !== null || (this.drill !== null && g.level.objectiveLines > 0);
   }
 
@@ -1892,7 +1953,12 @@ class App {
         this.contract || this.drill ? null : g.status === "lost" ? g.lossReason : null,
       // A drill names itself in the banner and drops the tier row and the ship
       // rack (see screens.ts's `drill` opt for why all three go together).
-      drill: this.drill?.drill ? { name: this.drill.drill.name } : null,
+      drill: this.drill?.drill
+        ? { name: this.drill.drill.name }
+        // A lesson names itself in the banner on the same terms, and drops the
+        // tier row and the ship rack with it — neither means anything on a bay
+        // that is not on the ladder.
+        : this.lesson ? { name: this.lesson.name } : null,
       // The ⏸ hold restarts the bay, so the price of that gesture rides its
       // accessible name — the same words the two retry BUTTONS wear, from the
       // same read (sealFace). Null on a Contract or a drill, where this.run is
@@ -1901,7 +1967,30 @@ class App {
       // …and on a run that may not restart a bay at all, the gesture goes out
       // of the name and out of the hint strip with it. See bayRetryOffered.
       restart: this.bayRetryOffered(),
-      contract: this.drill
+      contract: this.lesson
+        ? // A Flight School bay fills the Contract block for the reason a drill
+          // does — it is that shape of bay — and its `goal` is the number the
+          // lesson is actually judged on, which is not always a line count.
+          // `objectiveLines` is 0 on the three lessons graded on a LessonGoal,
+          // and a goal bar reading "/ 0" is worse than no goal bar, so those
+          // lessons quote the goal they DO have.
+          this.linesBay(g)
+          ? {
+              name: this.lesson.name,
+              kind: "lines" as const,
+              goal: this.lessonGoalCount(g),
+              lines: g.linesTotal,
+              launchesLeft: g.launchesLeft === Infinity ? 0 : g.launchesLeft,
+              remaining: [],
+              lost: g.lostTotal,
+              // The pass condition, in the slot the bay's complications live
+              // in — one line, and it does not wrap (Lesson.conditions).
+              conditions: this.lesson.conditions,
+              tier: 1,
+              progress: null,
+            }
+          : null
+        : this.drill
         ? // A LINES-shaped drill fills the Contract block, because it is that
           // bay: a line goal and a launch budget, read out of exactly the same
           // two columns. The two ECONOMY drills deliberately fall through to
@@ -2088,7 +2177,14 @@ class App {
     const unlocked = markUnlocked(this.meta);
     const fullGame = this.fullGame();
     const skydeck = fullGame && skydeckOpen(this.meta);
-    const selected = Math.min(unlocked, fullGame ? MARK_COUNT : FREE_TIER_LIMIT);
+    // THE CAR STARTS IN THE LOBBY while the licence is owed, because that is
+    // the only floor the player can fly and a tower that opened parked on a
+    // locked one would be offering a button it then refuses. The pick below can
+    // still move it — every floor is tappable, and reading a locked floor's
+    // terms is a real thing to want — but the DEFAULT is where the game is.
+    const selected = licenceDone(this.meta)
+      ? Math.min(unlocked, fullGame ? MARK_COUNT : FREE_TIER_LIMIT)
+      : S.LICENCE_TIER;
     const state: S.TowerState = {
       unlocked, selected, skydeck, fullGame,
       // Tier S is a SETTING, not progress — it is drawn under the tower for
@@ -2105,6 +2201,13 @@ class App {
       // The current floor's window lights (screens.ts's floorHTML): one per
       // first-clear Contract logged on the tier being flown.
       contracts: tierProgressFor(this.meta).contracts,
+      // THE GROUND FLOOR (screens.ts's LICENCE_TIER). `licensed` is the gate
+      // every Mark in the shaft is drawn against; the other two are the
+      // lobby's own readout, and they are passed rather than derived there so
+      // a uifit fixture can state a half-finished licence without a meta.
+      licensed: licenceDone(this.meta),
+      licenceDone: this.meta.licence,
+      licenceTotal: LESSON_COUNT,
       // The ceremony, when one is owed and running (armUnlockCelebration). The
       // ride's destination is `selected`, which is why the clamp below has to
       // stay the only thing that can set it — see the note there.
@@ -2836,7 +2939,11 @@ class App {
     // NEXT STEP badge comes off with it: the guide is pointing at the ladder,
     // and Tier S is not on it.
     const ttl = this.overlay.querySelector<HTMLElement>("#menu-play-ttl");
-    if (ttl) ttl.textContent = sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
+    if (ttl) {
+      ttl.textContent = tier === S.LICENCE_TIER
+        ? "Flight School"
+        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
+    }
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
     btn?.classList.toggle("btn--sbx", sbx);
     // THE BADGE IS PER-FLOOR, so the ride has to carry it rather than only
@@ -2925,6 +3032,12 @@ class App {
       tier !== null && nextStep(this.meta) === "seal"
         ? { owed: unsealedMarks(this.meta).length, sealed: this.meta.sealedMarks.includes(tier) }
         : null,
+      // Same argument as the seal prompt beside it: the ride patches this node
+      // in place, so anything the rendered markup passes has to be passed here
+      // too or the line reverts to a different rule the moment the car moves.
+      licenceDone(this.meta)
+        ? null
+        : { done: this.meta.licence, total: LESSON_COUNT },
     );
   }
 
@@ -3094,6 +3207,24 @@ class App {
       // tutorial's failure card uses, and for the same reason: the readout the
       // card is talking about (lines against the goal, the budget it spent) is
       // right there to be pointed at.
+      case "lesson-end":
+        if (g && this.lesson) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.lessonEndModal({
+              won: g.status === "won",
+              name: this.lesson.name,
+              index: this.lessonIndex,
+              total: LESSON_COUNT,
+              brief: this.lesson.brief,
+              lines: g.linesTotal,
+              shotsUsed: g.shotsFired,
+              launches: g.level.launchBudget,
+              // The licence lands on the LAST lesson's win, and only there.
+              licence: g.status === "won" && this.lessonIndex >= LESSON_COUNT - 1,
+            });
+        }
+        break;
       case "drill-end":
         if (g && this.drill?.drill) {
           this.overlay.innerHTML =
@@ -3774,6 +3905,8 @@ class App {
     this.contract = null;
     this.contractMusic = null;
     this.drill = null;
+    this.lesson = null;
+    this.lessonCard = null;
     this.submitted = false;
     this.lastTier = null;
     telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
@@ -4281,6 +4414,8 @@ class App {
     this.nextContract = null;
     this.submitted = false;
     this.tutorialStep = null;
+    this.lesson = null;
+    this.lessonCard = null;
     this.drill = topic;
     const cfg = levelForDrill(topic.id, topic.drill);
     // The seed is FIXED per drill (drillSeed), so "Try Again" is the same bay —
@@ -4310,6 +4445,117 @@ class App {
   }
 
   /**
+   * Fly one Flight School lesson (game/school.ts).
+   *
+   * startDrill's sibling, and subtractive from it in exactly one place and
+   * additive in one other. Like a drill it records no run, no tier tick, no
+   * salvage, no leaderboard entry and no telemetry — a lesson ships authored
+   * geometry a real bay never deals, so counting it would poison the numbers it
+   * was built beside. Unlike a drill it DOES write one thing: the licence
+   * (meta.ts's recordLesson), which is the whole point of the ladder.
+   *
+   * The deck plays before the bay (screens.ts's lessonCardHTML says why), so
+   * this mounts card 0 and the reveal stage together and the player reaches a
+   * live field with neither over it.
+   */
+  private startLesson(index: number): void {
+    const lesson = lessonAt(index);
+    if (!lesson) return;
+    this.game?.destroy();
+    this.congestion = 0;
+    this.run = null;
+    this.contract = null;
+    this.contractMusic = null;
+    this.nextContract = null;
+    this.submitted = false;
+    this.drill = null;
+    // The old coach is not a thing that can be running here. A lesson IS the
+    // tutorial now, and two card decks over one bay would be two lessons on one
+    // screen — the argument startDrill already makes for having no coach.
+    this.tutorialStep = null;
+    this.lesson = lesson;
+    this.lessonIndex = index;
+    this.lessonCard = 0;
+    // FIXED SEED (school.ts's lessonSeed), so a retry is the same bay. Eight of
+    // the nine are fully authored and would not notice; "Lost Cargo" deals a
+    // real 7-bag and this is what makes its deal the same one every attempt.
+    this.game = new Game(levelForLesson(lesson), {
+      onShoot: (info) => {
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint();
+      },
+      onLineClear: (n, g) => {
+        void successHaptic(); playLineClear(n); this.excellenceCue(g); this.flashGoal();
+      },
+      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
+      onBondBreak: () => { void impactHaptic(); playBondBreak(); },
+      onThawLance: () => { void tapHaptic(); playFx("thawLance"); },
+      onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
+      onImpact: (strength) => playImpact(strength),
+      onCompactorHit: () => playFx("compactorImpact", { gain: 0.5 }),
+      onCryoShatter: () => playFx("cryoShatter"),
+      onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
+      onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
+      onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
+      onStatus: (st) => this.onGameStatus(st),
+    }, lessonSeed(index));
+    this.setState("playing");
+    this.armDragHint();
+  }
+
+  /** The next lesson the licence owes, clamped to the last one so a finished
+   *  licence re-flies the final lesson rather than falling off the ladder. */
+  private nextLessonIndex(): number {
+    return Math.min(LESSON_COUNT - 1, Math.max(0, this.meta.licence));
+  }
+
+  /** Advance the lesson's deck by one card, or dismiss it and hand the bay
+   *  over. One entry point, because the pad's B, a tap and a keyboard
+   *  activation all arrive at the same `.coach__btn`. */
+  private lessonAdvance(): void {
+    const lesson = this.lesson;
+    if (!lesson || this.lessonCard === null) return;
+    const next = this.lessonCard + 1;
+    if (next >= lesson.cards.length) {
+      this.lessonCard = null;
+      this.overlay.querySelector("#coach")?.remove();
+      this.syncRevealStage();
+      return;
+    }
+    this.lessonCard = next;
+    this.mountCoach(S.lessonCardHTML(
+      lesson, this.lessonIndex, next, LESSON_COUNT, this.profile,
+    ));
+    this.syncRevealStage();
+  }
+
+  /**
+   * Publish how much of the readout this bay shows, as `data-reveal` on the
+   * HUD — which is what app.css hides the blocks against.
+   *
+   * SEPARATE FROM `data-coach`, and the split is load-bearing. `data-coach`
+   * carries the old four-card deck's step and is what the CARD's own layout
+   * rules key on (the panel height cap, the aiming fade, the rotate-button
+   * highlight); this carries the LESSON's stage and is what the readout's
+   * hide-list keys on. Folding them back together would mean a lesson's reveal
+   * and its card position had to be the same number, which they are not: a
+   * lesson has one stage and a deck of two or three cards.
+   *
+   * An ATTRIBUTE rather than a re-render, for the reason syncCoachReveal
+   * states: the plant's readouts are patched per-frame by syncHud against live
+   * element ids, so rebuilding the HUD per stage would fight that.
+   *
+   * Absent = the whole readout, which is what every bay outside Flight School
+   * gets and what a finished lesson's own bay gets the moment it ends.
+   */
+  private syncRevealStage(): void {
+    const hud = this.overlay.querySelector<HTMLElement>("#hud");
+    if (!hud) return;
+    if (!this.lesson || this.lesson.reveal >= REVEAL.all) delete hud.dataset.reveal;
+    else hud.dataset.reveal = String(this.lesson.reveal);
+  }
+
+  /**
    * Begin a Contract. Deliberately a separate path from startGame(): a Contract
    * has no RunState at all — no carried funds, no drafted mods, no refit stops,
    * nothing to advance — so routing it through the run machinery would mean
@@ -4326,6 +4572,8 @@ class App {
     this.congestion = 0;
     this.run = null;
     this.drill = null;
+    this.lesson = null;
+    this.lessonCard = null;
     this.contract = c;
     // Defaults to false, so every existing caller (the daily board, retry,
     // next-contract) clears it by saying nothing — which is the right default
@@ -4407,6 +4655,28 @@ class App {
     // salvage, no run count, no leaderboard submit, no end-of-bay telemetry.
     // A drill is a bay the player was shown; nothing about the save may
     // remember it happened.
+    // FLIGHT SCHOOL: read first, and the one teaching bay that writes to the
+    // save. Everything a drill is routed out of applies here too — no run
+    // record, no tier tick, no salvage, no leaderboard, no telemetry — and the
+    // single exception is the licence itself, which is the ladder's whole
+    // point. Recorded on the WIN only: a lesson you lost is a lesson you have
+    // not been taught.
+    if (this.lesson) {
+      if (s !== "won" && s !== "lost") return;
+      this.showSettleNote(false);
+      if (s === "won") {
+        void successHaptic();
+        const next = recordLesson(this.meta, this.lessonIndex);
+        if (next !== this.meta) {
+          this.meta = next;
+          saveMeta(this.meta);
+        }
+      } else {
+        void impactHaptic();
+      }
+      this.setState("lesson-end");
+      return;
+    }
     if (this.drill) {
       if (s !== "won" && s !== "lost") return;
       this.showSettleNote(false);
@@ -5503,6 +5773,7 @@ class App {
    *  Quit reaches it through requestQuitRun's gate. */
   private toMenu(): void {
     this.contract = null; this.contractMusic = null; this.drill = null;
+    this.lesson = null; this.lessonCard = null;
     this.setState("menu");
   }
 
@@ -6546,12 +6817,21 @@ class App {
     // above makes about the press that woke the pad.
     if (this.endScrimTimer !== null) return true;
     if (this.state === "playing") {
-      // The coach's card is the one UI control alive during play, and every
-      // face button is spoken for except B — so B is the card's button
-      // (Skip on the teaching steps, Got it! on the last), and the card
-      // labels it (coachHTML's pad chip). Without this a pad-only player
-      // completes the tutorial's last step and has no way to say so.
-      if (button === PAD_BACK && this.tutorialStep !== null) {
+      // The card is the one UI control alive during play, and every face
+      // button is spoken for except B — so B is the card's button, and the
+      // card labels it (coachHTML / lessonCardHTML's pad chip). Without this a
+      // pad-only player reaches a card they cannot dismiss and the bay is
+      // unplayable from that point on.
+      //
+      // BOTH DECKS, one selector. The old coach's card and a Flight School
+      // lesson's render the same `.coach__btn`, and each renders exactly ONE of
+      // them — which is the invariant that lets this stay a single route. A
+      // card with two buttons would make this press ambiguous, which is why
+      // leaving the ladder is the pause modal's job and not a second button
+      // here (see screens.ts's lessonCardHTML).
+      const carded = this.tutorialStep !== null
+        || (this.lesson !== null && this.lessonCard !== null);
+      if (button === PAD_BACK && carded) {
         this.overlay.querySelector<HTMLElement>(".coach__btn")?.click();
         return true;
       }
@@ -6663,11 +6943,19 @@ class App {
       // tower state the button was rendered from. sandboxOpen is re-checked
       // because a floor selected before Settings closed the mode must not still
       // open it (screens.ts's tierOpen is the other half of the same gate).
-      case "play":
-        if (this.towerState().selected === S.SANDBOX_TIER) {
+      case "play": {
+        const floor = this.towerState().selected;
+        if (floor === S.SANDBOX_TIER) {
           if (this.sandboxOpen()) this.setState("sandbox");
+        } else if (floor === S.LICENCE_TIER) {
+          // THE LOBBY FLIES THE NEXT LESSON THE LICENCE OWES, not lesson 1 —
+          // the ladder is a sequence, and a button that restarted it every time
+          // would make the ground floor the one floor you cannot make progress
+          // on. A finished licence re-flies the last lesson.
+          this.startLesson(this.nextLessonIndex());
         } else this.startGame();
         break;
+      }
       // A floor of the tier tower. Never re-renders the menu: the overlay's
       // innerHTML is rewritten wholesale by renderOverlay, which would tear
       // down the attract demo's canvas (see syncAttract) and restart the car's
@@ -6739,7 +7027,33 @@ class App {
         break;
       case "coach-done":
       case "coach-skip":
-        this.finishTutorial();
+        // ONE BUTTON, TWO DECKS. The lesson's card and the old coach's card
+        // render the same `.coach__btn` — which is what lets the pad's B reach
+        // either without a second route (see onPadUiButton) — so the action
+        // asks which deck is actually up rather than which button was pressed.
+        if (this.lesson && this.lessonCard !== null) this.lessonAdvance();
+        else this.finishTutorial();
+        break;
+      case "lesson-next":
+        this.startLesson(Math.min(LESSON_COUNT - 1, this.lessonIndex + 1));
+        break;
+      case "lesson-retry":
+        this.startLesson(this.lessonIndex);
+        break;
+      case "lesson-exit":
+        this.lesson = null;
+        this.lessonCard = null;
+        // Back to the tower with the car parked on the floor the licence has
+        // just opened, where one exists. A player who finishes school and is
+        // returned to a menu still pointing at the lobby has to work out for
+        // themselves that anything changed.
+        if (licenceDone(this.meta)) {
+          this.pickedTier = 1;
+          // Stamped, or towerState's staleness clamp drops the pick on the way
+          // back in (`pickedAtMark === meta.mark` is what makes a pick fresh).
+          this.pickedAtMark = this.meta.mark;
+        }
+        this.setState("menu");
         break;
       case "settings": this.setState("settings"); break;
       case "account": this.setState("account"); break;
@@ -7128,6 +7442,8 @@ class App {
       this.game?.destroy();
       this.contract = null;
       this.drill = null;
+      this.lesson = null;
+      this.lessonCard = null;
       this.submitted = false;
       this.lastTier = null;
       this.run = sandboxRunFor(this.sandbox, this.meta.unlocks);

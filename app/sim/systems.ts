@@ -901,7 +901,13 @@ section("Installs — what salvage buys (meta.ts)");
   check("at least two systems need no Mark at all",
     INSTALLS.filter((i) => i.requiresMark === undefined).length >= 2);
 
-  const freshMeta = (over: Partial<MetaState> = {}): MetaState => ({ ...newMeta(), ...over });
+  // LICENSED BY DEFAULT, because every check below is about a branch UNDER the
+  // licence (meta.ts's nextStep asks for it first). "A fresh save" in the sense
+  // these checks mean it is a player at the start of the tier loop, which is
+  // someone who has finished Flight School — an unlicensed save has exactly one
+  // next step and it is the ground floor, which is pinned on its own below.
+  const freshMeta = (over: Partial<MetaState> = {}): MetaState =>
+    ({ ...newMeta(), licence: LESSON_COUNT, ...over });
   const tooExpensiveForBudget = (m: MetaState, i: InstallDef): boolean =>
     tiersCost({ ...m.loadout, [i.id]: 1 }) > markBudget(m);
 
@@ -1026,7 +1032,19 @@ section("Installs — what salvage buys (meta.ts)");
   // the menu, the Workshop and the fail card can never point at different
   // doors: cover an install -> spend it; contracts owed -> earn it;
   // otherwise the run is the exam.
-  check("a fresh save's next step is Contracts", nextStep(freshMeta()) === "contracts");
+  // THE GROUND FLOOR OUTRANKS EVERY BRANCH BELOW IT. Each of those names a door
+  // that Tier 1 opens — a Workshop spending salvage a run has to earn, a
+  // Contract board filed against a tier, the run itself — so pointing at one
+  // before the licence is earned would send a first-time player at a locked
+  // button.
+  check("a brand-new save's next step is the licence",
+    nextStep(newMeta()) === "licence");
+  check("...and it stays the licence however much else is banked",
+    nextStep({ ...newMeta(), salvage: 9_999 }) === "licence");
+  check("...and lifts the moment the last lesson lands",
+    nextStep({ ...newMeta(), licence: LESSON_COUNT - 1 }) === "licence"
+      && nextStep({ ...newMeta(), licence: LESSON_COUNT }) !== "licence");
+  check("a licensed fresh save's next step is Contracts", nextStep(freshMeta()) === "contracts");
   check("salvage covering an install says Workshop",
     nextStep(freshMeta({ salvage: 15 })) === "workshop");
   check("contracts done and salvage spent point at the run",
@@ -14371,9 +14389,12 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // The card's OTHER badge-bearer, so the two cannot both light: a run that
   // banked salvage draws a Workshop button, and nextStep answers "workshop"
   // exactly when it would not answer "contracts".
+  // Both metas are LICENSED, because the branch being contrasted is under the
+  // licence — an unlicensed save answers "licence" to both and the contrast
+  // would be a check that passes without testing anything.
   check("the two doors are the same rule's two branches",
-    nextStep({ ...newMeta(), salvage: 1_000 }) === "workshop"
-      && nextStep(newMeta()) === "contracts");
+    nextStep({ ...newMeta(), licence: LESSON_COUNT, salvage: 1_000 }) === "workshop"
+      && nextStep({ ...newMeta(), licence: LESSON_COUNT }) === "contracts");
 
   // ---- THE RUN-END CARD AT SATURATION ------------------------------------
   // The same sentence as the Contract card's, on the other door into the same
@@ -15278,7 +15299,10 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
      *  cannot tell them apart. */
     const route = (h: string): string =>
       /<button[^>]*data-action="contracts"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
-    const shop = S.workshopScreen(newMeta());
+    // Licensed, for the reason above: the badge on this screen is nextStep's,
+    // and an unlicensed save is being pointed at the ground floor rather than
+    // at either door this block is about.
+    const shop = S.workshopScreen({ ...newMeta(), licence: LESSON_COUNT });
     check("the Workshop routes to Contracts", route(shop).length > 0);
     check("...without giving up its own primary",
       /<button class="btn btn--primary btn--lg" data-action="play"/.test(shop));
@@ -15286,7 +15310,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // a save holding salvage is being sent to the shelf instead, and the two
     // badges on this screen can never both light.
     check("...badged when Contracts are the next step", route(shop).includes("next-badge"));
-    const rich = S.workshopScreen({ ...newMeta(), salvage: 1_000, mark: 3 });
+    const rich = S.workshopScreen({ ...newMeta(), licence: LESSON_COUNT, salvage: 1_000, mark: 3 });
     check("...and not when the shelf is the next step",
       route(rich).length > 0 && !route(rich).includes("next-badge")
         && rich.includes("shop-card--next"));
