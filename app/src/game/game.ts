@@ -47,7 +47,7 @@ import {
   type GradedRow,
 } from "./lineClear";
 import {
-  gradedLinePay, newGradeTally, STEP_MS, type ClearClock, type GradeTally,
+  GRADES, gradedLinePay, newGradeTally, STEP_MS, type ClearClock, type GradeTally,
 } from "./grades";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -593,6 +593,21 @@ export class Game {
    *  which is the bay the player actually built. */
   private lastCongestionIdx = -1;
   linesTotal = 0;
+  /** The most rows a SINGLE crush has taken in this bay.
+   *
+   *  linesTotal cannot answer the question a double or a tetris asks: four
+   *  singles and one four-row collapse reach it identically, and they are
+   *  opposite plays. Flight School's well lessons are graded on this
+   *  (level.ts's LessonGoal), and it is the honest home for the stat either
+   *  way — "the biggest thing that happened in this bay" is a fact about the
+   *  bay, not about the lesson that happens to ask for it. */
+  bestClear = 0;
+  /** The longest streak `combo` reached, kept after the streak itself breaks.
+   *  Same argument as bestClear: `combo` is live state and reads 0 the moment
+   *  a congestion rung or a missed crush ends the run of clears, so nothing
+   *  downstream could otherwise tell a streak of three from one that never
+   *  started. */
+  bestCombo = 0;
   /** CUBES lost off the wrong side, not pieces: it sums lostCubes.length, and
    *  the penalty is charged per cube too. Telemetry ships it as the badly named
    *  `lostPieces`; dividing it by a shot count gives cubes per shot, never a
@@ -892,6 +907,22 @@ export class Game {
    *  Run bay on funds banked. Kept as one accessor so update() has a single
    *  win test rather than a mode branch buried in the resolution ladder. */
   get objectiveMet(): boolean {
+    // THE LESSON GOAL IS ASKED FIRST, and a lesson bay sets no objectiveLines,
+    // so the two can never both be live. It is a separate branch rather than a
+    // third value of an enum because the other two are the modes the GAME has
+    // (a Contract counts rows, a Deep Run banks money) while this one is the
+    // pass condition a single teaching bay was authored with.
+    const goal = this.level.lessonGoal;
+    if (goal) {
+      if (goal.kind === "atOnce") return this.bestClear >= goal.lines;
+      if (goal.kind === "combo") return this.bestCombo >= goal.to;
+      // Grades are ORDERED, so "two EXCELLENT" is satisfied by two rows at that
+      // band or better — which for EXCELLENT is only EXCELLENT, and for GOOD
+      // counts the excellent ones too. A lesson that refused a better row than
+      // it asked for would be teaching the player to aim worse.
+      const at = GRADES.indexOf(goal.grade);
+      return GRADES.slice(0, at + 1).reduce((n, g) => n + this.gradeTally[g], 0) >= goal.count;
+    }
     if (this.level.objectiveLines > 0) return this.linesTotal >= this.level.objectiveLines;
     return this.score >= this.target;
   }
@@ -2301,6 +2332,10 @@ export class Game {
       }
       this.score += awarded;
       this.linesTotal += clear.lines;
+      // The two high-water marks, stamped here because this is the one place a
+      // clear is resolved and the combo has already advanced above.
+      if (clear.lines > this.bestClear) this.bestClear = clear.lines;
+      if (this.combo > this.bestCombo) this.bestCombo = this.combo;
       // Scrap is earned per LINE, flat, combo-free AND UNGRADED (unlike funds):
       // capital shouldn't spike on a lucky multi-clear, or one good stroke
       // would buy a whole upgrade track. See level.ts's SCRAP_PER_LINE note,

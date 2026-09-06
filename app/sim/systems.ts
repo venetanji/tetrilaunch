@@ -156,9 +156,12 @@ import {
   type ContractVariant,
 } from "../src/game/contracts";
 import {
-  pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece,
+  pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece, CUBE_DENSITY,
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
+import {
+  LESSONS, LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed, levelForLesson,
+} from "../src/game/school";
 import {
   applySandboxMaterials, bumpSandboxRatchet, finalFitsTier, maxedTiers, newSandbox,
   ratchetTotal, sandboxAxes, sandboxFinals, sandboxRunFor, SANDBOX_FINAL_BAY,
@@ -198,7 +201,7 @@ import {
   BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
   glyphInk, GRADE_CALLOUT, GRADE_COLOR,
   MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
-  PIECE_COLORS, PIECE_TYPES, type PieceSize,
+  PIECE_COLORS, PIECE_TYPES, shipmentColor, type PieceSize,
 } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
@@ -20856,6 +20859,277 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
 // and nothing else. It is not a rasteriser and cannot say what the frame LOOKS
 // like — sim/renderperf owns that question, and the two harnesses answer
 // different halves of the same one.
+// ===========================================================================
+// FLIGHT SCHOOL — the licence ladder (game/school.ts).
+//
+// The teaching used to be four cards over a randomly dealt Deep Run bay 1, and
+// the thing a set-piece ladder buys is that every lesson is the SAME lesson
+// every time it is attempted. That property is only real if the authored
+// geometry actually holds, and the geometry is not obvious from the profiles:
+// a row's width is dynamic (lineClear.ts's zoneGrid grows `needed` from
+// compactorMinLineCells toward compactorOpenCells as the bar opens), the press
+// bulldozes anything standing past its full-advance stop, and a profile whose
+// shortest column is not zero opens with a row already sold.
+//
+// So the three questions below are asked of the SHIPPED code path, with real
+// physics and the real clear check, rather than of a reimplementation:
+//
+//   1. does the bay open with no row already complete?
+//   2. does the intended shipment, placed perfectly, close the intended rows —
+//      one, then two together, then four together?
+//   3. does the gold survive that clear, leaving the board set again?
+//
+// (3) is the load-bearing one. It is what makes a one-shot exercise repeatable
+// without a restart, and it is a single line in updateLineClear that any future
+// edit to the removal set could quietly undo.
+// ===========================================================================
+section("Flight School — the authored geometry holds (game/school.ts)");
+{
+  const MIN_LINE = makeBaseLevel(0).compactorMinLineCells;
+
+  /** Loose cubes onto exact slot centres — a PERFECT shot, without asking a bot
+   *  to fly one. Same construction createStandingWall uses, which is what makes
+   *  the placement a fact about the grid rather than about an aiming policy. */
+  const place = (g: Game, cells: Array<[number, number]>, type: PieceType): void => {
+    for (const [k, row] of cells) {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL,
+        WORLD.height - CELL / 2 - row * CELL,
+        CELL, CELL,
+        {
+          friction: 0.5, frictionAir: 0.012, restitution: 0.05, density: CUBE_DENSITY,
+          label: "cube", chamfer: { radius: 3 },
+        },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(g.phys.world, body);
+      g.cubes.push({
+        body, type, color: shipmentColor(type, "standard"),
+        blinkStart: null, material: "standard", struck: true, framed: false,
+      });
+    }
+  };
+
+  /** The shipment each set-piece lesson is authored around, in slot
+   *  coordinates, and how many rows it is supposed to take. Written out here
+   *  rather than derived from the profile on purpose: the profile is the
+   *  question and this is the answer, and a check that computed both from one
+   *  source would agree with itself no matter what either said. */
+  const FILL: Record<string, { cells: Array<[number, number]>; type: PieceType; want: number }> = {
+    "close-the-row": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+    "two-at-once": { cells: [[3, 0], [4, 0], [3, 1], [4, 1]], type: "O", want: 2 },
+    "four-in-the-well": { cells: [[3, 0], [3, 1], [3, 2], [3, 3]], type: "I", want: 4 },
+    "lob-or-skim": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+    "time-the-row": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+    "the-bankroll": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+    "the-streak": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+  };
+
+  /** Cubes a profile stands up — the sum of its columns, which is exactly what
+   *  createStandingWall builds out of it. */
+  const wallCubes = (w: readonly number[]): number =>
+    w.reduce((a, b) => a + Math.max(0, Math.floor(b)), 0);
+
+  check("the ladder is not empty", LESSON_COUNT === LESSONS.length && LESSON_COUNT > 0);
+  check("lesson ids are unique", new Set(LESSONS.map((l) => l.id)).size === LESSONS.length);
+  check("every lesson is reachable by id",
+    LESSONS.every((l, i) => lessonById(l.id) === l && lessonAt(i) === l));
+  check("a lesson past the end is null", lessonAt(LESSON_COUNT) === null);
+
+  // THE REVEAL IS CUMULATIVE AND MONOTONE. A stage that went backwards would
+  // take a readout away from a player who had already been shown it, which is
+  // the one thing a progressive reveal must never do.
+  {
+    let monotone = true;
+    for (let i = 1; i < LESSONS.length; i++) {
+      if (LESSONS[i].reveal < LESSONS[i - 1].reveal) monotone = false;
+    }
+    check("the HUD reveal never goes backwards down the ladder", monotone,
+      LESSONS.map((l) => l.reveal).join(","));
+    check("the last lesson shows the whole readout",
+      LESSONS[LESSONS.length - 1].reveal === REVEAL.all);
+    check("the first lesson shows only the power meter", LESSONS[0].reveal === REVEAL.aim);
+  }
+
+  // THE PENALTY LADDER. Nothing that can punish the player exists until it has
+  // been taught, so the fine is off until the lesson whose subject it is — and
+  // when it comes on it is Tier 1's own price, not a number invented here.
+  {
+    const firstFine = LESSONS.findIndex((l) => l.fine);
+    check("no lesson charges for a spill before the one that teaches it",
+      firstFine > 0 && LESSONS.slice(0, firstFine).every((l) => !l.fine), String(firstFine));
+    check("the lesson that teaches the fine is called Lost Cargo",
+      LESSONS[firstFine].id === "lost-cargo");
+    check("...and charges Tier 1's own price, not a bespoke one",
+      levelForLesson(LESSONS[firstFine]).penaltyPerLostPiece === penaltyPerLostPieceFor(0, 1));
+    check("...while every earlier lesson charges nothing",
+      LESSONS.slice(0, firstFine).every((l) => levelForLesson(l).penaltyPerLostPiece === 0));
+    check("congestion is the LAST thing the ladder teaches",
+      LESSONS[LESSONS.length - 1].id === "clutter");
+  }
+
+  // GOLD IS SCAFFOLDING, NEVER CARGO. The type system already refuses it on a
+  // belt (theme.ts's BeltMaterial), so what is left to check is the wall.
+  check("no lesson puts gold on the belt",
+    LESSONS.every((l) => l.material !== undefined
+      ? (l.material as string) !== "gold"
+      : true));
+  check("every gold wall is a wall, and every wall material is deliberate",
+    LESSONS.every((l) => l.wallMaterial === undefined || l.wall !== undefined));
+
+  for (const lesson of LESSONS) {
+    const wall = lesson.wall ?? [];
+    // THE PRESS BULLDOZES ANYTHING PAST ITS FULL-ADVANCE STOP, so a profile
+    // wider than compactorMinLineCells is not a wider row — it is a pile that
+    // moves on the first stroke, and the exercise is a different one by the
+    // time the player takes their shot.
+    check(`${lesson.id}'s pile fits inside the press's stop`,
+      wall.length <= MIN_LINE, `${wall.length} > ${MIN_LINE}`);
+    // Same invariant drills.ts's profiles keep: a pile whose shortest column is
+    // 1 or more opens with rows already sold.
+    check(`${lesson.id} opens with no row already complete`,
+      wall.length === 0 || Math.min(...wall) === 0, wall.join(","));
+  }
+
+  // THE THREE QUESTIONS, THROUGH THE REAL GAME.
+  for (const [i, lesson] of LESSONS.entries()) {
+    const fill = FILL[lesson.id];
+
+    // 1. Settle the opening pile with nothing added at all.
+    let opened = 0;
+    const g0 = new Game(levelForLesson(lesson), { onLineClear: (n) => { opened += n; } }, lessonSeed(i));
+    for (let s = 0; s < 60 * 6; s++) g0.update(STEP_MS);
+    check(`${lesson.id} sells nothing on its own`, opened === 0, String(opened));
+    g0.destroy();
+
+    if (!fill) continue;
+
+    // 2 + 3. The authored shipment, placed perfectly.
+    let cleared = 0, biggest = 0;
+    const g = new Game(levelForLesson(lesson), {
+      onLineClear: (n) => { cleared += n; biggest = Math.max(biggest, n); },
+    }, lessonSeed(i));
+    for (let s = 0; s < 60 * 3; s++) g.update(STEP_MS);
+    const goldBefore = g.cubes.filter((c) => c.material === "gold").length;
+    place(g, fill.cells, fill.type);
+    for (let s = 0; s < 60 * 30 && cleared === 0; s++) g.update(STEP_MS);
+    const goldAfter = g.cubes.filter((c) => c.material === "gold").length;
+
+    check(`${lesson.id}: one authored shipment takes ${fill.want} row(s) at once`,
+      biggest === fill.want, `${biggest} of ${fill.want}`);
+    check(`${lesson.id}: the gold is still standing afterwards`,
+      goldAfter === goldBefore && goldBefore === wallCubes(lesson.wall ?? []),
+      `${goldBefore} -> ${goldAfter}`);
+    g.destroy();
+  }
+
+  // The three set pieces are the curriculum, so their SHAPE is pinned too — the
+  // gap narrows and deepens, which is the progression the ladder is for.
+  {
+    const gapOf = (w: number[]): number => w.filter((c) => c === 0).length;
+    const one = lessonById("close-the-row")!.wall!;
+    const two = lessonById("two-at-once")!.wall!;
+    const four = lessonById("four-in-the-well")!.wall!;
+    check("the gap narrows from four columns to two to one",
+      gapOf(one) === 4 && gapOf(two) === 2 && gapOf(four) === 1);
+    check("...and deepens from one cube to two to four",
+      Math.max(...one) === 1 && Math.max(...two) === 2 && Math.max(...four) === 4);
+    // AN INTERIOR GAP, never an edge one. A gap at an edge is open on one side,
+    // so a shipment that overshoots slides away into the bay and the exercise
+    // silently becomes a different one.
+    for (const [name, w] of [["one", one], ["two", two], ["four", four]] as const) {
+      check(`the ${name}-row gap has gold on both sides of it`,
+        w[0] !== 0 && w[w.length - 1] !== 0, w.join(","));
+    }
+  }
+
+  // THE PASS CONDITIONS. `objectiveLines` counts rows cumulatively, so a well
+  // lesson graded on it would be passed by four separate singles — which is the
+  // opposite of what it teaches. These are the lessons that need LessonGoal.
+  {
+    const wells = LESSONS.filter((l) => l.goal?.kind === "atOnce");
+    check("the two well lessons are graded on a SINGLE crush",
+      wells.length === 2 && wells.every((l) => levelForLesson(l).objectiveLines === 0));
+    check("...at two rows and four",
+      wells.map((l) => (l.goal as { kind: "atOnce"; lines: number }).lines).join() === "2,4");
+    check("a lesson with a goal sets no line objective, and vice versa",
+      LESSONS.every((l) => (l.goal ? l.lines === 0 : true)));
+    check("every lesson can be passed by something",
+      LESSONS.every((l) => l.goal || l.lines > 0 || l.economy));
+  }
+
+  // The goals themselves, through Game.objectiveMet rather than by re-reading
+  // the fields — the accessor is what actually ends a bay.
+  {
+    const well = lessonById("four-in-the-well")!;
+    const g = new Game(levelForLesson(well), {}, lessonSeed(2));
+    check("a well lesson is unmet on an untouched bay", !g.objectiveMet);
+    g.bestClear = 3;
+    check("...still unmet at three rows in one crush", !g.objectiveMet);
+    g.bestClear = 4;
+    check("...met at four", g.objectiveMet);
+    g.destroy();
+
+    const streak = lessonById("the-streak")!;
+    const gs = new Game(levelForLesson(streak), {}, lessonSeed(6));
+    gs.bestCombo = 2;
+    check("a streak lesson is unmet below its length", !gs.objectiveMet);
+    gs.bestCombo = 3;
+    check("...met at it", gs.objectiveMet);
+    gs.destroy();
+
+    // GRADES ARE ORDERED, so a band asked for is satisfied by a better one. A
+    // lesson that refused a better row than it asked for would be teaching the
+    // player to aim worse.
+    const timed = lessonById("time-the-row")!;
+    const gt = new Game(levelForLesson(timed), {}, lessonSeed(4));
+    gt.gradeTally.swept = 9;
+    check("nine swept rows do not pass the timing lesson", !gt.objectiveMet);
+    gt.gradeTally.excellent = 2;
+    check("...two excellent ones do", gt.objectiveMet);
+    gt.destroy();
+
+    const good = new Game(
+      { ...levelForLesson(timed), lessonGoal: { kind: "grade", grade: "good", count: 1 } }, {}, 1,
+    );
+    good.gradeTally.excellent = 1;
+    check("a GOOD goal counts an EXCELLENT row — the better band still passes",
+      good.objectiveMet);
+    good.destroy();
+  }
+
+  // COPY BUDGET, the same discipline coachSteps is held to and for the same
+  // reason: the card shares the plant panel's column under a hard height cap,
+  // so a sentence that overruns pushes its own tail out of `.coach__body` and
+  // the player reads a card ending mid-word. sim/uifit measures the rendered
+  // height; this counts the characters that produce it.
+  {
+    const plain = (t: string): number => t.replace(/<[^>]+>/g, "").length;
+    for (const l of LESSONS) {
+      check(`${l.id} has a deck`, l.cards.length > 0 && l.cards.length <= 3,
+        String(l.cards.length));
+      for (const [n, c] of l.cards.entries()) {
+        check(`${l.id} card ${n + 1} fits the card`, plain(c.body) <= 190,
+          `${plain(c.body)} > 190`);
+        check(`${l.id} card ${n + 1} has a title that fits`, c.title.length <= 22,
+          `${c.title.length} > 22`);
+      }
+      check(`${l.id}'s HUD line fits one row`, l.conditions.length <= 32,
+        `${l.conditions.length} > 32`);
+      check(`${l.id}'s brief fits its card`, plain(l.brief) <= 120,
+        `${plain(l.brief)} > 120`);
+    }
+  }
+
+  // A lesson's seed is FIXED, so "try again" is the same bay. Eight of the nine
+  // are fully authored and would not notice; Lost Cargo deals a real 7-bag and
+  // this is what makes its deal the same one every attempt.
+  check("every lesson seed is distinct",
+    new Set(LESSONS.map((_, i) => lessonSeed(i))).size === LESSON_COUNT);
+  check("...and stable across calls",
+    LESSONS.every((_, i) => lessonSeed(i) === lessonSeed(i)));
+}
+
 // ===========================================================================
 // ===========================================================================
 // HOW MANY DEVICE PIXELS A FRAME IS RASTERISED ONTO (render.ts's renderScale).

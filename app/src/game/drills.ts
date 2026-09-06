@@ -47,7 +47,7 @@ import type { BeltMaterial, Material, PieceSize, PieceType } from "./theme";
  * stated there: the caps exist to keep a real run's difficulty honest, and
  * honouring them on a screen built to show one material would defeat the screen.
  */
-export interface DrillSpec {
+export interface DrillSpec extends BayDials {
   /** Card title — what the bay is called while you are in it. */
   name: string;
   /** The one sentence stating the PASS CONDITION in the lesson's own terms.
@@ -69,44 +69,6 @@ export interface DrillSpec {
   /** Shipments the bay will hand you. The only limit — there is no clock and
    *  nothing costs anything. */
   launches: number;
-  /** The material the belt carries, and how much of it. Rate 1 means every
-   *  shipment (see the header on why these are not ladder rates). */
-  material?: BeltMaterial;
-  materialRate?: number;
-  /** Size class of every shipment in the bay. */
-  pieceSize?: PieceSize;
-  /** Fixed shipment rotation, when the lesson needs specific shapes — the
-   *  rotate drill deals nothing but the shapes that must be turned. null (the
-   *  default) keeps the seeded 7-bag every real bay ships. */
-  sequence?: PieceType[];
-  /** Lateral wind cap for the bay. */
-  windMax?: number;
-  /** Multiplier on the press's stroke speed. */
-  sweepMult?: number;
-  /** Open cells at the press's open stop, overriding the stock 12. */
-  openCells?: number;
-  /** Multiplier on the bay's joint break tolerance. Below 1, landings shatter
-   *  where they would normally hold — which is the whole lesson of the joints
-   *  drill and unteachable at bay-1 stiffness. */
-  bondMult?: number;
-  /** Demolition charges the bay opens with. */
-  bombs?: number;
-  /** Bond Breaker charges the bay opens with. */
-  bondCharges?: number;
-  /** A pile already standing when the bay opens — cells occupied per slot
-   *  column, indexed from the wall outward, the same shape
-   *  LevelConfig.standingWall takes. Every profile below keeps at least one
-   *  empty column, which is what guarantees no row of it is already complete
-   *  (contracts.ts's salvageProfile makes the same promise the same way). */
-  wall?: number[];
-  /** What that opening pile is MADE of. */
-  wallMaterial?: Material;
-  /** The rig the drill flies with. A lesson about a system has to be flown
-   *  with the system fitted — otherwise the Bond Breaker drill is a bay with
-   *  no Bond Breaker in it — so this is granted by the drill rather than read
-   *  off the player's save. It is not a gift: a drill banks nothing, so a rig
-   *  handed out here cannot reach a run. */
-  tiers?: Partial<Record<UpgradeId, number>>;
 }
 
 /**
@@ -430,11 +392,79 @@ export function levelForDrill(id: string, spec: DrillSpec): LevelConfig {
     cfg.launchBudget = spec.launches;
   }
 
+  applyBayDials(cfg, spec);
+  return cfg;
+}
+
+/**
+ * The dials an AUTHORED bay writes over `makeBaseLevel(0)` — shared by the
+ * drills above and by game/school.ts's Flight School lessons.
+ *
+ * Lifted out of levelForDrill when the licence ladder arrived rather than
+ * copied into it, and the reason is the one levelForDrill's own header gives:
+ * a teaching bay has to be the same physics, the same press and the same joints
+ * a real bay ships, or it teaches a game the player does not own. Two copies of
+ * this function would be two answers to that, and the second one would be wrong
+ * the first time a dial moved.
+ *
+ * Everything here is optional and everything absent is the ladder's.
+ */
+export interface BayDials {
+  /** The material the belt carries, and how much of it. Rate 1 means every
+   *  shipment (see the header on why these are not ladder rates). */
+  material?: BeltMaterial;
+  materialRate?: number;
+  /** Size class of every shipment in the bay. */
+  pieceSize?: PieceSize;
+  /** Fixed shipment rotation, when the lesson needs specific shapes — the
+   *  rotate drill deals nothing but the shapes that must be turned. null (the
+   *  default) keeps the seeded 7-bag every real bay ships.
+   *
+   *  It CYCLES: cannon.ts deals `seq[n % seq.length]` forever, so a one-entry
+   *  sequence is an endless supply of that shape. Flight School leans on this
+   *  — a lesson bay hands out the one shipment its exercise needs and never
+   *  runs out of it. */
+  sequence?: PieceType[];
+  /** Lateral wind cap for the bay. */
+  windMax?: number;
+  /** Multiplier on the press's stroke speed. */
+  sweepMult?: number;
+  /** Open cells at the press's open stop, overriding the stock 12. */
+  openCells?: number;
+  /** Multiplier on the bay's joint break tolerance. Below 1, landings shatter
+   *  where they would normally hold — which is the whole lesson of the joints
+   *  drill and unteachable at bay-1 stiffness. */
+  bondMult?: number;
+  /** Demolition charges the bay opens with. */
+  bombs?: number;
+  /** Bond Breaker charges the bay opens with. */
+  bondCharges?: number;
+  /** A pile already standing when the bay opens — cells occupied per slot
+   *  column, indexed from the wall outward, the same shape
+   *  LevelConfig.standingWall takes. Every profile below keeps at least one
+   *  empty column, which is what guarantees no row of it is already complete
+   *  (contracts.ts's salvageProfile makes the same promise the same way).
+   *
+   *  AT MOST compactorMinLineCells COLUMNS. Past that a cube stands outside
+   *  the press's full-advance stop and the bar bulldozes it on the first
+   *  stroke, so a wider profile is not a wider row — it is a pile that moves. */
+  wall?: number[];
+  /** What that opening pile is MADE of. */
+  wallMaterial?: Material;
+  /** The rig the bay flies with. A lesson about a system has to be flown
+   *  with the system fitted — otherwise the Bond Breaker drill is a bay with
+   *  no Bond Breaker in it — so this is granted by the bay rather than read
+   *  off the player's save. It is not a gift: a drill banks nothing, so a rig
+   *  handed out here cannot reach a run. */
+  tiers?: Partial<Record<UpgradeId, number>>;
+}
+
+export function applyBayDials(cfg: LevelConfig, spec: BayDials): void {
   if (spec.pieceSize) cfg.pieceSize = spec.pieceSize;
   if (spec.sequence) cfg.pieceSequence = [...spec.sequence];
 
   // The belt. Zeroed first rather than inherited — makeBaseLevel is clean
-  // today, and a drill that quietly picked up a future default would be
+  // today, and a bay that quietly picked up a future default would be
   // teaching two materials at once on the one screen built to isolate them.
   cfg.materialMix = { ...NO_MATERIALS };
   if (spec.material) cfg.materialMix[spec.material] = spec.materialRate ?? 1;
@@ -442,7 +472,7 @@ export function levelForDrill(id: string, spec: DrillSpec): LevelConfig {
   if (spec.windMax !== undefined) {
     cfg.windMax = spec.windMax;
     // The same fraction every other bay sizes its gust by, imported rather
-    // than guessed — a drill whose weather had a different texture from the
+    // than guessed — a bay whose weather had a different texture from the
     // ladder's would be practice for a game nobody plays.
     cfg.windGust = spec.windMax * WIND_GUST_FRACTION;
   }
@@ -458,8 +488,8 @@ export function levelForDrill(id: string, spec: DrillSpec): LevelConfig {
     cfg.standingWallMaterial = spec.wallMaterial ?? "standard";
   }
 
-  // The rig, applied through the SHIPPING path so a drill can never fly a
-  // system that behaves differently here than it does in a run.
+  // The rig, applied through the SHIPPING path so an authored bay can never fly
+  // a system that behaves differently here than it does in a run.
   if (spec.tiers) {
     const tiers: UpgradeTiers = { ...newTiers() };
     for (const [id2, tier] of Object.entries(spec.tiers)) {
@@ -469,11 +499,9 @@ export function levelForDrill(id: string, spec: DrillSpec): LevelConfig {
   }
 
   // Charges LAST, and as absolutes rather than additions: applyUpgrades has
-  // just written the rack's and the emitter's grants, and a drill that stated
+  // just written the rack's and the emitter's grants, and a bay that stated
   // a charge count means that count — "6 charges" on the card has to be 6 in
   // the bay whatever tier the lesson happened to fit.
   if (spec.bombs !== undefined) cfg.bombCharges = spec.bombs;
   if (spec.bondCharges !== undefined) cfg.bondBreakerCharges = spec.bondCharges;
-
-  return cfg;
 }

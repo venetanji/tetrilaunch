@@ -1,3 +1,4 @@
+import type { ClearGrade } from "./grades";
 import type { BeltMaterial, Material, PieceSize, PieceType } from "./theme";
 
 /**
@@ -336,6 +337,9 @@ export interface LevelConfig {
    *  (targetScore), which is the Deep Run condition. Contracts carry no
    *  bankroll, so funds can't be their objective. */
   objectiveLines: number;
+  /** This bay's pass condition when the two above cannot state it — a Flight
+   *  School lesson, and nothing else (see LessonGoal). Null everywhere else. */
+  lessonGoal: LessonGoal | null;
   /** Thaw Lance charges available in THIS BAY — the "thaw one settled frozen
    *  cube" ability (see game.ts's useThawLance). Cryo's bought counter: it pays
    *  strikeCryo's sequencing cost ("land it, then spend a second shot hitting
@@ -1234,6 +1238,29 @@ export function applySkydeckEconomy(cfg: LevelConfig, i: number, mark = TIER_COU
  *  measurement that zeroed it stays attached to the knob it describes. */
 export const MARK_SPEED_STEP = 0;
 
+/**
+ * A FLIGHT SCHOOL bay's pass condition, for the three lessons the ordinary two
+ * cannot express (game/school.ts).
+ *
+ * `objectiveLines` counts rows CUMULATIVELY and `targetScore` counts money, and
+ * between them they cover every bay the game shipped before the licence
+ * existed. They cannot say "close four rows on ONE crush" — four separate
+ * singles satisfy a line count while teaching the opposite of the well — and
+ * they cannot say "close two rows inside the excellent window" or "get a streak
+ * to three", which are the two lessons whose whole subject is a number the
+ * scoreboard never made an objective.
+ *
+ * Null on every other bay in the game, so objectiveMet's existing two-branch
+ * rule stays the whole story everywhere the licence is not.
+ */
+export type LessonGoal =
+  /** Rows that must close on a SINGLE crush. */
+  | { kind: "atOnce"; lines: number }
+  /** Rows awarded this band or better, across the bay. */
+  | { kind: "grade"; grade: ClearGrade; count: number }
+  /** A combo streak reaching this length. */
+  | { kind: "combo"; to: number };
+
 /** Per-shipment probability of each non-standard material. See
  *  LevelConfig.materialMix. */
 export type MaterialMix = Record<BeltMaterial, number>;
@@ -1651,6 +1678,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // (every type exactly once per seven) and is still seeded per run + bay,
     // so a restarted bay replays its exact deal.
     pieceSequence: null,
+    lessonGoal: null,
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
     standingWall: [],
