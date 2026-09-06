@@ -21189,6 +21189,47 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     }
   }
 
+  // ---- THE FIRST-ENCOUNTER CARDS ----------------------------------------
+  // Three screens that had never introduced themselves — the Contract board,
+  // the ratchet draft and the refit yard — each shown once, ever. They are
+  // pinned together because they share one migration decision and it is the
+  // opposite of the licence's: absent reads as NOT SEEN, so a returning player
+  // pays one dismissible card rather than a gate being defaulted wrong.
+  {
+    const fresh = newMeta();
+    check("a fresh save has met none of the three screens",
+      !fresh.seenContractBoard && !fresh.seenDraft && !fresh.seenRefit);
+    // The three are INDEPENDENT. They fire on different screens at different
+    // moments, and one flag for all of them would mean meeting the board
+    // silently consumed the draft's explanation.
+    check("the three flags are separate",
+      new Set(["seenContractBoard", "seenDraft", "seenRefit"]
+        .map((k) => k in fresh)).size === 1);
+  }
+
+  // ---- WHAT FLYING A FLOOR OPENS ----------------------------------------
+  // The ladder's whole shape — every tier flown to open the next — was stated
+  // on no surface a player reads before pressing the button that does it.
+  {
+    const twr = (unlocked: number): S.TowerState =>
+      ({ unlocked, selected: unlocked, skydeck: false });
+    check("the floor at the top of the ladder opens the next one",
+      S.tierOpenedBy(3, twr(3)) === 4);
+    // A beaten Mark re-flies for the board and the seal and opens nothing:
+    // advanceTier moves the ladder off the CURRENT tier, never off an old one,
+    // so a promise here would be a promise the run cannot keep.
+    check("...and a floor below it opens nothing", S.tierOpenedBy(2, twr(3)) === null);
+    check("...nor does the capstone", S.tierOpenedBy(MARK_COUNT, twr(MARK_COUNT)) === null);
+    check("...nor the roof or the sandbox",
+      S.tierOpenedBy(S.SKYDECK_TIER, twr(MARK_COUNT)) === null
+        && S.tierOpenedBy(S.SANDBOX_TIER, twr(3)) === null
+        && S.tierOpenedBy(S.LICENCE_TIER, twr(3)) === null);
+    check("the line reaches the button",
+      S.menuPlaySub(3, 0, null, null, 4).includes("opens Tier 4"));
+    check("...and is absent where nothing opens",
+      !S.menuPlaySub(2, 0, null, null, null).includes("opens Tier"));
+  }
+
   // A lesson's seed is FIXED, so "try again" is the same bay. Eight of the nine
   // are fully authored and would not notice; Lost Cargo deals a real 7-bag and
   // this is what makes its deal the same one every attempt.

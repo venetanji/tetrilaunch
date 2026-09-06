@@ -597,6 +597,11 @@ export interface MetaState {
    *  explains a screen they already understand. Erring toward showing it is the
    *  cheap mistake. */
   seenContractBoard: boolean;
+  /** Whether the ratchet draft has introduced itself (screens.ts's
+   *  draftIntroModal). Once, ever. */
+  seenDraft: boolean;
+  /** Whether the refit yard has (screens.ts's refitIntroModal). Once, ever. */
+  seenRefit: boolean;
   /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
    *  time the Mark advances). One half of tier completion — see recordRunEnd. */
   tierRunDone: boolean;
@@ -684,6 +689,7 @@ export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     licence: 0, systemDrillsSeen: [], seenContractBoard: false,
+    seenDraft: false, seenRefit: false,
     tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), slots: SLOT_BASE, stowed: [],
     claimedContracts: [], sealedMarks: [],

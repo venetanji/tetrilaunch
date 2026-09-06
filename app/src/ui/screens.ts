@@ -1147,11 +1147,34 @@ export function menuContractsSub(tier: number, progress?: TierProgress): string 
     : "Short challenges · retry freely";
 }
 
+/**
+ * The Tier that flying `tier` would OPEN, or null.
+ *
+ * One rule, exported, because two surfaces ask it — the menu's markup and
+ * main.ts's in-place rewrite as the car travels — and a second copy would drift
+ * the moment the ladder's shape moved, exactly as menuPlaySub's own note says.
+ *
+ * True only on the floor at the TOP of the player's ladder: a Mark already
+ * beaten re-flies for the board and the seal, and opens nothing (meta.ts's
+ * advanceTier moves the ladder off the current tier, never off an old one). The
+ * capstone opens nothing either, and the finished ladder has its own line.
+ */
+export function tierOpenedBy(tier: number, state: TowerState): number | null {
+  if (tier < 1 || tier >= MARK_COUNT) return null;
+  if (tier !== state.unlocked) return null;
+  return tier + 1;
+}
+
 export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
   /** Flight School's progress, when the licence is still owed. Null once it is
    *  earned, and on every caller that predates the ground floor. */
   licence: { done: number; total: number } | null = null,
+  /** The Tier this floor's Deep Run would OPEN, when flying it is what moves
+   *  the ladder. Null on a floor that opens nothing — one already beaten, the
+   *  top of the ladder, the roof, the sandbox — and on every caller that
+   *  predates the line. */
+  opens: number | null = null,
 ): string {
   if (tier === null) return "Elevator moving…";
   if (tier === SANDBOX_TIER) return "Any Tier, bay or Contract · own board";
@@ -1204,6 +1227,16 @@ export function menuPlaySub(
       ? `Sealed · ${owed} still owed — pick one on the tower`
       : `${owed} left to seal · win with no bay retried`;
   }
+  // THE POINT OF FLYING THIS FLOOR, said on the button that flies it. "Clear 10
+  // bays in one run" is what the run IS; it has never said what the run is FOR,
+  // and the ladder's whole shape — every tier flown to open the next — was
+  // stated on no surface a player reads before pressing this. The tower draws
+  // the floors and says nothing about why you would climb them.
+  //
+  // Only where it is true: a beaten floor re-flown opens nothing, and neither
+  // does the top of the ladder (see the seal lines above, which are what the
+  // finished ladder says instead).
+  if (opens !== null) return `Clear ${RUN_LEVELS} bays · opens Tier ${opens}`;
   return `Clear ${RUN_LEVELS} bays in one run`;
 }
 
@@ -1409,6 +1442,7 @@ export function menuScreen(
           // node by id and two copies of it would drift — see the note there.
           menuPlaySub(
             sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null, licence,
+            tierOpenedBy(sel, twr),
           )
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
@@ -5794,6 +5828,85 @@ export function drillEndModal(opts: {
       <div class="row end__actions">
         <button class="btn btn--primary" data-action="drill-retry">${icon("retry", 12)}Try Again</button>
         <button class="btn btn--ghost" data-action="drill-exit">Back to Guide</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * THE RATCHET, ON FIRST ENCOUNTER (main.ts's draft state).
+ *
+ * The draft is the run's one mandatory commitment screen and the mechanic the
+ * whole Deep Run is built around, and a player meets it ninety seconds into
+ * their first run with two cards, a pair of numbers and no statement of the
+ * rule. The cards themselves cannot carry it: each one has to say what ITS axis
+ * costs, in one line, under time pressure — "you must take one, it is permanent
+ * for the rest of the run, and the reward is that you chose which" is a
+ * different sentence and there has never been anywhere to put it.
+ *
+ * Shown ONCE, ever (meta.ts's seenDraft), over the draft it describes, on the
+ * same terms the Contract board's intro is shown over the board.
+ */
+export function draftIntroModal(opts: {
+  /** Axes this hand deals. */
+  offered: number;
+  /** Notches this bay demands (hazards.ts's picksPerBay). */
+  picks: number;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--warn)">Bay cleared · the ratchet</div>
+        <h2 class="display">Pick your poison</h2>
+        <p class="muted" style="margin-top:-6px">
+          Every bay you clear deals <b>${opts.offered} difficulty axes</b>, and you must take
+          ${opts.picks === 1 ? "a notch on <b>one</b>" : `<b>${opts.picks}</b> notches`}.
+          It sticks for the <b>rest of the run</b>, and each further notch on the same axis
+          costs more than the last.
+        </p>
+        <p class="muted">
+          A notch is <b>pure cost</b> — there is no upside to find. The reward is that the
+          axis you are equipped for is the one you can afford to take.
+        </p>
+      </div>
+      <div class="row end__actions">
+        <button class="btn btn--primary" data-action="draft-intro-done">Got it</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * THE REFIT YARD, ON FIRST ARRIVAL (main.ts's refit state).
+ *
+ * The other half of the same gap. Scrap is the one currency that DIES with the
+ * run, so banking it is never a strategy — and a first-time player, holding a
+ * number they have watched climb for three bays, does the thing every other
+ * game has taught them to do with a currency and saves it.
+ */
+export function refitIntroModal(opts: {
+  /** Scrap in hand right now. */
+  scrap: number;
+  /** Refit stops a run gets. */
+  stops: number;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--accent)">The refit yard</div>
+        <h2 class="display">Spend it all</h2>
+        <p class="muted" style="margin-top:-6px">
+          <b>${opts.stops} times a run</b> the bay ends here instead of at the next one.
+          Scrap buys rungs of the systems you brought, and everything you buy lasts the
+          <b>whole run</b>.
+        </p>
+        <p class="muted">
+          Scrap is the <b>run's</b> currency, and it is <b>gone when the run ends</b>, win or
+          lose. Banking it is not a strategy — spending it is.
+        </p>
+      </div>
+      <div class="row end__actions">
+        <button class="btn btn--primary" data-action="refit-intro-done">Got it</button>
       </div>
     </div>
   </div>`;

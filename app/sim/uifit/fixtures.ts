@@ -1268,6 +1268,12 @@ export const SCREENS: Record<string, () => string> = {
       brief: LESSONS[8].brief, lines: 2, shotsUsed: 14, launches: 22, licence: true,
     }),
 
+  // The two run-screen intros, over the screens they describe. Both carry two
+  // paragraphs, which is the most copy any modal in the app holds — these and
+  // the board's are what decide whether `.end__main` can take a second one.
+  "draft-intro": () => draft([]) + S.draftIntroModal({ offered: 2, picks: 1 }),
+  "refit-intro": () => refit({}) + S.refitIntroModal({ scrap: 340, stops: 3 }),
+
   // The board introducing itself, over the board (screens.ts's
   // contractsIntroModal). Two paragraphs is the most copy any modal in the app
   // carries, so this is the one that decides whether `.end__main` can hold two.

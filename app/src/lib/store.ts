@@ -307,7 +307,13 @@ export function loadMeta(): MetaState {
     if (!Array.isArray(meta.systemDrillsSeen)) meta.systemDrillsSeen = [];
     meta.systemDrillsSeen = meta.systemDrillsSeen
       .filter((u): u is UpgradeId => typeof u === "string");
+    // The three first-encounter cards, all read the same way and all defaulting
+    // to NOT SEEN on a save that predates them — see seenContractBoard's note
+    // for why erring toward showing them is the cheap mistake here, unlike the
+    // licence beside them.
     meta.seenContractBoard = meta.seenContractBoard === true;
+    meta.seenDraft = meta.seenDraft === true;
+    meta.seenRefit = meta.seenRefit === true;
     meta.tierRunDone = meta.tierRunDone === true;
     meta.tierContracts = Number.isFinite(meta.tierContracts)
       ? Math.max(0, Math.floor(meta.tierContracts))

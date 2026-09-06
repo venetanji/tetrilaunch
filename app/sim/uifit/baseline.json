@@ -712,6 +712,9 @@
     "#bond-chip 44x43",
     "#demo-chip 44x43"
   ],
+  "Web · 800x600 window|draft-intro|scrollers": [
+    ".draft__body scrolls 75px"
+  ],
   "Web · 800x600 window|draft-material-picked|scrollers": [
     ".draft__body scrolls 83px"
   ],

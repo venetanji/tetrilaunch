@@ -5,7 +5,7 @@ import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
   quitLosesProgress, bayRetryable, retryIsWholeRun,
-  buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
+  buyUpgrades, bayMusic, REFIT_EVERY, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
 import { addGradeTally, STEP_MS, type GradeTally } from "./game/grades";
 import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
@@ -3043,6 +3043,10 @@ class App {
       licenceDone(this.meta)
         ? null
         : { done: this.meta.licence, total: LESSON_COUNT },
+      // Same argument again: the ride patches this node in place, so the rule
+      // has to be the same function the markup calls rather than a second
+      // statement of it.
+      tier === null ? null : S.tierOpenedBy(tier, this.towerState()),
     );
   }
 
@@ -3384,10 +3388,32 @@ class App {
         }
         break;
       case "refit":
-        if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.refitHTML();
+        if (g && this.run) {
+          this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.refitHTML();
+          // The yard, once, on first arrival. Never over the FINAL INSPECTION
+          // (see draftHTML): that screen is the last draft wearing the draft's
+          // own machinery, and a card about spending scrap over a clause pair
+          // would be answering a question nobody is being asked.
+          if (!this.meta.seenRefit) {
+            this.overlay.innerHTML += S.refitIntroModal({
+              scrap: this.run.scrap,
+              stops: Math.floor(RUN_LEVELS / REFIT_EVERY),
+            });
+          }
+        }
         break;
       case "draft":
-        if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.draftHTML(g);
+        if (g && this.run) {
+          this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.draftHTML(g);
+          // The ratchet, once, on first encounter — and not over the Final
+          // Inspection, which is a different rule with its own pair of cards.
+          if (!this.meta.seenDraft && !this.pendingFinals.length) {
+            this.overlay.innerHTML += S.draftIntroModal({
+              offered: this.pendingOffers.length,
+              picks: picksForRun(this.run),
+            });
+          }
+        }
         break;
       // The tutorial handling its own failure. The HUD stays behind the card
       // on purpose: the numbers the card is explaining (Funds, Target, the
@@ -7130,6 +7156,20 @@ class App {
         else this.setState("workshop");
         break;
       }
+      case "draft-intro-done":
+        if (!this.meta.seenDraft) {
+          this.meta = { ...this.meta, seenDraft: true };
+          saveMeta(this.meta);
+        }
+        this.renderOverlay();
+        break;
+      case "refit-intro-done":
+        if (!this.meta.seenRefit) {
+          this.meta = { ...this.meta, seenRefit: true };
+          saveMeta(this.meta);
+        }
+        this.renderOverlay();
+        break;
       case "contracts-intro-done":
         if (!this.meta.seenContractBoard) {
           this.meta = { ...this.meta, seenContractBoard: true };
