@@ -114,7 +114,7 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
-  recordContractClear, recordRunEnd, safeLoadout,
+  recordContractClear, recordRunEnd, recordSystemDrillOffer, safeLoadout, systemDrillOffered,
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
@@ -13946,6 +13946,50 @@ section("The guide + drills (guide.ts / drills.ts)");
     check(`guide covers the ${m} material`, ids.has(`mat-${m}`));
   }
   for (const u of UPGRADES) check(`guide covers the ${u.id} system`, ids.has(`sys-${u.id}`));
+  // AND EVERY SYSTEM HAS A BAY, not just a paragraph. A purchase offers its own
+  // practice bay now (main.ts's onBuyInstall), so a track with no drill is a
+  // system that cannot explain itself at the one moment the player is thinking
+  // about it — which is exactly the state `thaw`, `cushion` and `incinerator`
+  // shipped in, three guide rows pointing at nothing. An eleventh system fails
+  // here rather than quietly joining them.
+  for (const u of UPGRADES) {
+    check(`${u.id} has a practice bay`, DRILLS[`sys-${u.id}`] !== undefined);
+  }
+  // The Incinerator's is the one system drill that keeps the spill fine, and it
+  // has to: the hood discounts a BILL. levelForDrill's Contract stripping
+  // zeroes the fine, so it is an ECONOMY drill instead — which keeps the
+  // bankroll, the launch price and the fine together, and gives the discount a
+  // funds column to land in.
+  {
+    const inc = levelForDrill("sys-incinerator", DRILLS["sys-incinerator"]);
+    check("the Incinerator's bay sends real bills",
+      inc.penaltyPerLostPiece > 0 && inc.launchCost > 0 && inc.startingFunds > 0,
+      `${inc.penaltyPerLostPiece} · ${inc.launchCost} · ${inc.startingFunds}`);
+    // The rule is the ECONOMY drills' one, not a bespoke one for the hood:
+    // whichever drills keep the bankroll keep the fine with it, and every drill
+    // that takes the Contract stripping charges nothing for a spill. Reactor
+    // Output has always been on the first side of that line; the Incinerator
+    // joins it because the thing it discounts only exists there.
+    const economy = new Set(["reactor", "incinerator"]);
+    check("...and the fine is exactly the economy drills', nobody else's",
+      UPGRADES.every((u) => {
+        const fine = levelForDrill(`sys-${u.id}`, DRILLS[`sys-${u.id}`]).penaltyPerLostPiece;
+        return economy.has(u.id) ? fine > 0 : fine === 0;
+      }),
+      UPGRADES.map((u) => `${u.id}:${levelForDrill(`sys-${u.id}`, DRILLS[`sys-${u.id}`]).penaltyPerLostPiece}`).join(" "));
+  }
+  // The offer is made ONCE per track, ever, and recorded on the offer rather
+  // than on the acceptance — declining is an answer.
+  {
+    const m0 = newMeta();
+    check("no system has been offered its bay on a fresh save",
+      UPGRADES.every((u) => !systemDrillOffered(m0, u.id)));
+    const m1 = recordSystemDrillOffer(m0, "bay");
+    check("recording an offer marks that track and no other",
+      systemDrillOffered(m1, "bay") && !systemDrillOffered(m1, "launcher"));
+    check("...and is idempotent, and never mutates",
+      recordSystemDrillOffer(m1, "bay") === m1 && m0.systemDrillsSeen.length === 0);
+  }
   check(
     "every chapter has at least one topic",
     CHAPTERS.every((c) => topicsIn(c.id).length > 0),

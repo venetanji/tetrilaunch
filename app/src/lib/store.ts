@@ -301,6 +301,12 @@ export function loadMeta(): MetaState {
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.
+    // Same fail-closed read the id lists above get: a corrupt value loads as
+    // "nothing offered yet", which costs the player one prompt rather than
+    // silently swallowing every system's lesson.
+    if (!Array.isArray(meta.systemDrillsSeen)) meta.systemDrillsSeen = [];
+    meta.systemDrillsSeen = meta.systemDrillsSeen
+      .filter((u): u is UpgradeId => typeof u === "string");
     meta.tierRunDone = meta.tierRunDone === true;
     meta.tierContracts = Number.isFinite(meta.tierContracts)
       ? Math.max(0, Math.floor(meta.tierContracts))

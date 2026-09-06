@@ -332,6 +332,48 @@ export const DRILLS: Record<string, DrillSpec> = {
     goal: 2, launches: 22, material: "slag", materialRate: 0.34,
     bombs: 6, tiers: { demolition: 3 },
   },
+  // THE THREE THAT HAD NO BAY. UPGRADES has ten tracks and this table had seven,
+  // so the guide already rendered three system rows with no drill behind them —
+  // and every one of the three is a system whose value is a TIMING or a
+  // THRESHOLD, i.e. exactly the kind of thing copy cannot demonstrate. They
+  // matter more now that a purchase offers its own lesson (main.ts's
+  // onBuyInstall): a track with no drill is a purchase that cannot explain
+  // itself at the one moment the player is thinking about it.
+  "sys-thaw": {
+    name: "Thaw Lance",
+    // The lance's whole trick is WHICH cube it takes — nextColdCryo picks the
+    // one the press is about to reach — so the bay has to be full enough of ice
+    // that the choice is not made for you.
+    brief: "Half the belt frozen, and a lance that melts the cube the press is about to reach.",
+    conditions: "Half frozen · maxed lance",
+    goal: 2, launches: 20, material: "cryo", materialRate: 0.5,
+    wall: NEARLY, tiers: { thaw: 3 },
+  },
+  "sys-cushion": {
+    name: "Impact Cushion",
+    // Maxed, so the liner covers the whole line zone and the trigger sits above
+    // any launch the cannon can produce — which is the only tier at which a
+    // single bay can show what the track is FOR rather than a nudge to it.
+    brief: "Every shipment primed, over a liner that covers the whole line zone.",
+    conditions: "All volatile · maxed liner",
+    goal: 2, launches: 20, material: "volatile", materialRate: 1,
+    tiers: { cushion: 3 },
+  },
+  "sys-incinerator": {
+    name: "Incinerator",
+    // AN ECONOMY DRILL, and it has to be one. The hood discounts a BILL, so the
+    // lesson needs a bay that sends bills and a readout that shows them: the
+    // Contract stripping every other drill takes zeroes the fine outright, and
+    // the lines-shaped panel it produces has no funds column to watch the
+    // discount land in. ECONOMY_DRILLS below keeps the bankroll, the launch
+    // price, the target AND the Tier 1 fine, which is exactly the set this
+    // needs — so it is named there rather than given a stripping rule of its
+    // own. `goal` and `launches` are 0 for the same reason the other two
+    // economy drills' are: that branch wins on funds and ignores both.
+    brief: "A bay's real money, and a maxed hood. Watch what a shipment lost over the bar costs.",
+    conditions: "Bay 1's money · maxed hood",
+    goal: 0, launches: 0, tiers: { incinerator: 3 },
+  },
 };
 
 /** Seconds a TIMED drill runs for. Only the two lessons that are ABOUT the
@@ -340,9 +382,11 @@ export const DRILLS: Record<string, DrillSpec> = {
 export const DRILL_CLOCK_SEC = 60;
 
 /** Drills whose lesson is the Deep Run economy, so they keep the bankroll, the
- *  launch price and the funding target a stripped bay throws away. The two of
- *  them are the ONLY drills that can be lost on money. */
-const ECONOMY_DRILLS = new Set(["funds", "sys-reactor"]);
+ *  launch price and the funding target a stripped bay throws away — and with
+ *  them the SPILL FINE, which is why the Incinerator's is here: a hood that
+ *  discounts a bill cannot be shown on a bay that sends none. These are the
+ *  ONLY drills that can be lost on money. */
+const ECONOMY_DRILLS = new Set(["funds", "sys-reactor", "sys-incinerator"]);
 /** Drills whose lesson is the clock, so they keep one. */
 const TIMED_DRILLS = new Set(["clock", "sys-magazine"]);
 

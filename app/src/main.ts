@@ -71,7 +71,7 @@ import {
 } from "./game/upgrades";
 import {
   INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, licenceDone,
-  markUnlocked, recordLesson,
+  markUnlocked, recordLesson, recordSystemDrillOffer, systemDrillOffered,
   markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
@@ -88,7 +88,7 @@ import {
 import {
   GUIDE_TOPICS, topicById, topicsIn, drillUnlocked, type ChapterId, type GuideTopic,
 } from "./game/guide";
-import { levelForDrill } from "./game/drills";
+import { DRILLS, levelForDrill } from "./game/drills";
 import {
   LESSON_COUNT, REVEAL, lessonAt, lessonSeed, levelForLesson, type Lesson,
 } from "./game/school";
@@ -173,7 +173,7 @@ type AppState =
   | "splash" | "menu" | "howto" | "settings" | "account" | "account-delete"
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
-  | "contracts" | "contract-end" | "coach-fail" | "lesson-end"
+  | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
   // state rather than a flag on "paused" or "lost" because it is reachable
   // from BOTH of those and has to know which one to hand back — and because
@@ -969,6 +969,11 @@ class App {
   /** Which card of the lesson's deck is up, or null once the deck has been
    *  played out and the bay is the player's. */
   private lessonCard: number | null = null;
+
+  /** The system whose practice bay is being offered over the Workshop, or null
+   *  (screens.ts's systemDrillOfferModal). Held rather than re-derived because
+   *  the modal outlives the click that opened it. */
+  private drillOffer: UpgradeId | null = null;
 
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
@@ -3215,6 +3220,22 @@ class App {
       // tutorial's failure card uses, and for the same reason: the readout the
       // card is talking about (lines against the goal, the budget it spent) is
       // right there to be pointed at.
+      // Over the Workshop it was bought from — the screen behind the question
+      // is what the question is about, and a player who says "not now" is
+      // returned to the shelf they were still shopping on.
+      case "sys-drill-offer": {
+        const track = this.drillOffer;
+        const spec = track ? DRILLS[`sys-${track}`] : undefined;
+        if (track && spec) {
+          this.overlay.innerHTML = S.workshopScreen(this.meta)
+            + S.systemDrillOfferModal({
+              name: upgradeById(track)?.name ?? track,
+              drill: spec.name,
+              brief: spec.brief,
+            });
+        }
+        break;
+      }
       case "lesson-end":
         if (g && this.lesson) {
           this.overlay.innerHTML =
@@ -5283,12 +5304,29 @@ class App {
    *  should not have offered is a no-op here rather than a second copy of the
    *  rules that could disagree with the first. */
   private onBuyInstall(id: string): void {
-    const next = buyInstall(this.meta, id as UpgradeId);
+    const track = id as UpgradeId;
+    // A FIRST INSTALL, not an uprate — asked BEFORE the purchase, because
+    // afterwards the track is owned either way and the two are indistinguishable.
+    const firstInstall = (this.meta.loadout[track] ?? 0) === 0;
+    const next = buyInstall(this.meta, track);
     if (!next) return;
     this.meta = next;
     saveMeta(this.meta);
     void successHaptic();
     playFx("transactionConfirm");
+    // THE SYSTEM EXPLAINS ITSELF, once, at the moment it becomes the player's.
+    // Its practice bay already existed (drills.ts's `sys-<id>`); nothing had
+    // ever offered one. Gated on the first install and on never having asked
+    // before, so the shop teaches rather than nags.
+    if (firstInstall && !systemDrillOffered(this.meta, track) && DRILLS[`sys-${track}`]) {
+      // Recorded on the OFFER rather than on the acceptance: declining is an
+      // answer, and asking again would not respect it.
+      this.meta = recordSystemDrillOffer(this.meta, track);
+      saveMeta(this.meta);
+      this.drillOffer = track;
+      this.setState("sys-drill-offer");
+      return;
+    }
     this.renderKeepingScroll();
   }
 
@@ -7067,6 +7105,21 @@ class App {
         // asks which deck is actually up rather than which button was pressed.
         if (this.lesson && this.lessonCard !== null) this.lessonAdvance();
         else this.finishTutorial();
+        break;
+      case "sys-drill-go": {
+        const track = this.drillOffer;
+        this.drillOffer = null;
+        // Through the guide's own topic, so the practice bay is the same bay
+        // How to Play flies and its result card can point back at the paragraph
+        // that describes the system.
+        const topic = track ? topicById(`sys-${track}`, markUnlocked(this.meta)) : undefined;
+        if (topic?.drill) this.startDrill(topic);
+        else this.setState("workshop");
+        break;
+      }
+      case "sys-drill-skip":
+        this.drillOffer = null;
+        this.setState("workshop");
         break;
       case "lesson-next":
         this.startLesson(Math.min(LESSON_COUNT - 1, this.lessonIndex + 1));

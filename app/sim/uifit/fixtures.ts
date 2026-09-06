@@ -1268,6 +1268,16 @@ export const SCREENS: Record<string, () => string> = {
       brief: LESSONS[8].brief, lines: 2, shotsUsed: 14, launches: 22, licence: true,
     }),
 
+  // The purchase that explains itself (screens.ts's systemDrillOfferModal),
+  // over the Workshop it was bought from. The Incinerator's is the worst case
+  // of the ten: the longest system name paired with the longest drill brief.
+  "sys-drill-offer": () => S.workshopScreen({ ...newMeta(), licence: LESSON_COUNT, salvage: 400, mark: 5 })
+    + S.systemDrillOfferModal({
+      name: "Incinerator",
+      drill: DRILLS["sys-incinerator"].name,
+      brief: DRILLS["sys-incinerator"].brief,
+    }),
+
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
   "coach-fail": () =>

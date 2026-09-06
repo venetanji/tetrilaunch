@@ -5800,6 +5800,44 @@ export function drillEndModal(opts: {
 }
 
 /**
+ * THE PURCHASE THAT EXPLAINS ITSELF — offered once, at the moment a system is
+ * first installed in the Workshop (main.ts's onBuyInstall).
+ *
+ * The bays already existed: drills.ts carries a `sys-<id>` practice bay per
+ * track, flown at max tier so the lesson is the difference the system makes
+ * rather than a tier-1 nudge nobody could feel in one bay. What was missing was
+ * anyone OFFERING one. A player had to know the bay existed, know it lived
+ * behind How to Play, and go and find it — which is the same failure the guide
+ * itself was built to fix, one screen further in.
+ *
+ * A prompt rather than a redirect, because a purchase is not a request to leave
+ * the shop: a player mid-spend usually has a second thing to buy. Declining is
+ * an answer and is remembered (meta.ts's systemDrillsSeen records the OFFER),
+ * so the shop never asks twice about the same track.
+ */
+export function systemDrillOfferModal(opts: {
+  /** The system just installed. */
+  name: string;
+  /** Its practice bay's name and one-line brief (drills.ts's DrillSpec). */
+  drill: string;
+  brief: string;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--success)">Installed · ${opts.name}</div>
+        <h2 class="display">Try it?</h2>
+        <p class="muted" style="margin-top:-6px">${opts.brief}</p>
+      </div>
+      <div class="row end__actions">
+        <button class="btn btn--primary" data-action="sys-drill-go">${opts.drill} →</button>
+        <button class="btn btn--ghost" data-action="sys-drill-skip">Not now</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
  * End-of-lesson modal (game/school.ts) — drillEndModal's sibling, on the same
  * end-screen skeleton every other way out of a bay uses.
  *

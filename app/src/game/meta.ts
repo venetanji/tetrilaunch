@@ -577,6 +577,17 @@ export interface MetaState {
    *  loadMeta grandfathers rather than defaulting — a player who has already
    *  beaten tiers must not find Tier 1 locked. */
   licence: number;
+  /** Ship systems whose practice bay has already been OFFERED at purchase
+   *  (main.ts's onBuyInstall, game/drills.ts's `sys-<id>` drills).
+   *
+   *  The offer is made once per track, ever — a prompt that reappeared on every
+   *  uprate would be the shop nagging rather than teaching. Recorded as the
+   *  tracks OFFERED rather than the ones FLOWN, deliberately: declining is an
+   *  answer, and asking again would not respect it.
+   *
+   *  Absent reads as empty, so an existing save gets the offer on its next
+   *  purchase rather than a backlog of nine of them. */
+  systemDrillsSeen: UpgradeId[];
   /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
    *  time the Mark advances). One half of tier completion — see recordRunEnd. */
   tierRunDone: boolean;
@@ -663,7 +674,7 @@ export interface MetaState {
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
-    licence: 0, tierRunDone: false, tierContracts: 0,
+    licence: 0, systemDrillsSeen: [], tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), slots: SLOT_BASE, stowed: [],
     claimedContracts: [], sealedMarks: [],
     celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
@@ -849,6 +860,17 @@ export function licenceDone(meta: MetaState): boolean {
 export function recordLesson(meta: MetaState, index: number): MetaState {
   const done = Math.min(LESSON_COUNT, Math.max(0, Math.floor(index) + 1));
   return done > meta.licence ? { ...meta, licence: done } : meta;
+}
+
+/** Has this system's practice bay already been offered? */
+export function systemDrillOffered(meta: MetaState, id: UpgradeId): boolean {
+  return (meta.systemDrillsSeen ?? []).includes(id);
+}
+
+/** Record that it has. Never mutates, and idempotent. */
+export function recordSystemDrillOffer(meta: MetaState, id: UpgradeId): MetaState {
+  if (systemDrillOffered(meta, id)) return meta;
+  return { ...meta, systemDrillsSeen: [...(meta.systemDrillsSeen ?? []), id] };
 }
 
 /** Ladder points the player has to spend on a loadout right now. */
