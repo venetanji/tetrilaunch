@@ -1217,6 +1217,15 @@ export function menuContractsSub(tier: number, progress?: TierProgress): string 
 export function tierOpenedBy(tier: number, state: TowerState): number | null {
   if (tier < 1 || tier >= MARK_COUNT) return null;
   if (tier !== state.unlocked) return null;
+  // A RUN IS HALF THE PRICE. meta.ts's advanceTier raises the tier only when
+  // the run is won AND `tierContracts >= TIER_CONTRACTS_REQUIRED`, so on a save
+  // with Contracts still owed — which is every save the moment the licence
+  // lands — this promised "opens Tier 2" for a win that returns
+  // `completedTier: null` and leaves Tier 2 locked. The button that flies the
+  // run is the wrong place to discover the other requirement, so while
+  // Contracts are owed this opens nothing and the subtitle says what the run IS
+  // instead. The Contract half is already stated on its own button.
+  if ((state.contracts ?? 0) < TIER_CONTRACTS_REQUIRED) return null;
   return tier + 1;
 }
 
@@ -6336,7 +6345,20 @@ export function lessonEndModal(opts: {
   launches: number;
   /** True when this win was the LAST lesson — the licence itself. */
   licence: boolean;
+  /** True when this win FINISHED the ladder, for the first time — the one-time
+   *  graduation copy. Never true on a replay. */
   courseComplete?: boolean;
+  /** True when this lesson is the ladder's last RUNG, whether or not the win
+   *  was the graduating one.
+   *
+   *  SPLIT FROM `courseComplete` because the two answer different questions and
+   *  one flag answering both sent the player in a circle: on a finished save,
+   *  replaying and winning lesson 9 is not a graduation, so `courseComplete`
+   *  was false, so the primary read "Next lesson →" — and `lesson-next` clamps
+   *  the index back to the last rung and restarts the lesson just completed,
+   *  every time, for ever. The COPY belongs to the graduation; the forward
+   *  ACTION belongs to the position. */
+  lastLesson?: boolean;
 }): string {
   const budget = opts.launches > 0
     ? `<div class="stat"><b style="color:var(--warn)">${Math.min(opts.launches, opts.shotsUsed)}/${opts.launches}</b><span>Launches</span></div>`
@@ -6353,13 +6375,20 @@ export function lessonEndModal(opts: {
       ? `That is the licence. <b>Tier 1 is open</b> — ten bays, a bankroll and a clock.`
       : opts.courseComplete
         ? `Every Flight School exercise is cleared. Re-fly any of them whenever you want.`
+      : opts.lastLesson
+        // The top rung, re-flown. Not a graduation, and not silent about why
+        // the button says "To the tower" instead of "Next lesson".
+        ? `${opts.name} cleared — the last rung. Pick another from the track below the school.`
       : `${opts.name} cleared.`)
     : opts.brief;
   // ONE primary, and it is the way FORWARD wherever there is one. A cleared
   // lesson that offered "Try again" first would be pointing at the thing the
   // player has just finished doing.
+  // `lastLesson` and not `courseComplete`: there is no next lesson from the top
+  // rung whether or not this particular win was the graduating one.
+  const done = opts.licence || opts.courseComplete || opts.lastLesson;
   const primary = opts.won
-    ? (opts.licence || opts.courseComplete
+    ? (done
       ? `<button class="btn btn--primary" data-action="lesson-exit">To the tower →</button>`
       : `<button class="btn btn--primary" data-action="lesson-next">Next lesson →</button>`)
     : `<button class="btn btn--primary" data-action="lesson-retry">${icon("retry", 12)}Try Again</button>`;
@@ -6380,7 +6409,7 @@ export function lessonEndModal(opts: {
           // `lesson-exit`, differently worded, on the one card in the app that
           // is supposed to be a moment. A pad-navigable row of two identical
           // destinations is also one more focus stop for nothing.
-          opts.won && (opts.licence || opts.courseComplete)
+          opts.won && done
             ? ""
             : `<button class="btn btn--ghost" data-action="lesson-exit">${
               opts.won ? "Back to the tower" : "Leave school"

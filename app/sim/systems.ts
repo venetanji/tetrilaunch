@@ -1737,6 +1737,49 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       // A fresh save is the base rack, never a grandfathered one.
       localStorage.removeItem("tetrilaunch.meta");
       check("a brand new save starts on the base rack", slotsFor(loadMeta()) === SLOT_BASE);
+
+      // ---- THE LICENCE GRANDFATHER, on the same shim ---------------------
+      // A returning player must not be sent back to school, and the evidence of
+      // having played is NOT just a filed run: `runs` and `bestBay` are written
+      // only by recordRunEnd, and quitting to the menu deliberately files
+      // nothing. A save with banked salvage, purchased unlocks and cleared
+      // Contracts but no completed Deep Run read as brand new and found Tier 1
+      // locked behind a course it had outgrown.
+      const boot = (meta: Record<string, unknown>, settings: Record<string, unknown> = {}) => {
+        localStorage.setItem("tetrilaunch.meta", JSON.stringify(meta));
+        localStorage.setItem("tetrilaunch.settings", JSON.stringify(settings));
+        const m = loadMeta();
+        return { licence: m.licence, seen: loadSettings().seenTutorial };
+      };
+      check("a save with salvage but no filed run is a returning player",
+        boot({ salvage: 15, runs: 0, mark: 0, bestBay: 1 }).licence === LICENCE_LESSON_COUNT);
+      check("...and so is one with cleared Contracts and nothing else",
+        boot({ claimedContracts: ["c1"], runs: 0 }).licence === LICENCE_LESSON_COUNT);
+      check("...and one with a purchased rig",
+        boot({ unlocks: ["reactor"], runs: 0 }).licence === LICENCE_LESSON_COUNT);
+      check("a genuinely new save is not grandfathered",
+        boot({}).licence === 0);
+      // THE LICENCE, NOT THE WHOLE LADDER. Granting LESSON_COUNT licensed them
+      // and then parked the School's Play button on the LAST lesson
+      // (nextLessonIndex clamps to meta.licence), dropping a returning player
+      // into Clutter — the fine-and-congestion bay — rather than at the top of
+      // the advanced five.
+      check("...and a grandfathered player gets the licence, not the whole ladder",
+        boot({ runs: 40 }).licence === LICENCE_LESSON_COUNT
+          && LICENCE_LESSON_COUNT < LESSON_COUNT);
+      // AND THE COACH IS RETIRED WITH IT. main.ts sets seenTutorial when the
+      // fourth lesson lands; a grandfathered save never passes through that, so
+      // without this a player with forty runs met the retired four-card deck on
+      // their next Deep Run bay 1. (The other half — that the App re-reads
+      // settings after loading the save, since this write happens behind the
+      // snapshot it already took — is stated at that constructor line; class
+      // fields initialise in declaration order and `settings` is declared
+      // first.)
+      check("the licence retires the old coach on the migration path too",
+        boot({ runs: 40 }, { seenTutorial: false }).seen === true);
+      check("...and a genuinely new save still owes it",
+        boot({}, { seenTutorial: false }).seen === false);
+      localStorage.removeItem("tetrilaunch.settings");
     } finally {
       if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
       else delete (globalThis as unknown as Record<string, unknown>).localStorage;
@@ -22057,14 +22100,100 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         .map((k) => k in fresh)).size === 1);
   }
 
+  // TWO SCRIMS, AND THE PAD MUST TAKE THE TOP ONE.
+  //
+  // main.ts's padNavRoot scopes pad focus to `.modal-scrim` when one is up,
+  // because the scrim covers everything beneath it and offering the covered
+  // controls as focus targets is how a stray A press hits an invisible button.
+  // It took the FIRST — and the refit yard and the draft are themselves scrims,
+  // so a first-encounter card over either puts two in the overlay and the first
+  // is the screen UNDERNEATH. On a pad, entering the yard for the first time
+  // focused a control behind the explanation and A undocked the ship; the first
+  // draft focused a hazard and A ratcheted an axis. Both left their "seen" flag
+  // false, so the card returned next time over a decision already taken blind.
+  //
+  // Pinned on the SHIPPED renderers rather than on a hand-built pair: the whole
+  // premise is that these two screens are scrims, and that is a fact about them
+  // rather than about the rule.
+  {
+    // main.ts's padNavRoot, restated — the sim has no DOM to ask.
+    const topScrim = (html: string): string => {
+      const parts = html.split(`<div class="modal-scrim"`);
+      return parts.length > 1 ? parts[parts.length - 1] : html;
+    };
+    const scrims = (html: string): number =>
+      (html.match(/<div class="modal-scrim"/g) ?? []).length;
+
+    const yardHtml = refitScreen({
+      bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 },
+      mark: 2, order: {}, preview: [],
+    });
+    check("the refit yard is itself a scrim", scrims(yardHtml) === 1, String(scrims(yardHtml)));
+    const yardStacked = yardHtml + S.refitIntroModal({ scrap: 999, stops: 3 });
+    check("...so its intro card makes two", scrims(yardStacked) === 2);
+    const yardTop = topScrim(yardStacked);
+    check("the pad's root on a first refit is the CARD, not the yard under it",
+      yardTop.includes(`data-action="refit-intro-done"`) && !yardTop.includes(`data-action="refit-done"`),
+      yardTop.slice(0, 120));
+
+    const draftHtml = S.draftIntroModal({ picks: 1 });
+    check("the draft's intro card is a scrim of its own", scrims(draftHtml) === 1);
+    check("...and carries exactly one action for the pad to land on",
+      (draftHtml.match(/data-action="/g) ?? []).length === 1,
+      String((draftHtml.match(/data-action="/g) ?? []).length));
+  }
+
+  // THE LAST RUNG IS NOT A DEAD END. `courseComplete` is a one-time
+  // graduation, so on a finished save a replay of lesson 9 set it false — and
+  // the card then offered "Next lesson →", whose handler clamps the index back
+  // to the last rung and restarts the bay just finished. Every time, for ever.
+  // The COPY belongs to the graduation; the forward ACTION belongs to the
+  // position, which is what `lastLesson` carries.
+  {
+    const card = (over: Record<string, unknown>): string => S.lessonEndModal({
+      won: true, name: LESSONS[LESSON_COUNT - 1].name, index: LESSON_COUNT - 1,
+      total: LESSON_COUNT, brief: LESSONS[LESSON_COUNT - 1].brief,
+      lines: 2, shotsUsed: 9, launches: 22, licence: false, ...over,
+    });
+    const graduating = card({ courseComplete: true, lastLesson: true });
+    const replay = card({ courseComplete: false, lastLesson: true });
+    check("finishing the ladder sends the player to the tower",
+      graduating.includes(`data-action="lesson-exit"`)
+        && !graduating.includes(`data-action="lesson-next"`));
+    check("...and so does RE-flying its last rung",
+      !replay.includes(`data-action="lesson-next"`),
+      "the top rung offered a next lesson that does not exist");
+    check("...but only the first one is a graduation",
+      graduating.includes("Every Flight School exercise is cleared")
+        && !replay.includes("Every Flight School exercise is cleared"));
+    // ...and an ordinary rung still moves forward, or the fix would have
+    // flattened the ladder into nine dead ends.
+    const middle = card({ index: 1, lastLesson: false });
+    check("...while a rung in the middle still offers the next one",
+      middle.includes(`data-action="lesson-next"`));
+  }
+
   // ---- WHAT FLYING A FLOOR OPENS ----------------------------------------
   // The ladder's whole shape — every tier flown to open the next — was stated
   // on no surface a player reads before pressing the button that does it.
   {
-    const twr = (unlocked: number): S.TowerState =>
-      ({ unlocked, selected: unlocked, skydeck: false });
+    // CONTRACTS ARE PART OF THE PRICE, so the fixture has to state them. It
+    // did not, and defaulted to zero — which is exactly the save the promise
+    // was wrong on, and the test agreed with the bug because it never asked.
+    const twr = (unlocked: number, contracts = TIER_CONTRACTS_REQUIRED): S.TowerState =>
+      ({ unlocked, selected: unlocked, skydeck: false, contracts });
     check("the floor at the top of the ladder opens the next one",
       S.tierOpenedBy(3, twr(3)) === 4);
+    // THE OTHER HALF OF advanceTier. A win only raises the tier when the
+    // tier's Contracts are also in, so promising "opens Tier 2" to a save with
+    // none of them is promising something the run returns `completedTier: null`
+    // for — and it is the state EVERY save is in the moment the licence lands.
+    check("...but not while the tier's Contracts are still owed",
+      S.tierOpenedBy(3, twr(3, 0)) === null
+        && S.tierOpenedBy(3, twr(3, TIER_CONTRACTS_REQUIRED - 1)) === null);
+    check("...and the subtitle drops the promise with it",
+      !S.menuPlaySub(3, 0, null, null, S.tierOpenedBy(3, twr(3, 0))).includes("opens Tier")
+        && S.menuPlaySub(3, 0, null, null, S.tierOpenedBy(3, twr(3))).includes("opens Tier 4"));
     // A beaten Mark re-flies for the board and the seal and opens nothing:
     // advanceTier moves the ladder off the CURRENT tier, never off an old one,
     // so a promise here would be a promise the run cannot keep.

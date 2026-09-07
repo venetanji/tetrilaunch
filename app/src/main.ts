@@ -1098,6 +1098,21 @@ class App {
     this.ctx = this.canvas.getContext("2d", { alpha: false })!;
     this.overlay = root.querySelector("#overlay")!;
     this.guard = root.querySelector("#rotate-guard")!;
+    // RE-READ, because loading the save can WRITE this file. loadMeta
+    // grandfathers a pre-Flight-School player's licence and, with it, sets
+    // `seenTutorial` — the licence retires the old coach, on the migration path
+    // exactly as it does in play (see onGameStatus). Class fields initialise in
+    // declaration order and `settings` is declared above `meta`, so the
+    // snapshot this instance holds was taken BEFORE that write: a
+    // grandfathered save booted with a licence on disk and `seenTutorial: false`
+    // in memory, so its first Deep Run still mounted the retired four-card deck
+    // and the menu still advertised the tutorial — and the first Settings toggle
+    // wrote the stale `false` back over the migration.
+    //
+    // A statement rather than a field reorder: the order that matters is
+    // "after the save has been read", and stating it here cannot be undone by
+    // someone tidying the field declarations.
+    this.settings = loadSettings();
 
     this.input = new InputController(
       this.canvas, () => this.game, this.onMisfire,
@@ -3360,6 +3375,12 @@ class App {
               courseComplete: g.status === "won"
                 && this.lessonIndex >= LESSON_COUNT - 1
                 && this.lessonFinishedCourse,
+              // THE POSITION, separately from the graduation. The card's
+              // forward action is chosen off this — there is no next lesson
+              // from the top rung whether or not this win was the graduating
+              // one, and offering "Next lesson →" there clamped the index back
+              // onto the bay just finished and restarted it, every time.
+              lastLesson: this.lessonIndex >= LESSON_COUNT - 1,
             });
         }
         break;
@@ -3638,7 +3659,12 @@ class App {
     // A scrim that replaced another scrim starts at full strength rather than
     // fading up from the live field: the field behind it was never bright.
     if (hadScrim) {
-      this.overlay.querySelector(".modal-scrim")?.classList.add("modal-scrim--continued");
+      // EVERY scrim in the overlay, not the first: a first-encounter card over
+      // the refit yard or the draft (both of which are scrims themselves) puts
+      // two here, and the one the player sees is the last.
+      for (const el of this.overlay.querySelectorAll(".modal-scrim")) {
+        el.classList.add("modal-scrim--continued");
+      }
     }
     if (focusedBind) {
       this.overlay
@@ -3826,9 +3852,24 @@ class App {
    *  moving right off a modal's last action could walk focus onto an
    *  invisible control and the next A would press it, fullscreen included.
    *  The scrim covers everything beneath it, so while one is up it IS the
-   *  navigable screen. */
+   *  navigable screen.
+   *
+   *  THE LAST SCRIM, NOT THE FIRST, and the difference is the whole bug this
+   *  method exists to prevent, one layer up. The refit yard and the draft are
+   *  THEMSELVES scrims, so a first-encounter card over either (refitIntroModal,
+   *  draftIntroModal) puts two in the overlay — and `querySelector` returns the
+   *  screen UNDERNEATH. On a pad, entering the yard for the first time focused
+   *  `refit-done` behind the explanation and A undocked the ship; the first
+   *  draft focused a `pick-hazard` and A ratcheted an axis. Both left their
+   *  "seen" flag false, so the card came back next time over a decision the
+   *  player had already been made to take blind.
+   *
+   *  Later in the overlay is painted on top — every scrim shares one z-index
+   *  and renderOverlay appends the card after the screen — so the last one is
+   *  the one the player can actually see. */
   private padNavRoot(): HTMLElement {
-    return this.overlay.querySelector<HTMLElement>(".modal-scrim") ?? this.overlay;
+    const scrims = this.overlay.querySelectorAll<HTMLElement>(".modal-scrim");
+    return scrims.length > 0 ? scrims[scrims.length - 1] : this.overlay;
   }
 
   /**
