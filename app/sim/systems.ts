@@ -161,7 +161,7 @@ import {
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
 import {
-  LESSONS, LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed, levelForLesson,
+  LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed, levelForLesson,
 } from "../src/game/school";
 import {
   applySandboxMaterials, bumpSandboxRatchet, finalFitsTier, maxedTiers, newSandbox,
@@ -908,7 +908,7 @@ section("Installs — what salvage buys (meta.ts)");
   // someone who has finished Flight School — an unlicensed save has exactly one
   // next step and it is the ground floor, which is pinned on its own below.
   const freshMeta = (over: Partial<MetaState> = {}): MetaState =>
-    ({ ...newMeta(), licence: LESSON_COUNT, ...over });
+    ({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1, ...over });
   const tooExpensiveForBudget = (m: MetaState, i: InstallDef): boolean =>
     tiersCost({ ...m.loadout, [i.id]: 1 }) > markBudget(m);
 
@@ -1042,10 +1042,13 @@ section("Installs — what salvage buys (meta.ts)");
     nextStep(newMeta()) === "licence");
   check("...and it stays the licence however much else is banked",
     nextStep({ ...newMeta(), salvage: 9_999 }) === "licence");
-  check("...and lifts the moment the last lesson lands",
-    nextStep({ ...newMeta(), licence: LESSON_COUNT - 1 }) === "licence"
-      && nextStep({ ...newMeta(), licence: LESSON_COUNT }) !== "licence");
-  check("a licensed fresh save's next step is Contracts", nextStep(freshMeta()) === "contracts");
+  check("...and lifts the moment the fourth basic lands",
+    nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT - 1 }) === "licence"
+      && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) !== "licence");
+  check("a newly licensed pilot is sent into the real game first",
+    nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) === "run");
+  check("after that first run, Contracts become the next step",
+    nextStep(freshMeta()) === "contracts");
   check("salvage covering an install says Workshop",
     nextStep(freshMeta({ salvage: 15 })) === "workshop");
   check("contracts done and salvage spent point at the run",
@@ -14438,8 +14441,8 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // licence — an unlicensed save answers "licence" to both and the contrast
   // would be a check that passes without testing anything.
   check("the two doors are the same rule's two branches",
-    nextStep({ ...newMeta(), licence: LESSON_COUNT, salvage: 1_000 }) === "workshop"
-      && nextStep({ ...newMeta(), licence: LESSON_COUNT }) === "contracts");
+    nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1, salvage: 1_000 }) === "workshop"
+      && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1 }) === "contracts");
 
   // ---- THE RUN-END CARD AT SATURATION ------------------------------------
   // The same sentence as the Contract card's, on the other door into the same
@@ -15347,7 +15350,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // Licensed, for the reason above: the badge on this screen is nextStep's,
     // and an unlicensed save is being pointed at the ground floor rather than
     // at either door this block is about.
-    const shop = S.workshopScreen({ ...newMeta(), licence: LESSON_COUNT });
+    const shop = S.workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1 });
     check("the Workshop routes to Contracts", route(shop).length > 0);
     check("...without giving up its own primary",
       /<button class="btn btn--primary btn--lg" data-action="play"/.test(shop));
@@ -15355,7 +15358,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // a save holding salvage is being sent to the shelf instead, and the two
     // badges on this screen can never both light.
     check("...badged when Contracts are the next step", route(shop).includes("next-badge"));
-    const rich = S.workshopScreen({ ...newMeta(), licence: LESSON_COUNT, salvage: 1_000, mark: 3 });
+    const rich = S.workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1, salvage: 1_000, mark: 3 });
     check("...and not when the shelf is the next step",
       route(rich).length > 0 && !route(rich).includes("next-badge")
         && rich.includes("shop-card--next"));

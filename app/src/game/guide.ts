@@ -14,7 +14,7 @@ import { CLAUSE_COUNT, CLAUSE_STOPS } from "./skydeck";
 import { MATERIAL_SPEC, type Material } from "./theme";
 import { MARK_COUNT, MAX_TIER, UPGRADES, type UpgradeId } from "./upgrades";
 import { DRILLS, type DrillSpec } from "./drills";
-import { LESSON_COUNT } from "./school";
+import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "./school";
 
 /**
  * THE GUIDE — every rule the game plays by, as data.
@@ -317,9 +317,9 @@ function buildTopics(mark: number): GuideTopic[] {
   {
     id: "tutorial", chapter: "basics", tier: 1,
     name: "Flight School",
-    summary: `The licence — ${LESSON_COUNT} short bays, one idea each, and Tier 1 opens at the end.`,
+    summary: `${LICENCE_LESSON_COUNT} basics earn the licence; ${LESSON_COUNT - LICENCE_LESSON_COUNT} advanced bays stay open for practice.`,
     body: `The ground floor of the tower, and the only thing standing between a new pilot and`
-      + ` Tier 1. <b>${LESSON_COUNT} authored bays</b>: the board arrives already set, the belt`
+      + ` Tier 1. <b>${LICENCE_LESSON_COUNT} required basics</b>, followed by ${LESSON_COUNT - LICENCE_LESSON_COUNT} optional advanced bays: the board arrives already set, the belt`
       + ` deals the one shape the exercise needs, and gold scaffolding stays put through the`
       + ` clear — so a shot can be taken until it lands. No clock, no bankroll, nothing to lose.`,
     cta: {

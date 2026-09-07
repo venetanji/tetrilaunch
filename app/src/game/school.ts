@@ -63,6 +63,10 @@ export interface LessonCard {
    *  overruns pushes its own tail out of `.coach__body` rather than pushing the
    *  panel. sim/uifit asserts it; sim/systems.ts counts the characters. */
   body: string;
+  /** Replace the generic body with the live input profile's firing gesture.
+   *  Only the first card needs this: learning where to put a shipment is not
+   *  useful until the player knows how their device launches one. */
+  input?: "aim";
 }
 
 /**
@@ -227,6 +231,7 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "Aim & fire",
+        input: "aim",
         body: `The bay is set: <b>one shipment</b> closes the bottom row. Aim the dotted arc`
           + ` into the four-wide gap and let go.`,
       },
@@ -368,7 +373,7 @@ export const LESSONS: Lesson[] = [
       },
       {
         title: "Shots are the puzzle",
-        body: `You open on about <b>eight shots</b> of float. A row built in two shots earns and`
+        body: `You open on about <b>twelve shots</b> of float. A row built in two shots earns and`
           + ` a row built in six does not — that budget is the whole game.`,
       },
     ],
@@ -419,7 +424,7 @@ export const LESSONS: Lesson[] = [
       },
       {
         title: "Reach, then fit",
-        body: `So the question is always <b>does this reach the zone</b> before it is does this fit`
+        body: `Ask <b>does this reach the zone</b> before asking does this fit`
           + ` the row. This bay has no gold in it: what you land is what you have.`,
       },
     ],
@@ -467,6 +472,11 @@ const BANKROLL_ROWS = 3;
 
 /** Lessons in the ladder — the count a completed licence has to reach. */
 export const LESSON_COUNT = LESSONS.length;
+
+/** The short licence: aim, placement, rotation and arc choice. Everything
+ * after this is advanced practice, available from the School once Tier 1 is
+ * open instead of standing between a new player and the real game. */
+export const LICENCE_LESSON_COUNT = 4;
 
 export function lessonAt(index: number): Lesson | null {
   return LESSONS[index] ?? null;

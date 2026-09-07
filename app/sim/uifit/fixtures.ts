@@ -16,7 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
-import { LESSONS, LESSON_COUNT } from "../../src/game/school";
+import { LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT } from "../../src/game/school";
 import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
@@ -465,7 +465,7 @@ const TOWER_SANDBOX: S.TowerState = { ...TOWER_TOP, sandbox: true };
  *  fixture measured. */
 const TOWER_LICENCE: S.TowerState = {
   unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
-  licensed: false, licenceDone: 3, licenceTotal: LESSON_COUNT,
+  licensed: false, licenceDone: 3, licenceTotal: LICENCE_LESSON_COUNT,
 };
 
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
@@ -1242,6 +1242,12 @@ export const SCREENS: Record<string, () => string> = {
   "lesson-card": () => withCoach(
     S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
     S.lessonCardHTML(LESSONS[4], 4, 0, LESSON_COUNT),
+  ),
+  // The only profile-aware Flight School card: the first thing a new player
+  // reads must fit after spelling out the touch slingshot gesture in full.
+  "lesson-card-aim": () => withCoach(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
+    S.lessonCardHTML(LESSONS[0], 0, 0, LESSON_COUNT, "touch"),
   ),
   "lesson-card-last": () => withCoach(
     S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,

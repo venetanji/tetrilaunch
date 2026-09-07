@@ -1374,7 +1374,11 @@ if (!launcher) {
 
 let browser: Awaited<ReturnType<typeof launcher.launch>>;
 try {
-  browser = await launcher.launch();
+  // CI normally uses Playwright's pinned browser. Local review machines may
+  // provide a compatible system/shared Chromium at a different cache revision;
+  // accepting an explicit path keeps the visual gate runnable there without
+  // weakening the default or guessing at an executable.
+  browser = await launcher.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH });
 } catch (err) {
   // WebKit is opt-in and its binary is not in every environment. Skipping is
   // the honest outcome: silently passing would claim iOS coverage we do not

@@ -21,7 +21,7 @@ import {
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
-import { LESSON_COUNT } from "../game/school";
+import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "../game/school";
 import { DAILY_COUNT } from "../game/contracts";
 import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
@@ -936,8 +936,8 @@ function licencePanelHTML(licence: { done: number; total: number } | null, extra
     <div class="lic-track" role="img" aria-label="${done} of ${total} lessons cleared">${pips}</div>
     <p class="lic-note">${
       licence
-        ? `Nine short bays, one idea each. <b>No clock, no bankroll, nothing to lose</b> — the board is already set and the gold stays put, so a shot can be taken until it lands.`
-        : `Every lesson is open to re-fly. Nothing here is banked and nothing is spent.`
+        ? `<b>${LICENCE_LESSON_COUNT} basics open Tier 1.</b> Five advanced exercises remain here for later. No clock, no bankroll, nothing to lose.`
+        : `The licence is earned. Five advanced exercises remain, and every lesson can be re-flown.`
     }</p>
     <div class="base-bay__extras">${extras}</div>
   </div>`;
@@ -1315,6 +1315,7 @@ export function menuScreen(
   const licence = twr.licensed === false
     ? { done: twr.licenceDone ?? 0, total: twr.licenceTotal ?? LESSON_COUNT }
     : null;
+  const learningBasics = twr.licensed === false;
   // THE SEAL STEP RIDES THE PRIMARY, because a seal is flown and not bought
   // (meta.ts's nextStep). It is the run's badge under another name, so it
   // lights the same button — what changes is the subtitle, which is the only
@@ -1445,7 +1446,7 @@ export function menuScreen(
             tierOpenedBy(sel, twr),
           )
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
+        <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
           THE TIER'S CONTRACT PIPS, on the button that leads to them. They
           replaced the run-end "Tier N progress" banner: a sentence about
           finishing Contracts on a screen the player wants to leave was never
@@ -1459,10 +1460,12 @@ export function menuScreen(
           cannot find again. -->
           <span id="menu-contracts-pips">${menuContractsPips(sel, progress)}</span>
         </span><span class="btn__sub" id="menu-contracts-sub">${
-          menuContractsSub(sel, progress)
+          learningBasics ? "Opens after Flight School" : menuContractsSub(sel, progress)
         }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
-          guide
+        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
+          learningBasics
+            ? "Opens after Flight School"
+            : guide
             ? guide.install
               ? salvage >= guide.install.cost
                 ? `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
@@ -3417,7 +3420,7 @@ export function coachHTML(
  * screen.
  */
 export function lessonCardHTML(
-  lesson: { name: string; cards: { title: string; body: string }[] },
+  lesson: { name: string; cards: { title: string; body: string; input?: "aim" }[] },
   index: number,
   card: number,
   total: number,
@@ -3425,6 +3428,11 @@ export function lessonCardHTML(
 ): string {
   const i = Math.max(0, Math.min(card, lesson.cards.length - 1));
   const c = lesson.cards[i];
+  const body = c.input === "aim"
+    ? profile === "touch"
+      ? `<b>Pull back</b> anywhere on the field like a slingshot; farther means more power. <b>Release</b> when the dotted arc crosses the gap.`
+      : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b> Put the dotted arc through the four-wide gap.`
+    : c.body;
   const last = i >= lesson.cards.length - 1;
   const dots = lesson.cards
     .map((_, n) => `<i class="${n < i ? "done" : n === i ? "cur" : ""}"></i>`)
@@ -3438,7 +3446,7 @@ export function lessonCardHTML(
     <div class="coach__card">
       <div class="coach__eyebrow">Flight School · ${index + 1}/${total}</div>
       <div class="coach__title">${c.title}</div>
-      <p class="coach__body">${c.body}</p>
+      <p class="coach__body">${body}</p>
       <div class="coach__foot">
         <span class="coach__dots" aria-hidden="true">${dots}</span>
         <button class="btn btn--primary coach__btn" data-action="coach-done">${padKey}${
@@ -6026,6 +6034,7 @@ export function lessonEndModal(opts: {
   launches: number;
   /** True when this win was the LAST lesson — the licence itself. */
   licence: boolean;
+  courseComplete?: boolean;
 }): string {
   const budget = opts.launches > 0
     ? `<div class="stat"><b style="color:var(--warn)">${Math.min(opts.launches, opts.shotsUsed)}/${opts.launches}</b><span>Launches</span></div>`
@@ -6034,17 +6043,21 @@ export function lessonEndModal(opts: {
       <div class="stat"><b style="color:var(--accent)">${opts.lines}</b><span>Lines</span></div>
       ${budget}
     </div>`;
-  const title = opts.won ? (opts.licence ? "Licence Earned" : "Lesson Landed") : "Run It Again";
+  const title = opts.won
+    ? (opts.licence ? "Licence Earned" : opts.courseComplete ? "Training Complete" : "Lesson Landed")
+    : "Run It Again";
   const blurb = opts.won
     ? (opts.licence
       ? `That is the licence. <b>Tier 1 is open</b> — ten bays, a bankroll and a clock.`
+      : opts.courseComplete
+        ? `Every Flight School exercise is cleared. Re-fly any of them whenever you want.`
       : `${opts.name} cleared.`)
     : opts.brief;
   // ONE primary, and it is the way FORWARD wherever there is one. A cleared
   // lesson that offered "Try again" first would be pointing at the thing the
   // player has just finished doing.
   const primary = opts.won
-    ? (opts.licence
+    ? (opts.licence || opts.courseComplete
       ? `<button class="btn btn--primary" data-action="lesson-exit">To the tower →</button>`
       : `<button class="btn btn--primary" data-action="lesson-next">Next lesson →</button>`)
     : `<button class="btn btn--primary" data-action="lesson-retry">${icon("retry", 12)}Try Again</button>`;

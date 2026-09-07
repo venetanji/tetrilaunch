@@ -39,7 +39,7 @@ import {
 // The ladder's LENGTH, imported rather than restated: "the licence is done" is
 // a statement about game/school.ts's LESSONS, and a copy of that number here
 // would be a second answer to it the day a lesson is added.
-import { LESSON_COUNT } from "./school";
+import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "./school";
 
 export { MARK_COUNT };
 
@@ -866,7 +866,7 @@ export function markUnlocked(meta: MetaState): number {
 /** Has the player earned their licence — every Flight School lesson cleared?
  *  The ground floor's own completion, and the gate on Tier 1. */
 export function licenceDone(meta: MetaState): boolean {
-  return meta.licence >= LESSON_COUNT;
+  return meta.licence >= LICENCE_LESSON_COUNT;
 }
 
 /** Record a lesson cleared. Monotone: the ladder is an order, so finishing
@@ -1441,6 +1441,10 @@ export function nextStep(meta: MetaState): NextStepId {
   // tier, the run itself — so pointing at any of them before the ground floor
   // is cleared would send a first-time player at a locked button.
   if (!licenceDone(meta)) return "licence";
+  // Let the mechanics acquire meaning before sending a new pilot into the
+  // meta loop. Contracts and salvage are much easier to understand after one
+  // real bay has made funds, targets and failure concrete.
+  if (meta.runs === 0) return "run";
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
   // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame

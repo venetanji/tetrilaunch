@@ -90,7 +90,7 @@ import {
 } from "./game/guide";
 import { DRILLS, levelForDrill } from "./game/drills";
 import {
-  LESSON_COUNT, REVEAL, lessonAt, lessonSeed, levelForLesson, type Lesson,
+  LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonAt, lessonSeed, levelForLesson, type Lesson,
 } from "./game/school";
 import { SANDBOX } from "./lib/sandbox";
 import { DEV_TAP_WINDOW_MS, TapStreak } from "./lib/devmode";
@@ -2212,7 +2212,7 @@ class App {
       // a uifit fixture can state a half-finished licence without a meta.
       licensed: licenceDone(this.meta),
       licenceDone: this.meta.licence,
-      licenceTotal: LESSON_COUNT,
+      licenceTotal: licenceDone(this.meta) ? LESSON_COUNT : LICENCE_LESSON_COUNT,
       // The ceremony, when one is owed and running (armUnlockCelebration). The
       // ride's destination is `selected`, which is why the clamp below has to
       // stay the only thing that can set it — see the note there.
@@ -3267,7 +3267,8 @@ class App {
               shotsUsed: g.shotsFired,
               launches: g.level.launchBudget,
               // The licence lands on the LAST lesson's win, and only there.
-              licence: g.status === "won" && this.lessonIndex >= LESSON_COUNT - 1,
+              licence: g.status === "won" && this.lessonIndex === LICENCE_LESSON_COUNT - 1,
+              courseComplete: g.status === "won" && this.lessonIndex >= LESSON_COUNT - 1,
             });
         }
         break;
@@ -4577,8 +4578,10 @@ class App {
       onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       onStatus: (st) => this.onGameStatus(st),
     }, lessonSeed(index));
+    // The briefing really happens before the bay: no compactor movement,
+    // timing phase or congestion change is allowed while the player reads.
+    this.game.paused = true;
     this.setState("playing");
-    this.armDragHint();
   }
 
   /** The next lesson the licence owes, clamped to the last one so a finished
@@ -4597,7 +4600,9 @@ class App {
     if (next >= lesson.cards.length) {
       this.lessonCard = null;
       this.overlay.querySelector("#coach")?.remove();
+      if (this.game) this.game.paused = false;
       this.syncRevealStage();
+      this.armDragHint();
       return;
     }
     this.lessonCard = next;
