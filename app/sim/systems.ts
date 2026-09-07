@@ -21258,8 +21258,12 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       type: "O", want: 2,
     },
     "time-the-row": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
-    "the-bankroll": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
-    "the-streak": { cells: [[2, 0], [3, 0], [4, 0], [5, 0]], type: "I", want: 1 },
+    // The economy bay deals an O into a two-column notch one deep: the square
+    // closes the bottom row and its top half is what the board takes back.
+    "the-bankroll": { cells: [[3, 0], [4, 0], [3, 1], [4, 1]], type: "O", want: 1 },
+    // ...and the streak bay the same square into a two-deep one, so both rows
+    // go together and a chain builds in half the shots.
+    "the-streak": { cells: [[4, 0], [5, 0], [4, 1], [5, 1]], type: "O", want: 2 },
   };
 
   /** Cubes a profile stands up — the sum of its columns, which is exactly what
@@ -21665,6 +21669,39 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     });
     check("...and says nothing of the sort once it is held",
       !held.includes("Flight School first"));
+  }
+
+  // THE LADDER DEALS MORE THAN ONE SHAPE.
+  //
+  // Five of the nine lessons dealt an I, and the owner's note was that it goes
+  // repetitive. Two of them moved to the O on measurement — the economy bay
+  // (calibration bot 83%/18 shots -> 100%/8, and a fixed-arc lob from never
+  // finishing to 100%/9) and the streak bay (100%/18 -> 100%/8) — so both are
+  // easier as well as different, which is the only reason to make the swap.
+  //
+  // The TIMING bay keeps its I deliberately, and it is worth stating so nobody
+  // "fixes" it later: every alternative measured worse on the aiming bot (15
+  // shots against 16-68) and far worse on a lob (67% against 8-42%). Placement
+  // is supposed to be the easy half of that lesson — the difficulty belongs in
+  // WHEN the row closes, not in getting the shipment down.
+  {
+    const dealt = LESSONS.filter((l) => l.sequence?.length)
+      .map((l) => l.sequence![0]);
+    const kinds = new Set(dealt);
+    check("the authored lessons deal more than one shape",
+      kinds.size >= 2, dealt.join(","));
+    // No single shape may be more than half of the authored bays. Five of nine
+    // was what the owner reported; this pins the fix rather than the number.
+    const commonest = Math.max(...[...kinds].map((k) => dealt.filter((d) => d === k).length));
+    check("...and no one shape carries most of the ladder",
+      commonest <= Math.ceil(dealt.length / 2),
+      `${commonest} of ${dealt.length} are the same piece (${dealt.join(",")})`);
+    // The two bays that teach a SHOT still deal what that shot needs: a flat I
+    // for the opening trench, and an I for the well, which is the one lesson
+    // whose subject is rotation and which no other piece can be.
+    check("the opening lesson still deals a flat I", lessonById("close-the-row")!.sequence?.[0] === "I");
+    check("...and the rotation lesson an I, which is what makes it one",
+      lessonById("four-in-the-well")!.sequence?.[0] === "I");
   }
 
   // ONE VOCABULARY, and it is enforced rather than remembered. Nine bays

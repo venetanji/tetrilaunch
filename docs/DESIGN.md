@@ -201,17 +201,32 @@ demonstrated its own subject only to the player who had stopped needing it.
 
 ### The ladder
 
-| # | Lesson | Teaches | Reveals |
-|---|---|---|---|
-| 1 | Close the Row | aim, power, the arc; what the zone is | PWR |
-| 2 | Two at Once | two rows on one stroke; the reload ring | placement |
-| 3 | Four in the Well | rotation — a flat I cannot enter a one-wide channel | placement |
-| 4 | Lob or Skim | the two arcs, and what each one risks | placement |
-| 5 | Time the Row | the timing grade: SWEPT / GOOD / EXCELLENT | grade |
-| 6 | The Bankroll | launches cost, rows pay, funds are the score | funds |
-| 7 | The Streak | the combo multiplier, and what breaks it | combo |
-| 8 | Lost Cargo | the spill fine, on an ordinary belt | lost |
-| 9 | Clutter | congestion: the tax on a full bay | all |
+| # | Lesson | Deals | Teaches | Reveals |
+|---|---|---|---|---|
+| 1 | Close the Row | I | aim, power, the arc; what the zone is | PWR |
+| 2 | Two at Once | O | two rows on one stroke; the reload ring | placement |
+| 3 | Four in the Well | I | rotation — a flat I cannot enter a one-wide channel | placement |
+| 4 | Lob or Skim | O | the two arcs, and what each one risks | placement |
+| 5 | Time the Row | I | the timing grade: SWEPT / GOOD / EXCELLENT | grade |
+| 6 | The Bankroll | O | launches cost, rows pay, funds are the score | funds |
+| 7 | The Streak | O | the combo multiplier, and what breaks it | combo |
+| 8 | Lost Cargo | 7-bag | the spill fine, on an ordinary belt | lost |
+| 9 | Clutter | 7-bag | congestion: the tax on a full bay | all |
+
+The **Deals** column is a constraint, not a decoration. Five of the seven
+authored bays used to hand out an I, which reads as one exercise repeated; the
+economy and streak bays moved to the O once measurement showed the swap makes
+them *easier* as well as different — the calibration bot takes the bankroll in 8
+shots rather than 18, and a fixed-arc lob goes from never finishing it to always
+finishing it.
+
+Two bays keep the I on purpose. The well is the rotation lesson and no other
+piece can be it: a flat I is the only shipment that cannot enter a one-wide
+channel. And **Time the Row** keeps it because every alternative measured worse
+(the aiming bot 15 shots against 16–68, a lob 67% against 8–42%) — placement is
+meant to be the easy half of a lesson whose subject is *when* a row closes, so
+difficulty there is difficulty in the wrong place. `sim/systems.ts` pins the
+spread so the ladder cannot drift back to one shape.
 
 **Lessons 1–4 are the licence** (`school.ts`'s `LICENCE_LESSON_COUNT`). They are
 the four the rest of the game cannot be played without: put a shipment where you

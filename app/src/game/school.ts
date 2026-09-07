@@ -244,6 +244,29 @@ const NOTCH: number[] = [2, 2, 2, 0, 0, 2, 2, 2];
  *  taught — and loses only the precision. */
 const WELL: number[] = [2, 2, 2, 0, 2, 2, 2, 2];
 
+/** ONE ROW, ONE SQUARE. A two-column notch a single cube deep — the O drops in
+ *  whole and closes the bottom row, leaving its top half standing where the
+ *  board takes it back before the next shot.
+ *
+ *  The economy lesson's board. It used to be TRENCH and an I, which made five
+ *  of the nine lessons deal the same piece; measured against the I on the same
+ *  bay and the same goal, this is better on every pilot — the calibration bot
+ *  goes 83%/18 shots to 100%/8, and a fixed-arc lob goes from never finishing
+ *  to 100%/9. A smaller shipment also suits what the bay is teaching: every
+ *  launch is money, so the exercise should be about spending few of them. */
+const PAIR: number[] = [1, 1, 1, 0, 0, 1, 1, 1];
+
+/** TWO ROWS, ONE SQUARE, at the other end of the field from Two at Once's.
+ *  Same exercise the second lesson set, which is the point on a bay whose goal
+ *  is three in a row: the shot is already known, so the lesson is the streak
+ *  rather than the placement.
+ *
+ *  SHIFTED rather than reused, because a board byte-identical to lesson 2's is
+ *  a re-run and reads as one. Slots 4-5 measured identical to lesson 2's slots
+ *  3-4 for the aiming bot (8 shots) and better for a fixed-arc lob (8 against
+ *  9), so the move costs nothing. */
+const PAIR_DEEP: number[] = [2, 2, 2, 2, 0, 0, 2, 2];
+
 /** A gap at each END, gold in the middle: the board that needs both shots.
  *
  *  Slot 0 is the column nearest the wall, so the far gap is on the RIGHT —
@@ -425,9 +448,9 @@ export const LESSONS: Lesson[] = [
     lines: 0,
     launches: 0,
     economy: true,
-    wall: TRENCH,
+    wall: PAIR,
     wallMaterial: "gold",
-    sequence: ["I"],
+    sequence: ["O"],
     cards: [
       {
         title: "Funds are the score",
@@ -451,9 +474,9 @@ export const LESSONS: Lesson[] = [
     lines: 0,
     goal: { kind: "combo", to: 3 },
     launches: 0,
-    wall: TRENCH,
+    wall: PAIR_DEEP,
     wallMaterial: "gold",
-    sequence: ["I"],
+    sequence: ["O"],
     cards: [
       {
         title: "Combo",
