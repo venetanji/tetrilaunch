@@ -21023,6 +21023,21 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     LESSONS.every((l, i) => lessonById(l.id) === l && lessonAt(i) === l));
   check("a lesson past the end is null", lessonAt(LESSON_COUNT) === null);
 
+  // The paused first briefing is also the aiming demonstration. Its dots are
+  // solved onto the centre of the authored trench, with the I still flat, so
+  // the picture and the sentence teach the same shot.
+  {
+    const first = lessonById("close-the-row")!;
+    const g = new Game(levelForLesson(first), {}, lessonSeed(0));
+    const target = { x: WALL_INNER - 4 * CELL, y: WORLD.height - CELL / 2 };
+    g.aimLoft = 0;
+    g.aimAt(target);
+    const miss = Math.min(...g.trajectory.map((p) => Math.hypot(p.x - target.x, p.y - target.y)));
+    check("lesson 1's displayed trajectory crosses the trench", miss <= CELL / 2, `${miss.toFixed(1)}px`);
+    check("...while the shipment preview is still flat", g.cannon.quarterTurns % 2 === 0);
+    g.destroy();
+  }
+
   // THE REVEAL IS CUMULATIVE AND MONOTONE. A stage that went backwards would
   // take a readout away from a player who had already been shown it, which is
   // the one thing a progressive reveal must never do.
@@ -21275,6 +21290,22 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the far gap alone closes nothing", fly([FAR]) === 0);
     check("the near gap alone closes nothing", fly([NEAR]) === 0);
     check("...and both together close the lesson's two rows", fly([FAR, NEAR]) === 2);
+    // Unlike every one-shot scaffold, this exercise is cumulative: the first
+    // correct square is half the answer, not a stale attempt. A missed second
+    // shot must not erase it while the player lines up the next try.
+    const held = new Game(levelForLesson(lesson), {}, lessonSeed(i));
+    let heldNow = 0;
+    const heldRun = (seconds: number): void => {
+      for (let s = 0; s < 60 * seconds; s++) { heldNow += STEP_MS; held.update(heldNow); }
+    };
+    heldRun(2);
+    place(held, FAR, "O", 1);
+    heldRun(12);
+    place(held, [[3, 2], [4, 2], [3, 3], [4, 3]], "O", 2);
+    heldRun(12);
+    check("a landed half of Lob or Skim survives the next attempt",
+      held.cubes.filter((c) => c.shipment === 1 && c.blinkStart === null).length === 4);
+    held.destroy();
     // Slot 0 is the column nearest the wall, so this is the "gap on the right
     // AND on the left" the board is for — an edge gap at each end rather than
     // the interior one every other set piece keeps.

@@ -102,6 +102,7 @@ import {
 } from "./game/sandbox";
 import { sandboxScreen } from "./ui/sandbox-screen";
 import { render, renderScale } from "./game/render";
+import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
 import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
@@ -4578,10 +4579,25 @@ class App {
       onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       onStatus: (st) => this.onGameStatus(st),
     }, lessonSeed(index));
+    if (lesson.id === "close-the-row") {
+      // Aim the paused opening tableau at the centre of the authored trench.
+      // The renderer already draws the live ballistic preview while paused,
+      // so these are the same dots the player's eventual shot will follow.
+      this.game.aimLoft = 0;
+      this.game.aimAt({ x: WALL_INNER - 3.5 * CELL - CELL / 2, y: WORLD.height - CELL / 2 });
+    }
     // The briefing really happens before the bay: no compactor movement,
     // timing phase or congestion change is allowed while the player reads.
     this.game.paused = true;
     this.setState("playing");
+    // With the physics frozen, the first card has room to demonstrate the
+    // slingshot without the press or lesson changing underneath it.
+    if (lesson.id === "close-the-row") {
+      this.armDragHint();
+      // Flight School is an explicit request to learn, so demonstrate even if
+      // the general once-ever hint was dismissed in an earlier run.
+      this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
+    }
   }
 
   /** The next lesson the licence owes, clamped to the last one so a finished

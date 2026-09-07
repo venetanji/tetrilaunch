@@ -2375,7 +2375,9 @@ export class Game {
     // attempt (level.ts's boardResets). A cube already sentenced by either path
     // is skipped by the other — both read blinkStart.
     if (this.level.boardResets) {
-      sweepStaleCubes(this.cubes, this.stepClock, now);
+      sweepStaleCubes(
+        this.cubes, this.stepClock, now, this.level.boardResetAttempts,
+      );
       const swept = sweepExpired(this.phys.world, this.cubes, now, this.constraints);
       // Wreckage, not a penalty. The cubes get the same puff a shattered piece
       // gets and no "−$" of any kind: nothing was lost and nothing is owed —

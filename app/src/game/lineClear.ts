@@ -1580,7 +1580,9 @@ export function updateBlinking(
  *  stroke of its landing. Requiring one completed stroke means the press has
  *  been all the way in since the landing and did not sell it. */
 export const SWEEP_STROKES = 1;
-export function sweepStaleCubes(cubes: Cube[], clock: ClearClock, now: number): void {
+export function sweepStaleCubes(
+  cubes: Cube[], clock: ClearClock, now: number, keepAttempts = 1,
+): void {
   // THE NEWEST ATTEMPT ON THE BOARD, which is the thing everything else is
   // measured against. Only SETTLED cargo counts: a shipment still in the air is
   // not yet an attempt, and letting it disown the one on the floor is exactly
@@ -1604,7 +1606,7 @@ export function sweepStaleCubes(cubes: Cube[], clock: ClearClock, now: number): 
     // is a round trip of several seconds and a reload is not; measured, a
     // stroke-only rule let six shipments pile up between sweeps and buried the
     // well exactly as before.
-    if (cube.shipment === undefined || cube.shipment >= newest) continue;
+    if (cube.shipment === undefined || cube.shipment > newest - Math.max(1, keepAttempts)) continue;
     // AND THE PRESS HAS HAD ITS GO — a completed stroke since this cube's own
     // landing. `stroke` advances at the full-advance stop, which is the stop a
     // row clears on, so this is exactly "the bar came all the way in and did

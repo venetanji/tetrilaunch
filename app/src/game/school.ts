@@ -557,6 +557,7 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
   // two are the same statement: a bay whose board is drawn for it is a bay that
   // has to be able to get its board back.
   cfg.boardResets = lesson.wallMaterial === "gold";
+  cfg.boardResetAttempts = lesson.id === "lob-or-skim" ? 2 : 1;
 
   applyBayDials(cfg, lesson);
   return cfg;

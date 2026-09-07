@@ -350,6 +350,10 @@ export interface LevelConfig {
    *  lessons that deliberately deal an ordinary bay — building a pile is the
    *  whole subject of those. */
   boardResets: boolean;
+  /** How many settled shipments a resetting lesson keeps. Ordinary authored
+   *  exercises keep one attempt; Lob or Skim is deliberately a two-shot
+   *  exercise, so its first correct square must survive the second launch. */
+  boardResetAttempts: number;
   /** Thaw Lance charges available in THIS BAY — the "thaw one settled frozen
    *  cube" ability (see game.ts's useThawLance). Cryo's bought counter: it pays
    *  strikeCryo's sequencing cost ("land it, then spend a second shot hitting
@@ -1690,6 +1694,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     pieceSequence: null,
     lessonGoal: null,
     boardResets: false,
+    boardResetAttempts: 1,
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
     standingWall: [],
