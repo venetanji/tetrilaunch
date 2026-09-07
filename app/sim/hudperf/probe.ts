@@ -309,6 +309,12 @@ const api: HudProbeApi = {
     // the thing syncHud writes — `width` before this branch, `transform`
     // after. Reading the cssText covers both without the probe having to know
     // which mechanism is in force.
+    //
+    // ABSENT ON A DEEP RUN since the R3 readout (screens.ts's hudHTML): the
+    // reload row is a Contract's now, and the ring on the muzzle carries the
+    // value everywhere else. `loadMoved`/`loadReloading` therefore read 0 on a
+    // Deep Run trace because there is no bar, NOT because the fill stopped
+    // moving — point the probe at a Contract bay to measure it.
     const loadFill = overlay.querySelector<HTMLElement>("#hud-load");
     let lastLoad = loadFill?.style.cssText ?? "";
     const t0 = performance.now();
