@@ -2479,6 +2479,8 @@ export function hudHTML(opts: {
     kind: "lines" | "pattern";
     goal: number;
     lines: number;
+    /** Label for the numerator; lessons may count a timing grade or streak. */
+    goalLabel?: string;
     launchesLeft: number;
     remaining: PieceType[];
     /** Cubes that bounced out before the compactor (Game.lostTotal). Rendered
@@ -2862,7 +2864,7 @@ export function hudHTML(opts: {
           ${
             contract
               ? `<div class="pl-funds">
-            <div class="lbl">Lines<span class="lbl__q"> / Goal</span></div>
+            <div class="lbl">${contract.goalLabel ?? "Lines"}<span class="lbl__q"> / Goal</span></div>
             <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>

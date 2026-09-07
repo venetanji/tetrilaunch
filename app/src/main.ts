@@ -1739,10 +1739,8 @@ class App {
    * length (level.ts's LessonGoal). All three set objectiveLines to 0, and a
    * goal bar reading "/ 0" is worse than no goal bar at all.
    *
-   * The bar's numerator is `linesTotal` in every case, which is honest for the
-   * atOnce lessons (rows are rows) and approximate for the other two — the
-   * exact progress lives in the pass condition on the complications row beside
-   * it, and a second progress readout for a two-row lesson would be furniture.
+   * The matching numerator is Game.objectiveCurrent: unlike total rows, it
+   * counts only the timing bands or streak the lesson actually asks for.
    */
   private lessonGoalCount(g: Game): number {
     const goal = this.lesson?.goal;
@@ -1985,7 +1983,8 @@ class App {
               name: this.lesson.name,
               kind: "lines" as const,
               goal: this.lessonGoalCount(g),
-              lines: g.linesTotal,
+              lines: g.objectiveCurrent,
+              goalLabel: this.lesson.goalLabel,
               launchesLeft: g.launchesLeft === Infinity ? 0 : g.launchesLeft,
               remaining: [],
               lost: g.lostTotal,
@@ -6469,7 +6468,7 @@ class App {
     if (this.linesBay(g)) {
       const pattern = this.contract?.kind === "pattern";
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
-      set("#hud-score", String(g.linesTotal));
+      set("#hud-score", String(this.lesson ? g.objectiveCurrent : g.linesTotal));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
       // Gated on `pattern`, matching #hud-queue's and #hud-time's own gates
       // below: a pattern Contract has no #hud-lost element (screens.ts's

@@ -929,8 +929,26 @@ export class Game {
     return this.score >= this.target;
   }
 
+  /** The live numerator for whichever objective this bay is running. */
+  get objectiveCurrent(): number {
+    const goal = this.level.lessonGoal;
+    if (goal) {
+      if (goal.kind === "atOnce") return this.bestClear;
+      if (goal.kind === "combo") return this.bestCombo;
+      const at = GRADES.indexOf(goal.grade);
+      return GRADES.slice(0, at + 1).reduce((n, grade) => n + this.gradeTally[grade], 0);
+    }
+    if (this.level.objectiveLines > 0) return this.linesTotal;
+    return this.score;
+  }
+
   /** 0..1 progress toward whichever objective this bay is running, for the HUD. */
   get objectiveProgress(): number {
+    const goal = this.level.lessonGoal;
+    if (goal) {
+      const target = goal.kind === "atOnce" ? goal.lines : goal.kind === "combo" ? goal.to : goal.count;
+      return target > 0 ? Math.min(1, this.objectiveCurrent / target) : 0;
+    }
     if (this.level.objectiveLines > 0) {
       return Math.min(1, this.linesTotal / this.level.objectiveLines);
     }

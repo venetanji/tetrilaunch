@@ -21209,6 +21209,11 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const gt = new Game(levelForLesson(timed), {}, lessonSeed(4));
     gt.gradeTally.swept = 9;
     check("nine swept rows do not pass the timing lesson", !gt.objectiveMet);
+    check("the timing HUD numerator excludes swept rows", gt.objectiveCurrent === 0);
+    check("the timing goal bar excludes swept rows", gt.objectiveProgress === 0);
+    gt.gradeTally.good = 1;
+    check("one GOOD row shows half of the lesson target",
+      gt.objectiveCurrent === 1 && gt.objectiveProgress === 0.5);
     gt.gradeTally.excellent = 2;
     check("...two excellent ones do", gt.objectiveMet);
     gt.destroy();

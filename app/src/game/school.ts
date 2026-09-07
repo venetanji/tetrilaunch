@@ -121,6 +121,8 @@ export interface Lesson extends BayDials {
   /** The same at HUD length, for the plant panel's one-line complications row.
    *  Split from `brief` for the reason DrillSpec splits its own. */
   conditions: string;
+  /** What the live goal numerator counts. Defaults to Lines. */
+  goalLabel?: string;
   /** The deck, in order. */
   cards: LessonCard[];
   /** How much readout this bay shows. */
@@ -325,7 +327,8 @@ export const LESSONS: Lesson[] = [
     id: "time-the-row",
     name: "Time the Row",
     brief: "Close two rows on a stroke that was already running. Beat the press, don't wait for it.",
-    conditions: `2 × timed · up to ×${GRADE_PAY.excellent}`,
+    conditions: `Land 2 GOOD rows · up to ×${GRADE_PAY.excellent}`,
+    goalLabel: "GOOD rows",
     reveal: REVEAL.grade,
     lines: 0,
     // GOOD, NOT EXCELLENT. Excellent is a 100ms window and asking for two of

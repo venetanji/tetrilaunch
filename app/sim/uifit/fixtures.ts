@@ -519,6 +519,7 @@ const LESSON_HUD = (l: (typeof LESSONS)[number]) => ({
     ? (l.goal.kind === "atOnce" ? l.goal.lines : l.goal.kind === "combo" ? l.goal.to : l.goal.count)
     : l.lines,
   lines: 1,
+  goalLabel: l.goalLabel,
   launchesLeft: l.launches,
   remaining: [],
   lost: 2,
