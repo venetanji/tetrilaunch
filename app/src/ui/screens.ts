@@ -22,6 +22,10 @@ import {
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "../game/school";
+
+/** Lessons past the licence — the practice bays that stay open once Tier 1
+ *  does. Derived, so the copy quoting it cannot drift from the ladder. */
+const ADVANCED_LESSONS = LESSON_COUNT - LICENCE_LESSON_COUNT;
 import { DAILY_COUNT } from "../game/contracts";
 import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
@@ -935,9 +939,13 @@ function licencePanelHTML(licence: { done: number; total: number } | null, extra
     </div>
     <div class="lic-track" role="img" aria-label="${done} of ${total} lessons cleared">${pips}</div>
     <p class="lic-note">${
+      // DERIVED, not typed. "Five" is LESSON_COUNT − LICENCE_LESSON_COUNT, and a
+      // number spelled out in prose is a number that goes stale the day a
+      // lesson is added — the same rule the rest of this file follows for every
+      // price and count it quotes.
       licence
-        ? `<b>${LICENCE_LESSON_COUNT} basics open Tier 1.</b> Five advanced exercises remain here for later. No clock, no bankroll, nothing to lose.`
-        : `The licence is earned. Five advanced exercises remain, and every lesson can be re-flown.`
+        ? `<b>${LICENCE_LESSON_COUNT} basics open Tier 1.</b> ${ADVANCED_LESSONS} advanced exercises remain here for later. No clock, no bankroll, nothing to lose.`
+        : `The licence is earned. ${ADVANCED_LESSONS} advanced exercises remain, and every lesson can be re-flown.`
     }</p>
     <div class="base-bay__extras">${extras}</div>
   </div>`;

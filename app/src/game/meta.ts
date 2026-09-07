@@ -869,6 +869,23 @@ export function licenceDone(meta: MetaState): boolean {
   return meta.licence >= LICENCE_LESSON_COUNT;
 }
 
+/**
+ * How many lessons the player is currently working THROUGH — the denominator
+ * every "N of M" about Flight School has to agree on.
+ *
+ * The ladder is nine bays but the LICENCE is the first four; the rest are
+ * advanced practice that stays open once Tier 1 does. So the count a player is
+ * shown is not a constant, and every surface that prints one has to ask the
+ * same question: the lobby's plate, the play button's subtitle, the card riding
+ * the bay, and the result. They did not — the menu was rendered against four
+ * and the elevator's in-place rewrite against nine, so tapping a floor turned
+ * "4 short lessons" into "9", and the card over the first bay read "1/9" under
+ * a menu that had just promised four.
+ */
+export function schoolLength(meta: MetaState): number {
+  return licenceDone(meta) ? LESSON_COUNT : LICENCE_LESSON_COUNT;
+}
+
 /** Record a lesson cleared. Monotone: the ladder is an order, so finishing
  *  lesson 3 means lessons 1 and 2 are behind you whether or not this save
  *  watched them happen — which is what makes replaying one from How to Play

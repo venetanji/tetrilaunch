@@ -115,7 +115,8 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
-  recordContractClear, recordRunEnd, recordSystemDrillOffer, safeLoadout, systemDrillOffered,
+  recordContractClear, recordRunEnd, recordSystemDrillOffer, safeLoadout, schoolLength,
+  systemDrillOffered,
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
@@ -21710,6 +21711,36 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const swept = sweepExpired(world, cubes, 5_000, []);
     check("...and sweepExpired takes exactly the other one",
       swept.length === 1 && cubes.length === 0);
+  }
+
+  // ---- ONE DENOMINATOR ---------------------------------------------------
+  // The ladder is nine bays and the LICENCE is the first four, so "N of M" is
+  // not a constant — and four surfaces print one: the lobby's plate, the play
+  // button's subtitle, the card riding the bay, and the result. They drifted
+  // the moment the split landed: the menu rendered against four while the
+  // elevator's in-place rewrite used nine, so tapping a floor turned "4 short
+  // lessons" into "9", and the card over the very first bay read "1/9" under a
+  // menu that had just promised four. meta.ts's schoolLength is the one rule
+  // they all ask now.
+  {
+    check("the licence is a PREFIX of the ladder, not all of it",
+      LICENCE_LESSON_COUNT > 0 && LICENCE_LESSON_COUNT < LESSON_COUNT,
+      `${LICENCE_LESSON_COUNT} of ${LESSON_COUNT}`);
+    check("an unlicensed save counts toward the licence",
+      schoolLength(newMeta()) === LICENCE_LESSON_COUNT);
+    check("...and a licensed one counts the whole ladder",
+      schoolLength({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) === LESSON_COUNT);
+    // The lesson that ISSUES the licence is the last of the prefix, and the one
+    // that finishes the course is the last of the ladder. Two different cards
+    // (screens.ts's lessonEndModal), and conflating them would either promise
+    // Tier 1 five bays early or never announce it at all.
+    check("the licence lands on the last basic, not the last lesson",
+      LICENCE_LESSON_COUNT - 1 !== LESSON_COUNT - 1);
+    // Every lesson inside the licence has to be reachable BY an unlicensed
+    // save, or the gate asks for a bay it will not deal.
+    check("every basic is flyable before the licence exists",
+      Array.from({ length: LICENCE_LESSON_COUNT }, (_, i) => lessonAt(i))
+        .every((l) => l !== null));
   }
 
   // ---- THE FIRST-ENCOUNTER CARDS ----------------------------------------

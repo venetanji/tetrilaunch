@@ -71,6 +71,7 @@ import {
 } from "./game/upgrades";
 import {
   INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, licenceDone,
+  schoolLength,
   markUnlocked, recordLesson, recordSystemDrillOffer, systemDrillOffered,
   markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
@@ -1633,7 +1634,7 @@ class App {
     // because they carry different copy and a different eyebrow.
     if (this.lesson && this.lessonCard !== null && this.state === "playing") {
       this.mountCoach(S.lessonCardHTML(
-        this.lesson, this.lessonIndex, this.lessonCard, LESSON_COUNT, p,
+        this.lesson, this.lessonIndex, this.lessonCard, schoolLength(this.meta), p,
       ));
     }
     this.syncRevealStage();
@@ -2251,7 +2252,7 @@ class App {
       // a uifit fixture can state a half-finished licence without a meta.
       licensed: licenceDone(this.meta),
       licenceDone: this.meta.licence,
-      licenceTotal: licenceDone(this.meta) ? LESSON_COUNT : LICENCE_LESSON_COUNT,
+      licenceTotal: schoolLength(this.meta),
       // The ceremony, when one is owed and running (armUnlockCelebration). The
       // ride's destination is `selected`, which is why the clamp below has to
       // stay the only thing that can set it — see the note there.
@@ -3081,7 +3082,7 @@ class App {
       // too or the line reverts to a different rule the moment the car moves.
       licenceDone(this.meta)
         ? null
-        : { done: this.meta.licence, total: LESSON_COUNT },
+        : { done: this.meta.licence, total: schoolLength(this.meta) },
       // Same argument again: the ride patches this node in place, so the rule
       // has to be the same function the markup calls rather than a second
       // statement of it.
@@ -3300,7 +3301,7 @@ class App {
               won: g.status === "won",
               name: this.lesson.name,
               index: this.lessonIndex,
-              total: LESSON_COUNT,
+              total: schoolLength(this.meta),
               brief: this.lesson.brief,
               lines: g.linesTotal,
               shotsUsed: g.shotsFired,
@@ -3382,7 +3383,7 @@ class App {
           // there, when the input profile changes under it.
           if (this.lesson && this.lessonCard !== null) {
             this.mountCoach(S.lessonCardHTML(
-              this.lesson, this.lessonIndex, this.lessonCard, LESSON_COUNT, this.profile,
+              this.lesson, this.lessonIndex, this.lessonCard, schoolLength(this.meta), this.profile,
             ));
           }
           this.lastNext = null;
@@ -4661,7 +4662,7 @@ class App {
     }
     this.lessonCard = next;
     this.mountCoach(S.lessonCardHTML(
-      lesson, this.lessonIndex, next, LESSON_COUNT, this.profile,
+      lesson, this.lessonIndex, next, schoolLength(this.meta), this.profile,
     ));
     if (react) this.overlay.querySelector("#coach")?.classList.add("coach--advance");
     this.syncRevealStage();
