@@ -1,249 +1,447 @@
 {
+  "Android · 640x360 budget|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · 640x360 budget|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · 640x360 budget|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · 640x360 budget|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
   "Android · 640x360 budget|menu-first|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
+  ],
+  "Android · 640x360 budget|menu-licence-live|tap": [
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
+  ],
+  "Android · 640x360 budget|menu-licence|tap": [
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-live|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-nostore-live|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-nostore|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-skydeck-live|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-skydeck|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-tier-s-live|tap": [
     ".tower__head 88x22",
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-tier-s|tap": [
     ".tower__head 88x22",
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-tower-top-live|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-tower-top|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-unlimited-live|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu-unlimited|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
   ],
   "Android · 640x360 budget|menu|tap": [
-    ".tower__floor 82x26"
+    ".tower__floor 82x24",
+    ".tower__base 92x22"
+  ],
+  "Android · Galaxy S8+|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · Galaxy S8+|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · Galaxy S8+|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · Galaxy S8+|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
   ],
   "Android · Galaxy S8+|menu-first|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
+  ],
+  "Android · Galaxy S8+|menu-licence-live|tap": [
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
+  ],
+  "Android · Galaxy S8+|menu-licence|tap": [
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-nostore-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-nostore|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-skydeck-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-skydeck|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-tower-top-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-tower-top|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-unlimited-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu-unlimited|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · Galaxy S8+|menu|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
+  ],
+  "Android · OnePlus 12|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · OnePlus 12|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · OnePlus 12|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · OnePlus 12|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
   ],
   "Android · OnePlus 12|menu-first|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
+  ],
+  "Android · OnePlus 12|menu-licence-live|tap": [
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
+  ],
+  "Android · OnePlus 12|menu-licence|tap": [
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-nostore-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-nostore|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-skydeck-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-skydeck|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x26"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-tower-top-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-tower-top|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-unlimited-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu-unlimited|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
   ],
   "Android · OnePlus 12|menu|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x24",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 5|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · Pixel 5|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · Pixel 5|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "Android · Pixel 5|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
   ],
   "Android · Pixel 5|menu-first|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 5|menu-licence-live|tap": [
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 5|menu-licence|tap": [
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-nostore-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-nostore|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-skydeck-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-skydeck|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-tower-top-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-tower-top|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-unlimited-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu-unlimited|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 5|menu|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x27",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 7 cutout|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
   ],
   "Android · Pixel 7 cutout|menu-first|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 7 cutout|menu-licence-live|tap": [
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 7 cutout|menu-licence|tap": [
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-nostore-live|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-nostore|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-skydeck-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-skydeck|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-tower-top-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-tower-top|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-unlimited-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu-unlimited|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7 cutout|menu|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 7|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
+  ],
+  "Android · Pixel 7|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
+  ],
+  "Android · Pixel 7|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
+  ],
+  "Android · Pixel 7|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.81px below its label"
   ],
   "Android · Pixel 7|menu-first|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 7|menu-licence-live|tap": [
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel 7|menu-licence|tap": [
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-nostore-live|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-nostore|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-skydeck-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-skydeck|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-tower-top-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-tower-top|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-unlimited-live|tap": [
-    ".tower__floor 108x30"
+    ".tower__floor 108x29",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu-unlimited|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel 7|menu|tap": [
-    ".tower__floor 108x29"
+    ".tower__floor 108x28",
+    ".tower__base 118x22"
   ],
   "Android · Pixel Tablet|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
@@ -254,6 +452,119 @@
     ".pl-queue value sits -0.79px above its label",
     ".pl-tier value sits -0.79px above its label"
   ],
+  "Android · Pixel Tablet|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.68px below its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.68px below its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.68px below its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.68px below its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
+  "Android · Pixel Tablet|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "Android · Pixel Tablet|menu|tap": [
+    ".tower__base 118x22"
+  ],
   "Web · 1000x760 window|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.51px above its label",
     ".pl-tier value sits -0.51px above its label"
@@ -262,6 +573,119 @@
     ".hud--contract .pl-notch value sits -0.51px above its label",
     ".pl-queue value sits -0.51px above its label",
     ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.11px below its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.11px below its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.11px below its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.11px below its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1000x760 window|menu|tap": [
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|draft-picked|scrollers": [
     ".draft__body scrolls 14px"
@@ -275,44 +699,133 @@
     ".pl-queue value sits -0.60px above its label",
     ".pl-tier value sits -0.60px above its label"
   ],
+  "Web · 1269x663 windowed|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.31px below its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.31px below its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.31px below its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.31px below its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
   "Web · 1269x663 windowed|menu-first|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
+  ],
+  "Web · 1269x663 windowed|menu-licence-live|tap": [
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
+  ],
+  "Web · 1269x663 windowed|menu-licence|tap": [
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-live|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-nostore-live|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-nostore|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-skydeck-live|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-skydeck|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-tier-s-live|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-tier-s|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-tower-top-live|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-tower-top|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-unlimited-live|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu-unlimited|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1269x663 windowed|menu|tap": [
-    ".tower__floor 108x43"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 1280x720 laptop|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.61px above its label",
@@ -323,6 +836,119 @@
     ".pl-queue value sits -0.61px above its label",
     ".pl-tier value sits -0.61px above its label"
   ],
+  "Web · 1280x720 laptop|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.33px below its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.33px below its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.33px below its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.33px below its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
+  "Web · 1280x720 laptop|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1280x720 laptop|menu|tap": [
+    ".tower__base 118x22"
+  ],
   "Web · 1512x945 MacBook|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.73px above its label",
     ".pl-tier value sits -0.73px above its label"
@@ -331,6 +957,119 @@
     ".hud--contract .pl-notch value sits -0.73px above its label",
     ".pl-queue value sits -0.73px above its label",
     ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.59px below its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.59px below its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.59px below its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.59px below its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1512x945 MacBook|menu|tap": [
+    ".tower__base 118x22"
   ],
   "Web · 1920x1080 desktop|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.95px above its label",
@@ -341,6 +1080,119 @@
     ".pl-queue value sits -0.95px above its label",
     ".pl-tier value sits -0.95px above its label"
   ],
+  "Web · 1920x1080 desktop|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 2.04px below its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 2.04px below its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 2.04px below its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 2.04px below its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
+  "Web · 1920x1080 desktop|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 1920x1080 desktop|menu|tap": [
+    ".tower__base 118x22"
+  ],
   "Web · 2560x1080 ultrawide|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
     ".pl-tier value sits -0.99px above its label"
@@ -350,6 +1202,119 @@
     ".pl-queue value sits -0.99px above its label",
     ".pl-tier value sits -0.99px above its label"
   ],
+  "Web · 2560x1080 ultrawide|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 2.13px below its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 2.13px below its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 2.13px below its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 2.13px below its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "Web · 2560x1080 ultrawide|menu|tap": [
+    ".tower__base 118x22"
+  ],
   "Web · 800x600 window|bayclear-clause|tap": [
     "#bond-chip 44x43",
     "#demo-chip 44x43"
@@ -357,6 +1322,9 @@
   "Web · 800x600 window|bayclear|tap": [
     "#bond-chip 44x43",
     "#demo-chip 44x43"
+  ],
+  "Web · 800x600 window|draft-intro|scrollers": [
+    ".draft__body scrolls 74px"
   ],
   "Web · 800x600 window|draft-material-picked|scrollers": [
     ".draft__body scrolls 82px"
@@ -413,46 +1381,79 @@
   "Web · 800x600 window|inspection|scrollers": [
     ".draft__body scrolls 74px"
   ],
+  "Web · 800x600 window|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.89px below its label"
+  ],
+  "Web · 800x600 window|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.89px below its label"
+  ],
+  "Web · 800x600 window|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.89px below its label"
+  ],
+  "Web · 800x600 window|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.89px below its label"
+  ],
   "Web · 800x600 window|menu-first|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
+  ],
+  "Web · 800x600 window|menu-licence-live|tap": [
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
+  ],
+  "Web · 800x600 window|menu-licence|tap": [
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-live|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-nostore-live|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-nostore|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-skydeck-live|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-skydeck|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-tower-top-live|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-tower-top|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-unlimited-live|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu-unlimited|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|menu|tap": [
-    ".tower__floor 108x42"
+    ".tower__floor 108x41",
+    ".tower__base 118x22"
   ],
   "Web · 800x600 window|pause-armed|tap": [
     "#bond-chip 44x43",
@@ -482,6 +1483,119 @@
     ".pl-queue value sits -0.70px above its label",
     ".pl-tier value sits -0.70px above its label"
   ],
+  "iOS · iPad Pro 12.9|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.52px below its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.52px below its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.52px below its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.52px below its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
+  "iOS · iPad Pro 12.9|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad Pro 12.9|menu|tap": [
+    ".tower__base 118x22"
+  ],
   "iOS · iPad mini|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.52px above its label",
     ".pl-tier value sits -0.52px above its label"
@@ -491,209 +1605,487 @@
     ".pl-queue value sits -0.52px above its label",
     ".pl-tier value sits -0.52px above its label"
   ],
+  "iOS · iPad mini|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 1.14px below its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 1.14px below its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 1.14px below its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 1.14px below its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|menu-first|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-licence-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-licence|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-nostore-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-nostore|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-skydeck-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-skydeck|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-tier-s-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-tier-s|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-tower-top-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-tower-top|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-unlimited-live|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu-unlimited|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPad mini|menu|tap": [
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 13 mini|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
   "iOS · iPhone 13 mini|menu-first|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 13 mini|menu-licence-live|tap": [
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 13 mini|menu-licence|tap": [
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-nostore-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-nostore|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-skydeck-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-skydeck|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-tower-top-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-tower-top|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-unlimited-live|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu-unlimited|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 13 mini|menu|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x23",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 15|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone 15|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone 15|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone 15|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
   ],
   "iOS · iPhone 15|menu-first|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 15|menu-licence-live|tap": [
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 15|menu-licence|tap": [
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-nostore-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-nostore|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-skydeck-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-skydeck|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-tower-top-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-tower-top|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-unlimited-live|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu-unlimited|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 15|menu|tap": [
-    ".tower__floor 108x28"
+    ".tower__floor 108x26",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.83px below its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.83px below its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.83px below its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.83px below its label"
   ],
   "iOS · iPhone 16 Pro Max|menu-first|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-licence-live|tap": [
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-licence|tap": [
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-live|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-nostore-live|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-nostore|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-skydeck-live|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-skydeck|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-tower-top-live|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-tower-top|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-unlimited-live|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu-unlimited|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone 16 Pro Max|menu|tap": [
-    ".tower__floor 108x32"
+    ".tower__floor 108x30",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone SE 3|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone SE 3|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone SE 3|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone SE 3|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
   ],
   "iOS · iPhone SE 3|menu-first|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
+  ],
+  "iOS · iPhone SE 3|menu-licence-live|tap": [
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
+  ],
+  "iOS · iPhone SE 3|menu-licence|tap": [
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-live|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-nostore-live|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-nostore|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-skydeck-live|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-skydeck|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-tier-s-live|tap": [
     ".tower__head 88x22",
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-tier-s|tap": [
     ".tower__head 88x22",
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-tower-top-live|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-tower-top|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-unlimited-live|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu-unlimited|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
   ],
   "iOS · iPhone SE 3|menu|tap": [
-    ".tower__floor 82x27"
+    ".tower__floor 82x26",
+    ".tower__base 92x22"
+  ],
+  "iOS · iPhone X|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone X|lesson-card-last|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone X|lesson-card-pad|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
+  ],
+  "iOS · iPhone X|lesson-card|inkline": [
+    ".hud--contract .pl-notch value sits 0.80px below its label"
   ],
   "iOS · iPhone X|menu-first|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone X|menu-licence-live|tap": [
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
+  ],
+  "iOS · iPhone X|menu-licence|tap": [
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-nostore-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-nostore|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-skydeck-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-skydeck|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-tier-s-live|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-tier-s|tap": [
     ".tower__head 114x22",
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-tower-top-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-tower-top|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-unlimited-live|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu-unlimited|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ],
   "iOS · iPhone X|menu|tap": [
-    ".tower__floor 108x26"
+    ".tower__floor 108x25",
+    ".tower__base 118x22"
   ]
 }
