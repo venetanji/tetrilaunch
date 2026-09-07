@@ -1,6 +1,6 @@
 import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
-import { baseBayFor, payoutMult } from "../game/level";
+import { baseBayFor, CHAIN_RUNGS_MAX, payoutMult } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
 import type { GradeTally } from "../game/grades";
 import {
@@ -2445,19 +2445,23 @@ export const PAUSE_HOLD_NAME = "Pause — hold to restart the bay";
  * part of it answers "what does the next row pay", which is the question the
  * old meta line was standing in front of.
  *
- * TWELVE RUNGS, and the number is a WIDTH verdict rather than a cap on the
- * mechanic. The combo is unbounded (game.ts increments it once per crush), so a
- * ladder that ended at the true maximum would end nowhere; twelve is what the
- * row can draw and still have each rung read as a bar rather than a tick. On
- * the tightest notched handset in sim/uifit's matrix — the iPhone X, whose
- * plant panel gets 229 CSS px of content — the label, star and price quote take
- * ~103px of the full-width row, leaving the rungs ~126px: about 7.5px each on a
- * 6px height, with 2px between them. Thirteen would cross under the height and
- * start reading as dots. Twelve is also comfortably past any streak a real bay
- * produces, and a combo past it simply leaves every rung lit, which is the
- * honest picture of "you are at the top of this".
+ * HOW MANY RUNGS IS THE BAY'S QUESTION, NOT THIS FILE'S (level.ts's
+ * chainRungsFor). It was a flat twelve, defended here as a width verdict and
+ * as being "comfortably past any streak a real bay produces" — and that second
+ * clause was the bug written down as a virtue. A Mark 1 bay 9 crosses its
+ * target on the EIGHTH crush; the row drew twelve, so a third of it was
+ * promising a streak the bay could not physically contain. Reported from play,
+ * with four rungs still dark one crush from the end. Across the whole 10x10
+ * ladder the real answer is 6 to 10.
+ *
+ * The width argument survives as a CEILING rather than as the count
+ * (CHAIN_RUNGS_MAX), and it was measured again while this changed: on the
+ * tightest row in sim/uifit's matrix — the iPhone 13 mini, not the iPhone X
+ * this comment used to name — twelve rungs are 7.3px wide on a 9px height,
+ * already the tick this file said twelve was chosen to avoid. A derived 6-10 is
+ * WIDER per rung than what shipped, so the fix costs the row nothing and
+ * returns some of its legibility.
  * ------------------------------------------------------------------------ */
-export const CHAIN_RUNGS = 12;
 
 /** Everything the ladder is a pure function of. */
 export type ChainState = {
@@ -2473,6 +2477,11 @@ export type ChainState = {
   scorePerLine: number;
   /** The bay was finished with a perfect chain (game.ts's Game.fullChain). */
   full: boolean;
+  /** How many rungs this bay's ladder has — the most crushes it can chain
+   *  before it ends (level.ts's chainRungsFor). Part of the state rather than a
+   *  constant here because it is a fact about the bay's economy, not about the
+   *  row's typography. */
+  rungs: number;
 };
 
 /** The ladder as a bay opens: nothing crushed, nothing congested, and no price
@@ -2480,6 +2489,11 @@ export type ChainState = {
  *  `chain` option. */
 export const CHAIN_AT_REST: ChainState = {
   combo: 0, tierIdx: -1, capMult: 1, scorePerLine: 0, full: false,
+  // A caller with no bay behind it has no economy to solve, so it gets the
+  // longest ladder the row can draw — which is also the worst case for anything
+  // measuring the row's geometry, and those are exactly the callers that use
+  // this constant.
+  rungs: CHAIN_RUNGS_MAX,
 };
 
 /**
@@ -2499,15 +2513,16 @@ export const CHAIN_AT_REST: ChainState = {
  */
 export function chainLadderHTML(state: ChainState): string {
   const { combo, tierIdx, capMult, scorePerLine, full } = state;
+  const total = Math.max(1, Math.round(state.rungs));
   const congested = tierIdx >= 0 && !full;
   // WHAT EACH RUNG SAYS. On a full chain every rung is gold — the bay is over
   // and the ladder is the trophy. Congested, every rung is dark behind the gate
   // line: the streak is not merely stalled, it is CAPPED, and a half-lit ladder
   // would read as "still going". Otherwise it is the streak itself, plus one
   // outlined rung showing exactly which crush the price beside it is for.
-  const lit = full ? CHAIN_RUNGS : congested ? 0 : Math.min(combo, CHAIN_RUNGS);
+  const lit = full ? total : congested ? 0 : Math.min(combo, total);
   const next = full || congested ? -1 : lit + 1;
-  const rungs = Array.from({ length: CHAIN_RUNGS }, (_, i) => {
+  const rungs = Array.from({ length: total }, (_, i) => {
     const n = i + 1;
     const cls = n <= lit ? " is-lit" : n === next ? " is-next" : "";
     return `<i class="pl-chain__rung${cls}"></i>`;

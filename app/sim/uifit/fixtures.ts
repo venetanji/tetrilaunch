@@ -20,7 +20,7 @@ import { LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL } from "../../src/g
 import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
-import { makeBaseLevel } from "../../src/game/level";
+import { CHAIN_RUNGS_MAX, makeBaseLevel } from "../../src/game/level";
 
 /** Tier 1's first bay — the numbers a fixture should show, now that the tier
  *  ladder means "the bay" is a function of the Mark being flown (level.ts).
@@ -1006,9 +1006,9 @@ export const SCREENS: Record<string, () => string> = {
   // label from a price to a cap. Full chain carries the longest label the row
   // can hold at the state where every rung also has a glow.
   "hud-congested": () =>
-    withChain({ combo: 4, tierIdx: 1, capMult: 0.6, scorePerLine: CHAIN_QUOTE, full: false }),
+    withChain({ combo: 4, tierIdx: 1, capMult: 0.6, scorePerLine: CHAIN_QUOTE, full: false, rungs: CHAIN_RUNGS_MAX }),
   "hud-fullchain": () =>
-    withChain({ combo: 9, tierIdx: -1, capMult: 1, scorePerLine: CHAIN_QUOTE, full: true }),
+    withChain({ combo: 9, tierIdx: -1, capMult: 1, scorePerLine: CHAIN_QUOTE, full: true, rungs: CHAIN_RUNGS_MAX }),
 
   "hud-contract": () =>
     S.hudHTML({

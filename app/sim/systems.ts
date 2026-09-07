@@ -17,7 +17,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS } from "../src/game/game";
-import {
+import { CHAIN_RUNGS_MAX, CHAIN_RUNGS_MIN, chainRungsFor,
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
   LAUNCH_COST_BASE, LAUNCH_COST_TOP, TARGET_BASE, TARGET_PER_BAY,
   TARGET_PER_BAY_PER_TIER, TARGET_PER_TIER, TIER_COUNT, TIME_BASE, TIME_PER_TIER,
@@ -211,7 +211,7 @@ import {
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
   menuScreen, menuPlaySub, salvageHTML,
   collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
-  chainLadderHTML, CHAIN_RUNGS, CHAIN_AT_REST,
+  chainLadderHTML, CHAIN_AT_REST,
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
@@ -4423,9 +4423,20 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
   const label = (html: string): string =>
     html.match(/id="hud-chain-val">([^<]*)</)?.[1] ?? "";
 
-  const clean = chainLadderHTML({ combo: 3, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false });
+  // EVERY STATE HERE NAMES ITS OWN LADDER LENGTH. The count used to be a
+  // constant this file could assert against; it is the bay's economy now
+  // (level.ts's chainRungsFor), so a check that wants a specific number has to
+  // say which — and the ones that do not care say so by using the same `bars`.
+  const bars = 8;
+  const clean = chainLadderHTML({ combo: 3, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false, rungs: bars });
   check("the ladder is drawn to the bay's ceiling, every time",
-    rungs(clean) === CHAIN_RUNGS, `${rungs(clean)} rungs`);
+    rungs(clean) === bars, `${rungs(clean)} rungs`);
+  // ...and a DIFFERENT bay draws a different ladder, which is the whole change.
+  check("a shorter bay draws a shorter ladder",
+    rungs(chainLadderHTML({ ...CHAIN_AT_REST, rungs: 5 })) === 5);
+  check("...and never fewer than one, whatever it is handed",
+    rungs(chainLadderHTML({ ...CHAIN_AT_REST, rungs: 0 })) === 1
+      && rungs(chainLadderHTML({ ...CHAIN_AT_REST, rungs: -3 })) === 1);
   check("a streak lights one rung per crush", lit(clean) === 3, `${lit(clean)} lit`);
   check("exactly one rung is outlined as the next one",
     (clean.match(/pl-chain__rung is-next/g) ?? []).length === 1);
@@ -4441,15 +4452,15 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
   // A streak past the ladder's end leaves every rung lit and outlines none:
   // there is no rung left to promise, and an outline past the twelfth would be
   // pointing off the panel.
-  const overflow = chainLadderHTML({ combo: 40, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false });
+  const overflow = chainLadderHTML({ combo: 40, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false, rungs: bars });
   check("a streak past the ladder fills it and outlines nothing",
-    lit(overflow) === CHAIN_RUNGS && !overflow.includes("is-next"));
+    lit(overflow) === bars && !overflow.includes("is-next"));
 
   // CONGESTED: the chain snaps dark behind the gate and the label switches from
   // a promise to a CEILING. Amber at the first tier, red at the second, the
   // same order as the rows lighting the bay floor (render.ts).
-  const amber = chainLadderHTML({ combo: 3, tierIdx: 0, capMult: 0.6, scorePerLine: 100, full: false });
-  const red = chainLadderHTML({ combo: 3, tierIdx: 1, capMult: 0.4, scorePerLine: 100, full: false });
+  const amber = chainLadderHTML({ combo: 3, tierIdx: 0, capMult: 0.6, scorePerLine: 100, full: false, rungs: bars });
+  const red = chainLadderHTML({ combo: 3, tierIdx: 1, capMult: 0.4, scorePerLine: 100, full: false, rungs: bars });
   check("congestion darkens every rung — a half-lit ladder reads as still going",
     lit(amber) === 0 && !amber.includes("is-next"));
   check("congestion quotes the CAP, not the next crush",
@@ -4459,11 +4470,86 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
 
   // FULL CHAIN: gold end to end, and it OUTRANKS congestion — the latch is a
   // verdict on the finished bay, and a bay can be won on a congested field.
-  const full = chainLadderHTML({ combo: 5, tierIdx: 1, capMult: 0.4, scorePerLine: 100, full: true });
-  check("a full chain lights every rung", lit(full) === CHAIN_RUNGS);
+  const full = chainLadderHTML({ combo: 5, tierIdx: 1, capMult: 0.4, scorePerLine: 100, full: true, rungs: bars });
+  check("a full chain lights every rung", lit(full) === bars);
   check("a full chain says so instead of quoting a price", label(full) === "Full chain");
   check("a full chain outranks a congested field",
     full.includes("pl-chain--full") && !full.includes("pl-chain--congest"));
+
+  // THE LADDER'S LENGTH IS THE BAY'S ECONOMY, and this is the check that had no
+  // equivalent while it was a constant.
+  //
+  // It shipped as a flat twelve, defended in screens.ts as "comfortably past
+  // any streak a real bay produces" — which is the bug stated as a virtue. The
+  // owner reported a Mark 1 bay 9 one crush from its target with four rungs
+  // still dark. Reproduced here from the shipping numbers rather than from the
+  // screenshot: that bay's target is 2520 against a $180 line, and it crosses
+  // on the EIGHTH crush.
+  {
+    const bay9 = makeBaseLevel(8, 1);
+    check("the reported bay's ladder is eight rungs, not twelve",
+      chainRungsFor(bay9) === 8, `${chainRungsFor(bay9)} for target ${bay9.targetScore}`);
+
+    // NO BAY DRAWS A RUNG IT CANNOT LIGHT, anywhere on the ladder. Walked
+    // against the payout loop rather than the closed form, so the formula has
+    // to agree with simply adding the crushes up — if it ever does not, this is
+    // the check that says so rather than the arithmetic marking its own work.
+    let worst = { id: "", drawn: 0, reachable: 0 };
+    let overdrawn = 0;
+    for (let mark = 1; mark <= MARK_COUNT; mark++) {
+      for (let bay = 0; bay < RUN_LEVELS; bay++) {
+        const lvl = makeBaseLevel(bay, mark);
+        const drawn = chainRungsFor(lvl);
+        let funds = lvl.startingFunds;
+        let reachable = 0;
+        while (funds < lvl.targetScore && reachable < 500) {
+          reachable++;
+          funds += lvl.scorePerLine * payoutMult(reachable, null);
+        }
+        if (drawn > reachable) {
+          overdrawn++;
+          if (drawn - reachable > worst.drawn - worst.reachable) {
+            worst = { id: `mark ${mark} bay ${bay + 1}`, drawn, reachable };
+          }
+        }
+      }
+    }
+    check("no bay draws a rung its own economy cannot reach",
+      overdrawn === 0,
+      `${overdrawn} bays overdraw, worst ${worst.id}: ${worst.drawn} drawn vs ${worst.reachable} reachable`);
+
+    // ...and the ladder stays inside the width the row can actually draw.
+    let lo = Infinity;
+    let hi = 0;
+    for (let mark = 1; mark <= MARK_COUNT; mark++) {
+      for (let bay = 0; bay < RUN_LEVELS; bay++) {
+        const n = chainRungsFor(makeBaseLevel(bay, mark));
+        lo = Math.min(lo, n);
+        hi = Math.max(hi, n);
+      }
+    }
+    check("every ladder fits the row's legible band",
+      lo >= CHAIN_RUNGS_MIN && hi <= CHAIN_RUNGS_MAX, `${lo}..${hi}`);
+    check("...and they are not all the same length, which was the defect",
+      lo < hi, `${lo}..${hi}`);
+
+    // A BAY WITH NO FUNDING TARGET has no economic ceiling to solve for — a
+    // Contract, a drill, a scaffolded lesson — and falls back to the full row
+    // rather than to a nonsense number out of a division by MAX_SAFE_INTEGER.
+    check("a bay that does not end on money draws the full row",
+      chainRungsFor({ ...makeBaseLevel(0, 1), targetScore: Number.MAX_SAFE_INTEGER })
+        === CHAIN_RUNGS_MAX);
+    check("...and so does one with no line price",
+      chainRungsFor({ ...makeBaseLevel(0, 1), scorePerLine: 0 }) === CHAIN_RUNGS_MAX);
+
+    // THE STREAK LESSON STATES ITS OWN MAXIMUM, so the goal and the picture of
+    // the goal are the same object.
+    const streak = lessonById("the-streak")!;
+    const goal = streak.goal;
+    check("the streak lesson's ladder is exactly its combo goal",
+      goal?.kind === "combo" && chainRungsFor(levelForLesson(streak)) === goal.to,
+      `${chainRungsFor(levelForLesson(streak))} rungs`);
+  }
 
   // A caller that cannot quote a price quotes NOTHING. "$0" is a worse lie than
   // silence.
@@ -4489,14 +4575,14 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
   };
   const won = hudHTML({
     ...panelOpts,
-    chain: { combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true },
+    chain: { combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true, rungs: 9 },
   });
   check("the panel mounts the ladder it is handed, not one at rest",
-    lit(won) === CHAIN_RUNGS && label(won) === "Full chain",
+    lit(won) === 9 && label(won) === "Full chain",
     `${lit(won)} lit, label "${label(won)}"`);
   const atRest = hudHTML(panelOpts);
   check("...and a caller with no bay behind it mounts the resting ladder",
-    rungs(atRest) === CHAIN_RUNGS && lit(atRest) === 0 && label(atRest) === "");
+    rungs(atRest) === CHAIN_RUNGS_MAX && lit(atRest) === 0 && label(atRest) === "");
   // A Contract has no bankroll, no payout and therefore no streak worth money.
   // Same reasoning that took the meta line out of it, checked from the markup
   // rather than assumed from the mode.
@@ -4504,7 +4590,7 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
     !hudHTML({
       ...panelOpts,
       timeLimitSec: 0, timeLeftMs: 0,
-      chain: { combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true },
+      chain: { combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true, rungs: 9 },
       contract: {
         name: "Foundry Overrun", kind: "lines" as const, goal: 6, lines: 2,
         launchesLeft: 9, remaining: [], lost: 1, conditions: "crosswind", tier: 2,

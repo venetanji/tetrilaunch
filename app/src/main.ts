@@ -1,6 +1,6 @@
 import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
-import { makeBaseLevel } from "./game/level";
+import { chainRungsFor, makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
@@ -1906,6 +1906,11 @@ class App {
       // belongs and where the payout already applies it.
       scorePerLine: g.level.scorePerLine,
       full: g.fullChain,
+      // HOW FAR THIS BAY CAN GO, solved off its own economy rather than drawn
+      // as a constant (level.ts's chainRungsFor). Read from the LEVEL, so a bay
+      // whose target or line price was moved by a ratchet, the Skydeck's rates
+      // or a lesson's own dials draws the ladder that bay actually has.
+      rungs: chainRungsFor(g.level),
     };
   }
 

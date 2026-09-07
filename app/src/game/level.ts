@@ -1461,6 +1461,81 @@ export const PILE_TIERS: PileTier[] = [
  *  clear of a streak pays 1x, the second 1.25x, and so on. */
 export const COMBO_STEP = 0.25;
 
+/** Floor and ceiling on the chain ladder's length (ui/screens.ts draws it).
+ *
+ *  The FLOOR is legibility of a different kind: a two-rung ladder does not read
+ *  as a ladder, and a bay whose target is one lucky crush away should still
+ *  show the player what a streak is for. The CEILING is the width verdict the
+ *  count used to be — past about fourteen a rung is narrower than it is tall on
+ *  the tightest handset and starts reading as a dot rather than a bar. Fourteen
+ *  rather than twelve because the ratcheted top end genuinely needs it: a Mark
+ *  10 bay under several Fuel Levy notches takes fourteen swept singles. */
+export const CHAIN_RUNGS_MIN = 4;
+export const CHAIN_RUNGS_MAX = 14;
+
+/**
+ * How many crushes THIS BAY can chain — the length of its ladder.
+ *
+ * DERIVED, because the count is an economic fact and drawing it as a constant
+ * was the bug. It shipped as a flat twelve on the argument that twelve is
+ * "comfortably past any streak a real bay produces", which is exactly backwards
+ * as a design: the owner reported a Mark 1 bay 9 sitting one crush from the
+ * target with four rungs still dark, and across the whole 10x10 ladder the real
+ * answer is 6 to 10. A third of the row was promising a streak the bay could
+ * not physically contain.
+ *
+ * THE ARITHMETIC. A streak's k-th crush pays `scorePerLine * payoutMult(k)`, so
+ * the fewest single-row crushes covering the funding gap R solves
+ *
+ *     sum_{k=1..n} payoutMult(k)  =  n + s*n*(n-1)/2  >=  R,    s = COMBO_STEP
+ *
+ * which is a quadratic in n. The closed form below was checked against simply
+ * adding the payouts up, at all 100 (mark, bay) positions: identical every
+ * time. Singles rather than doubles on purpose — this is the ladder's CEILING,
+ * the most rungs the bay can ever light, and a player closing doubles finishes
+ * it in fewer.
+ *
+ * NOT AN ESTIMATE OF WHAT THE PLAYER WILL DO. It ignores launch spend, which
+ * makes the real number a rung or two higher, and it ignores that the ladder
+ * counts CRUSHES rather than lines — a four-row collapse lights one rung and
+ * sells four rows, so a tetris player finishes far short of the end whatever
+ * this returns. Both push the same way: the drawn ladder is an upper bound, and
+ * an upper bound is the honest thing for a row that says "here is how far this
+ * can go".
+ */
+export function chainRungsFor(level: {
+  targetScore: number;
+  startingFunds: number;
+  scorePerLine: number;
+  lessonGoal?: LessonGoal | null;
+}): number {
+  const clamp = (n: number): number =>
+    Math.max(CHAIN_RUNGS_MIN, Math.min(CHAIN_RUNGS_MAX, Math.round(n)));
+  // A BAY THAT STATES ITS OWN MAXIMUM. The streak lesson asks for a combo of
+  // exactly N, so N is its ladder — the goal and the picture of the goal are
+  // then the same object, which is the whole point of a teaching bay.
+  // NOT THROUGH `clamp`: the floor exists to stop a DERIVED count collapsing
+  // into something that does not read as a ladder, and a bay that states its
+  // own maximum has no such problem — padding a combo-of-three goal up to the
+  // floor would leave a dark rung at the end of a bay that cannot light it,
+  // which is the whole defect being fixed.
+  if (level.lessonGoal?.kind === "combo") {
+    return Math.max(1, Math.min(CHAIN_RUNGS_MAX, Math.round(level.lessonGoal.to)));
+  }
+  // No funding target to solve against (a Contract, a drill, a scaffolded
+  // lesson — targetScore is MAX_SAFE_INTEGER there) or no price on a line.
+  // These bays end on lines or a launch budget, not on money, so there is no
+  // economic ceiling to read and the ladder falls back to its full length.
+  if (!(level.scorePerLine > 0) || !Number.isFinite(level.targetScore)
+    || level.targetScore >= Number.MAX_SAFE_INTEGER) {
+    return CHAIN_RUNGS_MAX;
+  }
+  const gap = (level.targetScore - level.startingFunds) / level.scorePerLine;
+  if (!(gap > 0)) return CHAIN_RUNGS_MIN;
+  const a = 1 - COMBO_STEP / 2;
+  return clamp(Math.ceil((-a + Math.sqrt(a * a + 2 * COMBO_STEP * gap)) / COMBO_STEP));
+}
+
 /**
  * What one line is worth as a multiple of scorePerLine — the combo streak,
  * capped by congestion.
