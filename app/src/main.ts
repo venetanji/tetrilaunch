@@ -972,6 +972,26 @@ class App {
   /** Its index in the ladder — the number the licence records, and the number
    *  the card's eyebrow prints. */
   private lessonIndex = 0;
+  /** The ladder length THIS BAY WAS ENTERED UNDER — the denominator its cards
+   *  and its result print.
+   *
+   *  Snapshotted rather than read live, because `schoolLength` is a function of
+   *  the licence, and the win that mounts the result card is the write that
+   *  changes it: recordLesson lands the fourth lesson, licenceDone flips, and a
+   *  card headed "Licence earned" printed "Flight School · 4/9" — a denominator
+   *  the player had never been shown, on the one screen that exists to tell
+   *  them the short course is over. Routing every surface through one accessor
+   *  made them agree; it could not make them agree with the run that just
+   *  ended. */
+  private lessonTotal = LICENCE_LESSON_COUNT;
+  /** Whether the win that just ended THIS bay is the one that issued the
+   *  licence — captured in onGameStatus before recordLesson, since that write
+   *  is exactly what would make a live read wrong. False on every replay of the
+   *  last licence lesson, which is the whole reason it is a field. */
+  private lessonIssuedLicence = false;
+  /** The same for the ladder's last rung — the win that took the licence count
+   *  to LESSON_COUNT, rather than any later replay of Clutter. */
+  private lessonFinishedCourse = false;
   /** Which card of the lesson's deck is up, or null once the deck has been
    *  played out and the bay is the player's. */
   private lessonCard: number | null = null;
@@ -1634,7 +1654,7 @@ class App {
     // because they carry different copy and a different eyebrow.
     if (this.lesson && this.lessonCard !== null && this.state === "playing") {
       this.mountCoach(S.lessonCardHTML(
-        this.lesson, this.lessonIndex, this.lessonCard, schoolLength(this.meta), p,
+        this.lesson, this.lessonIndex, this.lessonCard, this.lessonTotal, p,
       ));
     }
     this.syncRevealStage();
@@ -2693,7 +2713,17 @@ class App {
     // leave the roof lit. Selected by the pair of classes rather than by
     // `[data-tier]`, so the beacon in its CLOSED state (which carries no
     // data-tier) cannot be swept up by the same query.
-    for (const f of shaft.querySelectorAll<HTMLElement>(".tower__floor, .tower__head--floor")) {
+    // ...AND THE GROUND FLOOR, which is a sibling of the shaft rather than a
+    // rung inside it (tierTowerHTML renders the lobby after the shaft closes),
+    // so a query scoped to `shaft` never reached it. Measured: picking the
+    // lobby cleared Tier 1's highlight and lit nothing, so NO floor in the
+    // building read as chosen; picking Tier 1 afterwards left the lobby lit as
+    // well, so TWO did. The primary button changed face correctly throughout,
+    // which is what kept it invisible.
+    const building = shaft.parentElement ?? shaft;
+    for (const f of building.querySelectorAll<HTMLElement>(
+      ".tower__floor, .tower__head--floor, .tower__base--floor",
+    )) {
       const sel = Number(f.getAttribute("data-tier")) === tier;
       f.classList.toggle("is-selected", sel);
       f.setAttribute("aria-pressed", String(sel));
@@ -3040,7 +3070,15 @@ class App {
     // the car is on, and a ladder best printed over a sandbox panel would be
     // the one number on it that belonged to somewhere else.
     const best = sbx ? loadBest(BOARD_SANDBOX) : loadBest();
-    panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras });
+    panel.outerHTML = S.baseBayPanelHTML({
+      tier, best, extras,
+      // THE LADDER, or the ride rewrites the lobby's count away. This call
+      // passed nothing, and a lobby panel rendered at "2 / 4" came back from
+      // the very next elevator trip reading "Licence earned" — the same shape
+      // of drift the lesson denominators had, in the one place a first-time
+      // player is watching for their own progress.
+      licence: { done: this.meta.licence, total: schoolLength(this.meta) },
+    });
     // THE PARK MOVED, and the panel says so — the half the odometer cannot.
     // rollBayStats leaves an unchanged readout still, on purpose (a track of two
     // identical cells tears rather than holds), so the trips that change none of
@@ -3301,14 +3339,27 @@ class App {
               won: g.status === "won",
               name: this.lesson.name,
               index: this.lessonIndex,
-              total: schoolLength(this.meta),
+              total: this.lessonTotal,
               brief: this.lesson.brief,
               lines: g.linesTotal,
               shotsUsed: g.shotsFired,
               launches: g.level.launchBudget,
-              // The licence lands on the LAST lesson's win, and only there.
-              licence: g.status === "won" && this.lessonIndex === LICENCE_LESSON_COUNT - 1,
-              courseComplete: g.status === "won" && this.lessonIndex >= LESSON_COUNT - 1,
+              // The licence lands on the LAST lesson's win, and only ONCE.
+              // Without the third clause a Mark-4 player re-flying Lob or Skim
+              // was told "Licence Earned — Tier 1 is open" about a tier they
+              // had been flying for hours, and lesson-exit then forced the
+              // elevator back to Tier 1 behind it. `lessonIssuedLicence` is
+              // captured in onGameStatus BEFORE recordLesson, because the write
+              // that issues the licence is the one that would make this read
+              // false a frame later.
+              licence: g.status === "won"
+                && this.lessonIndex === LICENCE_LESSON_COUNT - 1
+                && this.lessonIssuedLicence,
+              // ...and the same for the ladder's end, on the same terms: a
+              // replay of the last bay is not a graduation.
+              courseComplete: g.status === "won"
+                && this.lessonIndex >= LESSON_COUNT - 1
+                && this.lessonFinishedCourse,
             });
         }
         break;
@@ -3383,7 +3434,7 @@ class App {
           // there, when the input profile changes under it.
           if (this.lesson && this.lessonCard !== null) {
             this.mountCoach(S.lessonCardHTML(
-              this.lesson, this.lessonIndex, this.lessonCard, schoolLength(this.meta), this.profile,
+              this.lesson, this.lessonIndex, this.lessonCard, this.lessonTotal, this.profile,
             ));
           }
           this.lastNext = null;
@@ -4446,6 +4497,41 @@ class App {
     if (!hud) return;
     if (this.tutorialStep === null) delete hud.dataset.coach;
     else hud.dataset.coach = String(this.tutorialStep);
+    this.syncCarded(hud);
+  }
+
+  /**
+   * "A TEACHING CARD IS SHARING THE PLANT PANEL'S COLUMN" — the one fact a
+   * dozen layout rules in app.css actually need, published as `data-carded`.
+   *
+   * It exists because those rules were all written against `data-coach`, back
+   * when the four-card deck was the only card there was. Flight School mounts
+   * its card into the same slot (mountCoach, .coach) and deliberately does NOT
+   * set `data-coach` — a lesson has a stage, not a step — so every one of them
+   * silently stopped applying the moment the ladder shipped. Measured on the
+   * live app at 640x360, lesson 1:
+   *
+   *   - the plant kept `pointer-events: auto`, so the bottom-left 41% x 37% of
+   *     the screen SWALLOWED THE SLINGSHOT DRAG — under a card reading "pull
+   *     back anywhere on the field". The stylesheet comment above that rule
+   *     predicts this exact failure in as many words;
+   *   - `max-height: calc(0.52 * var(--field-h))` — the card's height cap, the
+   *     number the whole deck-vs-panel argument rests on — read `none`;
+   *   - the aim-through fade did not fire, so the panel stayed opaque over the
+   *     arc the player was pulling, in the mode that teaches the arc;
+   *   - the panel stayed `space-between` with most blocks hidden, stranding one
+   *     row at the bottom of an empty box.
+   *
+   * SEPARATE FROM BOTH `data-coach` AND `data-reveal`, and that is the whole
+   * point: `data-coach` carries the old deck's STEP (two rules key on a
+   * specific one), `data-reveal` carries a lesson's STAGE, and neither of those
+   * numbers is what a layout rule wants to ask. This asks the question they
+   * were all really asking.
+   */
+  private syncCarded(hud: HTMLElement): void {
+    const carded = this.tutorialStep !== null || (this.lesson !== null && this.lessonCard !== null);
+    if (carded) hud.dataset.carded = "1";
+    else delete hud.dataset.carded;
   }
 
   /** Per-frame step detection (called from syncHud, so it reads the same live
@@ -4593,6 +4679,7 @@ class App {
     this.tutorialStep = null;
     this.lesson = lesson;
     this.lessonIndex = index;
+    this.lessonTotal = schoolLength(this.meta);
     this.lessonCard = 0;
     // FIXED SEED (school.ts's lessonSeed), so a retry is the same bay. Eight of
     // the nine are fully authored and would not notice; "Lost Cargo" deals a
@@ -4662,7 +4749,7 @@ class App {
     }
     this.lessonCard = next;
     this.mountCoach(S.lessonCardHTML(
-      lesson, this.lessonIndex, next, schoolLength(this.meta), this.profile,
+      lesson, this.lessonIndex, next, this.lessonTotal, this.profile,
     ));
     if (react) this.overlay.querySelector("#coach")?.classList.add("coach--advance");
     this.syncRevealStage();
@@ -4683,13 +4770,15 @@ class App {
    * Publish how much of the readout this bay shows, as `data-reveal` on the
    * HUD — which is what app.css hides the blocks against.
    *
-   * SEPARATE FROM `data-coach`, and the split is load-bearing. `data-coach`
-   * carries the old four-card deck's step and is what the CARD's own layout
-   * rules key on (the panel height cap, the aiming fade, the rotate-button
-   * highlight); this carries the LESSON's stage and is what the readout's
-   * hide-list keys on. Folding them back together would mean a lesson's reveal
-   * and its card position had to be the same number, which they are not: a
-   * lesson has one stage and a deck of two or three cards.
+   * THREE ATTRIBUTES, THREE QUESTIONS, and the split is load-bearing.
+   * `data-coach` carries the old four-card deck's STEP and now drives only the
+   * two rules that name a specific one; `data-carded` says a teaching card is
+   * sharing the panel's column, which is what every LAYOUT rule was really
+   * asking (syncCarded); and this carries the lesson's STAGE, which is what the
+   * readout's hide-list keys on. Folding any two together means a lesson's
+   * reveal, its card position and its panel layout have to be one number, and
+   * they are not: a lesson has one stage and a deck of two or three cards, and
+   * its card comes and goes inside the bay while the stage never moves.
    *
    * An ATTRIBUTE rather than a re-render, for the reason syncCoachReveal
    * states: the plant's readouts are patched per-frame by syncHud against live
@@ -4703,6 +4792,10 @@ class App {
     if (!hud) return;
     if (!this.lesson || this.lesson.reveal >= REVEAL.all) delete hud.dataset.reveal;
     else hud.dataset.reveal = String(this.lesson.reveal);
+    // ...and whether a card is currently sharing the panel's column, which is
+    // what the layout rules key on (syncCarded). A lesson's card is mounted and
+    // dismissed inside the bay, so this moves without the stage moving.
+    this.syncCarded(hud);
     // ...and the rail control this lesson wants pointed at (Lesson.spotlight).
     // Published on the same node and in the same place, because both are "what
     // this lesson is showing the player" and a second sync would be a second
@@ -4822,7 +4915,11 @@ class App {
       this.showSettleNote(false);
       if (s === "won") {
         void successHaptic();
+        const wasLicensed = licenceDone(this.meta);
+        const wasFinished = this.meta.licence >= LESSON_COUNT;
         const next = recordLesson(this.meta, this.lessonIndex);
+        this.lessonIssuedLicence = !wasLicensed && licenceDone(next);
+        this.lessonFinishedCourse = !wasFinished && next.licence >= LESSON_COUNT;
         if (next !== this.meta) {
           this.meta = next;
           saveMeta(this.meta);
@@ -5805,6 +5902,25 @@ class App {
     // through here with nothing left to re-open — so it needs no test beyond
     // the field itself, and none at all when recording is off.
     if (this.run?.filed) telemetry.resumeRun();
+    // A LESSON RESTARTS FROM ITS OWN FIXED SEED (school.ts's lessonSeed), so
+    // this hands back the identical bay — the drill's reasoning exactly, and
+    // asked first for the same reason a lesson is read first everywhere else.
+    //
+    // Its absence was not a missing feature, it was a dead button. A lesson
+    // nulls `run`, `contract` AND `drill`, so every branch below missed and the
+    // method fell out of `if (!this.run) return` having done nothing — while
+    // bayRetryOffered (`!this.run`) was answering TRUE, so the pause card drew
+    // Restart Bay and startPauseHold armed the hold gesture. Tapping did
+    // nothing; holding filled the meter, fired the success haptic and did
+    // nothing, which is the exact failure startPauseHold's own note says it
+    // exists to prevent. Worst on the two lessons with no scaffolding and a
+    // finite launch budget, where a buried bay has no other way out.
+    if (this.lesson) {
+      this.startLesson(this.lessonIndex);
+      this.last = performance.now();
+      this.acc = 0;
+      return;
+    }
     // A drill restarts from its own fixed seed (drillSeed), so pausing and
     // restarting hands back the identical lesson — same reasoning as the
     // Contract below.
@@ -6558,9 +6674,14 @@ class App {
     // doing exactly its job: a bay you have filled up really does hold fewer
     // shots than the same bankroll bought a minute ago, and the number falling
     // as the pile grows is the clearest statement of the rule the HUD can make.
-    // Combo is also present in the Flight School streak lesson, where it is
-    // the objective rather than an economy footnote.
-    set("#hud-combo", "×" + g.combo);
+    // NO `#hud-combo` WRITE HERE. There is no such element anywhere in src/ —
+    // the meta line that carried it ("Combo ×0 · Launch $20 · Scrap 0") is gone
+    // (screens.ts's "NO META LINE"), and the combo is drawn by the chain
+    // ladder, which is patched on its own id further down. The write survived
+    // the removal as a per-frame no-op with a comment claiming the Flight
+    // School streak lesson needed it; that lesson reads the ladder like every
+    // other bay. `set` is silent on a missing id, which is why nothing caught
+    // it.
     if (!this.linesBay(g)) {
       // The economy readouts, patched in the same Deep-Run-only branch that
       // owns the readout above them: a Contract renders neither the chain

@@ -559,20 +559,59 @@ const LESSON_HUD = (l: (typeof LESSONS)[number]) => ({
  *  against. Same trick withCoach uses below and for the same reason — the
  *  harness must measure the DOM the app actually shows mid-lesson, not a
  *  reconstruction of it. */
-const withReveal = (hud: string, stage: number): string =>
-  hud.replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-reveal="${stage}">`);
+/**
+ * Stamp attributes onto the HUD root, whatever classes it is wearing.
+ *
+ * THE THREE HELPERS BELOW ALL USED TO STRING-REPLACE `<div class="hud"
+ * id="hud">`, and `hudHTML` emits `<div class="hud hud--contract" id="hud">`
+ * for every Contract-shaped panel — which is every Flight School bay. So the
+ * replace matched nothing and returned the HUD untouched: the nine
+ * `lesson-hud-*` fixtures never carried `data-reveal`, the spotlight fixture
+ * never carried `data-hilite`, and the harness spent its whole life measuring
+ * the FULL readout while reporting on the staged one. A no-op that returns its
+ * input is the worst shape a test helper can have, so this one throws.
+ */
+const stampHud = (hud: string, attrs: string): string => {
+  const out = hud.replace(/<div class="hud([^"]*)" id="hud"/, `<div class="hud$1" id="hud" ${attrs}`);
+  if (out === hud) throw new Error(`stampHud found no HUD root to stamp with ${attrs}`);
+  return out;
+};
+
+const withReveal = (hud: string, stage: number): string => stampHud(hud, `data-reveal="${stage}"`);
 
 /** The rail spotlight a lesson asks for (game/school.ts's Lesson.spotlight,
  *  published by main.ts's syncRevealStage as `data-hilite`). Same trick
  *  withReveal uses: stamp the attribute the app stamps, so the harness measures
  *  the rail the player actually sees rather than a reconstruction of it. */
-const withHilite = (hud: string, what: string): string =>
-  hud.replace('<div class="hud" id="hud"', `<div class="hud" id="hud" data-hilite="${what}"`);
+const withHilite = (hud: string, what: string): string => stampHud(hud, `data-hilite="${what}"`);
 
 const withCoach = (hud: string, step: number, coach: string): string =>
-  hud
-    .replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-coach="${step}">`)
+  stampHud(hud, `data-coach="${step}" data-carded="1"`)
     .replace('<div class="plant">', `<div class="plant">${coach}`);
+
+/**
+ * A LESSON'S HUD WITH ITS CARD IN THE PANEL, exactly as main.ts mounts one.
+ *
+ * This used to go through `withCoach`, which stamped `data-coach` — an
+ * attribute a lesson bay never carries. So the harness measured a panel that
+ * was height-capped, tightened, pointer-transparent and fade-enabled, and the
+ * app rendered one that was none of those (see app.css's `[data-carded]` note
+ * for what that cost on device). A fixture that stamps an attribute the app
+ * does not is not a stricter test; it is a test of a different screen.
+ *
+ * The three the app really stamps: the lesson's reveal STAGE, the card-in-panel
+ * flag, and the card itself as the plant's first child.
+ */
+const withCard = (hud: string, stage: number, card: string): string =>
+  stampHud(hud, `data-carded="1" data-reveal="${stage}"`)
+    .replace('<div class="plant">', `<div class="plant">${card}`);
+
+/** The denominator a lesson's card actually prints (meta.ts's schoolLength):
+ *  the SHORT course while the licence is owed, the whole ladder after. Every
+ *  card in the licence — which is every card an unlicensed player will ever
+ *  see — reads "/4", and the fixtures printed "/9". */
+const lessonTotal = (i: number): number =>
+  (i < LICENCE_LESSON_COUNT ? LICENCE_LESSON_COUNT : LESSON_COUNT);
 
 /**
  * A Deep Run HUD with the chain ladder in a state main.ts's syncHud would have
@@ -1297,25 +1336,26 @@ export const SCREENS: Record<string, () => string> = {
      stage has already spent, and those vary independently, so a middle stage
      can be tighter than either end. Rendered with NO card over it as the state
      after the player hides the live tip. */
-  "lesson-card": () => withCoach(
-    S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
-    S.lessonCardHTML(LESSONS[4], 4, 0, LESSON_COUNT),
+  "lesson-card": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[4]) }), LESSONS[4].reveal,
+    S.lessonCardHTML(LESSONS[4], 4, 0, lessonTotal(4)),
   ),
   // The only profile-aware Flight School card: the first thing a new player
   // reads must fit after spelling out the touch slingshot gesture in full.
-  "lesson-card-aim": () => withCoach(
-    S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
-    S.lessonCardHTML(LESSONS[0], 0, 0, LESSON_COUNT, "touch"),
+  "lesson-card-aim": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]) }), LESSONS[0].reveal,
+    S.lessonCardHTML(LESSONS[0], 0, 0, lessonTotal(0), "touch"),
   ),
-  "lesson-card-last": () => withCoach(
-    S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
-    S.lessonCardHTML(LESSONS[8], 8, 1, LESSON_COUNT),
+  "lesson-card-last": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) }), LESSONS[8].reveal,
+    S.lessonCardHTML(LESSONS[8], 8, 1, lessonTotal(8)),
   ),
   // The pad's route to the card's one button (screens.ts's padKey), on the
   // widest button label the deck has.
-  "lesson-card-pad": () => withCoach(
-    S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 0,
-    S.lessonCardHTML(LESSONS[4], 4, 1, LESSON_COUNT, "gamepad"),
+  "lesson-card-pad": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[4]), profile: "gamepad" }),
+    LESSONS[4].reveal,
+    S.lessonCardHTML(LESSONS[4], 4, 1, lessonTotal(4), "gamepad"),
   ),
   ...Object.fromEntries(LESSONS.map((l, i) => [
     `lesson-hud-${i}`,

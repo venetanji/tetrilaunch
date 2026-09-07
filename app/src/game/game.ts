@@ -2732,7 +2732,10 @@ export class Game {
       const minY = Math.min(...clear.cubes.map((c) => c.y));
       this.effects.push({
         kind: "payout", x: meanX, y: minY - 30, amount: awarded,
-        grade: headline?.grade ?? null,
+        // WITHHELD ON A LESSON THAT HAS NOT TAUGHT THE BAND (level.ts's
+        // gradeCallout). The row is graded and paid either way; the shout is
+        // the part a player cannot read yet.
+        grade: this.level.gradeCallout ? headline?.grade ?? null : null,
         // Only a CONGESTION cap gets a tag. A row capped for non-participation
         // is a row the player did not close, and there is nothing to tell them
         // about it that the band itself does not already say; congestion is a

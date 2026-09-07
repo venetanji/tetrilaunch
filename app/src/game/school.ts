@@ -1,4 +1,4 @@
-import { applyBayDials, type BayDials } from "./drills";
+import { applyBayDials, CONGESTED, type BayDials } from "./drills";
 import { EXCELLENT_WINDOW_MS, GRADE_PAY } from "./grades";
 import {
   makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, type LessonGoal, type LevelConfig,
@@ -89,10 +89,16 @@ export interface LessonCard {
    *  overruns pushes its own tail out of `.coach__body` rather than pushing the
    *  panel. sim/uifit asserts it; sim/systems.ts counts the characters. */
   body: string;
-  /** Replace the generic body with the live input profile's firing gesture.
-   *  Only the first card needs this: learning where to put a shipment is not
-   *  useful until the player knows how their device launches one. */
-  input?: "aim";
+  /** PREFIX this card with the live input profile's verb for an action, out of
+   *  the one hint table (bindings.ts's hintAim / hintRotate).
+   *
+   *  Two cards need it and they are the two that name a CONTROL: the opening
+   *  card, because where to put a shipment is not useful until you know how
+   *  your device launches one, and the rotate card, which typed the touch
+   *  rail's ⟲ / ⟳ glyphs and so pointed a keyboard player at buttons wearing
+   *  Q and E and a pad player at LB / RB. The card supplies what the gesture
+   *  cannot know — what to point it at. */
+  input?: "aim" | "rotate";
 }
 
 /**
@@ -187,17 +193,28 @@ export interface Lesson extends BayDials {
  * a ninth column stands in the bar's path and gets bulldozed on the first
  * stroke. drills.ts's profiles keep the same rule for the same reason.
  *
- * All three below are the SAME IDEA at three widths, and the narrowing is the
+ * THE FIRST THREE ARE THE SAME IDEA AT THREE WIDTHS, and the narrowing is the
  * whole progression: the gap an exercise leaves you shrinks from four columns
  * to two to one, and the shipment that fills it goes from a flat I you only
  * have to land, to an O you have to place, to an I you have to turn on its end
- * and thread. Aim, then placement, then rotation and precision together.
+ * and thread. Aim, then placement, then rotation.
  *
- * THE GAP IS ALWAYS INTERIOR — gold on both sides of it, never at an edge. An
- * edge gap is open on one side, so a piece that overshoots slides away into the
- * bay and the exercise silently becomes a different one. Walls on both sides
- * make a near-miss land visibly wrong instead of vanishing, which is the
+ * THE GAP IS INTERIOR ON ALL THREE — gold on both sides of it, never at an
+ * edge. An edge gap is open on one side, so a piece that overshoots slides away
+ * into the bay and the exercise silently becomes a different one. Walls on both
+ * sides make a near-miss land visibly wrong instead of vanishing, which is the
  * feedback a first-time player is actually here for.
+ *
+ * ENDS IS THE FOURTH, AND IT BREAKS THAT RULE ON PURPOSE — a gap at each edge,
+ * open on one side each. It is the exception because it is the one lesson whose
+ * SUBJECT is the two arcs, and an interior gap cannot state the difference: a
+ * lob and a skim are told apart by what stands between the cannon and the
+ * landing, so the exercise needs one gap behind the pile and one in front of
+ * it. The overshoot the rule protects against is exactly what the skim card
+ * warns about ("it can bounce back out of the zone"), so on this bay a piece
+ * sliding away is the lesson landing rather than the exercise dissolving — and
+ * it is the only lesson that keeps two attempts alive (boardResetAttempts) so a
+ * correct first square is not swept by a wrong second one.
  *
  * Every profile keeps its gap columns at ZERO, which is what guarantees no row
  * is already complete when the bay opens (contracts.ts's salvageProfile makes
@@ -208,7 +225,7 @@ export interface Lesson extends BayDials {
 const TRENCH: number[] = [1, 1, 0, 0, 0, 0, 1, 1];
 
 /** Two rows, one O. A two-column notch, two cubes deep — the square drops in
- *  whole and closes both rows on the same crush. */
+ *  whole and closes both rows on the same stroke. */
 const NOTCH: number[] = [2, 2, 2, 0, 0, 2, 2, 2];
 
 /** Four rows, one upended I — and the depth is the whole trick.
@@ -327,8 +344,12 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "Turn it upright",
-        body: `The well is <b>one column wide</b> and the shipment arrives flat, so turn it`
-          + ` <b>90°</b> first — the glowing <b>⟲ / ⟳</b> buttons.`,
+        input: "rotate",
+        // The gesture prefix already names the two controls in the live device's
+        // own words, and the rail lights them (Lesson.spotlight), so the card
+        // only has to say WHY.
+        body: `The well is <b>one column wide</b> and the shipment arrives flat, so it only`
+          + ` goes in <b>on its end</b>.`,
       },
       {
         title: "Four rows, one drop",
@@ -481,12 +502,14 @@ export const LESSONS: Lesson[] = [
     lines: 2,
     launches: 22,
     fine: true,
-    // drills.ts's CONGESTED profile, deliberately shared rather than re-drawn:
-    // it is sized against PILE_TIERS[0].cubes so the bay opens ALREADY taxed,
-    // and a second copy of that arithmetic would drift the first time the knee
-    // moved. Standard, not gold — a congestion lesson needs a pile that can
-    // actually be dug out of.
-    wall: [7, 7, 1, 0, 1, 7, 7, 7],
+    // drills.ts's CONGESTED profile, SHARED rather than re-drawn: it is sized
+    // against PILE_TIERS[0].cubes so the bay opens ALREADY taxed, and a second
+    // copy of that arithmetic would drift the first time the knee moved. This
+    // comment used to sit above a hand-typed copy of the same eight numbers,
+    // which is the drift it was written to prevent; drills.ts exports the
+    // profile now. Standard, not gold — a congestion lesson needs a pile that
+    // can actually be dug out of.
+    wall: CONGESTED,
     cards: [
       {
         title: "A full bay is priced",
@@ -496,8 +519,11 @@ export const LESSONS: Lesson[] = [
       },
       {
         title: "Stopping is free",
-        body: `The tax is on the <b>shot</b>, never on the pile — so letting the press work costs`
-          + ` you nothing. Firing into a bay you have lost control of is the trap.`,
+        // The longest card in the ladder, and measured the tightest: at its
+        // full length the body scrolled inside `.coach__body` on a 360px-tall
+        // viewport, which is the one failure the copy budget exists to catch.
+        body: `The tax is on the <b>shot</b>, never the pile — letting the press work is free.`
+          + ` Firing into a bay you have lost is the trap.`,
       },
     ],
   },
@@ -512,6 +538,11 @@ const BANKROLL_FLOAT_SHOTS = 12;
  *  three is enough to feel the loop — spend, clear, bank — and eleven is a bay
  *  rather than a lesson. */
 const BANKROLL_ROWS = 3;
+
+/** Cubes in one shipment. Every piece in PIECE_SHAPES is a tetromino, and the
+ *  fined lessons' float is sized so that the worst possible bay — every cube of
+ *  every launch spilled — is still billable to the last dollar. */
+const CUBES_PER_SHIPMENT = 4;
 
 /** Lessons in the ladder — the count a completed licence has to reach. */
 export const LESSON_COUNT = LESSONS.length;
@@ -589,7 +620,42 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
   // run will charge them (level.ts's penaltyPerLostPieceFor).
   cfg.penaltyPerLostPiece = lesson.fine ? penaltyPerLostPieceFor(0, 1) : 0;
 
+  // ...AND A FINE NEEDS A WALLET TO COME OUT OF, which the branch above just
+  // set to zero.
+  //
+  // game.ts bills a spill as `Math.min(this.score, owed)` and spawns the "−$"
+  // toast only `if (deducted > 0)`, so on a $0 float the charge is a no-op and
+  // the toast never draws. Measured on the shipped bay: the `middle` bot lost
+  // SIXTY-FOUR cubes across Lost Cargo's sixteen launches, was billed $0, and
+  // saw zero toasts — while a bot that cleared a row first spilled one cube and
+  // got its "−$1" immediately. The lesson demonstrated its own subject only to
+  // the player who had already stopped needing it, and its card promises the
+  // opposite in as many words ("fines you — a red −$ marks the spot. Billed per
+  // cube"). fx.ts's `penalty` note is the argument for why the toast, not the
+  // end screen, has to be where this is learned.
+  //
+  // So a fined lesson opens with exactly enough money to be billed for every
+  // cube the bay can physically lose — its whole launch budget, four cubes a
+  // shipment — and not a dollar of it is a budget: the price of a shot is still
+  // zero here and the target is still unreachable, so nothing about this bay
+  // can be lost to money. It buys one thing, which is that the debit is real
+  // from the first spill instead of the first clear.
+  if (lesson.fine && !lesson.economy) {
+    // Every cube the bay can put in the air: one shipment per launch, plus the
+    // standing pile — Clutter's wall is STANDARD, not gold, so the press can
+    // shove it out of the zone like anything else.
+    const loseable = cfg.launchBudget * CUBES_PER_SHIPMENT
+      + (lesson.wall ?? []).reduce((a, b) => a + b, 0);
+    cfg.startingFunds = loseable * cfg.penaltyPerLostPiece;
+  }
+
   cfg.lessonGoal = lesson.goal ?? null;
+
+  // THE STAGE THAT SAYS THE GRADE ARRIVES IS THE STAGE THAT MAKES IT ARRIVE.
+  // REVEAL.grade has always been documented as "+ the timing grade's callout
+  // over the payout" and had no mechanism behind it: the callout is an FX
+  // field, not a `.pl-` block, so app.css's hide-list could never reach it.
+  cfg.gradeCallout = lesson.reveal >= REVEAL.grade;
 
   // A SCAFFOLDED BAY HAS NO PILE (level.ts's boardResets). The gold says where
   // the answer goes and the belt deals the shape that fits it; a second

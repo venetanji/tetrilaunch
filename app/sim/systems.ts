@@ -21270,6 +21270,41 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and the lesson that does have one shows it",
       LESSONS.filter((l) => l.launches > 0).every((l) => l.reveal >= REVEAL.lost));
     check("the first lesson shows only the power meter", LESSONS[0].reveal === REVEAL.aim);
+    // THE GRADE STAGE HAS A MECHANISM BEHIND IT. It is an FX field rather than
+    // a `.pl-` block, so app.css's hide-list can never reach it — and for as
+    // long as nothing else did, the ladder's FIRST cleared row shouted GOOD and
+    // its second shouted SWEPT, four bays before either word is explained and
+    // with SWEPT reading as a rebuke on a bay whose message is "you did that
+    // right". Measured through the real Game, not read off the config.
+    check("no lesson shouts a timing band before the one that teaches it",
+      LESSONS.every((l) => levelForLesson(l).gradeCallout === (l.reveal >= REVEAL.grade)),
+      LESSONS.filter((l) => levelForLesson(l).gradeCallout !== (l.reveal >= REVEAL.grade))
+        .map((l) => l.id).join(", "));
+    {
+      const shout = (id: string): Array<string | null> => {
+        const l = lessonById(id)!;
+        const g = new Game(levelForLesson(l), {}, lessonSeed(LESSONS.indexOf(l)));
+        const bot = BOTS.lob(7);
+        const seen: Array<string | null> = [];
+        let now = 0;
+        for (let step = 0; step < 60 * 120 && seen.length < 2; step++) {
+          now += STEP_MS;
+          g.update(now);
+          for (const e of g.effects) {
+            if (e.kind === "payout" && e.t0 === now) seen.push(e.grade);
+          }
+          bot.act(g, now);
+        }
+        g.destroy();
+        return seen;
+      };
+      const opening = shout("close-the-row");
+      check("...so the opening lesson's payout carries no band at all",
+        opening.length > 0 && opening.every((x) => x === null), JSON.stringify(opening));
+      const timed = shout("time-the-row");
+      check("...and the lesson that teaches it does carry one",
+        timed.length > 0 && timed.every((x) => x !== null), JSON.stringify(timed));
+    }
   }
 
   // THE PENALTY LADDER. Nothing that can punish the player exists until it has
@@ -21287,6 +21322,52 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       LESSONS.slice(0, firstFine).every((l) => levelForLesson(l).penaltyPerLostPiece === 0));
     check("congestion is the LAST thing the ladder teaches",
       LESSONS[LESSONS.length - 1].id === "clutter");
+
+    // A FINE NEEDS A WALLET, and the config field alone never proved one. The
+    // pins above assert `penaltyPerLostPiece`; they say nothing about whether a
+    // dollar ever moves, and on the shipped bay none did — game.ts bills
+    // `Math.min(score, owed)` and draws its "−$" only when that is positive, so
+    // a $0 float made Lost Cargo's whole subject a no-op for the player who
+    // spills, which is the player it is for. This is the measurement, driven
+    // through the real Game by a bot that aims at nothing: the wallet has to
+    // move and the toast has to draw.
+    for (const l of LESSONS.filter((x) => x.fine)) {
+      const cfg = levelForLesson(l);
+      check(`${l.id} opens with money the fine can come out of`,
+        cfg.startingFunds > 0, `$${cfg.startingFunds}`);
+      // ...and enough of it that the WORST bay is still billable to the last
+      // cube: every launch spilled whole, plus the standing pile the press can
+      // shove out. A float short of that clamps at zero and stops reporting.
+      const loseable = cfg.launchBudget * 4 + (l.wall ?? []).reduce((a, b) => a + b, 0);
+      check(`...enough for every cube ${l.id} can lose`,
+        cfg.startingFunds >= loseable * cfg.penaltyPerLostPiece,
+        `$${cfg.startingFunds} < ${loseable} x $${cfg.penaltyPerLostPiece}`);
+      // ...while still not being a BUDGET. Nothing about a fined lesson may be
+      // lost to money: the shot is free and the target is out of reach, so the
+      // float is a thing to be billed against and nothing else.
+      check(`...but ${l.id} still cannot be lost to money`,
+        cfg.launchCost === 0 && cfg.targetScore === Number.MAX_SAFE_INTEGER);
+    }
+    {
+      const lost = lessonById("lost-cargo")!;
+      const g = new Game(levelForLesson(lost), {}, lessonSeed(LESSONS.indexOf(lost)));
+      const bot = BOTS.middle(7);
+      const opened = g.score;
+      let toasts = 0;
+      let now = 0;
+      for (let step = 0; step < 60 * 180 && g.status === "playing"; step++) {
+        now += STEP_MS;
+        g.update(now);
+        toasts += g.effects.filter((e) => e.kind === "penalty" && e.t0 === now).length;
+        bot.act(g, now);
+      }
+      check("a pilot who aims at nothing actually spills on Lost Cargo",
+        g.lostTotal > 0, String(g.lostTotal));
+      check("...and is billed for it", g.score < opened, `$${opened} -> $${g.score}`);
+      check("...and sees a −$ for it, not just the end screen",
+        toasts > 0, `${g.lostTotal} lost, ${toasts} toasts`);
+      g.destroy();
+    }
   }
 
   // GOLD IS SCAFFOLDING, NEVER CARGO. The type system already refuses it on a
@@ -21718,14 +21799,66 @@ section("Flight School — the authored geometry holds (game/school.ts)");
           === (lesson.wall ?? []).reduce((a, b) => a + b, 0));
       g.destroy();
     }
-    // Twenty and twelve are ceilings with real headroom over what was measured
-    // (16 cubes, row 9), not the measurement itself: the point is that the pile
-    // is bounded, and pinning the exact number would fail on any physics tune.
-    // Before the reset the same run reached thirty cubes and row fifteen.
+    // Twenty-eight and twelve are ceilings with real headroom over what was
+    // measured (24 cubes, row 9), not the measurement itself: the point is that
+    // the pile is bounded, and pinning the exact number would fail on any
+    // physics tune. Before the reset the same run reached thirty cubes and row
+    // fifteen.
+    //
+    // THE CUBE CEILING WENT 20 -> 28, and the eight is a price that was paid on
+    // purpose. sweepStaleCubes now waits for the press to have had a go at the
+    // CURRENT attempt as well as the stale one, because without that it took
+    // rows the player had genuinely completed across two shipments — Close the
+    // Row sold 0 of 40 phases when filled by two halves. One extra stroke of
+    // stale cargo on the board is the whole cost of not deleting the answer.
     check("a scaffolded bay's pile cannot run away — cubes",
-      worst.junk <= 20, `${worst.junk} on ${worst.id}`);
+      worst.junk <= 28, `${worst.junk} on ${worst.id}`);
     check("...nor climb the bay", worst.row <= 12, String(worst.row));
   }
+  // THE BOARD RESET MUST NOT EAT A ROW THE PLAYER CLOSED.
+  //
+  // A row can be finished ACROSS shipments — two halves into one trench, one
+  // square into each end of Lob or Skim — and the instant the closing half
+  // settles, the older half is by definition a stale attempt that has already
+  // survived a stroke. Both of sweepStaleCubes' conditions were satisfied, so
+  // it wrote the older half off in the step before the press came in to sell
+  // the row it was completing: the player watched a visibly full row not sell,
+  // and then watched half of it blink away. Measured on the shipped bay across
+  // forty compactor phases, Close the Row sold 0/40; with the sweep disabled,
+  // 40/40. Nothing here could see it — every board-reset pin above asserts that
+  // stale cargo GOES, and none of them that a finished row STAYS.
+  //
+  // Phase-swept rather than run once, because the whole failure is a race with
+  // the bar's position and a single phase is a coin toss dressed as a test.
+  {
+    const halves = (
+      id: string, a: Array<[number, number]>, b: Array<[number, number]>,
+    ): number => {
+      let sold = 0;
+      for (let phase = 0; phase < 12; phase++) {
+        const lesson = lessonById(id)!;
+        const g = new Game(levelForLesson(lesson), {}, lessonSeed(LESSONS.indexOf(lesson)));
+        let now = 0;
+        const fly = (seconds: number): void => {
+          for (let step = 0; step < 60 * seconds; step++) { now += STEP_MS; g.update(now); }
+        };
+        fly(0.2 + phase * 0.16);
+        place(g, a, "O", 1);
+        fly(3);
+        place(g, b, "O", 2);
+        fly(14);
+        if (g.linesTotal > 0) sold++;
+        g.destroy();
+      }
+      return sold;
+    };
+    check("a trench closed by two half shipments still sells, at every press phase",
+      halves("close-the-row", [[2, 0], [3, 0]], [[4, 0], [5, 0]]) === 12,
+      `${halves("close-the-row", [[2, 0], [3, 0]], [[4, 0], [5, 0]])}/12`);
+    check("...and so does Lob or Skim's two-gap answer",
+      halves("lob-or-skim", [[0, 0], [1, 0], [0, 1], [1, 1]], [[6, 0], [7, 0], [6, 1], [7, 1]]) === 12);
+  }
+
   // A swept cube is NOT a lost one. Both end in the same blink and they are
   // billed differently — the board taking its own scaffolding back is nobody's
   // mistake — so markLostPieces must leave a swept cube alone. It did not: its

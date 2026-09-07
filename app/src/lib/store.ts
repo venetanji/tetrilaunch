@@ -4,7 +4,7 @@ import {
   newMeta, ownedTracks, refundRetiredUnlocks, SLOT_BASE, SLOT_CAP, type MetaState,
 } from "../game/meta";
 import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
-import { LESSON_COUNT } from "../game/school";
+import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "../game/school";
 
 export interface Settings {
   sound: boolean;
@@ -293,11 +293,34 @@ export function loadMeta(): MetaState {
     // Clamped from above as well, so a hand-edited save cannot claim more
     // lessons than the ladder has and skip the last one silently.
     const rawLicence = (raw as Record<string, unknown>).licence;
+    // EVERY TRACE A RETURNING PLAYER CAN LEAVE, not just a FILED run. `runs` and
+    // `bestBay` are written only by recordRunEnd, and quitting to the menu
+    // deliberately never files a run — so a save with banked salvage, purchased
+    // unlocks, a built loadout and cleared Contracts, but no completed Deep Run,
+    // read as brand new and found Tier 1 locked behind a course it had already
+    // outgrown. Every term below is a thing only play can produce.
     const played = meta.runs > 0 || meta.mark > 0 || meta.bestBay > 1
+      || meta.salvage > 0 || meta.unlocks.length > 0
+      || meta.claimedContracts.length > 0 || meta.tierContracts > 0
       || loadSettings().seenTutorial;
     meta.licence = typeof rawLicence === "number" && Number.isFinite(rawLicence)
       ? Math.min(LESSON_COUNT, Math.max(0, Math.floor(rawLicence)))
-      : (played ? LESSON_COUNT : 0);
+      // THE LICENCE, NOT THE WHOLE LADDER. Granting LESSON_COUNT licensed a
+      // veteran and then parked the School's Play button on the LAST lesson
+      // (nextLessonIndex clamps to meta.licence), so a returning player who
+      // tapped the ground floor was dropped straight into Clutter — the fine
+      // and congestion bay — rather than at the top of the advanced five. The
+      // licence is what they have earned; the advanced exercises are ahead of
+      // them, exactly as they are for a graduate.
+      : (played ? LICENCE_LESSON_COUNT : 0);
+    // ...AND THE LICENCE RETIRES THE COACH, on the migration path too. main.ts
+    // sets seenTutorial when the fourth lesson lands; a grandfathered save never
+    // passes through that, so a player with a dozen runs would have met the
+    // retired four-card deck on their next Deep Run bay 1 — and lit the menu's
+    // `firstLaunch` state on top of it.
+    if (meta.licence >= LICENCE_LESSON_COUNT && !loadSettings().seenTutorial) {
+      saveSettings({ ...loadSettings(), seenTutorial: true });
+    }
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.

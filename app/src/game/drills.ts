@@ -107,7 +107,7 @@ const CLUTTER: number[] = [5, 5, 1, 0, 1, 5, 5, 5];
  *  lesson is the tax, and a bay that has to be filled up before the tax
  *  arrives spends its budget getting to the lesson. 37 cubes, so the bay is
  *  taxed from the first shot and the readouts say so. */
-const CONGESTED: number[] = [7, 7, 1, 0, 1, 7, 7, 7];
+export const CONGESTED: number[] = [7, 7, 1, 0, 1, 7, 7, 7];
 
 /** A shallow pile of DEAD cargo, for the demolition lesson: enough slag to
  *  block the bottom rows outright, few enough cubes that a charge visibly

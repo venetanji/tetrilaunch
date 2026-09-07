@@ -733,12 +733,17 @@ function measure(cfg: {
   const cssPx = (name: string): number => parseFloat(rootStyle.getPropertyValue(name));
 
   // --- plant: the HUD panel must stay inside its 42.96%-of-field box ---------
-  // The TUTORIAL state has its own, deliberately larger budget: while the coach
+  // A CARDED PANEL has its own, deliberately larger budget: while a teaching
   // card shares the panel's column, app.css caps .plant at 52% of the field
   // height — a cap derived from clearing the cannon sprite, see the
-  // `.hud[data-coach] .plant` max-height rule — so THAT cap is the design box
-  // the assertion holds the panel to on the coach screens. Same number, one
+  // `.hud[data-carded] .plant` max-height rule — so THAT cap is the design box
+  // the assertion holds the panel to on those screens. Same number, one
   // source of truth in the stylesheet, read here rather than re-derived.
+  //
+  // `[data-carded]`, not `[data-coach]`: the flag moved when Flight School's
+  // card turned out to share the panel on exactly the same terms as the retired
+  // deck's (app.css's `[data-carded]` note). Asking the old question held a
+  // lesson's carded panel to the UNCARDED box and reported it 29px over.
   //
   // Both directions matter. The upper bound alone only ever catches a panel
   // that grew; a rule that SHRINKS it back — `.hud--contract .plant { min-
@@ -751,7 +756,7 @@ function measure(cfg: {
   const plant = document.querySelector(".plant");
   if (plant) {
     const fh = cssPx("--field-h");
-    const coached = !!document.querySelector(".hud[data-coach]");
+    const coached = !!document.querySelector(".hud[data-carded]");
     const design = (coached ? 0.52 : 0.4296) * fh;
     const h = plant.getBoundingClientRect().height;
     if (h > design + 1) {
@@ -759,7 +764,7 @@ function measure(cfg: {
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
     }
-    // NOT `design`: on a coached screen `design` is 0.52 * fh, the tutorial's
+    // NOT `design`: on a carded screen `design` is 0.52 * fh, the card's
     // MAX layered on top of the same 0.4296 floor (app.css never replaces the
     // floor for that screen, only adds a ceiling above it) — reusing it here
     // would demand a coached panel 21% taller than the stylesheet asks for.

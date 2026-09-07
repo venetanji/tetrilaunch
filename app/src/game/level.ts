@@ -354,6 +354,20 @@ export interface LevelConfig {
    *  exercises keep one attempt; Lob or Skim is deliberately a two-shot
    *  exercise, so its first correct square must survive the second launch. */
   boardResetAttempts: number;
+  /** Whether a cleared row SHOUTS ITS TIMING BAND over the payout (fx.ts's
+   *  `payout.grade`).
+   *
+   *  True everywhere except the Flight School bays that come before the lesson
+   *  which teaches the grade. school.ts's REVEAL ladder always claimed stage
+   *  `grade` was where the callout arrives; nothing enforced it, so a first
+   *  player's FIRST cleared row — lesson 1, the one bay in the game whose whole
+   *  message is "you did that right" — was labelled GOOD, and lesson 2's was
+   *  labelled SWEPT, in words from a system four bays away and with SWEPT
+   *  reading as a rebuke. Measured on the shipped ladder before this existed.
+   *
+   *  The row still grades, still pays the multiplier and still counts toward a
+   *  goal; the only thing withheld is the shout. */
+  gradeCallout: boolean;
   /** Thaw Lance charges available in THIS BAY — the "thaw one settled frozen
    *  cube" ability (see game.ts's useThawLance). Cryo's bought counter: it pays
    *  strikeCryo's sequencing cost ("land it, then spend a second shot hitting
@@ -1695,6 +1709,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     lessonGoal: null,
     boardResets: false,
     boardResetAttempts: 1,
+    gradeCallout: true,
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
     standingWall: [],

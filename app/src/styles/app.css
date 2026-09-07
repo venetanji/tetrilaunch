@@ -2968,19 +2968,19 @@ body.crt-off #app::after { display: none; }
   transition: opacity var(--hint-show-dur) var(--ease);
 }
 /* The tutorial's panel is taller — it is carrying the coach card, capped at
-   0.52 of the field height (see `.hud[data-coach] .plant`) — so the hint
+   0.52 of the field height (see `.hud[data-carded] .plant`) — so the hint
    clears THAT top edge instead. Same arithmetic, the panel's tutorial height
    budget substituted for its normal one. This is the state the hint is
    actually shown in most often: the drag hint's whole reason to exist is a
    player's first-ever bay, which is the tutorial's first step. */
 /* :not(--at) because this rule and the misfire guide's anchor both set `top`,
-   and `.hud[data-coach] .drag-hint` outranks a lone `.drag-hint--at` on
+   and `.hud[data-carded] .drag-hint` outranks a lone `.drag-hint--at` on
    specificity — so during the tutorial the guide silently ignored the thumb and
    snapped back to the onboarding anchor. Excluding the state is better than
    escalating the other selector: this rule is about where the ONBOARDING hint
    sits, and it has no opinion about a guide whose position JS has already
    solved against the panel's measured box. */
-.hud[data-coach] .drag-hint:not(.drag-hint--at) {
+.hud[data-carded] .drag-hint:not(.drag-hint--at) {
   top: calc(var(--field-y) + (0.9703 - 0.52) * var(--field-h) - var(--hint-clear));
 }
 .drag-hint--hidden { opacity: 0; }
@@ -4852,7 +4852,18 @@ body.crt-off #app::after { display: none; }
 
    Deep Run only. A Contract's Bay-conditions row shares this class and its
    value is plain text, where baseline alignment is exactly right — the same
-   split sim/uifit's `inkline` pairs already model with two scoped entries. */
+   split sim/uifit's `inkline` pairs already model with two scoped entries.
+
+   THE COST OF THAT SPLIT, now that Flight School renders the row on nine more
+   screens: baseline alignment lines up BASELINES, and label and value are set
+   at different sizes, so their cap-middles sit 1.2-2.3px apart — which is what
+   sim/uifit's inkline probe measures. Both alternatives were measured and both
+   are worse: `align-items: center` on the Contract shell takes the harness from
+   84 findings to 399 (it is right for the Deep Run's icon tally and wrong for
+   plain text at two sizes), and taking the value out of its scroll container
+   moves the number not at all. So the row keeps the alignment that is correct
+   for its content and the residual sits in baseline.json as what it is — a
+   sub-2.4px typographic difference, accepted deliberately. */
 .hud:not(.hud--contract) .pl-notch { align-items: center; }
 .pl-notch b {
   /* center, not baseline — the same move .pl-tier b documents below, forced
@@ -6031,8 +6042,8 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .belt__tag,
 [data-density="compact"] .belt__feed { display: none; }
 /* A6: at compact the transport HIDES while the coach card is up — keyed off
-   the coach being mounted (data-coach), never off aiming. At 1280 both stay. */
-[data-density="compact"] .hud[data-coach] .belt { display: none; }
+   a card being mounted (data-carded), never off aiming. At 1280 both stay. */
+[data-density="compact"] .hud[data-carded] .belt { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .belt__tread, .belt-piece > *, .belt__arrows, .belt__roller i,
   .belt__arrows i { animation: none; }
@@ -8910,7 +8921,7 @@ button.panel { color: var(--text); }
    its own lesson unplayable.
    The bottom-left is the one region of the field that is already chrome rather
    than playfield, and during the tutorial it is largely empty anyway: the
-   plant reveals its readout a block at a time (see .hud[data-coach] below), so
+   plant reveals its readout a block at a time (see .hud[data-carded] below), so
    the coach is not covering stats — it is holding their seat until they
    arrive, then sitting above them as they do. Being a SIBLING of the readout
    rather than a layer over it is what makes that safe: the two can never
@@ -8928,7 +8939,7 @@ button.panel { color: var(--text); }
      so `min-height: 0` can reach it at all), and the body is what finally
      gives (`overflow-y: auto`, below).
 
-     All three used to be scoped to `.hud[data-coach]`, i.e. to the reveal
+     All three used to be scoped to `.hud[data-carded]`, i.e. to the reveal
      attribute main.ts stamps on the HUD alongside — but separately from —
      mounting the card. That made the card's own geometry conditional on
      something outside the card: with the attribute absent the box became
@@ -8939,7 +8950,7 @@ button.panel { color: var(--text); }
      is a tip with two layouts, and only one of them was ever measured.
 
      So the give-way belongs to the card. Every value here is the one the
-     `[data-coach]` rules already computed, so nothing about the tutorial's
+     `[data-carded]` rules already computed, so nothing about the tutorial's
      rendering changes; what changes is that no other element's state can
      take the chain away. The failure card (`.coach--fail`, a modal over a
      dead bay) picks it up too, which is what its own short-viewport block
@@ -8962,19 +8973,31 @@ button.panel { color: var(--text); }
   0%, 100% { box-shadow: none; }
   45% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 18px rgba(0, 240, 255, 0.35); }
 }
-/* While the card is in the panel the readout stacks UNDER it from the top
+/* ---------- `[data-carded]`: A TEACHING CARD IS IN THE PANEL ----------
+   Every layout rule below used to be written against `[data-coach]`, back when
+   the four-card deck was the only card there was. Flight School mounts its
+   card into the same slot and sets no `data-coach` — a lesson has a STAGE, not
+   a step — so all of them silently stopped applying the day the ladder
+   shipped: no height cap, no aim-through fade, no flex-start, and a plant panel
+   that swallowed the drag gesture across the bottom-left of the screen, under a
+   card reading "pull back anywhere on the field" (measured live at 640x360;
+   the pointer-events note below predicted it in as many words). main.ts's
+   syncCarded publishes this from BOTH teachers, and `data-coach` now drives
+   only the two rules that name a specific step.
+
+   While the card is in the panel the readout stacks UNDER it from the top
    rather than being spread down the panel's full height — space-between with
    half the blocks hidden would strand the survivors at the two extremes. */
-.hud[data-coach] .plant { justify-content: flex-start; }
-.hud[data-coach] .plant__body { flex: 0 0 auto; justify-content: flex-start; }
+.hud[data-carded] .plant { justify-content: flex-start; }
+.hud[data-carded] .plant__body { flex: 0 0 auto; justify-content: flex-start; }
 /* The panel is taller than usual while it holds the card (190px against 159px
    at the longest step), and `.hud > *` otherwise makes it swallow pointer
    events — which would grow the bottom-left dead zone for the drag gesture at
    exactly the moment the tutorial is teaching that gesture. Nothing in the
-   panel is tappable during the tutorial anyway: the ability chips live in
-   .pl-mods, which is hidden until the coach is gone. The card's own buttons
-   opt back in via .coach__btn. */
-.hud[data-coach] .plant { pointer-events: none; }
+   panel is tappable while a card is up anyway: the ability chips live in
+   .pl-mods, which is hidden by both teachers' reveal lists. The card's own
+   buttons opt back in via .coach__btn. */
+.hud[data-carded] .plant { pointer-events: none; }
 
 /* ---------- Aim-through ----------
    While a drag is live (main.ts's syncHud toggles .hud--aiming), the chrome
@@ -9001,28 +9024,28 @@ button.panel { color: var(--text); }
 .bay-banner {
   transition: opacity 120ms var(--ease), background 120ms var(--ease);
 }
-/* SCOPED TO THE TUTORIAL ([data-coach]), which is the only time the panel is
-   big enough to be worth fading. The card pushes it from its 159px mockup
+/* SCOPED TO A CARDED PANEL ([data-carded]), which is the only time the panel
+   is big enough to be worth fading. The card pushes it from its 159px mockup
    footprint to as much as 190px, up into the cannon's airspace where the arc
    actually starts; back at its normal height the panel sits below the launch
    line and a shot has to be unusually short and low to cross it at all.
    Fading it during ordinary play costs more than it buys — PWR is the readout
    the player is setting WHILE they drag, so dimming it to 0.3 hides the number
    at the exact moment it is being used. */
-.hud--aiming[data-coach] .plant {
+.hud--aiming[data-carded] .plant {
   background: linear-gradient(180deg, rgba(22, 22, 37, 0.26), rgba(9, 9, 18, 0.28));
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: none;
 }
-.hud--aiming[data-coach] .plant__body,
-.hud--aiming[data-coach] .pl-pwr,
-.hud--aiming[data-coach] .belt,
-.hud--aiming[data-coach] .bay-banner {
+.hud--aiming[data-carded] .plant__body,
+.hud--aiming[data-carded] .pl-pwr,
+.hud--aiming[data-carded] .belt,
+.hud--aiming[data-carded] .bay-banner {
   opacity: 0.3;
 }
 /* The card fades far less than the readout around it — enough to read an arc
    crossing it, not so much that the instruction stops being legible mid-aim. */
-.hud--aiming[data-coach] .coach { opacity: 0.82; }
+.hud--aiming[data-carded] .coach { opacity: 0.82; }
 @media (prefers-reduced-motion: reduce) {
   .plant, .plant__body, .pl-pwr, .coach, .belt, .bay-banner { transition: none; }
   .coach--advance .coach__card,
@@ -9193,11 +9216,11 @@ button.panel { color: var(--text); }
    sprite's entire lower half, which is what it did at 640x360.
    If the card ever exceeds the cap, its body gives up the tail rather than the
    panel eating the cannon — min-height:0 is what lets a flex child shrink. */
-.hud[data-coach] .plant { max-height: calc(0.52 * var(--field-h)); }
+.hud[data-carded] .plant { max-height: calc(0.52 * var(--field-h)); }
 /* The card is the child that gives way at the cap, because its body is the one
    block in the panel that can scroll — see the give-way chain on the base
    `.coach` rule, which is where those three links now live and why they are no
-   longer written against `[data-coach]`. The history the chain answers belongs
+   longer written against `[data-carded]`. The history the chain answers belongs
    here, with the cap that provokes it:
 
    `flex: none` used to pin the card's flex-shrink at 0, so at the cap the panel
@@ -9233,10 +9256,10 @@ button.panel { color: var(--text); }
    affordance saying there was more. These two gutters give back ~8px of that,
    the short-viewport block above another ~8, and the copy gives back the rest
    (screens.ts's coachSteps); together the deck fits the cap on all thirteen
-   devices, asserted by sim/uifit rather than assumed. Scoped to `[data-coach]`,
+   devices, asserted by sim/uifit rather than assumed. Scoped to `[data-carded]`,
    so the full readout keeps its own spacing. */
-.hud[data-coach] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
-.hud[data-coach] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
+.hud[data-carded] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
+.hud[data-carded] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
 /* The valve itself — unconditional, for the reason the base `.coach` rule
    gives: it is the last link of the card's own give-way, not a property of the
    HUD state the card happens to be sitting beside. Needing it is still the
@@ -9261,30 +9284,43 @@ button.panel { color: var(--text); }
    off is chrome, not teaching. */
 .hud[data-coach="1"] .rotate-btn,
 .hud[data-hilite="rotate"] .rotate-btn {
+  /* A CHANGE OF KIND, NOT OF DEGREE. The first cut of this rule set the accent
+     border and widened the glow — and `.rotate-btn` is ALREADY accent-bordered
+     and already glowing at rest (see its rule above: it is "the primary in-game
+     touch control"). Measured on device, the spotlight was worth about 4px of
+     blur and 0.24 of alpha over the resting state, and under reduced motion
+     2px and 0.2 — i.e. nothing, on the one control a card is pointing at by
+     name. The card's own word for it was "the GLOWING ⟲ / ⟳ buttons", which
+     described their resting state and so disambiguated nothing.
+
+     So the spotlight INVERTS the button instead: a filled accent face with dark
+     glyphs, which is a treatment no other state of no other rail button wears.
+     It reads at a glance, in a photograph, and with the pulse switched off. */
   border-color: var(--accent);
-  color: var(--accent);
+  color: #06121a;
+  background: var(--accent);
   animation: coach-rotate-pulse 1.1s var(--ease) infinite;
 }
 @keyframes coach-rotate-pulse {
   0%, 100% { box-shadow: var(--shadow-hard-sm), 0 0 0 0 rgba(0, 240, 255, 0); }
-  50% { box-shadow: var(--shadow-hard-sm), 0 0 14px 3px rgba(0, 240, 255, 0.55); }
+  50% { box-shadow: var(--shadow-hard-sm), 0 0 16px 4px rgba(0, 240, 255, 0.65); }
 }
 /* The guard this rule never had. Every other looping animation on this screen
    stops under reduced motion; an endless pulse on a rail button is exactly the
-   kind that should. The POINT still lands — a steady lit ring says "these two"
-   as well as a pulsing one does, which is why the highlight is kept rather than
-   dropped with the animation. */
+   kind that should. The POINT still lands, and lands harder than it used to:
+   the inverted face is a static property, so switching the pulse off costs the
+   spotlight nothing that carries its meaning.
+
+   ONE BLOCK, NOT TWO. This used to be followed by a second reduced-motion
+   block naming `[data-coach="1"]` alone at a weaker alpha, which — being later
+   and equally specific — quietly overrode the combined rule for the deck while
+   leaving the lesson on the stronger one. Two teaching systems, one look, was
+   the whole argument for a single rule. */
 @media (prefers-reduced-motion: reduce) {
   .hud[data-coach="1"] .rotate-btn,
   .hud[data-hilite="rotate"] .rotate-btn {
     animation: none;
-    box-shadow: var(--shadow-hard-sm), 0 0 12px 2px rgba(0, 240, 255, 0.5);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hud[data-coach="1"] .rotate-btn {
-    animation: none;
-    box-shadow: var(--shadow-hard-sm), 0 0 12px 2px rgba(0, 240, 255, 0.45);
+    box-shadow: var(--shadow-hard-sm), 0 0 14px 3px rgba(0, 240, 255, 0.55);
   }
 }
 
@@ -9343,8 +9379,34 @@ button.panel { color: var(--text); }
    money, and money waits for the final card. The ladder is the most economic
    of the three — it quotes a price in dollars — and it is also the row a
    first-timer has nothing to read yet, having crushed nothing. */
-.hud[data-coach] :is(.pl-funds, .pl-chain, .pl-time, .pl-scrap, .pl-notch, .pl-mods) { display: none; }
-.hud[data-coach] .pl-stat__quote { display: none; }
+/* `[data-carded]`, NOT `[data-coach]` — because the argument above is about a
+   CARD sharing the panel's column, and Flight School's lesson card shares it on
+   exactly the same terms. A lesson's own goal readout and its pass-condition
+   row live in `.pl-funds` and `.pl-notch` (screens.ts renders both into the
+   Contract-shaped panel), and while a card is up they simply do not fit:
+   measured, the panel went 163px against a 134px cap on a 360px-tall viewport
+   with the card's own body scrolling 43px inside it. So they wait for the card
+   to leave, which is what the height budget above says and what the reveal
+   ladder below then hands over.
+
+   `.pl-lost` joins them for the last two lessons' sake and costs the coach
+   nothing: the Lost counter is a lines-Contract row (screens.ts), so a coached
+   Deep Run bay has none to hide. */
+/* ...AND THE STAT RAIL GOES WITH THEM, on a LESSON card only.
+   `:not([data-coach])` is what makes it a lesson: the retired deck reveals
+   Launches on its own schedule (`[data-coach="0"]` below withholds it for one
+   step and hands it over at the next), and that is its pacing to keep.
+   A lesson has no such step — Clutter's reveal stage is `all`, so
+   syncRevealStage deletes `data-reveal` entirely and no stage rule can reach
+   it, which made its card the tightest in the app: the one lesson whose reveal
+   withholds nothing, with its card sitting over a full readout, scrolling its
+   own last line 3px out of `.coach__body` on a 360px-tall viewport. The
+   stylesheet keeps that overflow valve for genuine emergencies and sim/uifit
+   treats needing it as the defect, which is exactly right — a card is read once,
+   in one glance, by someone who does not know the panel scrolls. */
+.hud[data-carded]:not([data-coach]) .pl-launches { display: none; }
+.hud[data-carded] :is(.pl-funds, .pl-chain, .pl-time, .pl-scrap, .pl-notch, .pl-mods, .pl-lost) { display: none; }
+.hud[data-carded] .pl-stat__quote { display: none; }
 
 /* ---------- FLIGHT SCHOOL'S REVEAL (game/school.ts's REVEAL) --------------
    The same idea as the four-card deck's above, on a ladder rather than a deck,
@@ -9357,11 +9419,26 @@ button.panel { color: var(--text); }
 
      0 aim      PWR only — power is part of the one drag gesture lesson 1
                 teaches, and it is the number that moves while you pull
-     1 reload   + Reload, on the lesson where a second shot is waited for
+     1 placement + NOTHING IN THIS BLOCK. The stage exists to say "a second
+                shot is now being waited for", and the reload it names is drawn
+                on the cannon's own muzzle ring (render.ts's drawReloadRing),
+                not in the panel — a lesson bay renders no Reload row at all
+                (main.ts passes hideReload). So this hides what stage 0 hides.
      2 grade    + the timing callout, which is an effect over the payout rather
-                than a block, so this hides exactly what the stage below does
+                than a block, so this hides exactly what the stage below does.
+                The gate that actually withholds it is level.ts's
+                `gradeCallout`, set from this same stage in school.ts: an FX
+                field is not a `.pl-` block and no hide-list can reach one.
+                Before that existed the ladder's FIRST cleared row shouted
+                GOOD and its second shouted SWEPT, four bays before either
+                word is explained
      3 funds    + Funds / Target and the launch quote
-     4 combo    + the Combo readout
+     4 combo    + the Combo readout — the chain ladder. It is listed in the
+                stages below as well as gated in screens.ts, because the gate
+                there is `contract && !contract.showCombo` and the ECONOMY
+                lesson is the one bay with no Contract block: it rendered the
+                ladder, and a "NEXT $100" rung, a whole lesson before the bay
+                that introduces the streak
      5 lost     + Launches and the Lost counter, together, on the one lesson
                 that has a real budget to count and a fine to charge
      6 all      everything, which is the absent-attribute state
@@ -9388,11 +9465,26 @@ button.panel { color: var(--text); }
    not have to solve that: a lesson's cards are played out and dismissed before
    the bay is handed over (screens.ts's lessonCardHTML), so the card and the
    blocks it earned are never on screen at once. */
-.hud[data-reveal] :is(.pl-notch, .pl-mods) { display: none; }
-.hud[data-reveal="0"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="1"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="2"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
-.hud[data-reveal="3"] :is(.pl-launches, .pl-time, .pl-meta, .pl-lost) { display: none; }
+/* `.pl-mods` (the ability chips) on every stage — no lesson grants an ability,
+   so the row is always empty. `.pl-scrap` with it: scrap is a Deep Run currency
+   and the ladder never mentions it, but the rail drew a `⇌ 0` on the economy
+   lesson because that one bay renders the Deep Run panel rather than the
+   Contract-shaped one. `.pl-notch` is NOT here: on a lesson bay that row is not
+   notches at all, it is the pass condition (screens.ts renders `Bay <conditions>`
+   into it for a Contract-shaped panel), and hiding it left the player who tapped
+   HIDE TIP with no statement anywhere of what the bay wanted. */
+.hud[data-reveal] :is(.pl-mods, .pl-scrap) { display: none; }
+/* `.pl-funds` IS NOT MONEY ON THESE BAYS. On a Contract-shaped panel — which is
+   every lesson but the economy one — that block holds the GOAL readout and the
+   goal bar (`.pl-goal` is its child), so hiding it took the lesson's own
+   progress counter off the screen for the first five bays. The one lesson whose
+   `.pl-funds` really is Funds/Target is the economy bay, and it sits at stage 3
+   by construction; sim/systems.ts pins that so a reordering cannot quietly put a
+   money readout under a stage that means to withhold one. */
+.hud[data-reveal="0"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="1"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="2"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="3"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
 .hud[data-reveal="4"] :is(.pl-launches, .pl-time, .pl-lost) { display: none; }
 .hud[data-reveal="5"] :is(.pl-time) { display: none; }
 
@@ -9420,7 +9512,7 @@ button.panel { color: var(--text); }
    step early. The rail row already IS what those rules were manufacturing: an
    icon and a figure, on one line, at the panel's own left edge. So the trap is
    avoided by not needing the rule at all. */
-.hud[data-coach] .pl-rail { border-left: 0; padding-left: 0; }
+.hud[data-carded] .pl-rail { border-left: 0; padding-left: 0; }
 
 /* ---------- Game-over "why" ----------
    The plain-language cause + one concrete adjustment, between the headline

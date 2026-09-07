@@ -1595,6 +1595,37 @@ export function sweepStaleCubes(
   }
   if (newest <= 0) return;
 
+  // ...AND WHEN IT LANDED, which is the guard that stops this from eating rows
+  // the player actually completed.
+  //
+  // THE BUG IT CLOSES. A row can be finished ACROSS shipments — two halves into
+  // one trench, one square into each end of Lob or Skim — and the moment the
+  // closing half settles, the older half is by definition a stale attempt. It
+  // had already survived a stroke, so both conditions below were satisfied and
+  // the sweep took it, in the very step before the press came in to sell the
+  // row it was completing. The player watched a full row not sell and then
+  // watched half of it blink out. Measured on the shipped bay across forty
+  // compactor phases: Close the Row sold 0/40 when filled by two half
+  // shipments, and 40/40 with this sweep disabled.
+  //
+  // So the board only takes an attempt back once the CURRENT attempt has had
+  // the press's go too. game.ts runs updateLineClear earlier in the same step
+  // than this, and `stroke` advances at the full-advance stop — the stop a row
+  // clears on — so the clear always gets the stroke this now waits for. The
+  // cost is one extra stroke of stale cargo on a board whose whole job is to
+  // reset; the alternative is a lesson that deletes the answer.
+  //
+  // The LATEST landing among the newest attempt's cubes, not the earliest: the
+  // row is closed by the last cube to settle, so that is the landing the press
+  // has to have had its chance at.
+  let newestStroke = -Infinity;
+  for (const cube of cubes) {
+    if (cube.shipment !== newest) continue;
+    const stamp = landingOf(cube);
+    if (stamp && stamp.stroke > newestStroke) newestStroke = stamp.stroke;
+  }
+  if (clock.stroke - newestStroke < SWEEP_STROKES) return;
+
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
     if (MATERIAL_SPEC[cube.material].persists) continue;

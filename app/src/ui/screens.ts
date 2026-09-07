@@ -926,26 +926,37 @@ function beltLadderHTML(mark: number, unknown = false): string {
  * No `best` either. The lobby files to no board, so a high score on it would be
  * a number about a mode that does not keep one.
  */
-function licencePanelHTML(licence: { done: number; total: number } | null, extras: string): string {
-  const done = licence?.done ?? 0;
-  const total = licence?.total ?? LESSON_COUNT;
+function licencePanelHTML(ladder: { done: number; total: number }, extras: string): string {
+  const total = Math.max(1, ladder.total);
+  const done = Math.max(0, Math.min(total, ladder.done));
+  const owed = done < LICENCE_LESSON_COUNT;
+  const left = Math.max(0, LESSON_COUNT - done);
   const pips = Array.from(
     { length: total },
     (_, i) => `<span class="lic-pip${i < done ? " lic-pip--done" : ""}"></span>`,
   ).join("");
+  // THE COUNT SURVIVES THE LICENCE. It used to be dropped the moment the fourth
+  // lesson landed — the panel took a null and printed "Licence earned" over a
+  // constant "5 advanced exercises remain", which was still saying five at
+  // eight of nine and at nine of nine. The advanced ladder is the only
+  // progression this mode has left after the licence, and it was the one thing
+  // on the screen with no number. "A paid bill should not be restated" is an
+  // argument about the LICENCE; it says nothing about the rungs above it.
   return `<div class="panel base-bay base-bay--licence" aria-label="Flight School — ${done} of ${total} lessons">
     <div class="base-bay__head">
-      <div class="base-bay__best">${licence ? `${done} / ${total}` : "Licence earned"}</div>
+      <div class="base-bay__best">${done} / ${total}</div>
     </div>
     <div class="lic-track" role="img" aria-label="${done} of ${total} lessons cleared">${pips}</div>
     <p class="lic-note">${
-      // DERIVED, not typed. "Five" is LESSON_COUNT − LICENCE_LESSON_COUNT, and a
-      // number spelled out in prose is a number that goes stale the day a
-      // lesson is added — the same rule the rest of this file follows for every
-      // price and count it quotes.
-      licence
+      // DERIVED, not typed, every number of it. A count spelled out in prose is
+      // a count that goes stale the day a lesson is added — the same rule the
+      // rest of this file follows for every price it quotes — and one that
+      // ignores the player's own progress is stale on the second lesson.
+      owed
         ? `<b>${LICENCE_LESSON_COUNT} basics open Tier 1.</b> ${ADVANCED_LESSONS} advanced exercises remain here for later. No clock, no bankroll, nothing to lose.`
-        : `The licence is earned. ${ADVANCED_LESSONS} advanced exercises remain, and every lesson can be re-flown.`
+        : left > 0
+          ? `The licence is earned. <b>${left} advanced ${left === 1 ? "exercise" : "exercises"}</b> left, and every lesson can be re-flown.`
+          : `The licence is earned and the ladder is finished. Every lesson can be re-flown.`
     }</p>
     <div class="base-bay__extras">${extras}</div>
   </div>`;
@@ -1000,9 +1011,14 @@ export function baseBayPanelHTML(opts: {
   /** The entitlement chips, if this build has any. */
   extras?: string;
   /** Flight School's progress, when the lobby is the floor being described.
-   *  Null once the licence is earned; absent on every caller that predates the
-   *  ground floor. */
-  licence?: { done: number; total: number } | null;
+   *
+   *  ALWAYS THE REAL COUNT, never a "still owed" flag — the panel needs the
+   *  numbers on both sides of the licence (see licencePanelHTML). It was the
+   *  flag, and the two in-place ride patches in main.ts passed nothing at all,
+   *  so a lobby rendered at `2 / 4` was rewritten to "Licence earned" the
+   *  moment the elevator moved. Absent only on callers that predate the ground
+   *  floor, where it falls back to a fresh save's zero. */
+  licence?: { done: number; total: number };
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
@@ -1012,7 +1028,9 @@ export function baseBayPanelHTML(opts: {
   // Flight School has none of them. The panel sat directly above a button
   // reading "Flight School" and described a ten-bay run with a bankroll, which
   // is the one thing the ground floor exists to stop the player meeting first.
-  if (opts.tier === LICENCE_TIER) return licencePanelHTML(opts.licence ?? null, opts.extras ?? "");
+  if (opts.tier === LICENCE_TIER) {
+    return licencePanelHTML(opts.licence ?? { done: 0, total: LESSON_COUNT }, opts.extras ?? "");
+  }
   const sky = opts.tier === SKYDECK_TIER;
   // The Skydeck flies the top of the ladder's bay TABLE — same ten bays, same
   // clock, same bonds — with the money curves read one rung further along
@@ -1401,7 +1419,19 @@ export function menuScreen(
                two can never drift apart. -->
           <button class="menu__demo-hit" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}"
             aria-label="${guide?.firstLaunch ? "Guided tutorial — learn the cannon in one bay" : "How to play"}">
-            <span class="menu__demo-tag">${icon("howto", 11)}Tutorial</span>
+            <!-- THE TAG FOLLOWS THE ACTION. It read "Tutorial" on both
+                 branches, so on a fresh save — where firstLaunch is false,
+                 because the licence has not been earned and Flight School is
+                 the tutorial now — the biggest, brightest, first-tabbable
+                 thing on the screen said TUTORIAL and opened the reference
+                 manual, next to a primary button reading FLIGHT SCHOOL. Two
+                 things claiming to be the tutorial, one of them a catalogue.
+                 It was a label-in-name failure too (WCAG 2.5.3): the
+                 accessible name said "How to play" and the visible label did
+                 not contain it. -->
+            <span class="menu__demo-tag">${icon("howto", 11)}${
+              guide?.firstLaunch ? "Tutorial" : "How to play"
+            }</span>
             ${guide?.firstLaunch ? nextBadgeHTML("Start here") : ""}
           </button>
         </div>
@@ -1427,7 +1457,12 @@ export function menuScreen(
              thing under it — across the screen from it (where it started) the
              player had to hold four numbers in their head while their eye
              travelled past the whole tower to reach the button they qualify. -->
-        ${baseBayPanelHTML({ tier: sel, best, licence })}
+        ${baseBayPanelHTML({
+          tier: sel, best,
+          // The panel wants the LADDER, not the "still owed" flag `licence` is
+          // — see baseBayPanelHTML's note.
+          licence: { done: twr.licenceDone ?? 0, total: twr.licenceTotal ?? LESSON_COUNT },
+        })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -3638,7 +3673,7 @@ export function coachHTML(
  * screen.
  */
 export function lessonCardHTML(
-  lesson: { name: string; cards: { title: string; body: string; input?: "aim" }[] },
+  lesson: { name: string; cards: { title: string; body: string; input?: "aim" | "rotate" }[] },
   index: number,
   card: number,
   total: number,
@@ -3653,13 +3688,24 @@ export function lessonCardHTML(
   // the wall profile that produces it — from inside the UI layer, where a
   // reshaped bay could not reach it. The gesture is the part this file knows
   // (it is per-profile); what to point the arc at stays with the lesson.
-  const body = c.input === "aim"
-    ? `${
-      profile === "touch"
-        ? `<b>Pull back</b> anywhere on the field like a slingshot — farther is more power — then <b>release</b>.`
-        : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b>`
-    } ${c.body}`
-    : c.body;
+  // THE GESTURE COMES FROM THE ONE HINT TABLE (bindings.ts), never from the
+  // card. A card is prefixed with the live device's verb for the action it is
+  // teaching, and says the rest itself.
+  //
+  // `rotate` was the hole. Its card typed "the glowing ⟲ / ⟳ buttons" — the
+  // touch rail's glyphs — and a keyboard player reads Q / E on the buttons in
+  // front of them while a pad player reads LB / RB, so the one card in the
+  // ladder that names a control by sight named it wrongly on two profiles out
+  // of three. It is also the card whose whole subject is finding two buttons in
+  // a rail of seven.
+  const gesture = c.input === "aim"
+    ? profile === "touch"
+      ? `<b>Pull back</b> anywhere on the field like a slingshot — farther is more power — then <b>release</b>.`
+      : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b>`
+    : c.input === "rotate"
+      ? `<b>${hintRotate(profile)[0].toUpperCase()}${hintRotate(profile).slice(1)}</b> to turn the next shipment 90°.`
+      : "";
+  const body = gesture ? `${gesture} ${c.body}` : c.body;
   const last = i >= lesson.cards.length - 1;
   const dots = lesson.cards
     .map((_, n) => `<i class="${n < i ? "done" : n === i ? "cur" : ""}"></i>`)
@@ -6298,7 +6344,19 @@ export function lessonEndModal(opts: {
       </div>
       <div class="row end__actions">
         ${primary}
-        <button class="btn btn--ghost" data-action="lesson-exit">${opts.won ? "Back to the tower" : "Leave school"}</button>
+        ${
+          // NO SECOND BUTTON WHEN THE PRIMARY IS ALREADY THE EXIT. On a licence
+          // or course-complete win the primary reads "To the tower →" and this
+          // ghost read "Back to the tower" — two buttons side by side, same
+          // `lesson-exit`, differently worded, on the one card in the app that
+          // is supposed to be a moment. A pad-navigable row of two identical
+          // destinations is also one more focus stop for nothing.
+          opts.won && (opts.licence || opts.courseComplete)
+            ? ""
+            : `<button class="btn btn--ghost" data-action="lesson-exit">${
+              opts.won ? "Back to the tower" : "Leave school"
+            }</button>`
+        }
       </div>
     </div>
   </div>`;
