@@ -6189,11 +6189,11 @@ section("The HUD's per-frame writes (main.ts syncHud, app.css bar fills)");
     return css.slice(at, css.indexOf("}", at) + 1);
   };
 
-  // THE THREE FILLS. Each is a full-width element scaled about its left edge.
+  // THE TWO HUD FILLS. Each is a full-width element scaled about its left edge.
   // `width: 100%` is as load-bearing as the transform: a fill left at `width:
   // 0%` would be scaled from nothing and would never appear at all, which is
   // the failure a half-applied revert produces.
-  for (const sel of [".pl-goal i", ".pl-load__track i", ".pl-pwr__fill"]) {
+  for (const sel of [".pl-goal i", ".pl-pwr__fill"]) {
     const body = rule(sel);
     check(`${sel} is a full-width fill scaled about its left edge`,
       body.includes("width: 100%") &&
@@ -6203,26 +6203,21 @@ section("The HUD's per-frame writes (main.ts syncHud, app.css bar fills)");
   }
 
   // THE TRANSITIONS. The goal bar keeps one, because it is written on a payout
-  // and the slide is the payout. The two that are rewritten every frame lost
-  // theirs: a transition retargeted before it can finish is lag plus
+  // and the slide is the payout. The power fill is rewritten every frame and
+  // lost its transition: retargeting before it can finish is lag plus
   // main-thread work, not smoothing. Either way it must never name `width`,
   // which would animate layout for the length of the transition.
   check("the goal bar's slide transitions the transform, not the width",
     /transition:\s*transform\b/.test(rule(".pl-goal i")) &&
       !/transition:[^;]*\bwidth\b/.test(rule(".pl-goal i")));
-  for (const sel of [".pl-load__track i", ".pl-pwr__fill"]) {
+  for (const sel of [".pl-pwr__fill"]) {
     check(`${sel} carries no transition — it is rewritten every frame`,
       !/transition:/.test(rule(sel)), rule(sel).replace(/\s+/g, " ").slice(0, 160));
   }
 
   // PROMOTION IS SCOPED. A layer held for the life of the bay is memory a phone
   // does not have spare, so each fill is promoted only while it is the thing
-  // that is moving — the reload fill while the cannon is NOT ready, the PWR
-  // meter while a drag is live. A bare `.pl-load__track i { will-change }`
-  // would pass a naive "is it promoted" check and be the regression.
-  check("the reload fill is promoted only while it is reloading",
-    /\.pl-load:not\(\.ready\) \.pl-load__track i \{[^}]*will-change:\s*transform/.test(css) &&
-      !/^\.pl-load__track i \{[^}]*will-change/m.test(css));
+  // that is moving — the PWR meter while a drag is live.
   check("the PWR fill is promoted only while a drag is live",
     /\.hud--aiming \.pl-pwr__fill \{[^}]*will-change:\s*transform/.test(css) &&
       !/^\.pl-pwr__fill \{[^}]*will-change/m.test(css));
@@ -6243,8 +6238,8 @@ section("The HUD's per-frame writes (main.ts syncHud, app.css bar fills)");
   });
   check("the goal bar mounts empty, as a scale",
     hud.includes('id="hud-goal" style="transform:scaleX(0)"'));
-  check("the reload bar mounts full, as a scale",
-    hud.includes('id="hud-load" style="transform:scaleX(1)"'));
+  check("the retired reload bar is absent — the cannon ring owns that state",
+    !hud.includes('id="hud-load"') && !hud.includes('id="hud-load-row"'));
   check("no HUD element mounts carrying an inline width",
     !/style="[^"]*width:/.test(hud), (hud.match(/style="[^"]*width:[^"]*"/) ?? [""])[0]);
 

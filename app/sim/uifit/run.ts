@@ -178,7 +178,7 @@ const DECORATIVE = [
  * comment cannot be trusted to stay true across a content change; this can.
  */
 const SINGLE_LINE = [
-  ".pl-meta", ".pl-load", ".bay-banner",
+  ".pl-meta", ".bay-banner",
   // Launches, DURING THE TUTORIAL ONLY — scoped, because the same block is a
   // stacked label-over-value column in the full readout and a wrap is its
   // design there. With Funds and Time hidden it is a full-width row above
@@ -1191,7 +1191,7 @@ function measure(cfg: {
   // Restated as a list rather than derived from the stylesheet on purpose:
   // read off the CSS it would agree with any bug the CSS has.
   if (screen === "coach") {
-    [".pl-funds", ".pl-time", ".pl-notch", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
+    [".pl-funds", ".pl-time", ".pl-notch", ".pl-meta", ".pl-mods", ".pl-launches"]
       .forEach((sel) => {
         const el = document.querySelector(sel);
         if (el && el.getBoundingClientRect().height > 0) {

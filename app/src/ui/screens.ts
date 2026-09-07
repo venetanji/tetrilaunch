@@ -2481,6 +2481,8 @@ export function hudHTML(opts: {
     lines: number;
     /** Label for the numerator; lessons may count a timing grade or streak. */
     goalLabel?: string;
+    /** Flight School shows this once the streak has been introduced. */
+    showCombo?: boolean;
     launchesLeft: number;
     remaining: PieceType[];
     /** Cubes that bounced out before the compactor (Game.lostTotal). Rendered
@@ -2889,24 +2891,9 @@ export function hudHTML(opts: {
           }
           ${timeBlock}
         </div>
-        <!-- Reload: fills as the launch cooldown runs down (see
-             cannon.reloadRatio). Goes .ready the instant the cannon can fire
-             again, which is the only state change that matters here.
-
-             THE FILL IS A TRANSFORM, not a width, and so are the PWR meter's
-             and the goal bar's. All three are full-width elements scaled about
-             their left edge, which is what lets the one readout on this panel
-             that genuinely moves every frame move without asking the layout
-             engine for anything. See app.css's "THE THREE BAR FILLS" and
-             main.ts's syncHud; the inline value here is the starting state the
-             first frame of the bay shows, before syncHud has run at all, and
-             it has to be spelled the same way syncHud will spell it or the
-             first write would be a mechanism change rather than a value
-             change. -->
-        <div class="pl-load" id="hud-load-row">
-          <span class="lbl">Reload</span>
-          <div class="pl-load__track"><i id="hud-load" style="transform:scaleX(1)"></i></div>
-        </div>
+        ${contract?.showCombo ? `<div class="pl-meta pl-meta--lesson">
+          <span>Combo <b id="hud-combo">×0</b></span>
+        </div>` : ""}
         ${
           // COMBO / LAUNCH COST / SCRAP — the small meta line, and Deep Run
           // only. Every number on it is an economy number, and a Contract has
@@ -2916,8 +2903,8 @@ export function hudHTML(opts: {
           // half-done — a PATTERN contract dropped the launch quote and kept
           // "Combo ×0 · Scrap 0" for the whole bay, a LINES contract kept all
           // three — which is three permanent zeroes on the one panel the
-          // player checks mid-shot. What a Contract keeps is the reload bar
-          // and its modifiers; the rest is Deep Run furniture.
+          // player checks mid-shot. Its modifiers remain; the rest is Deep
+          // Run furniture, except Flight School's authored Combo lesson above.
           contract
             ? ""
             : `<div class="pl-meta">

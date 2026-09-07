@@ -4438,33 +4438,10 @@ body.crt-off #app::after { display: none; }
   }
 }
 
-/* Reload — tier 4. Amber while the loader runs, flipping to the aim cyan the
-   instant the cannon can fire again (the only state change that matters here).
-   The canvas draws the same value as a ring at the muzzle, see
-   render.ts's drawReloadRing. */
-/* NO margin-top (it was `max(4px, calc(8 * var(--fpx)))`) — see the "one
-   rhythm" note under .pl-notch b for why the three per-row nudges in this
-   panel are gone and what their 11px bought. */
-.pl-load { display: flex; align-items: center; gap: max(5px, calc(10 * var(--fpx))); }
-.pl-load .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); flex: none; }
-.pl-load__track { flex: 1; height: max(4px, calc(7 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-/* scaleX, not width — see "THE THREE BAR FILLS" over .pl-goal i. This is the
-   one that earned the rule: it is the only readout on the panel whose value is
-   different on every single frame. */
-.pl-load__track i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); }
-/* Promoted only while it is RELOADING. `.ready` is on the row for as long as
-   the cannon is loaded and waiting, which — per the aim-time telemetry note in
-   cannon.ts — is most of a bay, and a layer held through all of it would be
-   memory spent on a bar that is standing still. The class flips once per
-   reload cycle, so the layer is created and dropped on the order of once a
-   second rather than once a frame. */
-.pl-load:not(.ready) .pl-load__track i { will-change: transform; }
-.pl-load.ready .lbl { color: var(--accent); }
-.pl-load.ready .pl-load__track i { background: var(--accent); box-shadow: var(--glow-accent); }
-
-/* margin-top: 4px gone with .pl-load's — same note, same reason. */
 .pl-meta { display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .pl-meta b { color: var(--piece-o); font-weight: 700; }
+.pl-meta--lesson { font-size: max(8px, calc(13 * var(--fpx))); }
+.pl-meta--lesson b { color: var(--accent); text-shadow: var(--glow-accent); }
 .pl-meta__sep { color: var(--text-faint); }
 /* The Launch price under congestion (level.ts's PILE_TIERS). The plant already
    quotes the CONGESTED price — main.ts feeds it launchCostNow — but a number
@@ -9064,7 +9041,7 @@ button.panel { color: var(--text); }
    here are variously flex/block/grid, and stating a display value to un-hide
    them would silently pin the wrong one. A block is visible exactly when no
    rule below selects it. */
-.hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
+.hud[data-coach="0"] .pl-launches { display: none; }
 .hud[data-coach] :is(.pl-funds, .pl-time, .pl-notch, .pl-meta, .pl-mods) { display: none; }
 
 /* ---------- FLIGHT SCHOOL'S REVEAL (game/school.ts's REVEAL) --------------
@@ -9110,7 +9087,7 @@ button.panel { color: var(--text); }
    the bay is handed over (screens.ts's lessonCardHTML), so the card and the
    blocks it earned are never on screen at once. */
 .hud[data-reveal] :is(.pl-notch, .pl-mods) { display: none; }
-.hud[data-reveal="0"] :is(.pl-load, .pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
+.hud[data-reveal="0"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
 .hud[data-reveal="1"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
 .hud[data-reveal="2"] :is(.pl-launches, .pl-funds, .pl-time, .pl-meta, .pl-lost) { display: none; }
 .hud[data-reveal="3"] :is(.pl-launches, .pl-time, .pl-meta, .pl-lost) { display: none; }

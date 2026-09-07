@@ -16,7 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
-import { LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT } from "../../src/game/school";
+import { LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL } from "../../src/game/school";
 import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
@@ -520,6 +520,7 @@ const LESSON_HUD = (l: (typeof LESSONS)[number]) => ({
     : l.lines,
   lines: 1,
   goalLabel: l.goalLabel,
+  showCombo: l.reveal >= REVEAL.combo,
   launchesLeft: l.launches,
   remaining: [],
   lost: 2,

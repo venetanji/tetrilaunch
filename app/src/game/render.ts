@@ -2593,9 +2593,9 @@ function drawCannon(
  * Launch cooldown, drawn as an arc sweeping around the cannon base: empty the
  * instant a shot fires, closing to a full ring as the loader finishes. The
  * player's attention is on the cannon while aiming the next shot, so THIS is
- * where "can I fire yet" belongs — the plant panel's reload bar (see
- * ui/screens.ts's .pl-load) carries the same value for peripheral vision, but
- * this is the one you actually read mid-aim. Hidden once fully reloaded so a
+ * where "can I fire yet" belongs. The animated ring is the HUD for this state;
+ * duplicating it as a plant bar only split attention. Hidden once fully
+ * reloaded so a
  * ready cannon isn't wearing a permanent decoration.
  */
 const RELOAD_RING_R = CANNON.size / 2 + 9;

@@ -85,8 +85,8 @@ export const REVEAL = {
   /** PWR only. Power is part of the one drag gesture lesson 1 teaches, and it
    *  is the number that moves while the player pulls. */
   aim: 0,
-  /** + Reload. */
-  reload: 1,
+  /** + placement practice; reload feedback stays on the cannon itself. */
+  placement: 1,
   /** + the timing grade's callout over the payout. */
   grade: 2,
   /** + Funds / Target and the launch quote. */
@@ -249,7 +249,7 @@ export const LESSONS: Lesson[] = [
     name: "Two at Once",
     brief: "The gap is two wide and two deep. One square fills it, and two rows go together.",
     conditions: "One square · two rows at once",
-    reveal: REVEAL.reload,
+    reveal: REVEAL.placement,
     lines: 0,
     goal: { kind: "atOnce", lines: 2 },
     launches: 0,
@@ -274,7 +274,7 @@ export const LESSONS: Lesson[] = [
     name: "Four in the Well",
     brief: "One column open. Stand the shipment on its end and drop it in.",
     conditions: "Rotate · four rows",
-    reveal: REVEAL.reload,
+    reveal: REVEAL.placement,
     // FOUR ROWS, CUMULATIVE, because they arrive as two clears rather than one
     // — the cascade WELL's note describes. `atOnce` would be asking for the
     // 4-deep well back.
@@ -304,7 +304,7 @@ export const LESSONS: Lesson[] = [
     name: "Lob or Skim",
     brief: "A gap at each end. One is behind the pile, one is in front — take both.",
     conditions: "Two gaps · two arcs",
-    reveal: REVEAL.reload,
+    reveal: REVEAL.placement,
     lines: 2,
     launches: 0,
     wall: ENDS,
@@ -386,6 +386,7 @@ export const LESSONS: Lesson[] = [
     name: "The Streak",
     brief: "Rows closed back to back pay more each time. Get the streak to three.",
     conditions: "Combo ×3",
+    goalLabel: "Best combo",
     reveal: REVEAL.combo,
     lines: 0,
     goal: { kind: "combo", to: 3 },

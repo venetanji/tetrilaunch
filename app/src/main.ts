@@ -1985,6 +1985,7 @@ class App {
               goal: this.lessonGoalCount(g),
               lines: g.objectiveCurrent,
               goalLabel: this.lesson.goalLabel,
+              showCombo: this.lesson.reveal >= REVEAL.combo,
               launchesLeft: g.launchesLeft === Infinity ? 0 : g.launchesLeft,
               remaining: [],
               lost: g.lostTotal,
@@ -4589,7 +4590,8 @@ class App {
     }
     // A lesson is learned on the live machine. The card shares the HUD rather
     // than owning the game state, so the press, trajectory and reload remain
-    // visibly responsive while the player follows it.
+    // visibly responsive while the player follows it. Reload motion remains
+    // around the cannon itself, where the next action happens.
     this.game.paused = false;
     this.setState("playing");
     if (lesson.id === "close-the-row") {
@@ -6516,11 +6518,13 @@ class App {
     // doing exactly its job: a bay you have filled up really does hold fewer
     // shots than the same bankroll bought a minute ago, and the number falling
     // as the pile grows is the clearest statement of the rule the HUD can make.
+    // Combo is also present in the Flight School streak lesson, where it is
+    // the objective rather than an economy footnote.
+    set("#hud-combo", "×" + g.combo);
     if (!this.linesBay(g)) {
       // The meta line's three economy numbers, patched in the same Deep-Run-only
       // branch that owns the readout above them: a Contract renders no meta line
       // at all, so writing them there would be writing into nothing.
-      set("#hud-combo", "×" + g.combo);
       set("#hud-scrap", String(g.scrapEarned));
       const launches = Math.floor(g.score / Math.max(1, g.launchCostNow));
       set("#hud-launches", String(launches));
@@ -6631,9 +6635,7 @@ class App {
     // finish — and the one thing it did change, the snap back to empty on a
     // launch, reads better instant.
     const reload = g.cannon.reloadRatio(performance.now());
-    this.barFill("#hud-load", reload);
     const ready = reload >= 1;
-    this.hudEl("#hud-load-row")?.classList.toggle("ready", ready);
     // Audible AND felt, on the RISING edge only. syncHud runs every frame, so
     // testing `ready` alone would retrigger ~60x/sec for as long as the player
     // takes to aim — which, per the telemetry note in cannon.ts, is most of the
