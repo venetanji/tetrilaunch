@@ -1628,12 +1628,21 @@ body.crt-off #app::after { display: none; }
 .lic-pip--done { background: var(--warn); border-color: var(--warn); }
 /* A PIP YOU CAN PRESS is a rung of the ladder you can fly (screens.ts's
    licencePanelHTML). The bar stays 6px — it is a progress track and it has to
-   go on reading as one — and the TARGET grows around it: 22px, which is the
-   ground floor's own height, so nothing in the licence UI is a worse thing to
-   hit than the floors it sits under. Transparent chrome and no background of
-   its own, so a row of buttons still draws as one track. */
+   go on reading as one — and the TARGET grows around it to the full 44px tap
+   floor. Transparent chrome and no background of its own, so a row of buttons
+   still draws as one track.
+
+   44 AND NOT THE LOBBY'S 22, which is what this shipped as. Matching the ground
+   floor sounded principled ("nothing here is a worse target than the floors
+   above it") and was the wrong comparison: the tower's rungs are 22-26px
+   because eleven of them have to share one column's height and there is no
+   layout that fits them at 44 (see .tower__base's own note). This row is nine
+   buttons in a panel with room to spare, so it has no such excuse — and
+   sim/uifit's WebKit pass is what said so, flagging `.lic-pip 51x22` across 42
+   device/screen pairs on a control that had just been added. A new control
+   meets the floor; it does not join the list of things that cannot. */
 .lic-pip--pick {
-  height: 22px; padding: 0; background: none; border: 0;
+  min-height: 44px; padding: 0; background: none; border: 0;
   display: flex; align-items: center; cursor: pointer;
 }
 .lic-pip--pick::before {
