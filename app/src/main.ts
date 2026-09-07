@@ -4714,7 +4714,16 @@ class App {
     if (lesson.id === "close-the-row") {
       // Aim the opening tableau at the centre of the authored trench. These
       // are the same live dots the player's eventual shot will follow.
-      this.game.aimLoft = 0;
+      //
+      // AND AT THE BAY'S OWN LOFT, which this used to overwrite with 0. Zero is
+      // the RETIRED default — cannon.ts's AIM_LOFT_DEFAULT is 1, and the note
+      // on it records why in the owner's own words: the flat drive "ploughs
+      // through the compactor bar", reported twice on a play pass, and the arc
+      // that comes down onto the spot is the ordinary shot while the flat one
+      // is the special case. Nothing here put the dial back, so the whole of
+      // lesson 1 — the bay whose subject IS aiming — solved every mouse target
+      // on the model the game had abandoned, and the tableau it opens with drew
+      // a shot the player cannot reproduce anywhere else.
       this.game.aimAt({ x: WALL_INNER - 3.5 * CELL - CELL / 2, y: WORLD.height - CELL / 2 });
     }
     // A lesson is learned on the live machine. The card shares the HUD rather

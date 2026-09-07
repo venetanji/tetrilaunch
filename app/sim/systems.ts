@@ -21237,13 +21237,49 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const first = lessonById("close-the-row")!;
     const g = new Game(levelForLesson(first), {}, lessonSeed(0));
     const target = { x: WALL_INNER - 4 * CELL, y: WORLD.height - CELL / 2 };
-    g.aimLoft = 0;
+    // NO `aimLoft` HERE, and its absence is the check. This test used to set
+    // the dial to 0 because the call site did, so the two agreed with each
+    // other and with nothing else: 0 is the RETIRED default (cannon.ts's
+    // AIM_LOFT_DEFAULT is 1, and its note records the owner rejecting the flat
+    // drive twice for ploughing through the compactor bar). A fixture that
+    // reproduces a bug faithfully cannot see it.
     g.aimAt(target);
-    const miss = Math.min(...g.trajectory.map((p) => Math.hypot(p.x - target.x, p.y - target.y)));
+    // AGAINST THE SEGMENTS, not the sample points. `trajectory` is a sampled
+    // polyline and the renderer draws the curve THROUGH it, so the nearest
+    // sample overstates the miss by up to half a sample gap — and the gap grows
+    // with the arc's speed, so the steeper default read 21.6px against a 20px
+    // tolerance on an arc that visibly crosses the trench. What the player sees
+    // is the line, so the line is what this measures.
+    const seg = (a: { x: number; y: number }, b: { x: number; y: number }): number => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1,
+        ((target.x - a.x) * dx + (target.y - a.y) * dy) / len2));
+      return Math.hypot(a.x + t * dx - target.x, a.y + t * dy - target.y);
+    };
+    let miss = Infinity;
+    for (let i = 1; i < g.trajectory.length; i++) {
+      miss = Math.min(miss, seg(g.trajectory[i - 1], g.trajectory[i]));
+    }
     check("lesson 1's displayed trajectory crosses the trench", miss <= CELL / 2, `${miss.toFixed(1)}px`);
     check("...while the shipment preview is still flat", g.cannon.quarterTurns % 2 === 0);
+    check("...and the bay opens on the cannon's real loft, not a retired one",
+      g.aimLoft === AIM_LOFT_DEFAULT, String(g.aimLoft));
     g.destroy();
   }
+
+  // NO TEACHING BAY MOVES THE AIM DIAL. Every lesson is flown on the cannon the
+  // player will keep — a bay that quietly re-tunes the control it is teaching
+  // is teaching a control that does not exist. Read off a fresh Game per
+  // lesson, so a future `startLesson` special case has to come through here.
+  check("every lesson opens at the cannon's own loft",
+    LESSONS.every((l, i) => {
+      const g = new Game(levelForLesson(l), {}, lessonSeed(i));
+      const ok = g.aimLoft === AIM_LOFT_DEFAULT;
+      g.destroy();
+      return ok;
+    }));
 
   // THE REVEAL IS CUMULATIVE AND MONOTONE. A stage that went backwards would
   // take a readout away from a player who had already been shown it, which is
