@@ -354,6 +354,23 @@ export interface LevelConfig {
    *  exercises keep one attempt; Lob or Skim is deliberately a two-shot
    *  exercise, so its first correct square must survive the second launch. */
   boardResetAttempts: number;
+  /** How many PRESS STROKES a settled shipment may survive before the board
+   *  takes it back, whether or not anything newer has landed.
+   *
+   *  `boardResetAttempts` alone could not answer the case the ladder is most
+   *  often in: it is a comparison BETWEEN shipments, so a piece that missed sat
+   *  there until the next one landed — and the next one is exactly what it was
+   *  in the way of. Fire a flat I at the well, watch it lie across the mouth,
+   *  rotate, fire the correct upright shot, and it bounces off yesterday's
+   *  mistake. Measured on the shipped bay: with no further shot, a missed
+   *  shipment was still standing after SIXTY SECONDS. The lesson then teaches
+   *  that rotation does not work.
+   *
+   *  A stroke is ~4.3s in a lesson bay (measured), so one of them is longer
+   *  than a settle and shorter than a reload-plus-aim: the board is authored
+   *  again by the time the player takes their next shot, and never while they
+   *  are still lining it up. */
+  boardResetStrokes: number;
   /** Whether a cleared row SHOUTS ITS TIMING BAND over the payout (fx.ts's
    *  `payout.grade`).
    *
@@ -1709,6 +1726,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     lessonGoal: null,
     boardResets: false,
     boardResetAttempts: 1,
+    boardResetStrokes: 1,
     gradeCallout: true,
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),

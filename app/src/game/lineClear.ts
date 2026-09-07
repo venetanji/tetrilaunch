@@ -1581,7 +1581,7 @@ export function updateBlinking(
  *  been all the way in since the landing and did not sell it. */
 export const SWEEP_STROKES = 1;
 export function sweepStaleCubes(
-  cubes: Cube[], clock: ClearClock, now: number, keepAttempts = 1,
+  cubes: Cube[], clock: ClearClock, now: number, keepAttempts = 1, keepStrokes = 1,
 ): void {
   // THE NEWEST ATTEMPT ON THE BOARD, which is the thing everything else is
   // measured against. Only SETTLED cargo counts: a shipment still in the air is
@@ -1637,7 +1637,38 @@ export function sweepStaleCubes(
     // is a round trip of several seconds and a reload is not; measured, a
     // stroke-only rule let six shipments pile up between sweeps and buried the
     // well exactly as before.
-    if (cube.shipment === undefined || cube.shipment > newest - Math.max(1, keepAttempts)) continue;
+    if (cube.shipment === undefined) continue;
+    // TWO WAYS TO BE SPENT, and the second is what makes the board reset
+    // ITSELF rather than only reset when it is too late to matter.
+    //
+    // SUPERSEDED — something newer has landed, so this is a previous attempt.
+    // The fast path: a player firing quickly gets the board back per shot
+    // rather than per stroke, which is what stops a bay filling up between
+    // press cycles (a stroke is slow next to a reload; a stroke-only rule was
+    // measured letting six shipments pile up and burying the well).
+    const superseded = cube.shipment <= newest - Math.max(1, keepAttempts);
+    // THE BOARD HAS GONE QUIET — the press has come in this many times since
+    // the LAST thing landed anywhere, and sold none of it. No newer shipment
+    // required, which is the whole point: debris has to be gone BEFORE the next
+    // shot, not cleared by it. Without this a flat I lay across the well's
+    // mouth until the correctly rotated shot arrived and bounced off it, and
+    // the lesson taught that rotation does not work.
+    //
+    // MEASURED FROM THIS CUBE'S OWN LANDING, and that is the whole point. An
+    // IDLE timer off the newest landing was tried first and does not fix the
+    // reported bug at all: every shot that lands renews the whole board, so the
+    // miss the player is trying to shoot past is renewed by the very shot it is
+    // blocking. A shipment gets its own strokes to prove itself and then goes,
+    // which is what makes the next shot face the authored board.
+    //
+    // A ROW THE CLOSING SHIPMENT COMPLETED IS STILL SAFE, and not by luck: the
+    // early return above refuses to sweep anything for a full stroke after the
+    // newest landing, and the press's next full advance falls inside that
+    // stroke. So the sequence that used to eat rows — closing half lands, older
+    // half is instantly stale, older half swept before the sell — cannot happen
+    // whatever this budget is set to.
+    const outOfStrokes = clock.stroke - stamp.stroke >= Math.max(1, keepStrokes);
+    if (!superseded && !outOfStrokes) continue;
     // AND THE PRESS HAS HAD ITS GO — a completed stroke since this cube's own
     // landing. `stroke` advances at the full-advance stop, which is the stop a
     // row clears on, so this is exactly "the bar came all the way in and did

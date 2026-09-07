@@ -21878,7 +21878,14 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // would pass whether the reset ran or not.
     const left = (n: number): number => g.cubes.filter((c) => c.shipment === n).length;
     check("the board takes the older attempt back", left(1) === 0, `${left(1)} left`);
-    check("...and leaves the current one standing", left(2) === 4, `${left(2)}`);
+    // ...AND THE CURRENT ONE TOO, once the press has had its stroke at it and
+    // sold nothing. This used to assert the opposite — that the newest attempt
+    // stands indefinitely — and that was the bug the owner reported from play:
+    // a shipment that completes no row is not "the current state of the bay",
+    // it is the last mistake, and leaving it there means the NEXT shot is aimed
+    // at a board the lesson never authored. Fire flat at the well, watch it lie
+    // across the mouth, rotate, fire correctly, bounce off it.
+    check("...and the current one as well, having closed nothing", left(2) === 0, `${left(2)}`);
     // NOT ZEROED, which is the claim. Whether it also climbed is beside the
     // point — a sweep routed through the lost-cargo path would have reset it.
     check("...without breaking the combo streak", g.combo >= 3, String(g.combo));
@@ -21983,6 +21990,8 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   {
     const halves = (
       id: string, a: Array<[number, number]>, b: Array<[number, number]>,
+      /** Seconds between the two halves landing. */
+      gapSeconds: number,
     ): number => {
       let sold = 0;
       for (let phase = 0; phase < 12; phase++) {
@@ -21994,7 +22003,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         };
         fly(0.2 + phase * 0.16);
         place(g, a, "O", 1);
-        fly(3);
+        if (gapSeconds > 0) fly(gapSeconds);
         place(g, b, "O", 2);
         fly(14);
         if (g.linesTotal > 0) sold++;
@@ -22002,11 +22011,58 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       }
       return sold;
     };
-    check("a trench closed by two half shipments still sells, at every press phase",
-      halves("close-the-row", [[2, 0], [3, 0]], [[4, 0], [5, 0]]) === 12,
-      `${halves("close-the-row", [[2, 0], [3, 0]], [[4, 0], [5, 0]])}/12`);
+    // THE BUG THE OWNER REPORTED FROM PLAY, and the check that had no
+    // equivalent: a shipment that closes nothing has to leave ON ITS OWN, with
+    // nothing fired after it. Every board-reset pin here measured a reset
+    // triggered BY the next shipment, so all of them passed while a miss sat on
+    // the board indefinitely — measured on the shipped bay, a flat I across the
+    // well's mouth was still standing after SIXTY SECONDS. The next shot was
+    // then aimed at a board the lesson never authored: rotate correctly, fire
+    // correctly, bounce off the last mistake, conclude that rotation does not
+    // work.
+    for (const id of ["close-the-row", "four-in-the-well", "time-the-row"]) {
+      const lesson = lessonById(id)!;
+      const g = new Game(levelForLesson(lesson), {}, lessonSeed(LESSONS.indexOf(lesson)));
+      let now = 0;
+      const fly = (seconds: number): void => {
+        for (let step = 0; step < 60 * seconds; step++) { now += STEP_MS; g.update(now); }
+      };
+      fly(1);
+      // STRANDED, and it has to really be: dropped over the gap it lands IN the
+      // gap and closes the row, which measures nothing. Two cubes over the
+      // scaffold's own columns come to rest on top of it, two slots out of the
+      // eight a row needs, where the press can never sell them.
+      place(g, [[0, 5], [1, 5]], "O", 1);
+      // NO "IT IS STILL THERE A MOMENT LATER" HALF, deliberately. The budget is
+      // counted in press STROKES, so a shipment landing just before a full
+      // advance has had its go almost immediately while one landing just after
+      // gets the whole 4.3s cycle. That spread is a property of the rule and
+      // not a defect, and a check that pinned the short end would be pinning
+      // the press's phase.
+      fly(12);
+      const late = g.cubes.filter((c) => c.shipment === 1).length;
+      check(`${id}: a miss is gone with nothing fired after it`,
+        late === 0, `${late} still standing`);
+      g.destroy();
+    }
+
+    // TOGETHER, not three seconds apart. The gap used to be 3s, which on a
+    // one-shot bay is now long enough for the first half to have spent its
+    // stroke and gone — by design, and the check below pins that separately.
+    // What must never happen is the ORIGINAL bug: the closing half lands, the
+    // older half is stale by definition that instant, and the sweep takes it in
+    // the step before the press comes in to sell the row it just completed.
+    // Landing them together is that sequence exactly, and at every phase.
+    check("a row closed across two shipments still sells, at every press phase",
+      halves("close-the-row", [[2, 0], [3, 0]], [[4, 0], [5, 0]], 0) === 12,
+      `${halves("close-the-row", [[2, 0], [3, 0]], [[4, 0], [5, 0]], 0)}/12`);
     check("...and so does Lob or Skim's two-gap answer",
-      halves("lob-or-skim", [[0, 0], [1, 0], [0, 1], [1, 1]], [[6, 0], [7, 0], [6, 1], [7, 1]]) === 12);
+      halves("lob-or-skim", [[0, 0], [1, 0], [0, 1], [1, 1]], [[6, 0], [7, 0], [6, 1], [7, 1]], 0) === 12);
+    // ...WHILE THE CUMULATIVE BAY STILL HOLDS A HALF ANSWER across a real pause
+    // between shots. Its budget is eight strokes precisely because a landed
+    // square there is half the answer rather than debris.
+    check("Lob or Skim still holds one gap while the player lines up the other",
+      halves("lob-or-skim", [[0, 0], [1, 0], [0, 1], [1, 1]], [[6, 0], [7, 0], [6, 1], [7, 1]], 8) === 12);
   }
 
   // A swept cube is NOT a lost one. Both end in the same blink and they are

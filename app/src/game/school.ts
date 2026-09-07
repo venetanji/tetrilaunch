@@ -674,7 +674,24 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
   // two are the same statement: a bay whose board is drawn for it is a bay that
   // has to be able to get its board back.
   cfg.boardResets = lesson.wallMaterial === "gold";
-  cfg.boardResetAttempts = lesson.id === "lob-or-skim" ? 2 : 1;
+  // LOB OR SKIM IS THE ONE CUMULATIVE EXERCISE — its answer is two squares
+  // standing at once — so it keeps a second attempt alive and gets a longer
+  // stroke budget with it. A stroke is ~4.3s, so three of them is about
+  // thirteen seconds: enough for a deliberate second shot, and still an end.
+  //
+  // Everywhere else the board comes back after ONE stroke, whether or not
+  // anything has been fired since (level.ts's boardResetStrokes). That is the
+  // property the ladder is built on and did not have: every lesson but this one
+  // is a single shot at an authored board, so the board the player aims at has
+  // to be the authored one every time — not the authored one plus whatever
+  // their last miss left lying across it.
+  const cumulative = lesson.id === "lob-or-skim";
+  cfg.boardResetAttempts = cumulative ? 2 : 1;
+  // Eight strokes is ~34 seconds — long, deliberately. On the cumulative bay a
+  // landed square is HALF THE ANSWER rather than debris, so the budget is there
+  // to stop an abandoned attempt lingering, not to hurry the player; the
+  // superseded clause still takes it the moment a third shipment lands.
+  cfg.boardResetStrokes = cumulative ? 8 : 1;
 
   applyBayDials(cfg, lesson);
   return cfg;
