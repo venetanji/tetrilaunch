@@ -153,7 +153,13 @@ near miss that skids off the scaffold into the bay teaches nothing.
 
 Anything left standing from a stale attempt is swept between shots
 (`lineClear.ts`'s `sweepStaleCubes`), so the authored board is what the player
-comes back to rather than the wreckage of the last four tries.
+comes back to rather than the wreckage of the last four tries. The sweep waits
+for the press to have had a go at the **current** attempt as well as the stale
+one — without that, a row finished *across* two shipments was destroyed in the
+step before the press came in to sell it (measured across forty compactor
+phases: *Close the Row* sold 0/40 when filled by two halves, 40/40 with the
+sweep off). One extra stroke of stale cargo on the board is what a lesson that
+does not delete the answer costs.
 
 ### Nothing that can punish you exists before it is taught
 
@@ -165,11 +171,33 @@ say — the launch budget stays hidden while the set pieces hand out unlimited
 shipments, because a block reading "LAUNCHES 0" next to a player who keeps
 firing is a readout that lies.
 
+Two stages are not panel blocks and so cannot be a stylesheet's business. The
+timing grade is an **effect over the payout**, gated by `level.ts`'s
+`gradeCallout`; without it the ladder's very first cleared row shouted GOOD and
+its second SWEPT, four bays before either word is explained and with SWEPT
+reading as a rebuke on the one bay whose whole message is *you did that right*.
+The reload is drawn on the **cannon's own muzzle ring**, not in the panel, which
+is why the placement stage adds nothing to the readout at all.
+
+A third attribute, `data-carded`, says only *a teaching card is sharing the
+panel's column* — which is what the panel's height cap, its pointer
+transparency and its aim-through fade were all really asking. The lesson's goal
+readout and its pass-condition row wait on it: while the card is up there is no
+room, and the moment it leaves they arrive.
+
 The same rule governs money. Lessons 1–7 run with the spill fine at zero. Lesson
 8, *Lost Cargo*, is the first bay that can cost you anything and the first with
 a random deal. Lesson 9, *Clutter*, is congestion, and it is last because it is
 a tax on a mistake the player has to be capable of making before it means
 anything.
+
+A fine needs a wallet to come out of, so the two fined lessons open with exactly
+enough money to be billed for every cube the bay can physically lose — and not a
+dollar of it is a budget: the shot is still free and the target still
+unreachable. Without that the charge was `min(score, owed)` against a $0 float,
+so a player who spilled sixty-four cubes was billed nothing and saw no "−$" at
+all, while one who cleared a row first got the toast immediately. The lesson
+demonstrated its own subject only to the player who had stopped needing it.
 
 ### The ladder
 
@@ -188,7 +216,13 @@ anything.
 **Lessons 1–4 are the licence** (`school.ts`'s `LICENCE_LESSON_COUNT`). They are
 the four the rest of the game cannot be played without: put a shipment where you
 meant to, close a row, turn a piece, and choose an arc. The remaining five are
-advanced exercises that stay open for good and can be re-flown in any order.
+advanced exercises that stay open for good.
+
+The lobby panel's pip track is the way back into any of them: a rung the player
+has reached is a button, a rung ahead of them is not, so "re-fly any lesson" is
+navigation rather than a claim. Before that it was a claim — the only route into
+a bay was the lobby's Play button, which flies the licence count clamped to the
+last rung, so a finished player re-flew *Clutter* forever.
 
 Difficulty was tuned down against measurement rather than taste, and the pins in
 `sim/systems.ts`'s Flight School section are what hold it there: the well is one

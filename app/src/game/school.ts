@@ -406,7 +406,7 @@ export const LESSONS: Lesson[] = [
       {
         title: "A row has a price",
         body: `Every row is graded on <b>when</b> it closed. Beat the press to it and it pays`
-          + ` more; let the press grind it flat and it is <b>SWEPT</b>, ×1.`,
+          + ` more; let the press grind it flat and it is <b>SWEPT</b>, ×${GRADE_PAY.swept}.`,
       },
       {
         title: "Wait for the bar",
@@ -483,8 +483,13 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "Cargo can be lost",
+        // WITH THE PRICE ON IT. The bay that exists to teach the fine was the
+        // one surface that would not name it — the guide's own line does
+        // (guide.ts's `lost`), and a rule you meet without its number is a rule
+        // you cannot plan against.
         body: `A cube that drops <b>short of the zone</b>, or bounces back out of it, blinks away`
-          + ` and <b>fines you</b> — a red −$ marks the spot. Billed per cube.`,
+          + ` and costs you <b>$${penaltyPerLostPieceFor(0, 1)}</b> — a red −$ marks the spot.`
+          + ` Billed per cube.`,
       },
       {
         title: "Reach, then fit",
@@ -513,9 +518,12 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "A full bay is priced",
+        // EVERY FIGURE DERIVED, including the reload's. It read "the reload
+        // runs long" between two interpolated numbers — the one term on the
+        // card that could not go stale because it said nothing.
         body: `Past <b>${PILE_TIERS[0].cubes} loose cubes</b> every launch costs`
-          + ` <b>×${PILE_TIERS[0].costMult}</b>, the reload runs long, and a row pays only`
-          + ` <b>${Math.round(PILE_TIERS[0].payMult * 100)}%</b>.`,
+          + ` <b>×${PILE_TIERS[0].costMult}</b>, the reload <b>×${PILE_TIERS[0].reloadMult}</b>,`
+          + ` and a row pays only <b>${Math.round(PILE_TIERS[0].payMult * 100)}%</b>.`,
       },
       {
         title: "Stopping is free",

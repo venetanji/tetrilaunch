@@ -1,7 +1,7 @@
 import { HAZARDS, MATERIAL_CAP, materialRate, type HazardId } from "./hazards";
 import { MATERIAL_GAP } from "./belt";
 import {
-  makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
+  COMBO_STEP, makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
 } from "./level";
 import { EXCELLENT_WINDOW_MS, GRADE_PAY, LUCKY_SWEEPS } from "./grades";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
@@ -470,6 +470,25 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` <b>GOOD</b>, x${GRADE_PAY.good}. Ground flat is <b>SWEPT</b> at the plain rate;`
       + ` ${LUCKY_SWEEPS} sweeps is <b>LUCKY</b>, x${GRADE_PAY.lucky}. A congested bay pays no`
       + ` premium at all.`,
+  },
+  {
+    // THE ONE HUD INSTRUMENT WITH NO ENTRY. The chain ladder is on the panel
+    // from bay 1 of a Deep Run, it multiplies every payout, and the only place
+    // it was explained was Flight School's seventh lesson — past the licence,
+    // i.e. past everything a player has to fly before their first real bay. A
+    // rule the readout states and the manual does not is a rule met by guess.
+    //
+    // Filed under Money rather than Basics because it IS money: it is a
+    // multiplier on what a row pays, and it sits beside the grade, which is the
+    // other one.
+    id: "combo", chapter: "economy", tier: 1,
+    name: "The streak",
+    summary: `Rows closed back to back pay +${Math.round(COMBO_STEP * 100)}% each. Lost cargo and congestion end it.`,
+    body: `Every stroke that clears a row advances the <b>streak</b>, and each step adds`
+      + ` <b>${Math.round(COMBO_STEP * 100)}%</b> to what the next one pays — the ladder above the`
+      + ` readout is how many you are holding. Two things end it, and neither is missing a shot:`
+      + ` <b>cargo lost short of the zone</b>, and the bay <b>crossing a congestion rung</b>.`
+      + ` So the safe arc protects a streak and the greedy one spends it.`,
   },
   {
     id: "scrap", chapter: "economy", tier: 1,

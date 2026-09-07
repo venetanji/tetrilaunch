@@ -21613,6 +21613,27 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       const hits = corpus.filter(([, t]) => re.test(t)).map(([w]) => w);
       check(`no lesson says ${re.source} — ${why}`, hits.length === 0, hits.join(", "));
     }
+    // EVERY FIGURE A CARD QUOTES IS THE LIVE ONE. Three had been typed by hand
+    // among a dozen interpolated neighbours — SWEPT's multiplier, the congested
+    // reload ("runs long", which could not go stale because it said nothing),
+    // and the spill fine, which the one bay that exists to teach the fine
+    // declined to name at all. A number a card states and the game does not is
+    // the worst kind of teaching, and a hand-typed one becomes that on the next
+    // tune.
+    const card = (id: string, n: number): string => lessonById(id)!.cards[n].body;
+    check("the timing card quotes every live band",
+      [GRADE_PAY.swept, GRADE_PAY.good, GRADE_PAY.excellent].every(
+        (m, i) => card("time-the-row", i > 0 ? 1 : 0).includes(`×${m}`)),
+      `${card("time-the-row", 0)} | ${card("time-the-row", 1)}`);
+    check("the congestion card quotes every live congestion figure",
+      [`${PILE_TIERS[0].cubes} loose cubes`, `×${PILE_TIERS[0].costMult}`,
+        `×${PILE_TIERS[0].reloadMult}`, `${Math.round(PILE_TIERS[0].payMult * 100)}%`]
+        .every((bit) => card("clutter", 0).includes(bit)),
+      card("clutter", 0));
+    check("the fine lesson names Tier 1's own price",
+      card("lost-cargo", 0).includes(`$${penaltyPerLostPieceFor(0, 1)}`),
+      card("lost-cargo", 0));
+
     // THE ZONE IS DEFINED BEFORE IT IS SPENT. Four cards lean on the word and
     // a beginner meets it on lesson 1; if the sentence that introduces it is
     // ever edited out, the other three become jargon.
