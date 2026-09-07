@@ -22136,7 +22136,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       yardTop.includes(`data-action="refit-intro-done"`) && !yardTop.includes(`data-action="refit-done"`),
       yardTop.slice(0, 120));
 
-    const draftHtml = S.draftIntroModal({ picks: 1 });
+    const draftHtml = S.draftIntroModal({ offered: 2, picks: 1 });
     check("the draft's intro card is a scrim of its own", scrims(draftHtml) === 1);
     check("...and carries exactly one action for the pad to land on",
       (draftHtml.match(/data-action="/g) ?? []).length === 1,
