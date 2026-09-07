@@ -4680,7 +4680,10 @@ class App {
     this.lesson = lesson;
     this.lessonIndex = index;
     this.lessonTotal = schoolLength(this.meta);
-    this.lessonCard = 0;
+    // A deck with no cards would clamp to index -1 and dereference undefined in
+    // lessonCardHTML. sim/systems.ts pins every lesson to at least one card, so
+    // this is a guard rather than a live path — and a guard that costs nothing.
+    this.lessonCard = lesson.cards.length > 0 ? 0 : null;
     // FIXED SEED (school.ts's lessonSeed), so a retry is the same bay. Eight of
     // the nine are fully authored and would not notice; "Lost Cargo" deals a
     // real 7-bag and this is what makes its deal the same one every attempt.
@@ -7343,6 +7346,20 @@ class App {
       case "pick-tier": {
         const tier = Number(el.getAttribute("data-tier"));
         if (Number.isFinite(tier)) this.pickTier(tier);
+        break;
+      }
+      // ONE RUNG OF THE LICENCE TRACK (screens.ts's licencePanelHTML). The
+      // panel's pips have always looked like a picker; they are one now, which
+      // is what makes "re-fly any lesson" — printed on two surfaces — true. The
+      // markup only emits a button for a rung the player has reached, and this
+      // clamps again on the way through: a hand-edited DOM cannot skip the
+      // ladder.
+      case "pick-lesson": {
+        const idx = Number(el.getAttribute("data-lesson"));
+        if (!Number.isFinite(idx)) break;
+        const reach = Math.min(schoolLength(this.meta) - 1, this.meta.licence);
+        if (idx < 0 || idx > reach) break;
+        this.startLesson(idx);
         break;
       }
       // The Tier S gesture. Never re-renders on a partial streak — see

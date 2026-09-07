@@ -630,6 +630,17 @@ function floorHTML(state: TowerState, tier: number): string {
   const sealsHeld = (state.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
   const sealsNote = sky && !open ? ` — ${sealsHeld} of ${MARK_COUNT} Tiers sealed` : "";
   const accessNote = paywalled ? " — Full Game required" : "";
+  // WHY A LADDER FLOOR IS LOCKED ON A FRESH SAVE, in the one place a locked
+  // floor can say anything. Every Mark reads "locked" while the licence is
+  // owed, and nothing anywhere told the player what would open it: the tower
+  // shakes the floor and says nothing, and menuPlaySub's "Finish Flight School
+  // first" line is unreachable for a Mark, because towerState pins the
+  // selection to the lobby while unlicensed. Contracts and Workshop already say
+  // "Opens after Flight School" on their own buttons; the ten floors between
+  // them said nothing at all.
+  const licenceNote = state.licensed === false && !sky && !open
+    ? " — Flight School first"
+    : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
   // swatches and sim/systems.ts fails the build below dE00 10, so there is no
@@ -683,7 +694,7 @@ function floorHTML(state: TowerState, tier: number): string {
   const rideAt = pass === null ? "" : ` style="--tower-pass:${pass}ms"`;
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"${rideAt}`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}${accessNote}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${licenceNote}${accessNote}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${sky ? "SKY" : tier}</span>`
     + windows
@@ -931,10 +942,28 @@ function licencePanelHTML(ladder: { done: number; total: number }, extras: strin
   const done = Math.max(0, Math.min(total, ladder.done));
   const owed = done < LICENCE_LESSON_COUNT;
   const left = Math.max(0, LESSON_COUNT - done);
-  const pips = Array.from(
-    { length: total },
-    (_, i) => `<span class="lic-pip${i < done ? " lic-pip--done" : ""}"></span>`,
-  ).join("");
+  // THE PIPS ARE THE PICKER, once there is a ladder to pick from.
+  //
+  // They looked like one from the first render — a row of rungs with the
+  // cleared ones filled — and were nine inert spans. Meanwhile the only route
+  // into a lesson was the lobby's Play button, which flies `nextLessonIndex()`
+  // = the licence count clamped to the last rung: so a player who finished the
+  // ladder re-flew CLUTTER, the fine-and-congestion bay, for the rest of the
+  // save's life, and lessons 2 through 8 were reachable only by grinding
+  // forward from the top. Two surfaces promised otherwise in as many words
+  // ("re-fly any lesson", "Re-fly any of them whenever you want").
+  //
+  // Only the CLEARED rungs and the next one are live. A locked rung stays a
+  // span, so the track cannot become a way to skip the ladder, and the pips a
+  // player can press are exactly the ones they have earned plus the one they
+  // are on.
+  const reach = Math.min(total - 1, done);
+  const pips = Array.from({ length: total }, (_, i) => {
+    const cls = `lic-pip${i < done ? " lic-pip--done" : ""}`;
+    if (i > reach) return `<span class="${cls}"></span>`;
+    return `<button type="button" class="${cls} lic-pip--pick" data-action="pick-lesson"`
+      + ` data-lesson="${i}" aria-label="Fly lesson ${i + 1} of ${total}"></button>`;
+  }).join("");
   // THE COUNT SURVIVES THE LICENCE. It used to be dropped the moment the fourth
   // lesson landed — the panel took a null and printed "Licence earned" over a
   // constant "5 advanced exercises remain", which was still saying five at
@@ -946,7 +975,7 @@ function licencePanelHTML(ladder: { done: number; total: number }, extras: strin
     <div class="base-bay__head">
       <div class="base-bay__best">${done} / ${total}</div>
     </div>
-    <div class="lic-track" role="img" aria-label="${done} of ${total} lessons cleared">${pips}</div>
+    <div class="lic-track" role="group" aria-label="${done} of ${total} lessons cleared — pick one to fly">${pips}</div>
     <p class="lic-note">${
       // DERIVED, not typed, every number of it. A count spelled out in prose is
       // a count that goes stale the day a lesson is added — the same rule the

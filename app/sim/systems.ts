@@ -21538,6 +21538,56 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     }
   }
 
+  // THE LOBBY PANEL, on both sides of the licence.
+  {
+    const panel = (done: number, total: number): string =>
+      S.baseBayPanelHTML({ tier: S.LICENCE_TIER, best: 0, licence: { done, total } });
+    const strip0 = (h: string): string => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    // THE COUNT SURVIVES THE LICENCE. It used to be dropped the moment the
+    // fourth lesson landed — the panel printed "Licence earned" over a constant
+    // "5 advanced exercises remain", still saying five at eight of nine and at
+    // nine of nine, on the only progression the mode has left.
+    check("the lobby panel counts the ladder before the licence",
+      strip0(panel(2, LICENCE_LESSON_COUNT)).includes("2 / 4"));
+    check("...and after it", strip0(panel(6, LESSON_COUNT)).includes(`6 / ${LESSON_COUNT}`));
+    check("...and says how many exercises are actually left",
+      strip0(panel(LESSON_COUNT - 1, LESSON_COUNT)).includes("1 advanced exercise ")
+        && !strip0(panel(LESSON_COUNT - 1, LESSON_COUNT)).includes("exercises"));
+    check("...and stops promising any at the end",
+      strip0(panel(LESSON_COUNT, LESSON_COUNT)).includes("the ladder is finished"));
+    // THE PIPS ARE THE PICKER, and it cannot outrun the ladder: a rung the
+    // player has not reached stays inert markup, so the track is a way back
+    // rather than a way past.
+    const picks = (done: number, total: number): number =>
+      (panel(done, total).match(/data-action="pick-lesson"/g) ?? []).length;
+    check("a fresh save can pick only the lesson it is on", picks(0, LICENCE_LESSON_COUNT) === 1);
+    check("...and a finished ladder can pick every rung",
+      picks(LESSON_COUNT, LESSON_COUNT) === LESSON_COUNT);
+    check("...never more than the ladder has",
+      picks(LESSON_COUNT + 5, LESSON_COUNT) === LESSON_COUNT);
+    check("no locked rung is a button",
+      picks(3, LESSON_COUNT) === 4, String(picks(3, LESSON_COUNT)));
+  }
+
+  // A LOCKED LADDER FLOOR SAYS WHY, while the licence is owed. Contracts and
+  // Workshop already carry "Opens after Flight School" on their own buttons;
+  // the ten floors between them said "locked" and nothing else, and the line
+  // that would have explained it (menuPlaySub's licence branch) is unreachable
+  // for a Mark because towerState pins the selection to the lobby.
+  {
+    const owed = S.tierTowerHTML({
+      unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
+      licensed: false, licenceDone: 1, licenceTotal: LICENCE_LESSON_COUNT,
+    });
+    check("a locked floor names Flight School while the licence is owed",
+      owed.includes("Flight School first"));
+    const held = S.tierTowerHTML({
+      unlocked: 1, selected: 1, skydeck: false, contracts: 0,
+    });
+    check("...and says nothing of the sort once it is held",
+      !held.includes("Flight School first"));
+  }
+
   // ONE VOCABULARY, and it is enforced rather than remembered. Nine bays
   // teaching one machine grew four names for it: the shipment was called "the
   // bar" on the first brief while the compactor is "the bar" everywhere else,

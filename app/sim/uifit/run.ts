@@ -1219,6 +1219,50 @@ function measure(cfg: {
       });
   }
 
+  // ...AND THE LADDER'S OWN STAGES, which this never covered. The assertion
+  // ran on the retired deck's fixture alone, so the nine `lesson-hud-*`
+  // fixtures — every screen a Flight School player actually sees — went
+  // unchecked, and the leaks that let through were real ones: the chain ladder
+  // and a Scrap counter on the economy bay, a whole lesson before the streak is
+  // introduced and in a currency the ladder never mentions.
+  //
+  // Restated as a table rather than derived from the stylesheet, for the reason
+  // the coach's list above gives: read off the CSS it would agree with any bug
+  // the CSS has. Keyed on the stage the HUD is actually WEARING, so a lesson
+  // moving up or down the ladder needs no edit here.
+  const stageAttr = document.querySelector(".hud[data-reveal]")?.getAttribute("data-reveal");
+  if (stageAttr !== null && stageAttr !== undefined) {
+    const HIDDEN_AT: Record<string, string[]> = {
+      "0": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "1": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "2": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "3": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "4": [".pl-launches", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "5": [".pl-time", ".pl-scrap", ".pl-mods"],
+    };
+    for (const sel of HIDDEN_AT[stageAttr] ?? []) {
+      const el = document.querySelector(sel);
+      if (el && el.getBoundingClientRect().height > 0) {
+        out.reveal.push(`${sel} is on screen at reveal stage ${stageAttr}`);
+      }
+    }
+    // The other half, and the half a hide-list can never state: the blocks a
+    // lesson bay MUST show. Its goal readout and its pass condition both live
+    // in classes whose Deep Run meaning is something else (`.pl-funds` is
+    // Funds/Target there, `.pl-notch` is the ratchet tally), and hiding them by
+    // that name left five lessons with no counter and eight with no statement
+    // of what the bay wanted. Only once the card is gone: while one is up the
+    // panel has no room for them, which is what `[data-carded]` says.
+    if (!document.querySelector(".hud[data-carded]")) {
+      for (const sel of [".pl-funds", ".pl-notch"]) {
+        const el = document.querySelector(sel);
+        if (el && el.getBoundingClientRect().height === 0) {
+          out.reveal.push(`${sel} is hidden at reveal stage ${stageAttr} — the lesson's own goal`);
+        }
+      }
+    }
+  }
+
   // --- draghint: the onboarding gesture must play clear of the panel --------
   // The hint is an ANIMATION, so its dot cannot simply be measured: the harness
   // drives every animation to its end state, where the dot is back at the start

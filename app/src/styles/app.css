@@ -1626,6 +1626,26 @@ body.crt-off #app::after { display: none; }
   border-radius: 2px;
 }
 .lic-pip--done { background: var(--warn); border-color: var(--warn); }
+/* A PIP YOU CAN PRESS is a rung of the ladder you can fly (screens.ts's
+   licencePanelHTML). The bar stays 6px — it is a progress track and it has to
+   go on reading as one — and the TARGET grows around it: 22px, which is the
+   ground floor's own height, so nothing in the licence UI is a worse thing to
+   hit than the floors it sits under. Transparent chrome and no background of
+   its own, so a row of buttons still draws as one track. */
+.lic-pip--pick {
+  height: 22px; padding: 0; background: none; border: 0;
+  display: flex; align-items: center; cursor: pointer;
+}
+.lic-pip--pick::before {
+  content: ""; display: block; flex: 1 1 auto; height: 6px; border-radius: 2px;
+  background: var(--surface-3);
+  border: var(--bw) solid var(--line-strong);
+}
+.lic-pip--pick.lic-pip--done::before { background: var(--warn); border-color: var(--warn); }
+.lic-pip--pick:hover::before { border-color: var(--accent); }
+/* The track is a row of buttons now, so it needs the height its tallest child
+   asks for rather than the bar's 6px. */
+.lic-track:has(.lic-pip--pick) { align-items: center; }
 .lic-note {
   margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45;
 }
@@ -9050,6 +9070,18 @@ button.panel { color: var(--text); }
   .plant, .plant__body, .pl-pwr, .coach, .belt, .bay-banner { transition: none; }
   .coach--advance .coach__card,
   .coach--success .coach__card { animation: none; }
+  /* ...AND THE SUCCESS CUE KEEPS ITS MEANING. `coach-advance` survives being
+     switched off because its end state IS the resting state; `coach-success`
+     does not — it is `0%,100% { box-shadow: none }` with the whole message in
+     the 45% keyframe, so `animation: none` deleted the card's only
+     acknowledgement that the player had just done the thing the card asked
+     for. The house pattern is that reduced motion drops the THEATRE and keeps
+     the information, and this had it backwards. main.ts's lessonSuccess leaves
+     the class on until the next one, so a static ring is a standing "yes"
+     rather than a flash nobody with this preference ever saw. */
+  .coach--success .coach__card {
+    box-shadow: inset 0 0 0 2px var(--accent), 0 0 18px rgba(0, 240, 255, 0.35);
+  }
 }
 /* ---------- The card's type is field px, like its box ----------
    `--coach-px` is one WORLD pixel at the current field scale, floored at a CSS
