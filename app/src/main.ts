@@ -4533,9 +4533,8 @@ class App {
    * was built beside. Unlike a drill it DOES write one thing: the licence
    * (meta.ts's recordLesson), which is the whole point of the ladder.
    *
-   * The deck plays before the bay (screens.ts's lessonCardHTML says why), so
-   * this mounts card 0 and the reveal stage together and the player reaches a
-   * live field with neither over it.
+   * The deck rides inside the HUD while the bay runs. Card 0 names the first
+   * action; performing it animates card 1 into place.
    */
   private startLesson(index: number): void {
     const lesson = lessonAt(index);
@@ -4562,9 +4561,13 @@ class App {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot");
         this.dismissDragHint();
+        // Lesson cards are prompts, not a pre-flight slide deck. Completing
+        // the action on the first card brings the next idea in immediately.
+        if (this.lessonCard === 0) this.lessonAdvance(true);
       },
       onLineClear: (n, g) => {
         void successHaptic(); playLineClear(n); this.excellenceCue(g); this.flashGoal();
+        this.lessonSuccess();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => { void impactHaptic(); playBondBreak(); },
@@ -4579,18 +4582,16 @@ class App {
       onStatus: (st) => this.onGameStatus(st),
     }, lessonSeed(index));
     if (lesson.id === "close-the-row") {
-      // Aim the paused opening tableau at the centre of the authored trench.
-      // The renderer already draws the live ballistic preview while paused,
-      // so these are the same dots the player's eventual shot will follow.
+      // Aim the opening tableau at the centre of the authored trench. These
+      // are the same live dots the player's eventual shot will follow.
       this.game.aimLoft = 0;
       this.game.aimAt({ x: WALL_INNER - 3.5 * CELL - CELL / 2, y: WORLD.height - CELL / 2 });
     }
-    // The briefing really happens before the bay: no compactor movement,
-    // timing phase or congestion change is allowed while the player reads.
-    this.game.paused = true;
+    // A lesson is learned on the live machine. The card shares the HUD rather
+    // than owning the game state, so the press, trajectory and reload remain
+    // visibly responsive while the player follows it.
+    this.game.paused = false;
     this.setState("playing");
-    // With the physics frozen, the first card has room to demonstrate the
-    // slingshot without the press or lesson changing underneath it.
     if (lesson.id === "close-the-row") {
       this.armDragHint();
       // Flight School is an explicit request to learn, so demonstrate even if
@@ -4605,17 +4606,15 @@ class App {
     return Math.min(LESSON_COUNT - 1, Math.max(0, this.meta.licence));
   }
 
-  /** Advance the lesson's deck by one card, or dismiss it and hand the bay
-   *  over. One entry point, because the pad's B, a tap and a keyboard
-   *  activation all arrive at the same `.coach__btn`. */
-  private lessonAdvance(): void {
+  /** Advance the lesson's live tip, or dismiss it. Player activation and a
+   *  completed first action share this one transition. */
+  private lessonAdvance(react = false): void {
     const lesson = this.lesson;
     if (!lesson || this.lessonCard === null) return;
     const next = this.lessonCard + 1;
     if (next >= lesson.cards.length) {
       this.lessonCard = null;
       this.overlay.querySelector("#coach")?.remove();
-      if (this.game) this.game.paused = false;
       this.syncRevealStage();
       this.armDragHint();
       return;
@@ -4624,7 +4623,19 @@ class App {
     this.mountCoach(S.lessonCardHTML(
       lesson, this.lessonIndex, next, LESSON_COUNT, this.profile,
     ));
+    if (react) this.overlay.querySelector("#coach")?.classList.add("coach--advance");
     this.syncRevealStage();
+  }
+
+  /** Let the card acknowledge a correct result without covering the result UI. */
+  private lessonSuccess(): void {
+    const coach = this.overlay.querySelector<HTMLElement>("#coach");
+    if (!coach) return;
+    coach.classList.remove("coach--success");
+    // Force only the animation restart, not a HUD rebuild whose live ids are
+    // being patched by syncHud.
+    void coach.offsetWidth;
+    coach.classList.add("coach--success");
   }
 
   /**

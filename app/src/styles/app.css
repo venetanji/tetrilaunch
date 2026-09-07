@@ -8684,6 +8684,18 @@ button.panel { color: var(--text); }
   min-height: 0;
 }
 .coach__card { min-height: 0; }
+/* A lesson card answers play instead of behaving like a static briefing. The
+   cyan kick means "yes"; the short slide is the next instruction arriving. */
+.coach--advance .coach__card { animation: coach-advance 300ms var(--ease) both; }
+.coach--success .coach__card { animation: coach-success 420ms var(--ease); }
+@keyframes coach-advance {
+  from { opacity: 0.35; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes coach-success {
+  0%, 100% { box-shadow: none; }
+  45% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 18px rgba(0, 240, 255, 0.35); }
+}
 /* While the card is in the panel the readout stacks UNDER it from the top
    rather than being spread down the panel's full height — space-between with
    half the blocks hidden would strand the survivors at the two extremes. */
@@ -8747,6 +8759,8 @@ button.panel { color: var(--text); }
 .hud--aiming[data-coach] .coach { opacity: 0.82; }
 @media (prefers-reduced-motion: reduce) {
   .plant, .plant__body, .pl-pwr, .coach, .belt, .bay-banner { transition: none; }
+  .coach--advance .coach__card,
+  .coach--success .coach__card { animation: none; }
 }
 /* ---------- The card's type is field px, like its box ----------
    `--coach-px` is one WORLD pixel at the current field scale, floored at a CSS

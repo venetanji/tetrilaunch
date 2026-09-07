@@ -21023,7 +21023,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     LESSONS.every((l, i) => lessonById(l.id) === l && lessonAt(i) === l));
   check("a lesson past the end is null", lessonAt(LESSON_COUNT) === null);
 
-  // The paused first briefing is also the aiming demonstration. Its dots are
+  // The live first card is also the aiming demonstration. Its dots are
   // solved onto the centre of the authored trench, with the I still flat, so
   // the picture and the sentence teach the same shot.
   {

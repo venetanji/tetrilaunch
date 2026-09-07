@@ -1237,9 +1237,8 @@ export const SCREENS: Record<string, () => string> = {
      THE REVEAL, at EVERY stage, for the reason the coach's own note gives about
      shipping all four of its steps: the budget is the readout against what the
      stage has already spent, and those vary independently, so a middle stage
-     can be tighter than either end. Rendered with NO card over it, which is the
-     state a lesson's bay is actually played in (screens.ts's lessonCardHTML
-     says why the deck plays first). */
+     can be tighter than either end. Rendered with NO card over it as the state
+     after the player hides the live tip. */
   "lesson-card": () => withCoach(
     S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0,
     S.lessonCardHTML(LESSONS[4], 4, 0, LESSON_COUNT),

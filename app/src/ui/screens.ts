@@ -3404,16 +3404,10 @@ export function coachHTML(
  * is written against `.coach`, and a second class would need all of them again
  * and would drift from them the first time one moved.
  *
- * THE DECK PLAYS BEFORE THE BAY, not alongside it, and that is a layout
- * decision as much as a teaching one. The card is ~127px of a ~179px allowance
- * (see app.css's reveal block), so a card and a readout cannot both be up: the
- * old coach could only hand over the economy blocks at the moment its last card
- * LEFT. Playing the deck out first makes that the rule rather than the
- * exception — the cards say what the lesson is, the last one dismisses, and the
- * bay the player then gets has the readout the lesson earned and nothing over
- * it. What holds the pass condition for the rest of the bay is the plant
- * panel's own complications row (Lesson.conditions), which is where a drill has
- * always kept it.
+ * THE DECK RIDES WITH THE LIVE BAY. It is HUD content, not a modal: completing
+ * the first prompted action swaps in the next card, and a correct row gives it
+ * visible acknowledgement. The plant's complications row keeps the target on
+ * screen after the player hides the tip.
  *
  * ONE BUTTON. main.ts routes the pad's B to a single `.coach__btn` while the
  * bay is live, because every other face button is spoken for by gameplay — so a
@@ -3444,7 +3438,7 @@ export function lessonCardHTML(
   const padKey = profile === "gamepad"
     ? `<span class="kbd coach__padkey">${padLabel(PAD_BACK)}</span>`
     : "";
-  return `<div class="coach" id="coach">
+  return `<div class="coach" id="coach" aria-live="polite">
     <div class="coach__card">
       <div class="coach__eyebrow">Flight School · ${index + 1}/${total}</div>
       <div class="coach__title">${c.title}</div>
@@ -3452,7 +3446,7 @@ export function lessonCardHTML(
       <div class="coach__foot">
         <span class="coach__dots" aria-hidden="true">${dots}</span>
         <button class="btn btn--primary coach__btn" data-action="coach-done">${padKey}${
-          last ? "Fly it" : "Next"
+          last ? "Hide tip" : "Next"
         }</button>
       </div>
     </div>
