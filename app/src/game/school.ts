@@ -49,6 +49,32 @@ import {
  * before it means anything.
  */
 
+/**
+ * THE WORDS THE LADDER USES, and it uses only these.
+ *
+ * Nine bays teaching one machine will invent four names for it unless the
+ * names are written down, and a beginner has no way to tell a synonym from a
+ * second mechanic. Every one below is the term the rest of the game already
+ * uses — guide.ts, screens.ts, drills.ts — so a player who leaves school and
+ * opens the guide reads the same nouns.
+ *
+ *   shipment    what the cannon fires. Never "the piece", never "the bar".
+ *   the bar     the red compactor face. The ONLY bar on screen: the plant
+ *               panel's reload track is hidden in every lesson bay (main.ts
+ *               passes hideReload), so nothing else may be called one.
+ *   the press   the machine, and what it does. One advance of it is a
+ *               STROKE — never a "crush", which is what it was called on one
+ *               card and nowhere else.
+ *   the zone    the floor BEYOND the bar, where a row can still be pressed
+ *               against the far wall. Defined once, on lesson 1's second
+ *               card, because lessons 4, 7 and 8 all spend it.
+ *   short of the zone
+ *               cargo that landed where the bar can no longer reach it. The
+ *               single phrase for that event: "short of the bar", "misses the
+ *               zone" and "drops short of the zone" were three wordings of it
+ *               across four cards, and guide.ts's own line is this one.
+ */
+
 /** A card in a lesson's deck.
  *
  *  ONE PAD-ROUTED BUTTON PER CARD, always — main.ts routes B (padnav's
@@ -219,7 +245,7 @@ export const LESSONS: Lesson[] = [
   {
     id: "close-the-row",
     name: "Close the Row",
-    brief: "One shipment closes it. The bay is already set — put the bar in the gap.",
+    brief: "One shipment closes it. The bay is already set — drop it into the gap.",
     conditions: "One shot · gap is four wide",
     reveal: REVEAL.aim,
     lines: 1,
@@ -233,14 +259,20 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "Aim & fire",
+        // `input` PREFIXES this with the live device's firing gesture rather
+        // than replacing it (screens.ts's lessonCardHTML), so the sentence
+        // below is the one thing the gesture cannot know: what to point at.
+        // It used to be replaced outright, which made this string dead copy
+        // and put the gap's width — an authored number, two lines above — in
+        // a template literal in the UI layer.
         input: "aim",
-        body: `The bay is set: <b>one shipment</b> closes the bottom row. Aim the dotted arc`
-          + ` into the four-wide gap and let go.`,
+        body: `Put the dotted arc through the <b>four-wide gap</b>.`,
       },
       {
         title: "The press pays",
-        body: `A row sells when the red bar reaches it — that is why cargo <b>short of the bar</b>`
-          + ` never counts. The gold stays put, so take the shot again.`,
+        body: `A row sells when the <b>red bar</b> reaches it. The floor beyond the bar is the`
+          + ` <b>zone</b> — cargo <b>short of the zone</b> never counts. The gold stays put, so`
+          + ` shoot again.`,
       },
     ],
   },
@@ -264,8 +296,14 @@ export const LESSONS: Lesson[] = [
       },
       {
         title: "Reload",
-        body: `The cannon takes a moment to reload — the bar under the readout. <b>Line the next`
-          + ` shot up while it fills</b>; that habit buys more time than any upgrade.`,
+        // NAMES THE RING, NOT A PANEL ROW. The plant panel's Reload track is
+        // suppressed in every lesson bay (main.ts's hideReload) and the
+        // cannon's own muzzle ring is the whole HUD for this state
+        // (render.ts's drawReloadRing: amber while loading, aim-cyan the
+        // instant it is fireable). The card pointed at the panel anyway.
+        body: `The cannon takes a moment to reload — the <b>ring around it</b> fills, then turns`
+          + ` cyan. <b>Line the next shot up while you wait</b>; that habit buys more time than`
+          + ` any upgrade.`,
       },
     ],
   },
@@ -319,7 +357,8 @@ export const LESSONS: Lesson[] = [
       {
         title: "The skim",
         body: `The <b>near</b> gap takes a <b>flat, fast</b> one straight across the top. More`
-          + ` reach, and it can <b>bounce back out</b>. Fill both and the rows sell together.`,
+          + ` reach, and it can <b>bounce back out of the zone</b>. Fill both and the rows sell`
+          + ` together.`,
       },
     ],
   },
@@ -397,12 +436,12 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "Combo",
-        body: `Each crush that clears a row advances the <b>streak</b>, and the streak multiplies`
+        body: `Each <b>stroke</b> that clears a row advances the streak, and the streak multiplies`
           + ` what the next one pays. Keep closing rows and the same play earns more.`,
       },
       {
         title: "Losing cargo breaks it",
-        body: `<b>A cube that misses the zone takes the streak with it</b> — and so does letting`
+        body: `<b>A cube lost short of the zone takes the streak with it</b> — and so does letting`
           + ` the bay clutter up. The skim risks a streak; the lob protects one.`,
       },
     ],
@@ -410,7 +449,7 @@ export const LESSONS: Lesson[] = [
   {
     id: "lost-cargo",
     name: "Lost Cargo",
-    brief: "No scaffolding now, and cubes that miss the zone are fined. Clear 2 rows.",
+    brief: "No scaffolding now, and cubes short of the zone are fined. Clear 2 rows.",
     conditions: "Live fine · ordinary belt",
     reveal: REVEAL.lost,
     lines: 2,

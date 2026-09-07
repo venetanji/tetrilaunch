@@ -119,13 +119,147 @@ Settled).
 Contracts are where you *build* the rig. Deep Run is where you find out whether
 the rig you built is good enough. Neither mode is the "real" game.
 
+## Flight School — the ground floor
+
+Neither mode teaches, either. Both of them *examine*, and for a long time the
+first thing a new player met was Deep Run bay 1 with a four-card coach riding on
+top of it (`ui/screens.ts`'s `coachSteps`). Four cards had to carry aim, rotate,
+the row and the whole bay economy over a **randomly dealt** bay — so the first
+exercise anybody ever attempted was a different exercise every time the bag
+reshuffled, and everything after those four cards (the timing grade, the streak,
+the spill fine, the congestion tax) was met by ambush, inside the one mode that
+can be lost.
+
+Flight School replaces it with a **ladder**: `game/school.ts`, one authored bay
+per idea, in an order, with the HUD block that idea needs arriving on the bay
+that earns it.
+
+### Every bay is a set piece
+
+A random deal cannot be a lesson. Each lesson opens with a standing pile that is
+already most of a row and a belt that deals **one shape forever**
+(`BayDials.sequence` cycles), so "close this row" means the same thing on every
+attempt and the first exercise a player meets is the one the copy describes.
+
+The scaffolding is a material of its own — **gold** (`theme.ts`'s
+`MATERIAL_SPEC.gold`, `persists: true`). It fills a slot like any other cube,
+counts toward a line, and then declines to leave when the line sells. So the row
+closes, grades, pays — *and rebuilds itself*. A missed shot costs a reload
+instead of a restart, which is what lets a one-shot exercise be attempted twenty
+times with no menu in between, and it is why these bays need no retry button.
+Gold is static, square-cornered and high-friction (`pieces.ts`'s
+`createStandingWall`): a static body with rounded corners is a *ramp*, and a
+near miss that skids off the scaffold into the bay teaches nothing.
+
+Anything left standing from a stale attempt is swept between shots
+(`lineClear.ts`'s `sweepStaleCubes`), so the authored board is what the player
+comes back to rather than the wreckage of the last four tries.
+
+### Nothing that can punish you exists before it is taught
+
+The reveal is staged (`school.ts`'s `REVEAL`, stamped onto the HUD as
+`data-reveal`, hidden by `app.css`): power only, then placement, then the timing
+grade, then Funds and Target, then Combo, then the launch budget and the Lost
+counter, then everything. A stage turns on only when a bay gives it something to
+say — the launch budget stays hidden while the set pieces hand out unlimited
+shipments, because a block reading "LAUNCHES 0" next to a player who keeps
+firing is a readout that lies.
+
+The same rule governs money. Lessons 1–7 run with the spill fine at zero. Lesson
+8, *Lost Cargo*, is the first bay that can cost you anything and the first with
+a random deal. Lesson 9, *Clutter*, is congestion, and it is last because it is
+a tax on a mistake the player has to be capable of making before it means
+anything.
+
+### The ladder
+
+| # | Lesson | Teaches | Reveals |
+|---|---|---|---|
+| 1 | Close the Row | aim, power, the arc; what the zone is | PWR |
+| 2 | Two at Once | two rows on one stroke; the reload ring | placement |
+| 3 | Four in the Well | rotation — a flat I cannot enter a one-wide channel | placement |
+| 4 | Lob or Skim | the two arcs, and what each one risks | placement |
+| 5 | Time the Row | the timing grade: SWEPT / GOOD / EXCELLENT | grade |
+| 6 | The Bankroll | launches cost, rows pay, funds are the score | funds |
+| 7 | The Streak | the combo multiplier, and what breaks it | combo |
+| 8 | Lost Cargo | the spill fine, on an ordinary belt | lost |
+| 9 | Clutter | congestion: the tax on a full bay | all |
+
+**Lessons 1–4 are the licence** (`school.ts`'s `LICENCE_LESSON_COUNT`). They are
+the four the rest of the game cannot be played without: put a shipment where you
+meant to, close a row, turn a piece, and choose an arc. The remaining five are
+advanced exercises that stay open for good and can be re-flown in any order.
+
+Difficulty was tuned down against measurement rather than taste, and the pins in
+`sim/systems.ts`'s Flight School section are what hold it there: the well is one
+column wide but only **two** deep and pays its four rows as a **cascade** (the I
+closes rows 0–1, they go, its top two cubes fall onto the gold that persisted and
+close them again) rather than as a tetris threaded down a four-deep slot; the
+timing lesson asks for two **GOOD** rows, not two EXCELLENT ones, and because the
+bands are ordered an EXCELLENT row counts toward it for free; *Lob or Skim* has a
+gap at **each end**, so neither arc alone closes anything and the lesson cannot be
+passed with one kind of shot.
+
+### The licence is a floor, not a prologue
+
+Flight School is drawn as the tower's **ground floor** — a plinth under Tier 1,
+selectable like any other floor (`screens.ts`'s `LICENCE_TIER`), with a pip track
+for progress. That is the whole navigational claim: school is not a modal you
+escape, it is the floor you start on, and the goal from the first screen is
+visibly *to unlock the next one*.
+
+Until the licence is earned, Contracts and Workshop are disabled with the
+subtitle "Opens after Flight School", every ladder floor reads "Finish Flight
+School first", and `nextStep` returns `"licence"` before it considers anything
+else — so the "next step" chevron never points a first-time player at a locked
+button.
+
+### What opens next, and how it explains itself
+
+`nextStep` sends a freshly licensed player at **one real Deep Run bay** before
+the meta loop (`meta.runs === 0` → `"run"`): funds, targets and failure are much
+easier to understand as things that happened to you than as things a board
+described. Only after that does it start naming the Workshop and the Contract
+board.
+
+Each of those doors introduces itself once, on first arrival, rather than being
+inferred from a screen full of cards — the Contract board (`seenContractBoard`),
+the ratchet draft (`seenDraft`) and the refit yard (`seenRefit`) each get a one-
+card modal the first time they open. **A system explains itself the moment you
+buy it**: the first install on a track offers that track's drill
+(`main.ts`'s `firstInstall` path, `meta.systemDrillsSeen`), so a Bond Breaker or
+a Thaw Lance is met in a bay built to show what it does, not in the middle of a
+run that is already going badly.
+
+Every card in this chapter — lesson cards and intro modals alike — carries
+**exactly one button**, routed to the pad's B face. While a bay is live every
+other face button is spoken for by gameplay, so a card with two buttons would
+leave a pad-only player unable to advance at all.
+
+### One vocabulary
+
+Nine bays teaching one machine will invent four names for it. `school.ts` carries
+the glossary and `sim/systems.ts` enforces it: the cannon fires a **shipment**;
+the red compactor face is **the bar** and nothing else on screen may be called
+one; the machine is **the press** and one advance of it is a **stroke**; the
+floor beyond the bar is **the zone**, defined on lesson 1's second card because
+lessons 4, 7 and 8 all spend the word; and cargo that lands out of reach is
+**short of the zone**, in those words, everywhere — including in `guide.ts`, so a
+player who leaves school and opens the guide reads the same nouns.
+
 ## The loop
 
-1. Run Contracts. They pay the permanent currency and teach one material at a time.
-2. Spend it on your rig — pick a direction, because you cannot afford every track.
-3. Attempt **Deep Run at Tier 1**. This is a gated exam, not an endless score chase.
-4. Beat it. That unlocks Tier 2 Contracts *and* raises your build budget.
-5. Repeat. Each Tier is harder, introduces new materials, and demands a build.
+0. **Flight School.** Four lessons earn the licence; five more stay open. Nothing
+   here can be lost, and Tier 1 does not exist until it is done.
+1. Fly **one Deep Run bay** — funds, targets and failure, once, for real.
+2. Run Contracts. They pay the permanent currency and teach one material at a time.
+3. Spend it on your rig — pick a direction, because you cannot afford every track.
+4. Attempt **Deep Run at Tier 1**. This is a gated exam, not an endless score chase.
+5. Beat it. That unlocks Tier 2 Contracts *and* raises your build budget.
+6. Repeat. Each Tier is harder, introduces new materials, and demands a build.
+
+Steps 0 and 1 happen once. Steps 2–6 are the loop proper, and everything below
+this line is about them.
 
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
 into the next Tier, you beat your way into it. A tier completes only when both
@@ -362,7 +496,7 @@ it's a different set of problems.
 
 | Rig | Identity | Trade |
 |---|---|---|
-| **Standard Hauler** | balanced, all ten tracks available | the tutorial rig |
+| **Standard Hauler** | balanced, all ten tracks available | the rig you learn on |
 | **Scrapper** | starts with Demolition; bombs refund more | weak launcher — plays the salvage economy |
 | **Overpressure** | huge hydraulics and settle assist | brutal cooldown; few shots, each flattens |
 | **Swarm** | micro payloads native, fast cooldown | can't run bulk; Bond Breaker dependent |
@@ -535,7 +669,7 @@ could win — so it is said in as many words the first time a bay is ever retrie
 (a one-time panel on a watermark, `MetaState.sealBreakSeen`) and then carried by
 a struck-through seal glyph on the button and one line above it. Retries are
 counted at one place, `main.ts`'s `resetBay`, which every door into a bay retry
-goes through: the pause modal, the held ⏸, the tutorial's failure card and the
+goes through: the pause modal, the held ⏸, the coached bay's failure card and the
 game-over card's **Retry Bay**.
 
 **The seals are the Skydeck's key.** They pay nothing and raise nothing — the

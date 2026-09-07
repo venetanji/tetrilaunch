@@ -126,7 +126,13 @@ Three things the ladder still deliberately does **not** touch:
 - **The mistake budget stays eight launches** (`LAUNCH_BUDGET_SHOTS`). The float
   is derived from it rather than fixed in dollars, so a dearer shot at a high
   tier costs more money for the same runway instead of quietly shortening it —
-  the sweep pinned the shot count, not the $200.
+  the sweep pinned the shot count, not the $200. Flight School's *Bankroll*
+  lesson derives its own the same way and lands on a **wider** one — twelve
+  shots of float (`school.ts`'s `BANKROLL_FLOAT_SHOTS`) against a target three
+  rows of profit above it — because that bay is teaching that shots cost money,
+  not testing whether the player can afford them yet. It inherits Tier 1's real
+  launch price and line payout, so what it teaches is the economy the next bay
+  will run; only the runway is generous.
 - **`scorePerLine` stays tier-invariant** (100 + 10/bay). A higher tier is *more
   lines*, not richer ones — which is why the leaderboard is per tier now: a
   shared board would rank the ladder rather than the play. What a row is worth
@@ -137,6 +143,13 @@ Three things the ladder still deliberately does **not** touch:
   target, so a fine has nothing to be measured against. The answer to a spilled
   cube there is already the harshest the mode has: one fewer shipment left in
   the launch budget.
+- **Flight School charges nothing until the lesson whose subject it is**
+  (`school.ts`'s `levelForLesson`). Lessons 1–7 zero the fine on the Contract's
+  terms above; *Lost Cargo* — the eighth — turns it on at **Tier 1's own price**
+  (`penaltyPerLostPieceFor(0, 1)`) rather than a number invented for the ladder,
+  because a licence bay is a Tier 1 bay by construction and the ramp's bottom
+  rung is what the player's first real run will actually bill them. A penalty
+  the player meets before it has been named is an ambush, not a rule.
 
 ## Three currencies, three horizons
 

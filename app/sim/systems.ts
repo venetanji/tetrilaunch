@@ -21457,6 +21457,62 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     }
   }
 
+  // ONE VOCABULARY, and it is enforced rather than remembered. Nine bays
+  // teaching one machine grew four names for it: the shipment was called "the
+  // bar" on the first brief while the compactor is "the bar" everywhere else,
+  // a press stroke was a "crush" on exactly one card, and cargo landing out of
+  // reach was "short of the bar", "misses the zone" and "drops short of the
+  // zone" across four cards — three wordings a beginner has no way to read as
+  // one rule. school.ts's glossary is the list; this is the check that it
+  // stays true, including for whatever card is written next.
+  const strip = (t: string): string => t.replace(/<[^>]+>/g, "");
+  {
+    const BANNED: Array<[RegExp, string]> = [
+      [/\bcrush(es|ed|ing)?\b/i, `a press advance is a STROKE`],
+      [/short of the bar/i, `cargo lands short of THE ZONE`],
+      [/miss(es|ed)? the zone/i, `say "short of the zone"`],
+      [/\bblock\b/i, `the cannon fires a SHIPMENT`],
+    ];
+    const corpus = LESSONS.flatMap((l) => [
+      [`${l.id} brief`, l.brief] as const,
+      [`${l.id} conditions`, l.conditions] as const,
+      ...l.cards.map((c, n) => [`${l.id} card ${n + 1}`, `${c.title} ${c.body}`] as const),
+    ]);
+    for (const [re, why] of BANNED) {
+      const hits = corpus.filter(([, t]) => re.test(t)).map(([w]) => w);
+      check(`no lesson says ${re.source} — ${why}`, hits.length === 0, hits.join(", "));
+    }
+    // THE ZONE IS DEFINED BEFORE IT IS SPENT. Four cards lean on the word and
+    // a beginner meets it on lesson 1; if the sentence that introduces it is
+    // ever edited out, the other three become jargon.
+    const first = LESSONS.findIndex((l) => l.cards.some((c) => /\bzone\b/.test(c.body)));
+    check("the zone is named first on the opening lesson", first === 0, String(first));
+    check("...and that card says what it is",
+      LESSONS[0].cards.some((c) => /floor beyond the bar is the <b>zone<\/b>/.test(c.body)));
+  }
+
+  // NO CARD CARRIES DEAD COPY. `input: "aim"` used to REPLACE a card's body
+  // with the device's firing gesture, so the sentence authored here rendered
+  // on no device at all — while the sentence that did render named the gap's
+  // width from inside the UI layer. It prefixes now, and this is the pin: what
+  // school.ts writes is what the player reads, on every profile.
+  for (const [i, l] of LESSONS.entries()) {
+    for (const [n, c] of l.cards.entries()) {
+      const shown = (["touch", "keyboard", "gamepad"] as const).map((profile) => {
+        const html = S.lessonCardHTML(l, i, n, LESSON_COUNT, profile);
+        return /<p class="coach__body">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "";
+      });
+      check(`${l.id} card ${n + 1} renders the copy it authored`,
+        shown.every((t) => t.includes(c.body)),
+        shown.find((t) => !t.includes(c.body)) ?? "");
+      // The composed card is what the height cap is actually spent on, and a
+      // gesture sentence is the longest thing prepended to one.
+      const worst = Math.max(...shown.map((t) => strip(t).length));
+      check(`${l.id} card ${n + 1} still fits once the gesture is in front of it`,
+        worst <= 190, `${worst} > 190`);
+    }
+  }
+
   // ---- THE DIFFICULTY PASS ----------------------------------------------
   // Three claims the ladder was re-shaped around after it played too hard, and
   // each is a measurement rather than a preference.

@@ -210,8 +210,14 @@ slot's ≥1080px floor:
   width matters: at desktop widths the menu's two columns drift apart and the
   shot is mostly void; 960px triggers the phone-landscape layout it was
   designed around.
-- gameplay: 1280×720 at 1.875 → 2400×1350, after dismissing the coach
-  (`[data-action="coach-skip"]`) and hiding the desktop-only `.kbd-hint` strip.
+- gameplay: 1280×720 at 1.875 → 2400×1350, after dismissing whatever teaching
+  card is up and hiding the desktop-only `.kbd-hint` strip. A fresh profile now
+  starts in **Flight School**, whose lesson card dismisses with
+  `[data-action="coach-done"]`; the four-card Deep Run coach it replaced is
+  still reachable from Play → Guided Tutorial and dismisses with
+  `[data-action="coach-skip"]`. Click whichever is present. Either way the shot
+  wants a real pile in it, so fire a few shipments before capturing — a bay on
+  its opening frame is an empty floor.
 
 One set of six serves the phone slot and both tablet slots, and satisfies
 promotion eligibility (≥4 shots, ≥3 at 16:9 and ≥1080px).

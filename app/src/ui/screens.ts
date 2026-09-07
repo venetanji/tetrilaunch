@@ -3646,10 +3646,19 @@ export function lessonCardHTML(
 ): string {
   const i = Math.max(0, Math.min(card, lesson.cards.length - 1));
   const c = lesson.cards[i];
+  // `input: "aim"` PREFIXES the card with the live device's firing gesture; it
+  // does not replace the card. It used to replace it, and that cost twice: the
+  // authored body was dead copy nothing could render, and the sentence that
+  // survived named the gap's width — a number authored in school.ts, next to
+  // the wall profile that produces it — from inside the UI layer, where a
+  // reshaped bay could not reach it. The gesture is the part this file knows
+  // (it is per-profile); what to point the arc at stays with the lesson.
   const body = c.input === "aim"
-    ? profile === "touch"
-      ? `<b>Pull back</b> anywhere on the field like a slingshot; farther means more power. <b>Release</b> when the dotted arc crosses the gap.`
-      : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b> Put the dotted arc through the four-wide gap.`
+    ? `${
+      profile === "touch"
+        ? `<b>Pull back</b> anywhere on the field like a slingshot — farther is more power — then <b>release</b>.`
+        : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b>`
+    } ${c.body}`
     : c.body;
   const last = i >= lesson.cards.length - 1;
   const dots = lesson.cards
