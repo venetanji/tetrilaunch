@@ -15757,41 +15757,32 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   const clamp = /--tower-lobby-h:\s*clamp\(\s*(\d+)px\s*,\s*\d+%\s*,\s*(\d+)px\s*\)/
     .exec(lobbyRules.join(";"));
   const plinth = /--tower-lobby-h:\s*(\d+)px/.exec(towerRules);
-  const extra = /--tower-lobby-extra:\s*(\d+)px/.exec(lobbyRules[0] ?? "");
   check("the plate's height is one token, and the plinth is its resting value",
     plinth !== null && plinth[1] === "22"
       && /height:\s*var\(--tower-lobby-h\)/.test(decls(".tower__base--floor").join(";")),
     plinth?.[1]);
   check("the entrance meets the tap floor",
     clamp !== null && clamp[1] === "44", clamp?.[1]);
-  check("...and the tower's box grows by exactly what the plate can take",
-    clamp !== null && plinth !== null && extra !== null
-      && Number(clamp[2]) - Number(plinth[1]) === Number(extra[1]),
-    `${clamp?.[2]} - ${plinth?.[1]} != ${extra?.[1]}`);
-  check("...added to the shaft's own cap rather than taken out of it",
-    /calc\(\s*min\(100%,\s*620px\)\s*\+\s*var\(--tower-lobby-extra\)\s*\)/
-      .test(towerRules));
-  // …AND BOUNDED BY THE PADDING IT RISES INTO. All of the entrance's 50px goes
-  // upward now (see the align-self pin below), and the menu's padding is 32px
-  // on an 800x600 window — an unbounded rise put the headhouse 17px off the top
-  // of the glass there, measured. The height is the smaller of "the row plus
-  // the headroom" and "the capped box plus the extra", so the rise is full
-  // wherever the 620px cap binds and clipped to what exists where it does not.
-  check("...and the rise is bounded by the padding it rises into",
-    /--tower-lobby-rise:\s*max\(0px,\s*calc\(clamp\(20px, 4vw, 60px\) - 6px\)\)/
-      .test(towerRules)
-      && /height:\s*min\(/.test(towerRules)
-      && /calc\(100%\s*\+\s*var\(--tower-lobby-rise\)\)/.test(towerRules));
-  // …AND IT GROWS UPWARD. The three columns of the menu are read as one row of
-  // controls, and the one thing they share is the line their last control sits
-  // on. Under `align-self: center` the entrance's 50px was split 25/25, which
-  // put the plate a quarter of that BELOW the shelf's last button and the
-  // rail's (owner screenshot, desktop). Unconditional, because a window tall
-  // enough for the 620px cap to bind has leftover in exactly the same way and
-  // one column should not have two rules for where it stands.
-  check("the tower stands on the buttons' line rather than floating in the row",
-    /align-self:\s*flex-end/.test(towerRules) && !/align-self:\s*center/.test(towerRules),
+  // THE BOX IS THE ROW. The entrance used to be paid for by growing the
+  // tower's box (an extra added to a 620px cap, then risen into the top
+  // padding), and on a desktop that put the shaft's top 75px above the panels
+  // beside it (owner screenshot). The box is the grid cell's height in both
+  // states now, top and bottom flush with the columns either side; the
+  // entrance comes out of the shaft, whose rungs are all locked while it is
+  // drawn.
+  check("the tower's box is the row, with no cap and no extra",
+    /height:\s*100%/.test(towerRules)
+      && !/620px/.test(towerRules)
+      && !/--tower-lobby-extra/.test(css)
+      && !/--tower-lobby-rise/.test(css),
     towerRules.slice(0, 200));
+  check("...and it fills the cell rather than standing at one end of it",
+    /align-self:\s*stretch/.test(towerRules) && !/align-self:\s*(center|flex-end)/.test(towerRules));
+  // ...and only the headhouse stands outside it: drawn above the shaft's top
+  // edge by its own height, so the lamps rise past the panels' top line and
+  // nothing else does.
+  check("...and the headhouse alone rises above it",
+    /\.tower__head\s*\{[^}]*top:\s*-19px;\s*height:\s*19px/.test(css));
   // NO CAR WHILE THE SCHOOL IS UNFINISHED. The lift serves the LADDER, and
   // while the ground floor is owed there is no ladder to serve — every Mark is
   // locked, and a car parked in a shaft nobody may ride reads as a floor
@@ -15810,29 +15801,6 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
     held.includes("tower__car")
       && S.tierTowerHTML({ unlocked: 1, selected: 1, skydeck: false, licensed: true })
         .includes(`--tower-idx:${S.towerIndexOf(1)}`));
-  // THE PHONE TIER PAYS FROM THE SHAFT, and it has to: the menu's block padding
-  // is pinned at 6px there and the headhouse already draws 19px above the
-  // shaft, so a tower taller than its row would push the beacon off the glass.
-  // The rungs are 21-28px on those rows — nowhere near the floor, and already
-  // baselined short — and they shed about two pixels each for it (measured:
-  // 24.4 -> 22.4 at 640x360, 25.0 -> 23.0 at 812x375).
-  //
-  // EVERY block of that width, not the first: the stylesheet opens ten of them
-  // — the phone tier is a recurring condition, not one place — and the first is
-  // a one-liner nested inside an @supports up beside .menu__brand. A pin that
-  // read only that one reported the reset missing while it was sitting in the
-  // block below, which is how this check was mutation-proved.
-  {
-    let found = false;
-    for (let i = css.indexOf("@media (max-height: 460px)"); i >= 0 && !found;
-      i = css.indexOf("@media (max-height: 460px)", i + 10)) {
-      const next = css.indexOf("@media", i + 10);
-      const block = css.slice(i, next < 0 ? css.length : next);
-      found = /\.tower--lobby\s*\{[^}]*--tower-lobby-extra:\s*0px/.test(block);
-    }
-    check("...and the phone tier hands the cost back to the shaft", found);
-  }
-
   // THE MANUAL'S DOOR. It was the whole demo panel: a transparent hit layer at
   // inset 0 with no border, labelled by a 6px corner tag — the largest target
   // and the first tab stop on the home screen, for the reference manual, next

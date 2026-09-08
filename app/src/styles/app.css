@@ -1275,44 +1275,24 @@ body.crt-off #app::after { display: none; }
      for it. Both are 0-cost here: the plinth is what this has always been, and
      the box is exactly `min(100%, 620px)` until .tower--lobby raises them. */
   --tower-lobby-h: 22px;
-  --tower-lobby-extra: 0px;
-  /* THE BUILDING STANDS ON THE GROUND, not in the middle of the row.
-     `align-self: center` split the leftover evenly above and below the box —
-     fine while the box was one height, and wrong the moment the entrance made
-     it two: the 50px the ground floor takes while the school is unfinished was
-     split with it, so the plate sank 25px BELOW the last button of the shelf on
-     its left and the rail on its right (owner screenshot, desktop). The tower
-     is the middle column of three that are read as one row of controls, and the
-     one thing all three share is the line their last control sits on.
-     `flex-end` puts the extra where it belongs — up, into the menu's own top
-     padding, which is slack — and the eleven rungs keep every pixel of their
-     44px arithmetic either way, because the extra was never taken out of the
-     shaft (see .tower--lobby).
-     UNCONDITIONALLY, and not only while the entrance is drawn: a window tall
-     enough for the 620px cap to bind has leftover in exactly the same way, and
-     a tower that sat on the line in one state and floated in the other would be
-     two rules for one column. */
-  align-self: flex-end;
-  /* HOW FAR THE BOX MAY RISE ABOVE ITS ROW, which is a question `align-self:
-     center` never had to ask: it split the entrance's 50px between the padding
-     above the menu row and the padding below it, and 25px fits in both
-     everywhere. All 50 of it goes upward now, and the menu's own padding is
-     `clamp(20px, 4vw, 60px)` — i.e. 32px on an 800x600 window, where the
-     unbounded rise pushed the headhouse 17px clean off the top of the glass
-     (measured, sim/uifit). So the rise is bounded by the padding that actually
-     exists, less 6px of guard for a notch's inset.
-     THE HEIGHT IS THE SMALLER OF TWO BOXES, and the second term is the one that
-     matters: where the 620px cap binds, the row is taller than the whole box
-     and the first term cannot bite, so the plate takes its full 50px and the
-     eleven rungs pay nothing — the property .tower--lobby's note is about. Only
-     where `100%` binds does the rise get clipped to the headroom, and there the
-     shaft covers the difference, which is the same trade the phone tier makes
-     outright and for the same reason. */
-  --tower-lobby-rise: max(0px, calc(clamp(20px, 4vw, 60px) - 6px));
-  height: min(
-    calc(100% + var(--tower-lobby-rise)),
-    calc(min(100%, 620px) + var(--tower-lobby-extra))
-  );
+  /* THE BOX IS THE ROW, in both states. The shaft's top edge sits on the line
+     the demo panel and the recap panel start on, the plate's bottom on the
+     line the shelf's and the rail's last buttons end on, and the only thing
+     outside that box is the headhouse, drawn 19px above the shaft (see
+     .tower__head). Measured at 1920x1080 on a licensed save: panels 132-948,
+     tower 132-948, lamps 107-135.
+
+     No 620px cap and no extra for the entrance any more. The cap centred a
+     shorter column inside the row on the two windows where it bound; the
+     entrance's 50px extra, added to the box while the licence was owed, put
+     the shaft's top 75px ABOVE the panels on desktop (owner screenshot) — and
+     before that, centred, 25px of it below the buttons. The entrance takes
+     its 44-72px out of the shaft instead: while it is drawn every rung above
+     it is LOCKED and not a tap target, so the 44px floor those rungs clear on
+     a licensed save is not in play, and the moment the licence is earned the
+     plate collapses to 22px and the rungs get the height back. */
+  align-self: stretch;
+  height: 100%;
   display: flex; flex-direction: column; align-items: stretch;
 }
 /* NO CAR WHILE THE SCHOOL IS UNFINISHED (screens.ts's tierTowerHTML sets
@@ -1360,17 +1340,10 @@ body.crt-off #app::after { display: none; }
    clear it. Adding to the box is the same idea applied where the height
    actually comes from.
 
-   The box grows UPWARD (`align-self: flex-end` on .tower), so all 50px of it
-   comes out of the menu's own top padding and the plate's bottom stays on the
-   line the shelf's and the rail's last buttons sit on. It used to grow
-   symmetrically under `align-self: center`, which spent 25px at each end — and
-   the 25px at the bottom is what sank the entrance below both neighbouring
-   columns on a desktop window (owner screenshot). The padding this now spends
-   is 32-60px on every viewport this rule reaches; the phone tier, where it is
-   6px, is excluded — see the @media (max-height: 460px) block. */
+   The box no longer grows for it at all — see .tower's own note: the shaft
+   pays while the rungs are locked, and the box stays the row's height. */
 .tower--lobby {
   --tower-lobby-h: clamp(44px, 13%, 72px);
-  --tower-lobby-extra: 50px;
 }
 @media (min-height: 620px) {
   .tower { --tower-roof-h: 44px; }
@@ -2268,7 +2241,14 @@ body.crt-off #app::after { display: none; }
    weights rather than one. Past the zoom cap (a 4K panel, a very tall narrow
    window) they go on doing the job they were written for: stopping three
    buttons from becoming three panels. */
-.menu__actions { justify-content: flex-start; gap: var(--sp-2); }
+/* space-between, not flex-start: the three buttons are capped (below), and on
+   a window where the caps bind — 1280x720, the authored box un-zoomed — the
+   last button stopped 6px above the cell's bottom while the tower beside it
+   ran to the line. The tower, the shelf and this rail are read as one row of
+   controls sharing one bottom line, so the leftover goes into the gaps
+   between the rail's rows (2px each there) rather than under the last one.
+   Where nothing is capped there is no leftover and this is flex-start. */
+.menu__actions { justify-content: space-between; gap: var(--sp-2); }
 .menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 100px; }
 .menu__actions > .btn--menu { flex-grow: 1.25; max-height: 132px; }
 /* The recap is the column's fixed head; the three buttons share what is left.
@@ -7987,7 +7967,6 @@ button.panel { color: var(--text); }
      pilot can press onto the tap floor. Measured: 640x360 rungs 24.4px ->
      22.4px, 812x375 rungs 25.0px -> 23.0px, and the plate 22px -> 44px on
      both. */
-  .tower--lobby { --tower-lobby-extra: 0px; }
   /* The gap only. The phone tier's --brand-cap pin lives inside the @supports
      block beside .menu__brand, not here, and it has to: this query is far
      downstream of that block, so a --brand-cap set here would win over the
