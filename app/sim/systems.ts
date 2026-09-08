@@ -23047,6 +23047,15 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and goes back to the board's terms once the rig exists",
       menuOf(open).includes("no clock, no launch cost")
         && !menuOf(open).includes("one buys your first system"));
+    // MID-SCHOOL, AFTER THE CONTRACT: the rig exists but the ladder is not
+    // finished, so the board is still the one cleared school card — neither
+    // the on-ramp's offer nor the daily terms are true, and the button says
+    // what the board holds and when the real one comes.
+    const mid = menuOf({ ...open, licensed: false, basics: true });
+    check("...and between the school's Contract and graduation it says the job is done",
+      mid.includes("Cleared · daily board at Tier 1")
+        && !mid.includes("no clock, no launch cost")
+        && !mid.includes("one buys your first system"));
     // THE SHOP IS THE OTHER END OF THE SAME DOOR. Its Start Run is a second
     // entrance to the exam (main.ts's startGame), so it has to be shut by the
     // same rule the tower is — a laxer second door is the failure meta.ts's

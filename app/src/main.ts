@@ -3191,7 +3191,11 @@ class App {
     // …and the on-ramp's line with it (screens.ts's menuContractsSub): while
     // no system is installed the board's subtitle is what one clear BUYS, not
     // the board's terms, and the ride must not revert it.
-    if (csub) csub.innerHTML = S.menuContractsSub(tier, cprog, !rigStarted(this.meta));
+    if (csub) {
+      csub.innerHTML = S.menuContractsSub(
+        tier, cprog, !rigStarted(this.meta), !licenceDone(this.meta) && rigStarted(this.meta),
+      );
+    }
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
     // The extras strip carries straight across now. It used to need a filter:

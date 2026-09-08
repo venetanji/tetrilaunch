@@ -1324,6 +1324,11 @@ export function menuContractsSub(
    *  installed yet, and one first clear enough to buy one (meta.ts's nextStep).
    *  Absent on every caller that predates the on-ramp. */
   firstSystem = false,
+  /** True from the school's Contract being cleared until graduation — the rig
+   *  exists, the ladder is not finished, and the board is still the ONE school
+   *  card, already cleared. The daily terms would be a lie here: there are no
+   *  "3 today" until Tier 1 opens (contracts.ts's school board). */
+  schoolMid = false,
 ): string {
   // Numbers lead (A3): at compact the sub is one ellipsized line, so the live
   // figures must sit before the prose that can afford to go. On the roof the
@@ -1339,6 +1344,9 @@ export function menuContractsSub(
   if (firstSystem && progress) {
     return `${salvageHTML(progress.milestone, 10)} a clear — one buys your first system`;
   }
+  // Between the school's Contract and graduation the board holds one cleared
+  // card and nothing to earn; say so, and say when the real board comes.
+  if (schoolMid) return "Cleared · daily board at Tier 1";
   return progress
     ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
     : "Short challenges · retry freely";
@@ -1792,7 +1800,8 @@ export function menuScreen(
             // of the way UP the ladder and the old line would have read as a
             // promise it breaks.
             ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
-            : menuContractsSub(sel, progress, twr.rigged === false)
+            : menuContractsSub(sel, progress, twr.rigged === false,
+                twr.licensed === false && twr.rigged !== false)
         }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           learningBasics

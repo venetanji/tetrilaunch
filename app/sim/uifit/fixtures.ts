@@ -501,7 +501,11 @@ const TOWER_LICENCE: S.TowerState = {
  *  rather than a count. Worth its own fixture on menu-licence's own argument —
  *  every player passes through it exactly once, and no fixture measured it. */
 const TOWER_LADDER_SHOP: S.TowerState = {
-  ...TOWER_LICENCE, basics: true, licenceDone: LICENCE_LESSON_COUNT,
+  // rigged:false is what makes the Contracts button read the on-ramp line
+  // ("one buys your first system") rather than the daily board's terms —
+  // main.ts's towerState always sets it, and this fixture used to leave it
+  // absent, which reads as rigged.
+  ...TOWER_LICENCE, basics: true, licenceDone: LICENCE_LESSON_COUNT, rigged: false,
 };
 
 /** …AND THE TWELFTH STEP, the graduation flight waiting on the primary. Eleven
