@@ -796,8 +796,19 @@ function towerHeadHTML(state: TowerState): string {
     >${lamps}</button>`;
 }
 
+/** THE PLATE'S OWN NAME, in the shaft's vocabulary.
+ *
+ *  A lift's rungs read 1-10 and SKY; the ground floor therefore reads LS, in
+ *  the same pixel face at the same weight the rungs give their numbers. It used
+ *  to read "SCHOOL" once the licence was earned and "3/4" while it was owed —
+ *  which is the floor naming itself only after it has stopped mattering, and
+ *  printing a fraction where every other plate in the building prints an
+ *  identifier. The full name is spoken ONCE, on the primary button that flies
+ *  it (menuPlaySub), and the count with it. */
+const LICENCE_PLATE = "LS";
+
 /**
- * THE LOBBY — Flight School, drawn in the plinth under the shaft.
+ * THE LOBBY — Flight School, the ground floor at the foot of the shaft.
  *
  * towerHeadHTML's opposite number, and deliberately the same shape of thing: a
  * strip outside the shaft's own box that is a decoration in one state and a
@@ -806,9 +817,30 @@ function towerHeadHTML(state: TowerState): string {
  *
  * It is ALWAYS a floor, though — unlike the headhouse, which is a secret until
  * it is found. It is the door the player comes in by, so it is labelled, it is
- * in the tab order, and it is selectable from the very first launch. What
- * changes with the licence is only what it SAYS: a progress count while the
- * ladder above it is locked, and the offer of a re-fly once it is not.
+ * in the tab order, and it is selectable from the very first launch.
+ *
+ * WHAT CHANGES WITH THE LICENCE IS ITS SIZE, and that is the whole of this
+ * component's argument. While the licence is owed every Mark above it is locked
+ * (tierOpen), so this plate is the ONLY control in the building that can be
+ * pressed — and it shipped as a 22px slab, the shortest target on a screen the
+ * rest of which is built to 44. So while it is the door it is drawn as one: an
+ * entrance flush with the shaft, a lit awning across the top, the name on the
+ * plate and one socket per lesson beside it. The moment the licence lands it
+ * drops back to the quiet plinth, because a floor whose job is finished is
+ * furniture; app.css hands the height it gives up straight back to the shaft.
+ *
+ * THE SOCKETS ARE THE BUILDING'S OWN GLYPH. A floor's three windows are its
+ * first-clear Contracts (floorHTML); the ground floor's are its lessons, lit as
+ * they land. That is why the count left the plate: a fraction in the body face
+ * said the same thing in a vocabulary nothing else on this column speaks, and
+ * the exact figure is already on the primary button's subtitle, in words.
+ *
+ * The grid is squared off the ladder's own length rather than pinned at three
+ * columns: the licence is four lessons today (school.ts's
+ * LICENCE_LESSON_COUNT) and the full ladder is nine, so a fixed 3-wide grid
+ * draws the licence as a 3+1 orphan. `ceil(sqrt(n))` is 2 for four and 3 for
+ * nine, which is the block either ladder wants and stays right for whatever
+ * length the ladder is next.
  */
 function towerLobbyHTML(state: TowerState): string {
   const total = state.licenceTotal ?? LESSON_COUNT;
@@ -818,16 +850,23 @@ function towerLobbyHTML(state: TowerState): string {
   const cls = ["tower__base", "tower__base--floor"];
   if (sel) cls.push("is-selected");
   if (earned) cls.push("is-earned");
-  // THE COUNT IS THE LABEL while the licence is owed, because it is the only
-  // number on this screen that says how far from flying the player is. Earned,
-  // it drops to the floor's name: a finished ladder restating "9 / 9" for the
-  // rest of the save's life is a bill that has been paid.
+  // THE COUNT IS THE ACCESSIBLE NAME while the licence is owed, because it is
+  // the only number on this screen that says how far from flying the player is
+  // — and because the sockets that draw it are a shape, which has no name.
+  // Earned, it drops to the floor's state: a finished ladder restating "9 of 9"
+  // for the rest of the save's life is a bill that has been paid.
   const note = earned ? "licence earned" : `${done} of ${total} lessons`;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(total)));
+  const sockets = earned ? "" : `<span class="tower__sockets" style="--socket-cols:${cols}" aria-hidden="true">${
+    Array.from({ length: total }, (_, i) => `<i${i < done ? ' class="on"' : ""}></i>`).join("")
+  }</span>`;
   return `<button class="${cls.join(" ")}" type="button"`
     + ` data-action="pick-tier" data-tier="${LICENCE_TIER}" aria-pressed="${sel}"`
     + ` aria-label="Flight School — ${note}. The licence that opens Tier 1.">`
-    + `<span class="tower__base-mark" aria-hidden="true">${LICENCE_MARK}</span>`
-    + `<span class="tower__base-txt" aria-hidden="true">${earned ? "SCHOOL" : `${done}/${total}`}</span>`
+    + (earned ? "" : `<span class="tower__awning" aria-hidden="true"></span>`)
+    + `<span class="tower__base-row" aria-hidden="true">`
+    + `<span class="tower__base-txt">${LICENCE_PLATE}</span>${sockets}`
+    + `</span>`
     + `</button>`;
 }
 
@@ -879,7 +918,14 @@ export function tierTowerHTML(state: TowerState): string {
       // and desynchronise it from the timer that ends it.
       + `;--tower-rise-elapsed:${Math.max(0, Math.floor(state.celebrateElapsed ?? 0))}ms`
     : "";
-  return `<div class="tower${off ? " tower--off" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
+  // THE GROUND FLOOR IS ONLY BIG WHILE IT IS THE DOOR (towerLobbyHTML). The
+  // class is what app.css sizes the plate — and the tower's own box — off, and
+  // it is keyed on the LICENCE rather than on the selection: which floor the car
+  // is parked on says nothing about whether the ladder above it can be flown,
+  // and the entrance has to be the entrance whether or not the player has
+  // wandered up to read a locked Mark's terms.
+  const entrance = state.licensed === false;
+  return `<div class="tower${off ? " tower--off" : ""}${entrance ? " tower--lobby" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}${ride}">
       ${towerHeadHTML(state)}
       <div class="tower__rail" aria-hidden="true"></div>
@@ -1525,36 +1571,44 @@ export function menuScreen(
           <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           where every cleared bay ratchets one difficulty axis of your choosing.</p>
-          <!-- THE PANEL IS THE DOOR. A bay playing itself, with no HUD over
-               it, is already a demonstration of how the game works — so it is
-               the tutorial's entry rather than a decoration sitting beside
-               one. That gives the lesson the largest, most obvious target on
-               the screen AND gives the shelf below its row back, which is
-               where the entitlement entry now lives as a real button.
+          <!-- THE MANUAL, SIZED LIKE THE MANUAL. The whole panel used to be
+               the door: a transparent hit layer at "inset: 0", no border, and
+               a 6px corner tag in 8px pixel type for a label. That made the
+               reference manual the largest target on the home screen and the
+               first thing in the tab order, out-weighing Flight School — which
+               IS the tutorial now — with something that read as a watermark on
+               the artwork rather than as a control. The only affordance it had
+               was a border on hover, which a touch device never shows.
 
-               A transparent hit layer rather than a <button> wrapped around
-               the whole panel: the wordmark inside is an <h1>, which is not
-               phrasing content and cannot legally live in a button, and the
-               canvas has to stay out of the accessible name. The corner tag is
-               the visible affordance and rides inside the hit layer, so the
-               two can never drift apart. -->
-          <button class="menu__demo-hit" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}"
-            aria-label="${guide?.firstLaunch ? "Guided tutorial — learn the cannon in one bay" : "How to play"}">
-            <!-- THE TAG FOLLOWS THE ACTION. It read "Tutorial" on both
-                 branches, so on a fresh save — where firstLaunch is false,
-                 because the licence has not been earned and Flight School is
-                 the tutorial now — the biggest, brightest, first-tabbable
-                 thing on the screen said TUTORIAL and opened the reference
-                 manual, next to a primary button reading FLIGHT SCHOOL. Two
-                 things claiming to be the tutorial, one of them a catalogue.
-                 It was a label-in-name failure too (WCAG 2.5.3): the
-                 accessible name said "How to play" and the visible label did
-                 not contain it. -->
-            <span class="menu__demo-tag">${icon("howto", 11)}${
-              guide?.firstLaunch ? "Tutorial" : "How to play"
-            }</span>
-            ${guide?.firstLaunch ? nextBadgeHTML("Start here") : ""}
-          </button>
+               So it is a real button in the panel instead, at the app's own
+               secondary chrome and the 44px tap floor, docked in the corner
+               the bay never fills (the cannon is bottom-left, the pile builds
+               bottom-right, and the wordmark owns the lower-left plate). The
+               panel goes back to being a demo, and the directive on the home
+               screen belongs to the thing the player should actually do.
+
+               It stays OUTSIDE the <h1> and the canvas rather than wrapping
+               them, which is what the hit layer was really for: the wordmark
+               is not phrasing content and cannot legally live inside a button,
+               and the canvas has to stay out of the accessible name.
+
+               THE FACE FOLLOWS THE ACTION, and always did — it read "Tutorial"
+               on both branches once, so on a fresh save the biggest, brightest
+               thing on the screen said TUTORIAL and opened the catalogue. It
+               is also a label-in-name rule (WCAG 2.5.3): the visible label has
+               to be in the accessible name, which is why the aria-label is not
+               a second, different sentence any more. -->
+          <button class="btn btn--secondary menu__howto" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}">${
+            icon("howto", 12)
+          }<span class="menu__howto-txt">${
+            guide?.firstLaunch ? "Tutorial" : "How to Play"
+          }</span>${
+            // ON THIS BUTTON'S OWN CORNER, not pinned to a corner of the panel.
+            // The directive belongs to the control that performs it, and the
+            // badge and the label claiming two different corners of the artwork
+            // is what the old corner-tag layout did wrong in the first place.
+            guide?.firstLaunch ? nextBadgeHTML("Start here") : ""
+          }</button>
         </div>
         <!-- The SHELF: everything a player does not open the game to reach.
              How to Play used to head it and is now the demo panel above, which

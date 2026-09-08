@@ -15220,6 +15220,157 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("The ground floor is the door — the lobby's two sizes (screens.ts + app.css)");
+// ---------------------------------------------------------------------------
+// While the licence is owed, every Mark in the shaft is locked (tierOpen), so
+// the plate under it is the ONLY control in the building that can be pressed —
+// and it shipped as the shortest target on a screen the rest of which is built
+// to 44px. It is the entrance now while it is the door, and the quiet plinth
+// again the moment the licence lands.
+//
+// TWO HALVES, AND THEY HAVE TO AGREE. The plate's height and the height the
+// tower's own box grows by are one arithmetic statement split across two
+// declarations: the box gains exactly what the plate can take (the clamp's
+// ceiling less the plinth), so the eleven rungs below come out the same height
+// on a fresh save as on a licensed one. Nothing in CSS ties those two numbers
+// together, and sim/uifit cannot see it either — the harness measures the
+// rungs, not the reason they came out right — so the relation is pinned here,
+// off the stylesheet's own text.
+// ---------------------------------------------------------------------------
+{
+  const lobby = (done: number, total: number, selected = S.LICENCE_TIER): string =>
+    S.tierTowerHTML({
+      unlocked: 1, selected, skydeck: false, contracts: 0,
+      licensed: false, licenceDone: done, licenceTotal: total,
+    });
+  const held = S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false });
+
+  // THE PLATE NAMES ITSELF, in both states and in the shaft's own vocabulary.
+  // It used to read "SCHOOL" once the licence was earned and "1/4" while it was
+  // owed — the floor naming itself only after it had stopped mattering, and
+  // printing a fraction where every other plate in this building prints an
+  // identifier.
+  check("the ground floor's plate reads LS while the licence is owed",
+    lobby(1, 4).includes(">LS<"));
+  check("...and still reads LS once it is held", held.includes(">LS<"));
+  check("...and never prints the lesson count as a fraction",
+    !lobby(1, 4).includes(">1/4<") && !lobby(3, 9).includes(">3/9<"));
+  // The count is not lost, it moved to the one place a shape cannot reach.
+  check("the count survives as the floor's accessible name",
+    lobby(3, 9).includes('aria-label="Flight School — 3 of 9 lessons.')
+      && held.includes('aria-label="Flight School — licence earned.'));
+  check("...and the promise it opens Tier 1 is still on it",
+    lobby(3, 9).includes("The licence that opens Tier 1."));
+
+  // ONE SOCKET PER LESSON, lit as they land — the building's own window glyph
+  // (floorHTML's Contracts), applied to the ladder the ground floor counts.
+  const socketSpan = (h: string): string =>
+    /<span class="tower__sockets"[^>]*>([\s\S]*?)<\/span>/.exec(h)?.[1] ?? "";
+  const sockets = (h: string): number => (socketSpan(h).match(/<i/g) ?? []).length;
+  const lit = (h: string): number => (socketSpan(h).match(/class="on"/g) ?? []).length;
+  check("the entrance draws one socket per lesson in the ladder",
+    sockets(lobby(0, 4)) === 4 && sockets(lobby(0, 9)) === 9,
+    `${sockets(lobby(0, 4))} / ${sockets(lobby(0, 9))}`);
+  check("...and lights exactly the ones that have landed",
+    lit(lobby(3, 9)) === 3 && lit(lobby(0, 4)) === 0 && lit(lobby(4, 4)) === 4,
+    `${lit(lobby(3, 9))} of 9`);
+  check("...never more than the ladder has",
+    lit(lobby(99, 4)) === 4, String(lit(lobby(99, 4))));
+  // Squared off the ladder's own length rather than pinned at three columns:
+  // four lessons in a 3-wide grid is a 3+1 orphan.
+  check("the socket grid is squared to the ladder",
+    lobby(0, 4).includes("--socket-cols:2") && lobby(0, 9).includes("--socket-cols:3"));
+
+  // THE COLLAPSE. Earned, the entrance is furniture: no awning, no sockets, and
+  // — the half app.css sizes off — no `tower--lobby` on the tower.
+  check("the entrance is lit only while the licence is owed",
+    lobby(0, 4).includes("tower__awning") && !held.includes("tower__awning"));
+  check("...and its sockets go with it", socketSpan(held) === "");
+  check("...and the tower stops being an entrance at all",
+    lobby(0, 4).includes("tower--lobby") && !held.includes("tower--lobby"));
+  // Keyed on the LICENCE, never on the parked floor: reading a locked Mark's
+  // terms must not shut the door the player came in by.
+  check("...and picking a locked Mark does not close it",
+    lobby(0, 4, 5).includes("tower--lobby"));
+
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  /** Every declaration block whose selector list names `sel` exactly. Crude on
+   *  purpose: an @media wrapper leaves a stray brace on the first selector
+   *  inside it, which the leading trim drops, and that is the whole of the
+   *  parsing this needs. */
+  const decls = (sel: string): string[] => css.split("}")
+    .map((b) => {
+      const i = b.indexOf("{");
+      return i < 0
+        ? null
+        : { sel: b.slice(0, i).replace(/^[}\s]*/, "").trim(), body: b.slice(i + 1) };
+    })
+    .filter((b): b is { sel: string; body: string } =>
+      b !== null && b.sel.split(",").map((x) => x.trim()).includes(sel))
+    .map((b) => b.body);
+
+  const towerRules = decls(".tower").join(";");
+  const lobbyRules = decls(".tower--lobby");
+  const clamp = /--tower-lobby-h:\s*clamp\(\s*(\d+)px\s*,\s*\d+%\s*,\s*(\d+)px\s*\)/
+    .exec(lobbyRules.join(";"));
+  const plinth = /--tower-lobby-h:\s*(\d+)px/.exec(towerRules);
+  const extra = /--tower-lobby-extra:\s*(\d+)px/.exec(lobbyRules[0] ?? "");
+  check("the plate's height is one token, and the plinth is its resting value",
+    plinth !== null && plinth[1] === "22"
+      && /height:\s*var\(--tower-lobby-h\)/.test(decls(".tower__base--floor").join(";")),
+    plinth?.[1]);
+  check("the entrance meets the tap floor",
+    clamp !== null && clamp[1] === "44", clamp?.[1]);
+  check("...and the tower's box grows by exactly what the plate can take",
+    clamp !== null && plinth !== null && extra !== null
+      && Number(clamp[2]) - Number(plinth[1]) === Number(extra[1]),
+    `${clamp?.[2]} - ${plinth?.[1]} != ${extra?.[1]}`);
+  check("...added to the shaft's own cap rather than taken out of it",
+    /height:\s*calc\(\s*min\(100%,\s*620px\)\s*\+\s*var\(--tower-lobby-extra\)\s*\)/
+      .test(towerRules));
+  // THE PHONE TIER PAYS FROM THE SHAFT, and it has to: the menu's block padding
+  // is pinned at 6px there and the headhouse already draws 19px above the
+  // shaft, so a tower taller than its row would push the beacon off the glass.
+  // The rungs are 21-28px on those rows — nowhere near the floor, and already
+  // baselined short — and they shed about two pixels each for it (measured:
+  // 24.4 -> 22.4 at 640x360, 25.0 -> 23.0 at 812x375).
+  //
+  // EVERY block of that width, not the first: the stylesheet opens ten of them
+  // — the phone tier is a recurring condition, not one place — and the first is
+  // a one-liner nested inside an @supports up beside .menu__brand. A pin that
+  // read only that one reported the reset missing while it was sitting in the
+  // block below, which is how this check was mutation-proved.
+  {
+    let found = false;
+    for (let i = css.indexOf("@media (max-height: 460px)"); i >= 0 && !found;
+      i = css.indexOf("@media (max-height: 460px)", i + 10)) {
+      const next = css.indexOf("@media", i + 10);
+      const block = css.slice(i, next < 0 ? css.length : next);
+      found = /\.tower--lobby\s*\{[^}]*--tower-lobby-extra:\s*0px/.test(block);
+    }
+    check("...and the phone tier hands the cost back to the shaft", found);
+  }
+
+  // THE MANUAL'S DOOR. It was the whole demo panel: a transparent hit layer at
+  // inset 0 with no border, labelled by a 6px corner tag — the largest target
+  // and the first tab stop on the home screen, for the reference manual, next
+  // to a primary button reading Flight School. It is the app's own secondary
+  // button in the panel now, at the app's own button height.
+  const manual = menuScreen(0, 0, undefined, tierProgressFor(newMeta()),
+    { step: "contracts", install: null, firstLaunch: false });
+  check("the manual's door is a real button",
+    manual.includes('class="btn btn--secondary menu__howto"')
+      && manual.includes('data-action="howto"'));
+  check("...at the tap floor",
+    /min-height:\s*44px/.test(decls(".menu__howto").join(";")));
+  check("...and the whole-panel hit layer is gone from both files",
+    !manual.includes("menu__demo-hit") && !css.includes(".menu__demo-hit"));
+}
+
+// ---------------------------------------------------------------------------
 section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
 // ---------------------------------------------------------------------------
 {

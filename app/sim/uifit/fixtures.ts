@@ -507,6 +507,22 @@ const TOWER_UNRIGGED: S.TowerState = {
   rigged: false,
 };
 
+/** THE PLATE COLLAPSED — the licence held, and the car still parked on the
+ *  ground floor.
+ *
+ *  The other half of the entrance's rule, and a state no other menu fixture
+ *  reaches: every one of them parks on a Mark, so none of them has ever
+ *  measured the lobby wearing the selection ring at the 22px it drops back to.
+ *  It is a real screen — the lobby stays selectable for a re-fly forever
+ *  (screens.ts's tierOpen), and it is where a player lands after finishing a
+ *  lesson — and it is the fixture that would catch the collapse failing to
+ *  happen: the tower here must be pixel-for-pixel the licensed tower every
+ *  other menu fixture draws. */
+const TOWER_LOBBY_HELD: S.TowerState = {
+  unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
+  licensed: true, licenceDone: LESSON_COUNT, licenceTotal: LESSON_COUNT,
+};
+
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
  *  NEXT STEP badge on Workshop (salvage covers an install) and the live
  *  numbers the subtitles state the offer in. */
@@ -752,6 +768,29 @@ export const SCREENS: Record<string, () => string> = {
       install: { name: "Reactor Output", cost: 15 },
       firstLaunch: false,
     }, TOWER_UNRIGGED)),
+
+  // THE PLATE COLLAPSED — see TOWER_LOBBY_HELD above. Paired live and not, like
+  // every other menu state, because the brand column's height is what the row is
+  // measured against, and the manual's button is a docked overlay in one of
+  // those states and a real row in the other (app.css's .menu__howto).
+  //
+  // NO FIXTURE FOR A NINE-SOCKET ENTRANCE, and that is a decision rather than an
+  // omission. The plate's socket grid squares off the ladder's length, so a
+  // nine-lesson licence would draw 3x3 where today's four draws 2x2 — but
+  // meta.ts's schoolLength hands the lobby FOUR while the licence is owed and
+  // nine only once it is held, so "owed, with nine" is a state the app cannot
+  // produce. Fabricating it here would have measured 21 device rows of a screen
+  // nobody can reach, and dragged the nine-rung lesson picker's own sub-floor
+  // pips into the baseline with it. The 3x3 grid is asserted where a shape
+  // question belongs — on the markup, in sim/systems.ts.
+  "menu-lobby-held": () =>
+    S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: null, firstLaunch: false,
+    }, TOWER_LOBBY_HELD),
+  "menu-lobby-held-live": () =>
+    live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: null, firstLaunch: false,
+    }, TOWER_LOBBY_HELD)),
   // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
   // the upsell chip — the tallest menu the app can produce, which is exactly
   // why it is its own fixture.
