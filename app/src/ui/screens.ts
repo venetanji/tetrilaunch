@@ -155,14 +155,30 @@ export function dayText(day: number): string {
  *
  * inline-flex (see .currency) so the same call works in a chip, on a button
  * and mid sentence, and so the glyph can never wrap away from its number.
+ *
+ * COLOUR LIVES ON THE CLASS, never at the call site (app.css's
+ * .currency--salvage / .currency--scrap): banked green against raw amber is
+ * the third axis after silhouette and paint mode, and a currency painted by
+ * whichever panel happens to hold it is how the two balances ended up the
+ * same hue the first time — the Workshop chip and the yard's order both
+ * painted `var(--warn)` inline. These two functions are the only things that
+ * may colour a currency, and sim/systems.ts pins that no caller overrides it.
  * ------------------------------------------------------------------------ */
-/** Salvage: banked at tier milestones, spent in the Workshop, kept forever. */
-export function salvageHTML(amount: string | number = "", size = 12): string {
-  return `<span class="currency">${icon("salvage", size)}${amount}</span>`;
+/** Salvage: banked at tier milestones, spent in the Workshop, kept forever.
+ *
+ *  `earn` plays the COLLECTION beat (app.css's .currency--earn): the glyph
+ *  stamps in over a ring of its own colour. Only for a figure that is
+ *  ARRIVING as the player watches — a payout row, a banked milestone — never
+ *  for a balance that merely happens to be on screen, which is most of them.
+ *  A total that pops every time its panel re-renders teaches the animation
+ *  means nothing. */
+export function salvageHTML(amount: string | number = "", size = 12, earn = false): string {
+  return `<span class="currency currency--salvage${earn ? " currency--earn" : ""}">${icon("salvage", size)}${amount}</span>`;
 }
-/** Scrap: 2/line and 10/bay, spent at the refit yard, gone when the run ends. */
-export function scrapHTML(amount: string | number = "", size = 12): string {
-  return `<span class="currency">${icon("scrap", size)}${amount}</span>`;
+/** Scrap: 2/line and 10/bay, spent at the refit yard, gone when the run ends.
+ *  `earn` as salvageHTML's — the bay-clear payout is the one caller. */
+export function scrapHTML(amount: string | number = "", size = 12, earn = false): string {
+  return `<span class="currency currency--scrap${earn ? " currency--earn" : ""}">${icon("scrap", size)}${amount}</span>`;
 }
 
 /**
@@ -3930,7 +3946,7 @@ export function bayClearScreen(opts: {
         <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
         ${slot
           ? `<div class="stat stat--clause"><b style="color:var(--accent-2)">${slot.value}</b><span>${slot.label}</span></div>`
-          : `<div class="stat"><b style="color:var(--warn)">${scrapHTML(opts.scrap, 22)}</b><span>scrap</span></div>`}
+          : `<div class="stat"><b>${scrapHTML(opts.scrap, 22, true)}</b><span>scrap</span></div>`}
       </div>
       <p class="muted bayclear__hint">tap to continue</p>
     </div>
@@ -4116,7 +4132,7 @@ export function refitScreen(opts: {
       <div class="refit__hdr">
         <div style="text-align:left">
           <div class="eyebrow">Tier ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
-          <h2 class="display">Yard &amp; Dry Dock</h2>
+          <h2 class="display refit__title">${icon("refit", 18)}Yard &amp; Dry Dock</h2>
           <p class="muted refit__blurb" style="margin:0">The compactor rig is your ship. Stage what you want; Undock installs the lot. Next up: ${opts.nextBayName}.</p>
         </div>
         ${order}
@@ -4434,7 +4450,7 @@ export function workshopScreen(meta: MetaState): string {
         <div style="display:flex;gap:10px;align-items:center">
           <div class="chip chip--inline">
             <div class="chip__label">Salvage</div>
-            <div class="chip__value" style="color:var(--warn)">${salvageHTML(meta.salvage, 16)}</div>
+            <div class="chip__value">${salvageHTML(meta.salvage, 16)}</div>
           </div>
           <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
@@ -5612,7 +5628,7 @@ export function endModal(opts: {
           ? sandboxEndRowHTML(opts.sandboxSetup ?? "", opts.scrapEarned, opts.tiers, demoFoot)
           : opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">
-        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16, true)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
           <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — ${
@@ -5627,7 +5643,7 @@ export function endModal(opts: {
       </div>`
           : opts.tierSalvage > 0
             ? `<div class="salvage-row">
-        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16, true)}</div>
         <div class="salvage-row__body">
           <b>Salvage banked</b>
           <span class="muted">First run win at Tier ${opts.progress.tier} — ${opts.salvageTotal} salvage total.</span>
@@ -6590,7 +6606,7 @@ export function contractEndModal(opts: {
       </div>`
       : opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">
-        <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16)}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16, true)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.award.completedTier} complete!</b>
           <span class="muted">Run beaten and ${p.needed} Contracts cleared — ${
@@ -6605,7 +6621,7 @@ export function contractEndModal(opts: {
       </div>`
       : opts.award?.firstClear
         ? `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? salvageHTML(`+${opts.award.salvage}`, 16) : `T${p.tier}`}</div>
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? salvageHTML(`+${opts.award.salvage}`, 16, true) : `T${p.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</b>
           <span class="muted">${

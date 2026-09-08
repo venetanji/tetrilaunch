@@ -7797,6 +7797,94 @@ button.panel { color: var(--text); }
   vertical-align: middle;
 }
 
+/* WHICH POCKET, IN COLOUR — the third axis, after silhouette and paint mode
+   (icons.ts's currency note). Both figures used to render amber: the Workshop
+   chip painted `var(--warn)` inline and `.refit__order-scrap` still does, so
+   the two balances a player has to keep apart were the same hue as well as the
+   same emoji. Drawn glyphs fixed the shape; this fixes the last thing a player
+   reads before the shape.
+
+   Green for salvage because it only ever GROWS — it is banked, it survives the
+   run, and `--success` is the palette's "kept" colour. Amber for scrap because
+   it is raw stock that burns off at the end of the run, which is what `--warn`
+   says everywhere else in this app.
+
+   ON THE CLASS, NOT AT THE CALL SITE, which is the part that has to hold: a
+   currency painted by whichever panel happens to hold it is how the two ended
+   up identical the first time. `salvageHTML`/`scrapHTML` are the only things
+   that colour a currency now, and the one inline override that existed (the
+   Workshop chip's) is gone. */
+.currency--salvage { color: var(--success); }
+.currency--scrap { color: var(--warn); }
+
+/* THE COLLECTION BEAT (screens.ts's `earn` flag). A payout is the one moment
+   the player is being PAID rather than shown a balance, and it had no cue at
+   all: the number was simply already there when the card mounted.
+
+   Two things move, and neither is the number's position. The glyph stamps —
+   down onto the row from 1.6x, hard, on the `--roll-ease` overshoot every
+   other readout that lands on a new value shares (tokens.css) — and a ring of
+   the currency's own colour flashes out from under it and dies. `currentColor`
+   throughout, so salvage rings green and scrap rings amber with no second
+   declaration: the cue names the pocket as well as the event.
+
+   The RING IS A PSEUDO-ELEMENT on a box that also holds text, so it is
+   absolutely positioned against the glyph's corner rather than laid out; the
+   parent keeps `inline-flex` and its baseline, and the row's height never
+   moves. A payout that reflowed its own card mid-animation would be a worse
+   bug than the missing cue.
+
+   ONCE, FORWARDS, and no `infinite`: this is an event, not a state. A currency
+   that pulses forever reads as an alert about the balance — which is what
+   `.pl-stat--danger` is for, and what the scrap total deliberately never
+   does.
+
+   AND NO FILL MODE, which is the part that has to hold for layout. The ring's
+   last frame is 2.4x at opacity 0; a `both` fill would PARK it there, and a
+   transformed box still counts toward its ancestors' scrollable overflow even
+   at opacity 0 — measured as 2px of overflow on every contract-end row in the
+   fit matrix (whose harness drives animations to their end frame) and, on
+   device, a scroller that can be nudged by two pixels for no visible reason.
+   So both animations run from and back to a RESTING state that is inside the
+   glyph's own box: the ring's base is opacity 0 at 1x, the glyph's base is
+   1x, and the keyframes only ever leave those for the length of the beat. */
+.currency--earn { position: relative; }
+.currency--earn .ico { animation: currency-stamp 460ms var(--roll-ease); }
+.currency--earn::before {
+  content: "";
+  position: absolute; left: 0; top: 50%;
+  width: 1em; height: 1em; margin: -0.5em 0 0 -0.15em;
+  border: 2px solid currentColor; border-radius: var(--r-sm);
+  opacity: 0;
+  pointer-events: none;
+  animation: currency-ring 620ms var(--ease);
+}
+@keyframes currency-stamp {
+  0% { transform: translateY(-6px) scale(1.6); opacity: 0; }
+  55% { transform: translateY(0) scale(1); opacity: 1; }
+  70% { transform: scale(0.92); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes currency-ring {
+  0% { transform: scale(0.4); opacity: 0; }
+  30% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+/* A player who has asked the OS for less motion still gets the cue — it is
+   information, not decoration — and gets it as a fade with no travel and no
+   expanding ring. */
+@media (prefers-reduced-motion: reduce) {
+  .currency--earn .ico { animation: fade var(--dur) var(--ease); }
+  .currency--earn::before { display: none; animation: none; }
+}
+
+/* The yard's title wears its door glyph (icons.ts's `refit`), the way the
+   menu's buttons wear theirs. A block-level flex, not inline-flex: an
+   inline-level heading sits in an anonymous line box with a strut, and that
+   strut was 4px of header the 800x600 yard could not spare (#refit-preview
+   started scrolling by exactly that). */
+.refit__title { display: flex; align-items: center; gap: 8px; }
+
 /* ============================================================================
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
    ========================================================================== */

@@ -89,10 +89,16 @@ export type IconName =
   // which is a currency confusion, not a styling one: a player reading "♻ 55"
   // in the yard and "♻ 15" in the Workshop has no way to know the two numbers
   // come out of different pockets, one that dies with the run and one that
-  // never does. So they are drawn, they are a stroked pair of arcs against two
-  // solid slabs of cut plate, and the paint mode is the tell at 11px (the same
-  // argument `overclock` and `auto` settle between themselves below).
-  | "salvage" | "scrap";
+  // never does. So they are drawn, and each wears ITS SHOP'S MARK: salvage is
+  // the Workshop's hex nut counted out as loose hardware, scrap is two offcuts
+  // of cut plate — the same two paths the refit yard's door (`refit`) wears.
+  // Hexes with holes against straight sheared slabs is unmistakable at 11px.
+  | "salvage" | "scrap"
+  // The refit yard's door: the SAME two paths as `scrap`, under the yard's
+  // name. One mark, two ids, deliberately duplicated rather than aliased so a
+  // reader of the shelf finds the yard by its own name — change one, change
+  // the other (sim/systems.ts pins them equal).
+  | "refit";
 
 /** Inner markup per icon. Shapes that read better solid are filled; the rest
  *  stroke, and the wrapper supplies the shared stroke attributes. */
@@ -269,18 +275,23 @@ const PATHS: Record<IconName, string> = {
   // The Bond Breaker bolt — the same silhouette `bond-breaker`'s shop glyph
   // throws between its blocks, solid here because it is a lit trigger.
   bond: `<path d="M9.5 1L4 9h3.2L6 15l6-8H8.6z" fill="currentColor" stroke="none"/>`,
-  // Salvage — the FOREVER currency: two arcs chasing each other with blocky
-  // arrowheads. Recycling, because salvage is what the wreck of a dead run
-  // comes back as, and it is the cycle that never ends.
+  // Salvage — the FOREVER currency: the Workshop's hex nut (`workshop` above,
+  // stroked) counted out as loose hardware — two solid nuts, holes knocked
+  // through, one large and one small so the pair reads as a HANDFUL rather
+  // than a pattern. It replaced a pair of recycling arcs, which said where
+  // salvage comes FROM (the wreck of a dead run) and nothing about where it
+  // GOES; the nut is the door it is spent behind, and paint mode carries the
+  // rest — the currency is solid, the shop that takes it is stroked.
   salvage:
-    `<path d="M12.8 6A5.2 5.2 0 0 0 3.5 5"/><path d="M13.5 2.2v3.9H9.6"/>` +
-    `<path d="M3.2 10a5.2 5.2 0 0 0 9.3 1"/><path d="M2.5 13.8V9.9h3.9"/>`,
+    `<path fill="currentColor" stroke="none" fill-rule="evenodd" d="` +
+    `M10.5 1l3.5 2.1v4.2l-3.5 2.1-3.5-2.1V3.1z M9.45 4.15h2.1v2.1h-2.1z` +
+    `M5 7.8l3 1.8v3.6l-3 1.8-3-1.8V9.6z M4.1 10.5h1.8v1.8H4.1z"/>`,
   // Scrap — the ONE-RUN currency: two offcuts of cut plate, stacked, sheared
   // opposite ways so the pair reads as loose material rather than a repeated
-  // pattern. Deliberately the opposite of `salvage` on both axes a glyph has at
-  // 11px: solid against stroked, and flat straight edges against a rotating
-  // cycle of arcs. Nothing here curves, so at the size it renders in on a price
-  // button it can never be read as the arcs.
+  // pattern. Deliberately the opposite of `salvage` on the one axis a
+  // silhouette has at 11px: flat straight edges against the nut's six flats
+  // and its holes. Nothing here is a hexagon, so at the size it renders in on
+  // a price button it can never be read as the other pocket.
   //
   // It was a jagged heap first, and the heap was wrong for a reason worth
   // keeping: a flat-bottomed silhouette with three notches in its top edge is a
@@ -289,6 +300,10 @@ const PATHS: Record<IconName, string> = {
   // is too well spoken for. Straight sheared slabs mean stock metal and nothing
   // else.
   scrap:
+    `<path d="M4 3h7l2 3H6z" fill="currentColor" stroke="none"/>` +
+    `<path d="M4 8h9l-2 5H2z" fill="currentColor" stroke="none"/>`,
+  // The yard's door — see the IconName note. Duplicated, not aliased.
+  refit:
     `<path d="M4 3h7l2 3H6z" fill="currentColor" stroke="none"/>` +
     `<path d="M4 8h9l-2 5H2z" fill="currentColor" stroke="none"/>`,
   // The retry arrow (was the ↻ dingbat on Try/Play Again buttons).

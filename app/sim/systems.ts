@@ -5948,7 +5948,7 @@ section("Contract plant panel (screens.ts hudHTML)");
   // (15) closes the tag. Not coupled to icon()'s SVG internals: `>15` anchors
   // on the ">" that ends WHATEVER the icon renders, not its path data.
   check("...the clear count, the reward glyph and the milestone salvage, in order and with no stray whitespace",
-    linesHud.includes('id="hud-tier">0/3<span class="currency">') && linesHud.includes('>15</span></b>'));
+    linesHud.includes('id="hud-tier">0/3<span class="currency currency--salvage">') && linesHud.includes('>15</span></b>'));
   // Order was unchecked: swapping the Bay and Tier blocks (or the manifest
   // row and either of them) left every check above green. This file already
   // has the idiom two sections up (Lost after Launches) — same idea here.
@@ -23532,6 +23532,86 @@ section("The cursor set covers the whole app (scripts/make-cursors.mjs → curso
 }
 
 // ---------------------------------------------------------------------------
+section("Each pocket wears its shop's mark (screens.ts's salvageHTML / scrapHTML, icons.ts, app.css)");
+{
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const read = (...p: string[]): string =>
+    fs.readFileSync(path.resolve(here, "..", ...p), "utf8").replace(/\r\n/g, "\n");
+
+  // THE GLYPHS. Salvage is the Workshop's nut counted out as loose hardware:
+  // solid where the door is stroked, so paint mode carries place vs material
+  // and the hexagon carries which pocket. Scrap is the yard's mark, and the
+  // yard's door is the SAME drawing under its own id — duplicated rather than
+  // aliased, which is exactly the kind of pair that drifts, so it is pinned.
+  const salvage = icon("salvage");
+  const workshop = icon("workshop");
+  check("salvage is drawn solid, with holes knocked through (evenodd), not stroked",
+    salvage.includes('fill="currentColor"') && salvage.includes('fill-rule="evenodd"'));
+  check("...and it is a different drawing from the door it is spent behind",
+    salvage !== workshop && !workshop.includes("evenodd"));
+  check("the yard's door and the scrap it takes are one mark under two ids",
+    icon("refit") === icon("scrap") && icon("scrap") !== salvage);
+
+  // COLOUR ON THE CLASS. Every currency figure in the app goes through one of
+  // two functions, and each names its pocket in a class the stylesheet colours
+  // — green for the kept one, amber for the one that burns off with the run.
+  check("salvageHTML names its pocket", salvageHTML(15).includes('class="currency currency--salvage"'));
+  check("scrapHTML names its pocket", S.scrapHTML(15).includes('class="currency currency--scrap"'));
+  check("a balance does not play the collection beat",
+    !salvageHTML(15).includes("currency--earn") && !S.scrapHTML(15).includes("currency--earn"));
+  check("...and an ARRIVING figure does, once, in its own pocket's class",
+    salvageHTML("+15", 16, true).includes('class="currency currency--salvage currency--earn"')
+      && S.scrapHTML("+18", 22, true).includes('class="currency currency--scrap currency--earn"'));
+
+  const css = read("src", "styles", "app.css");
+  check("the stylesheet paints the two pockets, kept green and raw amber",
+    css.includes(".currency--salvage { color: var(--success); }")
+      && css.includes(".currency--scrap { color: var(--warn); }"));
+  // Once, forwards: an event, not a state. A currency that pulses forever is
+  // an alert about the balance, which is `.pl-stat--danger`'s job.
+  const earnRule = css.match(/\.currency--earn \.ico \{[^}]*\}/)?.[0] ?? "";
+  const ringRule = css.match(/\.currency--earn::before \{[^}]*\}/s)?.[0] ?? "";
+  check("the collection beat runs once, glyph and ring both, with no fill mode to park the ring at 2.4x",
+    /animation: currency-stamp \d+ms var\(--roll-ease\);/.test(earnRule)
+      && /animation: currency-ring \d+ms var\(--ease\);/.test(ringRule)
+      && !earnRule.includes("infinite") && !ringRule.includes("infinite")
+      && !earnRule.includes("both") && !ringRule.includes("both") && !ringRule.includes("forwards"));
+  check("...the ring is absolutely positioned and RESTS invisible inside the glyph's box, so the row never reflows and never overflows",
+    ringRule.includes("position: absolute") && ringRule.includes("pointer-events: none")
+      && ringRule.includes("opacity: 0;"));
+  check("...and the yard's title is a block-level flex, not an inline one with a strut",
+    css.includes(".refit__title { display: flex;"));
+  check("...and reduced motion keeps the cue as a fade with no ring",
+    /prefers-reduced-motion: reduce\)\s*\{[^}]*\.currency--earn \.ico \{ animation: fade /s.test(css)
+      && /\.currency--earn::before \{ display: none; animation: none; \}/.test(css));
+
+  // NO CALL SITE MAY OVERRIDE THE POCKET'S COLOUR — that is how the two
+  // balances ended up the same hue the first time (the Workshop chip painted
+  // amber inline round a salvage figure). Read from the source rather than a
+  // render, because the override could sit on any of thirty callers.
+  const screensSrc = read("src", "ui", "screens.ts");
+  const inlineColoured = screensSrc.match(/style="[^"]*color:\s*var\(--[a-z0-9-]+\)[^"]*">\$\{(?:salvage|scrap)HTML\(/g) ?? [];
+  check("no caller paints a currency figure inline — the class is the only colour",
+    inlineColoured.length === 0, inlineColoured.join(" | "));
+
+  // The earn flag is spent ONLY where a figure is arriving: the payout rows
+  // and the bay-clear card's scrap. A balance that pops on every re-render
+  // teaches the beat means nothing, so the count of callers is the pin.
+  const earners = screensSrc.match(/(?:salvage|scrap)HTML\([^)]*,\s*true\)/g) ?? [];
+  check("the beat is spent on the payout rows and the bay-clear scrap, nowhere else",
+    earners.length === 5, `${earners.length} callers`);
+  check("...and the Workshop's balance chip is not one of them",
+    !/chip__value[^\n]*salvageHTML\([^)]*true\)/.test(screensSrc));
+
+  // The yard's title wears its door.
+  const yard = refitScreen({
+    bayNum: 3, nextBayName: "Bay 4", scrap: 40, tiers: { ...newTiers(), reactor: 1 },
+    mark: 1, order: {}, preview: [],
+  });
+  check("the yard's heading carries the refit mark",
+    /<h2 class="display refit__title">\s*<svg class="ico"/.test(yard));
+}
+
 section("Player accounts (social login + RevenueCat identity)");
 // ---------------------------------------------------------------------------
 {
