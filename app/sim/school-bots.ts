@@ -1,4 +1,4 @@
-// Scratch probe: FLIGHT SCHOOL's post-Workshop lessons under the bots.
+// Balance probe: FLIGHT SCHOOL's post-Workshop lessons under the bots.
 //
 // Reports, per (lesson, bot, seed): whether the lesson's own teaching goal was
 // reached, whether the funding target was reached, when each happened (shots),

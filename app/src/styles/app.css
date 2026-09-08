@@ -1211,69 +1211,23 @@ body.crt-off #app::after { display: none; }
   --tower-gap: 2px;
   --tower-slack: calc(2 * var(--tower-pad) + (var(--tower-floors) - 1) * var(--tower-gap));
   --tower-floor-h: calc((100% - var(--tower-slack)) / var(--tower-floors));
-  /* Centred and capped rather than stretched to the row. On a landscape phone
-     `100%` always wins and the tower fills the screen, which is the drawing as
-     authored; on a tablet the cap stops eleven floors being spread over 900px
-     of glass, where each floor becomes an 80px band holding a 12px number and
-     the building reads as a ladder diagram instead.
-
-     620px, and the number moved for a reason worth recording: the cap used to
-     be 520, which is where eleven floors plus the shaft's own slack
-     (--tower-slack, 26px) first clear the 44px tap floor the rest of this
-     screen is built to. That made it a FLOOR expressed as a ceiling, and it
-     was set when a tablet's menu row really was ~900px tall. It is not any
-     more — chrome magnification pins the layout box to the authored 720
-     (game/layout.ts's chromeZoom), so the row is ~544px on every magnified
-     device, tablets included. Against that row a 520 cap binds by 24px and
-     `align-self: center` splits the difference, which drew the one column in
-     the middle of the screen 12px short at both ends while the demo and the
-     action rail sat flush.
-
-     620 clears every row the magnified box can produce, so the tower is
-     stretched — and flush — on all of them, at 47px a floor. The cap is still
-     here for the cases magnification does not cover: a very tall narrow
-     window, and a 4K panel past the 2x zoom limit, where the row genuinely is
-     900px and eleven floors would otherwise become 80px bands holding a 12px
-     number, reading as a ladder diagram instead of a building.
-
-     A 360px-tall phone gives the shaft 313px, where eleven floors cannot each
-     be 44px by arithmetic, and they come out at 26px; see the entries this
-     leaves in sim/uifit/baseline.json. Unchanged — `100%` wins there and
-     always did.
-
-     The cap is RAISED by exactly the basement's own height when Tier S is
-     drawn (see .tower--sub), rather than the basement taking its height out of
-     the shaft. Letting it come out of the shaft would have paid for a floor
-     nobody climbs with 2.6px off every floor that is climbed — which is the
-     whole 44px argument above, undone by an optional extra. On a viewport
-     where `100%` already wins, an extra floor takes its space from the shaft,
-     exactly as an eleventh floor's worth of anything would: those are the
-     phones the tower is already baselined short on.
-
-     The cap is a flat number either way. It used to be raised by the basement
-     door's own height (--tower-sub-h) when Tier S was open, so the eleven
-     climbed floors would not each pay 2.6px for a floor nobody climbs. Tier S
-     moved to the headhouse, which is drawn in the gap ABOVE the shaft and takes
-     nothing from it, so there is no longer anything to compensate for. */
-  /* How tall the roof's TAP TARGET is (.tower__head--floor). Invisible in both
+  /* HOW TALL THE ROOF'S TAP TARGET IS (.tower__head--floor). Invisible in both
      directions — the lamp and its masts are drawn at the bottom of the box and
      everything above them is transparent padding.
 
      22px is the compact figure, and it is the band the ladder's own floors
      occupy on the phones that get it (21-26px) — the roof is not singled out as
-     the small control, it is the same size as the floor under it.
+     the small control, it is the same size as the floor under it. 44px — the
+     tap floor — from 620px of viewport height (the media rule below), which is
+     where the row above the shaft has the slack to draw a taller target into
+     without it hanging off the top of the glass.
 
-     44px — the tap floor — once the viewport is tall enough that the tower is
-     capped rather than stretched, because only then is there slack above the
-     shaft to draw into. 620px, not 521px: the cap is 520px and `align-self:
-     center` splits the leftover evenly, so the roof needs (520 + 2 x 44) of row
-     before the taller box is drawn inside the tower's own column rather than
-     over whatever is above it. Below that it stays 22px, where the alternative
-     is not a bigger target but a target hanging off the top of the screen. */
+     A 360px-tall phone gives the shaft 313px, where eleven floors cannot each
+     be 44px by arithmetic, and they come out at 26px; see the entries this
+     leaves in sim/uifit/baseline.json. */
   --tower-roof-h: 22px;
-  /* THE GROUND FLOOR'S HEIGHT, and the height the tower's own box gains to pay
-     for it. Both are 0-cost here: the plinth is what this has always been, and
-     the box is exactly `min(100%, 620px)` until .tower--lobby raises them. */
+  /* THE GROUND FLOOR'S HEIGHT. 22px is the plinth as it has always been;
+     .tower--lobby raises it to the entrance while the licence is owed. */
   --tower-lobby-h: 22px;
   /* THE BOX IS THE ROW, in both states. The shaft's top edge sits on the line
      the demo panel and the recap panel start on, the plate's bottom on the
