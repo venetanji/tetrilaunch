@@ -2320,7 +2320,7 @@ class App {
       // THE SECOND LOCK ON THE LADDER (meta.ts's rigStarted). The car still
       // PARKS on Tier 1 while it is shut — the selection above is unchanged —
       // and that is deliberate: the parked floor is what the primary button
-      // describes, and "Deep Run · Install your first system in the Workshop",
+      // describes, and "Deep Run · Install a system in the Workshop",
       // disabled, is the sentence this whole re-order exists to put on screen.
       // Parking in the lobby instead would say "go back to school", which is
       // the one thing the player has just finished doing.

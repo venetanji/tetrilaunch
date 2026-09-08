@@ -1384,7 +1384,7 @@ export function menuPlaySub(
   // game where an instruction is what they came for. The Workshop button two
   // rows down is wearing the NEXT STEP badge while this line is showing, so
   // the sentence and the badge point at the same control.
-  if (!rigged) return "Install your first system in the Workshop";
+  if (!rigged) return "Install a system in the Workshop";
   // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
   // once · no mercy", which described a floor that was not playable yet and
   // promised something the mode does not do — the Skydeck flies Mark 10's

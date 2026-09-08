@@ -767,10 +767,24 @@ body.crt-off #app::after { display: none; }
 }
 .menu__title {
   font-size: clamp(30px, 6.2vw, 66px);
+  /* SIZED OFF THE PANEL IT SITS IN, in both states: .menu__demo is a
+     container whether or not it is live (below), so `cqw` measures the box
+     the title actually has rather than the column around it. */
   font-size: clamp(24px, 11.5cqw, 66px);
   letter-spacing: 0.01em;
-  overflow-wrap: anywhere;
+  /* THE WORD MAY BREAK BETWEEN ITS TWO HALVES AND NOWHERE ELSE. The markup
+     is <span>TETRI</span><span>LAUNCH</span>; the live panel stacks the two
+     as blocks, and the fallback ran them together as one inline word under
+     `overflow-wrap: anywhere` — so on the phone tier, where the brand column
+     is 196px and the clamp floors at 24px (8.33x = 200px of Orbitron), the
+     fallback wordmark broke as "TETRILAUNC / H". Measured in the fit
+     harness, which renders the non-live menu, and it is what a
+     reduced-motion player sees on every phone. Atomic inlines get a break
+     opportunity at their edges and nowhere inside, so this reads
+     "TETRI / LAUNCH" exactly when it cannot fit and one word when it can. */
+  overflow-wrap: normal;
 }
+.menu__title span { display: inline-block; }
 .menu__sub { color: var(--text-dim); font-size: var(--fs-h3); max-width: 46ch; }
 
 /* ---------- Menu attract demo (game/attract.ts) ----------
@@ -801,7 +815,12 @@ body.crt-off #app::after { display: none; }
    plain siblings and .menu__brand's own gap stops at the wrapper's edge. Put it
    back, so reduced motion gets the spacing the menu had before this box
    existed. */
-.menu__demo:not(.is-live) { display: flex; flex-direction: column; gap: var(--sp-4); }
+.menu__demo:not(.is-live) {
+  display: flex; flex-direction: column; gap: var(--sp-4);
+  /* The wordmark's `cqw` measures THIS box in the fallback too — see
+     .menu__title. Without it the title sized off the column and wrapped. */
+  container-type: inline-size;
+}
 .menu__demo-canvas { display: none; }
 .menu__demo.is-live .menu__demo-canvas {
   display: block;

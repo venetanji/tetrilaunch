@@ -22536,7 +22536,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the rig-locked menu disables its primary",
       primary(menuOf(shut)).includes("disabled"));
     check("...and says which door opens it",
-      primary(menuOf(shut)).includes("Install your first system in the Workshop"));
+      primary(menuOf(shut)).includes("Install a system in the Workshop"));
     check("...and an opened ladder leaves the primary live",
       !primary(menuOf(open)).includes("disabled"));
     // The Contract board's own subtitle, on the same state: while one clear
