@@ -6,6 +6,7 @@ import {
 } from "./level";
 import { ORIENTATIONS, type Cell } from "./tiling";
 import type { PieceSize, PieceType } from "./theme";
+import { applyUpgrades, newTiers, type UpgradeTiers } from "./upgrades";
 
 /**
  * FLIGHT SCHOOL — the licence, and the ground floor of the tower.
@@ -122,25 +123,37 @@ export const REVEAL = {
   aim: 0,
   /** + placement practice; reload feedback stays on the cannon itself. */
   placement: 1,
-  /** + the timing grade's callout over the payout. */
-  grade: 2,
-  /** + Funds / Target and the launch quote. */
-  funds: 3,
-  /** + the Combo readout. */
-  combo: 4,
-  /** + the launch budget and the Lost counter, which arrive together on the
-   *  one lesson that has both.
+  /** + THE WHOLE DEEP RUN READOUT, and the timing grade's callout with it:
+   *  Funds against Target, the shots the bankroll still buys, the launch price
+   *  on the rail, and the ship rack the money bought.
    *
-   *  NOT EARLIER, and the reason is that there was nothing to show. The set
-   *  pieces hand out unlimited shipments — a "nothing to lose" bay cannot also
-   *  be counting down — and hudOpts maps an unlimited budget to 0, so a stage
-   *  that turned the block on before a budget existed put a permanent
-   *  "LAUNCHES 0" on the panel: a readout that says the player is out of shots
-   *  while they keep firing. Seen on device. The budget is a real number for
-   *  the first time on Lost Cargo, which is where it now appears. */
-  lost: 5,
-  /** Everything, which is what every bay outside Flight School shows. */
-  all: 6,
+   *  ONE STAGE, WHERE THIS USED TO BE TWO. `grade` and `funds` were separate
+   *  rungs on a ladder that revealed the money on the sixth lesson and the
+   *  grade on the fifth — an order that only made sense while the fifth lesson
+   *  had no money to reveal. The Workshop sits between lesson 4 and lesson 5
+   *  now and the owner's call is that "lessons after the workshop should always
+   *  have money target", so the economy arrives on the first bay after the shop
+   *  and there is no bay left between the two old stages to sit on either of
+   *  them. A stage nothing can occupy is not a rung, it is a gap, and the
+   *  callout's threshold (levelForLesson's gradeCallout) has to be a stage some
+   *  lesson actually reaches or it can never turn on.
+   *
+   *  It is also the honest reading of what the purchase buys: the Reactor is
+   *  the economy track, and the bay you fly straight after installing it is the
+   *  first bay whose readout is the one every bay outside school carries. */
+  bay: 2,
+  /** + the Combo readout. */
+  combo: 3,
+  /** + the shift clock, which is the last thing the ladder withholds.
+   *
+   *  THE LOST COUNTER IS NOT A STAGE ANY MORE, and the reason it stopped being
+   *  one is the same reason `grade` and `funds` merged. That stage existed to
+   *  turn on the launch-budget column and the Lost column together, both of
+   *  which belong to the CONTRACT-shaped panel; the two lessons it was written
+   *  for now fly the Deep Run panel, which has neither — a spill is a "−$" over
+   *  the cubes and a bankroll that just fell, exactly as it is in a real bay.
+   *  See levelForLesson's note on why a fined lesson needs a wallet. */
+  all: 4,
 } as const;
 
 export type RevealStage = (typeof REVEAL)[keyof typeof REVEAL];
@@ -169,11 +182,32 @@ export interface Lesson extends BayDials {
    *  LessonGoal). Null when `lines` or the funding target is the condition. */
   goal?: LessonGoal;
   /** Shipments the bay hands out. 0 means unlimited, which is what the lessons
-   *  that are about repetition want. */
+   *  that are about repetition want — and what every lesson after the Workshop
+   *  wants, because on those the MONEY is the budget (see `floatShots`). */
   launches: number;
-  /** Keep the bankroll, the launch price and the funding target — the Deep Run
-   *  economy, which two lessons are ABOUT and the other seven strip. */
-  economy?: boolean;
+  /**
+   * THE BANKROLL: shots this lesson's opening float buys before a single row is
+   * sold, and rows of PROFIT its funding target asks for on top of that float.
+   * Both 0 on a stripped lesson, and `0/0` is the whole statement of "this bay
+   * has no economy" — there is no second flag to disagree with it.
+   *
+   * ONE PAIR RATHER THAN TWO ABSOLUTE FIGURES, because both are derived at bay
+   * build time from the bay's OWN rates (levelForLesson): a float is
+   * `shots x launchCost` and a target is `float + rows x scorePerLine`, so a
+   * lesson still teaches Tier 1's real economy — the same launch price and the
+   * same line payout — over a runway and a finish line sized for a first
+   * bankroll. Typing the dollars here instead would be typing an answer that
+   * goes stale the first time the ladder's opening terms move.
+   *
+   * SHOTS ARE GENEROUS AND ROWS ARE FEW, deliberately, and the split is what
+   * makes these bays teachable: the float is the runway a beginner gets to miss
+   * with, the rows are what they have to actually earn. A Deep Run bay 1 opens
+   * on eight shots and asks for eleven rows (level.ts's LAUNCH_BUDGET_SHOTS);
+   * every figure below is looser than that on both axes, and measured against
+   * the bots at the head of this file.
+   */
+  floatShots: number;
+  targetRows: number;
   /** Keep the spill fine, at Tier 1's price. Lesson 8 and nothing before it. */
   fine?: boolean;
   /** A rail control to SPOTLIGHT for this lesson's bay — main.ts publishes it as
@@ -280,21 +314,51 @@ const PAIR_DEEP: number[] = [2, 2, 2, 2, 0, 0, 2, 2];
  *  it exists. */
 const ENDS: number[] = [0, 0, 2, 2, 2, 2, 0, 0];
 
-/** Shots the bankroll lesson's float buys before a single row is sold — the
- *  runway a beginner gets to miss with. Twelve against a Deep Run bay's eight
- *  (level.ts's LAUNCH_BUDGET_SHOTS): the bay is teaching that shots cost money,
- *  not testing whether you can afford them yet.
+/**
+ * THE FLOAT AND THE FINISH LINE, per lesson after the Workshop.
  *
- *  DECLARED ABOVE THE LADDER because the bankroll card quotes it. It used to
- *  sit beside levelForLesson, which spends it, and the card said "about twelve
- *  shots" in words — the one figure in the whole deck a bay could change
- *  without the card noticing. A const read from the temporal dead zone throws
- *  at module load, so this order is load-bearing rather than tidy. */
+ * Named rather than inline because a play pass edits exactly these numbers
+ * first, and because the bankroll lesson's own card QUOTES its float — that
+ * figure used to read "about twelve shots" in words, which made it the one
+ * number in the deck a bay could change without the card noticing.
+ *
+ * MEASURED, not guessed. sim/_scratch-school.ts drives every post-Workshop
+ * lesson with the aiming bot and three fixed-arc pilots and reports, per bay,
+ * the shot on which the teaching goal landed and the shot on which the target
+ * was funded. The rule the figures below satisfy is the one the brief asks for:
+ * a pilot that passes the lesson's OWN goal funds the target with rows to
+ * spare, and the float is long enough that reaching the goal at all is never a
+ * solvency problem. The tables are in the commit that set them.
+ */
+/** THE PRICE OF A SHOT ON A LESSON BAY, read off the bay rather than typed.
+ *  Every lesson is built from `makeBaseLevel(0)` — Tier 1 bay 1, the calmest
+ *  bay the game knows how to make — so this is the launch price the player's
+ *  first real run will charge them, and it is what three cards and two
+ *  condition lines quote. Derived here so a card cannot go on quoting $20 the
+ *  day level.ts's opening terms move. */
+const LESSON_LAUNCH_HINT = makeBaseLevel(0).launchCost;
+
+const FLOAT_TIME = 18;
+const ROWS_TIME = 1;
+/** The bankroll lesson keeps the runway it was measured with: twelve shots
+ *  against a Deep Run bay's eight (level.ts's LAUNCH_BUDGET_SHOTS), because the
+ *  bay is teaching that shots cost money, not testing whether you can afford
+ *  them yet. Three rows of profit, because three is enough to feel the loop —
+ *  spend, clear, bank — and eleven is a bay rather than a lesson. */
 const BANKROLL_FLOAT_SHOTS = 12;
-/** Rows of PROFIT the lesson asks for on top of that float. Three, because
- *  three is enough to feel the loop — spend, clear, bank — and eleven is a bay
- *  rather than a lesson. */
 const BANKROLL_ROWS = 3;
+const FLOAT_STREAK = 12;
+const ROWS_STREAK = 2;
+/** The two bays that deal an ORDINARY board get the longest runways on the
+ *  ladder — sixteen and twenty shots, which are the launch budgets they used to
+ *  carry as hard caps. The budget is gone (money is the budget now) and the
+ *  number it was is exactly the right float: it was already the measured answer
+ *  to "how many shipments does this exercise take", and as a float it buys the
+ *  same room without ending the bay the instant it runs out. */
+const FLOAT_LOST = 16;
+const ROWS_LOST = 1;
+const FLOAT_CLUTTER = 20;
+const ROWS_CLUTTER = 1;
 
 /**
  * THE LADDER. Order is the curriculum; the array index is the licence
@@ -336,6 +400,8 @@ export const LESSONS: Lesson[] = [
     reveal: REVEAL.aim,
     lines: 1,
     launches: 0,
+    floatShots: 0,
+    targetRows: 0,
     wall: TRENCH,
     wallMaterial: "gold",
     // A flat I is PIECE_SHAPES.I unrotated, so this lesson needs no rotation at
@@ -380,6 +446,8 @@ export const LESSONS: Lesson[] = [
     lines: 0,
     goal: { kind: "atOnce", lines: 2 },
     launches: 0,
+    floatShots: 0,
+    targetRows: 0,
     wall: NOTCH,
     wallMaterial: "gold",
     sequence: ["O"],
@@ -412,6 +480,8 @@ export const LESSONS: Lesson[] = [
     // 4-deep well back.
     lines: 4,
     launches: 0,
+    floatShots: 0,
+    targetRows: 0,
     wall: WELL,
     wallMaterial: "gold",
     sequence: ["I"],
@@ -444,6 +514,8 @@ export const LESSONS: Lesson[] = [
     reveal: REVEAL.placement,
     lines: 2,
     launches: 0,
+    floatShots: 0,
+    targetRows: 0,
     wall: ENDS,
     wallMaterial: "gold",
     sequence: ["O"],
@@ -467,10 +539,14 @@ export const LESSONS: Lesson[] = [
   {
     id: "time-the-row",
     name: "Time the Row",
-    brief: "Close two rows just before the bar sweeps them.",
-    conditions: `Land 2 GOOD rows · up to ×${GRADE_PAY.excellent}`,
+    brief: "Close two rows just before the bar sweeps them. Shots cost now.",
+    conditions: `2 GOOD rows · $${LESSON_LAUNCH_HINT} a shot`,
     goalLabel: "GOOD rows",
-    reveal: REVEAL.grade,
+    // THE FIRST BAY AFTER THE WORKSHOP, so it is the first bay with money on
+    // it: the whole Deep Run readout arrives here, with the grade callout it
+    // is also teaching (REVEAL.bay). The Reactor the player bought one rung
+    // ago is aboard and shows in the rack.
+    reveal: REVEAL.bay,
     lines: 0,
     // GOOD, NOT EXCELLENT. Excellent is a 100ms window and asking for two of
     // them made this the hardest bay on the ladder — harder than anything a
@@ -480,14 +556,20 @@ export const LESSONS: Lesson[] = [
     // player who nails the tight window is rewarded rather than required to.
     goal: { kind: "grade", grade: "good", count: 2 },
     launches: 0,
+    floatShots: FLOAT_TIME,
+    targetRows: ROWS_TIME,
     wall: TRENCH,
     wallMaterial: "gold",
     sequence: ["I"],
     cards: [
       {
         title: "A row's price",
+        // THE PRICE ARRIVES ON THE BAY THAT CHARGES IT. This card taught the
+        // payout multiplier over a bay where nothing was bought or sold; the
+        // shot has a price now, so the sentence that opens the money says what
+        // a row is worth AGAINST it rather than in the abstract.
         body: `<b>Beat</b> the press to a row and it pays more.`
-          + ` Ground flat by the bar it is SWEPT, ×${GRADE_PAY.swept}.`,
+          + ` Shots cost $${LESSON_LAUNCH_HINT}; a swept row pays ×${GRADE_PAY.swept}.`,
       },
       {
         title: "Wait for it",
@@ -499,12 +581,13 @@ export const LESSONS: Lesson[] = [
   {
     id: "the-bankroll",
     name: "The Bankroll",
-    brief: "Launches cost money now. Reach the target.",
+    brief: "Spend few shots per row. Reach the target.",
     conditions: "Bay 1's money · no clock",
-    reveal: REVEAL.funds,
+    reveal: REVEAL.bay,
     lines: 0,
     launches: 0,
-    economy: true,
+    floatShots: BANKROLL_FLOAT_SHOTS,
+    targetRows: BANKROLL_ROWS,
     wall: PAIR,
     wallMaterial: "gold",
     sequence: ["O"],
@@ -535,6 +618,8 @@ export const LESSONS: Lesson[] = [
     lines: 0,
     goal: { kind: "combo", to: 3 },
     launches: 0,
+    floatShots: FLOAT_STREAK,
+    targetRows: ROWS_STREAK,
     wall: PAIR_DEEP,
     wallMaterial: "gold",
     sequence: ["O"],
@@ -555,10 +640,16 @@ export const LESSONS: Lesson[] = [
     id: "lost-cargo",
     name: "Lost Cargo",
     brief: "No scaffold, and spills cost money. Clear two rows.",
-    conditions: "Live fine · ordinary belt",
-    reveal: REVEAL.lost,
+    conditions: `Live fine · $${LESSON_LAUNCH_HINT} a shot`,
+    reveal: REVEAL.combo,
     lines: 2,
-    launches: 16,
+    // NO LAUNCH BUDGET. It carried sixteen, which was a second budget beside
+    // the bankroll saying the same thing in a worse unit — and the unit it said
+    // it in is the one this bay is not about. A spill costs money here; running
+    // dry should cost money too, not shipments.
+    launches: 0,
+    floatShots: FLOAT_LOST,
+    targetRows: ROWS_LOST,
     fine: true,
     // NO WALL AND NO SEQUENCE — the first bay of the licence that deals the
     // ordinary seeded 7-bag onto an empty floor, which is what the tenth bay of
@@ -592,7 +683,9 @@ export const LESSONS: Lesson[] = [
     conditions: "Opens past the first rung",
     reveal: REVEAL.all,
     lines: 2,
-    launches: 22,
+    launches: 0,
+    floatShots: FLOAT_CLUTTER,
+    targetRows: ROWS_CLUTTER,
     fine: true,
     // drills.ts's CONGESTED profile, SHARED rather than re-drawn: it is sized
     // against PILE_TIERS[0].cubes so the bay opens ALREADY taxed, and a second
@@ -621,10 +714,17 @@ export const LESSONS: Lesson[] = [
   },
 ];
 
-/** Cubes in one shipment. Every piece in PIECE_SHAPES is a tetromino, and the
- *  fined lessons' float is sized so that the worst possible bay — every cube of
- *  every launch spilled — is still billable to the last dollar. */
-const CUBES_PER_SHIPMENT = 4;
+/** Does this bay carry the Deep Run economy — a launch price, a float and a
+ *  funding target?
+ *
+ *  ONE FACT, asked in one place. It used to be a boolean beside the numbers
+ *  that implement it, which is two answers to one question and the shape that
+ *  drifts: a lesson could carry `economy: true` with no float, or a float with
+ *  the flag forgotten, and the HUD would pick the panel off the flag while the
+ *  bay was built off the numbers. The float IS the statement. */
+export function lessonHasEconomy(lesson: Pick<Lesson, "floatShots">): boolean {
+  return lesson.floatShots > 0;
+}
 
 /** Lessons in the ladder — the count a completed licence has to reach. */
 export const LESSON_COUNT = LESSONS.length;
@@ -742,29 +842,49 @@ function landingTargetFor(
  * to be the same physics, the same press and the same joints a real bay ships,
  * or it teaches a game the player does not own.
  */
-export function levelForLesson(lesson: Lesson): LevelConfig {
+export function levelForLesson(
+  lesson: Lesson,
+  loadout: UpgradeTiers = newTiers(),
+): LevelConfig {
   const cfg = makeBaseLevel(0);
   cfg.name = lesson.name;
 
-  if (lesson.economy) {
-    // The bankroll bay, kept whole: the launch price, the float and the target
-    // ARE the lesson. The clock still goes — one pressure at a time is the
-    // premise of the whole ladder, and the clock is not taught here.
-    cfg.timeLimitSec = 0;
-    cfg.objectiveLines = 0;
-    cfg.launchBudget = 0;
-    // ...but SIZED FOR A LESSON, not for a bay. Inherited whole, this asked for
-    // Tier 1 bay 1's own numbers — $1080 off a $160 float, which is eleven rows
-    // and a bay you can go broke in twice over on the way. Measured, a pilot
-    // that never aims went broke on ten seeds of twelve without ever reaching
-    // a quarter of it.
+  if (lessonHasEconomy(lesson)) {
+    // A POST-WORKSHOP BAY, KEPT WHOLE: the launch price, the float and the
+    // funding target ARE the lesson's second half. Every bay from lesson 5 up
+    // carries them, because the owner's call after playing the ladder is that
+    // "lessons after the workshop should always have money target" — and
+    // because the rung immediately before these is the shop that sells the
+    // economy track. A bay that let the player spend their one purchase and
+    // then flew them a stripped board would have hidden the purchase.
     //
-    // Both numbers are DERIVED from the bay's own rates rather than typed, so
-    // the lesson still teaches Tier 1's real economy — the same launch price
-    // and the same line payout — over a runway and a finish line a first bankroll
-    // can actually cross.
-    cfg.startingFunds = BANKROLL_FLOAT_SHOTS * cfg.launchCost;
-    cfg.targetScore = cfg.startingFunds + BANKROLL_ROWS * cfg.scorePerLine;
+    // THE CLOCK IS STILL OFF. One pressure at a time is the premise of the
+    // whole ladder, and the clock is not taught until the exam.
+    cfg.timeLimitSec = 0;
+    // NO LAUNCH BUDGET EITHER, on any of them. Money is the budget now: a bay
+    // with both would be counting the same constraint twice, in two units, and
+    // the shipment count is the one the player cannot spend their way out of.
+    cfg.launchBudget = 0;
+    // THE LESSON'S OWN GOAL SURVIVES THE MONEY, which is the point of the
+    // conjunction in game.ts's objectiveMet: a bay is won when the teaching
+    // goal is reached AND the target is funded. `objectiveLines` stays whatever
+    // the lesson authored (2 on the last two, 0 where a LessonGoal states it
+    // instead) rather than being zeroed the way the single-condition bankroll
+    // bay could afford to zero it.
+    cfg.objectiveLines = lesson.lines;
+    // ...and both figures are DERIVED from the bay's own rates rather than
+    // typed, so the lesson teaches Tier 1's real economy — the same launch
+    // price and the same line payout — over a runway and a finish line a first
+    // bankroll can actually cross. Inherited whole, this asked for Tier 1 bay
+    // 1's own numbers — $1080 off a $160 float, which is eleven rows and a bay
+    // you can go broke in twice over on the way. Measured, a pilot that never
+    // aims went broke on ten seeds of twelve without ever reaching a quarter of
+    // it.
+    //
+    // READ OFF THE STOCK BAY, BEFORE THE RIG LANDS ON IT — see the applyUpgrades
+    // call below for why that ordering is what makes the Reactor worth buying.
+    cfg.startingFunds = lesson.floatShots * cfg.launchCost;
+    cfg.targetScore = cfg.startingFunds + lesson.targetRows * cfg.scorePerLine;
   } else {
     // The Contract stripping (contracts.ts's levelForContract), for the reason
     // stated there: nothing is spent, so nothing needs to be earned back.
@@ -782,42 +902,52 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
   // run will charge them (level.ts's penaltyPerLostPieceFor).
   cfg.penaltyPerLostPiece = lesson.fine ? penaltyPerLostPieceFor(0, 1) : 0;
 
-  // ...AND A FINE NEEDS A WALLET TO COME OUT OF, which the branch above just
-  // set to zero.
+  // ...AND A FINE NEEDS A WALLET TO COME OUT OF, which is now free.
   //
   // game.ts bills a spill as `Math.min(this.score, owed)` and spawns the "−$"
   // toast only `if (deducted > 0)`, so on a $0 float the charge is a no-op and
-  // the toast never draws. Measured on the shipped bay: the `middle` bot lost
-  // SIXTY-FOUR cubes across Lost Cargo's sixteen launches, was billed $0, and
-  // saw zero toasts — while a bot that cleared a row first spilled one cube and
-  // got its "−$1" immediately. The lesson demonstrated its own subject only to
-  // the player who had already stopped needing it, and its card promises the
-  // opposite in as many words ("fines you — a red −$ marks the spot. Billed per
-  // cube"). fx.ts's `penalty` note is the argument for why the toast, not the
-  // end screen, has to be where this is learned.
+  // the toast never draws. Measured on the bay as it shipped: the `middle` bot
+  // lost SIXTY-FOUR cubes across Lost Cargo's sixteen launches, was billed $0,
+  // and saw zero toasts — while a bot that cleared a row first spilled one cube
+  // and got its "−$1" immediately. The lesson demonstrated its own subject only
+  // to the player who had already stopped needing it.
   //
-  // So a fined lesson opens with exactly enough money to be billed for every
-  // cube the bay can physically lose — its whole launch budget, four cubes a
-  // shipment — and not a dollar of it is a budget: the price of a shot is still
-  // zero here and the target is still unreachable, so nothing about this bay
-  // can be lost to money. It buys one thing, which is that the debit is real
-  // from the first spill instead of the first clear.
-  if (lesson.fine && !lesson.economy) {
-    // Every cube the bay can put in the air: one shipment per launch, plus the
-    // standing pile — Clutter's wall is STANDARD, not gold, so the press can
-    // shove it out of the zone like anything else.
-    const loseable = cfg.launchBudget * CUBES_PER_SHIPMENT
-      + (lesson.wall ?? []).reduce((a, b) => a + b, 0);
-    cfg.startingFunds = loseable * cfg.penaltyPerLostPiece;
-  }
+  // It used to be patched with a token float sized to "every cube the bay can
+  // physically lose", explicitly not a budget. Both fined lessons carry a real
+  // bankroll now, so the fine comes out of the money the player is playing for
+  // and the patch is gone: the ONE case that needs it — a fined lesson with no
+  // economy — is a lesson nobody has authored, and sim/systems.ts pins that
+  // every fined lesson funds itself.
+  //
+  // THE RIG, LAST, AND ONLY WHERE THERE IS AN ECONOMY TO RAISE.
+  //
+  // Lessons 5 to 9 sit above the Workshop on the ladder, so the player arrives
+  // at them owning a system — and until now they flew the stock ship anyway.
+  // The owner found it the obvious way: *"i'm playing the bay but no reactor
+  // active in my systems"*. The exam already did this (run.ts's
+  // levelForGraduation goes through the run's own pipeline), which made the
+  // lessons the odd ones out rather than the exam special.
+  //
+  // AFTER the target is written, which is the whole reason the purchase is
+  // worth making. The Reactor is `+$60 float, +$15 a line` (upgrades.ts): read
+  // the target off the STOCK bay and the extra float is sixty dollars of runway
+  // the finish line does not move to swallow, and the better rate is fewer rows
+  // to cross it. Read it off the RIGGED bay and the target would climb with the
+  // float and the purchase would buy nothing measurable — which is exactly the
+  // shape the ladder's economy note warns about, and the order levelForRun
+  // already uses (base, then ship).
+  //
+  // Lessons 1 to 4 are below the shop and stay stock, on the same predicate.
+  if (lessonHasEconomy(lesson)) applyUpgrades(cfg, loadout);
 
   cfg.lessonGoal = lesson.goal ?? null;
 
   // THE STAGE THAT SAYS THE GRADE ARRIVES IS THE STAGE THAT MAKES IT ARRIVE.
-  // REVEAL.grade has always been documented as "+ the timing grade's callout
-  // over the payout" and had no mechanism behind it: the callout is an FX
-  // field, not a `.pl-` block, so app.css's hide-list could never reach it.
-  cfg.gradeCallout = lesson.reveal >= REVEAL.grade;
+  // The callout is an FX field, not a `.pl-` block, so app.css's hide-list
+  // could never reach it — the stage has to be read here or not at all. It
+  // rides REVEAL.bay, which is the stage the grade lesson sits on: money and
+  // the grade arrive on the same bay now (see REVEAL).
+  cfg.gradeCallout = lesson.reveal >= REVEAL.bay;
 
   // A SCAFFOLDED BAY HAS NO PILE (level.ts's boardResets). The gold says where
   // the answer goes and the belt deals the shape that fits it; a second

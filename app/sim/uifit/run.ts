@@ -1292,13 +1292,16 @@ function measure(cfg: {
   // moving up or down the ladder needs no edit here.
   const stageAttr = document.querySelector(".hud[data-reveal]")?.getAttribute("data-reveal");
   if (stageAttr !== null && stageAttr !== undefined) {
+    // FIVE STAGES, not seven, and the money arrives at 2. The Workshop sits
+    // between lesson 4 and lesson 5, so every bay above it carries the Deep Run
+    // economy (game/school.ts's REVEAL) — the launches figure is "shots the
+    // bankroll still buys" there rather than a budget, and it arrives WITH the
+    // price and the funds it is derived from.
     const HIDDEN_AT: Record<string, string[]> = {
-      "0": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
-      "1": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
-      "2": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
-      "3": [".pl-launches", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
-      "4": [".pl-launches", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
-      "5": [".pl-time", ".pl-scrap", ".pl-mods"],
+      "0": [".pl-launches", ".pl-cost", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "1": [".pl-launches", ".pl-cost", ".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods", ".pl-lost"],
+      "2": [".pl-chain", ".pl-time", ".pl-scrap", ".pl-mods"],
+      "3": [".pl-time", ".pl-scrap", ".pl-mods"],
     };
     for (const sel of HIDDEN_AT[stageAttr] ?? []) {
       const el = document.querySelector(sel);

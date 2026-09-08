@@ -773,7 +773,7 @@ export function levelForRun(run: RunState): LevelConfig {
 }
 
 /**
- * THE GRADUATION FLIGHT'S BAY — the ground floor's twelfth step (meta.ts's
+ * THE GRADUATION FLIGHT'S BAY — the ground floor's tenth and last step (meta.ts's
  * schoolLadder), and the last thing between a player and Tier 1.
  *
  * It is a REAL Tier 1 bay 1, not a lesson dressed as one: the owner's call is

@@ -52,7 +52,7 @@ import {
   GRADES, gradedLinePay, meetsBand, newGradeTally, STEP_MS, TIMED_BAND,
   type ClearClock, type ClearGrade, type GradeTally,
 } from "./grades";
-import { payoutMult, bombResupply } from "./level";
+import { payoutMult, bombResupply, fundsIsObjective } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { BLAST_AMBER, FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
@@ -999,10 +999,35 @@ export class Game {
     return this.cubesAvailable < this.cubesRequired;
   }
 
-  /** This bay's win condition, met. A CONTRACT is won on lines cleared; a Deep
-   *  Run bay on funds banked. Kept as one accessor so update() has a single
-   *  win test rather than a mode branch buried in the resolution ladder. */
+  /**
+   * This bay's win condition, met — BOTH HALVES OF IT.
+   *
+   * A bay asks at most two things: do the WORK (a Contract's rows, a lesson's
+   * authored goal) and FUND the bay (a Deep Run's target). Every mode the game
+   * shipped before Flight School's economy asked exactly one of them, which is
+   * why this used to be a three-way branch that returned on the first arm it
+   * matched. Flight School's post-Workshop lessons ask both — the owner's call
+   * is that "lessons after the workshop should always have money target", and a
+   * lesson that could be passed on money alone would have stopped teaching the
+   * thing it is named after — so the test is a CONJUNCTION over the halves that
+   * are live, and a half that is not live answers `true` rather than being
+   * skipped past.
+   *
+   * That is also what keeps the older modes byte-identical. A Contract sets no
+   * funding target (level.ts's fundsIsObjective is false there), so `fundsMet`
+   * is vacuously true and the answer is its row count; a Deep Run bay sets no
+   * goal and no objectiveLines, so `taskMet` is vacuously true and the answer is
+   * its money. Neither reads a condition it was never given.
+   */
   get objectiveMet(): boolean {
+    return this.taskMet && this.fundsMet;
+  }
+
+  /** The WORK half: the lesson goal, else the line objective, else nothing to
+   *  do. Public because it is the half a teaching bay is actually about — the
+   *  HUD's goal row and sim/_scratch-school both need to know the goal landed
+   *  independently of whether the bay is funded yet. */
+  get taskMet(): boolean {
     // THE LESSON GOAL IS ASKED FIRST, and a lesson bay sets no objectiveLines,
     // so the two can never both be live. It is a separate branch rather than a
     // third value of an enum because the other two are the modes the GAME has
@@ -1025,7 +1050,15 @@ export class Game {
         .reduce((n, g) => n + this.gradeTally[g], 0) >= goal.count;
     }
     if (this.level.objectiveLines > 0) return this.linesTotal >= this.level.objectiveLines;
-    return this.score >= this.target;
+    return true;
+  }
+
+  /** The MONEY half: the funding target, on the bays that have one. A bay with
+   *  no target (a Contract, a drill, a scaffolded lesson) is funded by
+   *  definition — see level.ts's fundsIsObjective for why the sentinel is read
+   *  in exactly one place. */
+  get fundsMet(): boolean {
+    return !fundsIsObjective(this.level) || this.score >= this.target;
   }
 
   /** The live numerator for whichever objective this bay is running. */
@@ -1070,6 +1103,17 @@ export class Game {
 
   /** 0..1 progress toward whichever objective this bay is running, for the HUD. */
   get objectiveProgress(): number {
+    // THE MONEY BAR WINS WHERE THERE IS MONEY, and that ordering is the whole
+    // change. This bar fills `.pl-goal`, which sits under whichever headline
+    // figure the panel drew: Lines/Goal on a Contract-shaped panel, Funds/Target
+    // on a Deep Run one (screens.ts's hudHTML). A post-Workshop lesson renders
+    // the second and is judged on both halves, so a bar that kept preferring the
+    // lesson goal would have filled to the brim under a Funds figure that was
+    // nowhere near its target — a progress bar describing a different number
+    // from the one above it.
+    if (fundsIsObjective(this.level)) {
+      return this.target > 0 ? Math.min(1, this.score / this.target) : 0;
+    }
     const goal = this.level.lessonGoal;
     if (goal) {
       const target = goal.kind === "atOnce"
@@ -1080,7 +1124,7 @@ export class Game {
     if (this.level.objectiveLines > 0) {
       return Math.min(1, this.linesTotal / this.level.objectiveLines);
     }
-    return this.target > 0 ? Math.min(1, this.score / this.target) : 0;
+    return 0;
   }
 
   /** ms elapsed in this bay, counted in physics steps rather than wall clock so

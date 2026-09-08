@@ -1858,17 +1858,23 @@ body.crt-off #app::after { display: none; }
    would have made the ground floor the loudest label in the building. 11 is
    where it reads as one of them. */
 .tower--lobby .tower__base-txt { font-size: 11px; letter-spacing: 0.02em; }
-/* ONE SOCKET PER LADDER STEP, drawn as the building's windows are
-   (.tower__windows): a dark socket until the step lands, then lit. Squared off
-   the ladder's length by screens.ts rather than pinned at three columns —
-   twelve steps is a 4x3 block (22x16 at 4px cells on a 2px gap), where the
-   four-lesson licence was 2x2 and the nine-bay ladder 3x3. */
+/* ONE SOCKET PER LESSON, drawn as the building's windows are
+   (.tower__windows): a dark socket until the lesson lands, then lit. Squared
+   off the lesson list's length by screens.ts rather than pinned at three
+   columns — nine is a 3x3 block (16x16 at 4px cells on a 2px gap), where the
+   four-lesson licence was 2x2 and a twelve-step ladder was 4x3. */
 .tower__sockets {
   flex: none; display: grid;
   grid-template-columns: repeat(var(--socket-cols, 3), 4px);
   gap: 2px;
 }
 .tower__sockets i {
+  /* BORDER-BOX, so a 4px socket is 4px in a 4px grid track. Content-box plus a
+     1px border made every cell render 6px in a 4px column — a 2px overflow on
+     every socket the plate has ever drawn, invisible while the grid was the
+     widest thing on a plinth and caught the moment the earned plate started
+     drawing sockets of its own (sim/uifit's `spill`). */
+  box-sizing: border-box;
   width: 4px; height: 4px; border-radius: 1px;
   border: 1px solid currentColor; opacity: 0.5;
 }
@@ -1876,6 +1882,15 @@ body.crt-off #app::after { display: none; }
   background: currentColor; opacity: 1;
   box-shadow: 0 0 4px rgba(255, 176, 32, 0.5);
 }
+/* THE EXAM IS THE UNLOCK, and this is what it unlocks: the gaps close and the
+   nine lit cells become one slab. The owner's brief for the plate is exactly
+   that — "9x9 and the unlock makes them all a solid block" — so graduation is
+   drawn as a change of STATE in the block rather than as a tenth cell that
+   would break the square. Same 16x16 footprint either way: the 2px gaps the
+   grid gives up are handed straight back to the cells, so the plate's row does
+   not re-flow the moment the licence lands. */
+.tower__sockets--solid { gap: 0; }
+.tower__sockets--solid i { border-radius: 0; border-color: transparent; }
 /* THE RING IS WHERE THE CAR IS, on both faces of this floor. The earned plate
    also takes the accent's colour and ground, because there it is the same quiet
    slab every other selection lights up; the entrance keeps its amber, because
@@ -10355,31 +10370,39 @@ button.panel { color: var(--text); }
    into it for a Contract-shaped panel), and hiding it left the player who tapped
    HIDE TIP with no statement anywhere of what the bay wanted. */
 .hud[data-reveal] :is(.pl-mods, .pl-scrap) { display: none; }
-/* `.pl-funds` IS NOT MONEY ON THESE BAYS. On a Contract-shaped panel — which is
-   every lesson but the economy one — that block holds the GOAL readout and the
-   goal bar (`.pl-goal` is its child), so hiding it took the lesson's own
-   progress counter off the screen for the first five bays. The one lesson whose
-   `.pl-funds` really is Funds/Target is the economy bay, and it sits at stage 3
-   by construction; sim/systems.ts pins that so a reordering cannot quietly put a
-   money readout under a stage that means to withhold one. */
-/* `.pl-cost` rides with `.pl-launches` through every stage that withholds it,
-   which is what the price did when it WAS the launches figure's own quote span
-   (see the carded rule above). It is revealed at stage 5 with the count it
-   prices, because "22 shots" and "at $25 each" are one reading and a stage that
-   showed one without the other would be teaching half an arithmetic. */
+/* `.pl-funds` IS NOT MONEY ON EVERY BAY THAT HAS IT. On a Contract-shaped panel
+   — which is what lessons 1 to 4 draw — that block holds the GOAL readout and
+   the goal bar (`.pl-goal` is its child), so it is never hidden by a stage: the
+   lesson's own progress counter is the last thing a teaching bay may withhold.
+   The lessons whose `.pl-funds` really is Funds/Target are the ones above the
+   Workshop, and they sit at stage 2 or higher by construction; sim/systems.ts
+   pins that, so a reordering cannot quietly put a money readout under a stage
+   that means to withhold one. */
+/* `.pl-cost` RIDES WITH `.pl-launches`, which is what the price did when it WAS
+   the launches figure's own quote span (see the carded rule above), and both
+   are revealed together at stage 2 — "eight shots" and "at $20 each" are one
+   reading, and a stage that showed one without the other would be teaching half
+   an arithmetic. On the Deep Run panel the count is not a budget at all but the
+   shots the bankroll still buys, which is the other half of the same sentence. */
+/* FIVE STAGES NOW, not seven, and the middle three collapsed into one. The
+   Workshop sits between lesson 4 and lesson 5, and every bay above it carries
+   the Deep Run economy (game/school.ts's REVEAL) — so the money, the price and
+   the grade callout all arrive on the same bay and there is no lesson left to
+   stand on a stage between them. `.pl-lost` no longer has a stage of its own
+   for the same reason: it is a CONTRACT-panel column, and the two lessons it
+   was written for fly the Deep Run panel now, where a spill is a "−$" over the
+   cubes and a bankroll that just fell. It stays in the two withholding lines
+   below because lessons 1-4 still draw that panel and still have the column. */
 .hud[data-reveal="0"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
 .hud[data-reveal="1"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="2"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="3"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="4"] :is(.pl-launches, .pl-cost, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="5"] :is(.pl-time) { display: none; }
+.hud[data-reveal="2"] :is(.pl-chain, .pl-time) { display: none; }
+.hud[data-reveal="3"] :is(.pl-time) { display: none; }
 
 /* No "Launches alone in the readout" rule here, unlike the four-card deck's
    block above. That styling exists because `.pl-stat` is a narrow right-hand
    column beside the funds block and reads as a number left hanging when it is
    the only thing in the row — and on this ladder it never is: Launches first
-   appears at stage 5, where Funds is already up and has given it its column
-   back. */
+   appears at stage 2, arriving WITH Funds and the price as one readout. */
 
 /* One consequence of that hide list, which has to be styled rather than left
    to fall out: with Funds, Time and Scrap gone, Launches is the only thing left
