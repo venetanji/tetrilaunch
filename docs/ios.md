@@ -329,3 +329,26 @@ developer portal.
   shows up as a resumable lock-screen card. `lib/audio.ts`'s `suspendAudio` therefore
   unloads the elements entirely while backgrounded (src off + `load()`) and rebuilds
   src/position on resume — no source, no media session, no card.
+- **Interruptions are not backgroundings.** A call, an alarm or Siri deactivates the
+  session and pauses WebKit's media elements. If the interruption also backgrounded the
+  app, `applicationDidBecomeActive` re-asserts the category, re-activates the session and
+  relays `native-did-become-active` so the web layer replays its bed. If it did NOT —
+  Siri dismissed in place, an alarm silenced on the spot, a call declined from the banner
+  — iOS sends no lifecycle callback at all, and before this was handled the game played
+  on in silence for the rest of the session. AppDelegate now observes
+  `AVAudioSession.interruptionNotification` and, on `.ended` **while the app is
+  frontmost** (hopped to the main thread — the notification arrives on the session's own
+  queue), runs the same two-step recovery. It does not wait for the `.shouldResume`
+  option: under `.ambient` this app mixes with other audio by construction, so honouring
+  it would buy nothing and cost a silent game whenever iOS leaves it out. Unverified on
+  device — if music still dies after a call, the diagnostics panel's lifecycle log is the
+  evidence (a `resume(native)` line at the moment the call ended means the relay arrived
+  and the loss is web-side; no line means the notification never reached the app).
+- **A play() can be dropped rather than queued.** WKWebView discards a `play()` that
+  lands while its media playback is natively suspended (`setAllMediaPlaybackSuspended`),
+  and unlock is a race between the visibilitychange, the resign relay and
+  `didBecomeActive`. `resumeAudio` therefore rechecks 400ms after every resume and
+  replays a bed still paused; and `playMusic` — whose repeat-track call is otherwise a
+  no-op so it can be driven from every render — re-asks a bed that is PAUSED when the
+  same track is requested again. A bed playing at gain 0 is deliberately muted (a
+  `keepBed` stinger) and is never touched by that path.
