@@ -1,5 +1,5 @@
 import {
-  glyphInk, MATERIAL_GLYPH, MATERIAL_SPEC, PIECE_COLORS,
+  glyphInk, MATERIAL_GLYPH, MATERIAL_SPEC, PIECE_COLORS, PIECE_SHAPES,
   shipmentAura, shipmentColor, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
@@ -178,6 +178,140 @@ function glyphSVG(material: Material, o: number, size: number, ink: string): str
     : `fill="none" stroke="${ink}" stroke-width="${g.stroke}"`
       + ` stroke-linecap="round" stroke-linejoin="round"`;
   return `<g transform="translate(${o} ${o}) scale(${s})"><path d="${g.d}" ${paint}/></g>`;
+}
+
+/* ---------------------------------------------------------------------------
+   THE PIECE MINIATURE — a tetromino as CARGO, at readout size.
+
+   `pieceCellsHTML` above is the PREVIEW: a 4x4 stage that holds an orientation
+   (it rotates, it re-centres, it carries the material badge) because the belt
+   and the how-to gallery are showing you a shipment you are about to fire. A
+   manifest is not that. It counts SHAPES — "one I, one O, one T" — and the one
+   thing it must do is let seven of them be told apart in a row of type, on a
+   phone, at the size of the digits beside them.
+
+   So this is a different drawing with different rules, not a parameter on that
+   one:
+
+     ONE ORIENTATION, LAID FLAT AND RESTING. Every piece is turned into the
+     two-row pose that puts the most cells on the floor, and drawn that way
+     forever. A manifest entry has no rotation to report — the piece rotates
+     freely once it is in the air — so the choice is free to serve the reading
+     instead, and what it says is that these are crates on a shelf. Two rows
+     also puts every miniature on ONE HEIGHT, which is what lets a run of them
+     sit on a line of text without the row's height changing per piece.
+
+     ITS OWN WIDTH, NOT A FIXED BOX. The bounding box is the piece's — four
+     cells for an I, two for an O — so the row spends width on ink instead of on
+     empty stage. Measured on the manifest row: the seven-piece worst case is 21
+     cells wide drawn tight against 28 in a uniform 4-wide box, i.e. a quarter of
+     the row's width given back on the exact device where the row runs out of it.
+     Nothing is lost by it — the pieces are told apart by silhouette and hue,
+     and an empty cell says neither.
+
+     RESTING ON THE BOX'S FLOOR. The cells are bottom-aligned in the two-row box,
+     so the SVG's bottom edge — which is also its baseline as an inline
+     element — is the line the cubes stand on. Beside a mono count on the same
+     baseline, the two read as one object rather than as a picture next to a
+     number, and the whole run sits on the row's own baseline for free.
+
+     NO MATERIAL, NO BADGE, NO EMPTY CELLS. A manifest states the SET; what each
+     shipment is made of is the belt's business, and the badge that says so does
+     not survive being drawn at 10px anyway.
+
+   Pure `(type, px) -> string` with no caller's classes on it, because three
+   surfaces already want it (the plant's manifest row, the Contract board card,
+   the end card's tally) and the lesson pictograms are next. The px argument
+   sizes the SVG's own width/height attributes for a caller with no opinion;
+   `--mini-cols` carries the column count out to CSS so a surface that sizes
+   its type in tokens can size the drawing from the same token and keep the
+   aspect exact (app.css's MANIFEST TALLY section). --------------------------- */
+
+/** One cell's pitch in the miniature's own viewBox units, and the seam between
+ *  two of them. A tenth of a cell is the same proportion the belt tile draws its
+ *  gap at, and it is what makes an S read as two steps rather than as a blob at
+ *  5px a cell. Half the seam is left around the outside so the cells sit even
+ *  in the box rather than crowding its right and bottom edges. */
+const MINI_PITCH = 10;
+const MINI_SEAM = 1;
+/** Two rows, for every piece — see the note above. */
+const MINI_ROWS = 2;
+
+/** The tetromino laid flat and resting on the floor of a `MINI_ROWS`-row box,
+ *  in cells, derived from theme.ts's PIECE_SHAPES rather than typed out again:
+ *  a second shape table is a second thing to get wrong the day a piece changes.
+ *
+ *  WHICH of the four turns is not a preference either. Every orientation that
+ *  fits the box is a true statement about the piece — it rotates freely once it
+ *  is in the air — so the tie is broken by the one thing the drawing is trying
+ *  to say: this is CARGO, and cargo sits on the floor. The turn with the most
+ *  cells in the bottom row wins, which lands each piece on the pose a player
+ *  already reads it in (`..#`/`###` for an L, `#..`/`###` for a J, the T's nub
+ *  up over its bar) and leaves the two that have only one flat pose — S and Z —
+ *  taking the table's own.
+ *
+ *  The turn itself is the SAME quarter-turn the preview uses (rotateCellCW,
+ *  about the 4x4 grid centre). Normalising afterwards is what makes the
+ *  grid-centre irrelevant: only the cells' relative positions survive it. */
+function miniCells(type: PieceType): [number, number][] {
+  const span = (c: [number, number][], i: 0 | 1): number =>
+    Math.max(...c.map((cell) => cell[i])) - Math.min(...c.map((cell) => cell[i])) + 1;
+  const floored = (c: [number, number][]): [number, number][] => {
+    const minX = Math.min(...c.map(([x]) => x));
+    const minY = Math.min(...c.map(([, y]) => y));
+    const drop = MINI_ROWS - span(c, 1);
+    return c.map(([x, y]) => [x - minX, y - minY + drop] as [number, number]);
+  };
+  let turned = PIECE_SHAPES[type].map(([x, y]) => [x, y] as [number, number]);
+  let best: [number, number][] | null = null;
+  let onFloor = -1;
+  for (let i = 0; i < 4; i++) {
+    if (span(turned, 1) <= MINI_ROWS) {
+      const laid = floored(turned);
+      const feet = laid.filter(([, y]) => y === MINI_ROWS - 1).length;
+      if (feet > onFloor) {
+        onFloor = feet;
+        best = laid;
+      }
+    }
+    turned = turned.map(rotateCellCW);
+  }
+  // Unreachable for a tetromino (every one of the seven has a pose two rows
+  // deep), and a throw rather than a shrug for a shape that does not: a
+  // miniature drawn outside its own box is a silent overlap on whatever row it
+  // lands in, which is exactly the class of defect this repo measures for.
+  if (!best) throw new Error(`piece ${type} has no orientation ${MINI_ROWS} rows deep`);
+  return best;
+}
+
+/**
+ * One tetromino as a miniature — see the note above for what it is and why it
+ * is not the preview.
+ *
+ * `px` is the drawing's HEIGHT (both rows), so a caller that wants a mini to
+ * ride a line of text asks for that text's size and gets a crate as tall as its
+ * em box; the width follows from the piece. CSS may override both, and every
+ * surface the tally is on does (app.css's MANIFEST TALLY section sizes it in em
+ * so it tracks whatever type that surface sets) — `--mini-cols` is written onto
+ * the element so it can, without having to know which piece it is looking at.
+ */
+export function pieceMiniHTML(type: PieceType, px = 12): string {
+  const cells = miniCells(type);
+  const cols = Math.max(...cells.map(([x]) => x)) + 1;
+  const w = MINI_PITCH * cols;
+  const h = MINI_PITCH * MINI_ROWS;
+  const side = MINI_PITCH - MINI_SEAM;
+  const body = cells
+    .map(([x, y]) =>
+      `<rect x="${x * MINI_PITCH + MINI_SEAM / 2}" y="${y * MINI_PITCH + MINI_SEAM / 2}"`
+        + ` width="${side}" height="${side}" rx="1.5"/>`)
+    .join("");
+  // ONE `fill` on the group, not seven on the rects: at this size the whole
+  // miniature is one colour, and a caller that wants it to take the surrounding
+  // ink (a pictogram on a lesson card) only has to override one property.
+  return `<svg class="piece-mini" viewBox="0 0 ${w} ${h}"`
+    + ` width="${(px * cols) / MINI_ROWS}" height="${px}" style="--mini-cols:${cols}"`
+    + ` role="img" aria-label="${type}"><g fill="${PIECE_COLORS[type]}">${body}</g></svg>`;
 }
 
 /**

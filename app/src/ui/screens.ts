@@ -1,12 +1,12 @@
-import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
+import { MATERIAL_SPEC, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { baseBayFor, CHAIN_RUNGS_MAX, payoutMult } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
 import type { GradeTally } from "../game/grades";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
-  runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph, axisIconHTML,
-  railLegendHTML,
+  toggleHTML, pieceCellsHTML, pieceMiniHTML, formatMMSS, beltPieceHTML, beltBombHTML,
+  beltSealedHTML, runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph,
+  axisIconHTML, railLegendHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -6841,23 +6841,67 @@ export interface ContractCard {
 }
 
 /**
- * A shipment multiset as a compact tally — `I×3 O×1`, each letter in its own
- * piece colour. Used everywhere a pattern Contract's set is stated: the card
- * (what you're accepting), the HUD (what's left), the end screen (what you
+ * A shipment multiset as a compact tally — a MINIATURE of each shape left, with
+ * the count beside it. Used everywhere a pattern Contract's set is stated: the
+ * card (what you're accepting), the HUD (what's left), the end screen (what you
  * had). One renderer so those three can never disagree about the same set.
  *
- * Text rather than piece glyphs on purpose: at 5-8 shipments a row of little
- * shape grids reads as decoration, while a tally reads as an inventory — and
- * an inventory is the thing being planned against.
+ * IT USED TO BE LETTERS — `I×3 O×1`, each glyph in its own piece colour — on
+ * the argument that at 5-8 shipments a row of little shape grids reads as
+ * decoration while a tally reads as an inventory. Two things retired that:
+ *
+ *   The letter is not the piece. "I", "S" and "Z" are names a player learns
+ *   from somewhere else; the SHAPE is what they are about to be handed and what
+ *   they are planning a fit for. A manifest that has to be translated back into
+ *   silhouettes before it can be planned against is doing half the job — and
+ *   the translation is exactly the work the row exists to save.
+ *
+ *   And the row it lives on could not carry a letter anyway. The plant panel's
+ *   manifest row drew at the shared shell's 6px floor, which is five pixels of
+ *   cap, on a phone; the R5 pass raised the two rows beside it to 9-13px and
+ *   left this one the smallest type on the panel (the owner's report, off
+ *   staging). A miniature answers that in a way type cannot: it is legible at a
+ *   size a letterform is not — colour plus silhouette across a 2x4 grid whose
+ *   cell is 6.5px on the tightest row in the matrix, where a letter had five
+ *   pixels of cap — and it costs that row less width than the letter-plus-"×n"
+ *   it replaces.
+ *
+ * The count rides the miniature's own baseline (its floor), so a pair reads as
+ * one item and a row of them reads as an inventory — which was the old
+ * comment's point, and is still the point. `PIECE_TYPES` order, only the types
+ * still owed, and an em-dash when nothing is (the Contract is over, and a row
+ * of nothing at all would read as a rendering fault).
+ *
+ * Sizing is the CALLER'S, in em: app.css's MANIFEST TALLY section draws the
+ * miniature one em tall, so the HUD's 13px figure, the board card's --fs-sm and
+ * the end card's 15px each get a mini matching their own digits without this
+ * function knowing about any of them.
  */
 export function queueTallyHTML(queue: readonly PieceType[]): string {
   if (!queue.length) return `<span class="muted">—</span>`;
   return PIECE_TYPES.filter((t) => queue.includes(t))
     .map((t) => {
       const n = queue.filter((q) => q === t).length;
-      return `<span style="color:${PIECE_COLORS[t]};font-weight:700">${t}</span>×${n}`;
+      // A SPAN, not a `<b>`, even though the count is a figure and every other
+      // figure on the plant panel is one. `.pl-queue b` — the row's own value
+      // rule — matches any `<b>` DESCENDANT, so a nested one silently
+      // inherited the row's scroller declarations and its optical drop, which
+      // lifted every count 0.195em off the baseline its miniature stands on
+      // and hung it through the row's own clip. Those declarations belong to
+      // the row's value; this is content inside it.
+      return `<span class="queue-mini">${pieceMiniHTML(t)}`
+        + `<span class="queue-mini__n">${n}</span></span>`;
     })
-    .join(" ");
+    // `<wbr>` between pairs, not a space: two inline-flex boxes with nothing
+    // between them give the line NO break opportunity, and the board card's
+    // supply line is a narrow column that has always wrapped — a seven-piece
+    // manifest with no break in it leaves the card rather than taking a second
+    // line. A space would also break, and would also cost a space's width on
+    // every join, which is width the plant panel's row does not have (app.css's
+    // MANIFEST TALLY section has the measurement). `<wbr>` is zero-width,
+    // announces nothing, and leaves the whole gap to CSS, where the two gaps
+    // that group a pair can be set against each other.
+    .join("<wbr>");
 }
 
 /**
