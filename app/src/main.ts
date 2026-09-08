@@ -72,6 +72,7 @@ import {
 import {
   INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, licenceDone,
   schoolLength, schoolProgress, schoolNextStep, schoolStepOfFlight, schoolLadder, basicsDone,
+  nextFlightAfter,
   GRADUATION_FLIGHT, SCHOOL_STEPS,
   markUnlocked, recordLesson, recordSystemDrillOffer, systemDrillOffered,
   markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
@@ -92,7 +93,7 @@ import {
 } from "./game/guide";
 import { DRILLS, levelForDrill } from "./game/drills";
 import {
-  LESSON_COUNT, REVEAL, lessonAt, lessonSeed, levelForLesson,
+  LESSON_COUNT, REVEAL, lessonAt, lessonHasEconomy, lessonSeed, levelForLesson,
   graduationSeed, type Lesson,
 } from "./game/school";
 import { SANDBOX } from "./lib/sandbox";
@@ -188,7 +189,7 @@ type AppState =
   // flag on "contract-end": the two settle different things, and sharing a
   // state would mean every branch in that card asking which mode it is in.
   | "drill-end"
-  // The GRADUATION FLIGHT's two ends (meta.ts's schoolLadder, rung 12). Its own
+  // The GRADUATION FLIGHT's two ends (meta.ts's schoolLadder, step 10). Its own
   // pair rather than "bayclear"/"lost" with a flag, for the reason "drill-end"
   // gives: both of those settle a RUN — one advances a levelIndex into a refit
   // or a draft, the other files a score, ticks a tier and prices a seal — and
@@ -1004,7 +1005,7 @@ class App {
   /** Which card of the lesson's deck is up, or null once the deck has been
    *  played out and the bay is the player's. */
   private lessonCard: number | null = null;
-  /** The GRADUATION FLIGHT is on screen — the ground floor's twelfth step
+  /** The GRADUATION FLIGHT is on screen — the ground floor's tenth and last step
    *  (meta.ts's schoolLadder), a real Tier 1 bay 1 flown with the player's rig.
    *
    *  A FLAG AND NOT A RUN, which is the whole shape of this bay: `this.run`
@@ -1023,6 +1024,11 @@ class App {
    *  (screens.ts's systemDrillOfferModal). Held rather than re-derived because
    *  the modal outlives the click that opened it. */
   private drillOffer: UpgradeId | null = null;
+  /** The system drill on screen was launched from the WORKSHOP's offer rather
+   *  than from the guide, so its exit belongs back on the shop (see
+   *  `drill-exit`). Cleared by that exit; false for every guide-launched
+   *  drill, which is all of the others. */
+  private drillFromShop = false;
 
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
@@ -1826,18 +1832,54 @@ class App {
     return goal.to;
   }
 
+  /**
+   * THE BAY-NOTE ROW on a post-Workshop lesson (screens.ts's `bayGoal`).
+   *
+   * These bays draw the Deep Run readout, whose headline figure is Funds against
+   * Target — so the lesson's TEACHING goal, which is the other half of what the
+   * bay is judged on (game.ts's objectiveMet), needs a row of its own. It takes
+   * the one a Deep Run fills with its ratchet tally, which on a lesson would
+   * read "0 —" forever.
+   *
+   * LIVE WHERE THERE IS SOMETHING TO COUNT, static where there is not. Eight of
+   * the nine lessons have a goal with a numerator; the bankroll bay is won on
+   * money alone, so its row states the bay's conditions the way a Contract's
+   * does rather than counting to nothing.
+   *
+   * Null on every other bay in the game, which is what leaves the notch tally
+   * and the Contract conditions row exactly as they were.
+   */
+  private lessonBayGoal(g: Game): { label: string; value: string } | null {
+    const lesson = this.lesson;
+    if (!lesson || !lessonHasEconomy(lesson)) return null;
+    const goal = this.lessonGoalCount(g);
+    if (goal <= 0) return { label: "Bay", value: lesson.conditions };
+    return {
+      label: "Goal",
+      value: `<span id="hud-taskn">${g.objectiveCurrent}</span>/${goal} ${lesson.goalLabel ?? "rows"}`,
+    };
+  }
+
   private linesBay(g: Game): boolean {
-    // A FLIGHT SCHOOL BAY IS ONE TOO, on the same predicate and for the same
-    // reason — it has a goal and a shipment supply, read out of exactly the two
-    // columns the Contract block draws. The bankroll lesson deliberately falls
-    // through to false the way the two ECONOMY drills do: its whole subject is
-    // the funds-against-target readout a Contract block would replace.
+    // A FLIGHT SCHOOL BAY IS ONE TOO — up to the Workshop. Lessons 1 to 4 have
+    // a goal and a shipment supply and no money at all, which is exactly the
+    // two columns the Contract block draws.
     //
-    // `objectiveLines` alone is not the test any more, because the three
-    // lessons graded on a LessonGoal set none — a well lesson counts rows in
-    // one crush, not rows in total (level.ts's LessonGoal). So a lesson bay is
-    // a lines bay whenever it is not the economy one.
-    if (this.lesson) return !this.lesson.economy;
+    // FROM LESSON 5 THEY ARE NOT. Every bay above the shop carries the Deep Run
+    // economy (school.ts's lessonHasEconomy), and the readout that economy
+    // wants is the Deep Run one: Funds against Target, the shots the bankroll
+    // still buys, the launch price on the rail and the chain ladder. That is
+    // also the readout the exam and every bay after it will show, so the panel
+    // the player learns on the second half of the ladder is the panel they keep
+    // — the shop is the moment the HUD becomes the real HUD. The lesson's own
+    // teaching goal does not go missing with the Contract block: it moves to
+    // the bay-note row (screens.ts's `bayGoal`), which is where a Contract
+    // states its conditions and where a Deep Run states its notches.
+    //
+    // `objectiveLines` alone was never the test, because the lessons graded on
+    // a LessonGoal set none — a well lesson counts rows in one crush, not rows
+    // in total (level.ts's LessonGoal).
+    if (this.lesson) return !lessonHasEconomy(this.lesson);
     return this.contract !== null || (this.drill !== null && g.level.objectiveLines > 0);
   }
 
@@ -2045,7 +2087,20 @@ class App {
       // and a HUD that named it any earlier would be advertising a pressure
       // the bay on screen is not under.
       final: this.run && this.run.levelIndex === RUN_LEVELS - 1 ? this.run.final : null,
-      tiers: this.run?.tiers ?? ({} as UpgradeTiers),
+      // THE EXAM AND THE POST-WORKSHOP LESSONS FLY THE PLAYER'S SHIP, so the
+      // build rack has to draw it. Both bays apply the rig to their config
+      // (run.ts's levelForGraduation, school.ts's levelForLesson) and neither
+      // has a RunState to read `tiers` off, so the rack was empty on the two
+      // bays whose whole premise is that the purchase is aboard — which is how
+      // the owner met it: *"i'm playing the bay but no reactor active in my
+      // systems"*. Same safeLoadout the config was built from, so the plates
+      // and the physics cannot disagree.
+      //
+      // Lessons 1 to 4 keep an empty rack, because they keep a stock ship.
+      tiers: this.run?.tiers
+        ?? (this.graduation || (this.lesson && lessonHasEconomy(this.lesson))
+          ? safeLoadout(this.meta)
+          : ({} as UpgradeTiers)),
       // THE RACK'S WIDTH (game/meta.ts's slotsFor) — how many boxes the row
       // draws, mounted systems first and open slots after.
       //
@@ -2097,6 +2152,11 @@ class App {
       // …and on a run that may not restart a bay at all, the gesture goes out
       // of the name and out of the hint strip with it. See bayRetryOffered.
       restart: this.bayRetryOffered(),
+      // THE EXAM NAMES ITSELF (screens.ts's `exam`). Everything else about the
+      // bay stays the Deep Run's, because everything else about the bay IS the
+      // Deep Run's.
+      exam: this.graduation,
+      bayGoal: this.lessonBayGoal(g),
       contract: this.lesson
         ? // A Flight School bay fills the Contract block for the reason a drill
           // does — it is that shape of bay — and its `goal` is the number the
@@ -2382,6 +2442,13 @@ class App {
       // flights alone would leave two of its rungs permanently dark.
       licenceDone: schoolProgress(this.meta),
       licenceTotal: schoolLength(this.meta),
+      // THE GATE THE LADDER IS STOPPED AT, if any. The count cannot carry it —
+      // the two gates take no ordinal — so it is passed (screens.ts's
+      // TowerState.gate).
+      gate: (() => {
+        const kind = schoolNextStep(this.meta)?.kind;
+        return kind === "contract" || kind === "workshop" ? kind : null;
+      })(),
       // The ceremony, when one is owed and running (armUnlockCelebration). The
       // ride's destination is `selected`, which is why the clamp below has to
       // stay the only thing that can set it — see the note there.
@@ -2818,7 +2885,7 @@ class App {
     // THE LOBBY IS NOT A LANE. tierTowerHTML parks the lobby's car on floor 1
     // (the lift does not serve the ground floor — see towerIndexOf's note),
     // and this in-place update wrote towerIndexOf(LICENCE_TIER) instead: "one
-    // past the ground floor", a twelfth lane the shaft does not have. Picking
+    // past the ground floor", an eleventh lane the shaft does not have. Picking
     // a Mark and then the lobby sent the car past floor 1, over the plate and
     // out of the box (reported with a screenshot). Same mapping as the mount,
     // so the two can never disagree about where the lobby parks the car.
@@ -3216,7 +3283,15 @@ class App {
       // the very next elevator trip reading "Licence earned" — the same shape
       // of drift the lesson denominators had, in the one place a first-time
       // player is watching for their own progress.
-      licence: { done: schoolProgress(this.meta), total: schoolLength(this.meta) },
+      licence: {
+        done: schoolProgress(this.meta), total: schoolLength(this.meta),
+        // …and the GATE with it, for the same reason: an in-place ride that
+        // dropped it would re-open the pip the ladder is refusing.
+        gate: (() => {
+          const kind = schoolNextStep(this.meta)?.kind;
+          return kind === "contract" || kind === "workshop" ? kind : null;
+        })(),
+      },
     });
     // THE PARK MOVED, and the panel says so — the half the odometer cannot.
     // rollBayStats leaves an unchanged readout still, on purpose (a track of two
@@ -3254,7 +3329,10 @@ class App {
       done: schoolProgress(this.meta),
       total: schoolLength(this.meta),
       next: rung?.kind ?? null,
-      step: rung?.step ?? schoolLength(this.meta),
+      // NULL AT A GATE (meta.ts's SCHOOL_LADDER) — the subtitle names the door
+      // there instead of counting it. A finished ladder falls back to its last
+      // step, which is what the "licence earned" line renders over.
+      step: rung ? rung.step : schoolLength(this.meta),
     };
   }
 
@@ -3543,6 +3621,12 @@ class App {
               lines: g.linesTotal,
               shotsUsed: g.shotsFired,
               launches: g.level.launchBudget,
+              // Both halves of the win condition on the card that reports it —
+              // these bays are won on the goal AND the target, so a result that
+              // named only the rows could not explain a broke loss.
+              funds: lessonHasEconomy(this.lesson)
+                ? { score: g.score, target: g.target }
+                : null,
               // WHAT THE LADDER ASKS FOR NEXT, read AFTER the win has been
               // recorded — which is the whole point of asking the ladder
               // rather than the lesson. Clearing rung 4 opens the Contract
@@ -3601,7 +3685,7 @@ class App {
         if (g) {
           this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
           this.mountEndScrim(S.examFailHTML(
-            g.lossReason, g.level, g.level.name,
+            g.lossReason, g.level,
             schoolStepOfFlight(GRADUATION_FLIGHT), this.lessonTotal,
           ));
         }
@@ -4965,7 +5049,12 @@ class App {
     // FIXED SEED (school.ts's lessonSeed), so a retry is the same bay. Eight of
     // the nine are fully authored and would not notice; "Lost Cargo" deals a
     // real 7-bag and this is what makes its deal the same one every attempt.
-    this.game = new Game(levelForLesson(lesson), {
+    // THE PLAYER'S RIG, on every lesson that has an economy for it to move
+    // (school.ts's levelForLesson). Through safeLoadout, exactly as the exam
+    // and every Deep Run bay do, so a stowed system or an over-budget loadout
+    // is masked here the same way it is masked there — a lesson must never be
+    // the one bay that flies a rig the tower would refuse.
+    this.game = new Game(levelForLesson(lesson, safeLoadout(this.meta)), {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot");
         this.dismissDragHint();
@@ -5019,7 +5108,7 @@ class App {
   }
 
   /**
-   * Fly the GRADUATION FLIGHT — the ground floor's twelfth step.
+   * Fly the GRADUATION FLIGHT — the ground floor's tenth and last step.
    *
    * startLesson's sibling and its opposite in every way that matters. A lesson
    * is an authored board with the economy stripped, a card riding the HUD and a
@@ -5114,23 +5203,12 @@ class App {
     this.setState("menu");
   }
 
-  /** The next FLIGHT the ground floor owes — a lesson index, or
-   *  GRADUATION_FLIGHT for the exam. Null when the rung the ladder is asking
-   *  for is not a bay at all (the Contract, the Workshop): the lobby's primary
-   *  is disabled there and its subtitle names the door instead.
-   *
-   *  A FINISHED LADDER OPENS AT THE TOP, not at its last rung. This used to
-   *  clamp to `meta.licence`, so a graduate — and, after lib/store.ts's
-   *  grandfathering, every returning player — tapped Flight School and was
-   *  dropped into whatever the last bay happened to be: Clutter, the fine and
-   *  congestion bay, for the rest of the save's life. Lesson 1 is where a
-   *  re-fly should start, and it is what guide.ts's own CTA has always
-   *  promised ("Opens at the first lesson, whatever the licence already
-   *  holds"). */
-  private nextFlightIndex(): number | null {
-    const rung = schoolNextStep(this.meta);
-    if (!rung) return 0;
-    return rung.flight;
+  /** The next FLIGHT the ground floor owes (meta.ts's nextFlightAfter). The
+   *  rule lives there rather than here so sim/systems.ts can pin it: it is two
+   *  callers asking one question from different places, which is exactly the
+   *  shape that drifts. */
+  private nextFlightIndex(after: number | null = null): number | null {
+    return nextFlightAfter(this.meta, after);
   }
 
   /** Advance the lesson's live tip, or dismiss it. Player activation and a
@@ -5313,7 +5391,7 @@ class App {
     // THE GRADUATION FLIGHT, read above the lesson branch and routed out of
     // every one below it for the same reason both of those are: it is a bay the
     // player was shown, not a run, and nothing about the save may remember it
-    // except the licence. It writes that on the win — the twelfth rung — and it
+    // except the licence. It writes that on the win — the tenth rung — and it
     // takes the same free retry a lesson does on a loss.
     if (this.graduation) {
       if (s !== "won" && s !== "lost") return;
@@ -7113,6 +7191,11 @@ class App {
       }
     } else {
       set("#hud-score", "$" + g.score);
+      // THE LESSON'S GOAL, on the bay-note row beneath the money (lessonBayGoal).
+      // `set` is silent on a missing id, and the id only exists on a
+      // post-Workshop lesson with something to count — every other bay drawing
+      // this readout has no task half to report.
+      set("#hud-taskn", String(g.objectiveCurrent));
     }
     // LAUNCHES LEFT — tier 2 of the plant readout (see screens.ts's hudHTML).
     // It turns danger-red and pulses at LOW_LAUNCH_WARN or fewer, because that
@@ -7892,7 +7975,17 @@ class App {
         break;
       case "drill-exit":
         this.drill = null;
-        this.setState("howto");
+        // BACK TO WHERE THE DRILL WAS OFFERED FROM. Every drill but one is
+        // launched from the guide and goes back to it. The exception is the
+        // one the WORKSHOP offers the moment a system is installed
+        // (onBuyInstall's sys-drill-offer), and mid-school that is a rung of
+        // Flight School — returning a player to How to Play from there drops
+        // them two screens away from the lesson the ladder is asking for, on
+        // the one journey this branch exists to keep unbroken. The Workshop
+        // now carries the way on (screens.ts's "Continue Flight School →"), so
+        // going back to it IS the way on.
+        this.setState(this.drillFromShop ? "workshop" : "howto");
+        this.drillFromShop = false;
         break;
       // ONE DOOR INTO THE TEACHING, and it is Flight School (game/school.ts).
       // This used to clear seenTutorial and start a coached Deep Run, which is
@@ -7919,6 +8012,9 @@ class App {
       case "sys-drill-go": {
         const track = this.drillOffer;
         this.drillOffer = null;
+        // Remembered so the drill's own exit can hand the player back to the
+        // shop rather than to the guide — see `drill-exit`.
+        this.drillFromShop = true;
         // Through the guide's own topic, so the practice bay is the same bay
         // How to Play flies and its result card can point back at the paragraph
         // that describes the system.
@@ -7955,6 +8051,9 @@ class App {
         break;
       case "sys-drill-skip":
         this.drillOffer = null;
+        this.drillFromShop = false;
+        // The shelf they were still shopping on — and, mid-school, the screen
+        // that now carries the way back onto the ladder.
         this.setState("workshop");
         break;
       case "lesson-next": {
@@ -7965,7 +8064,11 @@ class App {
         // here is what makes that a property of the code rather than of the
         // markup. Clamped to the last flight, so the top rung cannot walk off
         // the end.
-        const flight = this.nextFlightIndex();
+        // THE BAY JUST FLOWN IS PASSED IN, which is what makes this button
+        // work on a graduated save — see nextFlightIndex. Mid-school an undone
+        // rung still wins, so the two gates keep their place in front of
+        // lesson 5.
+        const flight = this.nextFlightIndex(this.lessonIndex);
         if (flight === GRADUATION_FLIGHT) this.startGraduation();
         else if (flight !== null) this.startLesson(flight);
         break;

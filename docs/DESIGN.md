@@ -164,12 +164,21 @@ does not delete the answer costs.
 ### Nothing that can punish you exists before it is taught
 
 The reveal is staged (`school.ts`'s `REVEAL`, stamped onto the HUD as
-`data-reveal`, hidden by `app.css`): power only, then placement, then the timing
-grade, then Funds and Target, then Combo, then the launch budget and the Lost
-counter, then everything. A stage turns on only when a bay gives it something to
-say — the launch budget stays hidden while the set pieces hand out unlimited
-shipments, because a block reading "LAUNCHES 0" next to a player who keeps
-firing is a readout that lies.
+`data-reveal`, hidden by `app.css`): power only, then placement, then **the whole
+Deep Run readout** — Funds against Target, the shots the bankroll still buys, the
+launch price on the rail, the ship rack, and the timing grade's callout — then
+Combo, then everything. A stage turns on only when a bay gives it something to
+say, and the stage that says *money* is the first bay after the Workshop,
+because that is the first bay that has any.
+
+There used to be five stages here rather than three, with the grade arriving one
+bay before the money and the launch budget and Lost counter arriving four bays
+after it. Both of those collapsed when the lessons above the shop took the
+economy: the grade lesson **is** the first money bay, so there is no bay left to
+stand between those two stages; and no lesson carries a launch budget any more,
+so the stage that revealed one has nothing to reveal. The rule it was written for
+survives as a sharper pin — a bay may not show a money readout it does not have —
+which is the thing that put a permanent "LAUNCHES 0" on the panel the first time.
 
 Two stages are not panel blocks and so cannot be a stylesheet's business. The
 timing grade is an **effect over the payout**, gated by `level.ts`'s
@@ -185,19 +194,46 @@ transparency and its aim-through fade were all really asking. The lesson's goal
 readout and its pass-condition row wait on it: while the card is up there is no
 room, and the moment it leaves they arrive.
 
-The same rule governs money. Lessons 1–7 run with the spill fine at zero. Lesson
-8, *Lost Cargo*, is the first bay that can cost you anything and the first with
-a random deal. Lesson 9, *Clutter*, is congestion, and it is last because it is
-a tax on a mistake the player has to be capable of making before it means
-anything.
+The same rule governs money, and the Workshop is where it turns on.
 
-A fine needs a wallet to come out of, so the two fined lessons open with exactly
-enough money to be billed for every cube the bay can physically lose — and not a
-dollar of it is a budget: the shot is still free and the target still
-unreachable. Without that the charge was `min(score, owed)` against a $0 float,
-so a player who spilled sixty-four cubes was billed nothing and saw no "−$" at
-all, while one who cleared a row first got the toast immediately. The lesson
-demonstrated its own subject only to the player who had stopped needing it.
+**Lessons 1–4 charge nothing.** No launch price, no float, no target: they are
+below the shop, they fly a stock ship, and their whole subject is where a
+shipment lands.
+
+**Lessons 5–9 carry the Deep Run economy in full** — a launch price, a float, a
+funding target, and the player's own rig aboard. That is the owner's call after
+playing the ladder ("lessons after the workshop should always have money target"),
+and it is the only reading of the ladder that makes its sixth step worth taking:
+the rung before these is the shop that sells the economy track, and a bay that
+let the player spend their one purchase and then flew them a stripped board would
+have hidden the purchase. It also closed a copy bug the owner hit from the other
+end — the combo card promises "each one pays more" on a bay that had no money on
+it at all.
+
+A bay with an economy and a lesson is judged on **both**: win = the teaching goal
+reached AND funds at or above target (`game.ts`'s `objectiveMet`, which is now
+the conjunction of a task half and a money half, each vacuously true where the
+bay never asked it). The goal keeps its live readout; the money takes the
+headline figure. Neither can be traded for the other, so the streak lesson cannot
+be passed by grinding money and the bankroll cannot be reached without the streak.
+
+**The money is the budget.** The two bays that used to carry a hard launch cap
+(16 and 22 shipments) gave it up when they gained a bankroll — a bay with both
+would be counting one constraint twice, in two units, and the shipment count is
+the one a player cannot spend their way out of. The number the cap used to be is
+now the float, because it was already the measured answer to "how many shipments
+does this exercise take".
+
+The spill fine still waits for lesson 8, *Lost Cargo* — the first bay that can
+cost you anything and the first with a random deal — and congestion waits for
+lesson 9, *Clutter*, because it is a tax on a mistake the player has to be
+capable of making before it means anything. Both now come out of a real wallet.
+The fine used to be billed against a token float sized to "every cube the bay
+can physically lose", and before that against $0: the charge is `min(score, owed)`
+and only a non-zero debit toasts, so a player who spilled sixty-four cubes was
+billed nothing and saw no "−$" at all while one who cleared a row first got the
+toast immediately. The lesson demonstrated its own subject only to the player who
+had stopped needing it.
 
 ### The ladder
 
@@ -207,11 +243,29 @@ demonstrated its own subject only to the player who had stopped needing it.
 | 2 | Two at Once | O | two rows on one stroke; the reload ring | placement |
 | 3 | Four in the Well | I | rotation — a flat I cannot enter a one-wide channel | placement |
 | 4 | Lob or Skim | O | the two arcs, and what each one risks | placement |
-| 5 | Time the Row | I | the timing grade: SWEPT / GOOD / EXCELLENT | grade |
-| 6 | The Bankroll | O | launches cost, rows pay, funds are the score | funds |
+| 5 | Time the Row | I | the timing grade: SWEPT / GOOD / EXCELLENT | bay |
+| 6 | The Bankroll | O | launches cost, rows pay, funds are the score | bay |
 | 7 | The Streak | O | the combo multiplier, and what breaks it | combo |
-| 8 | Lost Cargo | 7-bag | the spill fine, on an ordinary belt | lost |
+| 8 | Lost Cargo | 7-bag | the spill fine, on an ordinary belt | combo |
 | 9 | Clutter | 7-bag | congestion: the tax on a full bay | all |
+
+Lessons 5–9 each carry a bankroll, sized against the bots (`sim/_scratch-school.ts`,
+which reports per bay the shot the goal landed on and the shot the target was
+funded on). The float is the runway to miss with, the rows are what has to be
+earned on top of it, and both are derived from the bay's own rates rather than
+typed in dollars:
+
+| # | Lesson | float | target | goal |
+|---|---|---|---|---|
+| 5 | Time the Row | 18 shots ($360) | +1 row ($460) | 2 GOOD rows |
+| 6 | The Bankroll | 12 shots ($240) | +3 rows ($540) | the target itself |
+| 7 | The Streak | 12 shots ($240) | +2 rows ($440) | combo ×3 |
+| 8 | Lost Cargo | 16 shots ($320) | +1 row ($420) | 2 rows |
+| 9 | Clutter | 20 shots ($400) | +1 row ($500) | 2 rows |
+
+The float is generous and the rows are few, deliberately: a Deep Run bay 1 opens
+on eight shots and asks for eleven rows, and every figure above is looser than
+that on both axes.
 
 The **Deals** column is a constraint, not a decoration. Five of the seven
 authored bays used to hand out an I, which reads as one exercise repeated; the
@@ -257,21 +311,39 @@ for progress. That is the whole navigational claim: school is not a modal you
 escape, it is the floor you start on, and the goal from the first screen is
 visibly *to unlock the next one*.
 
-### Twelve steps, and two of them are shops
+### Ten steps, and two gates
 
-The ground floor is not nine lessons and a door. It is a **twelve-step ladder**
-(`meta.ts`'s `SCHOOL_LADDER`), and the two steps that are not bays are the ones
-that make it a game rather than a course:
+The ground floor is not nine lessons and a door. It is a **ten-flight ladder with
+two gates in it** (`meta.ts`'s `SCHOOL_LADDER`), and the two gates are what make
+it a game rather than a course:
 
 | step | what it asks | what it opens |
 | --- | --- | --- |
 | 1–4 | the four basics lessons | the Contract board and the Workshop |
-| 5 | **clear one Contract** — a single fixed card | 15 salvage |
-| 6 | **install the Reactor** — the only thing on the shelf | lessons 5–9 |
-| 7–11 | the five advanced lessons | the graduation flight |
-| 12 | **a real Tier 1 bay 1**, flown with that rig | Tier 1, the daily board, the full Workshop |
+| — | **clear one Contract** — a single fixed card | 15 salvage |
+| — | **install the Reactor** — the only thing on the shelf | lessons 5–9 |
+| 5–9 | the five advanced lessons, with the money on | the Final Exam |
+| 10 | **the Final Exam** — a real Tier 1 bay 1, flown with that rig | Tier 1, the daily board, the full Workshop |
 
-Steps 5 and 6 used to be an *on-ramp*: `nextStep` badged them in order, and
+**The gates carry no ordinal.** The ladder printed "N of 12" for a release, with
+the two shop visits taking steps 5 and 6, which put lesson 5 at step 7 and the
+exam at step 12. Everything else in this game is a ladder of ten — ten bays to a
+run, ten Marks to the tower — and the owner's call is that the ground floor
+should count the same way: *"any chance we can bring it down to 10 lessons? why
+12 now, everything is in 10."* So the flights are the steps, `meta.licence` is
+literally the numerator, and the gates keep their place in the order (they still
+shut every rung after them) while the surfaces that meet them say what to do
+instead of counting it — "Clear one Contract to go on", "Install the Reactor to
+go on".
+
+**The plate is nine and the exam is the unlock.** The tower's ground-floor plate
+draws one socket per lesson, 3×3, lit as they land; passing the exam closes the
+gaps and the block becomes one solid slab (`app.css`'s `.tower__sockets--solid`).
+A tenth socket would have broken the square into a 4×3 with two holes in it — a
+shape that reads "unfinished" for ever on the one floor whose finished state is
+the point.
+
+The two gates used to be an *on-ramp*: `nextStep` badged them in order, and
 every one of their doors stood open anyway, so the player who walked past them
 met the thing the on-ramp existed to prevent. The owner's call is that the order
 should be the school's — "to finish the school and unlock tier 1 the user must
@@ -292,20 +364,37 @@ open at graduation, together, with the tier board that can pay for them.
 Until the four basics land, Contracts and Workshop are disabled with the
 subtitle "Opens after lesson 4". Until the whole ladder lands, every Mark in the
 shaft reads "Finish Flight School", the Deep Run primary is disabled under
-"Finish Flight School · N/12", and `nextStep` answers the ladder's own next rung
+"Finish Flight School · N/10", and `nextStep` answers the ladder's own next rung
 before it considers anything else — so the "next step" chevron never points a
 first-time player at a locked button.
 
-### The graduation flight
+**And the Workshop hands the ladder back.** Its own primary is the way on: once
+the Reactor is installed it becomes an enabled "Continue Flight School →",
+wearing the next-step badge and routed through the same `play` action the lobby
+uses (mid-school the car is parked in the lobby, so that action already resolves
+to the next flight the ladder owes). It read "Finish Flight School to fly",
+disabled, which is true of the Deep Run and useless as an instruction — the owner
+bought the Reactor and could not get out: *"i was not able to continue from the
+workshop onto the next lesson."* The practice-bay offer that fires on the same
+purchase now returns to the shop rather than to the guide, for the same reason.
 
-Step 12 is not a lesson. It is `makeBaseLevel(0, 1)` with the player's rig
+### The Final Exam
+
+Step 10 is not a lesson. It is `makeBaseLevel(0, 1)` with the player's rig
 applied by the run's own pipeline (`run.ts`'s `levelForGraduation`, which reads
 `levelForRun` on a throwaway bay-1 run rather than re-deriving the layering
 beside it) — full readout, real target, launch price, shift clock, spill fine,
 plain seeded 7-bag. The owner's framing is exact: "bay 10 is just the regular
 game equivalent of tier 1 bay 1".
 
-What it is *not* is a run. `main.ts` flies it with `this.run` null, so the refit
+What it is *not* is a run, and its HUD says so now. The bay banner used to read
+"TIER 1 · BAY 1/10" over a ten-pip progress strip, on a flight with no bay 2 to
+walk to; it keeps the tier plate — that half was true, this really is Tier 1's
+first bay — and drops the count and the strip for the flight's own name. One name
+for it everywhere (`meta.ts`'s `FINAL_EXAM`): the lobby's primary, the ninth
+lesson's result card, the exam's banner and its failure card.
+
+`main.ts` flies it with `this.run` null, so the refit
 stop, the draft, the carry, the leaderboard submit, the `runs` counter and — the
 one that matters — the **seal** are unreachable rather than suppressed. A seal
 records how a Mark fell; this is not a Mark, so its retry is free and is not
@@ -345,9 +434,10 @@ player who leaves school and opens the guide reads the same nouns.
 
 ## The loop
 
-0. **Flight School**, all twelve steps of it (see the table above): four basics,
-   one Contract, one system, five more lessons, and a real Tier 1 bay 1. Nothing
-   here can be lost except the last flight, and that one is handed straight back.
+0. **Flight School**, all ten flights of it (see the table above): four basics,
+   a Contract gate, a Workshop gate, five more lessons with the money on, and the
+   Final Exam — a real Tier 1 bay 1. Nothing here can be lost that is not handed
+   straight back.
    Nothing else on the tower exists until it is done.
 1. **Clear Contracts.** No clock, no launch cost, failure free. A tier's first
    three clears each bank a 15-salvage milestone.

@@ -1551,6 +1551,28 @@ export const CHAIN_RUNGS_MAX = 14;
  * an upper bound is the honest thing for a row that says "here is how far this
  * can go".
  */
+/**
+ * IS REACHING `targetScore` PART OF THIS BAY'S WIN CONDITION?
+ *
+ * THE ONE READING OF THE SENTINEL, and that is the whole reason it is a
+ * function. A bay with no money condition states it by setting `targetScore` to
+ * MAX_SAFE_INTEGER — contracts.ts's levelForContract, drills.ts's stripping and
+ * school.ts's non-economy branch all do it, in those words — and until now
+ * every consumer re-derived the test for itself. That was survivable while only
+ * one of them existed; it stopped being survivable the moment a bay could carry
+ * a TEACHING goal and a funding target at the same time (game.ts's objectiveMet
+ * is the conjunction of the two halves), because the conjunction has to know
+ * which halves are live and a bay that answers "yes" to a money question it was
+ * never asked can never be won.
+ *
+ * `Number.isFinite` as well as the sentinel, because Infinity is the other way
+ * a caller has spelt "no target" (attract.ts writes a big finite number and
+ * means it, which is why the cutoff is the sentinel rather than a magnitude).
+ */
+export function fundsIsObjective(level: { targetScore: number }): boolean {
+  return Number.isFinite(level.targetScore) && level.targetScore < Number.MAX_SAFE_INTEGER;
+}
+
 export function chainRungsFor(level: {
   targetScore: number;
   startingFunds: number;
@@ -1577,11 +1599,10 @@ export function chainRungsFor(level: {
     return Math.max(1, Math.min(CHAIN_RUNGS_MAX, Math.round(streak.to)));
   }
   // No funding target to solve against (a Contract, a drill, a scaffolded
-  // lesson — targetScore is MAX_SAFE_INTEGER there) or no price on a line.
-  // These bays end on lines or a launch budget, not on money, so there is no
-  // economic ceiling to read and the ladder falls back to its full length.
-  if (!(level.scorePerLine > 0) || !Number.isFinite(level.targetScore)
-    || level.targetScore >= Number.MAX_SAFE_INTEGER) {
+  // lesson — see fundsIsObjective) or no price on a line. These bays end on
+  // lines or a launch budget, not on money, so there is no economic ceiling to
+  // read and the ladder falls back to its full length.
+  if (!(level.scorePerLine > 0) || !fundsIsObjective(level)) {
     return CHAIN_RUNGS_MAX;
   }
   const gap = (level.targetScore - level.startingFunds) / level.scorePerLine;

@@ -402,6 +402,18 @@ policy it teaches, by flying a liner that is all geometry and no softening; and
 `_scratch-slotid.ts` asks `slots.ts`'s saturation question one BAY at a time,
 where win rate, seconds and money all exist.
 
+`_scratch-school.ts` sizes FLIGHT SCHOOL's post-Workshop bankrolls
+(`game/school.ts`'s `floatShots` / `targetRows`). Those five lessons are won on
+BOTH halves — the teaching goal AND the funding target — so a win rate alone
+cannot say whether a bay is mis-sized; the probe reports, per (lesson, bot,
+seed), the shot the goal landed on, the shot the target was funded on, and the
+bankroll at the end, which is what makes "a pilot that passes the goal funds the
+target with rows to spare" a measurable claim. `RIG=reactor` flies the same
+lessons with the system the ladder's second gate sells, which is how the
+purchase's worth gets a number: over five seeds it moves the funding shot from 7
+to 2 on *Time the Row*, 5 to 2 on *The Streak* and 6 to 4 on *Clutter*.
+`BOTS=`, `SEEDS=` and `FIRST=` narrow it.
+
 One probe stands beside it rather than inside it: `_scratch-finalpair.ts` prices
 Tier 1's Final Inspection pair — Rush Order against Rate Cut — in extra lines the
 last bay must sell, across the Reactor tiers that reach bay 10, with an optional

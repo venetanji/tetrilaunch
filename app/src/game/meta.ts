@@ -278,7 +278,7 @@ export interface InstallDef {
   requiresMark?: number;
 }
 
-/** THE ONE SYSTEM THE SCHOOL SELLS — rung 6 of the ground floor
+/** THE ONE SYSTEM THE SCHOOL SELLS — the ground floor's second GATE
  *  (schoolLadder). The Reactor and not "the cheapest install", because the
  *  school's shelf shows exactly this card and nothing else (screens.ts's
  *  workshopScreen), so the rung and the merchandise have to be the same
@@ -879,7 +879,7 @@ export function markUnlocked(meta: MetaState): number {
 }
 
 /* -------------------------------------------------------------------------
- * THE GROUND FLOOR'S LADDER — twelve steps, one number.
+ * THE GROUND FLOOR'S LADDER — ten numbered steps and two gates.
  *
  * The ground floor used to be four lessons and a door: clear the basics, and
  * Tier 1 opened behind an on-ramp that ran through the Contract board and the
@@ -890,22 +890,33 @@ export function markUnlocked(meta: MetaState): number {
  * bay 1". So the two shop visits are RUNGS now, and the ladder is:
  *
  *    1-4   the four basics lessons              (game/school.ts's LESSONS)
- *    5     one Contract, cleared                (contracts.ts's schoolContract)
- *    6     one system installed                 (the Reactor — see INSTALLS)
- *    7-11  the five advanced lessons
- *    12    the GRADUATION FLIGHT — a real Tier 1 bay 1 (run.ts's
- *          levelForGraduation), flown with the rig step 6 bought.
+ *    --    one Contract, cleared                (contracts.ts's schoolContract)
+ *    --    one system installed                 (the Reactor — see INSTALLS)
+ *    5-9   the five advanced lessons
+ *    10    the GRADUATION FLIGHT — a real Tier 1 bay 1 (run.ts's
+ *          levelForGraduation), flown with the rig the Workshop gate bought.
  *
- * TWELVE STEPS, TEN FLIGHTS, ONE COUNT. `meta.licence` stays what it has always
- * been — a monotone count of FLIGHTS cleared, 0..SCHOOL_FLIGHTS — and the two
- * shop steps are DERIVED from the state that already records them
- * (`claimedContracts`, `ownedTracks`). That is the choice this file had to
- * make, and the alternative was worse in a specific way: making `licence` the
- * step count would have forced recordLesson to map a lesson index onto a
- * discontinuous ladder (0..3 -> 1..4, 4..8 -> 7..11), so a save's one progress
- * number would no longer be readable as "which lesson am I on" by the picker,
- * the migration or the sim. A flight count stays legible; the ladder is a
- * function of it plus two facts the save already holds.
+ * TEN NUMBERED STEPS AND TWO GATES, and the gates are deliberately NOT numbered.
+ * They were, for a release: the ladder printed "N of 12" everywhere and the two
+ * shop visits took steps 5 and 6, which put lesson 5 at step 7 and the exam at
+ * step 12. The owner's call after playing it is that the count should be the
+ * game's own: *"any chance we can bring it down to 10 lessons? why 12 now,
+ * everything is in 10. so 9x9 and the unlock makes them all a solid block"*.
+ * Everything else in this game is a ladder of ten — ten bays to a run, ten Marks
+ * to the tower — and a ground floor that counted to twelve was the one surface
+ * asking the player to hold a different number.
+ *
+ * So the FLIGHTS are the steps. The two gates keep their place in the order and
+ * their place on the ladder's shape — they still shut every rung after them, and
+ * the surfaces that ask for them still say what to do — they simply carry no
+ * ordinal, because "step 5 of 10" is a promise that a bay is being flown.
+ *
+ * TEN STEPS, TEN FLIGHTS, ONE COUNT. `meta.licence` stays what it has always
+ * been — a monotone count of FLIGHTS cleared, 0..SCHOOL_FLIGHTS — and it is now
+ * literally the progress numerator as well, which is what dropping the gates'
+ * ordinals bought. The two gates are still DERIVED from the state that already
+ * records them (`claimedContracts`, `ownedTracks`), so nothing about the save
+ * moved and no migration is owed.
  *
  * The derivation is monotone in practice and forced to be at the top: nothing
  * un-claims a Contract and nothing sells a system back, but `tierContracts`
@@ -918,11 +929,22 @@ export function markUnlocked(meta: MetaState): number {
  *  `meta.licence` counts these, and only these. */
 export const SCHOOL_FLIGHTS = LESSON_COUNT + 1;
 
-/** Steps on the ground floor: the flights plus the Contract and the Workshop.
- *  The denominator EVERY "N of M" about the school prints — the plate's
- *  sockets, the lobby's panel, the primary's subtitle, the card riding a bay
- *  and its result — because they all read schoolLadder below. */
-export const SCHOOL_STEPS = SCHOOL_FLIGHTS + 2;
+/** The denominator EVERY "N of M" about the school prints — the lobby's panel,
+ *  the primary's subtitle, the card riding a bay and its result.
+ *
+ *  THE SAME NUMBER AS SCHOOL_FLIGHTS, and an alias rather than a second
+ *  constant on purpose: it used to be `SCHOOL_FLIGHTS + 2` and the two answers
+ *  drifting apart is the exact confusion this rename removes. Kept as a name
+ *  because the two are different QUESTIONS — "how many bays does the ground
+ *  floor fly" and "what does the ladder count up to" — and the day one of them
+ *  moves, the call sites already say which they meant. */
+export const SCHOOL_STEPS = SCHOOL_FLIGHTS;
+
+/** THE LAST FLIGHT'S NAME, written once. The lobby's primary, the ninth
+ *  lesson's result card, the exam's own HUD banner and the guide all print it,
+ *  and they printed three different things ("the graduation flight", "bay 10",
+ *  "Tier 1 bay 1") for one bay. */
+export const FINAL_EXAM = "Final Exam";
 
 /** The flight index the graduation bay occupies — one past the last lesson.
  *  recordLesson takes it like any other rung, which is what keeps ONE write
@@ -933,8 +955,11 @@ export const GRADUATION_FLIGHT = LESSON_COUNT;
 export type SchoolStepKind = "lesson" | "contract" | "workshop" | "exam";
 
 export interface SchoolStep {
-  /** 1-based position on the ladder, out of SCHOOL_STEPS. */
-  step: number;
+  /** 1-based position on the ladder, out of SCHOOL_STEPS — or NULL on the two
+   *  gates, which sit in the order without taking a number off it. A surface
+   *  that prints this has to say what a gate asks for instead of counting it
+   *  (screens.ts's licenceSubtitle). */
+  step: number | null;
   kind: SchoolStepKind;
   /** The flight index this rung flies (school.ts's LESSONS, or
    *  GRADUATION_FLIGHT), or null on the two shop rungs. */
@@ -974,22 +999,30 @@ export function basicsDone(meta: MetaState): boolean {
  * Workshop" locally, which is the drift this whole block exists to prevent.
  */
 export const SCHOOL_LADDER: readonly {
-  step: number; kind: SchoolStepKind; flight: number | null;
+  step: number | null; kind: SchoolStepKind; flight: number | null;
 }[] = [
   ...Array.from({ length: LICENCE_LESSON_COUNT }, (_, i) => (
     { step: i + 1, kind: "lesson" as const, flight: i }
   )),
-  { step: LICENCE_LESSON_COUNT + 1, kind: "contract", flight: null },
-  { step: LICENCE_LESSON_COUNT + 2, kind: "workshop", flight: null },
+  // THE TWO GATES, in the order and out of the count. `step: null` is the whole
+  // statement — see the header for why the ordinals came off them.
+  { step: null, kind: "contract", flight: null },
+  { step: null, kind: "workshop", flight: null },
   ...Array.from({ length: LESSON_COUNT - LICENCE_LESSON_COUNT }, (_, i) => (
-    { step: LICENCE_LESSON_COUNT + 3 + i, kind: "lesson" as const, flight: LICENCE_LESSON_COUNT + i }
+    { step: LICENCE_LESSON_COUNT + 1 + i, kind: "lesson" as const, flight: LICENCE_LESSON_COUNT + i }
   )),
   { step: SCHOOL_STEPS, kind: "exam", flight: GRADUATION_FLIGHT },
 ];
 
 /** Where a FLIGHT sits on the ladder, 1-based — what the lesson card's eyebrow
- *  and its result print ("Flight School · 7/12"). The two shop rungs are what
- *  make this not simply `index + 1`. */
+ *  and its result print ("Flight School · 7/10").
+ *
+ *  `flight + 1` today, and deliberately still a lookup rather than that
+ *  arithmetic: the ladder's shape is the thing that decides, and it has already
+ *  been a shape where it was not (the two gates took steps 5 and 6 for a
+ *  release). sim/systems.ts pins the lookup against the shape, so the day a rung
+ *  moves the pin fails rather than nine surfaces quietly counting a different
+ *  ladder. */
 export function schoolStepOfFlight(flight: number): number {
   return SCHOOL_LADDER.find((s) => s.flight === flight)?.step ?? 1;
 }
@@ -1026,14 +1059,49 @@ export function schoolLadder(meta: MetaState): SchoolStep[] {
   });
 }
 
-/** Steps of the ladder cleared — the numerator of every "N of M". */
+/** Steps of the ladder cleared — the numerator of every "N of M".
+ *
+ *  NUMBERED rungs only, which is what makes the numerator and the denominator
+ *  count the same ladder. A gate that is cleared moves the player forward
+ *  without moving this number, and that is the honest reading: the count is of
+ *  bays flown, and clearing a Contract flies none. */
 export function schoolProgress(meta: MetaState): number {
-  return schoolLadder(meta).filter((s) => s.done).length;
+  return schoolLadder(meta).filter((s) => s.done && s.step !== null).length;
 }
 
 /** The rung the ladder is asking for, or null once the school is finished. */
 export function schoolNextStep(meta: MetaState): SchoolStep | null {
   return schoolLadder(meta).find((s) => !s.done) ?? null;
+}
+
+/**
+ * THE NEXT FLIGHT THE GROUND FLOOR OWES — a lesson index, GRADUATION_FLIGHT for
+ * the exam, or null when there is nothing to fly.
+ *
+ * TWO CALLERS, ONE RULE, and they used to disagree because only one of them
+ * could say where it was standing. The lobby's primary asks with nothing (a
+ * re-fly starts at lesson 1); a lesson RESULT card asks with the bay it just
+ * flew, because "next" from a result means the one after THIS one.
+ *
+ * MID-SCHOOL AN UNDONE RUNG ALWAYS WINS, whichever way it is asked. That is
+ * what keeps the two gates in front of lesson 5: a player replaying lesson 2
+ * with the Contract still owed is sent to the Contract, not to lesson 3.
+ *
+ * ON A GRADUATED SAVE THERE IS NO UNDONE RUNG, and this used to answer 0 to
+ * everybody — the owner's report: *"next lesson button doesn't work when
+ * returning to school after completing it"*. Every rung is done, so
+ * `schoolNextStep` is null, so "Next lesson →" after a replayed lesson 3
+ * resolved to flight 0 and restarted lesson 1. With `after` it answers the one
+ * after the bay just flown, up to and INCLUDING the exam — re-flying that once
+ * graduated costs nothing and is the honest end of a replay run — and null past
+ * the top rung, where the card offers the tower instead.
+ */
+export function nextFlightAfter(meta: MetaState, after: number | null = null): number | null {
+  const rung = schoolNextStep(meta);
+  if (rung) return rung.flight;
+  if (after === null) return 0;
+  const next = Math.floor(after) + 1;
+  return next <= GRADUATION_FLIGHT ? next : null;
 }
 
 /** Has the player earned their licence — the whole ground floor, ending with
@@ -1056,7 +1124,7 @@ export function licenceDone(meta: MetaState): boolean {
  * A CONSTANT now, where it used to answer four while the licence was owed and
  * nine once it was held. That split existed because the ladder had a short
  * required prefix and a long optional tail; it has neither any more — all
- * twelve steps are required, in order, before Tier 1 opens — so the honest
+ * every rung is required, in order, before Tier 1 opens — so the honest
  * answer is the ladder's length and there is nothing left for the function to
  * branch on. Kept as a function because every caller already asks it, and
  * because the day the ladder grows a rung is the day one number should move.
@@ -1623,7 +1691,7 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * one: while the ground floor owes a rung, the step IS that rung.
  *
  * The arithmetic that made it a step and not a grind is unchanged and is what
- * lets rung 5 pay for rung 6: a tier pays 60 across four milestones, so ONE
+ * lets the Contract gate pay for the Workshop gate: a tier pays 60 across four milestones, so ONE
  * first-clear Contract banks 15 and 15 is exactly an entry install (INSTALLS'
  * note on the two 15s). The school's board is one card, and that card is the
  * one that buys the Reactor.

@@ -7,7 +7,7 @@ import {
 import { EXCELLENT_WINDOW_MS, GRADE_PAY, LUCKY_SWEEPS } from "./grades";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import {
-  markUnlocked, SCHOOL_STEPS, SLOT_BASE, SLOT_CAP, SLOT_PRICES, TIER_CONTRACTS_REQUIRED,
+  markUnlocked, SCHOOL_STEPS, FINAL_EXAM, SLOT_BASE, SLOT_CAP, SLOT_PRICES, TIER_CONTRACTS_REQUIRED,
   type MetaState,
 } from "./meta";
 import { SIZE_SPEC } from "./pieces";
@@ -319,11 +319,11 @@ function buildTopics(mark: number): GuideTopic[] {
   {
     id: "tutorial", chapter: "basics", tier: 1,
     name: "Flight School",
-    summary: `${SCHOOL_STEPS} steps open Tier 1: ${LESSON_COUNT} lessons, one Contract, one system.`,
-    body: `The tower's ground floor: <b>${SCHOOL_STEPS} steps, in order</b>. The`
+    summary: `${SCHOOL_STEPS} flights open Tier 1: ${LESSON_COUNT} lessons and the ${FINAL_EXAM}.`,
+    body: `The tower's ground floor: <b>${SCHOOL_STEPS} flights, in order</b>. The`
       + ` ${LICENCE_LESSON_COUNT} basics open the <b>Contract board</b>, whose one card buys your`
-      + ` <b>first system</b>, which opens lessons ${LICENCE_LESSON_COUNT + 1}-${LESSON_COUNT}. The`
-      + ` last step is a real <b>Tier 1 bay 1</b>, flown with that rig — clear it and Tier 1 opens.`
+      + ` <b>first system</b> — and lessons ${LICENCE_LESSON_COUNT + 1}-${LESSON_COUNT}, which fly`
+      + ` with the money on. The last is the <b>${FINAL_EXAM}</b>: a real Tier 1 bay 1, that rig aboard.`
       + ` Every lesson arrives set, with gold scaffolding that survives the clear, so a shot can be`
       + ` retaken until it lands.`,
     cta: {

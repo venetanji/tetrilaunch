@@ -126,13 +126,13 @@ Three things the ladder still deliberately does **not** touch:
 - **The mistake budget stays eight launches** (`LAUNCH_BUDGET_SHOTS`). The float
   is derived from it rather than fixed in dollars, so a dearer shot at a high
   tier costs more money for the same runway instead of quietly shortening it —
-  the sweep pinned the shot count, not the $200. Flight School's *Bankroll*
-  lesson derives its own the same way and lands on a **wider** one — twelve
-  shots of float (`school.ts`'s `BANKROLL_FLOAT_SHOTS`) against a target three
-  rows of profit above it — because that bay is teaching that shots cost money,
-  not testing whether the player can afford them yet. It inherits Tier 1's real
-  launch price and line payout, so what it teaches is the economy the next bay
-  will run; only the runway is generous.
+  the sweep pinned the shot count, not the $200. **Every Flight School lesson
+  after the Workshop** derives its own the same way and lands on a wider one —
+  12 to 20 shots of float against a target one to three rows of profit above it
+  (`school.ts`'s `floatShots` / `targetRows`) — because those bays are teaching
+  that shots cost money, not testing whether the player can afford them yet.
+  They inherit Tier 1's real launch price and line payout, so what they teach is
+  the economy the next bay will run; only the runway is generous.
 - **`scorePerLine` stays tier-invariant** (100 + 10/bay). A higher tier is *more
   lines*, not richer ones — which is why the leaderboard is per tier now: a
   shared board would rank the ladder rather than the play. What a row is worth
@@ -149,7 +149,53 @@ Three things the ladder still deliberately does **not** touch:
   (`penaltyPerLostPieceFor(0, 1)`) rather than a number invented for the ladder,
   because a licence bay is a Tier 1 bay by construction and the ramp's bottom
   rung is what the player's first real run will actually bill them. A penalty
-  the player meets before it has been named is an ambush, not a rule.
+  the player meets before it has been named is an ambush, not a rule. It now
+  comes out of a **real** wallet: both fined lessons carry a bankroll, so the
+  charge lands on the money the player is playing for rather than on a token
+  float sized only to make the toast draw.
+
+### The school's second half runs the real economy
+
+Lessons 1–4 sit below the Workshop and charge nothing at all: no launch price,
+no float, no target, and a stock ship. **Lessons 5–9 sit above it and carry the
+Deep Run economy in full** — the owner's call after playing the ladder, and the
+only reading that makes the sixth step worth taking, since the rung immediately
+before them is the shop that sells the economy track.
+
+| # | lesson | float | funding target | teaching goal |
+|---|---|---|---|---|
+| 5 | Time the Row | 18 × $20 = **$360** | +1 row = **$460** | 2 GOOD rows |
+| 6 | The Bankroll | 12 × $20 = **$240** | +3 rows = **$540** | the target itself |
+| 7 | The Streak | 12 × $20 = **$240** | +2 rows = **$440** | combo ×3 |
+| 8 | Lost Cargo | 16 × $20 = **$320** | +1 row = **$420** | 2 rows |
+| 9 | Clutter | 20 × $20 = **$400** | +1 row = **$500** | 2 rows |
+
+Three rules hold that table together.
+
+**Win is the conjunction.** A bay with both an economy and a teaching goal is won
+on the goal AND the target (`game.ts`'s `objectiveMet`, split into a task half and
+a money half, each vacuously true where the bay never asked it). Money cannot be
+traded for the streak and the streak cannot be traded for money.
+
+**Money is the budget.** The two bays that carried a hard launch cap (16 and 22
+shipments) gave it up when they gained a bankroll — a bay with both counts one
+constraint twice, in two units. The cap's number became the float, because it was
+already the measured answer to how many shipments the exercise takes.
+
+**The target is read off the STOCK bay, and the rig lands after it.** The Reactor
+is `+$60 float, +$15 a line`; because `levelForLesson` writes the target before
+`applyUpgrades` runs (the same order `levelForRun` uses — base, then ship), the
+extra float is sixty dollars of runway the finish line does not move to swallow,
+and the better rate is fewer rows to cross it. Read the target off the rigged bay
+instead and the purchase would buy nothing measurable. Measured over five bot
+seeds, the Reactor moves the shot on which the target is funded from 7 to 2 on
+*Time the Row*, 5 to 2 on *The Streak* and 6 to 4 on *Clutter*, and takes a
+fixed-arc pilot on *Lost Cargo* from 80% to 100%.
+
+Those lessons also fly the player's rig for the first time (`levelForLesson` takes
+a loadout, `main.ts` hands it `safeLoadout(meta)` exactly as the exam does). They
+did not, which the owner found the obvious way — *"i'm playing the bay but no
+reactor active in my systems"*.
 
 ## Three currencies, three horizons
 
@@ -444,16 +490,18 @@ the tier is the ask (1, then 2, then 3 timed crushes in a row), never the pay.
 
 ### The school's arithmetic: one Contract buys one system
 
-The 15 is load-bearing and it is why the shop is a *step of Flight School*
-rather than a suggestion beside it. The chain, in the game's own numbers, and it
-is now the ground floor's rungs 5 and 6 (`meta.ts`'s `SCHOOL_LADDER`):
+The 15 is load-bearing and it is why the shop is a *gate of Flight School*
+rather than a suggestion beside it. The chain, in the game's own numbers, over
+the ground floor's two gates (`meta.ts`'s `SCHOOL_LADDER` — the gates carry no
+step number, because the ladder counts its ten flights):
 
 | step | pays / costs | running salvage |
 | --- | --- | --- |
 | 1–4 the basics lessons | — | 0 |
-| 5 the school's Contract, first clear, tier 1 | `tierMilestoneSalvage(1)` = ⌊60/4⌋ = **+15** | **15** |
-| 6 Reactor Output — the only card on the shelf | **−15** | 0 |
-| 7–11 lessons 5–9, 12 the graduation flight | — | 0 |
+| — the school's Contract, first clear, tier 1 | `tierMilestoneSalvage(1)` = ⌊60/4⌋ = **+15** | **15** |
+| — Reactor Output — the only card on the shelf | **−15** | 0 |
+| 5–9 the advanced lessons, flown with that Reactor | — | 0 |
+| 10 the Final Exam | — | 0 |
 | Deep Run at Tier 1 | door opens on graduation | — |
 
 The school's board is **one card**, not three, so the first system is affordable

@@ -19,7 +19,7 @@ import Matter from "matter-js";
 import {
   Game, nextTimedStreak, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS,
 } from "../src/game/game";
-import { CHAIN_RUNGS_MAX, CHAIN_RUNGS_MIN, chainRungsFor,
+import { CHAIN_RUNGS_MAX, CHAIN_RUNGS_MIN, chainRungsFor, fundsIsObjective,
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
   LAUNCH_COST_BASE, LAUNCH_COST_TOP, TARGET_BASE, TARGET_PER_BAY,
   TARGET_PER_BAY_PER_TIER, TARGET_PER_TIER, TIER_COUNT, TIME_BASE, TIME_PER_TIER,
@@ -125,8 +125,8 @@ import {
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
   recordLesson, rigStarted, licenceDone, basicsDone,
-  schoolLadder, schoolProgress, schoolStepOfFlight, schoolNextStep,
-  SCHOOL_FLIGHTS, SCHOOL_STEPS, SCHOOL_LADDER, SCHOOL_INSTALL, GRADUATION_FLIGHT,
+  schoolLadder, schoolProgress, schoolStepOfFlight, schoolNextStep, nextFlightAfter,
+  SCHOOL_FLIGHTS, SCHOOL_STEPS, SCHOOL_LADDER, SCHOOL_INSTALL, GRADUATION_FLIGHT, FINAL_EXAM,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
   skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
   SLOT_BASE, SLOT_CAP, SLOT_PRICES, buySlot, isMounted, mountedIds, slotPrice, slotsFor,
@@ -175,7 +175,7 @@ import {
 } from "../src/game/pieces";
 import {
   LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed,
-  levelForLesson, graduationSeed,
+  lessonHasEconomy, levelForLesson, graduationSeed,
 } from "../src/game/school";
 import { lessonPictogramHTML } from "../src/ui/lessonart";
 import {
@@ -926,7 +926,7 @@ section("Installs — what salvage buys (meta.ts)");
   // which is pinned on its own below.
   //
   // SCHOOL_FLIGHTS and not LICENCE_LESSON_COUNT: the door moved from the fourth
-  // lesson to the twelfth step when the Contract and the Workshop became rungs,
+  // lesson to the last step when the Contract and the Workshop became rungs,
   // and a helper still spelling the old number would have quietly put every
   // check in this section back inside school.
   const freshMeta = (over: Partial<MetaState> = {}): MetaState =>
@@ -1066,7 +1066,7 @@ section("Installs — what salvage buys (meta.ts)");
     nextStep({ ...newMeta(), salvage: 9_999 }) === "licence");
   // THE GROUND FLOOR IS TWELVE STEPS AND TWO OF THEM ARE SHOPS, so the fourth
   // basic no longer lifts this rule — it hands it to the Contract board and
-  // then to the Workshop, and only the twelfth step lifts it at all.
+  // then to the Workshop, and only the last step lifts it at all.
   check("...and the fourth basic hands the step to the board, not to the run",
     nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT - 1 }) === "licence"
       && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) === "contracts");
@@ -1145,7 +1145,7 @@ section("Installs — what salvage buys (meta.ts)");
     check("the last lesson opens the graduation flight",
       nextStep(ramp) === "licence" && doorsAt(ramp) === "++++++++++++"
         && schoolNextStep(ramp)?.kind === "exam", doorsAt(ramp));
-    check("...and the Deep Run's door is still shut on the twelfth step",
+    check("...and the Deep Run's door is still shut on the last step",
       !licenceDone(ramp)
         && !S.tierOpen({
           unlocked: 1, selected: 1, skydeck: false, contracts: 0,
@@ -1952,8 +1952,8 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       // thing seenTutorial suppresses is the retired four-card deck over a Deep
       // Run bay 1, and after four lessons the player has been taught exactly
       // what that deck taught. It matters more than it used to, because the
-      // graduation flight IS a Deep Run bay 1 — a school still owing eight
-      // steps would otherwise meet the old coach on its own twelfth.
+      // Final Exam IS a Deep Run bay 1 — a school still owing six flights
+      // would otherwise meet the old coach on its own tenth.
       check("the licence retires the old coach on the migration path too",
         boot({ runs: 40 }, { seenTutorial: false }).seen === true);
       check("...and a genuinely new save still owes it",
@@ -15698,34 +15698,44 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   // ONE SOCKET PER LESSON, lit as they land — the building's own window glyph
   // (floorHTML's Contracts), applied to the ladder the ground floor counts.
   const socketSpan = (h: string): string =>
-    /<span class="tower__sockets"[^>]*>([\s\S]*?)<\/span>/.exec(h)?.[1] ?? "";
+    /<span class="tower__sockets[^"]*"[^>]*>([\s\S]*?)<\/span>/.exec(h)?.[1] ?? "";
   const sockets = (h: string): number => (socketSpan(h).match(/<i/g) ?? []).length;
   const lit = (h: string): number => (socketSpan(h).match(/class="on"/g) ?? []).length;
-  check("the entrance draws one socket per STEP of the ladder",
-    sockets(lobby(0, 4)) === 4 && sockets(lobby(0, 9)) === 9,
-    `${sockets(lobby(0, 4))} / ${sockets(lobby(0, 9))}`);
+  // ONE SOCKET PER LESSON, and NINE of them however long the ladder is — the
+  // exam is the unlock rather than a tenth cell. A tenth would break the square
+  // into a 4x3 with two holes in it, which reads "unfinished" for ever on the
+  // one floor whose finished state is the point.
+  check("the entrance draws one socket per LESSON, whatever the ladder counts",
+    sockets(lobby(0, 4)) === LESSON_COUNT && sockets(lobby(0, SCHOOL_STEPS)) === LESSON_COUNT,
+    `${sockets(lobby(0, 4))} / ${sockets(lobby(0, SCHOOL_STEPS))}`);
   check("...and lights exactly the ones that have landed",
-    lit(lobby(3, 9)) === 3 && lit(lobby(0, 4)) === 0 && lit(lobby(4, 4)) === 4,
-    `${lit(lobby(3, 9))} of 9`);
-  check("...never more than the ladder has",
-    lit(lobby(99, 4)) === 4, String(lit(lobby(99, 4))));
-  // Squared off the ladder's own length rather than pinned at three columns:
-  // four in a 3-wide grid is a 3+1 orphan. The shipped ladder is twelve steps
-  // (meta.ts's SCHOOL_STEPS), i.e. a 4x3 block — pinned at the real number as
-  // well as at the two the arithmetic was written against, because the plate is
-  // the one surface whose LAYOUT moves when the ladder's length does.
-  check("the socket grid is squared to the ladder",
-    lobby(0, 4).includes("--socket-cols:2") && lobby(0, 9).includes("--socket-cols:3"));
-  check("...and the shipped twelve-step ladder draws a 4x3 block of them",
-    sockets(lobby(0, SCHOOL_STEPS)) === SCHOOL_STEPS
-      && lobby(0, SCHOOL_STEPS).includes("--socket-cols:4"),
-    String(sockets(lobby(0, SCHOOL_STEPS))));
+    lit(lobby(3, SCHOOL_STEPS)) === 3 && lit(lobby(0, SCHOOL_STEPS)) === 0,
+    `${lit(lobby(3, SCHOOL_STEPS))} of ${LESSON_COUNT}`);
+  check("...never more than there are lessons",
+    lit(lobby(99, SCHOOL_STEPS)) === LESSON_COUNT, String(lit(lobby(99, SCHOOL_STEPS))));
+  // Squared off its own length rather than pinned at three columns: four in a
+  // 3-wide grid is a 3+1 orphan. Nine is 3x3 — pinned at the real number,
+  // because the plate is the one surface whose LAYOUT moves when the count does.
+  check("the socket grid is squared to the lesson list",
+    lobby(0, SCHOOL_STEPS).includes(`--socket-cols:${Math.ceil(Math.sqrt(LESSON_COUNT))}`)
+      && lobby(0, SCHOOL_STEPS).includes("--socket-cols:3"));
 
   // THE COLLAPSE. Earned, the entrance is furniture: no awning, no sockets, and
   // — the half app.css sizes off — no `tower--lobby` on the tower.
   check("the entrance is lit only while the licence is owed",
     lobby(0, 4).includes("tower__awning") && !held.includes("tower__awning"));
-  check("...and its sockets go with it", socketSpan(held) === "");
+  // …AND THE SOCKETS DO NOT GO WITH IT. They used to: the plate dropped to a
+  // quiet plinth and a fraction restating "9 of 9" for ever is a bill that has
+  // been paid. A SOLID SLAB is not a fraction — it is the building's own glyph
+  // for a finished floor, at the same 16x16 the owed state costs — and the
+  // owner's brief for the plate is exactly that: "9x9 and the unlock makes them
+  // all a solid block".
+  check("...and its sockets close into one solid block instead",
+    sockets(held) === LESSON_COUNT && lit(held) === LESSON_COUNT
+      && held.includes("tower__sockets--solid"),
+    `${lit(held)} of ${sockets(held)}`);
+  check("...which is a state the owed plate never draws",
+    !lobby(LESSON_COUNT, SCHOOL_STEPS).includes("tower__sockets--solid"));
   check("...and the tower stops being an entrance at all",
     lobby(0, 4).includes("tower--lobby") && !held.includes("tower--lobby"));
   // Keyed on the LICENCE, never on the parked floor: reading a locked Mark's
@@ -22544,18 +22554,27 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       LESSONS.map((l) => l.reveal).join(","));
     check("the last lesson shows the whole readout",
       LESSONS[LESSONS.length - 1].reveal === REVEAL.all);
-    // A REVEALED BLOCK HAS TO HAVE SOMETHING TO SAY. The set pieces hand out
-    // unlimited shipments — a bay with nothing to lose cannot also be counting
-    // down — and main.ts's hudOpts maps an unlimited budget to 0, so a stage
-    // that turned Launches on before a budget existed put a permanent
-    // "LAUNCHES 0" on the panel: a readout telling the player they are out of
-    // shots while they keep firing. Seen on device.
-    check("no lesson reveals the launch budget before it has one",
-      LESSONS.every((l) => l.reveal < REVEAL.lost || l.launches > 0),
-      LESSONS.filter((l) => l.reveal >= REVEAL.lost && l.launches === 0)
+    // A REVEALED BLOCK HAS TO HAVE SOMETHING TO SAY, and the block that used to
+    // fail this was the launch budget: the set pieces hand out unlimited
+    // shipments, so a stage that turned Launches on before a budget existed put
+    // a permanent "LAUNCHES 0" on the panel — a readout telling the player they
+    // are out of shots while they keep firing. Seen on device.
+    //
+    // NO LESSON HAS A BUDGET AT ALL NOW: money is the budget above the
+    // Workshop, and the two bays that carried a hard cap gave it up with the
+    // economy they gained. So the pin is the stronger one — the column the
+    // ladder reveals is the Deep Run's "shots the bankroll still buys", which
+    // is only ever honest on a bay that HAS a bankroll.
+    check("no lesson carries a launch budget", LESSONS.every((l) => l.launches === 0),
+      LESSONS.filter((l) => l.launches > 0).map((l) => l.id).join(","));
+    check("no lesson reveals the money before it has any",
+      LESSONS.every((l) => l.reveal < REVEAL.bay || lessonHasEconomy(l)),
+      LESSONS.filter((l) => l.reveal >= REVEAL.bay && !lessonHasEconomy(l))
         .map((l) => l.id).join(","));
-    check("...and the lesson that does have one shows it",
-      LESSONS.filter((l) => l.launches > 0).every((l) => l.reveal >= REVEAL.lost));
+    check("...and every lesson that has money shows it",
+      LESSONS.filter(lessonHasEconomy).every((l) => l.reveal >= REVEAL.bay),
+      LESSONS.filter((l) => lessonHasEconomy(l) && l.reveal < REVEAL.bay)
+        .map((l) => l.id).join(","));
     check("the first lesson shows only the power meter", LESSONS[0].reveal === REVEAL.aim);
     // THE GRADE STAGE HAS A MECHANISM BEHIND IT. It is an FX field rather than
     // a `.pl-` block, so app.css's hide-list can never reach it — and for as
@@ -22564,8 +22583,8 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // with SWEPT reading as a rebuke on a bay whose message is "you did that
     // right". Measured through the real Game, not read off the config.
     check("no lesson shouts a timing band before the one that teaches it",
-      LESSONS.every((l) => levelForLesson(l).gradeCallout === (l.reveal >= REVEAL.grade)),
-      LESSONS.filter((l) => levelForLesson(l).gradeCallout !== (l.reveal >= REVEAL.grade))
+      LESSONS.every((l) => levelForLesson(l).gradeCallout === (l.reveal >= REVEAL.bay)),
+      LESSONS.filter((l) => levelForLesson(l).gradeCallout !== (l.reveal >= REVEAL.bay))
         .map((l) => l.id).join(", "));
     {
       const shout = (id: string): Array<string | null> => {
@@ -22622,18 +22641,23 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       const cfg = levelForLesson(l);
       check(`${l.id} opens with money the fine can come out of`,
         cfg.startingFunds > 0, `$${cfg.startingFunds}`);
-      // ...and enough of it that the WORST bay is still billable to the last
-      // cube: every launch spilled whole, plus the standing pile the press can
-      // shove out. A float short of that clamps at zero and stops reporting.
-      const loseable = cfg.launchBudget * 4 + (l.wall ?? []).reduce((a, b) => a + b, 0);
+      // ...and enough of it that the fine is a rounding error against the
+      // bankroll rather than the thing that ends the bay. The float is sized for
+      // the exercise (school.ts's floatShots) and a spill is $1 a cube, so the
+      // worst possible bay — every cube of the float's shots lost — is billable
+      // many times over. A float short of that clamps at zero and stops
+      // reporting, which is the defect this pin was written for.
+      const loseable = l.floatShots * 4 + (l.wall ?? []).reduce((a, b) => a + b, 0);
       check(`...enough for every cube ${l.id} can lose`,
         cfg.startingFunds >= loseable * cfg.penaltyPerLostPiece,
         `$${cfg.startingFunds} < ${loseable} x $${cfg.penaltyPerLostPiece}`);
-      // ...while still not being a BUDGET. Nothing about a fined lesson may be
-      // lost to money: the shot is free and the target is out of reach, so the
-      // float is a thing to be billed against and nothing else.
-      check(`...but ${l.id} still cannot be lost to money`,
-        cfg.launchCost === 0 && cfg.targetScore === Number.MAX_SAFE_INTEGER);
+      // ...AND IT IS A BUDGET NOW, which is the change. These bays sit above the
+      // Workshop, so the money is the constraint: the shot has a price, the
+      // target is reachable, and a bay fired away is a bay lost. It used to be
+      // neither — a token float with a free shot and an unreachable target,
+      // there only so the "−$" would draw.
+      check(`...and ${l.id}'s fine comes out of a bankroll it can lose`,
+        cfg.launchCost > 0 && fundsIsObjective(cfg));
     }
     {
       const lost = lessonById("lost-cargo")!;
@@ -22754,7 +22778,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("a lesson with a goal sets no line objective, and vice versa",
       LESSONS.every((l) => (l.goal ? l.lines === 0 : true)));
     check("every lesson can be passed by something",
-      LESSONS.every((l) => l.goal || l.lines > 0 || l.economy));
+      LESSONS.every((l) => l.goal || l.lines > 0 || lessonHasEconomy(l)));
   }
 
   // The goals themselves, through Game.objectiveMet rather than by re-reading
@@ -22769,12 +22793,16 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...met at two", g.objectiveMet);
     g.destroy();
 
+    // THE TASK HALF, on the bays that also have a money half. `objectiveMet` is
+    // the conjunction now (see the block below on the second half of the
+    // ladder), so the accessor that answers "did the LESSON land" is taskMet —
+    // and these pins are about the lesson.
     const streak = lessonById("the-streak")!;
     const gs = new Game(levelForLesson(streak), {}, lessonSeed(6));
     gs.bestCombo = 2;
-    check("a streak lesson is unmet below its length", !gs.objectiveMet);
+    check("a streak lesson is unmet below its length", !gs.taskMet);
     gs.bestCombo = 3;
-    check("...met at it", gs.objectiveMet);
+    check("...met at it", gs.taskMet);
     gs.destroy();
 
     // GRADES ARE ORDERED, so a band asked for is satisfied by a better one. A
@@ -22783,22 +22811,36 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const timed = lessonById("time-the-row")!;
     const gt = new Game(levelForLesson(timed), {}, lessonSeed(4));
     gt.gradeTally.swept = 9;
-    check("nine swept rows do not pass the timing lesson", !gt.objectiveMet);
+    check("nine swept rows do not pass the timing lesson", !gt.taskMet);
     check("the timing HUD numerator excludes swept rows", gt.objectiveCurrent === 0);
-    check("the timing goal bar excludes swept rows", gt.objectiveProgress === 0);
     gt.gradeTally.good = 1;
-    check("one GOOD row shows half of the lesson target",
-      gt.objectiveCurrent === 1 && gt.objectiveProgress === 0.5);
+    check("one GOOD row is half of the lesson target", gt.objectiveCurrent === 1);
     gt.gradeTally.excellent = 2;
-    check("...two excellent ones do", gt.objectiveMet);
+    check("...two excellent ones pass it", gt.taskMet);
+    // THE BAR UNDER THE HEADLINE IS THE MONEY, on a bay whose headline is money.
+    // It used to be the goal on every lesson, which was right while `.pl-funds`
+    // held Lines/Goal — a post-Workshop lesson draws Funds/Target there, and a
+    // bar filling to the brim under a figure nowhere near its target is a
+    // progress bar describing a different number from the one above it.
+    check("the money lesson's goal bar tracks the money",
+      Math.abs(gt.objectiveProgress - gt.level.startingFunds / gt.level.targetScore) < 1e-9,
+      `${gt.objectiveProgress} vs ${gt.level.startingFunds}/${gt.level.targetScore}`);
+    gt.score = gt.target;
+    check("...to the target", gt.objectiveProgress === 1);
     gt.destroy();
+    // …and on a STRIPPED lesson it is still the goal, because that is what the
+    // block above it is showing.
+    const wellBar = new Game(levelForLesson(lessonById("four-in-the-well")!), {}, lessonSeed(2));
+    check("a stripped lesson's goal bar is still the goal",
+      wellBar.objectiveProgress === 0 && !fundsIsObjective(wellBar.level));
+    wellBar.destroy();
 
     const good = new Game(
       { ...levelForLesson(timed), lessonGoal: { kind: "grade", grade: "good", count: 1 } }, {}, 1,
     );
     good.gradeTally.excellent = 1;
     check("a GOOD goal counts an EXCELLENT row — the better band still passes",
-      good.objectiveMet);
+      good.taskMet);
     good.destroy();
   }
 
@@ -22892,42 +22934,330 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       strip0(panel(SCHOOL_STEPS - 1, SCHOOL_STEPS)).includes("1 to go"));
     check("...and stops promising any at the end",
       strip0(panel(SCHOOL_STEPS, SCHOOL_STEPS)).includes("the ladder is finished"));
-    // THE TRACK IS THE LADDER, ALL TWELVE RUNGS, and it cannot outrun itself: a
+    // THE TRACK IS THE LADDER'S TEN FLIGHTS, and it cannot outrun itself: a
     // rung the player has not reached stays inert markup, so the track is a way
     // back rather than a way past.
     const rungs = (done: number): number =>
       (panel(done, SCHOOL_STEPS).match(/class="lic-pip/g) ?? []).length;
     const picks = (done: number): number =>
       (panel(done, SCHOOL_STEPS).match(/lic-pip--pick/g) ?? []).length;
-    check("the track draws every step of the ladder",
-      rungs(0) === SCHOOL_STEPS, String(rungs(0)));
+    check("the track draws one rung per flight",
+      rungs(0) === SCHOOL_STEPS && SCHOOL_STEPS === LESSON_COUNT + 1, String(rungs(0)));
     check("a fresh save can press only the rung it is on", picks(0) === 1);
     check("...and a finished ladder can press every rung",
       picks(SCHOOL_STEPS) === SCHOOL_STEPS, String(picks(SCHOOL_STEPS)));
     check("...never more than the ladder has",
       picks(SCHOOL_STEPS + 5) === SCHOOL_STEPS, String(picks(SCHOOL_STEPS + 5)));
     check("no locked rung is a button", picks(3) === 4, String(picks(3)));
-    // EVERY RUNG GOES TO THE THING IT IS. The two shop steps are not bays, so a
-    // track that routed all twelve through `pick-lesson` would be a ladder
-    // promising to fly a Contract board.
+    // A GATE SHUTS THE NEXT PIP. The ladder refuses lesson 5 until the Contract
+    // and the Workshop are behind the player, and main.ts's `pick-lesson`
+    // re-asks it — so a track that offered the pip anyway would be a control
+    // that looks live, is pressed, and does nothing.
+    {
+      const gated = (gate: "contract" | "workshop"): number =>
+        (S.baseBayPanelHTML({
+          tier: S.LICENCE_TIER, best: 0,
+          licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate },
+        }).match(/lic-pip--pick/g) ?? []).length;
+      check("a gate takes the next rung off the track",
+        gated("contract") === LICENCE_LESSON_COUNT && gated("workshop") === LICENCE_LESSON_COUNT,
+        `${gated("contract")} / ${gated("workshop")}`);
+      check("...and the note says which door, not how many steps are left",
+        strip0(S.baseBayPanelHTML({
+          tier: S.LICENCE_TIER, best: 0,
+          licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate: "workshop" },
+        })).includes("Install the Reactor"));
+    }
+    // EVERY RUNG GOES TO THE THING IT IS, and every rung IS a bay now: the two
+    // gates carry no ordinal and no pip (meta.ts's SCHOOL_LADDER).
     {
       const all = panel(SCHOOL_STEPS, SCHOOL_STEPS);
       const of = (a: string): number => (all.match(new RegExp(`data-action="${a}"`, "g")) ?? []).length;
       check("the lesson rungs fly lessons", of("pick-lesson") === LESSON_COUNT, String(of("pick-lesson")));
-      check("...the twelfth flies the graduation bay", of("pick-exam") === 1);
-      check("...and the two shop rungs open the two shops",
-        of("contracts") === 1 && of("workshop") === 1);
-      // The lesson rungs carry the FLIGHT index, so a rung two steps past a
-      // shop still flies the lesson it draws — the off-by-two the ladder's
-      // shape exists to absorb.
-      check("...and a rung's data-lesson is its flight, not its step",
+      check("...the tenth flies the graduation bay", of("pick-exam") === 1);
+      check("...and no rung is a shop door", of("contracts") === 0 && of("workshop") === 0);
+      check("...and a rung's data-lesson is its flight",
         all.includes(`data-lesson="${LICENCE_LESSON_COUNT}"`)
           && all.includes(`data-lesson="${GRADUATION_FLIGHT}"`));
-      check("...which is what puts lesson 5 on step 7",
-        schoolStepOfFlight(LICENCE_LESSON_COUNT) === LICENCE_LESSON_COUNT + 3
+      // THE LADDER COUNTS TEN. The gates sit between lesson 4 and lesson 5 and
+      // take no number off it, so lesson 5 is step 5 and the exam is step 10 —
+      // the owner's call, and the number every other ladder in the game uses.
+      check("...which is what puts lesson 5 on step 5",
+        schoolStepOfFlight(LICENCE_LESSON_COUNT) === LICENCE_LESSON_COUNT + 1
           && schoolStepOfFlight(GRADUATION_FLIGHT) === SCHOOL_STEPS,
         `${schoolStepOfFlight(LICENCE_LESSON_COUNT)} / ${schoolStepOfFlight(GRADUATION_FLIGHT)}`);
+      check("...and the two gates carry no ordinal",
+        SCHOOL_LADDER.filter((r) => r.step === null).map((r) => r.kind).join() === "contract,workshop");
+      check("...while every numbered rung is a flight",
+        SCHOOL_LADDER.every((r) => (r.step === null) === (r.flight === null)));
     }
+  }
+
+  /** A HUD the school's own bays are rendered from — the minimum hudHTML asks
+   *  for, so the pins below vary only what they are about. */
+  const SCHOOL_HUD = {
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: { bomb: false, type: "I" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    tier: null, target: 460, score: 360, launchCost: 20, bayNum: 1,
+    timeLimitSec: 0, timeLeftMs: 0, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
+    autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
+  };
+
+  /* ======================================================================
+   * THE SECOND HALF OF THE LADDER — money, the rig, and the way back onto it.
+   *
+   * Three owner reports, one shape. After buying the Reactor the player could
+   * not continue ("i was not able to continue from the workshop onto the next
+   * lesson"); the lessons that followed carried no money ("lessons after the
+   * workshop should always have money target") while their cards quoted prices
+   * ("some of the later tutorial steps mention cost (for example combo) but
+   * have launch counters"); and the system they had just bought was not aboard
+   * ("i'm playing the bay but no reactor active in my systems"). Every one of
+   * them is the same fact: the rungs above the shop were not flying the game
+   * the shop had just sold.
+   * ==================================================================== */
+  {
+    const above = LESSONS.filter((_, i) => i >= LICENCE_LESSON_COUNT);
+    const below = LESSONS.filter((_, i) => i < LICENCE_LESSON_COUNT);
+
+    // ---- THE ECONOMY IS EXACTLY THE POST-WORKSHOP HALF ------------------
+    check("every lesson after the Workshop carries the economy",
+      above.every(lessonHasEconomy),
+      above.filter((l) => !lessonHasEconomy(l)).map((l) => l.id).join(","));
+    check("...and no lesson before it does",
+      below.every((l) => !lessonHasEconomy(l)),
+      below.filter(lessonHasEconomy).map((l) => l.id).join(","));
+    // The float and the target are ONE statement — a lesson with a float and no
+    // target would be charging for shots against nothing to reach.
+    check("a lesson's float and its target arrive together",
+      LESSONS.every((l) => (l.floatShots > 0) === (l.targetRows > 0)),
+      LESSONS.filter((l) => (l.floatShots > 0) !== (l.targetRows > 0)).map((l) => l.id).join(","));
+
+    // ---- WHAT THE BAY ACTUALLY GETS BUILT WITH --------------------------
+    for (const l of above) {
+      const cfg = levelForLesson(l);
+      check(`${l.id} prices a shot`, cfg.launchCost > 0, String(cfg.launchCost));
+      check(`${l.id} opens on ${l.floatShots} shots of float`,
+        cfg.startingFunds === l.floatShots * cfg.launchCost,
+        `${cfg.startingFunds} / ${cfg.launchCost}`);
+      check(`${l.id} sets a reachable target`,
+        fundsIsObjective(cfg) && cfg.targetScore > cfg.startingFunds,
+        String(cfg.targetScore));
+      check(`${l.id} hands out unlimited shipments`, cfg.launchBudget === 0);
+      // THE TEACHING GOAL SURVIVES THE MONEY. This is the conjunction: the bay
+      // is won on the goal AND the target, so a config that zeroed the goal
+      // would have turned five lessons into five bankroll bays.
+      check(`${l.id} keeps its own goal`,
+        cfg.lessonGoal !== null || cfg.objectiveLines > 0 || l.id === "the-bankroll",
+        `${JSON.stringify(cfg.lessonGoal)} / ${cfg.objectiveLines}`);
+    }
+    for (const l of below) {
+      const cfg = levelForLesson(l);
+      check(`${l.id} spends nothing and banks nothing`,
+        cfg.launchCost === 0 && cfg.startingFunds === 0 && !fundsIsObjective(cfg));
+    }
+    // A FINED LESSON FUNDS ITSELF. game.ts bills a spill as
+    // `Math.min(score, owed)` and only toasts a non-zero debit, so a fine on a
+    // $0 float is a rule the bay claims and never demonstrates — measured on
+    // the shipped bay, the `middle` bot lost 64 cubes and saw zero toasts.
+    check("every fined lesson has a wallet for the fine to come out of",
+      LESSONS.filter((l) => l.fine).every((l) => levelForLesson(l).startingFunds > 0),
+      LESSONS.filter((l) => l.fine && levelForLesson(l).startingFunds === 0)
+        .map((l) => l.id).join(","));
+
+    // ---- THE CONJUNCTION, THROUGH THE REAL ACCESSOR ---------------------
+    //
+    // Not by re-reading the fields: `objectiveMet` is what ends a bay, and the
+    // whole change is that it now takes BOTH halves.
+    {
+      const streak = lessonById("the-streak")!;
+      const g = new Game(levelForLesson(streak), {}, lessonSeed(6));
+      g.bestCombo = 3;
+      check("a goal met on an unfunded bay does not end it",
+        g.taskMet && !g.fundsMet && !g.objectiveMet);
+      g.score = g.target;
+      check("...and the same bay ends once the money lands", g.objectiveMet);
+      g.bestCombo = 0;
+      check("...while money alone never ends it either",
+        g.fundsMet && !g.taskMet && !g.objectiveMet);
+      g.destroy();
+    }
+    // …AND THE TWO MODES THAT PREDATE IT ARE UNTOUCHED. A Contract has no
+    // funding target, a Deep Run bay has no task — each is vacuously true on
+    // the half it was never asked, which is what keeps this a widening rather
+    // than a rewrite.
+    {
+      const deep = new Game(makeBaseLevel(0), {}, 1);
+      check("a Deep Run bay's task half is vacuous", deep.taskMet);
+      check("...so it is still won on funds alone", !deep.objectiveMet);
+      deep.score = deep.target;
+      check("...at the target", deep.objectiveMet);
+      deep.destroy();
+      const basics = new Game(levelForLesson(LESSONS[0]), {}, lessonSeed(0));
+      check("a stripped lesson's money half is vacuous", basics.fundsMet);
+      basics.destroy();
+    }
+
+    // ---- THE RIG THE WORKSHOP SOLD IS ABOARD ---------------------------
+    //
+    // The owner's report, pinned as arithmetic: the same lesson, built for a
+    // save that owns the Reactor, opens richer and pays better per row. Read
+    // through the same safeLoadout every other bay goes through.
+    {
+      const rigged = safeLoadout({ ...newMeta(), loadout: { ...newTiers(), reactor: 1 } });
+      for (const l of above) {
+        const stock = levelForLesson(l);
+        const withRig = levelForLesson(l, rigged);
+        check(`${l.id} flies the player's Reactor`,
+          withRig.startingFunds > stock.startingFunds
+            && withRig.scorePerLine > stock.scorePerLine,
+          `${stock.startingFunds}->${withRig.startingFunds}, ${stock.scorePerLine}->${withRig.scorePerLine}`);
+        // AND THE TARGET DOES NOT MOVE WITH IT, which is the whole reason the
+        // purchase is worth making: read the finish line off the RIGGED bay and
+        // the extra float would be swallowed by the extra ask.
+        check(`...without ${l.id}'s target moving to swallow it`,
+          withRig.targetScore === stock.targetScore,
+          `${stock.targetScore} -> ${withRig.targetScore}`);
+      }
+      for (const l of below) {
+        check(`${l.id} stays stock whatever the player owns`,
+          JSON.stringify(levelForLesson(l, rigged)) === JSON.stringify(levelForLesson(l)));
+      }
+    }
+
+    // ---- THE HUD THE SECOND HALF DRAWS ---------------------------------
+    //
+    // A post-Workshop lesson renders the DEEP RUN readout — Funds against
+    // Target, the shots the bankroll buys, the price on the rail, the chain
+    // ladder and the ship rack — because that is the readout the money wants
+    // and the one the exam and every bay after it will show. Its teaching goal
+    // moves to the bay-note row rather than disappearing.
+    {
+      const money = S.hudHTML({
+        ...SCHOOL_HUD, contract: null,
+        tiers: { ...newTiers(), reactor: 1 }, slots: SLOT_BASE,
+        bayGoal: { label: "Goal", value: `<span id="hud-taskn">1</span>/2 GOOD rows` },
+      });
+      check("a money lesson draws Funds / Target", money.includes("Funds"));
+      check("...the launch price on the rail", money.includes("pl-cost"));
+      check("...the chain line", money.includes("pl-chain"));
+      check("...its own goal on the bay-note row",
+        money.includes('id="hud-taskn"') && money.includes("GOOD rows"));
+      check("...and the rack the purchase bought", money.includes("ship-plate"));
+      // The bay-note row DISPLACES the notch tally rather than sitting beside
+      // it: a lesson has no ratchets, so the row it takes would read "0 —".
+      check("...instead of an empty notch tally", !money.includes('id="hud-notches"'));
+      const run = S.hudHTML({ ...SCHOOL_HUD, contract: null });
+      check("a Deep Run bay still draws its notch tally", run.includes('id="hud-notches"'));
+    }
+
+    // ---- NO CARD PROMISES WHAT ITS HUD WILL NOT SHOW -------------------
+    //
+    // The owner's third report, as a rule: a card that quotes a price, a
+    // budget or a payout on a bay with no money on screen is teaching a
+    // mechanic the player cannot find. Every money word in the deck now has to
+    // land on a bay that carries the economy.
+    {
+      const MONEY = /\$\d|cost|costs|pays|pay |money|launch(es)? budget|float|target|wallet/i;
+      const plain = (t: string): string => t.replace(/<[^>]+>/g, "");
+      for (const [i, l] of LESSONS.entries()) {
+        const copy = [l.brief, l.conditions, ...l.cards.map((c) => c.body)].map(plain).join(" ");
+        if (lessonHasEconomy(l)) continue;
+        check(`${l.id} (lesson ${i + 1}) mentions no money it cannot show`,
+          !MONEY.test(copy), copy);
+      }
+    }
+  }
+
+  /* ---- THE WAY BACK ONTO THE LADDER, from the Workshop ------------------
+   *
+   * The owner bought the Reactor and was stuck: the shop's primary read
+   * "Finish Flight School to fly", disabled, and nothing on the screen named a
+   * way on. The whole path is pinned here — the state, the button, its action —
+   * because the defect was never in one function; it was that no surface owned
+   * the hand-off.
+   *
+   * MUTATION-PROVEN: restoring the disabled attribute, or the old label, fails
+   * the first two checks; routing the button anywhere but `play` fails the
+   * third. */
+  {
+    const mid = { ...newMeta(), licence: LICENCE_LESSON_COUNT, claimedContracts: ["school"] };
+    const owes = S.workshopScreen({ ...mid, salvage: 15 });
+    const bought = S.workshopScreen(buyInstall({ ...mid, salvage: 15 }, SCHOOL_INSTALL)!);
+    const primary = (h: string): string =>
+      h.slice(h.lastIndexOf('data-action="play"') - 220, h.lastIndexOf('data-action="play"') + 320);
+    check("the Workshop refuses to fly while the Reactor is unbought",
+      primary(owes).includes("disabled"), primary(owes).slice(0, 160));
+    check("...and hands the ladder back the moment it is bought",
+      !primary(bought).includes("disabled")
+        && bought.includes("Continue Flight School"),
+      primary(bought).slice(0, 200));
+    check("...through the same door the lobby uses",
+      /data-action="play"/.test(primary(bought)));
+    check("...wearing the next-step badge", primary(bought).includes("btn--next"));
+    // AND THE LADDER AGREES WITH THE BUTTON. nextStep still says "licence" and
+    // the next rung is lesson 5 — the screen was the only thing that did not
+    // know.
+    const after = buyInstall({ ...mid, salvage: 15 }, SCHOOL_INSTALL)!;
+    check("...to the lesson the ladder is actually asking for",
+      nextStep(after) === "licence"
+        && schoolNextStep(after)?.flight === LICENCE_LESSON_COUNT,
+      `${nextStep(after)} / ${schoolNextStep(after)?.flight}`);
+    check("...and the blurb says the lessons opened",
+      bought.includes(`lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} are open`));
+  }
+
+  /* ---- "NEXT LESSON" RESOLVES TO THE NEXT LESSON ----------------------
+   *
+   * The owner's report: *"next lesson button doesn't work when returning to
+   * school after completing it."* On a graduated save every rung is done, so
+   * `schoolNextStep` is null — and the resolver's old `?? 0` fallback sent
+   * "Next lesson →" after a replayed lesson 3 back to lesson 1.
+   *
+   * MUTATION-PROVEN: restoring that fallback (`return 0` before the `after`
+   * branch) fails the first two checks below; dropping the `rung` branch fails
+   * the third. */
+  {
+    const grad: MetaState = { ...newMeta(), licence: SCHOOL_FLIGHTS };
+    check("after lesson 3 on a graduated save, the next flight is lesson 4",
+      nextFlightAfter(grad, 2) === 3, String(nextFlightAfter(grad, 2)));
+    check("...after the last lesson it is the exam",
+      nextFlightAfter(grad, LESSON_COUNT - 1) === GRADUATION_FLIGHT,
+      String(nextFlightAfter(grad, LESSON_COUNT - 1)));
+    check("...and past the top rung there is no next flight",
+      nextFlightAfter(grad, GRADUATION_FLIGHT) === null,
+      String(nextFlightAfter(grad, GRADUATION_FLIGHT)));
+    // The lobby asks with nothing and still opens at the first lesson, which is
+    // what guide.ts's CTA has always promised.
+    check("...while the lobby's own ask still opens at lesson 1",
+      nextFlightAfter(grad) === 0, String(nextFlightAfter(grad)));
+    // MID-SCHOOL AN UNDONE RUNG WINS. A player replaying lesson 2 with lesson 5
+    // next is sent to lesson 5 — not to lesson 3, which the ladder is not
+    // asking for.
+    const mid: MetaState = {
+      ...newMeta(), licence: LICENCE_LESSON_COUNT,
+      claimedContracts: ["school"], loadout: { ...newTiers(), reactor: 1 },
+    };
+    check("mid-school the ladder's own rung wins over the bay just flown",
+      nextFlightAfter(mid, 1) === LICENCE_LESSON_COUNT,
+      String(nextFlightAfter(mid, 1)));
+    // …including when that rung is a GATE, where there is no flight at all and
+    // the card's primary is the shop's own door.
+    check("...and a gate answers with no flight",
+      nextFlightAfter({ ...newMeta(), licence: LICENCE_LESSON_COUNT }, 1) === null);
+  }
+
+  /* ---- THE EXAM IS NOT A RUN, and its banner stops saying so ----------- */
+  {
+    const exam = S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, exam: true });
+    const bay1 = S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, bayNum: 1 });
+    check("the exam names itself in the banner", exam.includes(FINAL_EXAM));
+    check("...and carries no bay strip", !exam.includes("bay-banner__pips"));
+    check("...while a real Deep Run bay still shows BAY 1/10",
+      bay1.includes("bay-banner__pips") && bay1.includes(`/${RUN_LEVELS}`));
+    check("...and the exam keeps its tier plate", exam.includes("tier-plate"));
   }
 
   // A LOCKED LADDER FLOOR SAYS WHY, while the licence is owed. Contracts and
@@ -23126,10 +23456,13 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and mid-school it is still one card after the Reactor is bought",
       cards(shopBought).join(",") === SCHOOL_INSTALL, cards(shopBought).join(","));
     check("...over a blurb that says what that purchase just opened",
-      shopBought.includes("are open at the school"));
-    check("...and a Start Run the school cannot fly",
-      shopBought.includes(`data-action="play" disabled`)
-        && shopBought.includes("Finish Flight School to fly"));
+      shopBought.includes(`lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} are open`));
+    // …AND THE WAY BACK ONTO THE LADDER. This used to be a DISABLED Start Run
+    // reading "Finish Flight School to fly", which is the state the owner got
+    // stuck in — see the flow block above for the whole path.
+    check("...and a live way back onto the ladder",
+      !shopBought.includes(`data-action="play" disabled`)
+        && shopBought.includes("Continue Flight School"));
 
     // ---- THE TWO DOORS OPEN ON THE FOURTH BASIC, TOGETHER ---------------
     const menuAt = (m: MetaState, twr: S.TowerState): string =>
@@ -23139,6 +23472,12 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
       licensed: licenceDone(m), rigged: rigStarted(m), basics: basicsDone(m),
       licenceDone: schoolProgress(m), licenceTotal: schoolLength(m),
+      // …and the gate, exactly as main.ts's towerState passes it: the count
+      // cannot imply it, because the two gates take no ordinal.
+      gate: (() => {
+        const kind = schoolNextStep(m)?.kind;
+        return kind === "contract" || kind === "workshop" ? kind : null;
+      })(),
     });
     const three = newMeta();
     const four = onLadder();
@@ -23184,7 +23523,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         /Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
     }
     const grad = graduate({ loadout: { ...newTiers(), reactor: 1 } });
-    check("...and it comes alive on the twelfth step",
+    check("...and it comes alive on the last step",
       !deepRunAt(grad).includes("disabled"));
     // The lobby's own two shut states.
     check("the lobby's primary is shut on the Contract rung",
@@ -23196,12 +23535,16 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
-        && primaryOf(menuAt(flying, towerAt(flying))).includes("Step 7 of 12"));
+        && primaryOf(menuAt(flying, towerAt(flying)))
+          .includes(`Step ${LICENCE_LESSON_COUNT + 1} of ${SCHOOL_STEPS}`),
+      primaryOf(menuAt(flying, towerAt(flying))).slice(0, 200));
     const examOwed = onLadder({
       licence: LESSON_COUNT, claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 },
     });
     check("...and the last rung says what it actually is",
-      primaryOf(menuAt(examOwed, towerAt(examOwed))).includes(`Step ${SCHOOL_STEPS} of ${SCHOOL_STEPS} · Tier 1 bay 1`));
+      primaryOf(menuAt(examOwed, towerAt(examOwed)))
+        .includes(`Step ${SCHOOL_STEPS} of ${SCHOOL_STEPS} · ${FINAL_EXAM}`),
+      primaryOf(menuAt(examOwed, towerAt(examOwed))).slice(0, 200));
   }
 
   /* -------------------------------------------------------------------------
@@ -23910,16 +24253,20 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   //
   // IT IS A CONSTANT NOW, and that is the shape of the change rather than a
   // simplification: the split it used to describe — a short required prefix and
-  // a long optional tail — is gone, because all twelve steps are required, in
-  // order, before Tier 1 opens.
+  // a long optional tail — is gone, because every rung is required, in order,
+  // before Tier 1 opens.
   {
-    check("the ladder is the lessons plus the two shops plus the exam",
-      SCHOOL_STEPS === LESSON_COUNT + 3 && SCHOOL_FLIGHTS === LESSON_COUNT + 1,
+    // TEN, AND THE SAME TEN TWICE. The count and the flights were different
+    // numbers while the two gates carried ordinals (12 against 10); the owner's
+    // call is that the ground floor should count what the rest of the game
+    // counts, so the flights ARE the steps.
+    check("the ladder counts its flights and nothing else",
+      SCHOOL_STEPS === LESSON_COUNT + 1 && SCHOOL_FLIGHTS === SCHOOL_STEPS,
       `${SCHOOL_STEPS} / ${SCHOOL_FLIGHTS}`);
     check("the basics are a PREFIX of it, not all of it",
       LICENCE_LESSON_COUNT > 0 && LICENCE_LESSON_COUNT < SCHOOL_STEPS,
       `${LICENCE_LESSON_COUNT} of ${SCHOOL_STEPS}`);
-    check("every surface counts the same twelve, on both sides of the licence",
+    check("every surface counts the same ten, on both sides of the licence",
       schoolLength(newMeta()) === SCHOOL_STEPS
         && schoolLength({ ...newMeta(), licence: SCHOOL_FLIGHTS }) === SCHOOL_STEPS);
     // The rung that opens the shops is the last basic; the rung that opens Tier
@@ -23937,9 +24284,11 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // …and the ladder's shape is what the step arithmetic is read off, so the
     // two cannot disagree about where a flight sits.
     check("the shape and the step lookup are the same statement",
-      SCHOOL_LADDER.length === SCHOOL_STEPS
+      SCHOOL_LADDER.filter((r) => r.step !== null).length === SCHOOL_STEPS
+        && SCHOOL_LADDER.length === SCHOOL_STEPS + 2
         && SCHOOL_LADDER.every((r) => r.flight === null
-          || schoolStepOfFlight(r.flight) === r.step));
+          || schoolStepOfFlight(r.flight) === r.step),
+      `${SCHOOL_LADDER.length} rungs, ${SCHOOL_LADDER.filter((r) => r.step !== null).length} numbered`);
   }
 
   // ---- THE FIRST-ENCOUNTER CARDS ----------------------------------------
