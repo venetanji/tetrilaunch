@@ -18,7 +18,7 @@ import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
   tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
-  maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded,
+  maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded, rigStarted,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "../game/school";
@@ -352,6 +352,16 @@ export interface TowerState {
    *  two answer different questions: `unlocked` is how far up the ladder this
    *  player has climbed, and this is whether they may be on the ladder. */
   licensed?: boolean;
+  /** Whether the player owns a ship system (meta.ts's rigStarted). False locks
+   *  every Mark in the shaft, exactly as `licensed` does and for the same kind
+   *  of reason — see tierOpen. Absent reads as rigged, so every caller that
+   *  predates the on-ramp renders the tower it always did.
+   *
+   *  A THIRD field rather than a value of the other two, on the same argument
+   *  `licensed` makes against folding into `unlocked`: this is not how far the
+   *  player has climbed, nor whether they may be on the ladder at all, but
+   *  whether the ship they would fly it in exists yet. */
+  rigged?: boolean;
   /** Lessons finished, for the lobby's own readout. Absent reads as none. */
   licenceDone?: number;
   /** Lessons in the ladder, so the lobby can print "3 / 9" without importing
@@ -434,6 +444,19 @@ export function tierOpen(state: TowerState, tier: number): boolean {
   // the ground floor — menuScreen's fallback tower, every uifit fixture —
   // rendering the tower it always did.
   if (state.licensed === false) return false;
+  // AND THE RIG GATES IT NEXT, in the same place and for a reason of the same
+  // shape: a Deep Run is ten bays with three refit stops in them, and a rig
+  // with no system installed docks at all three to find empty shelves
+  // (upgrades.ts's yardHasStock). The owner's call is that the first system is
+  // bought BEFORE the first run, so the door names the purchase and the
+  // Workshop is the step (meta.ts's nextStep).
+  //
+  // Asked AFTER the licence so the two locks are read in the order they are
+  // earned: an unlicensed player is told about Flight School, not about a shop
+  // they cannot open yet.
+  //
+  // ABSENT READS AS RIGGED, same as `licensed` above and for the same reason.
+  if (state.rigged === false) return false;
   return included && tier >= 1 && tier <= state.unlocked;
 }
 
@@ -638,8 +661,15 @@ function floorHTML(state: TowerState, tier: number): string {
   // selection to the lobby while unlicensed. Contracts and Workshop already say
   // "Opens after Flight School" on their own buttons; the ten floors between
   // them said nothing at all.
-  const licenceNote = state.licensed === false && !sky && !open
-    ? " — Flight School first"
+  // …AND THE SECOND REASON, in the same slot and by the same argument. The two
+  // are ordered as they are earned (tierOpen asks the licence first), so a
+  // floor never names a shop to a player who has not left school yet.
+  const licenceNote = !sky && !open
+    ? state.licensed === false
+      ? " — Flight School first"
+      : state.rigged === false
+        ? " — install a system first"
+        : ""
     : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
@@ -1191,12 +1221,28 @@ export function menuContractsPips(tier: number, progress?: TierProgress): string
   }</span>`;
 }
 
-export function menuContractsSub(tier: number, progress?: TierProgress): string {
+export function menuContractsSub(
+  tier: number,
+  progress?: TierProgress,
+  /** True while the board is the ON-RAMP's step — the licence earned, no system
+   *  installed yet, and one first clear enough to buy one (meta.ts's nextStep).
+   *  Absent on every caller that predates the on-ramp. */
+  firstSystem = false,
+): string {
   // Numbers lead (A3): at compact the sub is one ellipsized line, so the live
   // figures must sit before the prose that can afford to go. On the roof the
   // count is still the lead number and what follows it is what is DIFFERENT
   // about this board — the cargo, and the terms.
   if (tier === SKYDECK_TIER) return `${DAILY_COUNT} today · pentomino cargo · no salvage`;
+  // THE ONE STEP THAT NEEDS A PURPOSE AND NOT TERMS. "No clock, no launch cost"
+  // is what the board IS, which is the right line for a player who already
+  // knows why they are on it; the player who has just left Flight School does
+  // not, and the salvage number on this button is the price of the thing that
+  // opens the Deep Run. So while that is the step, the number leads and what
+  // follows it is what it BUYS.
+  if (firstSystem && progress) {
+    return `${salvageHTML(progress.milestone, 10)} a clear — one buys your first system`;
+  }
   return progress
     ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
     : "Short challenges · retry freely";
@@ -1239,6 +1285,10 @@ export function menuPlaySub(
    *  top of the ladder, the roof, the sandbox — and on every caller that
    *  predates the line. */
   opens: number | null = null,
+  /** False while no system is installed — the ladder's second lock (meta.ts's
+   *  rigStarted). Defaults true, so every caller that predates the on-ramp
+   *  prints the line it always did. */
+  rigged = true,
 ): string {
   if (tier === null) return "Elevator moving…";
   if (tier === SANDBOX_TIER) return "Any Tier, bay or Contract · own board";
@@ -1256,6 +1306,13 @@ export function menuPlaySub(
   // says it on the button the player just pressed rather than in a toast over
   // it — the same argument the tower's own refusals make.
   if (licence) return `Finish Flight School first · ${licence.done} of ${licence.total}`;
+  // …AND THE SAME SENTENCE FOR THE SECOND LOCK. It names the door rather than
+  // the state ("install a system" and not "no systems installed"), because a
+  // subtitle under a button the player just pressed is the one place in the
+  // game where an instruction is what they came for. The Workshop button two
+  // rows down is wearing the NEXT STEP badge while this line is showing, so
+  // the sentence and the badge point at the same control.
+  if (!rigged) return "Install your first system in the Workshop";
   // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
   // once · no mercy", which described a floor that was not playable yet and
   // promised something the mode does not do — the Skydeck flies Mark 10's
@@ -1380,6 +1437,16 @@ export function menuScreen(
     ? { done: twr.licenceDone ?? 0, total: twr.licenceTotal ?? LESSON_COUNT }
     : null;
   const learningBasics = twr.licensed === false;
+  // THE SECOND LOCK, and it disables the primary the way the licence disables
+  // the other two. A button that shakes its head is what the tower's floors do
+  // — they are a chooser, and refusing a pick is information. The primary is
+  // not a chooser: it is THE action, and an enabled action that does nothing is
+  // the worst control on the screen. Its subtitle carries the reason
+  // (menuPlaySub), so the disabled state is never mute.
+  //
+  // Asked of tierOpen rather than of `rigged` directly, because "may this floor
+  // fly" has exactly one owner and this button flies the parked floor.
+  const playLocked = !tierOpen(twr, sel);
   // THE SEAL STEP RIDES THE PRIMARY, because a seal is flown and not bought
   // (meta.ts's nextStep). It is the run's badge under another name, so it
   // lights the same button — what changes is the subtitle, which is the only
@@ -1515,7 +1582,7 @@ export function menuScreen(
              floor you park on is what the primary action does. main.ts rewrites
              the label in place while the car travels, so both faces carry ids
              rather than being found by shape. -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play">${
+        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play"${playLocked ? " disabled aria-disabled=\"true\"" : ""}>${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
           licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
@@ -1524,7 +1591,7 @@ export function menuScreen(
           // node by id and two copies of it would drift — see the note there.
           menuPlaySub(
             sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null, licence,
-            tierOpenedBy(sel, twr),
+            tierOpenedBy(sel, twr), twr.rigged !== false,
           )
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
@@ -1541,7 +1608,9 @@ export function menuScreen(
           cannot find again. -->
           <span id="menu-contracts-pips">${menuContractsPips(sel, progress)}</span>
         </span><span class="btn__sub" id="menu-contracts-sub">${
-          learningBasics ? "Opens after Flight School" : menuContractsSub(sel, progress)
+          learningBasics
+            ? "Opens after Flight School"
+            : menuContractsSub(sel, progress, twr.rigged === false)
         }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           learningBasics
@@ -1549,7 +1618,13 @@ export function menuScreen(
             : guide
             ? guide.install
               ? salvage >= guide.install.cost
-                ? `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
+                // WHAT THE PURCHASE DOES, on the one purchase that opens a
+                // door. Everywhere else the shelf's price is the whole story;
+                // here the price is already met and the thing worth saying is
+                // that this is the button that unlocks the exam.
+                ? twr.rigged === false
+                  ? `${guide.install.name} for ${salvageHTML(guide.install.cost, 10)} — opens the Deep Run`
+                  : `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
                 : `${salvageHTML(salvage, 10)} — Contracts pay salvage`
               : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
@@ -4429,7 +4504,18 @@ export function workshopScreen(meta: MetaState): string {
         <div style="text-align:left">
           <div class="eyebrow">Between runs</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
-          <p class="muted workshop__blurb" style="margin:0">Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before.</p>
+          <p class="muted workshop__blurb" style="margin:0">${
+            // THE FIRST VISIT SAYS WHAT THE SHOP IS FOR, not how it is paid.
+            // The standing blurb explains the faucet, which is the sentence a
+            // player wants once they have a shelf to compare — but the player
+            // who has just cleared their first Contract is here for one
+            // purchase and has no idea it is the thing that opens the exam.
+            // Named off rigStarted, the same predicate the tower's door asks,
+            // so the promise here and the lock there cannot drift.
+            rigStarted(meta)
+              ? "Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before."
+              : "Install your first system — the Deep Run opens with it. Every system is permanent: bought once, flown in every run after."
+          }</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
           <div class="chip chip--inline">
@@ -4474,7 +4560,15 @@ export function workshopScreen(meta: MetaState): string {
         <button class="btn btn--secondary btn--lg${nextStep(meta) === "contracts" ? " btn--next" : ""}" data-action="contracts">${
           icon("contracts")
         }Contracts${nextStep(meta) === "contracts" ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--primary btn--lg" data-action="play">${icon("play")}Start Run</button>
+        <!-- …AND THE DOOR IS THE SAME DOOR HERE. Start Run is a second entrance
+             to the exam (main.ts's startGame), so a shop that could launch a
+             run the tower refuses would be the laxer of two doors into one
+             room — the exact failure meta.ts's buyInstall note argues against
+             for the loadout. The label says what is missing rather than going
+             mute, because this button sits on the screen that sells the fix. -->
+        <button class="btn btn--primary btn--lg" data-action="play"${
+          rigStarted(meta) ? "" : " disabled aria-disabled=\"true\""
+        }>${icon("play")}${rigStarted(meta) ? "Start Run" : "Install a system to fly"}</button>
       </div>
     </div>
   </div>`;
@@ -5959,6 +6053,10 @@ export function contractsScreen(opts: {
   progress?: TierProgress;
   /** The cheapest installable system, for the WHY strip's target price (A9). */
   nextInstall?: { name: string; cost: number } | null;
+  /** True while this board is the ON-RAMP's step — licensed, nothing installed
+   *  (meta.ts's rigStarted), so one clear buys the system that opens the Deep
+   *  Run. Absent on every caller that predates the on-ramp. */
+  firstSystem?: boolean;
   /** The board's floor, when it is not one of the ladder's — "Skydeck".
    *
    *  A NAME rather than a flag, and passed rather than derived from `tier`, for
@@ -6046,7 +6144,23 @@ export function contractsScreen(opts: {
       ? `<b>Full Game · unlimited Contracts</b>`
       : `<b>${opts.allowance.remaining} of ${DAILY_COUNT} Contract clears left today</b>`
     : "";
-  const foot = opts.progress
+  // THE BOARD SAYS WHAT IT IS FOR, and on the on-ramp what it is for is one
+  // purchase rather than a tier's quota. Three clears banking 45 toward a shelf
+  // is the right answer for a player with a rig; the player who has none is
+  // being asked to clear ONE card, and the number that matters to them is the
+  // 15 it pays and the door that 15 opens. Quoted off the same milestone the
+  // cards print, so the two halves of the promise are one number.
+  const foot = opts.progress && opts.firstSystem
+    ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} One first clear banks ${
+        salvageHTML(opts.progress.milestone)
+      }${
+        opts.nextInstall
+          ? ` — enough for ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)})`
+          : " — enough for your first system"
+      }, and the Deep Run opens the moment one is installed. Fail free, retry free.${
+        allowance ? ` ${allowance}.` : ""
+      }</p>`
+    : opts.progress
     ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ${
         salvageHTML(opts.progress.milestone * opts.progress.needed)
       }${
@@ -6387,7 +6501,12 @@ export function lessonEndModal(opts: {
     : "Run It Again";
   const blurb = opts.won
     ? (opts.licence
-      ? `That is the licence. <b>Tier 1 is open</b> — ten bays, a bankroll and a clock.`
+      // WHAT ACTUALLY OPENED. The licence used to open Tier 1 and this line
+      // said so; the on-ramp now puts a purchase between them (meta.ts's
+      // nextStep), so the old sentence promised a door the tower keeps shut.
+      // It names the next step and the one after it, because the whole point
+      // of the re-order is that the player can see where they are going.
+      ? `That is the licence. <b>The Contract board is open</b> — one clear pays for your first system, and the Deep Run opens with it.`
       : opts.courseComplete
         ? `Every Flight School exercise is cleared. Re-fly any of them whenever you want.`
       : opts.lastLesson
@@ -6476,6 +6595,12 @@ export function contractEndModal(opts: {
   nextContract?: { name: string } | null;
   /** All three cards on that board are now cleared. */
   boardComplete?: boolean;
+  /** This clear has just funded the ON-RAMP's purchase: still no system
+   *  installed, and the salvage now covers one (meta.ts's nextStep answering
+   *  "workshop"). It takes the primary, because this is the hand-off the whole
+   *  re-ordering turns on — the card that sends the player to another Contract
+   *  here is the card that leaves them wondering what the salvage was for. */
+  firstSystem?: boolean;
   /** The attempt was launched from Tier S rather than from the daily board.
    *  Swaps the award row for one that says nothing was banked, and points both
    *  exits back at the sandbox — a practice Contract has no board to return
@@ -6631,7 +6756,7 @@ export function contractEndModal(opts: {
   // One primary (B2): the forward move. The ghost board link only renders
   // when the primary is routing somewhere ELSE — a primary that already goes
   // to the board does not need a quieter twin.
-  const primaryIsBoard = !opts.boardComplete && !opts.nextContract;
+  const primaryIsBoard = !opts.firstSystem && !opts.boardComplete && !opts.nextContract;
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal end end--contract pop">
       <div class="end__main">
@@ -6654,6 +6779,12 @@ export function contractEndModal(opts: {
           // what a practice clear makes you want, not a daily card.
           opts.sandbox
             ? `<button class="btn btn--primary" data-action="sandbox">Tier S →</button>`
+            // AHEAD OF THE BOARD, because the board is no longer the forward
+            // move: the clear that pays for the first system is the moment the
+            // on-ramp hands over to the shop, and the next card would be a
+            // detour past the thing that opens the Deep Run.
+            : opts.firstSystem
+              ? `<button class="btn btn--primary" data-action="workshop">Install your first system →</button>`
             : opts.boardComplete
               ? `<button class="btn btn--primary" data-action="workshop">Workshop →</button>`
               : opts.nextContract

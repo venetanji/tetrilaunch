@@ -534,6 +534,29 @@ export function refitTracks(mark: number): UpgradeDef[] {
   return mark <= 1 ? UPGRADES.filter((u) => u.id === "reactor") : UPGRADES;
 }
 
+/**
+ * Has the yard anything to SELL this rig at `mark` — is there a rung on the
+ * shelf that `tiers` could actually buy?
+ *
+ * A refit RAISES what the ship already carries and refuses tier 0 (run.ts's
+ * buyUpgrade), and it stops at MAX_TIER, so a stop can be structurally empty
+ * two ways: a rig with nothing installed, and a rig whose offered tracks are
+ * all maxed. The first is what the owner walked into — three shops with
+ * nothing on the shelves on a stock first run — and the second is a real
+ * late-ladder state, which is why this is DATA and not a flag set at the top
+ * of the on-ramp: the run asks the shelf, every stop, and the answer moves.
+ *
+ * Scoped to `refitTracks(mark)` because that is the shelf the screen draws:
+ * asking of the whole roster would keep a Mark-1 stop open for a rig whose one
+ * system the stop does not offer.
+ */
+export function yardHasStock(tiers: UpgradeTiers, mark: number): boolean {
+  return refitTracks(mark).some((u) => {
+    const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
+    return tier > 0 && nextTierCost(tier) !== null;
+  });
+}
+
 export function upgradeById(id: string): UpgradeDef | undefined {
   return UPGRADES.find((u) => u.id === id);
 }

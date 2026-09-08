@@ -299,16 +299,38 @@ player who leaves school and opens the guide reads the same nouns.
 ## The loop
 
 0. **Flight School.** Four lessons earn the licence; five more stay open. Nothing
-   here can be lost, and Tier 1 does not exist until it is done.
-1. Fly **one Deep Run bay** — funds, targets and failure, once, for real.
-2. Run Contracts. They pay the permanent currency and teach one material at a time.
-3. Spend it on your rig — pick a direction, because you cannot afford every track.
-4. Attempt **Deep Run at Tier 1**. This is a gated exam, not an endless score chase.
-5. Beat it. That unlocks Tier 2 Contracts *and* raises your build budget.
-6. Repeat. Each Tier is harder, introduces new materials, and demands a build.
+   here can be lost, and nothing else on the tower exists until it is done.
+1. **Clear one Contract.** No clock, no launch cost, failure free. A tier's first
+   clear banks a 15-salvage milestone.
+2. **Buy your first system** in the Workshop. Both entry installs cost exactly
+   that 15, so one card off the first board pays for one.
+3. **Attempt Deep Run at Tier 1** — its door opens with that first system. This is
+   a gated exam, not an endless score chase.
+4. Beat it. That, plus three of the tier's Contracts, unlocks Tier 2 *and* raises
+   your build budget.
+5. Repeat. Each Tier is harder, introduces new materials, and demands a build.
 
-Steps 0 and 1 happen once. Steps 2–6 are the loop proper, and everything below
-this line is about them.
+Step 0 happens once, and step 2 happens once as a *gate* — after the first
+system the Workshop is a shop like any other. Steps 1 and 3–5 are the loop
+proper, and everything below this line is about them.
+
+**Why the shop comes before the first run**, and it did not used to: the old
+on-ramp sent a fresh licence straight into a Deep Run to "let the mechanics
+acquire meaning before the meta loop". A Deep Run has three refit stops in it,
+and a refit *raises* tracks the ship already carries — it refuses tier 0
+(`run.ts`'s `buyUpgrade`) — so a stock rig docked three times at a shop with
+empty shelves. That is the owner's report verbatim ("confusing to get to the
+refit shop with nothing to upgrade"). So the Deep Run's door is now gated on
+**any system installed** (`meta.ts`'s `rigStarted`, `screens.ts`'s `tierOpen`),
+the Workshop is the step that opens it, and a refit stop with nothing to sell
+is **skipped entirely** rather than dressed (`run.ts`'s `refitAfterBay` asks
+`upgrades.ts`'s `yardHasStock`) — which also covers the late-ladder rig that has
+maxed every track its Mark offers.
+
+The gate is *any* system and not the Reactor specifically, because both entry
+installs cost 15: naming one would make the other a trap — the same salvage,
+spent legally in the shop the step had just pointed at, leaving the door shut
+and the wallet empty.
 
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
 into the next Tier, you beat your way into it. A tier completes only when both

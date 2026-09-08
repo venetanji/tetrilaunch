@@ -1426,10 +1426,30 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * Exactly one surface ever carries the badge, and this is the rule that
  * picks it, stated once so the menu, the Workshop and the fail card can
  * never point at different doors:
+ *   licence still owed                    -> Flight School
+ *   ON-RAMP (no run flown yet):
+ *     no system installed, salvage short  -> Contracts (earn the salvage)
+ *     no system installed, salvage covers -> Workshop (install it)
+ *     a system installed                  -> Deep Run (the first exam)
  *   salvage covers an installable system  -> Workshop (spend it)
  *   ladder finished, Marks still unsealed -> seal one (a Deep Run, clean)
  *   contracts still owed this tier        -> Contracts (earn it)
  *   otherwise                             -> Deep Run (the exam)
+ *
+ * THE ON-RAMP RUNS THROUGH THE SHOP, and it did not used to. The old order
+ * sent a fresh licence straight at a Deep Run ("let the mechanics acquire
+ * meaning before the meta loop"), which put a stock rig into a ten-bay run
+ * whose refit stops are all EMPTY: the yard raises tracks the ship already
+ * carries and refuses tier 0 (run.ts's buyUpgrade), so a player with nothing
+ * installed walked into a shop with nothing on the shelves, three times.
+ * The owner's report is exactly that — "confusing to get to the refit shop
+ * with nothing to upgrade". So the first system is bought BEFORE the first
+ * run, and the run's door is shut until it is (screens.ts's tierOpen).
+ *
+ * The arithmetic is what makes it a step and not a grind: a tier pays 60
+ * across four milestones, so ONE first-clear Contract banks 15 and 15 is
+ * exactly an entry install (INSTALLS' note on the two 15s). One card off the
+ * first board buys the first system.
  *
  * THE SEAL STEP IS WHAT THE ENDGAME WAS MISSING. The Contracts branch reads
  * "this tier still owes clears", which is a live objective for nine tiers
@@ -1451,6 +1471,31 @@ export function cheapestInstall(meta: MetaState): InstallDef | null {
   );
 }
 
+/**
+ * Does this save own a ship system — the gate on the Deep Run's door.
+ *
+ * ANY SYSTEM, NOT THE REACTOR, and that is the decision rather than a
+ * shortcut. Both entry installs cost 15 (`reactor` and `launcher`), which is
+ * exactly one Contract milestone, so a gate that named the Reactor would make
+ * the Launcher a TRAP: the same 15 salvage, spent legally in the shop the step
+ * had just pointed at, leaving the door shut and the wallet empty and nothing
+ * on screen able to say why. A gate you can walk into the shop and fail is
+ * worse than the empty yard this whole change exists to remove.
+ *
+ * What the gate is actually FOR is that the run has a rig to build on and the
+ * refit yard has stock, and either 15 buys that. The residue — a Mark-1 rig
+ * carrying only the Launcher, where upgrades.ts's refitTracks sells the
+ * Reactor and nothing else — is covered by the yard SKIPPING an empty order
+ * (run.ts's refitAfterBay) rather than by narrowing this gate: a stop that
+ * does not open is not a confusing shop.
+ *
+ * Monotone by construction: nothing sells a system back, so a door this opens
+ * never shuts again.
+ */
+export function rigStarted(meta: MetaState): boolean {
+  return ownedTracks(meta).length > 0;
+}
+
 export function nextStep(meta: MetaState): NextStepId {
   // THE LICENCE IS ASKED FIRST, and nothing below it can win while it is owed.
   // The branches under this one all name a door that Tier 1 opens — a Workshop
@@ -1458,10 +1503,26 @@ export function nextStep(meta: MetaState): NextStepId {
   // tier, the run itself — so pointing at any of them before the ground floor
   // is cleared would send a first-time player at a locked button.
   if (!licenceDone(meta)) return "licence";
-  // Let the mechanics acquire meaning before sending a new pilot into the
-  // meta loop. Contracts and salvage are much easier to understand after one
-  // real bay has made funds, targets and failure concrete.
-  if (meta.runs === 0) return "run";
+  // THE ON-RAMP, in one block, and it ends at the first run rather than
+  // starting there — see the header. Guarded on `runs === 0` so it is the
+  // opening move and nothing else: once a run has been flown the general rule
+  // below is the whole rule, and a later save that somehow owns no system
+  // (nothing can produce one today) is answered by that rule's own Workshop
+  // branch rather than by a second on-ramp years into a ladder.
+  if (meta.runs === 0) {
+    if (!rigStarted(meta)) {
+      // The board is the FIRST answer, and it is the one that says why: the
+      // Workshop with an empty wallet is a shelf of prices, and a step that
+      // points at it before there is anything to spend is a step that reads as
+      // "go and look at what you cannot have".
+      const entry = cheapestInstall(meta);
+      return entry && meta.salvage >= entry.cost ? "workshop" : "contracts";
+    }
+    // A rig, no run: the exam is the step. The tier's other Contracts are
+    // still owed and the general rule would say so, but the first Deep Run is
+    // the thing the on-ramp has been building toward and it outranks them.
+    return "run";
+  }
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
   // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame

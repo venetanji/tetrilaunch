@@ -425,6 +425,34 @@ once-ever first clear, only at the current tier, and only for the first three,
 so replaying can't farm the currency. (An earlier per-run formula —
 `3 + 5×bays + …` — is long gone; this section used to quote it.)
 
+### The on-ramp's arithmetic: one Contract buys one system
+
+The 15 is load-bearing and it is why the shop now sits *before* the first Deep
+Run rather than after it. The chain, in the game's own numbers:
+
+| step | pays / costs | running salvage |
+| --- | --- | --- |
+| Flight School (4 lessons) | — | 0 |
+| 1st Contract first clear, tier 1 | `tierMilestoneSalvage(1)` = ⌊60/4⌋ = **+15** | **15** |
+| Reactor Output *or* Launcher Coils | **−15** | 0 |
+| Deep Run at Tier 1 | door opens on any install | — |
+
+`DAILY_COUNT` = 3 cards a board, so the first system is affordable **inside the
+first board** — one card, not one week — and the remaining two cards of that
+same board carry the tier's other two Contract milestones. No price moved to
+make this true: `TIER_SALVAGE_BASE` = 60 over `TIER_CONTRACTS_REQUIRED + 1` = 4
+milestones has been 15 since the 2026-08-09 deadlock, and `INSTALLS` has kept
+two entry systems at exactly 15 ever since ("15 is one milestone, so a player's
+first cleared Contract buys their first system"). The re-order simply stops the
+player from being sent past the shop on their way in.
+
+The Deep Run's door is gated on **any system installed**, not on the Reactor —
+both entry installs cost the same 15, so naming one would turn the other into a
+trap. The residue is handled downstream rather than by narrowing the gate: at
+Mark 1 the yard sells only the Reactor track (`refitTracks`), so a Launcher-only
+rig's stops have nothing on the shelves — and a stop with nothing to sell is
+**skipped**, not opened (`run.ts`'s `refitAfterBay`).
+
 ### And what it buys once the shelf is finished: rack slots
 
 The shelf runs out. It was 575 salvage against 600 of ladder income when the

@@ -77,7 +77,7 @@ import {
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
-  FREE_TIER_LIMIT, tierIncluded,
+  FREE_TIER_LIMIT, tierIncluded, rigStarted,
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -1428,10 +1428,13 @@ class App {
       // true on bays 3, 6 and 9 — the ones that open the shop — so the bigger
       // refit theme marks a checkpoint and the shorter one marks a bay.
       //
-      // Asked of the RUN (run.ts's refitAfterBay), so the Skydeck — which has
-      // no yard — does not ring the shop's fanfare over a door that will not
-      // open. Its checkpoint is the same three bays wearing the other coat: a
-      // clause arms on each of them, and the bay-clear card announces it.
+      // Asked of the RUN (run.ts's refitAfterBay), so a bay whose stop will not
+      // open does not ring the shop's fanfare over a door that stays shut. That
+      // predicate now answers for the SHELF as well as the schedule — a rig the
+      // yard has nothing to sell skips the stop entirely — so the smaller
+      // celebration follows the skip with nothing here to change. Which is the
+      // whole point of asking the run rather than the bay number: the fanfare
+      // and the routing read one rule.
       case "bayclear":
         playStinger(
           this.run
@@ -2291,6 +2294,14 @@ class App {
       // lobby's own readout, and they are passed rather than derived there so
       // a uifit fixture can state a half-finished licence without a meta.
       licensed: licenceDone(this.meta),
+      // THE SECOND LOCK ON THE LADDER (meta.ts's rigStarted). The car still
+      // PARKS on Tier 1 while it is shut — the selection above is unchanged —
+      // and that is deliberate: the parked floor is what the primary button
+      // describes, and "Deep Run · Install your first system in the Workshop",
+      // disabled, is the sentence this whole re-order exists to put on screen.
+      // Parking in the lobby instead would say "go back to school", which is
+      // the one thing the player has just finished doing.
+      rigged: rigStarted(this.meta),
       licenceDone: this.meta.licence,
       licenceTotal: schoolLength(this.meta),
       // The ceremony, when one is owed and running (armUnlockCelebration). The
@@ -3064,6 +3075,13 @@ class App {
       const chip = btn.querySelector(".next-badge");
       if (badged && !chip) btn.insertAdjacentHTML("beforeend", S.nextBadgeHTML());
       else if (!badged && chip) chip.remove();
+      // THE DOOR IS PER-FLOOR TOO, and this is the ride that crosses it. While
+      // the on-ramp's lock is shut every Mark is locked and the lobby is not,
+      // so riding down to Flight School has to hand the primary back — a
+      // button left disabled on the one floor the player may fly is a dead end
+      // with no way out of it. Asked of screens.ts's tierOpen, so this and the
+      // markup that rendered the button ask the same question.
+      (btn as HTMLButtonElement).disabled = !S.tierOpen(this.towerState(), tier);
     }
     // THE CONTRACTS DOOR IS PER-FLOOR TOO, since the board behind it became
     // per-floor (contractsTier). The roof deals pentomino cargo and banks no
@@ -3076,7 +3094,10 @@ class App {
     const pips = this.overlay.querySelector<HTMLElement>("#menu-contracts-pips");
     if (pips) pips.innerHTML = S.menuContractsPips(tier, cprog);
     const csub = this.overlay.querySelector<HTMLElement>("#menu-contracts-sub");
-    if (csub) csub.innerHTML = S.menuContractsSub(tier, cprog);
+    // …and the on-ramp's line with it (screens.ts's menuContractsSub): while
+    // no system is installed the board's subtitle is what one clear BUYS, not
+    // the board's terms, and the ride must not revert it.
+    if (csub) csub.innerHTML = S.menuContractsSub(tier, cprog, !rigStarted(this.meta));
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
     // The extras strip carries straight across now. It used to need a filter:
@@ -3145,6 +3166,12 @@ class App {
       // has to be the same function the markup calls rather than a second
       // statement of it.
       tier === null ? null : S.tierOpenedBy(tier, this.towerState()),
+      // …and the on-ramp's lock, for the third time and the same reason
+      // (meta.ts's rigStarted). Not per-floor — every Mark is shut by it at
+      // once — but it still has to travel with the ride, because the line it
+      // selects is the one a player riding back down from the lobby must land
+      // on.
+      rigStarted(this.meta),
     );
   }
 
@@ -3256,6 +3283,10 @@ class App {
           cleared: this.meta.claimedContracts,
           progress: sky ? undefined : tierProgressFor(this.meta),
           nextInstall: sky ? null : this.nextInstall(),
+          // THE ON-RAMP'S BOARD SAYS WHAT IT IS FOR (screens.ts's foot). Never
+          // on the roof: the Skydeck's Contracts bank no milestone, so a board
+          // there cannot buy anything, first system or otherwise.
+          firstSystem: !sky && licenceDone(this.meta) && !rigStarted(this.meta),
           allowance: this.contractAllowance(),
         });
         // THE BOARD INTRODUCES ITSELF, once. This is where a Tier is actually
@@ -3321,6 +3352,12 @@ class App {
               nextInstall: this.nextInstall(),
               nextContract: this.nextContract ? { name: this.nextContract.name } : null,
               boardComplete: this.contractBoardComplete,
+              // THE HAND-OFF, asked of the same rule the menu asks (meta.ts's
+              // nextStep). Never on the roof: a Skydeck clear banks nothing, so
+              // it can fund no purchase. Read AFTER recordContractClear has
+              // been persisted, which is what makes the answer the payout's.
+              firstSystem: !skyContract && nextStep(this.meta) === "workshop"
+                && !rigStarted(this.meta),
             });
         }
         break;
@@ -4082,6 +4119,18 @@ class App {
       void this.onPaywall();
       return;
     }
+    // THE DOOR, RE-ASKED WHERE THE RUN ACTUALLY STARTS. Two buttons reach here
+    // — the menu's primary and the Workshop's Start Run — and both render
+    // themselves disabled while the floor is shut, so this is the guard rather
+    // than the message: a state reachable by a route nobody has thought of yet
+    // (a stale screen, a pad press landing on a re-rendered button, a
+    // hand-edited save) must refuse rather than fly a run the tower says the
+    // player has not earned. Same argument the sandbox's own re-check makes.
+    //
+    // BELOW the paywall offer, deliberately. An unentitled floor is also a
+    // floor tierOpen refuses, and refusing it silently here would swallow the
+    // one refusal on this screen that is an OFFER rather than a lock.
+    if (!S.tierOpen(this.towerState(), selected)) return;
     void autoEnterFullscreenForRun();
     // The run gets a SNAPSHOT of the player's unlocks (see run.ts's
     // RunState.unlocks): a Workshop purchase made mid-run can't retroactively

@@ -10,7 +10,7 @@ import { applyFinal, applyFinals, type FinalId } from "./finals";
 import type { SkydeckRules } from "./skydeck";
 import {
   applyUpgrades, newTiers, nextTierCost, orderRungs, THAW_CHARGES_PER_TIER, UPGRADES,
-  type RefitOrder, type UpgradeTiers,
+  yardHasStock, type RefitOrder, type UpgradeTiers,
 } from "./upgrades";
 
 /** Total levels in a roguelite run (see makeBaseLevel's 0..9 ladder). */
@@ -255,22 +255,39 @@ export interface RunState {
  * shelf costs one flat price. The argument and the table are there.
  * ------------------------------------------------------------------------- */
 
-/** True when clearing bay `levelIndex` in THIS run opens a refit stop — the
- *  ladder's own schedule, on the roof as on the ladder. The mode's difference
- *  is what the stop can AFFORD, not whether it opens (see the note above).
+/**
+ * True when clearing bay `levelIndex` in THIS run opens a refit stop — the
+ * ladder's own schedule, on the roof as on the ladder. The mode's difference is
+ * what the stop can AFFORD, not whether it opens (see the note above).
  *
- *  The run is still ASKED, and still the thing every caller holds, even though
- *  today every mode answers with the ladder's schedule: this is the one place
- *  the yard's shape is stated, and the reversal above is exactly the kind of
- *  edit that wants one line to change rather than five call sites. Underscored
- *  because it is genuinely unread right now, which is a fact worth being able
- *  to see. */
-export function refitAfterBay(_run: RunState, levelIndex: number): boolean {
-  return isRefitBay(levelIndex);
+ * …AND THE STOP WITH NOTHING TO SELL IS NOT A STOP. The run is finally READ
+ * here rather than underscored, and it is read for the shelf: a yard raises
+ * tracks the ship already carries and stops at MAX_TIER, so a rig with nothing
+ * installed — or one whose offered tracks are all maxed — docks at a shop with
+ * empty shelves. That is the owner's report verbatim ("confusing to get to the
+ * refit shop with nothing to upgrade"), and the honest answer is not to dress
+ * the empty screen but to not open it. Everything downstream follows from this
+ * one predicate: main.ts routes bay-clear straight to the draft, and syncMusic
+ * rings the bay-clear stinger instead of the shop's fanfare, because both ask
+ * this same question.
+ *
+ * DATA, NOT A PHASE. meta.ts's on-ramp now guarantees a system before the first
+ * run, so the empty case looks like it could be a one-time state — but a rig
+ * that has maxed everything the Mark offers reaches it at the top of the ladder
+ * too, and a Mark-1 rig carrying only the Launcher reaches it because
+ * refitTracks sells the Reactor alone there. The shelf is asked every stop.
+ */
+export function refitAfterBay(run: RunState, levelIndex: number): boolean {
+  if (!isRefitBay(levelIndex)) return false;
+  return yardHasStock(run.tiers, run.mark);
 }
 
-/** Bay-clears until this run's next refit stop, or null when none remains. */
+/** Bay-clears until this run's next refit stop, or null when none remains —
+ *  including when none can, because the yard has nothing this rig can buy
+ *  (refitAfterBay above). The HUD prints this as "refit in N", and a countdown
+ *  to a stop that will be skipped is a promise the run does not keep. */
 export function baysUntilRefitFor(run: RunState): number | null {
+  if (!yardHasStock(run.tiers, run.mark)) return null;
   return baysUntilRefit(run.levelIndex);
 }
 

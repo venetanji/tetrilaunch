@@ -318,10 +318,11 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "tutorial", chapter: "basics", tier: 1,
     name: "Flight School",
     summary: `${LICENCE_LESSON_COUNT} basics earn the licence; ${LESSON_COUNT - LICENCE_LESSON_COUNT} advanced bays stay open for practice.`,
-    body: `The ground floor of the tower, and the only thing standing between a new pilot and`
-      + ` Tier 1. <b>${LICENCE_LESSON_COUNT} required basics</b>, followed by ${LESSON_COUNT - LICENCE_LESSON_COUNT} optional advanced bays: the board arrives already set, the belt`
-      + ` deals the one shape the exercise needs, and gold scaffolding stays put through the`
-      + ` clear — so a shot can be taken until it lands. No clock, no bankroll, nothing to lose.`,
+    body: `The tower's ground floor, and step one of three: school, then a <b>Contract</b> for`
+      + ` salvage, then your <b>first system</b> — which opens Tier 1.`
+      + ` <b>${LICENCE_LESSON_COUNT} required basics</b>, then ${LESSON_COUNT - LICENCE_LESSON_COUNT} optional advanced bays: the board arrives set, the belt deals`
+      + ` the shape the exercise needs, and gold scaffolding survives the clear — so a shot can be`
+      + ` retaken until it lands. No clock, nothing to lose.`,
     cta: {
       action: "tutorial",
       label: "Start Flight School",
@@ -720,11 +721,11 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "deeprun", chapter: "modes", tier: 1,
     name: "Deep Run",
     summary: `${RUN_LEVELS} bays, permadeath, a clock and a bankroll. The exam.`,
-    body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, run end to end.`
-      + ` Each bay has its own funding target and countdown; go broke or run the clock out and the run`
-      + ` ends there — there are no lives.`
-      + ` Between bays you ratchet an axis, and three times you refit. Every Tier keeps its own`
-      + ` leaderboard, and this is the only mode that can raise the Tier you fly.`,
+    body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, end to end. Each has`
+      + ` its own target and countdown; go broke or run out of clock and the run ends — no lives.`
+      + ` Between bays you ratchet an axis, and three times you refit — which is why`
+      + ` <b>it opens only once you own a system</b>: a refit raises what you carry, never`
+      + ` installs. Every Tier has a board, and only this raises your Tier.`,
   },
   {
     id: "contracts", chapter: "modes", tier: 1,

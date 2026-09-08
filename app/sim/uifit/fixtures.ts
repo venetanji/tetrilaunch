@@ -488,6 +488,25 @@ const TOWER_LICENCE: S.TowerState = {
   licensed: false, licenceDone: 3, licenceTotal: LICENCE_LESSON_COUNT,
 };
 
+/** THE STEP AFTER THAT ONE — licensed, and no system installed yet.
+ *
+ *  The tower a player meets between Flight School and their first Deep Run: the
+ *  car parked on Tier 1, every Mark still locked (this time by the rig gate,
+ *  meta.ts's rigStarted), and the primary DISABLED under the longest sentence
+ *  it ever carries in that state. It is a distinct layout from `menu-licence`
+ *  and not a re-skin of it — the parked floor is a Mark, so the recap panel
+ *  draws Tier 1's bay rather than the lobby's lesson track, and the primary is
+ *  a disabled Deep Run rather than a live Flight School.
+ *
+ *  Worth its own fixture on the same argument menu-licence makes: it is a
+ *  screen every single player passes through exactly once, in the session
+ *  where they are most likely to give up, and no fixture measured it. */
+const TOWER_UNRIGGED: S.TowerState = {
+  unlocked: 1, selected: 1, skydeck: false, contracts: 1,
+  licensed: true, licenceDone: LICENCE_LESSON_COUNT, licenceTotal: LICENCE_LESSON_COUNT,
+  rigged: false,
+};
+
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
  *  NEXT STEP badge on Workshop (salvage covers an install) and the live
  *  numbers the subtitles state the offer in. */
@@ -714,6 +733,25 @@ export const SCREENS: Record<string, () => string> = {
     live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "licence", install: null, firstLaunch: false,
     }, TOWER_LICENCE)),
+  // …AND THE STEP AFTER IT: licensed, nothing installed, the ladder shut by the
+  // rig gate and the primary disabled under "Install your first system in the
+  // Workshop". The salvage figure is one milestone (15) and the install is the
+  // 15 it buys, which is the state the Workshop button's on-ramp line renders —
+  // the longest that subtitle gets. Paired live and not, like every other menu
+  // state, because the brand column's height is what the row is measured
+  // against.
+  "menu-unrigged": () =>
+    S.menuScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
+      step: "workshop",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: false,
+    }, TOWER_UNRIGGED),
+  "menu-unrigged-live": () =>
+    live(S.menuScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
+      step: "workshop",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: false,
+    }, TOWER_UNRIGGED)),
   // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
   // the upsell chip — the tallest menu the app can produce, which is exactly
   // why it is its own fixture.
@@ -849,6 +887,13 @@ export const SCREENS: Record<string, () => string> = {
   // is a Mark-3 save, where the shelf is down to its last cards and carries
   // both ownership strips at its foot. One shelf in both — the Systems/Options
   // tabs are gone and both card kinds render together.
+  //
+  // …and the split now measures the ON-RAMP as well, at no extra fixture cost:
+  // midMeta owns no system, so `workshop` renders the first-visit blurb and the
+  // refused Start Run ("Install a system to fly" — the wider of the two labels,
+  // which is the one the row has to fit), while ownedMeta's five installs give
+  // `workshop-owned` the standing blurb and the live primary. The two states of
+  // meta.ts's rigStarted, one on each fixture.
   workshop: () => S.workshopScreen(midMeta()),
   "workshop-owned": () => S.workshopScreen(ownedMeta()),
 
@@ -860,6 +905,21 @@ export const SCREENS: Record<string, () => string> = {
       progress: PROGRESS,
       // The WHY strip's longest state (A9): a named install and its price.
       nextInstall: { name: "Press Hydraulics", cost: 30 },
+    }),
+  // THE SAME BOARD ON THE ON-RAMP, where the WHY strip answers a different
+  // question — not "what does a tier's quota bank" but "what does ONE clear
+  // buy", because the player reading it has no rig and one card pays for the
+  // system that opens the Deep Run. It is the longer of the two strips (it
+  // names the install AND the door), so this is the state the footnote's row
+  // has to fit at.
+  "contracts-first-system": () =>
+    S.contractsScreen({
+      contracts: dailyContracts(3, 20_260_815),
+      tier: 1,
+      cleared: [],
+      progress: tierProgressFor(newMeta()),
+      nextInstall: { name: "Reactor Output", cost: 15 },
+      firstSystem: true,
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
@@ -1369,8 +1429,11 @@ export const SCREENS: Record<string, () => string> = {
     withReveal(S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[2]) }), LESSONS[2].reveal),
     "rotate",
   ),
-  // The result, both ways, and the licence itself — which is the one card in
-  // the app that gets to say Tier 1 is open.
+  // The result, both ways, and the licence itself — the one card in the app
+  // that gets to say what the licence just opened. It says the Contract board
+  // now rather than Tier 1 (the on-ramp puts a purchase between them —
+  // meta.ts's nextStep), which is the longer of the two sentences and therefore
+  // still the right one to measure the card at.
   "lesson-end-won": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]) })
     + S.lessonEndModal({
       won: true, name: LESSONS[0].name, index: 0, total: LESSON_COUNT,
@@ -1567,6 +1630,31 @@ export const SCREENS: Record<string, () => string> = {
       progress: { tier: 2, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
       salvageTotal: 1_700,
       nextInstall: { name: "Demolition Rack", cost: 40 },
+    }),
+
+  // THE ON-RAMP'S HAND-OFF, and it is here for the ACTION ROW rather than the
+  // body. The clear that pays for the first system takes the primary away from
+  // "Next: <card> →" and points it at the shop, under the longest label this
+  // modal's primary ever carries — and the ghost board link renders beside it,
+  // because the primary is no longer the board. Three controls at their widest,
+  // on the one card every player meets exactly once.
+  "contract-end-first-system": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "lines",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: [],
+      cubesWasted: 0,
+      award: { firstClear: true, completedTier: null, salvage: 15 },
+      progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
+      salvageTotal: 15,
+      nextInstall: { name: "Reactor Output", cost: 15 },
+      nextContract: { name: "Cold Storage Backlog" },
+      firstSystem: true,
     }),
 
   // The Tier S variant of the same modal: the award row is replaced and the
