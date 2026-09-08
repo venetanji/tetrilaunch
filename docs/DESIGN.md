@@ -257,19 +257,66 @@ for progress. That is the whole navigational claim: school is not a modal you
 escape, it is the floor you start on, and the goal from the first screen is
 visibly *to unlock the next one*.
 
-Until the licence is earned, Contracts and Workshop are disabled with the
-subtitle "Opens after Flight School", every ladder floor reads "Finish Flight
-School first", and `nextStep` returns `"licence"` before it considers anything
-else — so the "next step" chevron never points a first-time player at a locked
-button.
+### Twelve steps, and two of them are shops
 
-### What opens next, and how it explains itself
+The ground floor is not nine lessons and a door. It is a **twelve-step ladder**
+(`meta.ts`'s `SCHOOL_LADDER`), and the two steps that are not bays are the ones
+that make it a game rather than a course:
 
-`nextStep` sends a freshly licensed player at **one real Deep Run bay** before
-the meta loop (`meta.runs === 0` → `"run"`): funds, targets and failure are much
-easier to understand as things that happened to you than as things a board
-described. Only after that does it start naming the Workshop and the Contract
-board.
+| step | what it asks | what it opens |
+| --- | --- | --- |
+| 1–4 | the four basics lessons | the Contract board and the Workshop |
+| 5 | **clear one Contract** — a single fixed card | 15 salvage |
+| 6 | **install the Reactor** — the only thing on the shelf | lessons 5–9 |
+| 7–11 | the five advanced lessons | the graduation flight |
+| 12 | **a real Tier 1 bay 1**, flown with that rig | Tier 1, the daily board, the full Workshop |
+
+Steps 5 and 6 used to be an *on-ramp*: `nextStep` badged them in order, and
+every one of their doors stood open anyway, so the player who walked past them
+met the thing the on-ramp existed to prevent. The owner's call is that the order
+should be the school's — "to finish the school and unlock tier 1 the user must
+complete 1 contract, get salvage and spend it in the workshop then can enter the
+5-9 classes". So they are rungs, and the ladder is the gate.
+
+Everything the school shows is narrowed to the step it is on. The Contract board
+deals **one card** — a fixed-seed tier-1 lines Contract at zero difficulty
+budget (`contracts.ts`'s `schoolContract`), because a first board that offered a
+pattern Contract would be offering the hardest thing in the mode to a player who
+has flown four lessons: measured, the calibration bot clears today's tier-1
+pattern slot 2 times in 10. The Workshop shows **one card** — Reactor Output,
+with every other install, both unlocks and the whole rack hidden rather than
+greyed, because the step pays exactly 15 salvage and a shelf of prices nobody
+can meet is the shop saying "later" to a player with no idea when later is. Both
+open at graduation, together, with the tier board that can pay for them.
+
+Until the four basics land, Contracts and Workshop are disabled with the
+subtitle "Opens after lesson 4". Until the whole ladder lands, every Mark in the
+shaft reads "Finish Flight School", the Deep Run primary is disabled under
+"Finish Flight School · N/12", and `nextStep` answers the ladder's own next rung
+before it considers anything else — so the "next step" chevron never points a
+first-time player at a locked button.
+
+### The graduation flight
+
+Step 12 is not a lesson. It is `makeBaseLevel(0, 1)` with the player's rig
+applied by the run's own pipeline (`run.ts`'s `levelForGraduation`, which reads
+`levelForRun` on a throwaway bay-1 run rather than re-deriving the layering
+beside it) — full readout, real target, launch price, shift clock, spill fine,
+plain seeded 7-bag. The owner's framing is exact: "bay 10 is just the regular
+game equivalent of tier 1 bay 1".
+
+What it is *not* is a run. `main.ts` flies it with `this.run` null, so the refit
+stop, the draft, the carry, the leaderboard submit, the `runs` counter and — the
+one that matters — the **seal** are unreachable rather than suppressed. A seal
+records how a Mark fell; this is not a Mark, so its retry is free and is not
+dressed as though it costs anything. Its ends are the Deep Run's own cards: BAY
+CLEARED on a win (carrying the one line that says the licence landed), and the
+bay-1 failure card with its diagnosis and a free retry on a loss.
+
+Measured through the real config, five bot seeds: the calibration bot clears it
+4/5 stock and 4/5 with the Reactor installed — i.e. exactly a Tier 1 bay 1 at bot
+competence, which is what it claims to be. Bots never use Bond Breaker, never
+read the pile and never retry; a human clears bays they lose.
 
 Each of those doors introduces itself once, on first arrival, rather than being
 inferred from a screen full of cards — the Contract board (`seenContractBoard`),
@@ -298,39 +345,42 @@ player who leaves school and opens the guide reads the same nouns.
 
 ## The loop
 
-0. **Flight School.** Four lessons earn the licence; five more stay open. Nothing
-   here can be lost, and nothing else on the tower exists until it is done.
-1. **Clear one Contract.** No clock, no launch cost, failure free. A tier's first
-   clear banks a 15-salvage milestone.
-2. **Buy your first system** in the Workshop. Both entry installs cost exactly
-   that 15, so one card off the first board pays for one.
-3. **Attempt Deep Run at Tier 1** — its door opens with that first system. This is
-   a gated exam, not an endless score chase.
+0. **Flight School**, all twelve steps of it (see the table above): four basics,
+   one Contract, one system, five more lessons, and a real Tier 1 bay 1. Nothing
+   here can be lost except the last flight, and that one is handed straight back.
+   Nothing else on the tower exists until it is done.
+1. **Clear Contracts.** No clock, no launch cost, failure free. A tier's first
+   three clears each bank a 15-salvage milestone.
+2. **Spend it in the Workshop** — now the whole shelf, on options and systems you
+   did not have before.
+3. **Attempt Deep Run at Tier 1** — its door opens on graduation. This is a gated
+   exam, not an endless score chase.
 4. Beat it. That, plus three of the tier's Contracts, unlocks Tier 2 *and* raises
    your build budget.
 5. Repeat. Each Tier is harder, introduces new materials, and demands a build.
 
-Step 0 happens once, and step 2 happens once as a *gate* — after the first
-system the Workshop is a shop like any other. Steps 1 and 3–5 are the loop
-proper, and everything below this line is about them.
+Step 0 happens once. Steps 1 and 3–5 are the loop proper, and everything below
+this line is about them.
 
-**Why the shop comes before the first run**, and it did not used to: the old
-on-ramp sent a fresh licence straight into a Deep Run to "let the mechanics
-acquire meaning before the meta loop". A Deep Run has three refit stops in it,
-and a refit *raises* tracks the ship already carries — it refuses tier 0
-(`run.ts`'s `buyUpgrade`) — so a stock rig docked three times at a shop with
-empty shelves. That is the owner's report verbatim ("confusing to get to the
-refit shop with nothing to upgrade"). So the Deep Run's door is now gated on
-**any system installed** (`meta.ts`'s `rigStarted`, `screens.ts`'s `tierOpen`),
-the Workshop is the step that opens it, and a refit stop with nothing to sell
-is **skipped entirely** rather than dressed (`run.ts`'s `refitAfterBay` asks
-`upgrades.ts`'s `yardHasStock`) — which also covers the late-ladder rig that has
-maxed every track its Mark offers.
+**Why the shop is inside the school**, and it did not used to be: the original
+order sent a fresh licence straight into a Deep Run to "let the mechanics acquire
+meaning before the meta loop". A Deep Run has three refit stops in it, and a
+refit *raises* tracks the ship already carries — it refuses tier 0 (`run.ts`'s
+`buyUpgrade`) — so a stock rig docked three times at a shop with empty shelves.
+That is the owner's report verbatim ("confusing to get to the refit shop with
+nothing to upgrade"). The first fix made the purchase a *badged suggestion*
+before the run; this one makes it step 6 of the ladder, so it cannot be walked
+past. A refit stop with nothing to sell is still **skipped entirely** rather than
+dressed (`run.ts`'s `refitAfterBay` asks `upgrades.ts`'s `yardHasStock`), which
+covers the late-ladder rig that has maxed every track its Mark offers.
 
-The gate is *any* system and not the Reactor specifically, because both entry
-installs cost 15: naming one would make the other a trap — the same salvage,
-spent legally in the shop the step had just pointed at, leaving the door shut
-and the wallet empty.
+The Deep Run's door is still gated on **any system installed** (`meta.ts`'s
+`rigStarted`, `screens.ts`'s `tierOpen`) rather than on the Reactor by name, and
+that survives the narrowing rather than contradicting it. The gate's argument was
+that naming one entry install would make the other a trap — the same 15 salvage,
+spent legally in the shop the step had just pointed at, leaving the door shut and
+the wallet empty. A shelf with one card on it cannot spring that trap, so the
+wider gate costs nothing and keeps working for saves that reached it the old way.
 
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
 into the next Tier, you beat your way into it. A tier completes only when both

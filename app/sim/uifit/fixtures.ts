@@ -26,14 +26,17 @@ import { CHAIN_RUNGS_MAX, makeBaseLevel } from "../../src/game/level";
  *  ladder means "the bay" is a function of the Mark being flown (level.ts).
  *  Was the BAY_1 alias, which could only ever describe one tier. */
 const BAY_1 = makeBaseLevel(0);
-import { newMeta, SLOT_BASE, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
+import {
+  newMeta, schoolStepOfFlight, SCHOOL_STEPS, SLOT_BASE, SLOT_CAP,
+  tierProgressFor, type MetaState,
+} from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
 import { CLAUSE_STOPS, skydeckRunFor } from "../../src/game/skydeck";
-import { dailyContracts, dailySeed } from "../../src/game/contracts";
+import { dailyContracts, dailySeed, schoolBoard } from "../../src/game/contracts";
 import { DRILLS } from "../../src/game/drills";
 import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
 
@@ -485,7 +488,28 @@ const TOWER_SANDBOX: S.TowerState = { ...TOWER_TOP, sandbox: true };
  *  fixture measured. */
 const TOWER_LICENCE: S.TowerState = {
   unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
-  licensed: false, licenceDone: 3, licenceTotal: LICENCE_LESSON_COUNT,
+  licensed: false, basics: false, licenceDone: 3, licenceTotal: SCHOOL_STEPS,
+};
+
+/** THE TWO RUNGS THAT ARE NOT BAYS — the ladder's fifth step, with the basics
+ *  behind the player and the Contract board in front of them.
+ *
+ *  A state no other menu fixture reaches, and the one this reordering created:
+ *  the car is in the lobby, the entrance is still lit, Contracts and the
+ *  Workshop have just come UNLOCKED (so the row is three live buttons where
+ *  TOWER_LICENCE draws one), and the primary is DISABLED under an instruction
+ *  rather than a count. Worth its own fixture on menu-licence's own argument —
+ *  every player passes through it exactly once, and no fixture measured it. */
+const TOWER_LADDER_SHOP: S.TowerState = {
+  ...TOWER_LICENCE, basics: true, licenceDone: LICENCE_LESSON_COUNT,
+};
+
+/** …AND THE TWELFTH STEP, the graduation flight waiting on the primary. Eleven
+ *  of twelve sockets lit is the fullest the plate's 4x3 grid ever draws while
+ *  it is still an entrance, and the subtitle is the longest the lobby's primary
+ *  carries ("Step 12 of 12 · Tier 1 bay 1"). */
+const TOWER_EXAM: S.TowerState = {
+  ...TOWER_LICENCE, basics: true, rigged: true, licenceDone: SCHOOL_STEPS - 1,
 };
 
 /** THE STEP AFTER THAT ONE — licensed, and no system installed yet.
@@ -503,7 +527,7 @@ const TOWER_LICENCE: S.TowerState = {
  *  where they are most likely to give up, and no fixture measured it. */
 const TOWER_UNRIGGED: S.TowerState = {
   unlocked: 1, selected: 1, skydeck: false, contracts: 1,
-  licensed: true, licenceDone: LICENCE_LESSON_COUNT, licenceTotal: LICENCE_LESSON_COUNT,
+  licensed: true, basics: true, licenceDone: SCHOOL_STEPS, licenceTotal: SCHOOL_STEPS,
   rigged: false,
 };
 
@@ -520,7 +544,7 @@ const TOWER_UNRIGGED: S.TowerState = {
  *  other menu fixture draws. */
 const TOWER_LOBBY_HELD: S.TowerState = {
   unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
-  licensed: true, licenceDone: LESSON_COUNT, licenceTotal: LESSON_COUNT,
+  licensed: true, basics: true, licenceDone: SCHOOL_STEPS, licenceTotal: SCHOOL_STEPS,
 };
 
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
@@ -641,12 +665,14 @@ const withCard = (hud: string, stage: number, card: string): string =>
   stampHud(hud, `data-carded="1" data-reveal="${stage}"`)
     .replace('<div class="plant">', `<div class="plant">${card}`);
 
-/** The denominator a lesson's card actually prints (meta.ts's schoolLength):
- *  the SHORT course while the licence is owed, the whole ladder after. Every
- *  card in the licence — which is every card an unlicensed player will ever
- *  see — reads "/4", and the fixtures printed "/9". */
-const lessonTotal = (i: number): number =>
-  (i < LICENCE_LESSON_COUNT ? LICENCE_LESSON_COUNT : LESSON_COUNT);
+/** What a lesson's card actually prints (meta.ts's schoolLadder): the STEP this
+ *  flight sits on, out of the ladder's twelve. Two of those steps are shop
+ *  visits, so lesson 5 is step 7 and the last lesson is step 11 — a card
+ *  printing the lesson's own index would be counting a different ladder from
+ *  the plate and the lobby beside it. The denominator no longer varies: all
+ *  twelve steps are required, in order. */
+const lessonStep = (i: number): number => schoolStepOfFlight(i);
+const lessonTotal = (_i: number): number => SCHOOL_STEPS;
 
 /**
  * A Deep Run HUD with the chain ladder in a state main.ts's syncHud would have
@@ -783,6 +809,27 @@ export const SCREENS: Record<string, () => string> = {
   // nobody can reach, and dragged the nine-rung lesson picker's own sub-floor
   // pips into the baseline with it. The 3x3 grid is asserted where a shape
   // question belongs — on the markup, in sim/systems.ts.
+  // THE TWO RUNGS THAT ARE NOT BAYS (TOWER_LADDER_SHOP): the basics behind the
+  // player, the two shops just unlocked, and the lobby's primary DISABLED under
+  // an instruction rather than a count. It is a distinct layout from
+  // menu-licence — three live action rows instead of one, and a subtitle that
+  // is a sentence — and it is the screen every player meets exactly once, in
+  // the session where they are most likely to give up.
+  "menu-school-shop": () =>
+    S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
+    }, TOWER_LADDER_SHOP),
+  "menu-school-shop-live": () =>
+    live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
+    }, TOWER_LADDER_SHOP)),
+  // …AND THE TWELFTH STEP (TOWER_EXAM): eleven of twelve sockets lit — the
+  // fullest the plate's 4x3 grid ever draws while it is still an entrance — and
+  // the longest subtitle the lobby's primary carries.
+  "menu-school-exam": () =>
+    S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_EXAM),
   "menu-lobby-held": () =>
     S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts", install: null, firstLaunch: false,
@@ -935,6 +982,15 @@ export const SCREENS: Record<string, () => string> = {
   // meta.ts's rigStarted, one on each fixture.
   workshop: () => S.workshopScreen(midMeta()),
   "workshop-owned": () => S.workshopScreen(ownedMeta()),
+  // THE SCHOOL'S SHELF — one card, rung 6 (meta.ts's schoolLadder). Its own
+  // fixture because it is the shortest this screen ever renders and the only
+  // state in which the rack is absent: one install, no unlocks, no rack row, no
+  // +1 slot, a two-sentence blurb and a refused Start Run. A shelf this empty
+  // is the case where `.workshop__shop`'s scroller has nothing to scroll and
+  // the aside is the tallest thing in the row.
+  "workshop-school": () => S.workshopScreen({
+    ...newMeta(), licence: LICENCE_LESSON_COUNT, claimedContracts: ["school"], salvage: 15,
+  }),
 
   // THE BOARD, AND IT IS A SET-PIECE BOARD — 20260815 is an odd day and tier 3
   // is past SETPIECE_MIN_TIER, so contracts.ts's alternation deals Lines / Set
@@ -967,6 +1023,21 @@ export const SCREENS: Record<string, () => string> = {
       progress: tierProgressFor(newMeta()),
       nextInstall: { name: "Reactor Output", cost: 15 },
       firstSystem: true,
+    }),
+  // THE SCHOOL'S BOARD — one card, rung 5 of the ground floor (contracts.ts's
+  // schoolBoard). Its own fixture because nothing else on this screen survives
+  // the narrowing: one card in a grid built for three, no tier chip beside the
+  // title, no allowance line, and a footnote that explains the whole MODE
+  // rather than pricing a quota — the longest strip this screen draws, on the
+  // one board every player sees exactly once.
+  "contracts-school": () =>
+    S.contractsScreen({
+      contracts: schoolBoard(),
+      tier: 1,
+      cleared: [],
+      progress: tierProgressFor({ ...newMeta(), licence: LICENCE_LESSON_COUNT }),
+      nextInstall: { name: "Reactor Output", cost: 15 },
+      school: true,
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
@@ -1533,17 +1604,17 @@ export const SCREENS: Record<string, () => string> = {
      after the player hides the live tip. */
   "lesson-card": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[4]) }), LESSONS[4].reveal,
-    S.lessonCardHTML(LESSONS[4], 4, 0, lessonTotal(4)),
+    S.lessonCardHTML(LESSONS[4], lessonStep(4), 0, lessonTotal(4)),
   ),
   // The only profile-aware Flight School card: the first thing a new player
   // reads must fit after spelling out the touch slingshot gesture in full.
   "lesson-card-aim": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]) }), LESSONS[0].reveal,
-    S.lessonCardHTML(LESSONS[0], 0, 0, lessonTotal(0), "touch"),
+    S.lessonCardHTML(LESSONS[0], lessonStep(0), 0, lessonTotal(0), "touch"),
   ),
   "lesson-card-last": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) }), LESSONS[8].reveal,
-    S.lessonCardHTML(LESSONS[8], 8, 1, lessonTotal(8)),
+    S.lessonCardHTML(LESSONS[8], lessonStep(8), 1, lessonTotal(8)),
   ),
   /* WHAT THE THREE FIXTURES ABOVE DO NOT COVER.
 
@@ -1575,22 +1646,22 @@ export const SCREENS: Record<string, () => string> = {
   "lesson-card-aim-pad": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]), profile: "gamepad" }),
     LESSONS[0].reveal,
-    S.lessonCardHTML(LESSONS[0], 0, 0, lessonTotal(0), "gamepad"),
+    S.lessonCardHTML(LESSONS[0], lessonStep(0), 0, lessonTotal(0), "gamepad"),
   ),
   "lesson-card-well": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[2]) }), LESSONS[2].reveal,
-    S.lessonCardHTML(LESSONS[2], 2, 0, lessonTotal(2), "touch"),
+    S.lessonCardHTML(LESSONS[2], lessonStep(2), 0, lessonTotal(2), "touch"),
   ),
   "lesson-card-lost": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[7]) }), LESSONS[7].reveal,
-    S.lessonCardHTML(LESSONS[7], 7, 0, lessonTotal(7)),
+    S.lessonCardHTML(LESSONS[7], lessonStep(7), 0, lessonTotal(7)),
   ),
   // The pad's route to the card's one button (screens.ts's padKey), on the
   // widest button label the deck has.
   "lesson-card-pad": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[4]), profile: "gamepad" }),
     LESSONS[4].reveal,
-    S.lessonCardHTML(LESSONS[4], 4, 1, lessonTotal(4), "gamepad"),
+    S.lessonCardHTML(LESSONS[4], lessonStep(4), 1, lessonTotal(4), "gamepad"),
   ),
   ...Object.fromEntries(LESSONS.map((l, i) => [
     `lesson-hud-${i}`,
@@ -1604,26 +1675,51 @@ export const SCREENS: Record<string, () => string> = {
     withReveal(S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[2]) }), LESSONS[2].reveal),
     "rotate",
   ),
-  // The result, both ways, and the licence itself — the one card in the app
-  // that gets to say what the licence just opened. It says the Contract board
-  // now rather than Tier 1 (the on-ramp puts a purchase between them —
-  // meta.ts's nextStep), which is the longer of the two sentences and therefore
-  // still the right one to measure the card at.
+  // The result, three ways. The third is the HAND-OFF card — the win that ends
+  // the four basics and opens the two shops (meta.ts's schoolLadder) — and it
+  // is the widest of the three: its primary is a screen's own door with an icon
+  // in it ("Contract board →") and the ghost tower link renders beside it,
+  // where every other cleared lesson draws one button and a ghost. Three
+  // controls at their widest, on a card every player meets exactly once.
   "lesson-end-won": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]) })
     + S.lessonEndModal({
-      won: true, name: LESSONS[0].name, index: 0, total: LESSON_COUNT,
-      brief: LESSONS[0].brief, lines: 1, shotsUsed: 3, launches: 0, licence: false,
+      won: true, name: LESSONS[0].name, step: lessonStep(0), total: SCHOOL_STEPS,
+      brief: LESSONS[0].brief, lines: 1, shotsUsed: 3, launches: 0, next: "lesson",
     }),
   "lesson-end-lost": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) })
     + S.lessonEndModal({
-      won: false, name: LESSONS[8].name, index: 8, total: LESSON_COUNT,
-      brief: LESSONS[8].brief, lines: 1, shotsUsed: 22, launches: 22, licence: false,
+      won: false, name: LESSONS[8].name, step: lessonStep(8), total: SCHOOL_STEPS,
+      brief: LESSONS[8].brief, lines: 1, shotsUsed: 22, launches: 22, next: "lesson",
     }),
-  "lesson-end-licence": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) })
+  "lesson-end-licence": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[3]) })
     + S.lessonEndModal({
-      won: true, name: LESSONS[8].name, index: 8, total: LESSON_COUNT,
-      brief: LESSONS[8].brief, lines: 2, shotsUsed: 14, launches: 22, licence: true,
+      won: true, name: LESSONS[3].name, step: lessonStep(3), total: SCHOOL_STEPS,
+      brief: LESSONS[3].brief, lines: 2, shotsUsed: 14, launches: 0, next: "contract",
     }),
+  // …AND THE LAST LESSON'S, which hands over to the graduation flight rather
+  // than to a shop: same card, different sentence and a plain exit, and the
+  // sentence is the longest blurb this modal carries.
+  "lesson-end-exam": () => S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) })
+    + S.lessonEndModal({
+      won: true, name: LESSONS[8].name, step: lessonStep(8), total: SCHOOL_STEPS,
+      brief: LESSONS[8].brief, lines: 2, shotsUsed: 14, launches: 22,
+      next: "exam", lastLesson: true,
+    }),
+  // THE GRADUATION FLIGHT'S TWO ENDS (meta.ts's schoolLadder, rung 12). Both
+  // are the DEEP RUN's cards rather than a lesson's — the bay is Tier 1 bay 1 —
+  // so neither has ever been measured over a school HUD: the clear carries the
+  // one hint line in the app that is not "tap to continue", and the failure is
+  // the bay-1 diagnosis card without the tutorial's NEXT STEP block, which is
+  // the shortest that card ever renders and therefore the layout its foot has
+  // to survive.
+  "exam-clear": () => S.hudHTML({ ...HUD_TUTORIAL, contract: null })
+    + S.bayClearScreen({
+      bayNum: 1, bayName: BAY_1.name, funds: 1_120, target: BAY_1.targetScore,
+      lines: 11, scrap: 18,
+      hint: "Licence earned — Tier 1 is open · tap to continue",
+    }),
+  "exam-fail": () => S.hudHTML({ ...HUD_TUTORIAL, contract: null })
+    + S.examFailHTML("broke", BAY_1, BAY_1.name, SCHOOL_STEPS, SCHOOL_STEPS),
 
   // The two run-screen intros, over the screens they describe. Both carry two
   // paragraphs, which is the most copy any modal in the app holds — these and

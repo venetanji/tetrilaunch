@@ -772,6 +772,35 @@ export function levelForRun(run: RunState): LevelConfig {
   return cfg;
 }
 
+/**
+ * THE GRADUATION FLIGHT'S BAY — the ground floor's twelfth step (meta.ts's
+ * schoolLadder), and the last thing between a player and Tier 1.
+ *
+ * It is a REAL Tier 1 bay 1, not a lesson dressed as one: the owner's call is
+ * that "bay 10 is just the regular game equivalent of tier 1 bay 1". Full
+ * economy, the shift clock, the spill fine, an ordinary seeded 7-bag, and the
+ * rig the school's sixth step just bought, aboard.
+ *
+ * BUILT BY THE RUN'S OWN PIPELINE, not beside it. `makeBaseLevel(0, 1)` with
+ * `applyUpgrades` on top is the same config today and would be the same config
+ * only until the next layer lands on levelForRun — a Skydeck economy pass, a
+ * ratchet default, a bond-charge seam — at which point the exam would quietly
+ * stop being the bay it advertises. preview.ts settled this argument for the
+ * draft's projection ("a projection that models numbers separately from the
+ * game would eventually lie"), and an exam is a projection of the first bay.
+ *
+ * So the run state here is a THROWAWAY: a bay-1 run at Mark 1 with no
+ * ratchets, no final clause, no carry and no scrap, built only to be read
+ * once. Nothing holds it — main.ts flies this config with `this.run` null, so
+ * no refit stop, no draft, no seal and no run record can attach to a bay that
+ * is not a run. sim/systems.ts pins the config field by field against the
+ * hand-built bay, which is what keeps that claim measurable rather than
+ * asserted.
+ */
+export function levelForGraduation(loadout: UpgradeTiers = newTiers()): LevelConfig {
+  return levelForRun(newRun(0, [], 0, loadout, 1));
+}
+
 /** Cap on the carry-over banked into the next bay's float (see advanceRun).
  *
  *  An UNCAPPED carry was the deep-run exploit: one blowout bay (or one well-

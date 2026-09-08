@@ -1276,10 +1276,62 @@ body.crt-off #app::after { display: none; }
      the box is exactly `min(100%, 620px)` until .tower--lobby raises them. */
   --tower-lobby-h: 22px;
   --tower-lobby-extra: 0px;
-  align-self: center;
-  height: calc(min(100%, 620px) + var(--tower-lobby-extra));
+  /* THE BUILDING STANDS ON THE GROUND, not in the middle of the row.
+     `align-self: center` split the leftover evenly above and below the box —
+     fine while the box was one height, and wrong the moment the entrance made
+     it two: the 50px the ground floor takes while the school is unfinished was
+     split with it, so the plate sank 25px BELOW the last button of the shelf on
+     its left and the rail on its right (owner screenshot, desktop). The tower
+     is the middle column of three that are read as one row of controls, and the
+     one thing all three share is the line their last control sits on.
+     `flex-end` puts the extra where it belongs — up, into the menu's own top
+     padding, which is slack — and the eleven rungs keep every pixel of their
+     44px arithmetic either way, because the extra was never taken out of the
+     shaft (see .tower--lobby).
+     UNCONDITIONALLY, and not only while the entrance is drawn: a window tall
+     enough for the 620px cap to bind has leftover in exactly the same way, and
+     a tower that sat on the line in one state and floated in the other would be
+     two rules for one column. */
+  align-self: flex-end;
+  /* HOW FAR THE BOX MAY RISE ABOVE ITS ROW, which is a question `align-self:
+     center` never had to ask: it split the entrance's 50px between the padding
+     above the menu row and the padding below it, and 25px fits in both
+     everywhere. All 50 of it goes upward now, and the menu's own padding is
+     `clamp(20px, 4vw, 60px)` — i.e. 32px on an 800x600 window, where the
+     unbounded rise pushed the headhouse 17px clean off the top of the glass
+     (measured, sim/uifit). So the rise is bounded by the padding that actually
+     exists, less 6px of guard for a notch's inset.
+     THE HEIGHT IS THE SMALLER OF TWO BOXES, and the second term is the one that
+     matters: where the 620px cap binds, the row is taller than the whole box
+     and the first term cannot bite, so the plate takes its full 50px and the
+     eleven rungs pay nothing — the property .tower--lobby's note is about. Only
+     where `100%` binds does the rise get clipped to the headroom, and there the
+     shaft covers the difference, which is the same trade the phone tier makes
+     outright and for the same reason. */
+  --tower-lobby-rise: max(0px, calc(clamp(20px, 4vw, 60px) - 6px));
+  height: min(
+    calc(100% + var(--tower-lobby-rise)),
+    calc(min(100%, 620px) + var(--tower-lobby-extra))
+  );
   display: flex; flex-direction: column; align-items: stretch;
 }
+/* NO CAR WHILE THE SCHOOL IS UNFINISHED (screens.ts's tierTowerHTML sets
+   `tower--lobby` off `licensed`).
+   The lift serves the LADDER, and while the ground floor is owed there is no
+   ladder to serve: every Mark in the shaft is locked, the only control in the
+   building is the plate at its foot, and a car parked in a shaft nobody may
+   ride reads as a floor the player has somehow already reached. So the shaft
+   draws its rail and its floors and no car at all, and the car ARRIVES at
+   graduation — parked on Mark 1, which is the first Deep Run and the thing the
+   whole ladder was for. That arrival is the tower's existing ceremony
+   (.tower--rising) when one is owed, and simply the car being there when one is
+   not.
+   Drawn away rather than not emitted, because the car is one node the ride
+   animates and the in-place elevator update writes a lane onto (main.ts's
+   pickTier): removing it from the markup in one state would leave both of those
+   asking for an element that is sometimes absent. `display: none` is the same
+   statement with none of that. */
+.tower--lobby .tower__car { display: none; }
 /* THE ENTRANCE — the tower while the licence is owed (screens.ts's
    tierTowerHTML sets the class off `licensed`, never off the selection).
    Every Mark in the shaft is locked in this state, so the ground floor is the
@@ -1308,10 +1360,14 @@ body.crt-off #app::after { display: none; }
    clear it. Adding to the box is the same idea applied where the height
    actually comes from.
 
-   The box grows symmetrically (`align-self: center`), so it spends 25px of the
-   menu's own block padding at each end. That padding is 32-60px on every
-   viewport this rule reaches; the phone tier, where it is 6px, is excluded —
-   see the @media (max-height: 460px) block. */
+   The box grows UPWARD (`align-self: flex-end` on .tower), so all 50px of it
+   comes out of the menu's own top padding and the plate's bottom stays on the
+   line the shelf's and the rail's last buttons sit on. It used to grow
+   symmetrically under `align-self: center`, which spent 25px at each end — and
+   the 25px at the bottom is what sank the entrance below both neighbouring
+   columns on a desktop window (owner screenshot). The padding this now spends
+   is 32-60px on every viewport this rule reaches; the phone tier, where it is
+   6px, is excluded — see the @media (max-height: 460px) block. */
 .tower--lobby {
   --tower-lobby-h: clamp(44px, 13%, 72px);
   --tower-lobby-extra: 50px;
@@ -1802,10 +1858,11 @@ body.crt-off #app::after { display: none; }
    would have made the ground floor the loudest label in the building. 11 is
    where it reads as one of them. */
 .tower--lobby .tower__base-txt { font-size: 11px; letter-spacing: 0.02em; }
-/* ONE SOCKET PER LESSON, drawn as the building's windows are (.tower__windows):
-   a dark socket until the lesson lands, then lit. Squared off the ladder's
-   length by screens.ts rather than pinned at three columns, because the licence
-   is four lessons and the full ladder is nine. */
+/* ONE SOCKET PER LADDER STEP, drawn as the building's windows are
+   (.tower__windows): a dark socket until the step lands, then lit. Squared off
+   the ladder's length by screens.ts rather than pinned at three columns —
+   twelve steps is a 4x3 block (22x16 at 4px cells on a 2px gap), where the
+   four-lesson licence was 2x2 and the nine-bay ladder 3x3. */
 .tower__sockets {
   flex: none; display: grid;
   grid-template-columns: repeat(var(--socket-cols, 3), 4px);

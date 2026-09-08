@@ -278,6 +278,21 @@ export interface InstallDef {
   requiresMark?: number;
 }
 
+/** THE ONE SYSTEM THE SCHOOL SELLS — rung 6 of the ground floor
+ *  (schoolLadder). The Reactor and not "the cheapest install", because the
+ *  school's shelf shows exactly this card and nothing else (screens.ts's
+ *  workshopScreen), so the rung and the merchandise have to be the same
+ *  statement.
+ *
+ *  It is also why the Deep Run's door can stay gated on ANY system
+ *  (`rigStarted`) rather than on this one. That gate's whole argument was that
+ *  naming the Reactor would make the Launcher a trap — same 15 salvage, spent
+ *  legally in the shop the step had just pointed at, door still shut. A shelf
+ *  with one card on it cannot spring that trap, so the wider gate costs nothing
+ *  and keeps working for the saves that reached it the old way (a Launcher-only
+ *  rig from before this ladder). */
+export const SCHOOL_INSTALL: UpgradeId = "reactor";
+
 export const INSTALLS: InstallDef[] = [
   // PRICES, re-derived. The old comment here justified them against "three
   // tier-1 Contracts pay 18" — which has not been true for some time: a tier's
@@ -863,35 +878,200 @@ export function markUnlocked(meta: MetaState): number {
   return Math.min(MARK_COUNT, meta.mark + 1);
 }
 
-/** Has the player earned their licence — every Flight School lesson cleared?
- *  The ground floor's own completion, and the gate on Tier 1. */
-export function licenceDone(meta: MetaState): boolean {
+/* -------------------------------------------------------------------------
+ * THE GROUND FLOOR'S LADDER — twelve steps, one number.
+ *
+ * The ground floor used to be four lessons and a door: clear the basics, and
+ * Tier 1 opened behind an on-ramp that ran through the Contract board and the
+ * Workshop on trust. The owner's call is that the on-ramp is not a suggestion
+ * but the rest of the school — "to finish the school and unlock tier 1 the user
+ * must complete 1 contract, get salvage and spend it in the workshop then can
+ * enter the 5-9 classes, bay 10 is just the regular game equivalent of tier 1
+ * bay 1". So the two shop visits are RUNGS now, and the ladder is:
+ *
+ *    1-4   the four basics lessons              (game/school.ts's LESSONS)
+ *    5     one Contract, cleared                (contracts.ts's schoolContract)
+ *    6     one system installed                 (the Reactor — see INSTALLS)
+ *    7-11  the five advanced lessons
+ *    12    the GRADUATION FLIGHT — a real Tier 1 bay 1 (run.ts's
+ *          levelForGraduation), flown with the rig step 6 bought.
+ *
+ * TWELVE STEPS, TEN FLIGHTS, ONE COUNT. `meta.licence` stays what it has always
+ * been — a monotone count of FLIGHTS cleared, 0..SCHOOL_FLIGHTS — and the two
+ * shop steps are DERIVED from the state that already records them
+ * (`claimedContracts`, `ownedTracks`). That is the choice this file had to
+ * make, and the alternative was worse in a specific way: making `licence` the
+ * step count would have forced recordLesson to map a lesson index onto a
+ * discontinuous ladder (0..3 -> 1..4, 4..8 -> 7..11), so a save's one progress
+ * number would no longer be readable as "which lesson am I on" by the picker,
+ * the migration or the sim. A flight count stays legible; the ladder is a
+ * function of it plus two facts the save already holds.
+ *
+ * The derivation is monotone in practice and forced to be at the top: nothing
+ * un-claims a Contract and nothing sells a system back, but `tierContracts`
+ * DOES reset when a tier completes, which is why the Contract rung reads
+ * `claimedContracts` (never reset) rather than the tier counter, and why a
+ * graduated save short-circuits to a full ladder rather than re-deriving one.
+ * ---------------------------------------------------------------------- */
+
+/** Flights on the ground floor: the nine lessons plus the graduation bay.
+ *  `meta.licence` counts these, and only these. */
+export const SCHOOL_FLIGHTS = LESSON_COUNT + 1;
+
+/** Steps on the ground floor: the flights plus the Contract and the Workshop.
+ *  The denominator EVERY "N of M" about the school prints — the plate's
+ *  sockets, the lobby's panel, the primary's subtitle, the card riding a bay
+ *  and its result — because they all read schoolLadder below. */
+export const SCHOOL_STEPS = SCHOOL_FLIGHTS + 2;
+
+/** The flight index the graduation bay occupies — one past the last lesson.
+ *  recordLesson takes it like any other rung, which is what keeps ONE write
+ *  path into `licence`. */
+export const GRADUATION_FLIGHT = LESSON_COUNT;
+
+/** What a rung of the ladder asks for. */
+export type SchoolStepKind = "lesson" | "contract" | "workshop" | "exam";
+
+export interface SchoolStep {
+  /** 1-based position on the ladder, out of SCHOOL_STEPS. */
+  step: number;
+  kind: SchoolStepKind;
+  /** The flight index this rung flies (school.ts's LESSONS, or
+   *  GRADUATION_FLIGHT), or null on the two shop rungs. */
+  flight: number | null;
+  /** Cleared. */
+  done: boolean;
+  /** Reachable right now — every rung before it is done. A rung that is done
+   *  is always open (re-flying a lesson, re-opening a shop). */
+  open: boolean;
+}
+
+/** Where the ladder's Contract rung stands.
+ *
+ *  `claimedContracts` and not `tierContracts`, because the tier counter is
+ *  RESET by advanceTier — a rung derived from it would walk backwards the day
+ *  the player completes their first tier. A claimed id is forever (it is the
+ *  monetization invariant the field exists for), so this is the one fact in the
+ *  save that can carry a rung. */
+export function schoolContractDone(meta: MetaState): boolean {
+  return (meta.claimedContracts ?? []).length > 0;
+}
+
+/** The four basics — the rungs nothing gates. Cleared, the Contract board and
+ *  the Workshop open together (screens.ts's menuScreen). */
+export function basicsDone(meta: MetaState): boolean {
   return meta.licence >= LICENCE_LESSON_COUNT;
 }
 
 /**
- * How many lessons the player is currently working THROUGH — the denominator
- * every "N of M" about Flight School has to agree on.
+ * THE LADDER'S SHAPE — its rungs, in order, with no save attached.
  *
- * The ladder is nine bays but the LICENCE is the first four; the rest are
- * advanced practice that stays open once Tier 1 does. So the count a player is
- * shown is not a constant, and every surface that prints one has to ask the
- * same question: the lobby's plate, the play button's subtitle, the card riding
- * the bay, and the result. They did not — the menu was rendered against four
- * and the elevator's in-place rewrite against nine, so tapping a floor turned
- * "4 short lessons" into "9", and the card over the first bay read "1/9" under
- * a menu that had just promised four.
+ * A constant rather than something schoolLadder builds each call, because two
+ * kinds of caller need it and only one of them has a MetaState: ui/screens.ts
+ * draws the plate's sockets, the lobby's pip track and the lesson card's
+ * eyebrow from a uifit fixture that is two numbers. Handing the shape out
+ * separately is what keeps those surfaces from re-deriving "which rung is the
+ * Workshop" locally, which is the drift this whole block exists to prevent.
  */
-export function schoolLength(meta: MetaState): number {
-  return licenceDone(meta) ? LESSON_COUNT : LICENCE_LESSON_COUNT;
+export const SCHOOL_LADDER: readonly {
+  step: number; kind: SchoolStepKind; flight: number | null;
+}[] = [
+  ...Array.from({ length: LICENCE_LESSON_COUNT }, (_, i) => (
+    { step: i + 1, kind: "lesson" as const, flight: i }
+  )),
+  { step: LICENCE_LESSON_COUNT + 1, kind: "contract", flight: null },
+  { step: LICENCE_LESSON_COUNT + 2, kind: "workshop", flight: null },
+  ...Array.from({ length: LESSON_COUNT - LICENCE_LESSON_COUNT }, (_, i) => (
+    { step: LICENCE_LESSON_COUNT + 3 + i, kind: "lesson" as const, flight: LICENCE_LESSON_COUNT + i }
+  )),
+  { step: SCHOOL_STEPS, kind: "exam", flight: GRADUATION_FLIGHT },
+];
+
+/** Where a FLIGHT sits on the ladder, 1-based — what the lesson card's eyebrow
+ *  and its result print ("Flight School · 7/12"). The two shop rungs are what
+ *  make this not simply `index + 1`. */
+export function schoolStepOfFlight(flight: number): number {
+  return SCHOOL_LADDER.find((s) => s.flight === flight)?.step ?? 1;
 }
 
-/** Record a lesson cleared. Monotone: the ladder is an order, so finishing
- *  lesson 3 means lessons 1 and 2 are behind you whether or not this save
- *  watched them happen — which is what makes replaying one from How to Play
- *  free rather than a way to lose progress. Never mutates. */
+/**
+ * THE LADDER, in order, with each rung's state.
+ *
+ * The ONE function every surface that draws the ground floor reads: the tower's
+ * socket grid, the lobby panel's pip track, the primary's subtitle, the lesson
+ * card's eyebrow and the lesson result's. They disagreed once before — the menu
+ * counted four while the elevator's in-place rewrite counted nine, so tapping a
+ * floor turned "4 short lessons" into "9" — and the fix then was to route them
+ * through one accessor. This is that accessor with two more rungs on it.
+ */
+export function schoolLadder(meta: MetaState): SchoolStep[] {
+  const graduated = meta.licence >= SCHOOL_FLIGHTS;
+  const done = (rung: (typeof SCHOOL_LADDER)[number]): boolean => {
+    if (graduated) return true;
+    if (rung.kind === "contract") return schoolContractDone(meta);
+    if (rung.kind === "workshop") return rigStarted(meta);
+    return meta.licence > (rung.flight ?? 0);
+  };
+  // The first rung that is NOT done shuts every rung after it. A running flag
+  // rather than a per-rung predicate, because the ladder is an ORDER and an
+  // order stated twice is an order that can disagree with itself. A rung that
+  // is done stays open whatever happened before it — re-flying a cleared lesson
+  // and re-opening a shop are both real things to want.
+  let reached = true;
+  return SCHOOL_LADDER.map((rung) => {
+    const cleared = done(rung);
+    const open = reached || cleared;
+    if (!cleared) reached = false;
+    return { ...rung, done: cleared, open };
+  });
+}
+
+/** Steps of the ladder cleared — the numerator of every "N of M". */
+export function schoolProgress(meta: MetaState): number {
+  return schoolLadder(meta).filter((s) => s.done).length;
+}
+
+/** The rung the ladder is asking for, or null once the school is finished. */
+export function schoolNextStep(meta: MetaState): SchoolStep | null {
+  return schoolLadder(meta).find((s) => !s.done) ?? null;
+}
+
+/** Has the player earned their licence — the whole ground floor, ending with
+ *  the graduation flight? The gate on Tier 1.
+ *
+ *  IT MOVED, and this is the change: it used to mean "the four basics are
+ *  behind you", with the Contract and the shop left to an on-ramp the player
+ *  could walk past. Every caller that reads it means "may this save fly a Deep
+ *  Run", and that is now the top of the ladder rather than a third of the way
+ *  up it. The four-basics question is `basicsDone` above, and the two callers
+ *  that genuinely wanted THAT — the doors on Contracts and the Workshop, and
+ *  the write that retires the old coach — ask for it by name. */
+export function licenceDone(meta: MetaState): boolean {
+  return meta.licence >= SCHOOL_FLIGHTS;
+}
+
+/**
+ * The denominator every "N of M" about the ground floor has to agree on.
+ *
+ * A CONSTANT now, where it used to answer four while the licence was owed and
+ * nine once it was held. That split existed because the ladder had a short
+ * required prefix and a long optional tail; it has neither any more — all
+ * twelve steps are required, in order, before Tier 1 opens — so the honest
+ * answer is the ladder's length and there is nothing left for the function to
+ * branch on. Kept as a function because every caller already asks it, and
+ * because the day the ladder grows a rung is the day one number should move.
+ */
+export function schoolLength(_meta: MetaState): number {
+  return SCHOOL_STEPS;
+}
+
+/** Record a FLIGHT cleared — a lesson, or the graduation bay at
+ *  GRADUATION_FLIGHT. Monotone: the ladder is an order, so finishing lesson 3
+ *  means lessons 1 and 2 are behind you whether or not this save watched them
+ *  happen — which is what makes replaying one from How to Play free rather than
+ *  a way to lose progress. Never mutates. */
 export function recordLesson(meta: MetaState, index: number): MetaState {
-  const done = Math.min(LESSON_COUNT, Math.max(0, Math.floor(index) + 1));
+  const done = Math.min(SCHOOL_FLIGHTS, Math.max(0, Math.floor(index) + 1));
   return done > meta.licence ? { ...meta, licence: done } : meta;
 }
 
@@ -1426,30 +1606,34 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * Exactly one surface ever carries the badge, and this is the rule that
  * picks it, stated once so the menu, the Workshop and the fail card can
  * never point at different doors:
- *   licence still owed                    -> Flight School
- *   ON-RAMP (no run flown yet):
- *     no system installed, salvage short  -> Contracts (earn the salvage)
- *     no system installed, salvage covers -> Workshop (install it)
- *     a system installed                  -> Deep Run (the first exam)
+ *   the ground floor still owed          -> its own rung (see below)
  *   salvage covers an installable system  -> Workshop (spend it)
  *   ladder finished, Marks still unsealed -> seal one (a Deep Run, clean)
  *   contracts still owed this tier        -> Contracts (earn it)
  *   otherwise                             -> Deep Run (the exam)
  *
- * THE ON-RAMP RUNS THROUGH THE SHOP, and it did not used to. The old order
- * sent a fresh licence straight at a Deep Run ("let the mechanics acquire
- * meaning before the meta loop"), which put a stock rig into a ten-bay run
- * whose refit stops are all EMPTY: the yard raises tracks the ship already
- * carries and refuses tier 0 (run.ts's buyUpgrade), so a player with nothing
- * installed walked into a shop with nothing on the shelves, three times.
- * The owner's report is exactly that — "confusing to get to the refit shop
- * with nothing to upgrade". So the first system is bought BEFORE the first
- * run, and the run's door is shut until it is (screens.ts's tierOpen).
+ * THE GROUND FLOOR IS THE WHOLE ON-RAMP NOW, and it is walked rung by rung
+ * (schoolLadder above) rather than inferred from salvage. The old on-ramp was
+ * this rule's own arithmetic — "no system installed and the salvage short ->
+ * Contracts; salvage covers it -> Workshop; a system installed -> the first
+ * run" — which got the ORDER right and left the player free to walk past it:
+ * every one of those doors was open, badged or not, and the Deep Run's own was
+ * shut by a predicate (`rigStarted`) rather than by a lesson. The owner's call
+ * is that the order should be the school's, so the four branches collapse into
+ * one: while the ground floor owes a rung, the step IS that rung.
  *
- * The arithmetic is what makes it a step and not a grind: a tier pays 60
- * across four milestones, so ONE first-clear Contract banks 15 and 15 is
- * exactly an entry install (INSTALLS' note on the two 15s). One card off the
- * first board buys the first system.
+ * The arithmetic that made it a step and not a grind is unchanged and is what
+ * lets rung 5 pay for rung 6: a tier pays 60 across four milestones, so ONE
+ * first-clear Contract banks 15 and 15 is exactly an entry install (INSTALLS'
+ * note on the two 15s). The school's board is one card, and that card is the
+ * one that buys the Reactor.
+ *
+ * A system is still bought BEFORE the first run, for the reason that reform
+ * shipped for: a Deep Run has three refit stops, the yard raises tracks the
+ * ship already carries and refuses tier 0 (run.ts's buyUpgrade), so a stock rig
+ * docked three times at empty shelves — the owner's report verbatim ("confusing
+ * to get to the refit shop with nothing to upgrade"). What changed is that the
+ * purchase is a rung of the school rather than a suggestion beside it.
  *
  * THE SEAL STEP IS WHAT THE ENDGAME WAS MISSING. The Contracts branch reads
  * "this tier still owes clears", which is a live objective for nine tiers
@@ -1497,32 +1681,35 @@ export function rigStarted(meta: MetaState): boolean {
 }
 
 export function nextStep(meta: MetaState): NextStepId {
-  // THE LICENCE IS ASKED FIRST, and nothing below it can win while it is owed.
-  // The branches under this one all name a door that Tier 1 opens — a Workshop
-  // that spends salvage a run has to earn, a Contract board filed against a
-  // tier, the run itself — so pointing at any of them before the ground floor
-  // is cleared would send a first-time player at a locked button.
-  if (!licenceDone(meta)) return "licence";
-  // THE ON-RAMP, in one block, and it ends at the first run rather than
-  // starting there — see the header. Guarded on `runs === 0` so it is the
-  // opening move and nothing else: once a run has been flown the general rule
-  // below is the whole rule, and a later save that somehow owns no system
-  // (nothing can produce one today) is answered by that rule's own Workshop
-  // branch rather than by a second on-ramp years into a ladder.
-  if (meta.runs === 0) {
-    if (!rigStarted(meta)) {
-      // The board is the FIRST answer, and it is the one that says why: the
-      // Workshop with an empty wallet is a shelf of prices, and a step that
-      // points at it before there is anything to spend is a step that reads as
-      // "go and look at what you cannot have".
-      const entry = cheapestInstall(meta);
-      return entry && meta.salvage >= entry.cost ? "workshop" : "contracts";
-    }
-    // A rig, no run: the exam is the step. The tier's other Contracts are
-    // still owed and the general rule would say so, but the first Deep Run is
-    // the thing the on-ramp has been building toward and it outranks them.
-    return "run";
+  // THE GROUND FLOOR IS ASKED FIRST, and nothing below it can win while it owes
+  // a rung. The branches under this one all name a door that Tier 1 opens — a
+  // Workshop spending salvage a RUN has to earn, a Contract board filed against
+  // a tier's quota, the run itself — so pointing at any of them before the
+  // school is finished would send a first-time player at a locked button.
+  //
+  // The rung IS the answer, taken straight off the ladder rather than
+  // re-derived here, so the badge on the menu and the plate on the tower are
+  // the same statement. The two shop rungs map onto the two doors they are;
+  // both lesson rungs and the graduation flight map onto the ground floor.
+  if (!licenceDone(meta)) {
+    const rung = schoolNextStep(meta);
+    if (rung?.kind === "contract") return "contracts";
+    if (rung?.kind === "workshop") return "workshop";
+    return "licence";
   }
+  // A GRADUATE WHO HAS NOT FLOWN A RUN IS POINTED AT ONE. The whole of the old
+  // on-ramp block lived here — earn, spend, then fly — and the school now does
+  // all three above, so what is left of it is its last line: the exam is the
+  // step. The tier's other Contracts are still owed and the general rule below
+  // would say so, but the first Deep Run is the thing the ladder has been
+  // building toward and it outranks them.
+  //
+  // GUARDED ON THE RIG, because this rule must never name a door tierOpen
+  // refuses. A graduate with a stock ship is only ever a save from before this
+  // ladder — rung 6 is what installs the first system — and lib/store.ts
+  // grandfathers those; they fall through to the general rule below, which is
+  // exactly where they landed before the school grew its shops.
+  if (meta.runs === 0 && rigStarted(meta)) return "run";
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
   // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame

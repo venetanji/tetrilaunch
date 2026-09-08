@@ -652,6 +652,17 @@ export function lessonSeed(index: number): number {
   return 0x5c400 + index;
 }
 
+/** The GRADUATION FLIGHT's seed — the ladder's tenth flight (meta.ts's
+ *  GRADUATION_FLIGHT), on the same fixed idiom every lesson uses and for the
+ *  sharper version of the same reason. That bay deals an ordinary seeded 7-bag
+ *  onto an empty floor with a live clock and a live bankroll, so it is the one
+ *  flight on the ladder whose difficulty a reroll could genuinely change — and
+ *  an exam you can reroll until it is easy is not an exam. One index past the
+ *  last lesson, so the ten flights hold ten distinct seeds. */
+export function graduationSeed(): number {
+  return lessonSeed(LESSONS.length);
+}
+
 /**
  * WHERE THIS BAY'S SHIPMENT GOES — the cells the renderer paints a landing
  * target on (LevelConfig.landingTarget, render.ts's drawLandingTarget).

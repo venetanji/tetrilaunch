@@ -442,30 +442,46 @@ spill fine — the Contract stripping, unchanged — so its only currency is the
 launch budget, and its only ledger entry is the milestone. What escalates with
 the tier is the ask (1, then 2, then 3 timed crushes in a row), never the pay.
 
-### The on-ramp's arithmetic: one Contract buys one system
+### The school's arithmetic: one Contract buys one system
 
-The 15 is load-bearing and it is why the shop now sits *before* the first Deep
-Run rather than after it. The chain, in the game's own numbers:
+The 15 is load-bearing and it is why the shop is a *step of Flight School*
+rather than a suggestion beside it. The chain, in the game's own numbers, and it
+is now the ground floor's rungs 5 and 6 (`meta.ts`'s `SCHOOL_LADDER`):
 
 | step | pays / costs | running salvage |
 | --- | --- | --- |
-| Flight School (4 lessons) | — | 0 |
-| 1st Contract first clear, tier 1 | `tierMilestoneSalvage(1)` = ⌊60/4⌋ = **+15** | **15** |
-| Reactor Output *or* Launcher Coils | **−15** | 0 |
-| Deep Run at Tier 1 | door opens on any install | — |
+| 1–4 the basics lessons | — | 0 |
+| 5 the school's Contract, first clear, tier 1 | `tierMilestoneSalvage(1)` = ⌊60/4⌋ = **+15** | **15** |
+| 6 Reactor Output — the only card on the shelf | **−15** | 0 |
+| 7–11 lessons 5–9, 12 the graduation flight | — | 0 |
+| Deep Run at Tier 1 | door opens on graduation | — |
 
-`DAILY_COUNT` = 3 cards a board, so the first system is affordable **inside the
-first board** — one card, not one week — and the remaining two cards of that
-same board carry the tier's other two Contract milestones. No price moved to
-make this true: `TIER_SALVAGE_BASE` = 60 over `TIER_CONTRACTS_REQUIRED + 1` = 4
-milestones has been 15 since the 2026-08-09 deadlock, and `INSTALLS` has kept
-two entry systems at exactly 15 ever since ("15 is one milestone, so a player's
-first cleared Contract buys their first system"). The re-order simply stops the
-player from being sent past the shop on their way in.
+The school's board is **one card**, not three, so the first system is affordable
+off the only Contract this player can be dealt. No price moved to make this
+true: `TIER_SALVAGE_BASE` = 60 over `TIER_CONTRACTS_REQUIRED + 1` = 4 milestones
+has been 15 since the 2026-08-09 deadlock, and `INSTALLS` has kept two entry
+systems at exactly 15 ever since ("15 is one milestone, so a player's first
+cleared Contract buys their first system"). What changed is that the player can
+no longer be sent past the shop on their way in — the shop is on the ladder.
+
+The card is filed at **tier 1** (`contracts.ts`'s `SCHOOL_CONTRACT_TIER`), so
+its clear banks a tier-1 milestone and ticks a tier-1 half exactly as any
+Contract does; the ladder spends the salvage and the tier keeps the tick. Its id
+carries a fixed seed rather than the day's, which buys two things: the clear is
+banked forever rather than until midnight, and `claimedContractsOnDay` — which
+counts by the day's prefix — never sees it, so a free account's three daily
+clears are all still there on the day the player graduates.
+
+Wallet-wise the school ends where it started: **0 salvage, one system owned.**
+That is deliberate and it is why the Workshop's shelf stays one card for the
+whole school — after rung 6 there is nothing left to earn until the daily board
+opens, so a full shelf would be a wall of prices against an empty wallet.
 
 The Deep Run's door is gated on **any system installed**, not on the Reactor —
 both entry installs cost the same 15, so naming one would turn the other into a
-trap. The residue is handled downstream rather than by narrowing the gate: at
+trap. (The school's shelf sells only the Reactor, so inside the ladder the two
+predicates coincide; the wider gate is what keeps saves that reached it the old
+way — a Launcher-only rig — working.) The residue is handled downstream rather than by narrowing the gate: at
 Mark 1 the yard sells only the Reactor track (`refitTracks`), so a Launcher-only
 rig's stops have nothing on the shelves — and a stop with nothing to sell is
 **skipped**, not opened (`run.ts`'s `refitAfterBay`).

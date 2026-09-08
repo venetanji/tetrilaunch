@@ -1,10 +1,11 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
 import { BOARD_SANDBOX, type BoardId } from "./api";
 import {
-  newMeta, ownedTracks, refundRetiredUnlocks, SLOT_BASE, SLOT_CAP, type MetaState,
+  newMeta, ownedTracks, refundRetiredUnlocks, SCHOOL_FLIGHTS, SLOT_BASE, SLOT_CAP,
+  type MetaState,
 } from "../game/meta";
 import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
-import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "../game/school";
+import { LICENCE_LESSON_COUNT } from "../game/school";
 
 export interface Settings {
   sound: boolean;
@@ -303,16 +304,41 @@ export function loadMeta(): MetaState {
       || meta.salvage > 0 || meta.unlocks.length > 0
       || meta.claimedContracts.length > 0 || meta.tierContracts > 0
       || loadSettings().seenTutorial;
+    // …AND THE SAVE THAT ALREADY PASSED THE OLD GATE. `licence` used to be a
+    // count of LESSONS with the door at four of them, and it is a count of
+    // FLIGHTS with the door at ten now (meta.ts's SCHOOL_FLIGHTS) — so a save
+    // written by the old build carrying, say, 6 would read as "six of the
+    // twelve steps done, Tier 1 shut" for a player who has been flying Deep
+    // Runs. Nobody's ladder goes backwards: a save that held the old licence
+    // AND had walked the old on-ramp — a system installed, or a run filed — has
+    // done everything the new ladder asks and more, so it graduates.
+    //
+    // The two terms are the two halves of the old door: `rigStarted` is the
+    // predicate tierOpen has always asked for the ship, and a filed run is
+    // proof the door was open at the time. A save with the old licence and
+    // NEITHER never got past the on-ramp either, and it keeps its count — the
+    // new ladder puts it on exactly the rung it was already stuck on, which is
+    // the Contract board.
+    const walkedOn = meta.runs > 0 || meta.mark > 0 || ownedTracks(meta).length > 0;
     meta.licence = typeof rawLicence === "number" && Number.isFinite(rawLicence)
-      ? Math.min(LESSON_COUNT, Math.max(0, Math.floor(rawLicence)))
-      // THE LICENCE, NOT THE WHOLE LADDER. Granting LESSON_COUNT licensed a
-      // veteran and then parked the School's Play button on the LAST lesson
-      // (nextLessonIndex clamps to meta.licence), so a returning player who
-      // tapped the ground floor was dropped straight into Clutter — the fine
-      // and congestion bay — rather than at the top of the advanced five. The
-      // licence is what they have earned; the advanced exercises are ahead of
-      // them, exactly as they are for a graduate.
-      : (played ? LICENCE_LESSON_COUNT : 0);
+      ? (() => {
+        const held = Math.min(SCHOOL_FLIGHTS, Math.max(0, Math.floor(rawLicence)));
+        return held >= LICENCE_LESSON_COUNT && walkedOn ? SCHOOL_FLIGHTS : held;
+      })()
+      // THE WHOLE LADDER, for a save that predates the field entirely. This
+      // used to grant the four-lesson licence and no more, on the argument that
+      // "the advanced exercises are ahead of them, exactly as they are for a
+      // graduate" — true while those five were optional practice and false now
+      // that they are rungs between the player and Tier 1. A save with forty
+      // runs on it cannot be asked to clear a Contract, buy a Reactor it
+      // already owns and fly nine teaching bays to get its own game back.
+      //
+      // What that argument was actually protecting — the School's Play button
+      // dumping a returning player into Clutter, the fine-and-congestion bay —
+      // is handled where it belongs now: a finished ladder's primary opens at
+      // the TOP of the ladder rather than at its last rung (main.ts's
+      // nextFlightIndex).
+      : (played ? SCHOOL_FLIGHTS : 0);
     // ...AND THE LICENCE RETIRES THE COACH, on the migration path too. main.ts
     // sets seenTutorial when the fourth lesson lands; a grandfathered save never
     // passes through that, so a player with a dozen runs would have met the

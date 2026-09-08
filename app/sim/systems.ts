@@ -124,7 +124,9 @@ import {
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
-  cheapestInstall, recordLesson, rigStarted,
+  recordLesson, rigStarted, licenceDone, basicsDone,
+  schoolLadder, schoolProgress, schoolStepOfFlight, schoolNextStep,
+  SCHOOL_FLIGHTS, SCHOOL_STEPS, SCHOOL_LADDER, SCHOOL_INSTALL, GRADUATION_FLIGHT,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
   skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
   SLOT_BASE, SLOT_CAP, SLOT_PRICES, buySlot, isMounted, mountedIds, slotPrice, slotsFor,
@@ -132,7 +134,8 @@ import {
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay,
+  levelForRun, levelForGraduation,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
   tracksLadder, retryBreaksSeal, sealStateFor, quitLosesProgress, bayRetryable, retryIsWholeRun,
   thawChargesFor, type SealState,
@@ -159,6 +162,7 @@ import {
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
   SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
+  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET, budgetForTier,
   RACK_CEILING_CUBES, RACK_LIP_COLUMNS, RACK_MAX_DEPTH, RACK_PIECE, RACK_TRENCH_CELLS,
   SETPIECE_MIN_TIER, SETPIECE_SLACK_SHOTS, SETPIECE_SLOT, SETPIECE_SPARE_ROWS,
   isSetpieceSlot, rackDepthFor, rackLipColumns, rackProfile, setpieceConditions, setpieceDay,
@@ -170,7 +174,8 @@ import {
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
 import {
-  LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed, levelForLesson,
+  LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed,
+  levelForLesson, graduationSeed,
 } from "../src/game/school";
 import { lessonPictogramHTML } from "../src/ui/lessonart";
 import {
@@ -913,13 +918,19 @@ section("Installs — what salvage buys (meta.ts)");
   check("at least two systems need no Mark at all",
     INSTALLS.filter((i) => i.requiresMark === undefined).length >= 2);
 
-  // LICENSED BY DEFAULT, because every check below is about a branch UNDER the
-  // licence (meta.ts's nextStep asks for it first). "A fresh save" in the sense
-  // these checks mean it is a player at the start of the tier loop, which is
-  // someone who has finished Flight School — an unlicensed save has exactly one
-  // next step and it is the ground floor, which is pinned on its own below.
+  // GRADUATED BY DEFAULT, because every check below is about a branch UNDER the
+  // ground floor (meta.ts's nextStep asks the ladder first). "A fresh save" in
+  // the sense these checks mean it is a player at the start of the tier loop,
+  // which is someone who has finished the whole of Flight School — a save still
+  // on the ladder has exactly one next step and it is that ladder's own rung,
+  // which is pinned on its own below.
+  //
+  // SCHOOL_FLIGHTS and not LICENCE_LESSON_COUNT: the door moved from the fourth
+  // lesson to the twelfth step when the Contract and the Workshop became rungs,
+  // and a helper still spelling the old number would have quietly put every
+  // check in this section back inside school.
   const freshMeta = (over: Partial<MetaState> = {}): MetaState =>
-    ({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1, ...over });
+    ({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, ...over });
   const tooExpensiveForBudget = (m: MetaState, i: InstallDef): boolean =>
     tiersCost({ ...m.loadout, [i.id]: 1 }) > markBudget(m);
 
@@ -1053,58 +1064,127 @@ section("Installs — what salvage buys (meta.ts)");
     nextStep(newMeta()) === "licence");
   check("...and it stays the licence however much else is banked",
     nextStep({ ...newMeta(), salvage: 9_999 }) === "licence");
-  check("...and lifts the moment the fourth basic lands",
+  // THE GROUND FLOOR IS TWELVE STEPS AND TWO OF THEM ARE SHOPS, so the fourth
+  // basic no longer lifts this rule — it hands it to the Contract board and
+  // then to the Workshop, and only the twelfth step lifts it at all.
+  check("...and the fourth basic hands the step to the board, not to the run",
     nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT - 1 }) === "licence"
-      && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) !== "licence");
-  // THE ON-RAMP, WALKED WITH THE REAL FUNCTIONS. The old order sent a fresh
-  // licence straight at a Deep Run, which is a ten-bay run with three refit
-  // stops in it — and a rig with nothing installed docks at all three to find
-  // empty shelves, because a refit RAISES what the ship already carries and
-  // refuses tier 0. That is the owner's report ("confusing to get to the refit
-  // shop with nothing to upgrade"), and the fix is an ORDER, so an order is
-  // what is pinned: licence -> Contracts -> Workshop -> run.
-  //
-  // Driven through recordLesson / recordContractClear / buyInstall rather than
-  // by hand-setting salvage and a loadout, because the claim is arithmetic as
-  // much as it is routing: the walk only reaches the Workshop at all if one
-  // first clear really banks a milestone that really covers an entry install.
-  // Hand-set numbers would pin the routing and quietly stop measuring the price
-  // that makes this a step instead of a grind.
-  let ramp = newMeta();
-  for (let i = 0; i < LICENCE_LESSON_COUNT; i++) ramp = recordLesson(ramp, i);
-  check("a newly licensed pilot is sent to the Contract board to earn",
-    nextStep(ramp) === "contracts", nextStep(ramp));
-  const rampPaid = recordContractClear(ramp, { id: "ramp-1", tier: 1 }).meta;
-  check("...one first clear banks exactly the entry install's price",
-    rampPaid.salvage === tierMilestoneSalvage(1)
-      && rampPaid.salvage === (cheapestInstall(rampPaid)?.cost ?? -1),
-    `${rampPaid.salvage} vs ${cheapestInstall(rampPaid)?.cost}`);
-  check("...so the step becomes the Workshop, with the money in hand",
-    nextStep(rampPaid) === "workshop", nextStep(rampPaid));
-  const rampRigged = buyInstall(rampPaid, "reactor");
-  check("...and the first system points at the first run",
-    rampRigged !== null && nextStep(rampRigged) === "run",
-    rampRigged ? nextStep(rampRigged) : "purchase refused");
-  // THE GATE IS "ANY SYSTEM", NOT THE REACTOR, and this is the case that
-  // decides it: both entry installs cost 15, so a gate naming one would make
-  // the other a trap — the same salvage, spent legally in the shop the step had
-  // just pointed at, leaving the door shut and the wallet empty.
-  const rampLauncher = buyInstall(rampPaid, "launcher");
-  check("...whichever of the two entry systems the salvage went on",
-    rampLauncher !== null && nextStep(rampLauncher) === "run",
-    rampLauncher ? nextStep(rampLauncher) : "purchase refused");
-  // The control: salvage one short of the cheapest system is still the board's
-  // problem and not the shop's, which is what makes the Workshop branch above
-  // a measurement of the price rather than of the ordering alone.
-  check("...while a wallet short of any system stays on the board",
-    nextStep({ ...ramp, salvage: (cheapestInstall(ramp)?.cost ?? 15) - 1 }) === "contracts");
-  // The predicate the door asks (screens.ts's tierOpen reads it through
-  // TowerState.rigged), pinned beside the step that fills it so the two can
-  // never come to mean different things. Monotone: nothing sells a system back,
-  // so a door this opens never shuts again.
-  check("the rig gate is empty before the purchase and full after it",
-    !rigStarted(rampPaid) && rampRigged !== null && rigStarted(rampRigged)
-      && rampLauncher !== null && rigStarted(rampLauncher));
+      && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) === "contracts");
+
+  /* -------------------------------------------------------------------------
+   * THE LADDER, WALKED WITH THE REAL FUNCTIONS.
+   *
+   * The owner's call is that the on-ramp is not a suggestion beside the school
+   * but the rest of it: "to finish the school and unlock tier 1 the user must
+   * complete 1 contract, get salvage and spend it in the workshop then can
+   * enter the 5-9 classes, bay 10 is just the regular game equivalent of tier 1
+   * bay 1". An ORDER is the claim, so an order is what is pinned — and it is
+   * driven through recordLesson / recordContractClear / buyInstall rather than
+   * by hand-setting a licence, a wallet and a loadout, because the walk only
+   * REACHES the Workshop if one first clear really banks a milestone that
+   * really covers the one install on the school's shelf. Hand-set numbers would
+   * pin the routing and quietly stop measuring the price that makes rung 6 a
+   * step instead of a grind.
+   *
+   * Every rung is checked twice: shut one step early, open one step late.
+   * ---------------------------------------------------------------------- */
+  {
+    const doorsAt = (m: MetaState): string =>
+      schoolLadder(m).map((s) => (s.open ? "+" : "-")).join("");
+    let ramp = newMeta();
+    check("a fresh save opens exactly one rung of the ladder",
+      doorsAt(ramp) === "+-----------", doorsAt(ramp));
+    check("...and lesson 5 is shut before the basics are done",
+      schoolLadder(ramp).find((s) => s.flight === LICENCE_LESSON_COUNT)?.open === false);
+    for (let i = 0; i < LICENCE_LESSON_COUNT; i++) ramp = recordLesson(ramp, i);
+    check("the four basics open the Contract board and nothing past it",
+      nextStep(ramp) === "contracts" && doorsAt(ramp) === "+++++-------", doorsAt(ramp));
+    // ONE STEP EARLY: the shop is shut while the board is owed, and it is shut
+    // even with the money already in hand — the rung is the Contract's CLEAR,
+    // not its payout, which is the difference between a ladder and a wallet
+    // check.
+    check("...and the Workshop rung is shut until a card is actually cleared",
+      schoolLadder({ ...ramp, salvage: 999 }).find((s) => s.kind === "workshop")?.open === false);
+    check("...and lesson 5 with it",
+      schoolLadder({ ...ramp, salvage: 999 })
+        .find((s) => s.flight === LICENCE_LESSON_COUNT)?.open === false);
+
+    // Rung 5, flown through the real card the school's board deals.
+    const card = schoolContract();
+    check("the school's board deals ONE card, and it is a clean tier-1 lines job",
+      schoolBoard().length === 1 && card.kind === "lines" && card.tier === 1
+        && card.windMax === 0 && card.material === null,
+      `${schoolBoard().length} ${card.kind} t${card.tier} wind ${card.windMax}`);
+    check("...at a fixed seed, so it is the same card tomorrow",
+      schoolContract().id === card.id && !card.id.startsWith(`${dailySeed()}-`));
+    ramp = recordContractClear(ramp, card).meta;
+    check("...one clear banks exactly the school shelf's one price",
+      ramp.salvage === tierMilestoneSalvage(1)
+        && ramp.salvage === (installById(SCHOOL_INSTALL)?.cost ?? -1),
+      `${ramp.salvage} vs ${installById(SCHOOL_INSTALL)?.cost}`);
+    check("...so the step becomes the Workshop, with the money in hand",
+      nextStep(ramp) === "workshop" && doorsAt(ramp) === "++++++------", doorsAt(ramp));
+    check("...and lesson 5 is STILL shut, one step early",
+      schoolLadder(ramp).find((s) => s.flight === LICENCE_LESSON_COUNT)?.open === false);
+
+    // Rung 6.
+    const rigged = buyInstall(ramp, SCHOOL_INSTALL);
+    check("...the school's one install goes through on that exact milestone",
+      rigged !== null && rigged.salvage === 0, rigged ? String(rigged.salvage) : "refused");
+    ramp = rigged!;
+    check("...and lesson 5 opens one step late",
+      nextStep(ramp) === "licence" && doorsAt(ramp) === "+++++++-----", doorsAt(ramp));
+
+    // Rungs 7-11.
+    for (let i = LICENCE_LESSON_COUNT; i < LESSON_COUNT; i++) {
+      check(`...lesson ${i + 2} is shut until lesson ${i + 1} lands`,
+        i + 1 >= LESSON_COUNT
+          || schoolLadder(ramp).find((s) => s.flight === i + 1)?.open === false);
+      ramp = recordLesson(ramp, i);
+    }
+    check("the last lesson opens the graduation flight",
+      nextStep(ramp) === "licence" && doorsAt(ramp) === "++++++++++++"
+        && schoolNextStep(ramp)?.kind === "exam", doorsAt(ramp));
+    check("...and the Deep Run's door is still shut on the twelfth step",
+      !licenceDone(ramp)
+        && !S.tierOpen({
+          unlocked: 1, selected: 1, skydeck: false, contracts: 0,
+          licensed: licenceDone(ramp), rigged: rigStarted(ramp),
+        }, 1));
+
+    // Rung 12 — the graduation flight, recorded through the same one write
+    // path every other flight uses.
+    ramp = recordLesson(ramp, GRADUATION_FLIGHT);
+    check("the graduation flight finishes the school",
+      licenceDone(ramp) && schoolProgress(ramp) === SCHOOL_STEPS
+        && doorsAt(ramp) === "++++++++++++", doorsAt(ramp));
+    check("...and Tier 1 opens with it",
+      S.tierOpen({
+        unlocked: 1, selected: 1, skydeck: false, contracts: 0,
+        licensed: licenceDone(ramp), rigged: rigStarted(ramp),
+      }, 1));
+    check("...and the step becomes the exam the whole ladder was for",
+      nextStep(ramp) === "run", nextStep(ramp));
+    // The count is MONOTONE across the whole walk, which is the property
+    // `licence` exists to have: twelve steps, never fewer than the step before.
+    check("...having never gone backwards on the way",
+      ramp.licence === SCHOOL_FLIGHTS, String(ramp.licence));
+  }
+
+  // THE GATE IS "ANY SYSTEM", NOT THE REACTOR, and it survives the school's
+  // one-card shelf rather than being contradicted by it: naming one entry
+  // install would make the other a trap — the same 15 salvage, spent legally in
+  // a shop, leaving the door shut and the wallet empty — and a shelf with one
+  // card on it simply cannot spring that trap. What the wider gate still buys
+  // is the save that reached it the old way, with the Launcher and nothing
+  // else.
+  {
+    const graduate = { ...newMeta(), licence: SCHOOL_FLIGHTS, salvage: 15 };
+    const launcher = buyInstall(graduate, "launcher");
+    check("a graduate flying a Launcher-only rig is not sent back to the shop",
+      launcher !== null && rigStarted(launcher) && nextStep(launcher) === "run",
+      launcher ? nextStep(launcher) : "purchase refused");
+  }
   check("after that first run, Contracts become the next step",
     nextStep(freshMeta()) === "contracts");
   check("salvage covering an install says Workshop",
@@ -1808,21 +1888,58 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
         return { licence: m.licence, seen: loadSettings().seenTutorial };
       };
       check("a save with salvage but no filed run is a returning player",
-        boot({ salvage: 15, runs: 0, mark: 0, bestBay: 1 }).licence === LICENCE_LESSON_COUNT);
+        boot({ salvage: 15, runs: 0, mark: 0, bestBay: 1 }).licence === SCHOOL_FLIGHTS);
       check("...and so is one with cleared Contracts and nothing else",
-        boot({ claimedContracts: ["c1"], runs: 0 }).licence === LICENCE_LESSON_COUNT);
+        boot({ claimedContracts: ["c1"], runs: 0 }).licence === SCHOOL_FLIGHTS);
       check("...and one with a purchased rig",
-        boot({ unlocks: ["reactor"], runs: 0 }).licence === LICENCE_LESSON_COUNT);
+        boot({ unlocks: ["reactor"], runs: 0 }).licence === SCHOOL_FLIGHTS);
       check("a genuinely new save is not grandfathered",
         boot({}).licence === 0);
-      // THE LICENCE, NOT THE WHOLE LADDER. Granting LESSON_COUNT licensed them
-      // and then parked the School's Play button on the LAST lesson
-      // (nextLessonIndex clamps to meta.licence), dropping a returning player
-      // into Clutter — the fine-and-congestion bay — rather than at the top of
-      // the advanced five.
-      check("...and a grandfathered player gets the licence, not the whole ladder",
-        boot({ runs: 40 }).licence === LICENCE_LESSON_COUNT
-          && LICENCE_LESSON_COUNT < LESSON_COUNT);
+      // THE WHOLE LADDER NOW, and it is the reverse of what this used to pin.
+      // Granting only the four-lesson licence was right while the advanced five
+      // were optional practice; they are rungs between the player and Tier 1
+      // now, so a save with forty runs on it would have been asked to clear a
+      // Contract, buy a Reactor it already owns and fly nine teaching bays to
+      // get its own game back.
+      //
+      // What the old grant was protecting — the School's Play button dumping a
+      // returning player into Clutter, the fine-and-congestion bay — is handled
+      // where it belongs: a finished ladder's primary opens at the TOP of the
+      // ladder rather than at its last rung (main.ts's nextFlightIndex).
+      check("...and a grandfathered player gets the whole ladder, not a course to redo",
+        boot({ runs: 40 }).licence === SCHOOL_FLIGHTS && licenceDone(loadMeta()));
+      /* ---- THE LADDER'S OWN MIGRATION -------------------------------------
+       * `licence` used to count LESSONS with the door at four of them; it
+       * counts FLIGHTS with the door at ten. So a save written by the old build
+       * carrying 4-9 is a player who was already flying Deep Runs, and reading
+       * it literally would shut Tier 1 on them.
+       *
+       * The rule is the two halves of the OLD door: the old licence, plus
+       * evidence the old on-ramp was walked (a system installed, or a run
+       * filed). A save with the old licence and neither never got past that
+       * on-ramp either — the tower's rig gate was already refusing it — so it
+       * keeps its count and lands on exactly the rung it was stuck on.
+       */
+      check("an old save that held the licence and flew is not sent back to school",
+        boot({ licence: LICENCE_LESSON_COUNT, runs: 3 }).licence === SCHOOL_FLIGHTS);
+      check("...nor one that held it and bought a system",
+        boot({ licence: LESSON_COUNT, loadout: { reactor: 1 } }).licence === SCHOOL_FLIGHTS);
+      check("...nor one part-way up the old advanced five with a rig",
+        boot({ licence: 6, mark: 2 }).licence === SCHOOL_FLIGHTS);
+      // The control, and it is the case the rule is FOR: licensed under the old
+      // rules, stock ship, no run filed — the on-ramp's own dead end. It keeps
+      // its four flights and the ladder puts it on rung 5, the Contract board.
+      {
+        const stuck = boot({ licence: LICENCE_LESSON_COUNT, runs: 0 });
+        check("...while one that never left the old on-ramp keeps its count",
+          stuck.licence === LICENCE_LESSON_COUNT, String(stuck.licence));
+        check("...and is pointed at the Contract board it was already owed",
+          nextStep(loadMeta()) === "contracts", nextStep(loadMeta()));
+      }
+      check("a save mid-basics keeps exactly where it was",
+        boot({ licence: 2 }).licence === 2);
+      check("...and no save can claim more flights than the ladder has",
+        boot({ licence: 99, runs: 1 }).licence === SCHOOL_FLIGHTS);
       // AND THE COACH IS RETIRED WITH IT. main.ts sets seenTutorial when the
       // fourth lesson lands; a grandfathered save never passes through that, so
       // without this a player with forty runs met the retired four-card deck on
@@ -1831,6 +1948,12 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       // snapshot it already took — is stated at that constructor line; class
       // fields initialise in declaration order and `settings` is declared
       // first.)
+      // AND THE COACH IS RETIRED BY THE BASICS, not by the whole ladder: the
+      // thing seenTutorial suppresses is the retired four-card deck over a Deep
+      // Run bay 1, and after four lessons the player has been taught exactly
+      // what that deck taught. It matters more than it used to, because the
+      // graduation flight IS a Deep Run bay 1 — a school still owing eight
+      // steps would otherwise meet the old coach on its own twelfth.
       check("the licence retires the old coach on the migration path too",
         boot({ runs: 40 }, { seenTutorial: false }).seen === true);
       check("...and a genuinely new save still owes it",
@@ -15567,7 +15690,7 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
     !lobby(1, 4).includes(">1/4<") && !lobby(3, 9).includes(">3/9<"));
   // The count is not lost, it moved to the one place a shape cannot reach.
   check("the count survives as the floor's accessible name",
-    lobby(3, 9).includes('aria-label="Flight School — 3 of 9 lessons.')
+    lobby(3, 9).includes('aria-label="Flight School — 3 of 9 steps.')
       && held.includes('aria-label="Flight School — licence earned.'));
   check("...and the promise it opens Tier 1 is still on it",
     lobby(3, 9).includes("The licence that opens Tier 1."));
@@ -15578,7 +15701,7 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
     /<span class="tower__sockets"[^>]*>([\s\S]*?)<\/span>/.exec(h)?.[1] ?? "";
   const sockets = (h: string): number => (socketSpan(h).match(/<i/g) ?? []).length;
   const lit = (h: string): number => (socketSpan(h).match(/class="on"/g) ?? []).length;
-  check("the entrance draws one socket per lesson in the ladder",
+  check("the entrance draws one socket per STEP of the ladder",
     sockets(lobby(0, 4)) === 4 && sockets(lobby(0, 9)) === 9,
     `${sockets(lobby(0, 4))} / ${sockets(lobby(0, 9))}`);
   check("...and lights exactly the ones that have landed",
@@ -15587,9 +15710,16 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   check("...never more than the ladder has",
     lit(lobby(99, 4)) === 4, String(lit(lobby(99, 4))));
   // Squared off the ladder's own length rather than pinned at three columns:
-  // four lessons in a 3-wide grid is a 3+1 orphan.
+  // four in a 3-wide grid is a 3+1 orphan. The shipped ladder is twelve steps
+  // (meta.ts's SCHOOL_STEPS), i.e. a 4x3 block — pinned at the real number as
+  // well as at the two the arithmetic was written against, because the plate is
+  // the one surface whose LAYOUT moves when the ladder's length does.
   check("the socket grid is squared to the ladder",
     lobby(0, 4).includes("--socket-cols:2") && lobby(0, 9).includes("--socket-cols:3"));
+  check("...and the shipped twelve-step ladder draws a 4x3 block of them",
+    sockets(lobby(0, SCHOOL_STEPS)) === SCHOOL_STEPS
+      && lobby(0, SCHOOL_STEPS).includes("--socket-cols:4"),
+    String(sockets(lobby(0, SCHOOL_STEPS))));
 
   // THE COLLAPSE. Earned, the entrance is furniture: no awning, no sockets, and
   // — the half app.css sizes off — no `tower--lobby` on the tower.
@@ -15639,8 +15769,47 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
       && Number(clamp[2]) - Number(plinth[1]) === Number(extra[1]),
     `${clamp?.[2]} - ${plinth?.[1]} != ${extra?.[1]}`);
   check("...added to the shaft's own cap rather than taken out of it",
-    /height:\s*calc\(\s*min\(100%,\s*620px\)\s*\+\s*var\(--tower-lobby-extra\)\s*\)/
+    /calc\(\s*min\(100%,\s*620px\)\s*\+\s*var\(--tower-lobby-extra\)\s*\)/
       .test(towerRules));
+  // …AND BOUNDED BY THE PADDING IT RISES INTO. All of the entrance's 50px goes
+  // upward now (see the align-self pin below), and the menu's padding is 32px
+  // on an 800x600 window — an unbounded rise put the headhouse 17px off the top
+  // of the glass there, measured. The height is the smaller of "the row plus
+  // the headroom" and "the capped box plus the extra", so the rise is full
+  // wherever the 620px cap binds and clipped to what exists where it does not.
+  check("...and the rise is bounded by the padding it rises into",
+    /--tower-lobby-rise:\s*max\(0px,\s*calc\(clamp\(20px, 4vw, 60px\) - 6px\)\)/
+      .test(towerRules)
+      && /height:\s*min\(/.test(towerRules)
+      && /calc\(100%\s*\+\s*var\(--tower-lobby-rise\)\)/.test(towerRules));
+  // …AND IT GROWS UPWARD. The three columns of the menu are read as one row of
+  // controls, and the one thing they share is the line their last control sits
+  // on. Under `align-self: center` the entrance's 50px was split 25/25, which
+  // put the plate a quarter of that BELOW the shelf's last button and the
+  // rail's (owner screenshot, desktop). Unconditional, because a window tall
+  // enough for the 620px cap to bind has leftover in exactly the same way and
+  // one column should not have two rules for where it stands.
+  check("the tower stands on the buttons' line rather than floating in the row",
+    /align-self:\s*flex-end/.test(towerRules) && !/align-self:\s*center/.test(towerRules),
+    towerRules.slice(0, 200));
+  // NO CAR WHILE THE SCHOOL IS UNFINISHED. The lift serves the LADDER, and
+  // while the ground floor is owed there is no ladder to serve — every Mark is
+  // locked, and a car parked in a shaft nobody may ride reads as a floor
+  // already reached. It arrives at graduation, on Mark 1.
+  //
+  // Pinned as the stylesheet's rule AND as the markup's state, because the two
+  // halves are in different files: the car is always emitted (the ride animates
+  // it and the in-place elevator update writes a lane onto it), and the class
+  // the school's tower carries is what draws it away.
+  check("the school's tower draws no car",
+    /\.tower--lobby \.tower__car \{[^}]*display:\s*none/.test(css));
+  check("...and it is the school's own class that does it",
+    lobby(0, SCHOOL_STEPS).includes("tower--lobby")
+      && !held.includes("tower--lobby"));
+  check("...while the graduated tower parks one on the Mark it opened",
+    held.includes("tower__car")
+      && S.tierTowerHTML({ unlocked: 1, selected: 1, skydeck: false, licensed: true })
+        .includes(`--tower-idx:${S.towerIndexOf(1)}`));
   // THE PHONE TIER PAYS FROM THE SHAFT, and it has to: the menu's block padding
   // is pinned at 6px there and the headhouse already draws 19px above the
   // shaft, so a tower taller than its row would push the beacon off the glass.
@@ -15758,8 +15927,8 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // licence — an unlicensed save answers "licence" to both and the contrast
   // would be a check that passes without testing anything.
   check("the two doors are the same rule's two branches",
-    nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1, salvage: 1_000 }) === "workshop"
-      && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1 }) === "contracts");
+    nextStep({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, salvage: 1_000 }) === "workshop"
+      && nextStep({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1 }) === "contracts");
 
   // ---- THE RUN-END CARD AT SATURATION ------------------------------------
   // The same sentence as the Contract card's, on the other door into the same
@@ -16667,7 +16836,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // Licensed, for the reason above: the badge on this screen is nextStep's,
     // and an unlicensed save is being pointed at the ground floor rather than
     // at either door this block is about.
-    const shop = S.workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1 });
+    const shop = S.workshopScreen({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1 });
     check("the Workshop routes to Contracts", route(shop).length > 0);
     check("...without giving up its own primary",
       /<button class="btn btn--primary btn--lg" data-action="play"/.test(shop));
@@ -16675,7 +16844,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // a save holding salvage is being sent to the shelf instead, and the two
     // badges on this screen can never both light.
     check("...badged when Contracts are the next step", route(shop).includes("next-badge"));
-    const rich = S.workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, runs: 1, salvage: 1_000, mark: 3 });
+    const rich = S.workshopScreen({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, salvage: 1_000, mark: 3 });
     check("...and not when the shelf is the next step",
       route(rich).length > 0 && !route(rich).includes("next-badge")
         && rich.includes("shop-card--next"));
@@ -22749,30 +22918,48 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const panel = (done: number, total: number): string =>
       S.baseBayPanelHTML({ tier: S.LICENCE_TIER, best: 0, licence: { done, total } });
     const strip0 = (h: string): string => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    // THE COUNT SURVIVES THE LICENCE. It used to be dropped the moment the
-    // fourth lesson landed — the panel printed "Licence earned" over a constant
-    // "5 advanced exercises remain", still saying five at eight of nine and at
-    // nine of nine, on the only progression the mode has left.
     check("the lobby panel counts the ladder before the licence",
-      strip0(panel(2, LICENCE_LESSON_COUNT)).includes("2 / 4"));
-    check("...and after it", strip0(panel(6, LESSON_COUNT)).includes(`6 / ${LESSON_COUNT}`));
-    check("...and says how many exercises are actually left",
-      strip0(panel(LESSON_COUNT - 1, LESSON_COUNT)).includes("1 advanced exercise ")
-        && !strip0(panel(LESSON_COUNT - 1, LESSON_COUNT)).includes("exercises"));
+      strip0(panel(2, SCHOOL_STEPS)).includes(`2 / ${SCHOOL_STEPS}`));
+    check("...and says how many steps are actually left",
+      strip0(panel(SCHOOL_STEPS - 1, SCHOOL_STEPS)).includes("1 to go"));
     check("...and stops promising any at the end",
-      strip0(panel(LESSON_COUNT, LESSON_COUNT)).includes("the ladder is finished"));
-    // THE PIPS ARE THE PICKER, and it cannot outrun the ladder: a rung the
-    // player has not reached stays inert markup, so the track is a way back
-    // rather than a way past.
-    const picks = (done: number, total: number): number =>
-      (panel(done, total).match(/data-action="pick-lesson"/g) ?? []).length;
-    check("a fresh save can pick only the lesson it is on", picks(0, LICENCE_LESSON_COUNT) === 1);
-    check("...and a finished ladder can pick every rung",
-      picks(LESSON_COUNT, LESSON_COUNT) === LESSON_COUNT);
+      strip0(panel(SCHOOL_STEPS, SCHOOL_STEPS)).includes("the ladder is finished"));
+    // THE TRACK IS THE LADDER, ALL TWELVE RUNGS, and it cannot outrun itself: a
+    // rung the player has not reached stays inert markup, so the track is a way
+    // back rather than a way past.
+    const rungs = (done: number): number =>
+      (panel(done, SCHOOL_STEPS).match(/class="lic-pip/g) ?? []).length;
+    const picks = (done: number): number =>
+      (panel(done, SCHOOL_STEPS).match(/lic-pip--pick/g) ?? []).length;
+    check("the track draws every step of the ladder",
+      rungs(0) === SCHOOL_STEPS, String(rungs(0)));
+    check("a fresh save can press only the rung it is on", picks(0) === 1);
+    check("...and a finished ladder can press every rung",
+      picks(SCHOOL_STEPS) === SCHOOL_STEPS, String(picks(SCHOOL_STEPS)));
     check("...never more than the ladder has",
-      picks(LESSON_COUNT + 5, LESSON_COUNT) === LESSON_COUNT);
-    check("no locked rung is a button",
-      picks(3, LESSON_COUNT) === 4, String(picks(3, LESSON_COUNT)));
+      picks(SCHOOL_STEPS + 5) === SCHOOL_STEPS, String(picks(SCHOOL_STEPS + 5)));
+    check("no locked rung is a button", picks(3) === 4, String(picks(3)));
+    // EVERY RUNG GOES TO THE THING IT IS. The two shop steps are not bays, so a
+    // track that routed all twelve through `pick-lesson` would be a ladder
+    // promising to fly a Contract board.
+    {
+      const all = panel(SCHOOL_STEPS, SCHOOL_STEPS);
+      const of = (a: string): number => (all.match(new RegExp(`data-action="${a}"`, "g")) ?? []).length;
+      check("the lesson rungs fly lessons", of("pick-lesson") === LESSON_COUNT, String(of("pick-lesson")));
+      check("...the twelfth flies the graduation bay", of("pick-exam") === 1);
+      check("...and the two shop rungs open the two shops",
+        of("contracts") === 1 && of("workshop") === 1);
+      // The lesson rungs carry the FLIGHT index, so a rung two steps past a
+      // shop still flies the lesson it draws — the off-by-two the ladder's
+      // shape exists to absorb.
+      check("...and a rung's data-lesson is its flight, not its step",
+        all.includes(`data-lesson="${LICENCE_LESSON_COUNT}"`)
+          && all.includes(`data-lesson="${GRADUATION_FLIGHT}"`));
+      check("...which is what puts lesson 5 on step 7",
+        schoolStepOfFlight(LICENCE_LESSON_COUNT) === LICENCE_LESSON_COUNT + 3
+          && schoolStepOfFlight(GRADUATION_FLIGHT) === SCHOOL_STEPS,
+        `${schoolStepOfFlight(LICENCE_LESSON_COUNT)} / ${schoolStepOfFlight(GRADUATION_FLIGHT)}`);
+    }
   }
 
   // A LOCKED LADDER FLOOR SAYS WHY, while the licence is owed. Contracts and
@@ -22783,7 +22970,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   {
     const owed = S.tierTowerHTML({
       unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
-      licensed: false, licenceDone: 1, licenceTotal: LICENCE_LESSON_COUNT,
+      licensed: false, licenceDone: 1, licenceTotal: SCHOOL_STEPS,
     });
     check("a locked floor names Flight School while the licence is owed",
       owed.includes("Flight School first"));
@@ -22835,7 +23022,11 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // the action, and an enabled action that does nothing is the worst control
     // on the screen. Its subtitle carries the reason, so the disabled state is
     // never mute.
-    const licensed: MetaState = { ...newMeta(), licence: LICENCE_LESSON_COUNT, salvage: 15 };
+    // A GRADUATE with nothing installed, which after this ladder is only ever a
+    // grandfathered save (lib/store.ts) — the school's own rung 6 installs the
+    // Reactor, so a new player cannot reach the tower unrigged. It is still the
+    // state the rig lock exists for, and it is still the state this block pins.
+    const licensed: MetaState = { ...newMeta(), licence: SCHOOL_FLIGHTS, salvage: 15 };
     const menuOf = (twr: S.TowerState): string =>
       menuScreen(0, 15, undefined, tierProgressFor(licensed),
         { step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false },
@@ -22869,6 +23060,226 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       wsShut.includes(`data-action="play" disabled`));
     check("...while a rigged shop offers it",
       wsRig.includes("Start Run") && !wsRig.includes(`data-action="play" disabled`));
+  }
+
+  /* -------------------------------------------------------------------------
+   * THE SCHOOL'S TWO SHOPS — one card each, and everything else absent.
+   *
+   * The owner's call: "hide all other purchases after the first contract, just
+   * leave the reactor as the only one available to buy. Make it a single
+   * contract for this school floor." Both narrowings are pinned as ABSENCE
+   * rather than as disabled state, because that is the decision — a greyed
+   * shelf says "later" to a player who has no way of knowing when later is, and
+   * the school's wallet holds exactly one milestone until it graduates.
+   * ---------------------------------------------------------------------- */
+  {
+    const onLadder = (over: Partial<MetaState> = {}): MetaState =>
+      ({ ...newMeta(), licence: LICENCE_LESSON_COUNT, ...over });
+    const graduate = (over: Partial<MetaState> = {}): MetaState =>
+      ({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, ...over });
+
+    // ---- THE BOARD ------------------------------------------------------
+    const card = schoolContract();
+    check("the school's card is generated by the same function every card is",
+      card.id === generateContract(
+        SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, SCHOOL_CONTRACT_BUDGET,
+      ).id);
+    // AT ZERO BUDGET, which is the one authored difference — and the reason is
+    // measurable rather than aesthetic: every tier-1 complication costs exactly
+    // the tier's whole budget, so an ordinary card always draws one, and the
+    // one it draws is crosswind on a floor whose own graduation bay has
+    // windMax 0 and whose nine lessons never say the word.
+    check("...at zero difficulty budget, where the tier's own would buy a hazard",
+      (SCHOOL_CONTRACT_BUDGET as number) === 0 && (budgetForTier(1) as number) > 0
+        && card.windMax === 0 && card.material === null && card.pieceSize === "std",
+      `budget ${budgetForTier(1)}, wind ${card.windMax}`);
+    check("...and the tier's own budget really would",
+      generateContract(SCHOOL_CONTRACT_SEED, 1, 0).windMax > 0);
+    // NO SET PIECE AND NO PATTERN. Both are true by construction (a set piece
+    // needs SETPIECE_MIN_TIER, a pattern needs PATTERN_SLOT) and both are
+    // pinned, because "by construction" is a property of two constants that a
+    // tuning pass owns.
+    check("the school's board deals no Set Piece and no pattern",
+      schoolBoard().every((c) => c.kind === "lines"),
+      schoolBoard().map((c) => c.kind).join(","));
+    check("...and cannot, at tier 1 in slot 0",
+      (SETPIECE_MIN_TIER as number) > 1 && (PATTERN_SLOT as number) !== 0);
+    // ITS ID IS NOT A DAILY ID, which is what makes the clear permanent and
+    // what keeps it off a free account's three-a-day allowance.
+    check("the school's clear is banked forever, not until midnight",
+      !card.id.startsWith(`${dailySeed()}-`)
+        && claimedContractsOnDay([card.id], dailySeed()) === 0);
+    check("...and a free account can still clear its three dailies afterwards",
+      canStartContract(
+        dailyContracts(1, dailySeed())[0], [card.id], false, dailySeed(),
+      ));
+    // AND THE CLEAR REALLY PAYS RUNG 6. The whole ladder turns on this one
+    // number, so it is measured through the shipped award path rather than
+    // asserted from the price table.
+    check("one clear of it banks exactly the school shelf's one price",
+      recordContractClear(onLadder(), card).meta.salvage
+        === (installById(SCHOOL_INSTALL)?.cost ?? -1));
+
+    // ---- THE SHELF ------------------------------------------------------
+    const shopMid = workshopScreen(onLadder({ salvage: 15 }));
+    const shopAfter = workshopScreen(graduate({ salvage: 15 }));
+    const cards = (html: string): string[] =>
+      [...html.matchAll(/data-action="buy-install" data-install="([a-z]+)"/g)].map((m) => m[1]);
+    check("the school's Workshop sells the Reactor and nothing else",
+      cards(shopMid).join(",") === SCHOOL_INSTALL, cards(shopMid).join(","));
+    check("...and every other install is ABSENT, not greyed",
+      INSTALLS.filter((i) => i.id !== SCHOOL_INSTALL)
+        .every((i) => !shopMid.includes(`data-install="${i.id}"`)));
+    check("...the unlocks with them",
+      !shopMid.includes(`data-action="buy-unlock"`));
+    check("...and the rack and its +1 slot too",
+      !shopMid.includes(`data-action="buy-slot"`) && !shopMid.includes(`data-action="mount"`));
+    check("the whole shelf comes back at graduation",
+      cards(shopAfter).length > 1 && shopAfter.includes(`data-action="buy-slot"`),
+      String(cards(shopAfter).length));
+    // …AND IT STAYS ONE CARD FOR THE WHOLE SCHOOL, not only until the purchase.
+    // The ladder is a sequence with one live step, and a shelf that grew back
+    // between lessons 5 and 6 would put a second decision beside the one being
+    // asked for — with 0 salvage to answer it with, since the school's board is
+    // one card and it has been claimed.
+    const shopBought = workshopScreen(onLadder({
+      licence: LESSON_COUNT, claimedContracts: ["x"],
+      loadout: { ...newTiers(), [SCHOOL_INSTALL]: 1 },
+    }));
+    check("...and mid-school it is still one card after the Reactor is bought",
+      cards(shopBought).join(",") === SCHOOL_INSTALL, cards(shopBought).join(","));
+    check("...over a blurb that says what that purchase just opened",
+      shopBought.includes("are open at the school"));
+    check("...and a Start Run the school cannot fly",
+      shopBought.includes(`data-action="play" disabled`)
+        && shopBought.includes("Finish Flight School to fly"));
+
+    // ---- THE TWO DOORS OPEN ON THE FOURTH BASIC, TOGETHER ---------------
+    const menuAt = (m: MetaState, twr: S.TowerState): string =>
+      menuScreen(0, m.salvage, undefined, tierProgressFor(m),
+        { step: nextStep(m), install: null, firstLaunch: false }, twr);
+    const towerAt = (m: MetaState): S.TowerState => ({
+      unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
+      licensed: licenceDone(m), rigged: rigStarted(m), basics: basicsDone(m),
+      licenceDone: schoolProgress(m), licenceTotal: schoolLength(m),
+    });
+    const three = newMeta();
+    const four = onLadder();
+    const shut = menuAt(three, towerAt(three));
+    const open = menuAt(four, towerAt(four));
+    const btn = (html: string, action: string): string =>
+      new RegExp(`<button[^>]*data-action="${action}"[^>]*>`).exec(html)?.[0] ?? "";
+    check("Contracts and the Workshop are shut before the fourth basic",
+      btn(shut, "contracts").includes("disabled") && btn(shut, "workshop").includes("disabled"));
+    check("...and both say which lesson opens them",
+      shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`)
+        && (shut.match(new RegExp(`Opens after lesson ${LICENCE_LESSON_COUNT}`, "g")) ?? []).length === 2);
+    check("...and they open TOGETHER on it",
+      !btn(open, "contracts").includes("disabled")
+        && !btn(open, "workshop").includes("disabled"));
+
+    // ---- THE PRIMARY, ALL THE WAY UP THE LADDER -------------------------
+    // The Deep Run's button is disabled until graduation and never mute about
+    // it, and the LOBBY's primary is disabled on the two rungs that are not
+    // bays — an enabled action that does nothing is the worst control on the
+    // screen, and on those two rungs there is nothing to fly.
+    const primaryOf = (html: string): string =>
+      /<button[^>]*id="menu-play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+    const deepRunAt = (m: MetaState): string =>
+      primaryOf(menuAt(m, { ...towerAt(m), selected: 1 }));
+    for (const [label, m] of [
+      ["a fresh save", newMeta()],
+      ["the fourth basic", onLadder()],
+      ["a cleared Contract", onLadder({ claimedContracts: ["x"], salvage: 15 })],
+      ["the Reactor installed", onLadder({
+        claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 },
+      })],
+      ["every lesson flown", onLadder({
+        licence: LESSON_COUNT, claimedContracts: ["x"],
+        loadout: { ...newTiers(), reactor: 1 },
+      })],
+    ] as [string, MetaState][]) {
+      check(`the Deep Run is disabled at ${label}`,
+        deepRunAt(m).includes("disabled"), label);
+      check(`...and names what is left, inside the subtitle's box at ${label}`,
+        /Finish Flight School · \d+\/\d+/.test(deepRunAt(m))
+          && (/Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0].length ?? 99) <= 32,
+        /Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
+    }
+    const grad = graduate({ loadout: { ...newTiers(), reactor: 1 } });
+    check("...and it comes alive on the twelfth step",
+      !deepRunAt(grad).includes("disabled"));
+    // The lobby's own two shut states.
+    check("the lobby's primary is shut on the Contract rung",
+      primaryOf(menuAt(four, towerAt(four))).includes("disabled")
+        && primaryOf(menuAt(four, towerAt(four))).includes("Clear one Contract to go on"));
+    const paid = onLadder({ claimedContracts: ["x"], salvage: 15 });
+    check("...and on the Workshop rung",
+      primaryOf(menuAt(paid, towerAt(paid))).includes("Install the Reactor to go on"));
+    const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
+    check("...and live again on every rung that IS a bay",
+      !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
+        && primaryOf(menuAt(flying, towerAt(flying))).includes("Step 7 of 12"));
+    const examOwed = onLadder({
+      licence: LESSON_COUNT, claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 },
+    });
+    check("...and the last rung says what it actually is",
+      primaryOf(menuAt(examOwed, towerAt(examOwed))).includes(`Step ${SCHOOL_STEPS} of ${SCHOOL_STEPS} · Tier 1 bay 1`));
+  }
+
+  /* -------------------------------------------------------------------------
+   * BAY 10 IS A TIER 1 BAY 1 — field by field.
+   *
+   * The owner's framing is exact ("bay 10 is just the regular game equivalent
+   * of tier 1 bay 1"), and it is the kind of claim that decays silently: the
+   * exam is built by run.ts's own levelForRun on a throwaway bay-1 run, so what
+   * has to hold is that NOTHING a run adds leaks into it — no ratchet, no final
+   * clause, no carry, no Skydeck economy — and that everything the RIG adds
+   * does.
+   * ---------------------------------------------------------------------- */
+  {
+    const rig: UpgradeTiers = { ...newTiers(), reactor: 1, launcher: 2 };
+    const exam = levelForGraduation(rig);
+    const hand = makeBaseLevel(0, 1);
+    applyUpgrades(hand, rig);
+    hand.bondBreakerCharges = bondChargesFor(rig.bonds ?? 0);
+    hand.thawCharges = thawChargesFor(rig.thaw ?? 0);
+    const keys = new Set([...Object.keys(exam), ...Object.keys(hand)]);
+    const diff = [...keys].filter((k) =>
+      JSON.stringify((exam as unknown as Record<string, unknown>)[k])
+        !== JSON.stringify((hand as unknown as Record<string, unknown>)[k]));
+    check("the graduation bay IS Tier 1 bay 1 with the rig applied, field for field",
+      diff.length === 0, diff.join(","));
+    // …and the four things a RUN would have added to it, named rather than
+    // implied by the sweep above: the stock bay's own economy, its clock, its
+    // fine and a bag it did not author.
+    const stock = makeBaseLevel(0, 1);
+    check("...with the money live",
+      exam.launchCost === stock.launchCost && exam.targetScore > 0
+        && exam.startingFunds >= stock.startingFunds);
+    check("...the clock running", exam.timeLimitSec === stock.timeLimitSec && exam.timeLimitSec > 0);
+    check("...the spill fine charging", exam.penaltyPerLostPiece === stock.penaltyPerLostPiece
+      && exam.penaltyPerLostPiece > 0);
+    check("...and an ordinary belt: no authored wall, no forced shape, no scaffolding",
+      exam.standingWall.length === 0 && exam.pieceSequence === null
+        && exam.landingTarget === null && !exam.boardResets);
+    // A LESSON IS THE OPPOSITE OF THIS, which is what makes the exam a step up
+    // rather than a tenth lesson.
+    const lesson = levelForLesson(LESSONS[0]);
+    check("...where a lesson strips every one of them",
+      lesson.launchCost === 0 && lesson.timeLimitSec === 0
+        && lesson.penaltyPerLostPiece === 0 && lesson.boardResets);
+    // The seed is the ladder's fixed idiom and one clear of the lesson block,
+    // so no lesson and the exam can ever share a bay.
+    check("the exam's seed is its own rung of the ladder",
+      graduationSeed() === lessonSeed(LESSON_COUNT)
+        && LESSONS.every((_, i) => lessonSeed(i) !== graduationSeed()));
+    // THE RIG REALLY IS ABOARD — the sweep above would pass on two identical
+    // stock bays, so the one thing it cannot prove on its own is that
+    // applyUpgrades was reached at all.
+    check("...and the rig the school bought actually changes the bay",
+      levelForGraduation({ ...newTiers(), reactor: 1 }).startingFunds
+        > levelForGraduation(newTiers()).startingFunds);
   }
 
   // THE YARD SKIPS A STOP IT HAS NOTHING TO SELL AT (run.ts's refitAfterBay,
@@ -23513,33 +23924,45 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   }
 
   // ---- ONE DENOMINATOR ---------------------------------------------------
-  // The ladder is nine bays and the LICENCE is the first four, so "N of M" is
-  // not a constant — and four surfaces print one: the lobby's plate, the play
-  // button's subtitle, the card riding the bay, and the result. They drifted
-  // the moment the split landed: the menu rendered against four while the
-  // elevator's in-place rewrite used nine, so tapping a floor turned "4 short
-  // lessons" into "9", and the card over the very first bay read "1/9" under a
-  // menu that had just promised four. meta.ts's schoolLength is the one rule
-  // they all ask now.
+  // Four surfaces print "N of M" about the ground floor: the lobby's plate, the
+  // play button's subtitle, the card riding the bay, and the result. They
+  // drifted once already — the menu rendered against four while the elevator's
+  // in-place rewrite used nine, so tapping a floor turned "4 short lessons"
+  // into "9", and the card over the very first bay read "1/9" under a menu that
+  // had just promised four. meta.ts's schoolLength is the one rule they all ask.
+  //
+  // IT IS A CONSTANT NOW, and that is the shape of the change rather than a
+  // simplification: the split it used to describe — a short required prefix and
+  // a long optional tail — is gone, because all twelve steps are required, in
+  // order, before Tier 1 opens.
   {
-    check("the licence is a PREFIX of the ladder, not all of it",
-      LICENCE_LESSON_COUNT > 0 && LICENCE_LESSON_COUNT < LESSON_COUNT,
-      `${LICENCE_LESSON_COUNT} of ${LESSON_COUNT}`);
-    check("an unlicensed save counts toward the licence",
-      schoolLength(newMeta()) === LICENCE_LESSON_COUNT);
-    check("...and a licensed one counts the whole ladder",
-      schoolLength({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) === LESSON_COUNT);
-    // The lesson that ISSUES the licence is the last of the prefix, and the one
-    // that finishes the course is the last of the ladder. Two different cards
-    // (screens.ts's lessonEndModal), and conflating them would either promise
-    // Tier 1 five bays early or never announce it at all.
-    check("the licence lands on the last basic, not the last lesson",
+    check("the ladder is the lessons plus the two shops plus the exam",
+      SCHOOL_STEPS === LESSON_COUNT + 3 && SCHOOL_FLIGHTS === LESSON_COUNT + 1,
+      `${SCHOOL_STEPS} / ${SCHOOL_FLIGHTS}`);
+    check("the basics are a PREFIX of it, not all of it",
+      LICENCE_LESSON_COUNT > 0 && LICENCE_LESSON_COUNT < SCHOOL_STEPS,
+      `${LICENCE_LESSON_COUNT} of ${SCHOOL_STEPS}`);
+    check("every surface counts the same twelve, on both sides of the licence",
+      schoolLength(newMeta()) === SCHOOL_STEPS
+        && schoolLength({ ...newMeta(), licence: SCHOOL_FLIGHTS }) === SCHOOL_STEPS);
+    // The rung that opens the shops is the last basic; the rung that opens Tier
+    // 1 is the exam. Two different cards (screens.ts's lessonEndModal), and
+    // conflating them would either promise Tier 1 eight steps early or never
+    // announce anything at all.
+    check("the shops open on the last basic, not on the last lesson",
       LICENCE_LESSON_COUNT - 1 !== LESSON_COUNT - 1);
-    // Every lesson inside the licence has to be reachable BY an unlicensed
-    // save, or the gate asks for a bay it will not deal.
-    check("every basic is flyable before the licence exists",
+    // Every lesson inside the basics has to be reachable BY a fresh save, or
+    // the gate asks for a bay it will not deal.
+    check("every basic is flyable before anything else exists",
       Array.from({ length: LICENCE_LESSON_COUNT }, (_, i) => lessonAt(i))
-        .every((l) => l !== null));
+        .every((l) => l !== null)
+        && schoolLadder(newMeta()).slice(0, 1).every((s) => s.open));
+    // …and the ladder's shape is what the step arithmetic is read off, so the
+    // two cannot disagree about where a flight sits.
+    check("the shape and the step lookup are the same statement",
+      SCHOOL_LADDER.length === SCHOOL_STEPS
+        && SCHOOL_LADDER.every((r) => r.flight === null
+          || schoolStepOfFlight(r.flight) === r.step));
   }
 
   // ---- THE FIRST-ENCOUNTER CARDS ----------------------------------------
@@ -23611,12 +24034,13 @@ section("Flight School — the authored geometry holds (game/school.ts)");
   // position, which is what `lastLesson` carries.
   {
     const card = (over: Record<string, unknown>): string => S.lessonEndModal({
-      won: true, name: LESSONS[LESSON_COUNT - 1].name, index: LESSON_COUNT - 1,
-      total: LESSON_COUNT, brief: LESSONS[LESSON_COUNT - 1].brief,
-      lines: 2, shotsUsed: 9, launches: 22, licence: false, ...over,
+      won: true, name: LESSONS[LESSON_COUNT - 1].name,
+      step: schoolStepOfFlight(LESSON_COUNT - 1),
+      total: SCHOOL_STEPS, brief: LESSONS[LESSON_COUNT - 1].brief,
+      lines: 2, shotsUsed: 9, launches: 22, next: "exam", ...over,
     });
-    const graduating = card({ courseComplete: true, lastLesson: true });
-    const replay = card({ courseComplete: false, lastLesson: true });
+    const graduating = card({ courseComplete: true, lastLesson: true, next: null });
+    const replay = card({ courseComplete: false, lastLesson: true, next: null });
     check("finishing the ladder sends the player to the tower",
       graduating.includes(`data-action="lesson-exit"`)
         && !graduating.includes(`data-action="lesson-next"`));
@@ -23628,7 +24052,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         && !replay.includes("Every Flight School exercise is cleared"));
     // ...and an ordinary rung still moves forward, or the fix would have
     // flattened the ladder into nine dead ends.
-    const middle = card({ index: 1, lastLesson: false });
+    const middle = card({ step: 2, lastLesson: false, next: "lesson" });
     check("...while a rung in the middle still offers the next one",
       middle.includes(`data-action="lesson-next"`));
   }
@@ -25343,8 +25767,11 @@ section("Each pocket wears its shop's mark (screens.ts's salvageHTML / scrapHTML
   // and the bay-clear card's scrap. A balance that pops on every re-render
   // teaches the beat means nothing, so the count of callers is the pin.
   const earners = screensSrc.match(/(?:salvage|scrap)HTML\([^)]*,\s*true\)/g) ?? [];
+  // SIX, not five: the ground floor's Contract rung settles on a row of its own
+  // (contractEndModal's `school` branch), and it is a payout row like the rest —
+  // a figure arriving, once, on the card that reports it.
   check("the beat is spent on the payout rows and the bay-clear scrap, nowhere else",
-    earners.length === 5, `${earners.length} callers`);
+    earners.length === 6, `${earners.length} callers`);
   check("...and the Workshop's balance chip is not one of them",
     !/chip__value[^\n]*salvageHTML\([^)]*true\)/.test(screensSrc));
 
