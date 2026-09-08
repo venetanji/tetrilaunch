@@ -211,11 +211,35 @@ const SINGLE_LINE = [
  * defect and only an overlap test names it.
  */
 const NO_OVERLAP: [string, string][] = [
-  // Scoped past `.coach--fail`: the tutorial-failure card is deliberately a
-  // MODAL over a dead bay's HUD (screens.ts's coachFailHTML puts it in a
-  // scrim), so covering the readout is what it is for. It is the teaching
-  // steps, which sit in the panel's own column, that must not.
-  [".coach:not(.coach--fail) .coach__card", ".plant__body"],
+  /* NO `[".coach .coach__card", ".plant__body"]` PAIR ANY MORE, and its removal
+     is the change rather than a casualty of one. It said: a teaching card sits
+     in the plant panel's own COLUMN, so it may never share pixels with the
+     readout — which was the right question while the card was a sibling of the
+     readout and an overlap meant the card had walked through it (249x53px on
+     the budget phone, the history is on app.css's carded cap).
+     The card is a deliberate LAYER over the panel now — the owner's report is
+     quoted in that section — so this pair asks a question whose only honest
+     answer is "yes, by design, on every device". What replaced it is not
+     silence: the `plant` assertion below grew a carded clause that asks the
+     things that ARE still true (the readout is rendered and not display:none
+     behind the sheet, and the sheet stays inside the panel's width and under
+     the cannon-clearance cap), and sim/systems.ts pins the positioning rule
+     itself out of app.css. */
+  /* ...AND ONE PAIR SURVIVES THE MOVE, narrowed to the readout that genuinely
+     may not be covered. `.pl-pwr` is the power meter, and it is the one thing
+     in this panel a player is READING WHILE A CARD IS UP: the card's first
+     lesson is the drag, PWR is the number the drag is setting, and it is the
+     one block no reveal ladder ever withholds. It also sits proud of the
+     panel's top edge, in the band the card's 0.52-of-field cap could reach if a
+     card ever grew that tall — which is the failure this pair exists to name,
+     and the reason it is a stacking question rather than a height one (the card
+     would still be inside its cap, `.coach__body` would still not be scrolling,
+     and every other assertion here would still be green).
+     Measured with the cards the ladder and the retired deck ship today: the
+     tallest is `lesson-card-lost` on the 640x360 budget phone at 127.6px in a
+     134.3px panel, so the card's top edge lands 6.7px INSIDE the panel and
+     nothing comes near the meter. */
+  [".coach:not(.coach--fail) .coach__card", ".pl-pwr"],
   /* The key-hint strip used to be paired against the plant panel here, because
      its anchor assertions all passed while it was painted underneath a z-index
      6 panel — none of them was a question about stacking, and this pair was.
@@ -766,35 +790,33 @@ function measure(cfg: {
   // clause below asserts that clearance directly rather than trusting the
   // fraction to imply it, because the fraction cannot see where the belt is.
   //
-  // A CARDED PANEL keeps its own, larger budget: while a teaching card shares
-  // the panel's column app.css caps `.plant` at 52% of the field height (a cap
-  // derived from clearing the cannon sprite — see the `.hud[data-carded]
-  // .plant` max-height rule), so THAT cap is the box on those screens. Same
-  // number, one source of truth in the stylesheet, read here rather than
-  // re-derived. `[data-carded]`, not `[data-coach]`: the flag moved when Flight
-  // School's card turned out to share the panel on exactly the same terms as
-  // the retired deck's (app.css's `[data-carded]` note). Asking the old
-  // question held a lesson's carded panel to the UNCARDED box and reported it
-  // 29px over. A lesson bay is a Contract, which renders none of the R4
-  // readout, so 0.52 is untouched by this change — measured: every
-  // `lesson-hud-*` and `hud-contract*` row still solves to exactly 0.4296.
+  // A CARDED PANEL NO LONGER HAS A BUDGET OF ITS OWN, and that is the point of
+  // the change this clause records. A teaching card used to be a block in the
+  // panel's column, so it grew the panel and app.css capped `.plant` at 52% of
+  // the field height (the cannon-clearance number) to stop it; this branch read
+  // that cap back so a carded screen was judged against the box the stylesheet
+  // actually gave it. The card is an absolutely-positioned LAYER over the panel
+  // now (app.css's `[data-carded]` overlay section, and the owner report quoted
+  // there), so it takes no height out of the column at all: a carded panel is
+  // exactly the panel, and it is measured against exactly the panel's box.
+  // Measured after the change: every `lesson-card*` and `lesson-hud-*` row
+  // solves to 0.4296 of the field, carded or not, and the `coach-*` rows —
+  // Deep Run bays whose readout the deck's own `[data-coach]` list still hides
+  // — solve to the same. The 0.52 cap moved to `.coach` itself and is asserted
+  // by the carded clause further down rather than by this fraction.
   const PLANT_FLOOR = 0.4296;
   const PLANT_CEILING = 0.50;
   const plant = document.querySelector(".plant");
   if (plant) {
     const fh = cssPx("--field-h");
     const coached = !!document.querySelector(".hud[data-carded]");
-    const design = (coached ? 0.52 : PLANT_CEILING) * fh;
+    const design = PLANT_CEILING * fh;
     const h = plant.getBoundingClientRect().height;
     if (h > design + 1) {
       out.plant.push(
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
     }
-    // NOT `design`: on a carded screen `design` is 0.52 * fh, the card's MAX
-    // layered on top of the same floor (app.css never replaces the floor for
-    // that screen, only adds a ceiling above it) — reusing it here would demand
-    // a coached panel 21% taller than the stylesheet asks for.
     if (h < PLANT_FLOOR * fh - 1) {
       out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(PLANT_FLOOR * fh)}px footprint`);
     }
@@ -815,20 +837,69 @@ function measure(cfg: {
     // the coach and lesson fixtures inject over the same HUD, but a screen with
     // no belt has no clearance to have.
     //
-    // UNCARDED ONLY. A carded panel's height is the CARD's — app.css caps it at
-    // 0.52 of the field and the card fills what it is given — so its clearance
-    // is a fact about the teaching deck, not about this readout, and it is the
-    // same fact it was before this change: measured on the shipped panel, the
-    // 800x600 web window already left a carded panel 9.4px under the belt, and
-    // `lesson-card-pad` (a Contract, which renders none of the R4 readout at
-    // all) reports the same 9.6px after it. Asking the question there would be
-    // re-litigating the coach card's own budget through a clause that exists
-    // for a different reason.
-    const beltEl = coached ? null : document.querySelector(".belt");
+    // CARDED ROWS ARE ASKED THE SAME QUESTION NOW. This clause used to skip
+    // them, because a carded panel's height was the CARD's — app.css grew the
+    // panel to hold it under a 0.52-of-field cap — so its clearance was a fact
+    // about the teaching deck rather than about this readout (measured then:
+    // 9.4px under the belt on the 800x600 window, which is under the floor
+    // here). The card is a layer over the panel now and takes none of its
+    // height, so a carded panel's clearance is the readout's own again and
+    // there is nothing left to excuse. Every carded row that renders a belt at
+    // all clears it by more than the floor after the change — the run is green
+    // with this clause unscoped, which is the measurement. (At compact density
+    // the belt is hidden while a card is up, app.css's A6 rule, so on a phone
+    // there is no clearance to have.)
+    const beltEl = document.querySelector(".belt");
     if (beltEl) {
       const clear = plant.getBoundingClientRect().top - beltEl.getBoundingClientRect().bottom;
       if (clear < 10) {
         out.plant.push(`${clear.toFixed(1)}px of field left under the belt — the panel has climbed into it`);
+      }
+    }
+    // ---- ...AND WHILE A TEACHING CARD IS UP, THE PANEL IS STILL THERE -------
+    // The overlay's three promises, asserted where they can actually be seen.
+    //
+    // 1. THE READOUT IS STILL RENDERED. This is the owner's report, turned into
+    //    a measurement: "the tip panel should not completely hide the hud, but
+    //    be on top of it so the user understands that closing the hints display
+    //    the hud." Before, `[data-carded]` took every block out of the column;
+    //    a rule that put them back could be deleted tomorrow and nothing here
+    //    would notice. `.plant__body` having a real box — not `display: none`,
+    //    not zero-height — is the smallest true statement of "there is a HUD
+    //    behind this card", and it is checked on every carded screen.
+    // 2. THE SHEET STAYS ON THE PANEL. Left and right inside `.plant`'s own
+    //    edges, which is what makes it read as a card ON something rather than
+    //    as a replacement for it — and what keeps it out of the field the
+    //    pieces fly through, the defect the very first placement had.
+    // 3. THE SHEET STAYS ON THE PANEL VERTICALLY TOO. Its top may not rise
+    //    above the panel's own top edge, which is what app.css's
+    //    `max-height: calc(100% - 2 * --coach-inset-y)` buys and what the
+    //    `.coach__card` vs `.pl-pwr` pair up in NO_OVERLAP is the sharp end of:
+    //    the power meter hangs at `top: calc(2px - --pwr-h)`, i.e. immediately
+    //    above that edge, so a sheet that crosses it covers the one readout a
+    //    player is using while a card is up. This clause names the edge; the
+    //    pair names the casualty.
+    if (coached) {
+      const card = document.querySelector(".coach:not(.coach--fail)");
+      const body = document.querySelector(".plant__body");
+      const bodyBox = body?.getBoundingClientRect();
+      if (!body || !bodyBox || bodyBox.height < 1 || getComputedStyle(body).display === "none") {
+        out.plant.push("the readout is not rendered behind the teaching card — the card IS the panel");
+      }
+      if (card) {
+        const c = card.getBoundingClientRect();
+        const p = plant.getBoundingClientRect();
+        if (c.left < p.left - 0.5 || c.right > p.right + 0.5) {
+          out.plant.push(
+            `the teaching card runs ${Math.round(Math.max(p.left - c.left, c.right - p.right))}px `
+              + "outside the panel it is meant to sit on",
+          );
+        }
+        if (c.top < p.top - 0.5) {
+          out.plant.push(
+            `the teaching card stands ${Math.round(p.top - c.top)}px above the panel's own top edge`,
+          );
+        }
       }
     }
   }

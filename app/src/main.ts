@@ -4813,15 +4813,22 @@ class App {
     this.syncCoachReveal();
   }
 
-  /** Puts the coach card in the plant panel's FLOW, as its first child.
+  /** Puts the coach's or the lesson's card INSIDE the plant panel, as its first
+   *  child — where app.css lifts it into a LAYER over the panel's box while
+   *  `data-carded` is set (see that section's overlay rules).
    *
-   *  Not a layer over the panel: the card and the readout share the bottom-left
-   *  rect, and an absolutely-positioned card sliced whatever the current step
-   *  had just revealed — at step 4 the Funds figure ran y 213..258 against a
-   *  card starting at 239, i.e. a big cyan number cut through the middle. Two
-   *  boxes cannot overlap if they are siblings in the same column, so they are.
-   *  This is also what lets the panel grow upward when card + readout exceed
-   *  the mockup footprint (.plant is bottom-anchored, height auto).
+   *  The DOM position is the same one this method has always used and it is
+   *  still load-bearing, for a new reason: `.plant` is `position: absolute`, so
+   *  being its child is what makes the panel the card's containing block. A
+   *  card mounted as a sibling of the HUD would have to re-derive the panel's
+   *  rect from `--field-*` and would drift from it the moment either changed.
+   *
+   *  What the card no longer does is take height out of the panel's column. It
+   *  used to be a block in that flow, with `[data-carded]` rules hiding the
+   *  readout beneath it to make the room — which meant that while a card was up
+   *  the panel WAS the card, and the owner reported exactly that: closing a tip
+   *  had to reveal a HUD nobody knew was there. The readout stays mounted and
+   *  visible at whatever its reveal stage allows now, and the card sits over it.
    *
    *  renderOverlay emits the card AFTER the HUD string (it cannot nest it
    *  there without threading markup through hudHTML), so the freshly-parsed
