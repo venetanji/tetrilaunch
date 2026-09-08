@@ -13073,6 +13073,42 @@ section("Audio session policy and on-device diagnostics");
     /reactivateAudioSession\(\)|setActive\(/.test(active),
     active.replace(/\s+/g, " ").slice(0, 120),
   );
+  // ...AND WHEN AN INTERRUPTION ENDS WITHOUT ONE. The foreground hook above
+  // only covers an interruption that also backgrounded the app. Siri
+  // dismissed in place, an alarm silenced on the spot, a call declined from
+  // the banner: the session is deactivated and handed back with NO lifecycle
+  // callback, so nothing re-activates it and nothing tells the web layer to
+  // play its beds again — "sound worked until I took a call", permanently,
+  // which is one of the shapes the vaguer iOS music reports could have.
+  // AVAudioSession.interruptionNotification is the only signal for that
+  // window; the handler must reach BOTH halves of the recovery (the native
+  // session, and the web layer that owns the elements).
+  check(
+    "an audio interruption that ends without a foreground is observed",
+    /addObserver\([\s\S]{0,300}?AVAudioSession\.interruptionNotification/.test(swiftCode),
+  );
+  const interrupt = /func handleAudioInterruption[\s\S]*?\n    \}/.exec(swiftCode)?.[0] ?? "";
+  check("the interruption handler is still where this pin looks for it",
+    interrupt.length > 0);
+  check(
+    "...and it re-activates the session and tells the web layer to replay",
+    /InterruptionType\(rawValue: raw\)/.test(interrupt)
+    && /type == \.ended/.test(interrupt)
+    && /reactivateAudioSession\(\)/.test(interrupt)
+    && /notifyWebView\(""\)/.test(interrupt),
+    interrupt.replace(/\s+/g, " ").slice(0, 160),
+  );
+  // Two guards on it, and both are load-bearing. The notification arrives on
+  // the session's own queue, so the application state, the bridge and the web
+  // view are all touched from the wrong thread without the hop; and an
+  // interruption ending while the app is in the BACKGROUND (a call finished
+  // elsewhere) must not start music behind a screen nobody is looking at.
+  check(
+    "...on the main thread, and only while the app is actually in front",
+    /DispatchQueue\.main\.async/.test(interrupt)
+    && /applicationState == \.active/.test(interrupt),
+    interrupt.replace(/\s+/g, " ").slice(0, 160),
+  );
 
   // --- 2. The snapshot ------------------------------------------------------
   const diag = /export function audioDiagnostics\(\): string \{([\s\S]*?)\n\}/
@@ -13339,6 +13375,134 @@ section("Audio session policy and on-device diagnostics");
     !/audio-diag/.test(screensSrc) && !/audio-diag/.test(appCss),
     [/audio-diag/.test(screensSrc) && "screens.ts",
       /audio-diag/.test(appCss) && "app.css"].filter(Boolean).join(", "),
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// A RESTARTED BAY GETS ITS BED BACK.
+//
+// From play, on the iPhone X: "when the reset is done via the hold button the
+// music does not restart and sometimes stays quiet". The held ⏸ rebuilds the
+// bay from the PLAYING state (main.ts: startPauseHold → requestBayRetry →
+// resetBay → startLevel → setState("playing")), and that is the one transition
+// syncMusic cannot read: it is handed a state, and this one ends on "playing"
+// from "playing", so its branch runs with the previous attempt's music channel
+// still in force.
+//
+// The two MID-BAY stingers are what is left in force there, and each leaves
+// the channel in a state only they can undo:
+//
+//   brokeSettle mutes the bed and leaves it RUNNING (playStinger's keepBed).
+//   syncMusic's playing branch calls stopStinger — which fades the element
+//   out, so its "ended" handler, the thing that would have called restoreBed,
+//   never fires — and then asks playMusic for the bed that is already playing,
+//   which is a documented no-op. Driving lib/audio.ts headlessly with a
+//   stubbed element: the rebuilt bay came back at bed gain 0.000 and stayed
+//   there for its whole length. That is the report, both halves of it.
+//
+//   Either piece can also be PAUSED by the pause card (suspendMidBayStinger),
+//   and a restart from that card resumed the DEAD bay's piece over the new one
+//   and returned before any bed was chosen — after a timeFinal restart the new
+//   bay had no bed at all, with a 20s overtime cue over a full clock.
+//
+// The fix is one line at the one door every bay rebuild goes through, because
+// resetBay is the only place that knows a bay was REBUILT rather than
+// re-entered. The pins below hold that shape: the door calls it, it does both
+// halves of the undo, and the two module behaviours it leans on (stopStinger
+// clearing the suspension, playMusic never un-muting a bed it did not mute)
+// stay true.
+//
+// Source-scanned, like the sections above and for the same reason: audio.ts
+// reads import.meta.env at load and main.ts reaches for the DOM, so neither
+// can be imported into a Node harness at all. The shape is the assertion.
+// ---------------------------------------------------------------------------
+section("Bay restart vs the mid-bay stingers");
+{
+  const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const bare = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const audioCode = bare(fs.readFileSync(path.join(appDir, "src", "lib", "audio.ts"), "utf8"));
+  const mainCode = bare(fs.readFileSync(path.join(appDir, "src", "main.ts"), "utf8"));
+
+  // --- The undo itself ------------------------------------------------------
+  const reset = /export function resetBayAudio\(\): void \{([\s\S]*?)\n\}/
+    .exec(audioCode)?.[1] ?? "";
+  check("audio.ts exports resetBayAudio", reset.length > 0);
+  // BOTH halves. stopStinger alone leaves the muted bed muted (the quiet
+  // restart); restoreBed alone leaves a dead bay's piece able to resume over
+  // the new one (the wrong-cue restart).
+  check(
+    "...and it both ends the piece and hands the bed back",
+    /stopStinger\(\);/.test(reset) && /restoreBed\(\);/.test(reset),
+    reset.replace(/\s+/g, " ").slice(0, 120),
+  );
+  // The suspension flag is cleared by the stop, which is what stops a
+  // rebuilt bay resuming the piece the pause card froze. Fenced here rather
+  // than assumed: resetBayAudio does not clear it itself, so a stopStinger
+  // that stopped doing it would silently restore the pause-menu half of the
+  // bug with every check above still green.
+  check(
+    "stopStinger clears the suspension, so no rebuild can resume a dead piece",
+    /export function stopStinger[\s\S]{0,900}?stingerSuspended = false/.test(audioCode),
+  );
+
+  // --- The door -------------------------------------------------------------
+  const resetBay = /private resetBay\(\): void \{([\s\S]*?)\n  \}/.exec(mainCode)?.[1] ?? "";
+  check("resetBay is still where this pin looks for it", resetBay.length > 0);
+  // BEFORE the three rebuild branches, not merely present: resetBay returns
+  // out of each of them, so a call placed after the drill branch would never
+  // run for a drill. Stated as order, against every branch, so a future
+  // fourth mode cannot be added above it by accident.
+  const at = resetBay.indexOf("resetBayAudio()");
+  const rebuilds = ["this.startDrill(", "this.startContract(", "this.startLevel()"]
+    .map((s) => [s, resetBay.indexOf(s)] as const);
+  check("every bay rebuild is still reached from resetBay",
+    rebuilds.every(([, i]) => i > 0), rebuilds.map(([s, i]) => `${s}${i}`).join(" "));
+  check(
+    "a bay rebuild clears the mid-bay music state, before every branch that rebuilds",
+    at > 0 && rebuilds.every(([, i]) => at < i),
+    `resetBayAudio at ${at}; ${rebuilds.map(([s, i]) => `${s} ${i}`).join(", ")}`,
+  );
+  // And nowhere else: the value of a choke point is that it is the only one.
+  // A second caller would be a second definition of "the bay is gone", and
+  // the one in resetBay is the only one every door passes through.
+  const callers = (mainCode.match(/resetBayAudio\(\)/g) ?? []).length;
+  check("...and it is called from exactly that one place", callers === 1, `${callers} calls`);
+
+  // --- What the undo must NOT become ---------------------------------------
+  // playMusic's repeat-track branch re-asks a bed whose play() was dropped
+  // (WKWebView discards one that lands while media playback is natively
+  // suspended), which is the other half of "sometimes stays quiet". It must
+  // stay a PLAY and nothing else: a bed that is playing at gain 0 is one a
+  // keepBed stinger deliberately muted, and touching its level here would
+  // overturn that decision from outside the piece that made it.
+  const repeat = /export function playMusic\(track: MusicName \| null\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
+    .exec(audioCode)?.[1] ?? "";
+  check("playMusic's repeat-track branch is still where this pin looks for it",
+    repeat.length > 0);
+  check(
+    "a bed asked for twice is re-played only when it is PAUSED, never re-levelled",
+    /music\?\.paused/.test(repeat) && /music\.play\(\)/.test(repeat)
+    && !/fadeTo|setLevel|fadeIn/.test(repeat),
+    repeat.replace(/\s+/g, " ").slice(0, 140),
+  );
+  // ...and never behind a suspended app or with music off: the resume path
+  // owns the way back in, and nothing may become audible behind a screen
+  // nobody is looking at.
+  check(
+    "...and never while suspended or with music switched off",
+    /!suspended/.test(repeat) && /musicOn/.test(repeat),
+    repeat.replace(/\s+/g, " ").slice(0, 140),
+  );
+  // The park map is strong (resumeAudio logs its size), so an element
+  // replaced while the app is hidden — parkElement's "simply never unparked"
+  // case — would keep its entry, and with it the element and its stream, for
+  // the life of the session. Dropped where every element this module retires
+  // goes.
+  check(
+    "a retired element is dropped from the park map, not left pinned in it",
+    /function fadeOutAndStop[\s\S]{0,700}?parked\.delete\(el\)/.test(audioCode),
   );
 }
 

@@ -85,6 +85,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // category we chose rather than into the one WKWebView would promote
         // for elements alone.
         configureAudioSession()
+        // …and from here on, every interruption of it. Registered at launch
+        // because the window it covers (an interruption that never
+        // backgrounds the app) has no other callback to hang off.
+        observeAudioInterruptions()
         return true
     }
 
@@ -109,6 +113,63 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             try session.setActive(true)
         } catch {
             NSLog("[audio] AVAudioSession re-activation failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// AN INTERRUPTION IS NOT A BACKGROUNDING, and only one of the two has a
+    /// lifecycle hook here.
+    ///
+    /// A call, an alarm, Siri or another app taking the session DEACTIVATES
+    /// ours and pauses WebKit's media elements. The way back is
+    /// `reactivateAudioSession` — which currently runs only from
+    /// `applicationDidBecomeActive`, i.e. only when the interruption also
+    /// backgrounded us. An interruption that begins and ends with the app
+    /// still frontmost (Siri dismissed with a swipe, a timer alarm silenced
+    /// in place, an incoming call declined from the banner) sends NO
+    /// lifecycle callback at all, so nothing re-activates the session and
+    /// nothing tells the web layer to play its beds again: the game plays on
+    /// in silence for the rest of the session, which from lib/audio.ts looks
+    /// like a context that will not leave "interrupted" for reasons it cannot
+    /// explain. `AVAudioSession.interruptionNotification` is the only signal
+    /// for that window.
+    ///
+    /// Delivered on the session's own queue, so everything it touches — the
+    /// application state, the bridge, the web view — is hopped to main.
+    ///
+    /// Re-activated on EVERY `.ended`, not only when the notification carries
+    /// `.shouldResume`. That option is advice for an app that would otherwise
+    /// talk over whoever interrupted it; under `.ambient` (see
+    /// configureAudioSession) this app mixes with other audio by construction,
+    /// so honouring it would buy nothing and cost a silent game whenever iOS
+    /// leaves it out. The web layer is told through the SAME event a
+    /// foreground uses, because from its side the two are the same fact: what
+    /// was playing may have been stopped underneath it, so replay the current
+    /// bed (resumeAudio, whose own 400ms recheck covers a play the OS drops
+    /// while it is still handing the session back).
+    private func observeAudioInterruptions() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+    }
+
+    @objc private func handleAudioInterruption(_ notification: Notification) {
+        guard
+            let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let type = AVAudioSession.InterruptionType(rawValue: raw),
+            type == .ended
+        else { return }
+        DispatchQueue.main.async { [weak self] in
+            // Only in front. An interruption ending while the app is
+            // backgrounded (a call taken and finished elsewhere) must not
+            // start music behind a screen nobody is looking at — the web
+            // layer's own `suspended` flag refuses that too, and
+            // applicationDidBecomeActive is the sanctioned way back.
+            guard UIApplication.shared.applicationState == .active else { return }
+            self?.reactivateAudioSession()
+            self?.notifyWebView("native-did-become-active")
         }
     }
 

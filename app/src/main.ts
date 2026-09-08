@@ -166,7 +166,7 @@ import {
   playExplosion, playUiClick, playUiConfirm, playTimeTick, playCompactorStroke,
   startHoldCharge, stopHoldCharge, restoreBed, setWind, stopWind,
   playIncinerate, playCushionAbsorb, playRackMove,
-  suspendMidBayStinger, resumeMidBayStinger,
+  suspendMidBayStinger, resumeMidBayStinger, resetBayAudio,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
   musicTapLive,
 } from "./lib/audio";
@@ -5933,6 +5933,22 @@ class App {
     // (Both are already no-ops on the coach-fail route, and cost nothing there.)
     this.clearHold();
     this.releaseAutoTrigger();
+    // …and the mid-bay MUSIC belongs to the attempt being thrown away too.
+    // Same shape as the two lines above, and the same reason they are here
+    // rather than in setState: this path ends on "playing" from "playing", so
+    // nothing downstream can tell a rebuilt bay from a resumed one.
+    //
+    // syncMusic's "playing" branch cannot clean this up on its own — it would
+    // either resume the dead bay's suspended piece (returning before any bed
+    // is chosen) or stop that piece and then no-op on playMusic, because the
+    // bed it is about to ask for is the same one still running, muted, under
+    // the piece it just stopped. Reported from play as "restarting with the
+    // hold button does not restart the music and sometimes stays quiet";
+    // reproduced in a harness at bed gain 0.000 for the whole rebuilt bay.
+    // resetBayAudio is the audio module's own name for "that bay is gone", so
+    // syncMusic's "playing" branch runs against a clean channel and remains
+    // the one place a bed is chosen.
+    resetBayAudio();
     // Deep Run only, and the ONE place a restart is booked. `this.run` is
     // exactly that test: startContract and startDrill both null it, so a
     // Contract or drill re-deal cannot reach here with a run in hand. A

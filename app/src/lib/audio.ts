@@ -1626,6 +1626,13 @@ function fadeOutAndStop(el: HTMLAudioElement | null): void {
     // …and release the element itself, which clearing the stream does not do.
     // See musicSources.
     unrouteMusic(el);
+    // …and forget any suspension bookkeeping about it. `parked` is a strong
+    // Map (resumeAudio logs its size), so an element replaced while the app
+    // is hidden — the case parkElement's note calls "simply never unparked" —
+    // would otherwise keep its entry, and with it the element and its stream,
+    // for the life of the session. One dead entry per hidden track change is
+    // small and it is unbounded, which is the wrong pair.
+    parked.delete(el);
   });
 }
 
@@ -1640,7 +1647,42 @@ function fadeIn(el: HTMLAudioElement, to: number): void {
  * what makes it safe to drive from renderOverlay.
  */
 export function playMusic(track: MusicName | null): void {
-  if (track === musicName) return;
+  if (track === musicName) {
+    // …UNLESS THE BED ASKED FOR IS THE ONE THAT IS NOT PLAYING. The no-op
+    // above is about not restarting a bed; it was also, silently, a refusal
+    // to ever ask twice. A play() this module fires can be DROPPED rather
+    // than queued — WKWebView discards one that lands while its media
+    // playback is natively suspended (AppDelegate's
+    // setAllMediaPlaybackSuspended), and any engine can reject one as
+    // un-gestured — and after that `musicName` names a bed that is silent,
+    // so every later request for it returned here and the bay played to its
+    // end with nothing under it. resumeAudio's 400ms recheck covers the same
+    // failure for the one moment it can see (a foreground edge); this covers
+    // the rest, at the only other moment the app states what should be
+    // playing.
+    //
+    // Narrow on purpose. Only a PAUSED element is re-asked: an element that
+    // is playing at gain 0 is a bed a keepBed stinger deliberately muted
+    // (playStinger), and un-muting it here would be this function
+    // overturning that decision from the outside. Not while suspended
+    // either — nothing may become audible behind a screen nobody is looking
+    // at, and resumeAudio plays the current bed on the way back in.
+    //
+    // A pending play() reads as NOT paused (play() clears the flag
+    // synchronously and only a rejection sets it again), so this cannot
+    // stack a second play on a bed that is merely still starting.
+    if (track && musicOn && !suspended && music?.paused) {
+      // Recorded where the diagnostics panel can read it, because a bed that
+      // needed re-asking is itself a finding. NOT twice in a row for the same
+      // bed: a platform refusing one outright would write a line per screen
+      // change and push the suspend/resume history — ten entries, and the
+      // reason anyone reads that log — straight out of it.
+      const entry = `playMusic(${track}) — bed paused, replaying`;
+      if (!lifecycle[lifecycle.length - 1]?.endsWith(entry)) logLifecycle(entry);
+      void music.play().catch(() => { /* refused again; nothing further to try */ });
+    }
+    return;
+  }
   musicName = track;
   fadeOutAndStop(music);
   music = null;
@@ -1806,6 +1848,53 @@ export function resumeMidBayStinger(): boolean {
     on a paused element, so the piece simply stays silent; the bay's own exit
     still ends it and syncMusic replaces it there. */ });
   return true;
+}
+
+/**
+ * THE BAY THOSE PIECES WERE SCORING NO LONGER EXISTS.
+ *
+ * main.ts's resetBay is the one door every bay REBUILD goes through — the
+ * pause modal's Restart Bay, the held ⏸, the loss card's Retry Bay, the
+ * tutorial's retry — and it is the only place that can know a bay was rebuilt
+ * rather than merely re-entered. syncMusic cannot: it is handed a state, and a
+ * rebuild ends on "playing" from "playing", so its "playing" branch runs with
+ * the previous attempt's channel still in force.
+ *
+ * That is a bug because the two MID-BAY pieces leave the channel in a state
+ * only they can undo, and both of their exits are attached to something the
+ * rebuild destroys. Measured in a harness that drives this module with a
+ * stubbed element (levels read off the tracked gain, so a routed and an
+ * unrouted element read alike):
+ *
+ *   brokeSettle MUTES the bed and leaves it running (playStinger's keepBed).
+ *   The bed comes back when the piece ENDS — the "ended" handler calls
+ *   restoreBed — or when the rescue stops it and restores it by hand. A
+ *   rebuild does neither: syncMusic's "playing" branch calls stopStinger,
+ *   which FADES the element out, so "ended" never fires on it, and then asks
+ *   playMusic for the same bay's bed, which is a no-op because that bed is
+ *   already playing. The bay came back at gain 0.000 and stayed there — the
+ *   held-⏸ report, exactly ("does not restart and sometimes stays quiet").
+ *
+ *   Either piece can also be PAUSED by the pause card (suspendMidBayStinger).
+ *   Restarting from that card resumed the DEAD bay's piece over the new one
+ *   and returned before any bed was chosen: after a timeFinal restart the new
+ *   bay had no bed at all, with a 20s overtime cue ringing over a full clock.
+ *
+ * So the rebuild says so once, here, and syncMusic's "playing" branch is then
+ * evaluated with nothing left over: no suspended piece to resume, no bed muted
+ * under a piece that is gone. stopStinger already clears both flags, which is
+ * why this is those two calls and not a third piece of state.
+ *
+ * The bed is deliberately NOT restarted. It is a loop that has been running
+ * under the whole attempt, and dropping it back to bar one on every retry
+ * would be a louder edit than the silence it replaces — a restart is a rebuilt
+ * BAY, not a new score.
+ */
+export function resetBayAudio(): void {
+  // Order is not load-bearing — two different elements — but it reads the way
+  // the moment does: the piece is over, and then the bay gets its bed back.
+  stopStinger();
+  restoreBed();
 }
 
 /**
