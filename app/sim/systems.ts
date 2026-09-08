@@ -15933,6 +15933,33 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
     `${lit(held)} of ${sockets(held)}`);
   check("...which is a state the owed plate never draws",
     !lobby(LESSON_COUNT, SCHOOL_STEPS).includes("tower__sockets--solid"));
+    // THE EARNED PLATE SITS ON THE NUMBERS' COLUMN (owner: "align the floor
+    // name with the numbers"). Every floor's number starts at shaft padding +
+    // 1px border + 3px padding + the car's 22px lane + the row's 4px gap; the
+    // plate's row takes the same inset, less nothing, and its block ends where
+    // the windows end (5px + 1px inside the shaft's padding). Read off the
+    // sheet, because the number is the whole point.
+    const sheet = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    );
+    const plateRow = sheet.slice(sheet.indexOf(".tower__base--floor.is-earned .tower__base-row {"));
+    check("...and, earned, the plate's name starts on the floor numbers' column",
+      /\.tower__base--floor\.is-earned \{ padding: 0; \}/.test(sheet)
+        && plateRow.slice(0, 200).includes("padding: 0 calc(var(--tower-pad) + 6px) 0 calc(var(--tower-pad) + 30px)"),
+      plateRow.slice(0, 160));
+    // ...and the slab is the windows' 16px, not the 12px that `gap: 0` on
+    // 4px cells leaves: the cells take the gaps (measured 12 vs 16 before).
+    const solid = sheet.slice(sheet.indexOf(".tower__sockets--solid {"), sheet.indexOf(".tower__sockets--solid i {"));
+    check("...and the solid block keeps the windows' footprint",
+      solid.includes("width: calc(var(--socket-cols, 3) * 6px - 2px)")
+        && solid.includes("height: calc(var(--socket-cols, 3) * 6px - 2px)")
+        && solid.includes("repeat(var(--socket-cols, 3), 1fr)")
+        && /\.tower__sockets--solid i \{ width: auto; height: auto;/.test(sheet),
+      solid.replace(/\/\*[\s\S]*?\*\//g, "").trim().slice(0, 200));
+    check("...the same lane and gap the floors themselves draw",
+      /\.tower__gap \{ width: 22px;/.test(sheet)
+        && /\.tower__floor \{\n  display: flex; align-items: center; gap: 4px;\n[^}]*padding: 0 5px 0 3px;/.test(sheet));
   check("...and the tower stops being an entrance at all",
     lobby(0, 4).includes("tower--lobby") && !held.includes("tower--lobby"));
   // Keyed on the LICENCE, never on the parked floor: reading a locked Mark's

@@ -1755,6 +1755,20 @@ body.crt-off #app::after { display: none; }
 .tower__base--floor:not(.is-earned) {
   color: var(--warn); border-color: var(--warn);
 }
+/* THE PLATE SITS ON THE NUMBERS' COLUMN. Earned, the ground floor is one more
+   rung of the list above it, so "LS" starts where every floor's number starts
+   — past the shaft's padding, the floor's 1px border and 3px padding, the
+   car's 22px lane (.tower__gap) and the row's 4px gap — and the solid block
+   ends where the windows end (padding 5px inside the same border). Measured
+   from the shaft's wall rather than centred, so the column reads as one list
+   from SKY to LS (owner's brief: "align the floor name with the numbers").
+   The padding is the token; the rest is fixed on .tower__floor. The 2px
+   border the plate wears against the floors' 1px is the base's own and is
+   outside these numbers, which is why the left inset is 30 and not 31. */
+.tower__base--floor.is-earned { padding: 0; }
+.tower__base--floor.is-earned .tower__base-row {
+  padding: 0 calc(var(--tower-pad) + 6px) 0 calc(var(--tower-pad) + 30px);
+}
 /* THE ENTRANCE ITSELF. A lit awning across the top, the plate on the left and
    the lessons as windows on the right — the same two-part reading every rung in
    the shaft has (a name, then its lights), at the one size on this column that
@@ -1816,8 +1830,19 @@ body.crt-off #app::after { display: none; }
    would break the square. Same 16x16 footprint either way: the 2px gaps the
    grid gives up are handed straight back to the cells, so the plate's row does
    not re-flow the moment the licence lands. */
-.tower__sockets--solid { gap: 0; }
-.tower__sockets--solid i { border-radius: 0; border-color: transparent; }
+.tower__sockets--solid {
+  gap: 0;
+  /* THE CELLS TAKE THE GAPS. `gap: 0` on 4px cells drew a 12x12 slab under a
+     16px-wide row of windows — measured 12 against 16 on every phone, with
+     the slab's right edge on the windows' only because the plate's row is
+     end-aligned. The footprint is the row's own arithmetic (cols x 4px plus
+     the 2px between them) and the cells split it. */
+  grid-template-columns: repeat(var(--socket-cols, 3), 1fr);
+  grid-auto-rows: 1fr;
+  width: calc(var(--socket-cols, 3) * 6px - 2px);
+  height: calc(var(--socket-cols, 3) * 6px - 2px);
+}
+.tower__sockets--solid i { width: auto; height: auto; border-radius: 0; border-color: transparent; }
 /* THE RING IS WHERE THE CAR IS, on both faces of this floor. The earned plate
    also takes the accent's colour and ground, because there it is the same quiet
    slab every other selection lights up; the entrance keeps its amber, because
