@@ -9134,6 +9134,119 @@ button.panel { color: var(--text); }
 .coach__title { font-family: var(--font-pixel); font-size: calc(13 * var(--coach-px)); color: var(--text); }
 .coach__body { margin: 0; font-size: calc(14 * var(--coach-px)); color: var(--text-dim); line-height: 1.45; }
 .coach__body b { color: var(--text); }
+
+/* ---------- THE LESSON PICTOGRAM (ui/lessonart.ts) ----------
+   A drawing of the exercise, above the title, on every Flight School card.
+
+   WHY IT IS AFFORDABLE AT ALL. It is not extra height: it is the height the
+   copy gave back. The deck's bodies ran to 190 characters — four to five lines
+   at `calc(14 * var(--coach-px))` / 1.45, about 81px on the 640x360 budget
+   phone, which is the tightest box in sim/uifit's matrix. The rewritten cards
+   are two lines, so the strip below costs about what the two lines it replaced
+   cost. That is the whole trade, and it is why the strip is capped rather than
+   aspect-free: a picture that could grow would eventually take the panel's
+   readout with it.
+
+   HEIGHT, NOT WIDTH, IS THE BUDGET. The card is a column inside the plant
+   panel's column (0.4708 of the field width), so width is whatever the panel
+   has; the cap that matters is vertical, and it is written in the same
+   `--coach-px` field pixels as every other length in the card so a 1920-wide
+   window magnifies the drawing exactly as it magnifies the type.
+
+   THE PICTURE GIVES WAY BEFORE THE COPY DOES, and that is the whole reason the
+   strip is a flex ITEM with a definite basis rather than a rigid `flex: none`
+   box around an `height: auto` image.
+
+   The card's give-way chain (see `.coach`, above) says the BODY is what loses
+   its tail when the panel's 52%-of-field cap squeezes the card — which was
+   right when the body was the only thing in the card that could give. It is not
+   right any more: an illustration drawn one size smaller still teaches; a
+   sentence with its last clause below the fold does not. Measured on the
+   640x360 budget phone, the composed gamepad card for lesson 1 ("Aim with the
+   left stick — up/down for angle, left/right for power — and press A to fire.
+   Land the shipment in the gap.", the longest string the ladder can produce
+   because its gesture comes from the one hint table) ran the card 11px past the
+   cap, and what scrolled out of sight was the instruction.
+
+   `flex: 0 100 auto` is that priority written down: no growing, and a shrink
+   factor two orders of magnitude above the body's default 1 — so of any deficit
+   the card has to absorb, the strip takes essentially all of it and the body
+   keeps its lines. `min-height: 0` is what lets it shrink at all, `overflow:
+   hidden` is what keeps the drawing inside the shrunk box, and
+   `align-items: flex-end` decides which end of the drawing survives: the floor,
+   the pile and the target, with the top of the arc going first. The body's own
+   shrink is untouched — if a card is ever so long that a vanished picture is
+   still not enough, the chain ends exactly where it did before.
+
+   NO BOX OF ITS OWN. No border, no background, no padding: the card already has
+   a frame, and a second one inside it reads as a widget rather than as an
+   illustration. */
+.lart__strip {
+  display: flex; justify-content: center; align-items: flex-end;
+  min-width: 0; min-height: 0; overflow: hidden;
+  flex: 0 100 auto;
+  margin-bottom: calc(2 * var(--coach-px));
+}
+.lart {
+  display: block;
+  width: 100%;
+  /* SIZED BY ITS OWN ASPECT under a cap, NOT by `height: 100%`.
+     `height: 100%` inside a flex item is the obvious way to make a drawing
+     follow a shrinking box and it is not portable: WebKit resolves it against
+     an indefinite height, falls back to the SVG's intrinsic ratio, and paints
+     the whole 88x32 box straight down over the card's title — measured on the
+     640x360 budget phone, where Chromium had been fine. `height: auto` under a
+     `max-height` is what every engine agrees on; the strip clips instead. */
+  height: auto;
+  /* THE CAP IS A FRACTION OF THE FIELD, not a staircase of breakpoints.
+     What constrains this drawing is the plant panel's own cap — 52% of
+     `--field-h` (see `.hud[data-carded] .plant`) — minus the card's fixed
+     furniture, so the strip is budgeted out of the same number rather than out
+     of guessed viewport steps. 8% is that budget measured: 27px of strip on the
+     640x360 budget phone, which leaves the two lines the rewritten copy is
+     written to, and it scales up with the panel on a tablet or a 1920 window
+     instead of sitting at phone size in the middle of a much larger card. 8.5%
+     is a pixel too much — the 800x600 window's card went one pixel over its own
+     cap and the strip's overflow took a slice off the congestion tag.
+
+     Three height media queries stood here first and each was wrong somewhere
+     the next one was right: at a flat 52 field px the cards ended mid-sentence
+     on every 375px and 360px phone, and at 52-above-400px the 800x600 window
+     squeezed the strip until its own overflow clipped the congestion tag. A
+     ratio has no edges to fall off.
+
+     The `min()` is a sanity stop, not a design: nothing in the matrix reaches
+     it, and it is there so an unusually tall field cannot hand the drawing more
+     room than the copy under it. */
+  max-height: min(calc(0.08 * var(--field-h)), calc(88 * var(--coach-px)));
+}
+/* THE ONE ANIMATION IN THE STRIP, and it is opacity only.
+   The target outline is what the card is asking the player to fill, so it
+   breathes to separate itself from the cargo already standing. Nothing else
+   moves: no filter, no stroke-dashoffset march, no transform — the whole
+   drawing is a handful of rects and one path, and it renders behind a live bay
+   at 60fps. */
+@keyframes lart-target {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.42; }
+}
+.lart__target { animation: lart-target 1.6s var(--ease) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  /* THE THEATRE GOES, THE TEACHING STAYS — the house pattern, and here it costs
+     nothing to honour: the outline is a dashed cyan rectangle whether or not it
+     pulses, so the static end state already says "put it here". */
+  .lart__target { animation: none; opacity: 1; }
+}
+/* The two labelled marks — the fine's minus and the congestion multiplier.
+   Pixel type at the drawing's own scale, because they are readouts inside an
+   illustration rather than copy: the SVG's user units are the card's field
+   pixels, so 7 units here is 7px on a phone and magnified with everything
+   else. */
+.lart__tag {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 0.02em;
+}
 .coach__foot {
   display: flex; align-items: center; justify-content: space-between;
   gap: calc(10 * var(--coach-px)); margin-top: calc(2 * var(--coach-px));

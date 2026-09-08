@@ -164,6 +164,7 @@ import {
 import {
   LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonAt, lessonById, lessonSeed, levelForLesson,
 } from "../src/game/school";
+import { lessonPictogramHTML } from "../src/ui/lessonart";
 import {
   applySandboxMaterials, bumpSandboxRatchet, finalFitsTier, maxedTiers, newSandbox,
   ratchetTotal, sandboxAxes, sandboxFinals, sandboxRunFor, SANDBOX_FINAL_BAY,
@@ -21684,26 +21685,82 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     good.destroy();
   }
 
-  // COPY BUDGET, the same discipline coachSteps is held to and for the same
-  // reason: the card shares the plant panel's column under a hard height cap,
-  // so a sentence that overruns pushes its own tail out of `.coach__body` and
-  // the player reads a card ending mid-word. sim/uifit measures the rendered
-  // height; this counts the characters that produce it.
+  // ---- THE COPY BUDGET ---------------------------------------------------
+  //
+  // It used to be a character count — 190 per body, 120 per brief — and 190
+  // characters is four to five lines of prose over a live bay. The cards fit;
+  // nobody read them, which is the owner's verdict after playing the ladder and
+  // is a failure a height assertion cannot see. So the budget is now counted in
+  // the units the writing is actually spent in:
+  //
+  //   ONE INSTRUCTION SENTENCE, at most 12 words, with the thing to DO in <b>.
+  //   ONE RULE LINE after it at most, at most 10 words, and only where a card
+  //   teaches a rule the instruction cannot carry.
+  //
+  // A word count is the pin that matters because it is the one a future card
+  // cannot satisfy by writing longer words. The character budgets stay as a
+  // ceiling under them — they are what sim/uifit's rendered-height assertions
+  // were calibrated against — but they are no longer what does the work.
+  //
+  // MUTATION-PROVEN, all four: restoring any one of the shipped bodies (e.g.
+  // Clutter's old two-sentence "letting the press work is free" card, 24 words)
+  // fails `fits one instruction`, and re-titling a card to its old
+  // "Losing cargo breaks it" fails the three-word title check.
   {
-    const plain = (t: string): number => t.replace(/<[^>]+>/g, "").length;
+    const plain = (t: string): string => t.replace(/<[^>]+>/g, "");
+    const words = (t: string): number =>
+      plain(t).trim().split(/\s+/).filter((w) => /[a-z0-9]/i.test(w)).length;
+    /** Sentences, as a reader counts them.
+     *
+     *  A full stop ENDS a sentence only when whitespace or the end of the
+     *  string follows it; a decimal point never does, because a digit always
+     *  does. That one lookahead is the whole rule, and it is worth stating
+     *  because the deck is full of ×1.25 and ×1.5 — the first attempt at this
+     *  refused to split after a digit at all, which glued "costs $1." to the
+     *  rule line behind it and reported a 16-word instruction that nobody had
+     *  written. */
+    const sentences = (t: string): string[] =>
+      plain(t).split(/\.(?=\s|$)/).map((s) => s.trim()).filter(Boolean);
+
+    /** The instruction's budget, and the rule line's. Named rather than typed
+     *  at four call sites so a deliberate widening is one edit and shows up as
+     *  one line of a diff. */
+    const INSTRUCTION_WORDS = 12;
+    const RULE_WORDS = 10;
+    const TITLE_WORDS = 3;
+    const BRIEF_WORDS = 14;
+
     for (const l of LESSONS) {
       check(`${l.id} has a deck`, l.cards.length > 0 && l.cards.length <= 3,
         String(l.cards.length));
       for (const [n, c] of l.cards.entries()) {
-        check(`${l.id} card ${n + 1} fits the card`, plain(c.body) <= 190,
-          `${plain(c.body)} > 190`);
-        check(`${l.id} card ${n + 1} has a title that fits`, c.title.length <= 22,
-          `${c.title.length} > 22`);
+        const parts = sentences(c.body);
+        check(`${l.id} card ${n + 1} is an instruction and at most one rule`,
+          parts.length >= 1 && parts.length <= 2, `${parts.length} sentences: ${c.body}`);
+        check(`${l.id} card ${n + 1} fits one instruction`,
+          words(parts[0] ?? "") <= INSTRUCTION_WORDS,
+          `${words(parts[0] ?? "")} > ${INSTRUCTION_WORDS}: ${parts[0]}`);
+        if (parts.length > 1) {
+          check(`${l.id} card ${n + 1}'s rule line stays short`,
+            words(parts[1]) <= RULE_WORDS,
+            `${words(parts[1])} > ${RULE_WORDS}: ${parts[1]}`);
+        }
+        // THE BOLD RUN IS THE POINT. A player who reads nothing else reads the
+        // emphasis, so a card without one has no short form at all.
+        check(`${l.id} card ${n + 1} marks what to do`, /<b>[^<]+<\/b>/.test(c.body),
+          c.body);
+        check(`${l.id} card ${n + 1} has a title that fits`,
+          words(c.title) <= TITLE_WORDS && c.title.length <= 22,
+          `${words(c.title)} words / ${c.title.length} chars: ${c.title}`);
+        // The ceiling sim/uifit's height assertions were calibrated against.
+        check(`${l.id} card ${n + 1} stays under the old character ceiling`,
+          plain(c.body).length <= 190, `${plain(c.body).length} > 190`);
       }
       check(`${l.id}'s HUD line fits one row`, l.conditions.length <= 32,
         `${l.conditions.length} > 32`);
-      check(`${l.id}'s brief fits its card`, plain(l.brief) <= 120,
-        `${plain(l.brief)} > 120`);
+      check(`${l.id}'s brief fits its card`,
+        words(l.brief) <= BRIEF_WORDS && plain(l.brief).length <= 120,
+        `${words(l.brief)} words / ${plain(l.brief).length} chars: ${l.brief}`);
     }
   }
 
@@ -21842,7 +21899,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const first = LESSONS.findIndex((l) => l.cards.some((c) => /\bzone\b/.test(c.body)));
     check("the zone is named first on the opening lesson", first === 0, String(first));
     check("...and that card says what it is",
-      LESSONS[0].cards.some((c) => /floor beyond the bar is the <b>zone<\/b>/.test(c.body)));
+      LESSONS[0].cards.some((c) => /<b>zone<\/b> is the floor beyond the bar/.test(c.body)));
   }
 
   // NO CARD CARRIES DEAD COPY. `input: "aim"` used to REPLACE a card's body
@@ -21861,9 +21918,136 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         shown.find((t) => !t.includes(c.body)) ?? "");
       // The composed card is what the height cap is actually spent on, and a
       // gesture sentence is the longest thing prepended to one.
+      //
+      // 125, DOWN FROM 190, and the number moved because the card grew a
+      // picture. 190 characters was four to five lines of body, which fitted
+      // only because the card was nothing but type; with the pictogram above it
+      // (ui/lessonart.ts) two lines is what the 640x360 phone affords. The
+      // longest composed card the ladder can produce today is lesson 1 on a
+      // gamepad at 118 — the pad's aim sentence out of the one hint table in
+      // front of a seven-word card — and `lesson-card-aim-pad` is the fixture
+      // that measures it in pixels. This is the arithmetic guard that keeps a
+      // future rebind or a re-worded hint from silently sailing past it.
       const worst = Math.max(...shown.map((t) => strip(t).length));
       check(`${l.id} card ${n + 1} still fits once the gesture is in front of it`,
-        worst <= 190, `${worst} > 190`);
+        worst <= 125, `${worst} > 125`);
+    }
+  }
+
+  // ---- THE PICTOGRAM IS DERIVED, NOT DRAWN -------------------------------
+  //
+  // Every card now leads with a drawing of its own exercise (ui/lessonart.ts's
+  // lessonPictogramHTML), which is what paid for the copy budget above: the
+  // sentences that were cut are the ones that described geometry in prose.
+  //
+  // The whole value of that trade rests on one property — the picture comes out
+  // of the SAME fields levelForLesson builds the bay from. Nine hand-drawn
+  // strips would agree with the ladder on the day they were made and diverge on
+  // the first tune, silently, because nothing in CI can read a picture. So the
+  // pins below ask the only question that catches divergence: does the art MOVE
+  // when the bay does?
+  {
+    const art = (l: (typeof LESSONS)[number], card = 0): string =>
+      lessonPictogramHTML(l, card);
+
+    check("every lesson card carries a pictogram",
+      LESSONS.every((l, i) => l.cards.every((_, n) =>
+        S.lessonCardHTML(l, i, n, LESSON_COUNT).includes('<svg class="lart"'))),
+      LESSONS.find((l, i) => !l.cards.every((_, n) =>
+        S.lessonCardHTML(l, i, n, LESSON_COUNT).includes('<svg class="lart"')))?.id ?? "");
+
+    // 1. A CHANGED WALL IS A CHANGED PICTURE. The load-bearing one: reshape a
+    //    profile and the strip has to reshape with it, or the card is showing
+    //    the player a board that is not in front of them.
+    for (const l of LESSONS.filter((x) => x.wall)) {
+      const taller = { ...l, wall: l.wall!.map((h, i) => (i === 0 ? h + 1 : h)) };
+      check(`${l.id}'s pictogram follows its wall`, art(taller) !== art(l));
+      // ...and so is a moved gap, which is the change a set piece is most
+      // likely to see: the same column heights, one slot over.
+      const shifted = { ...l, wall: [...l.wall!.slice(1), l.wall![0]] };
+      check(`...and follows where its gap is`, art(shifted) !== art(l));
+    }
+
+    // 2. THE DEALT SHAPE IS THE ONE ON THE BELT. A picture of an O over a bay
+    //    that deals an I is a picture of somebody else's lesson.
+    for (const l of LESSONS.filter((x) => x.sequence?.length && x.wallMaterial === "gold")) {
+      const other = l.sequence![0] === "I" ? "O" : "I";
+      check(`${l.id}'s pictogram follows the shape it deals`,
+        art({ ...l, sequence: [other] }) !== art(l));
+    }
+
+    // 3. THE ROTATION IS SOLVED, NOT AUTHORED. Four in the Well is the lesson
+    //    whose whole subject is that a flat I does not enter a one-column
+    //    channel, and the strip has to SHOW the upended one. The I is 4 wide
+    //    flat and 1 wide upright, so the well's art is 4 cubes tall and one
+    //    column across while the four-wide trench's is one cube tall — which is
+    //    a fact about the geometry rather than about a flag.
+    {
+      const well = lessonById("four-in-the-well")!;
+      const trench = lessonById("close-the-row")!;
+      // THE SHIPMENT'S ROWS, NOT THE DRAWING'S. Counted off the cubes painted
+      // in the DEALT SHAPE's colour (ui/lessonart.ts's `cube` fills the pile in
+      // the wall material's ink and the shipment in PIECE_COLORS), so a flat I
+      // is one row and an upended one is four.
+      //
+      // The first version of this counted distinct y values across every rect
+      // in the strip and passed a mutation that removed the rotation search
+      // outright — because the well's pile is two deep and the trench's one, so
+      // the two drawings differed by a row whatever the shipment was doing.
+      // A measurement that a bug cannot move is not a measurement.
+      const shipRows = (l: (typeof LESSONS)[number]): number => {
+        const ink = PIECE_COLORS[l.sequence![0]];
+        const re = new RegExp(`<rect x="[\\d.]+" y="([\\d.]+)"[^>]*fill="${ink}"`, "g");
+        return new Set([...art(l).matchAll(re)].map((m) => m[1])).size;
+      };
+      check("the well's shipment is drawn upended, the trench's flat",
+        shipRows(well) === 4 && shipRows(trench) === 1,
+        `${shipRows(well)} vs ${shipRows(trench)}`);
+    }
+
+    // 4. TWO GAPS, TWO CARDS, TWO PICTURES. Lob or Skim is the one board with a
+    //    gap at each end, and its deck names them in order — the lob (far) then
+    //    the skim (near). The card index picks the target, so the two cards must
+    //    NOT draw the same strip; every other lesson has one gap and both of its
+    //    cards point at it.
+    {
+      const both = lessonById("lob-or-skim")!;
+      check("Lob or Skim draws a different gap per card", art(both, 0) !== art(both, 1));
+      for (const l of LESSONS.filter((x) => x.wallMaterial === "gold" && x.id !== "lob-or-skim")) {
+        check(`${l.id} points both its cards at the one gap it has`,
+          art(l, 0) === art(l, 1));
+      }
+    }
+
+    // 5. THE THREE PICTURES ARE SELECTED BY THE BAY, not by an id. A wall-less
+    //    bay gets the miss, a plain-walled one the tax, a gold one the target —
+    //    and the selector is the same field that decides whether the board
+    //    resets itself (levelForLesson's boardResets).
+    {
+      const lost = lessonById("lost-cargo")!;
+      const clutter = lessonById("clutter")!;
+      const set = lessonById("two-at-once")!;
+      check("the wall-less lesson draws the miss, not a target",
+        art(lost).includes("−$") && !art(lost).includes("lart__target"));
+      check("the plain-walled lesson draws the tax, not a target",
+        art(clutter).includes(`×${PILE_TIERS[0].costMult}`)
+          && !art(clutter).includes("lart__target"));
+      check("...and a gold-scaffolded one draws the target",
+        art(set).includes("lart__target") && !art(set).includes("−$"));
+      // The congestion badge quotes the LIVE multiplier out of the same
+      // constant the card interpolates, so the drawing and the sentence can
+      // never disagree about the price.
+      check("the tax badge and the tax card quote one figure",
+        clutter.cards[0].body.includes(`×${PILE_TIERS[0].costMult}`)
+          && art(clutter).includes(`×${PILE_TIERS[0].costMult}`));
+    }
+
+    // 6. CHEAP, and stated as a bound rather than a hope: no filter, no
+    //    gradient, no transform animation. The strip renders over a live bay.
+    for (const l of LESSONS) {
+      const svg = art(l);
+      check(`${l.id}'s pictogram carries no filter or gradient`,
+        !/filter|Gradient|<image/i.test(svg), svg.slice(0, 120));
     }
   }
 

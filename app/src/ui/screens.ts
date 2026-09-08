@@ -21,7 +21,8 @@ import {
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
-import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "../game/school";
+import { LESSON_COUNT, LICENCE_LESSON_COUNT, type Lesson } from "../game/school";
+import { lessonPictogramHTML } from "./lessonart";
 
 /** Lessons past the licence — the practice bays that stay open once Tier 1
  *  does. Derived, so the copy quoting it cannot drift from the ladder. */
@@ -1247,10 +1248,19 @@ export function menuPlaySub(
   // finish Flight School, on the Flight School button, would be a button
   // refusing to do the thing it is for.
   if (tier === LICENCE_TIER) {
-    if (!licence) return "Licence earned · re-fly any lesson";
+    // WRITTEN TO THE BOX, at 28 characters. `.btn__sub` is one ellipsised line
+    // on a short viewport and a two-line clamp above 700px, and the Flight
+    // School row is the narrowest text column on the menu — its title is the
+    // only two-word one and it carries the FLIGHT badge beside it, so the sub
+    // gets ~165px. Measured there, "Lesson 4 of 4 · pick up where you left off"
+    // ellipsised to "Lesson 4 of 4 · pick …" on a 640x360 phone and wrapped the
+    // button a line taller than Contracts and Workshop on a tablet — the exact
+    // defect `.btn__sub`'s own note is written against. The numbers still lead;
+    // what changed is that the clause behind them now fits.
+    if (!licence) return "Licence earned · re-fly any";
     return licence.done === 0
-      ? `${licence.total} short lessons · nothing to lose`
-      : `Lesson ${Math.min(licence.total, licence.done + 1)} of ${licence.total} · pick up where you left off`;
+      ? `${licence.total} lessons · nothing to lose`
+      : `Lesson ${Math.min(licence.total, licence.done + 1)} of ${licence.total} · resume`;
   }
   // A LADDER FLOOR WITH THE LICENCE STILL OWED says what is in the way, and
   // says it on the button the player just pressed rather than in a toast over
@@ -3726,7 +3736,16 @@ export function coachHTML(
  * screen.
  */
 export function lessonCardHTML(
-  lesson: { name: string; cards: { title: string; body: string; input?: "aim" | "rotate" }[] },
+  /** THE WHOLE LESSON, not the two fields the card prints.
+   *
+   *  It used to be structurally typed down to `{ name, cards }`, which was
+   *  honest about what the card read and became wrong the moment the card grew
+   *  a picture: the pictogram is drawn out of `wall`, `wallMaterial` and
+   *  `sequence` (ui/lessonart.ts), i.e. out of the bay's own geometry, and a
+   *  narrowed type would have forced the art to be passed in beside the lesson
+   *  by whichever caller happened to remember to. Every call site already hands
+   *  over a real LESSONS entry. */
+  lesson: Lesson,
   index: number,
   card: number,
   total: number,
@@ -3753,7 +3772,12 @@ export function lessonCardHTML(
   // a rail of seven.
   const gesture = c.input === "aim"
     ? profile === "touch"
-      ? `<b>Pull back</b> anywhere on the field like a slingshot — farther is more power — then <b>release</b>.`
+      // TIGHTENED with the deck (school.ts's copy budget). Eighteen words of
+      // prefix in front of a seven-word card is a prefix that has become the
+      // card, and the two clauses cut ("on the field", and the em-dashed aside
+      // in the middle of the gesture) are both things the picture and the PWR
+      // readout say better than a sentence does.
+      ? `<b>Pull back</b> like a slingshot, then <b>release</b> — farther is more power.`
       : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b>`
     : c.input === "rotate"
       ? `<b>${hintRotate(profile)[0].toUpperCase()}${hintRotate(profile).slice(1)}</b> to turn the next shipment 90°.`
@@ -3768,9 +3792,24 @@ export function lessonCardHTML(
   const padKey = profile === "gamepad"
     ? `<span class="kbd coach__padkey">${padLabel(PAD_BACK)}</span>`
     : "";
+  // THE PICTOGRAM, and it goes ABOVE the title rather than beside the body.
+  //
+  // The card is a column in a column: it shares the plant panel's width, which
+  // is 47% of the field, so a strip beside the copy would leave both of them
+  // under half a phone-width. Above, it gets the full box and the reading order
+  // is picture -> title -> instruction, which is the order the owner's note
+  // asks for — the exercise is recognised before a word of it is read.
+  //
+  // Drawn from the LESSON, not from the card's strings: everything in it comes
+  // out of the same `wall` / `wallMaterial` / `sequence` the bay is built from
+  // (ui/lessonart.ts), so it cannot describe a board the player is not looking
+  // at. The card index goes with it because a board can hold more than one gap
+  // and the deck's order is what says which one this card means.
+  const art = lessonPictogramHTML(lesson, i);
   return `<div class="coach" id="coach" aria-live="polite">
     <div class="coach__card">
       <div class="coach__eyebrow">Flight School · ${index + 1}/${total}</div>
+      <div class="lart__strip">${art}</div>
       <div class="coach__title">${c.title}</div>
       <p class="coach__body">${body}</p>
       <div class="coach__foot">
