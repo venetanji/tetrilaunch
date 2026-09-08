@@ -1252,9 +1252,50 @@ body.crt-off #app::after { display: none; }
      over whatever is above it. Below that it stays 22px, where the alternative
      is not a bigger target but a target hanging off the top of the screen. */
   --tower-roof-h: 22px;
+  /* THE GROUND FLOOR'S HEIGHT, and the height the tower's own box gains to pay
+     for it. Both are 0-cost here: the plinth is what this has always been, and
+     the box is exactly `min(100%, 620px)` until .tower--lobby raises them. */
+  --tower-lobby-h: 22px;
+  --tower-lobby-extra: 0px;
   align-self: center;
-  height: min(100%, 620px);
+  height: calc(min(100%, 620px) + var(--tower-lobby-extra));
   display: flex; flex-direction: column; align-items: stretch;
+}
+/* THE ENTRANCE — the tower while the licence is owed (screens.ts's
+   tierTowerHTML sets the class off `licensed`, never off the selection).
+   Every Mark in the shaft is locked in this state, so the ground floor is the
+   only control in the building that can be pressed, and it shipped as the
+   SHORTEST target on the menu. Here it is the entrance instead: 44px at the
+   tap floor, ~13% of the column where the column has it, capped at 72px so it
+   never turns into a second panel.
+
+   AND THE ELEVEN RUNGS DO NOT PAY FOR IT. The extra is added to the tower's own
+   BOX, exactly as the roof's headhouse is drawn above the shaft rather than out
+   of it, so the shaft below is the same height it is on a licensed save and the
+   rungs keep every pixel of their 44px arithmetic. 50px is the maximum the
+   plate can take (72 - the 22px plinth), so it is a constant rather than a
+   circular read of the clamp — and where the clamp lands short of 72 the shaft
+   is handed the difference, which errs in the only safe direction.
+
+   It used to be phrased as a raise of the 620px CAP, which is what the
+   headhouse's own note describes and what the review of this screen proposed.
+   Measured, the cap binds on two rows in the whole fleet (iPad mini, and an
+   untypical 1000x760 desktop window): chrome magnification pins the layout box
+   to the authored 720 (game/layout.ts's chromeZoom), so the menu row is ~544px
+   on every magnified device and `100%` wins. Raising a cap that does not bind
+   buys nothing, and taking the ground floor out of the shaft instead would have
+   dropped the rungs from 44.7px to 40.7px at 1920x1080 and from 46.4 to 42.1 on
+   a 1280x800 laptop — under the 44px floor they clear today, on the rows that
+   clear it. Adding to the box is the same idea applied where the height
+   actually comes from.
+
+   The box grows symmetrically (`align-self: center`), so it spends 25px of the
+   menu's own block padding at each end. That padding is 32-60px on every
+   viewport this rule reaches; the phone tier, where it is 6px, is excluded —
+   see the @media (max-height: 460px) block. */
+.tower--lobby {
+  --tower-lobby-h: clamp(44px, 13%, 72px);
+  --tower-lobby-extra: 50px;
 }
 @media (min-height: 620px) {
   .tower { --tower-roof-h: 44px; }
@@ -1679,22 +1720,32 @@ body.crt-off #app::after { display: none; }
   border-radius: 0 0 var(--r-md) var(--r-md);
 }
 .tower__base--floor {
-  /* 22px, which is the floors' own target rounded down rather than a number
-     chosen for this row: sim/uifit records `.tower__floor 82x26` as an accepted
-     tap violation on the budget phone, because eleven floors in a fixed shaft
-     cannot each be 44px and still be a building. The lobby is the twelfth
-     control of that same component and takes the same trade — but it must not
-     be a WORSE target than the floors above it, which 15px was. The extra
-     pixels come out of the shaft (it is `flex: 1`), so the floors shed a
-     fraction of a pixel each rather than the column growing. */
-  height: 22px;
+  /* THE PLINTH IS 22px AND THE ENTRANCE IS NOT — one declaration, driven by the
+     token .tower--lobby raises (above).
+
+     22px earned, which is the floors' own target rounded down rather than a
+     number chosen for this row: sim/uifit records `.tower__floor 82x26` as an
+     accepted tap violation on the budget phone, because eleven floors in a
+     fixed shaft cannot each be 44px and still be a building. An EARNED licence
+     is furniture — a floor whose job is finished — so it takes the same trade
+     the rungs above it do and hands the difference back to them.
+
+     While it is owed it is the only pressable control in the building, so it
+     takes the tap floor instead, and the tower's box grows by exactly what it
+     costs rather than the shaft paying. */
+  height: var(--tower-lobby-h);
   display: flex; align-items: center; justify-content: center; gap: 4px;
   padding: 0 6px; margin: 0;
-  color: var(--ink-dim); font: inherit; font-size: 8px; letter-spacing: 0.06em;
+  color: var(--ink-dim); font: inherit;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.tower__base-mark { font-size: 9px; line-height: 1; color: var(--line-strong); }
-.tower__base-txt { font-variant-numeric: tabular-nums; }
+/* THE PLATE, in the shaft's own vocabulary: the pixel face at the weight the
+   rungs give their numbers, so "LS" at the foot of the column reads as a floor
+   marker exactly as "SKY" does at the top of it. */
+.tower__base-txt {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em;
+  line-height: 1;
+}
 /* OWED READS AS LIVE, EARNED READS AS FURNITURE — the inverse of every other
    floor in this building, and deliberate. A Mark lights up when you have
    beaten it; the licence is the one floor whose job is finished the moment it
@@ -1702,13 +1753,71 @@ body.crt-off #app::after { display: none; }
 .tower__base--floor:not(.is-earned) {
   color: var(--warn); border-color: var(--warn);
 }
-.tower__base--floor:not(.is-earned) .tower__base-mark { color: var(--warn); }
+/* THE ENTRANCE ITSELF. A lit awning across the top, the plate on the left and
+   the lessons as windows on the right — the same two-part reading every rung in
+   the shaft has (a name, then its lights), at the one size on this column that
+   can carry it. `overflow: hidden` keeps the awning inside the plinth's rounded
+   bottom corners. */
+.tower--lobby .tower__base--floor {
+  flex-direction: column; align-items: stretch; justify-content: flex-start;
+  gap: 0; padding: 0; overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 176, 32, 0.22), rgba(255, 176, 32, 0.04));
+  /* The shaft casts one and the entrance is part of the same silhouette; at
+     22px the plinth is too shallow to carry it, at 44-72px it is not, and
+     without it the building's bottom third reads as a card taped under a
+     tower. */
+  box-shadow: var(--shadow-hard);
+}
+.tower__awning {
+  flex: none; height: 6px;
+  background: repeating-linear-gradient(90deg, var(--warn) 0 6px, rgba(4, 4, 10, 0.85) 6px 12px);
+}
+.tower__base-row {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 0 7px;
+}
+/* The plate's own size while it is the door: 11px of the pixel face, against
+   the rungs' 12px mono digits. The two faces do not measure alike — the pixel
+   face sets a squarer, heavier glyph at the same nominal size — so matching 12
+   would have made the ground floor the loudest label in the building. 11 is
+   where it reads as one of them. */
+.tower--lobby .tower__base-txt { font-size: 11px; letter-spacing: 0.02em; }
+/* ONE SOCKET PER LESSON, drawn as the building's windows are (.tower__windows):
+   a dark socket until the lesson lands, then lit. Squared off the ladder's
+   length by screens.ts rather than pinned at three columns, because the licence
+   is four lessons and the full ladder is nine. */
+.tower__sockets {
+  flex: none; display: grid;
+  grid-template-columns: repeat(var(--socket-cols, 3), 4px);
+  gap: 2px;
+}
+.tower__sockets i {
+  width: 4px; height: 4px; border-radius: 1px;
+  border: 1px solid currentColor; opacity: 0.5;
+}
+.tower__sockets i.on {
+  background: currentColor; opacity: 1;
+  box-shadow: 0 0 4px rgba(255, 176, 32, 0.5);
+}
+/* THE RING IS WHERE THE CAR IS, on both faces of this floor. The earned plate
+   also takes the accent's colour and ground, because there it is the same quiet
+   slab every other selection lights up; the entrance keeps its amber, because
+   amber is what says the licence is still owed and the lobby is selected by
+   default from the first launch (main.ts parks the car here) — recolouring it
+   cyan would mean a fresh save never shows the state it is in. */
 .tower__base--floor.is-selected {
-  background: var(--surface-2);
   box-shadow: inset 0 0 0 var(--bw) var(--accent);
 }
-.tower__base--floor.is-selected,
-.tower__base--floor.is-selected .tower__base-mark { color: var(--accent); }
+.tower__base--floor.is-earned.is-selected {
+  background: var(--surface-2); color: var(--accent);
+}
+/* The entrance is selected by default from the very first launch (main.ts parks
+   the car here while the licence is owed), so it wears the ring for most of the
+   time it exists and must not lose its own silhouette to it. */
+.tower--lobby .tower__base--floor.is-selected {
+  box-shadow: var(--shadow-hard), inset 0 0 0 var(--bw) var(--accent);
+}
 /* The car still MOVES with reduced motion — where it is parked is the screen's
    state, not decoration — it just gets there at once, and the two idle
    animations (the lamp, the car's own glow) stop entirely. */
@@ -1969,44 +2078,52 @@ body.crt-off #app::after { display: none; }
    already gives these rows: 89 of a 544px column is 16%, against 44 of 317. */
 .menu__nav > .btn { flex: 1 1 auto; min-height: 44px; max-height: 96px; }
 
-/* ---------- The demo panel as the tutorial door ----------
-   A bay playing itself IS the explanation, so the panel is the entry to the
-   lesson rather than an ornament beside one. The hit layer covers the whole
-   panel: the largest target on the screen, and it costs no layout at all,
-   which is what gave the shelf below its row back for the entitlement entry.
+/* ---------- The manual's door, docked in the demo panel ----------
+   IT USED TO BE THE WHOLE PANEL: `.menu__demo-hit`, `inset: 0`, transparent,
+   no border, labelled by a 6px-inset corner tag in 8px pixel type. That made
+   the reference manual the largest hit area and the first tab stop on the home
+   screen — out-weighing Flight School, which is the tutorial now — while
+   carrying nothing that reads as a control. Its only affordance was a border
+   on hover, which no touch device ever shows.
 
-   `background: transparent` and no border — the panel already has both, and
-   the affordance is the corner tag plus what the border does on hover. */
-.menu__demo-hit {
-  position: absolute; inset: 0; z-index: 3;
-  display: block; width: 100%; height: 100%;
-  padding: 0; margin: 0;
-  background: transparent; border: 0; border-radius: inherit;
-  font: inherit; color: inherit; cursor: pointer;
-  box-shadow: none;
+   So it is the app's own secondary button instead, at the app's own button
+   height, docked in the corner the attract bay never fills: the cannon fires
+   from bottom-left, the pile builds bottom-right, and the wordmark owns the
+   lower-left plate, so the upper-right is the one corner that is always empty.
+   Absolute ONLY while the demo is live — in the reduced-motion fallback the
+   panel is a real column of text (title, paragraph) and a docked button would
+   sit on the last line of it, so there it is simply the column's last row.
+
+   `flex: none` because .menu__demo:not(.is-live) is a flex column whose other
+   children are allowed to grow; the button is the one thing in it that has a
+   height of its own. */
+.menu__howto {
+  position: relative;
+  flex: none; align-self: flex-end;
+  min-height: 44px; padding: 0 12px; gap: 6px;
 }
-.menu__demo-hit:hover, .menu__demo-hit:focus-visible {
-  box-shadow: inset 0 0 0 var(--bw) var(--accent);
-  background: rgba(0, 240, 255, 0.05);
+.menu__demo.is-live .menu__howto {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  /* Over live artwork rather than over the page's own ground, so it needs a
+     background dense enough to read the label against a moving bay. The .btn
+     face is already opaque; this only stops the panel's grid showing through
+     the secondary's translucent fill. */
+  background-color: rgba(4, 4, 10, 0.82);
 }
-/* The word, in the corner the bay never fills — the cannon is bottom-left, the
-   pile builds bottom-right, and the wordmark owns the lower-left plate. */
-.menu__demo-tag {
-  position: absolute; top: 6px; right: 6px;
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 7px;
-  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em;
-  text-transform: uppercase; line-height: 1;
-  color: var(--accent);
-  background: rgba(4, 4, 10, 0.72);
-  border: 1px solid var(--accent);
-  border-radius: var(--r-sm);
-}
-.menu__demo-hit:hover .menu__demo-tag { background: rgba(0, 240, 255, 0.18); }
-/* First launch puts the NEXT STEP badge on the demo, since the demo is now the
-   lesson's door. Positioned against the panel rather than the tag so the two
-   never stack on the same corner. */
-.menu__demo-hit .next-badge { top: 6px; left: 6px; right: auto; }
+/* First launch puts the START HERE badge on this button, since this button is
+   the guided tutorial's door in that state (screens.ts's menuScreen). It rides
+   the button's own corner, at .btn--menu's placement and for .btn--menu's
+   reason: as a flex member it is 76px of a control that has 164px of column to
+   live in on the narrowest brand cap in the fleet (iPhone 13 mini, where the
+   panel is sized off the column's HEIGHT — see --brand-cap), and it pushed the
+   icon 10px out through the button's own left edge. Out of flow it costs the
+   row nothing.
+
+   The offsets are small enough to stay inside the panel it sits over: the
+   button is docked 6px in from the live panel's top-right, so a badge 6px above
+   and 4px right of it lands flush with that panel's padding box rather than
+   under its clip. */
+.menu__howto .next-badge { position: absolute; top: -6px; right: -4px; }
 
 /* ---------- The entitlement row (screens.ts's menuScreen) ----------
    A full-size shelf button. It has now been three things: a 23px footnote in
@@ -7386,6 +7503,23 @@ button.panel { color: var(--text); }
      `align-items: center` can actually centre it — 24.4px above, 24.4px below.
      The inline value is untouched; width was never the constraint here. */
   .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
+  /* ...AND THAT 6px IS WHY THE GROUND FLOOR PAYS FROM THE SHAFT HERE. The
+     entrance (.tower--lobby, up in the tower block) adds its height to the
+     TOWER'S BOX everywhere else, spending the menu's own block padding at both
+     ends — 32-60px on every viewport taller than this query. On a landscape
+     phone that padding is the 6px above, pinned there because the action rail
+     barely fits as it is, and the headhouse already draws 19px above the shaft:
+     a tower 22px taller than its row would push the beacon clean off the top of
+     the screen.
+
+     So on the phone tier the ground floor takes its height out of the shaft,
+     which is the trade the eleven rungs can actually afford here — they are
+     22-30px on these rows, nowhere near the 44px floor and already baselined
+     short, and they shed about two pixels each to put the one control a new
+     pilot can press onto the tap floor. Measured: 640x360 rungs 24.4px ->
+     22.4px, 812x375 rungs 25.0px -> 23.0px, and the plate 22px -> 44px on
+     both. */
+  .tower--lobby { --tower-lobby-extra: 0px; }
   /* The gap only. The phone tier's --brand-cap pin lives inside the @supports
      block beside .menu__brand, not here, and it has to: this query is far
      downstream of that block, so a --brand-cap set here would win over the
@@ -7410,9 +7544,35 @@ button.panel { color: var(--text); }
      shorter than they are. Clamped rather than shrunk — the full text stays in
      the DOM and in the accessibility tree, where it is also the live demo's
      text alternative, and a visible ellipsis is the honest way to say there is
-     more of it. */
+     more of it.
+
+     TWO LINES, and the other two bought the manual's button. .menu__howto is
+     absolutely docked over the live demo and costs no layout there, but the
+     fallback panel is a column of real text with nothing to dock over, so the
+     button is its last row — 44px plus a gap. Measured, the brand column on
+     this tier is EXACTLY full: 309.8px of content in 309.8px of row on the
+     iPhone 13 mini, where the wordmark wraps to two lines and leaves the least
+     slack in the fleet. So the 52px the button costs has to be found, and this
+     is the whole of it — two lines here (36px), the panel's own gap and the
+     shelf's stepped down to --sp-2 (8px each). The column comes out at exactly
+     the height it was, on every phone in the matrix.
+
+     A line of description is the right thing to spend. The paragraph is
+     already elided on this tier, it is complete in the DOM and in the
+     accessibility tree either way, and what the lines buy is the reference
+     manual finally having a button shape — which is where the rest of that
+     description lives. */
+  .menu__demo:not(.is-live) { gap: var(--sp-2); }
+  /* The shelf's own gap, and ONLY beside the fallback panel. The button costs
+     layout in that state alone — over the live demo it is a docked overlay — so
+     only that state may pay for it, and a `.menu__nav` stepped unconditionally
+     took 8px off the LIVE column's max-content too. That column is what the
+     grid row sizes to on the two Pixel 7 rows, where it exceeds the free space:
+     the tower shrank with it and every licensed menu fixture there recorded a
+     rung a pixel shorter, for a button that is not in that column's flow. */
+  .menu__demo:not(.is-live) ~ .menu__nav { gap: var(--sp-2); }
   .menu__demo:not(.is-live) .menu__sub {
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
     overflow: hidden;
   }
   .base-bay { gap: 4px; padding: 5px 7px 6px; }
