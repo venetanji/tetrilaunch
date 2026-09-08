@@ -7189,15 +7189,25 @@ export function lessonEndModal(opts: {
   // player has just finished doing — and where forward is a SCREEN rather than
   // the next bay, the primary is that screen's own door, so the hand-off the
   // ladder just made is the button under the sentence that announced it.
+  //
+  // AND THE EXAM IS A BAY, so it is reached from here like any other rung:
+  // "bay 10 should happen just after 9, no need to go out to the screen and
+  // back in" (owner). The button is the same `lesson-next` the other rungs
+  // use — main.ts asks the ladder what comes after the bay just flown and
+  // starts the graduation flight when that is the answer — so this card does
+  // not need to know it is the ninth; it needs to know what is next.
   const forward = opts.won && opts.next === "contract"
     ? `<button class="btn btn--primary" data-action="contracts">${icon("contracts", 12)}Contract board →</button>`
     : opts.won && opts.next === "workshop"
       ? `<button class="btn btn--primary" data-action="workshop">${icon("workshop", 12)}Workshop →</button>`
+    : opts.won && opts.next === "exam"
+      ? `<button class="btn btn--primary btn--next" data-action="lesson-next">${FINAL_EXAM} →</button>`
       : null;
-  // `lastLesson` and not `courseComplete`: there is no next lesson from the top
-  // rung whether or not this particular win was the graduating one. The exam is
-  // reached from the lobby rather than from here, so a cleared lesson 9 exits
-  // to the tower with the graduation flight waiting on the primary there.
+  // `lastLesson` and not `courseComplete`: there is no next LESSON from the top
+  // rung whether or not this particular win was the graduating one. What there
+  // may be is the exam, and `forward` above has already claimed the primary
+  // when the ladder still owes it; this is the finished save's replay, where
+  // the way out is the tower.
   const done = opts.courseComplete || opts.lastLesson;
   const primary = forward ?? (opts.won
     ? (done

@@ -24578,6 +24578,42 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const middle = card({ step: 2, lastLesson: false, next: "lesson" });
     check("...while a rung in the middle still offers the next one",
       middle.includes(`data-action="lesson-next"`));
+    // BAY 10 FOLLOWS BAY 9 without a trip through the lobby: while the ladder
+    // still owes the exam, the top rung's card leads straight into it, through
+    // the same `lesson-next` the other rungs use (main.ts starts the
+    // graduation flight when the ladder says the next flight is the exam).
+    // `lastLesson` is true here — it is the ninth lesson — and must not win.
+    const owed = card({ courseComplete: false, lastLesson: true, next: "exam" });
+    const examBtn = owed.slice(owed.indexOf('data-action="lesson-next"') - 80, owed.indexOf('data-action="lesson-next"') + 120);
+    check("clearing the last lesson leads straight into the exam",
+      owed.includes(`data-action="lesson-next"`) && examBtn.includes(FINAL_EXAM),
+      owed.includes(`data-action="lesson-next"`) ? examBtn : "no lesson-next on the card");
+    check("...as the primary, wearing the next-step badge",
+      examBtn.includes("btn--primary") && examBtn.includes("btn--next"));
+    check("...with the tower kept as the quiet way out",
+      owed.includes(`data-action="lesson-exit"`));
+  }
+
+  // THE WORKSHOP DOES NOT OFFER A PRACTICE BAY MID-SCHOOL. The Reactor is the
+  // ladder's own purchase and lesson 5 already flies with it aboard, so the
+  // "Try it?" card would be a bay outside the ladder trying a thing the next
+  // rung shows — and the lessons would resume two screens later. The offer's
+  // gate lives in one private method (main.ts's onBuyInstall), so the pin
+  // reads the gate itself.
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const at = mainSrc.indexOf("this.setState(\"sys-drill-offer\")");
+    const gate = mainSrc.slice(mainSrc.lastIndexOf("if (firstInstall", at), at);
+    check("the system drill is offered only once the licence is earned",
+      at > 0 && gate.includes("licenceDone(this.meta)"), gate.slice(0, 160));
+    // ...and the record of "asked" sits BEHIND that gate, not in front of it:
+    // a mid-school buy that is not asked must not be marked as answered.
+    check("...and the offer is recorded only where it is made",
+      mainSrc.indexOf("recordSystemDrillOffer(this.meta, track)")
+        > mainSrc.indexOf("licenceDone(this.meta)", mainSrc.lastIndexOf("if (firstInstall", at)));
   }
 
   // ---- WHAT FLYING A FLOOR OPENS ----------------------------------------

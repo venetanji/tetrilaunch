@@ -6039,7 +6039,20 @@ class App {
     // Its practice bay already existed (drills.ts's `sys-<id>`); nothing had
     // ever offered one. Gated on the first install and on never having asked
     // before, so the shop teaches rather than nags.
-    if (firstInstall && !systemDrillOffered(this.meta, track) && DRILLS[`sys-${track}`]) {
+    //
+    // NOT MID-SCHOOL. The Reactor is the ladder's own purchase, and the rung
+    // after it is a lesson that already flies with the system aboard
+    // (school.ts's levelForLesson applies the loadout), so a practice bay here
+    // would be a bay outside the ladder trying a thing the next rung shows —
+    // "from the perspective of the user there is nothing to try" (owner,
+    // playing staging): the reactor changes what a line pays, not what the
+    // player does. It would also break the one journey this screen exists to
+    // keep unbroken: the drill is a regular bay with loose pieces and a target,
+    // and the lessons would resume two screens later. The offer is not
+    // recorded either — a first install is asked about once, and this one has
+    // been shown, in the HUD, on every bay from lesson 5 up.
+    if (firstInstall && licenceDone(this.meta)
+      && !systemDrillOffered(this.meta, track) && DRILLS[`sys-${track}`]) {
       // Recorded on the OFFER rather than on the acceptance: declining is an
       // answer, and asking again would not respect it.
       this.meta = recordSystemDrillOffer(this.meta, track);
