@@ -356,3 +356,25 @@ export function icon(name: IconName, size = 14): string {
     fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"
     >${PATHS[name]}</svg>`;
 }
+
+/**
+ * The same glyph as a GROUP, for a caller that is already inside an <svg>.
+ *
+ * ui/lessonart.ts draws the cannon into a lesson pictogram, and the cannon it
+ * has to draw is the one already on the rail — a second drawing of the same
+ * object is exactly the divergence this file exists to prevent. Nesting `icon()`
+ * would put an <svg> inside an <svg>, which works until a stylesheet sizes
+ * `svg { width: 100% }` anywhere above it and the inner viewport takes the
+ * outer one's width; measured, that stretched a 16-unit cannon across half an
+ * 88-unit board. A <g> has no viewport to hijack.
+ *
+ * `scale` maps the 16x16 grid onto the caller's units, and the stroke rides
+ * along with it — 1.8 at 0.8 is 1.44, which is the same optical weight this set
+ * is drawn at everywhere else. The wrapper carries the paint attributes because
+ * PATHS assumes them (the shapes that fill say so themselves).
+ */
+export function iconGroup(name: IconName, x: number, y: number, scale = 1): string {
+  return `<g transform="translate(${x} ${y}) scale(${scale})"`
+    + ` fill="none" stroke="currentColor" stroke-width="1.8"`
+    + ` stroke-linecap="square" stroke-linejoin="miter">${PATHS[name]}</g>`;
+}

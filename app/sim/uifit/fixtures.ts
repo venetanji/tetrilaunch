@@ -738,7 +738,7 @@ export const SCREENS: Record<string, () => string> = {
     live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX)),
   // THE FIRST SCREEN OF ALL — the lobby parked, the ladder locked, and the
   // primary wearing its third face ("Flight School") over the longest subtitle
-  // that face carries ("Lesson 4 of 9 · pick up where you left off"). Paired
+  // that face carries ("Lesson 4 of 4 · resume"). Paired
   // live and not, like every other menu state, because the brand column's
   // height is what the row is measured against.
   "menu-licence": () =>
@@ -1503,6 +1503,46 @@ export const SCREENS: Record<string, () => string> = {
   "lesson-card-last": () => withCard(
     S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[8]) }), LESSONS[8].reveal,
     S.lessonCardHTML(LESSONS[8], 8, 1, lessonTotal(8)),
+  ),
+  /* WHAT THE THREE FIXTURES ABOVE DO NOT COVER.
+
+     Every card leads with a drawing now (ui/lessonart.ts), and the drawing is
+     the tallest thing in the card — so which drawing a fixture happens to
+     render is a fit question rather than a decoration one. The three above take
+     the set-piece board (`lesson-card`, `lesson-card-aim`) and the congestion
+     pile (`lesson-card-last`). These are the rest:
+
+     THE LONGEST CARD THE LADDER CAN PRODUCE, which is lesson 1 on a GAMEPAD.
+     Its body is the card plus the pad's aim sentence out of the one hint table
+     ("Aim with the left stick — up/down for angle, left/right for power — and
+     press A to fire"), 122 characters against the touch card's 95 — and nothing
+     measured it, because `lesson-card-aim` is the touch profile and
+     `lesson-card-pad` is a card with no gesture prefix at all. It is the case
+     that pushed the card 11px past the panel's cap on the 640x360 phone, and it
+     is what the strip's give-way (app.css's `.lart__strip`) is written for.
+
+     THE WELL, because it is the tallest strip the generator can produce: an I
+     standing on its end is four cubes above a two-deep pile, six rows in a band
+     that everywhere else carries three. It is also the one card whose gesture
+     prefix is `rotate` rather than `aim`, so it pins the other half of that
+     branch.
+
+     LOST CARGO, because it is the one lesson with no wall at all, which selects
+     a different picture entirely (the miss, with its `−$` tag). A tag is TEXT
+     inside the SVG, and text inside a drawing is the thing that scales
+     differently from everything around it. */
+  "lesson-card-aim-pad": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[0]), profile: "gamepad" }),
+    LESSONS[0].reveal,
+    S.lessonCardHTML(LESSONS[0], 0, 0, lessonTotal(0), "gamepad"),
+  ),
+  "lesson-card-well": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[2]) }), LESSONS[2].reveal,
+    S.lessonCardHTML(LESSONS[2], 2, 0, lessonTotal(2), "touch"),
+  ),
+  "lesson-card-lost": () => withCard(
+    S.hudHTML({ ...HUD_TUTORIAL, contract: LESSON_HUD(LESSONS[7]) }), LESSONS[7].reveal,
+    S.lessonCardHTML(LESSONS[7], 7, 0, lessonTotal(7)),
   ),
   // The pad's route to the card's one button (screens.ts's padKey), on the
   // widest button label the deck has.

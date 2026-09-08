@@ -280,15 +280,58 @@ const PAIR_DEEP: number[] = [2, 2, 2, 2, 0, 0, 2, 2];
  *  it exists. */
 const ENDS: number[] = [0, 0, 2, 2, 2, 2, 0, 0];
 
+/** Shots the bankroll lesson's float buys before a single row is sold — the
+ *  runway a beginner gets to miss with. Twelve against a Deep Run bay's eight
+ *  (level.ts's LAUNCH_BUDGET_SHOTS): the bay is teaching that shots cost money,
+ *  not testing whether you can afford them yet.
+ *
+ *  DECLARED ABOVE THE LADDER because the bankroll card quotes it. It used to
+ *  sit beside levelForLesson, which spends it, and the card said "about twelve
+ *  shots" in words — the one figure in the whole deck a bay could change
+ *  without the card noticing. A const read from the temporal dead zone throws
+ *  at module load, so this order is load-bearing rather than tidy. */
+const BANKROLL_FLOAT_SHOTS = 12;
+/** Rows of PROFIT the lesson asks for on top of that float. Three, because
+ *  three is enough to feel the loop — spend, clear, bank — and eleven is a bay
+ *  rather than a lesson. */
+const BANKROLL_ROWS = 3;
+
 /**
  * THE LADDER. Order is the curriculum; the array index is the licence
  * progress a save records.
+ */
+/**
+ * THE COPY BUDGET, and why it is this small.
+ *
+ * The ladder shipped with cards that were correct, complete and unread. The
+ * owner's verdict after playing it was that people do not read text as much —
+ * a card that is four lines of prose over a live bay is competing with the bay
+ * and losing, and every word past the instruction is a word spent while the
+ * player is looking somewhere else.
+ *
+ * So a card is now:
+ *
+ *   ONE INSTRUCTION, at most twelve words, with the one thing the player must
+ *   DO in <b>. The eye finds the bold run without reading the sentence, which
+ *   is the whole point of putting it there.
+ *
+ *   ONE RULE LINE, at most ten words, and only when the card teaches a rule the
+ *   instruction cannot carry — a price, a definition, a consequence.
+ *
+ * Anything the picture can say, the picture says instead: the board, the gap,
+ * the shape that fits it and the arc into it are all drawn from these same
+ * fields (ui/lessonart.ts's lessonPictogramHTML), so a sentence no longer has
+ * to describe geometry the card is already showing. "The notch is two wide and
+ * two deep, and the square fills it exactly" is a drawing, not a sentence.
+ *
+ * sim/systems.ts counts the words and the sentences, so a card cannot creep
+ * back; sim/uifit measures the rendered height of the result.
  */
 export const LESSONS: Lesson[] = [
   {
     id: "close-the-row",
     name: "Close the Row",
-    brief: "One shipment closes it. The bay is already set — drop it into the gap.",
+    brief: "One flat shipment fills the four-wide gap.",
     conditions: "One shot · gap is four wide",
     reveal: REVEAL.aim,
     lines: 1,
@@ -309,20 +352,29 @@ export const LESSONS: Lesson[] = [
         // and put the gap's width — an authored number, two lines above — in
         // a template literal in the UI layer.
         input: "aim",
-        body: `Put the dotted arc through the <b>four-wide gap</b>.`,
+        // THE GAP'S WIDTH IS IN THE PICTURE NOW. The strip above this sentence
+        // draws TRENCH's four empty columns as a dashed, pulsing target — which
+        // is where the number was authored and is a better place to read it
+        // than a word in the middle of the one sentence a first-time player
+        // reads before their first shot. What is left is the verb and the
+        // thing the verb points at.
+        body: `<b>Land</b> the shipment in the gap.`,
       },
       {
         title: "The press pays",
-        body: `A row sells when the <b>red bar</b> reaches it. The floor beyond the bar is the`
-          + ` <b>zone</b> — cargo <b>short of the zone</b> never counts. The gold stays put, so`
-          + ` shoot again.`,
+        // THE ZONE IS DEFINED HERE AND NOWHERE ELSE. Lessons 4, 7 and 8 all
+        // spend the word; this is the one card that says what it means, which
+        // is why a rule line survives the budget cut on a card whose
+        // instruction would otherwise stand alone.
+        body: `<b>Fill</b> a row in the zone and the press sells it.`
+          + ` The <b>zone</b> is the floor beyond the bar.`,
       },
     ],
   },
   {
     id: "two-at-once",
     name: "Two at Once",
-    brief: "The gap is two wide and two deep. One square fills it, and two rows go together.",
+    brief: "One square drops in and closes two rows.",
     conditions: "One square · two rows at once",
     reveal: REVEAL.placement,
     lines: 0,
@@ -333,9 +385,9 @@ export const LESSONS: Lesson[] = [
     sequence: ["O"],
     cards: [
       {
-        title: "Two rows, one shot",
-        body: `The notch is <b>two wide and two deep</b>, and the square fills it exactly.`
-          + ` Rows closed on the same stroke sell together.`,
+        title: "Two rows",
+        body: `<b>Drop</b> the square into the two-deep notch.`
+          + ` Rows closed on one stroke sell together.`,
       },
       {
         title: "Reload",
@@ -344,16 +396,15 @@ export const LESSONS: Lesson[] = [
         // cannon's own muzzle ring is the whole HUD for this state
         // (render.ts's drawReloadRing: amber while loading, aim-cyan the
         // instant it is fireable). The card pointed at the panel anyway.
-        body: `The cannon takes a moment to reload — the <b>ring around it</b> fills, then turns`
-          + ` cyan. <b>Line the next shot up while you wait</b>; that habit buys more time than`
-          + ` any upgrade.`,
+        body: `<b>Line up</b> the next shot while the cannon reloads.`
+          + ` The ring around it turns cyan when it is ready.`,
       },
     ],
   },
   {
     id: "four-in-the-well",
     name: "Four in the Well",
-    brief: "One column open. Stand the shipment on its end and drop it in.",
+    brief: "Stand the shipment on its end. Four rows.",
     conditions: "Rotate · four rows",
     reveal: REVEAL.placement,
     // FOUR ROWS, CUMULATIVE, because they arrive as two clears rather than one
@@ -371,23 +422,24 @@ export const LESSONS: Lesson[] = [
       {
         title: "Turn it upright",
         input: "rotate",
-        // The gesture prefix already names the two controls in the live device's
-        // own words, and the rail lights them (Lesson.spotlight), so the card
-        // only has to say WHY.
-        body: `The well is <b>one column wide</b> and the shipment arrives flat, so it only`
-          + ` goes in <b>on its end</b>.`,
+        // The gesture prefix supplies the VERB in the live device's own words
+        // and the rail lights the two buttons (Lesson.spotlight), so the bold
+        // run here is the STATE the shipment has to be in rather than a second
+        // instruction competing with the prefix.
+        body: `Only an <b>upright</b> shipment enters a one-column well.`,
       },
       {
-        title: "Four rows, one drop",
-        body: `Upright it fills the channel, the bottom rows sell, and what is left drops in`
-          + ` and sells them again. <b>Four rows from one shipment.</b>`,
+        title: "Four rows",
+        // A PAYOFF CARD, and it is the one shape of card with no verb in it:
+        // there is nothing left to do, so the bold run is the payout.
+        body: `<b>One shipment, four rows</b> — the clear cascades.`,
       },
     ],
   },
   {
     id: "lob-or-skim",
     name: "Lob or Skim",
-    brief: "A gap at each end. One is behind the pile, one is in front — take both.",
+    brief: "A gap at each end. Take both.",
     conditions: "Two gaps · two arcs",
     reveal: REVEAL.placement,
     lines: 2,
@@ -395,24 +447,27 @@ export const LESSONS: Lesson[] = [
     wall: ENDS,
     wallMaterial: "gold",
     sequence: ["O"],
+    // TWO CARDS, TWO GAPS, IN THAT ORDER. The pictogram picks its target by
+    // card index, far end first (ui/lessonart.ts's targetRun), so the deck's
+    // order is what decides which gap each card's arc is drawn into. Swapping
+    // these two swaps the pictures with them.
     cards: [
       {
         title: "The lob",
-        body: `The <b>far</b> gap sits behind the pile. Only a <b>high, soft arc</b> drops into`
-          + ` it — slow, and the shot that almost never spills.`,
+        body: `<b>Arc high</b> over the pile into the far gap.`
+          + ` Slow, and it almost never spills.`,
       },
       {
         title: "The skim",
-        body: `The <b>near</b> gap takes a <b>flat, fast</b> one straight across the top. More`
-          + ` reach, and it can <b>bounce back out of the zone</b>. Fill both and the rows sell`
-          + ` together.`,
+        body: `<b>Fire flat</b> across the top into the near gap.`
+          + ` More reach, but it can bounce out of the zone.`,
       },
     ],
   },
   {
     id: "time-the-row",
     name: "Time the Row",
-    brief: "Close two rows on a stroke that was already running. Beat the press, don't wait for it.",
+    brief: "Close two rows just before the bar sweeps them.",
     conditions: `Land 2 GOOD rows · up to ×${GRADE_PAY.excellent}`,
     goalLabel: "GOOD rows",
     reveal: REVEAL.grade,
@@ -430,22 +485,21 @@ export const LESSONS: Lesson[] = [
     sequence: ["I"],
     cards: [
       {
-        title: "A row has a price",
-        body: `Every row is graded on <b>when</b> it closed. Beat the press to it and it pays`
-          + ` more; let the press grind it flat and it is <b>SWEPT</b>, ×${GRADE_PAY.swept}.`,
+        title: "A row's price",
+        body: `<b>Beat</b> the press to a row and it pays more.`
+          + ` Ground flat by the bar it is SWEPT, ×${GRADE_PAY.swept}.`,
       },
       {
-        title: "Wait for the bar",
-        body: `So do not fire the moment you can. <b>Hold the shot until the bar is coming in</b>,`
-          + ` then land in front of it: <b>GOOD</b>, ×${GRADE_PAY.good}. Inside`
-          + ` ${EXCELLENT_WINDOW_MS}ms it is <b>EXCELLENT</b>, ×${GRADE_PAY.excellent}. Two timed rows passes.`,
+        title: "Wait for it",
+        body: `<b>Hold</b> the shot until the bar is coming in.`
+          + ` GOOD pays ×${GRADE_PAY.good}; inside ${EXCELLENT_WINDOW_MS}ms, EXCELLENT ×${GRADE_PAY.excellent}.`,
       },
     ],
   },
   {
     id: "the-bankroll",
     name: "The Bankroll",
-    brief: "Now it costs money. Reach the target before the funds run out.",
+    brief: "Launches cost money now. Reach the target.",
     conditions: "Bay 1's money · no clock",
     reveal: REVEAL.funds,
     lines: 0,
@@ -456,21 +510,25 @@ export const LESSONS: Lesson[] = [
     sequence: ["O"],
     cards: [
       {
-        title: "Funds are the score",
-        body: `One number is your wallet <b>and</b> your score. Launches cost; rows pay. The bay`
-          + ` ends the moment funds cross the target.`,
+        title: "Funds",
+        body: `<b>Reach</b> the target and the bay ends.`
+          + ` One number is your wallet and your score.`,
       },
       {
-        title: "Shots are the puzzle",
-        body: `You open on about <b>twelve shots</b> of float. A row built in two shots earns and`
-          + ` a row built in six does not — that budget is the whole game.`,
+        title: "Shots cost",
+        // THE FLOAT IS THE LIVE ONE. This said "about twelve shots" in words,
+        // which made it the only figure in the deck a bay could change without
+        // the card noticing — BANKROLL_FLOAT_SHOTS is what levelForLesson
+        // actually spends, so it is what the card actually quotes.
+        body: `<b>Spend few shots</b> per row — that is the whole game.`
+          + ` You open on ${BANKROLL_FLOAT_SHOTS} shots of float.`,
       },
     ],
   },
   {
     id: "the-streak",
     name: "The Streak",
-    brief: "Rows closed back to back pay more each time. Get the streak to three.",
+    brief: "Rows closed back to back pay more. Reach three.",
     conditions: "Combo ×3",
     goalLabel: "Best combo",
     reveal: REVEAL.combo,
@@ -483,20 +541,20 @@ export const LESSONS: Lesson[] = [
     cards: [
       {
         title: "Combo",
-        body: `Each <b>stroke</b> that clears a row advances the streak, and the streak multiplies`
-          + ` what the next one pays. Keep closing rows and the same play earns more.`,
+        body: `<b>Keep closing rows</b> and each one pays more.`
+          + ` Every stroke that clears a row advances the streak.`,
       },
       {
-        title: "Losing cargo breaks it",
-        body: `<b>A cube lost short of the zone takes the streak with it</b> — and so does letting`
-          + ` the bay clutter up. The skim risks a streak; the lob protects one.`,
+        title: "Breaking it",
+        body: `<b>Protect</b> the streak: cargo short of the zone breaks it.`
+          + ` So does letting the bay clutter up.`,
       },
     ],
   },
   {
     id: "lost-cargo",
     name: "Lost Cargo",
-    brief: "No scaffolding now, and cubes short of the zone are fined. Clear 2 rows.",
+    brief: "No scaffold, and spills cost money. Clear two rows.",
     conditions: "Live fine · ordinary belt",
     reveal: REVEAL.lost,
     lines: 2,
@@ -506,28 +564,31 @@ export const LESSONS: Lesson[] = [
     // ordinary seeded 7-bag onto an empty floor, which is what the tenth bay of
     // this player's first Deep Run will look like. A lesson about the cost of a
     // miss cannot be flown on a board that catches everything.
+    //
+    // It is also what the pictogram keys off: no wall means there is no gap to
+    // draw an arc into, so the picture is the MISS instead — a cube stopping
+    // short of the bar under a red −$ (ui/lessonart.ts).
     cards: [
       {
-        title: "Cargo can be lost",
+        title: "Cargo is lost",
         // WITH THE PRICE ON IT. The bay that exists to teach the fine was the
         // one surface that would not name it — the guide's own line does
         // (guide.ts's `lost`), and a rule you meet without its number is a rule
         // you cannot plan against.
-        body: `A cube that drops <b>short of the zone</b>, or bounces back out of it, blinks away`
-          + ` and costs you <b>$${penaltyPerLostPieceFor(0, 1)}</b> — a red −$ marks the spot.`
-          + ` Billed per cube.`,
+        body: `A cube <b>short of the zone</b> costs $${penaltyPerLostPieceFor(0, 1)}.`
+          + ` Billed per cube; a red −$ marks the spot.`,
       },
       {
         title: "Reach, then fit",
-        body: `Ask <b>does this reach the zone</b> before asking does this fit`
-          + ` the row. This bay has no gold in it: what you land is what you have.`,
+        body: `<b>Ask</b> if the shot reaches the zone before it fits.`
+          + ` No gold here: what you land is what you have.`,
       },
     ],
   },
   {
     id: "clutter",
     name: "Clutter",
-    brief: `Past ${PILE_TIERS[0].cubes} loose cubes the bay taxes every shot. Clear 2 rows anyway.`,
+    brief: `Past ${PILE_TIERS[0].cubes} loose cubes every shot is taxed. Clear two rows.`,
     conditions: "Opens past the first rung",
     reveal: REVEAL.all,
     lines: 2,
@@ -539,39 +600,26 @@ export const LESSONS: Lesson[] = [
     // comment used to sit above a hand-typed copy of the same eight numbers,
     // which is the drift it was written to prevent; drills.ts exports the
     // profile now. Standard, not gold — a congestion lesson needs a pile that
-    // can actually be dug out of.
+    // can actually be dug out of, and the missing `wallMaterial` is also what
+    // tells the pictogram to draw the crowded floor rather than a target gap.
     wall: CONGESTED,
     cards: [
       {
-        title: "A full bay is priced",
+        title: "A taxed bay",
         // EVERY FIGURE DERIVED, including the reload's. It read "the reload
         // runs long" between two interpolated numbers — the one term on the
         // card that could not go stale because it said nothing.
-        body: `Past <b>${PILE_TIERS[0].cubes} loose cubes</b> every launch costs`
-          + ` <b>×${PILE_TIERS[0].costMult}</b>, the reload <b>×${PILE_TIERS[0].reloadMult}</b>,`
-          + ` and a row pays only <b>${Math.round(PILE_TIERS[0].payMult * 100)}%</b>.`,
+        body: `Past <b>${PILE_TIERS[0].cubes} loose cubes</b> every launch costs ×${PILE_TIERS[0].costMult}.`
+          + ` Reload ×${PILE_TIERS[0].reloadMult}, and a row pays ${Math.round(PILE_TIERS[0].payMult * 100)}%.`,
       },
       {
         title: "Stopping is free",
-        // The longest card in the ladder, and measured the tightest: at its
-        // full length the body scrolled inside `.coach__body` on a 360px-tall
-        // viewport, which is the one failure the copy budget exists to catch.
-        body: `The tax is on the <b>shot</b>, never the pile — letting the press work is free.`
-          + ` Firing into a bay you have lost is the trap.`,
+        body: `<b>Stop firing</b> into a bay you have lost.`
+          + ` The tax is on the shot, never the pile.`,
       },
     ],
   },
 ];
-
-/** Shots the bankroll lesson's float buys before a single row is sold — the
- *  runway a beginner gets to miss with. Twelve against a Deep Run bay's eight
- *  (level.ts's LAUNCH_BUDGET_SHOTS): the bay is teaching that shots cost money,
- *  not testing whether you can afford them yet. */
-const BANKROLL_FLOAT_SHOTS = 12;
-/** Rows of PROFIT the lesson asks for on top of that float. Three, because
- *  three is enough to feel the loop — spend, clear, bank — and eleven is a bay
- *  rather than a lesson. */
-const BANKROLL_ROWS = 3;
 
 /** Cubes in one shipment. Every piece in PIECE_SHAPES is a tetromino, and the
  *  fined lessons' float is sized so that the worst possible bay — every cube of
