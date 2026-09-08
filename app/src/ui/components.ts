@@ -364,7 +364,20 @@ export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = nu
     // keep their own belt colours, which outrank a tint here for the same
     // one-vocabulary reason everywhere else.
     const kind = h.kind === "content" ? "bane" : "tradeoff";
-    const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
+    // THE STACK BADGE (R4): a BARE numeral in the mark's bottom-right quarter,
+    // and only from two up. The "×" was carrying the word "times" for a reader
+    // who has already been told the row is a count — two glyphs of type where
+    // one does the job, on the row that overflows first — and an unbadged mark
+    // already says one, so a badge on every mark would be noise on eight of a
+    // Tier 10 run's eleven. Dropping both takes the ten-axis worst case from
+    // ~58px past the scroller to ~6px.
+    //
+    // The count itself is not droppable: three notches on Sweeper is three
+    // times the tempo, and the total on the row's left cannot carry which axis
+    // the stack is on. app.css seats it INSIDE the mark's box — `.pl-notch b`
+    // is a scroller with hidden overflow, and a badge crossing the glyph's edge
+    // came back clipped.
+    const stack = n > 1 ? `<span class="pl-notch__n">${n}</span>` : "";
     return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${
       axisIconHTML(h, NOTCH_MARK_PX)
     }${stack}</span>`;

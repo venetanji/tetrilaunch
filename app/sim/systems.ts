@@ -4770,6 +4770,10 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
   // deliberately-wrong expectation (CHAIN_RUNGS + 1, and it passed) caught.
   const rungs = (html: string): number => (html.match(/class="pl-chain__rung[" ]/g) ?? []).length;
   const lit = (html: string): number => (html.match(/pl-chain__rung is-lit/g) ?? []).length;
+  // THE ROW'S ONE FIGURE, wherever R4 put it. `hud-chain-val` moved from the
+  // trailing pixel-type label to the mono money span at the row's head (or, on
+  // a full chain, to the word that replaces it) — the id follows the VALUE, so
+  // this reads the same fact it always did.
   const label = (html: string): string =>
     html.match(/id="hud-chain-val">([^<]*)</)?.[1] ?? "";
 
@@ -4795,7 +4799,7 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
   // multiplier rather than from a remembered number, so a COMBO_STEP re-tune
   // moves both together or fails.
   check("the clean label quotes the next crush at the live multiplier",
-    label(clean) === `Next $${Math.round(100 * payoutMult(4, null))}`, label(clean));
+    label(clean) === `$${Math.round(100 * payoutMult(4, null))}`, label(clean));
   check("...and that is more than the crush before it",
     payoutMult(4, null) > payoutMult(3, null));
 
@@ -4814,7 +4818,7 @@ section("The chain ladder (screens.ts's chainLadderHTML)");
   check("congestion darkens every rung — a half-lit ladder reads as still going",
     lit(amber) === 0 && !amber.includes("is-next"));
   check("congestion quotes the CAP, not the next crush",
-    label(amber) === "Cap $60" && label(red) === "Cap $40", `${label(amber)} / ${label(red)}`);
+    label(amber) === "$60" && label(red) === "$40", `${label(amber)} / ${label(red)}`);
   check("the first congestion tier is amber and the second is red",
     amber.includes("pl-chain--congest-0") && red.includes("pl-chain--congest-1"));
 
@@ -6370,6 +6374,281 @@ section("The notch line's marks are big enough to read (components.ts)");
   // size change is most likely to miss.
   check("the material axis's belt icon takes the same box as the stroked ones",
     tally.includes('class="mat-icon" width="18" height="18"'));
+}
+
+// ---------------------------------------------------------------------------
+section("The R4 plant readout (screens.ts, components.ts, app.css)");
+// ---------------------------------------------------------------------------
+// The Deep Run panel's bottom three quarters, rebuilt for a phone. Five moves:
+// the rail's figures came up a size, the countdown moved in beside the funds
+// figure, the launch price became a rail row that blinks under congestion, the
+// chain line lost the word "Chain" and leads with what a row sells for, and the
+// notch tally lost the word "Notches" and leads with a mark and a total.
+//
+// Pinned on the RENDERED MARKUP, because that is what the player sees and what
+// syncHud patches — every one of these five is a place where a live write and a
+// mount render have to agree about a class or an id, and where a rename would
+// detach an escalation from the readout it describes without failing anything
+// else in the suite. sim/uifit measures the boxes; nothing there reads a word.
+{
+  const r4Css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const r4Main = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const r4Base = {
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: null,
+    tier: 6, target: 1_700, score: 1_259, launchCost: 25, bayNum: 7,
+    timeLimitSec: 150, timeLeftMs: 127_000, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0, autoloaderOwned: false,
+    ratchets: { wind: 2, sweeper: 1, cryo: 1 } as Ratchets,
+    tiers: newTiers(), contract: null,
+  };
+  const deep = hudHTML(r4Base);
+
+  // ---- 1. BODY ORDER: coarse to fine -------------------------------------
+  // What the bay is worth, what a row sells for, what the run is carrying,
+  // what the ship is made of. The chain line and the price row also end up
+  // adjacent, which is the pairing that matters mid-bay: the gate on the rungs
+  // and the capped payout are the same congestion fact.
+  //
+  // Asserted as an ORDER over indices rather than as a substring of the whole
+  // body, because the rows are emitted by four separate branches and a
+  // template that re-ordered two of them would still contain all four. PRESENCE
+  // IS PART OF THE ORDER: `indexOf` answers -1 for a row that is not there and
+  // -1 is less than everything, so a check that only compared indices would go
+  // green by deleting the row it exists to place.
+  const at = (needle: string): number => deep.indexOf(needle);
+  const rows = ['class="pl-read"', 'class="pl-chain', 'class="pl-notch', 'class="pl-mods"'];
+  check("the panel renders all four body rows",
+    rows.every((r) => at(r) >= 0), rows.filter((r) => at(r) < 0).join(" "));
+  check("the readout leads the panel body",
+    at('class="pl-read"') < at('class="pl-chain'),
+    `read ${at('class="pl-read"')} chain ${at('class="pl-chain')}`);
+  check("the chain line sits ABOVE the notch tally",
+    at('class="pl-chain') < at('class="pl-notch'),
+    `chain ${at('class="pl-chain')} notch ${at('class="pl-notch')}`);
+  check("...and the build row is last",
+    at('class="pl-notch') < at('class="pl-mods"'),
+    `notch ${at('class="pl-notch')} mods ${at('class="pl-mods"')}`);
+
+  // ---- 2. THE CLOCK IS IN THE FUNDS BLOCK --------------------------------
+  // It left the stat rail and sits beside the funds figure, right-aligned
+  // against that column's own edge. Two things have to survive the move and
+  // both are live-write contracts rather than looks: `#hud-time-chip` is what
+  // syncHud toggles the danger class on, and `pl-time` is what collapsingDial's
+  // hook is anchored against (see the dial-collapse section).
+  const fundsBlock = deep.slice(at('class="pl-funds'), at('class="pl-rail"'));
+  check("the clock renders inside the funds block, not on the rail",
+    fundsBlock.includes('id="hud-time-chip"') && fundsBlock.includes("pl-timebig")
+      && fundsBlock.includes('id="hud-time"'),
+    fundsBlock.replace(/\s+/g, " ").slice(0, 240));
+  check("...on the same row as the funds figure",
+    fundsBlock.includes('class="pl-fundsrow"')
+      && fundsBlock.indexOf('class="pl-fundsrow"') < fundsBlock.indexOf('id="hud-score"')
+      && fundsBlock.indexOf('id="hud-score"') < fundsBlock.indexOf('id="hud-time-chip"')
+      // ...and that row CLOSES before the goal bar, so the clock is genuinely
+      // beside the figure rather than merely somewhere inside the same column.
+      && fundsBlock.indexOf('id="hud-time-chip"') < fundsBlock.indexOf('class="pl-goal"'),
+    fundsBlock.replace(/\s+/g, " ").slice(0, 240));
+  check("...and the stat rail no longer carries a clock row",
+    !deep.slice(at('class="pl-rail"')).includes('id="hud-time"'));
+  // The Contract keeps its stacked Time COLUMN — same id, same class, a
+  // different shape — because its readout was never the one being rebuilt.
+  const contractHud4 = hudHTML({
+    ...r4Base,
+    ratchets: {} as Ratchets,
+    contract: {
+      name: "Foundry Overrun", kind: "lines" as const, goal: 6, lines: 2,
+      launchesLeft: 9, remaining: [], lost: 1, conditions: "crosswind", tier: 2,
+      progress: null,
+    },
+  });
+  check("a Contract's clock is still the stacked column, not the big one",
+    contractHud4.includes('class="pl-stat pl-time" id="hud-time-chip"')
+      && !contractHud4.includes("pl-timebig"),
+    contractHud4.slice(contractHud4.indexOf("hud-time-chip") - 60, contractHud4.indexOf("hud-time-chip") + 40));
+
+  // ---- 3. THE PRICE ROW ---------------------------------------------------
+  // A rail row with the `levy` mark, not a footnote hung off the launches
+  // figure. The value is the bare price; the "@" was the join to a count that
+  // is no longer beside it.
+  const costRow = deep.slice(
+    at('class="pl-stat pl-stat--rail pl-cost"'), at('class="pl-stat pl-stat--rail pl-scrap"'),
+  );
+  check("the price is its own rail row, wearing the levy mark",
+    at('class="pl-stat pl-stat--rail pl-cost"') > at('class="pl-rail"')
+      && costRow.includes(icon("levy", 12)) && costRow.includes('id="hud-launch"'),
+    costRow.replace(/\s+/g, " ").slice(0, 200));
+  check("the price row quotes the bare price, with no at-sign joining it to a count",
+    deep.includes('id="hud-launch">$25<') && !/@\s*\$/.test(deep),
+    deep.slice(at('id="hud-launch"') - 20, at('id="hud-launch"') + 40));
+  // The escalation is a LIVE write, so what is pinned here is that syncHud
+  // still spells the two classes it always did onto the same id — the whole
+  // point of keeping the `pl-stat__quote--*` names through a row that no longer
+  // looks anything like a quote.
+  check("syncHud still escalates the price off pileTier, on #hud-launch",
+    /#hud-launch/.test(r4Main)
+      && /classList\.toggle\("pl-stat__quote--warn", tierIdx === 0\)/.test(r4Main)
+      && /classList\.toggle\("pl-stat__quote--danger", tierIdx >= 1\)/.test(r4Main));
+  check("...and it writes the price without the @",
+    /set\("#hud-launch", `\$\$\{g\.launchCostNow\}`\)/.test(r4Main),
+    (r4Main.match(/set\("#hud-launch"[^\n]*/) ?? [""])[0]);
+  // THE CLOCK ALARM, one whole minute out — the rung below LOW_TIME_WARN_MS's
+  // pulse. A source check for the same reason the price's toggles are: there is
+  // no rAF in this process, and the class is written, not rendered.
+  check("the clock alarm is a minute, and above the pulse's own threshold",
+    S.CLOCK_ALARM_MS === 60_000 && S.CLOCK_ALARM_MS > S.LOW_TIME_WARN_MS,
+    `${S.CLOCK_ALARM_MS} vs ${S.LOW_TIME_WARN_MS}`);
+  check("syncHud toggles is-low on the clock under that threshold",
+    /classList\.toggle\("is-low", g\.timeLeftMs < S\.CLOCK_ALARM_MS\)/.test(r4Main),
+    (r4Main.match(/toggle\("is-low"[^\n]*/) ?? [""])[0]);
+
+  // ---- 4. THE CHAIN LINE --------------------------------------------------
+  // The payout leads, in mono, behind the `line` unit mark; the pixel-type word
+  // "Chain" is gone. The star still ends the row.
+  const chain = chainLadderHTML({ combo: 3, tierIdx: -1, capMult: 1, scorePerLine: 100, full: false, rungs: 8 });
+  check("the chain row carries no label",
+    !chain.includes('class="lbl"'), chain);
+  check("the value leads the row, before the rungs and the star",
+    chain.indexOf("pl-chain__val") < chain.indexOf("pl-chain__rungs")
+      && chain.indexOf("pl-chain__rungs") < chain.indexOf("pl-chain__star"));
+  check("the payout wears the line glyph as its unit",
+    chain.includes("pl-chain__unitico") && chain.slice(
+      chain.indexOf("pl-chain__unitico"), chain.indexOf("pl-chain__money"),
+    ).includes(icon("line", 14)));
+  // A full chain is not a price, so it takes neither the unit nor the mono
+  // money box — the row would otherwise read "per line: full chain".
+  const fullRow = chainLadderHTML({ combo: 9, tierIdx: -1, capMult: 1, scorePerLine: 100, full: true, rungs: 9 });
+  check("a full chain says so in words and hangs no unit off them",
+    fullRow.includes("Full chain") && !fullRow.includes("pl-chain__unitico"));
+  // The reading the glyph replaced survives for anything that cannot see the
+  // gate or the colour.
+  check("the row still names which quote it is, in full, on the title",
+    chain.includes(`title="The next crush pays $${Math.round(100 * payoutMult(4, null))} a line"`)
+      && chainLadderHTML({ combo: 3, tierIdx: 0, capMult: 0.6, scorePerLine: 100, full: false, rungs: 8 })
+        .includes("Congested: a cleared line is capped at $60"),
+    (chain.match(/title="[^"]*"/) ?? [""])[0]);
+
+  // ---- 5. THE NOTCH TALLY -------------------------------------------------
+  // Mark, total, rule, then the axis list. The total is the figure the list can
+  // no longer be counted for once its tail scrolls off.
+  const notchRow = deep.slice(at('class="pl-notch'), at('class="pl-mods"'));
+  check("the tally leads with the notch mark, then its total",
+    notchRow.indexOf(icon("notch", 16)) > 0
+      && notchRow.indexOf(icon("notch", 16)) < notchRow.indexOf("pl-notch__total")
+      && notchRow.indexOf("pl-notch__total") < notchRow.indexOf('id="hud-notches"'),
+    notchRow.replace(/\s+/g, " ").slice(0, 200));
+  check("...and the word Notches is gone with it",
+    !notchRow.includes("Notches"), notchRow.replace(/\s+/g, " ").slice(0, 200));
+  // 2 + 1 + 1 = 4, restated from the ratchets rather than from a literal, so a
+  // fixture edit cannot make this agree with itself.
+  check("the total is what the axes add up to",
+    notchRow.includes(`>${totalNotches(r4Base.ratchets)}</span>`),
+    `${totalNotches(r4Base.ratchets)}`);
+  // The draft counts the same run with the other helper. If the two ever
+  // disagree the HUD and the card the player signed are quoting different runs.
+  check("...and the draft's own total is the same sum",
+    ratchetTotal(r4Base.ratchets) === totalNotches(r4Base.ratchets));
+  // A clean run is not an alarm: same geometry, quieter colour.
+  check("a run with no notches renders the row, at zero, marked clean",
+    (() => {
+      const clean = hudHTML({ ...r4Base, ratchets: {} as Ratchets });
+      return clean.includes("pl-notch--clean") && clean.includes('id="hud-notch-total">0<');
+    })());
+  // THE BADGE: bare numeral, from two up. An unbadged mark already says one,
+  // and a badge on every mark is noise on eight of a Tier 10 run's eleven.
+  const badged = runNotchTallyHTML({ wind: 3, sweeper: 1 } as Ratchets);
+  check("a stacked axis badges its count, bare",
+    // The `×` survives on the mark's `title`, where it is a SENTENCE
+    // ("Crosswind ×3") rather than a second glyph on a row that overflows —
+    // so the badge itself is what is checked for it, not the whole row.
+    badged.includes('<span class="pl-notch__n">3</span>')
+      && !/pl-notch__n">×/.test(badged),
+    badged);
+  check("...and an axis at one notch badges nothing",
+    (badged.match(/pl-notch__n/g) ?? []).length === 1, badged);
+  // THE BADGE MUST NOT EAT THE MARK IT ANNOTATES, and nothing in sim/uifit can
+  // see that it has: the badge is absolutely positioned inside the glyph's own
+  // box, so a badge that covered the drawing entirely still measures as a badge
+  // sitting neatly inside a mark. The failure is a real one — written
+  // proportionally as `12 * --fpx` it reached 17.2px over an 18px glyph at
+  // 1920x1080 and the Tier 10 tally rendered as a row of numbers with no axes
+  // behind them — and the reason it can happen at all is that the MARK is fixed
+  // (components.ts's NOTCH_MARK_PX) while `--fpx` is not. So the rule is read
+  // back and held to fixed pixels, strictly under the mark it sits on.
+  {
+    // COMMENTS OFF FIRST: the rule's own prose names the proportional spelling
+    // it replaced, and a search for that spelling would find it in the
+    // paragraph explaining why it is gone.
+    const bareCss = r4Css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const badge = bareCss.slice(bareCss.indexOf(".pl-notch__n {"));
+    const box = badge.slice(0, badge.indexOf("}"));
+    const px = (prop: string): number =>
+      Number(box.match(new RegExp(`${prop}:\\s*(\\d+(?:\\.\\d+)?)px`))?.[1] ?? NaN);
+    check("the stack badge is sized against the mark, not against --fpx",
+      !/(min-width|height|font-size):[^;]*--fpx/.test(box),
+      box.replace(/\s+/g, " "));
+    // The mark's box read off the RENDERED tally rather than off
+    // components.ts's constant, for the reason the size section above states:
+    // a check that imported NOTCH_MARK_PX would agree with any value it ever
+    // takes. This one compares two independent numbers.
+    const markPx = Number(badged.match(/width="(\d+)"/)?.[1] ?? NaN);
+    check("...and stays inside the glyph it annotates",
+      markPx > 0 && px("min-width") > 0 && px("min-width") < markPx
+        && px("height") > 0 && px("height") < markPx,
+      `${px("min-width")}x${px("height")} on a ${markPx}px mark`);
+  }
+
+  // ---- 6. THE TWO NEW GLYPHS ---------------------------------------------
+  // Both are near neighbours of a mark already in the set — `notch`'s staircase
+  // against `leaderboard`'s podium, `line`'s bracketed cubes against `micro`'s
+  // domino — and a set where two ids draw the same picture is the currency
+  // confusion this file already pins against for scrap and salvage.
+  check("the notch and line marks exist and draw something",
+    !icon("notch").includes("undefined") && !icon("line").includes("undefined"));
+  check("the notch mark is not the leaderboard podium redrawn",
+    icon("notch") !== icon("leaderboard"));
+  check("...and the line mark is not the micro domino",
+    icon("line") !== icon("micro"));
+
+  // ---- 7. THE CONGESTION BLINK -------------------------------------------
+  // Rate carries the tier as well as hue does, and the reduced-motion contract
+  // is this stylesheet's rule everywhere: the theatre goes, the teaching stays.
+  // Read back out of app.css because no browser runs in this process and a
+  // deleted keyframe is invisible to every other check here.
+  const blink = r4Css.slice(r4Css.indexOf("@keyframes quote-blink"));
+  check("the price blinks in hard steps, faster on the second rung",
+    /\.pl-stat__quote--warn\s*\{\s*animation: quote-blink 900ms steps\(2, end\) infinite;/.test(blink)
+      && /\.pl-stat__quote--danger\s*\{\s*animation: quote-blink 520ms steps\(2, end\) infinite;/.test(blink),
+    blink.slice(0, 300).replace(/\s+/g, " "));
+  check("...and reduced motion keeps the colour and drops the flash",
+    /prefers-reduced-motion: reduce\)\s*\{\s*\.pl-stat__quote--warn,\s*\.pl-stat__quote--danger\s*\{\s*animation: none;/
+      .test(blink.replace(/\s+/g, " ").replace(/ \{/g, "{").replace(/\{/g, " {")),
+    blink.slice(0, 600).replace(/\s+/g, " "));
+  // The blink is opacity and nothing else — the same no-layout contract the
+  // dial collapse states, and for the same reason: this panel's height is a
+  // measured fit and a figure that grew mid-blink would take it with it.
+  // The keyframes body, BRACE-MATCHED. Sliced to the first `}` this would take
+  // only the opening frame and miss whatever the second one does, which is the
+  // half a geometry change is most likely to land in.
+  const blinkFrames = (() => {
+    const open = blink.indexOf("{");
+    let depth = 0;
+    for (let i = open; i < blink.length; i++) {
+      if (blink[i] === "{") depth++;
+      else if (blink[i] === "}" && --depth === 0) return blink.slice(open, i + 1);
+    }
+    return "";
+  })();
+  check("the blink changes opacity and nothing that lays out",
+    !/(width|height|margin|padding|font-size|letter-spacing|border)/.test(blinkFrames),
+    blinkFrames.replace(/\s+/g, " "));
 }
 
 // ---------------------------------------------------------------------------
@@ -9716,15 +9995,22 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       thawOwned: false, thawCharges: 0,
       autoloaderOwned: false, ratchets: {}, tiers: newTiers(), contract: null,
     });
-    // The quote moved with the R3 readout: it used to be the meta line's
-    // "Launch $37" span and is now "@ $37" riding the stat rail's launches
-    // figure (screens.ts's hudHTML). Same id, same fact, same two surfaces —
-    // and read off the rendered panel for the same reason as before, so this
-    // fails if either surface starts quoting its own number.
-    const quoted = plain(oddHud.match(/<span class="pl-stat__quote" id="hud-launch">([\s\S]*?)<\/span>/)?.[1] ?? "");
+    // The quote moved twice. It was the meta line's "Launch $37" span; the R3
+    // readout hung it off the stat rail's launches figure behind an at-sign;
+    // R4 gave it a rail row of its own with the `levy` mark, so that sign —
+    // which was the join to a figure no longer beside it — is gone and the
+    // value is the bare price. Same id, same fact, same two surfaces, and read off the rendered
+    // panel for the same reason as before, so this fails if either surface
+    // starts quoting its own number.
+    const quoted = plain(oddHud.match(/<span class="v" id="hud-launch">([\s\S]*?)<\/span>/)?.[1] ?? "");
     check("the tutorial and the panel quote the same launch cost",
-      quoted.trim() === `@ $${oddBay.launchCost}` && oddEconomy.includes(`cost $${oddBay.launchCost}`),
+      quoted.trim() === `$${oddBay.launchCost}` && oddEconomy.includes(`cost $${oddBay.launchCost}`),
       `${quoted.trim()} vs the card's copy`);
+    // ...and the "@" really is gone rather than merely moved off this match:
+    // the row is a figure with a mark now, not a footnote hung off a count.
+    check("the price row is a figure, not a footnote quote",
+      !/@\s*\$/.test(oddHud) && !oddHud.includes('class="pl-stat__quote"'),
+      "the panel still carries the old @-quote spelling");
     // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
     // release are one continuous drag, so they must be taught on one card —
     // split across cards they advance mid-gesture and flash past unread,
@@ -12433,9 +12719,23 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // clause actually arms, and why the fixture passes 18 rather than 0: a
     // check that displaced a zero would not notice if the card started
     // swallowing a number the player needed.
+    //
+    // READ OFF THE CARD'S TEXT, not off its markup, and the CLASS NAME IS
+    // TERMINATED rather than merely prefixed — two traps this check walked into
+    // the moment the line cell grew a `line` glyph. `stat__unit` on that cell's
+    // figure made a bare `class="stat` prefix count four cells where the card
+    // draws three; and the glyph's own `width="18"` made a raw-markup search
+    // for the displaced payout (18) find a number that is a box size, not a
+    // figure. The question is what the card SAYS, so the tags come off first.
+    // COMMENTS FIRST, then tags. `<[^>]+>` ends a "tag" at the first `>` it
+    // finds, and an HTML comment that contains one (this card's does — it spells
+    // out a `28px -> 20px` step) survives tag-stripping as prose, dragging its
+    // numbers into the text being searched.
+    const armedText = armed.replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]+>/g, " ");
     check("...in the slot the scrap payout would have had",
-      !/scrap/i.test(armed) && !armed.includes("18")
-        && (armed.match(/class="stat/g) ?? []).length === 3);
+      !/scrap/i.test(armedText) && !/\b18\b/.test(armedText)
+        && (armed.match(/class="stat[ "]/g) ?? []).length === 3,
+      `${(armed.match(/class="stat[ "]/g) ?? []).length} cells: ${armedText.replace(/\s+/g, " ").trim()}`);
     check("...and says nothing on a ladder clear",
       /scrap/i.test(S.bayClearScreen({
         bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 40,

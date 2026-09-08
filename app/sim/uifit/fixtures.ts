@@ -1096,6 +1096,47 @@ export const SCREENS: Record<string, () => string> = {
         cryo: 1, rebar: 1, slag: 1, volatile: 1,
       } as Ratchets,
     }),
+  // TIER 10, THE WHOLE PANEL AT ONCE — the state every absolute number in the
+  // R4 readout was tuned against, and the one no other fixture renders.
+  //
+  // Four worst cases meet on this one screen and nowhere else. FIVE-FIGURE
+  // FUNDS against a five-figure target ("$18420 / 21000"), which is what the
+  // stacked figure and the 6ch/8ch reservations in app.css's digit-stable block
+  // exist for. A THREE-FIGURE LAUNCH PRICE, which is the 5ch the price row
+  // reserves. A CLOCK UNDER A MINUTE, so the `is-low` alarm is measured in
+  // place rather than only asserted in sim/systems.ts. And TEN AXES PLUS A
+  // CLAUSE — eleven marks on a row whose scroller `hud-notched`'s eight already
+  // overflow — which is the case the notch TOTAL was added for: the figure
+  // survives at the row's head when its tail cannot be reached.
+  //
+  // Ten and not eleven: `target` (Quota Raise) is in hazards.ts's RETIRED_AXES
+  // and no run can be dealt it, so an eleven-axis line would measure a state
+  // the game cannot produce — the same trap the `hud-contract` fixture's own
+  // note records paying for twice.
+  //
+  // The stacks are the shape a Mark 10 run actually banks: two ratchets a bay
+  // over ten bays is twenty picks against ten axes, so most axes carry a badge
+  // and a few carry three. 24 is what these add up to, restated by the row
+  // itself rather than written here as a literal.
+  "hud-t10": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      tier: 10,
+      bayNum: 10,
+      score: 18_420,
+      target: 21_000,
+      launchCost: 168,
+      // 0:38 — under CLOCK_ALARM_MS and over LOW_TIME_WARN_MS, which is the one
+      // window where the alarm's colour renders without the pulse's class on
+      // top of it. The pulse is a live write; this is the mount state.
+      timeLeftMs: 38_000,
+      ratchets: {
+        cost: 3, time: 3, wind: 3, sweeper: 2, cryo: 2,
+        rebar: 2, slag: 2, volatile: 3, tar: 2, magnetic: 2,
+      } as Ratchets,
+      final: "cold-chain",
+    }),
   // THE CHAIN LADDER'S OTHER TWO STATES. Every HUD fixture above hands the
   // panel a ladder AT REST — nothing crushed, nothing congested — because that
   // is the state a bay opens in and the state most of them are measuring the
@@ -1967,6 +2008,9 @@ export function railLoadoutFor(
     // screen. (This one was reproduced, not assumed: two `offscreen` and two
     // `safearea` findings on the iPhone X before the ids were added here.)
     || id === "hud-congested" || id === "hud-fullchain"
+    // …and "hud-t10", which is `hud` at the top of the ladder: same three
+    // ability buttons, same seven-slot rail, different numbers.
+    || id === "hud-t10"
     || id === "pause" || id === "pause-pad"
     // …and "pause-armed", which is `pause` with one more row on the card and
     // the SAME HUD behind it. It reproduced the identical eleven `offscreen`

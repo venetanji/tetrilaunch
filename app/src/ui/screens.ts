@@ -2470,6 +2470,26 @@ export const LOW_TIME_WARN_MS = 20_000;
 export const FINAL_TIME_WARN_MS = 10_000;
 
 /**
+ * THE CLOCK'S FIRST RUNG (R4), one whole minute out, and it exists because the
+ * Deep Run's countdown changed size rather than because the game changed.
+ *
+ * On the rail the clock was an 11px figure among three of them, and colouring
+ * it early would have been the panel's loudest thing saying something that is
+ * not yet urgent. Beside the funds figure it is a headline number the eye is
+ * already on, and at that size the reading a player wants at 0:59 is "the last
+ * minute has started" — which is a plan change (stop banking, spend the
+ * bankroll) rather than an emergency.
+ *
+ * A MINUTE, and not the 90 or 45 either side of it, because a bay's clock is
+ * 150s (level.ts) — 60 is the last round number that leaves more than a third
+ * of the bay to act in, and it is the number the player is already counting in
+ * their head. LOW_TIME_WARN_MS then keeps the pulse and the tick for the last
+ * twenty seconds ON TOP of this, so the escalation is colour, then movement,
+ * then tempo, and no rung repeats the one below it.
+ */
+export const CLOCK_ALARM_MS = 60_000;
+
+/**
  * The same urgency, one shot later, for a Contract's supply readout — its
  * launch budget, or a pattern Contract's shipment queue (see main.ts's
  * syncHud, which picks whichever one this Contract runs on).
@@ -2688,23 +2708,61 @@ export function chainLadderHTML(state: ChainState): string {
   // the tier holds the streak under, which is the congestion tax's one
   // invisible half made visible (the other three — money, clock, reload — are
   // all already on screen).
-  const label = full
-    ? "Full chain"
-    : scorePerLine <= 0
-      ? ""
-      : congested
-        ? `Cap $${Math.round(scorePerLine * capMult)}`
-        : `Next $${Math.round(scorePerLine * payoutMult(combo + 1, null))}`;
+  const money = full || scorePerLine <= 0
+    ? 0
+    : congested
+      ? Math.round(scorePerLine * capMult)
+      : Math.round(scorePerLine * payoutMult(combo + 1, null));
   const mod = full
     ? " pl-chain--full"
     : congested
       ? ` pl-chain--congest pl-chain--congest-${Math.min(tierIdx, 1)}`
       : "";
+  // THE PAYOUT LEADS (R4). The word "Chain" was 8px pixel type naming a row
+  // whose rungs already say what it is, and it sat where the row's one figure
+  // should have been; the figure moves to the front and the label goes.
+  //
+  // THE UNIT IS A GLYPH, not a word. `line` (icons.ts) before the money says
+  // "per cleared line" without borrowing the "x" this row's own subject — the
+  // combo multiplier — already speaks in, and it hands the rung run back the
+  // ~35px "x LINE" cost. Muted, like every other readout's mark.
+  //
+  // "NEXT" AND "CAP" ARE NOT SPELLED any more, and that is a deliberate trade
+  // rather than an omission: which of the two a quote is, is already stated
+  // twice over in the same row — congestion drops the GATE across the rungs and
+  // recolours the whole row amber or red (app.css's .pl-chain--congest), where
+  // a clean bay outlines the one rung the price is for. The reading survives in
+  // full for anything that cannot see colour: `title` carries the sentence.
+  //
+  // FULL CHAIN KEEPS ITS WORDS, in the pixel face at the size the label used to
+  // be. It is not a price — there is no next line to sell, the bay is over —
+  // so hanging the `line` unit off it would read as "per line: full chain", and
+  // ten mono characters at the money's size would take the rungs' width for a
+  // string that is not a figure at all.
+  //
+  // A CALLER THAT CANNOT QUOTE still renders the empty money box rather than
+  // nothing, and its 5ch reservation with it. The row's geometry is then the
+  // same whether or not there is a price in it, which is the whole of the
+  // digit-stable argument applied one step further out: a ladder that mounted
+  // narrow and widened the moment the first price arrived would move the rungs
+  // under the player's eye on the first crush of the bay.
+  const val = full
+    ? `<span class="pl-chain__word" id="hud-chain-val">Full chain</span>`
+    : money <= 0
+      ? `<span class="pl-chain__money" id="hud-chain-val"></span>`
+      : `<span class="pl-chain__unitico" aria-hidden="true">${icon("line", 14)}</span>` +
+        `<span class="pl-chain__money" id="hud-chain-val">$${money}</span>`;
+  const title = full
+    ? "Full chain — every crush in this bay in one streak"
+    : money <= 0
+      ? "Chain"
+      : congested
+        ? `Congested: a cleared line is capped at $${money}`
+        : `The next crush pays $${money} a line`;
   return `<div class="pl-chain${mod}" id="hud-chain">
-            <span class="lbl">Chain</span>
+            <span class="pl-chain__val" title="${title}">${val}</span>
             <div class="pl-chain__rungs" aria-hidden="true">${rungs}<b class="pl-chain__gate"></b></div>
             <span class="pl-chain__star" aria-hidden="true">${icon("star", 11)}</span>
-            <span class="pl-chain__val" id="hud-chain-val">${label}</span>
           </div>`;
 }
 
@@ -2985,9 +3043,48 @@ export function hudHTML(opts: {
     timeLimitSec > 0
       ? `<div class="pl-stat pl-time${timeCollapse}" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
       : "";
+  // THE DEEP RUN'S CLOCK LEFT THE RAIL (R4) and sits beside the funds figure,
+  // right-aligned against that column's own edge. The two numbers a player
+  // trades against each other — money made, seconds left — end up on one line,
+  // and the clock is sized off the headline figure rather than off the rail's
+  // three small ones, which is what it is actually read against.
+  //
+  // `pl-time` STAYS in the class list, before `dial-collapse`, for the reason
+  // the block below states: sim/systems.ts anchors the collapse hook on the
+  // readout's own class, and syncHud's `.pl-stat--danger` toggle finds the same
+  // id in both shapes. `pl-timebig` is what the R4 sizing keys off.
+  //
+  // THE ALARM IS PART OF THE MOUNT, not only of the patch. syncHud toggles
+  // `is-low` every frame, and a mount that always spelled the clock calm would
+  // make the first sync after a re-render a MECHANISM change rather than a
+  // value change — the same rule the three bar fills' inline `scaleX` follow.
+  // It matters here in particular because this panel is re-rendered wholesale
+  // mid-bay (the pause card, the draft, the refit yard) and syncHud does not
+  // run while any of them is up: unmounted calm, the clock would come back from
+  // a pause white with 20 seconds on it.
+  const timeLow = timeLeftMs < CLOCK_ALARM_MS ? " is-low" : "";
+  // THE PRICE'S CONGESTION CLASS IS PART OF THE MOUNT TOO, for the reason the
+  // chain ladder is handed its live state rather than a resting one: this panel
+  // is re-rendered WHOLESALE mid-bay — the pause card, the draft and the refit
+  // yard all mount it behind them — and syncHud does not run while any of them
+  // is up. Spelled calm at mount, a congested bay's price would go white the
+  // moment a player pressed pause and stay white behind the card, which is the
+  // one place they are actually reading it to decide whether to spend.
+  //
+  // Derived from the SAME fact syncHud derives it from: `chain.tierIdx` is the
+  // index of the PileTier in force (main.ts's chainState reads it off
+  // `g.pileTier` exactly as the launch-price branch does), so the two cannot
+  // disagree. A caller with no bay behind it hands CHAIN_AT_REST's -1 and gets
+  // no class, which is the honest reading of "no congestion known".
+  const quoteIdx = opts.chain?.tierIdx ?? -1;
+  const quoteTier = quoteIdx >= 1
+    ? " pl-stat__quote--danger"
+    : quoteIdx === 0
+      ? " pl-stat__quote--warn"
+      : "";
   const timeRow =
     timeLimitSec > 0
-      ? `<div class="pl-stat pl-stat--rail pl-time${timeCollapse}" id="hud-time-chip">${icon("clock", 12)}<span class="v" id="hud-time">${formatMMSS(timeLeftMs)}</span></div>`
+      ? `<div class="pl-timebig pl-time${timeLow}${timeCollapse}" id="hud-time-chip">${icon("clock", 22)}<span class="v" id="hud-time">${formatMMSS(timeLeftMs)}</span></div>`
       : "";
   // ABILITIES (Bond Breaker, Demolition Charges) each get TWO triggers on
   // screen at once when drafted — a chip in the plant's ability row and a
@@ -3297,26 +3394,44 @@ export function hudHTML(opts: {
           ${timeBlock}`
               : `<div class="pl-funds${collapse === "funds" ? " dial-collapse" : ""}">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
-            <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
+            <!-- THE FIGURE AND THE CLOCK SHARE A ROW (R4), and the figure's two
+                 halves STACK inside it. Side by side the pair's worst case is
+                 "$18420 / 21000" at headline size, and that plus a clock is
+                 wider than this column has ever been — the panel is a fixed
+                 fraction of the field, so there is no width to go and find.
+                 Stacked, the pair's box is the WIDER of its two lines rather
+                 than their sum, which is what makes the ch-unit reservations in
+                 app.css's digit-stable block affordable and what makes the
+                 clock's right edge genuinely fixed across a bay. -->
+            <div class="pl-fundsrow">
+              <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
+              ${timeRow}
+            </div>
             <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>
           <div class="pl-rail">
-            <!-- THE SHOT'S PRICE rides the launches figure rather than owning a
-                 row, and it is the one line of the old meta row that had to
-                 survive it: congestion re-prices a launch WHILE the bay runs
-                 (level.ts's PILE_TIERS), and a surcharge a player only infers
-                 from a faster-falling bankroll teaches nothing. "@ $24" beside
-                 "22" also states the arithmetic between them — this many shots,
-                 at this price — which two separate readouts never did.
+            <div class="pl-stat pl-stat--rail pl-launches" id="hud-launches-chip">
+              ${icon("crosshair", 12)}<span class="v" id="hud-launches">${launches}</span>
+            </div>
+            <!-- THE SHOT'S PRICE IS A ROW OF ITS OWN (R4). It was an 8px
+                 footnote hung off the launches figure, joined to it by an
+                 at-sign — the number that decides whether the next shot is
+                 affordable, at the bottom of the panel's type scale. At the
+                 rail's own size it wears "levy", the price-tag glyph the draft
+                 already deals the launch-cost axis by, so the row and the axis
+                 that raises it share one mark.
 
-                 It keeps id="hud-launch" and the warn/danger escalation the
+                 It keeps id="hud-launch" and the warn/danger escalation the old
                  meta line's span carried, in the same amber and red, in the
                  same order, as the rows lighting the bay floor beneath it
-                 (render.ts's drawCongestionRows). -->
-            <div class="pl-stat pl-stat--rail pl-launches" id="hud-launches-chip">
-              ${icon("crosshair", 12)}<span class="v" id="hud-launches">${launches}</span><span class="pl-stat__quote" id="hud-launch">@ $${launchCost}</span>
+                 (render.ts's drawCongestionRows) — with a blink whose RATE
+                 carries the tier as well (app.css's congestion-blink block).
+                 No box: the row is structurally the launches row with a
+                 different mark, and the mark takes the figure's tier colour so
+                 the two cannot disagree about how bad the shot has got. -->
+            <div class="pl-stat pl-stat--rail pl-cost">
+              ${icon("levy", 12)}<span class="v${quoteTier}" id="hud-launch">$${launchCost}</span>
             </div>
-            ${timeRow}
             <!-- SCRAP takes the currency's own glyph (icons.ts's "scrap"), not
                  a second drawing of the same pocket: the yard and the workshop
                  already price things in it, and a currency with two faces is
@@ -3423,9 +3538,35 @@ export function hudHTML(opts: {
           // shift every row above it mid-run, and the panel has the ~9px this
           // costs: measured free space inside the panel's design box is 18.6px
           // on an iPhone 13 mini, the tightest in the matrix.
+          //
+          // MARK, TOTAL, THEN THE LIST (R4). The word "Notches" is the `notch`
+          // mark now, and the figure beside it is what the tally adds up to —
+          // which is the whole point of putting it there: the list is the row
+          // this panel cannot promise to show whole (ten axes and a clause
+          // overflow the scroller on a phone), so the count it can no longer
+          // be counted for is stated once, in front, where the tail cannot
+          // take it. The list stays as the EXPLANATION of that figure.
+          //
+          // `totalNotches` is hazards.ts's; sandbox.ts's `ratchetTotal`, which
+          // the draft's own notch stat uses, is the same sum over the same
+          // object — sim/systems.ts pins the two equal so this row and the
+          // draft's can never quote different numbers for one run.
+          //
+          // A CLEAN RUN IS NOT AN ALARM. The mark and the total wear the
+          // draft's red, which is right for a bill and wrong for a zero, so at
+          // zero the row drops to the faint text colour. Colour only: the row's
+          // geometry is identical either way, which is what keeps the first
+          // notch of a run from shifting every row above this one.
           contract
             ? ""
-            : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets, opts.final ?? null)}</b></div>`
+            : (() => {
+                const banked = totalNotches(ratchets);
+                return `<div class="pl-notch${banked ? "" : " pl-notch--clean"}"><span class="lbl">${
+                  icon("notch", 16)
+                }</span><span class="pl-notch__total" id="hud-notch-total">${banked}</span><b id="hud-notches">${
+                  runNotchTallyHTML(ratchets, opts.final ?? null)
+                }</b></div>`;
+              })()
         }
         ${
           // The bay's own complications — the Contract analogue of the notch
@@ -4118,7 +4259,18 @@ export function bayClearScreen(opts: {
       <h2 class="bayclear__title display">BAY CLEARED</h2>
       <div class="bayclear__stats">
         <div class="stat"><b style="color:var(--accent)">$${opts.funds}</b><span>banked / ${opts.target}</span></div>
-        <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
+        <!-- THE UNIT MARK on the bare count. Both cells beside it lead with
+             one — a "$" on the banked figure, the scrap glyph on the payout —
+             so this was the one figure on the card with nothing saying what it
+             counts but a 10px word under it. Same "line" mark the chain row
+             quotes a price per, which is the number this one is the total of.
+
+             The 18 is a FALLBACK, not the drawn size: app.css sizes this mark
+             at 0.62em of the figure beside it so it follows the compact tier's
+             28px -> 20px step, and a CSS width beats the presentation attribute
+             the helper writes. 18 is what 0.62em comes to at the roomy size, so
+             the attribute and the rule agree about the common case. -->
+        <div class="stat"><b class="stat__unit">${icon("line", 18)}${opts.lines}</b><span>lines</span></div>
         ${slot
           ? `<div class="stat stat--clause"><b style="color:var(--accent-2)">${slot.value}</b><span>${slot.label}</span></div>`
           : `<div class="stat"><b>${scrapHTML(opts.scrap, 22, true)}</b><span>scrap</span></div>`}
@@ -5275,7 +5427,14 @@ export function draftScreen(opts: {
       }), "sticks for the rest of the run")}
       <div class="draft__bank">
         ${statCellHTML("reactor", "Carry", `$${opts.carry} · ended $${opts.funds}`, "var(--accent)")}
-        <div class="bay-stat">${icon("up", 14)}<span class="bay-stat__txt">
+        <!-- THE NOTCH MARK, not the up-arrow. Its two siblings on this row are
+             glyph-led (statCellHTML deals "reactor" for Carry and "scrap" for
+             Scrap), and the arrow was the odd one: it says "worse", which is
+             the same thing every card on this screen says, where the row's job
+             is to say WHAT is being counted. It is the same mark and the same
+             figure the plant panel's tally now leads with, so the bill a player
+             signs here and the bill they read mid-bay are one reading. -->
+        <div class="bay-stat">${icon("notch", 14)}<span class="bay-stat__txt">
           <span class="bay-stat__lbl">Notches${
             opts.standing
               ? opts.standing.nextBay === null

@@ -3145,6 +3145,28 @@ body.crt-off #app::after { display: none; }
    escalating the other selector: this rule is about where the ONBOARDING hint
    sits, and it has no opinion about a guide whose position JS has already
    solved against the panel's measured box. */
+/* A DEEP RUN'S PANEL IS TALLER THAN THE BASE RULE ASSUMES since the R4 readout,
+   and the base rule computes the panel's top edge from a fraction. `.plant` is
+   `height: auto` above a 0.4296 min-height, and the Deep Run body now runs past
+   that on every device — 0.4915 of the field at the tightest handset in
+   sim/uifit's matrix — so the fraction above is the CONTRACT's top edge, not
+   this one. Left alone the gesture reached 16px under the panel on a tablet and
+   4-9px under it on a notched phone (measured, all fifteen Deep Run fixtures on
+   five devices), which is the same defect this rule's own note describes from
+   the last time a fraction here went stale: `.plant` is z-index 6 and the hint
+   is not, so "under" means the loop simply vanishes mid-pull.
+
+   0.50 is the CEILING rather than the measured height, deliberately: the panel's
+   share is content-driven and varies by a couple of percent between bays, and
+   an anchor that tracked it would move the hint between bays. Clearing the
+   tallest the panel is allowed to be (sim/uifit/run.ts's PLANT_CEILING) clears
+   every state of it, and over-clearing costs nothing — the hint sits a little
+   higher in the field, where there is nothing for it to reach. */
+.hud:not(.hud--contract) .drag-hint:not(.drag-hint--at) {
+  top: calc(var(--field-y) + (0.9703 - 0.50) * var(--field-h) - var(--hint-clear));
+}
+/* ...and a CARDED panel is taller still, and outranks both. Stated last so it
+   wins the specificity tie with the rule above (both are four classes). */
 .hud[data-carded] .drag-hint:not(.drag-hint--at) {
   top: calc(var(--field-y) + (0.9703 - 0.52) * var(--field-h) - var(--hint-clear));
 }
@@ -4428,6 +4450,67 @@ body.crt-off #app::after { display: none; }
    figure in goal-yellow, and the progress bar spans the full readout width at
    nearly double thickness so distance-to-goal is legible at a glance mid-aim. */
 .pl-funds .v .tgt { color: var(--piece-o); font-size: 0.62em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
+
+/* ---------- R4: THE CLOCK JOINS THE FUNDS BLOCK (Deep Run) ----------
+   The countdown left the stat rail and sits beside the funds figure, sized off
+   THAT figure rather than off the rail's three small ones — which is what it is
+   actually read against. The two numbers a player trades against each other,
+   money made and seconds left, end up on one line.
+
+   THE TARGET STACKS UNDER THE FIGURE, and that is the enabling move rather
+   than a styling one. Side by side the pair's worst case is "$18420 / 21000" at
+   headline size, and that plus a clock is wider than this column has ever been
+   — the panel is a fixed fraction of the field (`.plant`'s width), so there is
+   no width to go and find. Stacked, the pair's box is the WIDER of its two
+   lines instead of their sum, which is what pays for the `ch` reservations in
+   the digit-stable block below and what makes the clock's right edge genuinely
+   fixed from bay 1 to Tier 10.
+
+   Deep Run only in practice: a Contract renders no `.pl-fundsrow` at all (its
+   figure is a direct child of `.pl-funds`, and its clock is the stacked
+   `.pl-stat pl-time` column beside Lines/Goal), so none of this reaches it. */
+.pl-fundsrow {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: max(6px, calc(12 * var(--fpx)));
+  /* The label-to-figure nudge moves up here from `.pl-funds .v`, where it now
+     belongs to the ROW rather than to the figure: a margin left on the figure
+     would grow the flex line by its own height and drop the clock beside it by
+     half of that, which is a clock that moves when nothing about it did. */
+  margin-top: max(3px, calc(8 * var(--fpx)));
+}
+.pl-fundsrow > .v {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: max(1px, calc(3 * var(--fpx))); line-height: 1;
+  margin-top: 0;
+  /* The stack breaks the "one reading" argument `.pl-funds .v` makes for
+     `white-space: nowrap` — the two halves are now on two lines BY DESIGN, and
+     each one is unbreakable on its own. Left as inherited nowrap: it costs
+     nothing and still guards "/ 21000" against breaking after its slash. */
+}
+.pl-timebig {
+  display: inline-flex; align-items: center; flex: none; margin-left: auto;
+  gap: max(3px, calc(6 * var(--fpx)));
+  font-family: var(--font-mono); font-weight: 800; color: var(--text);
+}
+.pl-timebig .ico {
+  color: var(--text-muted);
+  width: max(14px, calc(22 * var(--fpx)));
+  height: max(14px, calc(22 * var(--fpx)));
+}
+.pl-timebig .v {
+  font-size: max(19px, calc(34 * var(--fpx)));
+  min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+/* Under a minute the clock is the panel's alarm (screens.ts's CLOCK_ALARM_MS,
+   toggled in syncHud). Colour on the BLOCK as well as on its two children, so
+   anything that inherits — the collapse override below — picks the state up
+   rather than having to restate it. LOW_TIME_WARN_MS's `.pl-stat--danger` then
+   adds the pulse for the last twenty seconds on top of this. */
+.pl-timebig.is-low,
+.pl-timebig.is-low .v,
+.pl-timebig.is-low .ico { color: var(--danger); }
+.pl-timebig.pl-stat--danger .ico { color: var(--danger); }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
 /* ---------- THE THREE BAR FILLS (goal, reload, PWR) ----------
    Every one of them is a FULL-WIDTH element scaled about its left edge, and
@@ -4550,7 +4633,7 @@ body.crt-off #app::after { display: none; }
 .pl-rail {
   flex: none;
   display: flex; flex-direction: column; justify-content: center;
-  gap: max(2px, calc(6 * var(--fpx)));
+  gap: max(3px, calc(8 * var(--fpx)));
   padding-left: max(7px, calc(13 * var(--fpx)));
   border-left: 1px solid var(--line);
 }
@@ -4575,8 +4658,8 @@ body.crt-off #app::after { display: none; }
    size. */
 .pl-stat--rail .ico {
   color: var(--text-muted);
-  width: max(10px, calc(13 * var(--fpx)));
-  height: max(10px, calc(13 * var(--fpx)));
+  width: max(12px, calc(19 * var(--fpx)));
+  height: max(12px, calc(19 * var(--fpx)));
 }
 /* No `margin-top: 3px` — that nudge separates a stacked label from the value
    under it, and there is no label above this one.
@@ -4593,16 +4676,47 @@ body.crt-off #app::after { display: none; }
    put it at 116.4px. The figures lose nothing they need — still half again the
    size of the price quote beside them, and nearly twice the 6px pixel type this
    readout replaced. */
-.pl-stat--rail .v { margin-top: 0; font-size: max(11px, calc(22 * var(--fpx))); }
+/* ---------- R4: THE RAIL, ONE SIZE UP ----------
+   22 --fpx -> 30, and 11px -> 13 at the floor. The coefficient is the change
+   that matters and the floor is the change that was AFFORDABLE, which is not
+   the same number the handoff asked for (17px) and the difference is worth
+   writing down.
+
+   On a phone the floor is always what renders. An 812x375 handset carrying
+   three abilities gives the touch rail seven slots, which no longer fit a
+   column beside the field, so layout.ts takes the bottom-strip fallback and
+   solves the field to 508x286 — `--fpx` 0.397, where 30 * --fpx is 11.9px and
+   every figure on this panel is drawing at its floor. The panel is
+   bottom-anchored under a belt with ~30px of field between them, and three rail
+   rows at a 17px floor stand 57px against a funds column that stands 45: the
+   rail sets `.pl-read`'s height, so those four pixels per row cost the panel
+   twelve, and at the tightest row in the matrix (iPhone 13 mini, --fpx 0.376)
+   that put the panel THROUGH the belt by 5.7px.
+
+   13 is the largest floor at which the three rows sit level with the funds
+   column rather than standing proud of it — 3 x 13 + 2 x 3 = 45, against that
+   column's 45.2 — so the row costs the panel nothing the funds figure was not
+   already costing it. Every device from --fpx 0.434 up takes the proportional
+   half instead and is a real size up: 15px at 0.5 where 11 rendered before,
+   17px at 0.567, 43px at 1920. The two phones that keep the floor still gain
+   two pixels on the shipped rule; they are the two the box cannot pay more on.
+   Measured after: 0.4915 of the field at 13 mini, 13.4px still clear under the
+   belt (sim/uifit's `plant`, which now asserts that clearance directly). */
+.pl-stat--rail .v { margin-top: 0; font-size: max(13px, calc(30 * var(--fpx))); }
 .pl-stat--rail.pl-stat--danger .ico { color: var(--danger); }
 /* Scrap is the one figure here that is never urgent and never a countdown — it
    is money already earned — so it wears the currency's own yellow rather than
    the readout white the two live counters share. */
 .pl-scrap .v { color: var(--piece-o); }
 
-/* THE SHOT'S PRICE, riding the launches figure. Smaller and quieter than the
-   count it qualifies, because it is the second half of one reading ("22 shots,
-   at $24 each") rather than a fourth number on the rail.
+/* ---------- R4: THE SHOT'S PRICE IS A RAIL ROW ----------
+   It was an 8px footnote hung off the launches figure, joined to that count by
+   an at-sign — the number that decides whether the next shot is affordable, at
+   the bottom of the panel's type scale — and `.pl-stat__quote` was the rule
+   that kept it there. It is a
+   row now, structurally identical to launches and scrap, wearing `levy`: the
+   price-tag glyph the draft already deals the launch-cost axis by, so the row
+   and the axis that raises it share one mark.
 
    The two congestion states are what the old meta line's `.pl-meta__launch--*`
    pair carried, kept whole: the plant quotes the CONGESTED price (main.ts feeds
@@ -4610,21 +4724,73 @@ body.crt-off #app::after { display: none; }
    misprint rather than as a rule. Same amber and red, in the same order, as the
    rows lighting the bay floor beneath them (render.ts's drawCongestionRows), so
    a player watching either one sees the price move for a reason they can point
-   at. Glow rather than colour alone: this is small type over brightly coloured
-   cargo, where a hue change on four characters is easy to miss. */
-.pl-stat__quote {
-  font-family: var(--font-mono); font-weight: 700;
-  font-size: max(8px, calc(13 * var(--fpx)));
-  color: var(--text-faint); white-space: nowrap;
+   at.
+
+   NO BOX, and no glow. At 8px a hue change on four characters was easy to miss
+   over brightly coloured cargo, which is what the text-shadow was buying; at
+   the rail's own size the figure carries its colour on its own, and what
+   replaces the glow is RATE (see the blink below). The MARK takes the figure's
+   tier colour with it, so the two halves of the row cannot disagree about how
+   bad the shot has got.
+
+   The classes stay `pl-stat__quote--warn` / `--danger` — syncHud writes those
+   two names onto `#hud-launch` and nothing about which element wears them
+   changed, so renaming here would have detached a live escalation from the
+   readout it describes for the sake of a tidier selector. */
+.pl-cost .v {
+  display: inline-block; min-width: 5ch;
+  font-variant-numeric: tabular-nums;
 }
-.pl-stat__quote--warn {
-  color: var(--warn);
-  text-shadow: 0 0 6px rgba(255, 176, 32, 0.85);
+.pl-cost .v.pl-stat__quote--warn { color: var(--warn); }
+.pl-cost .v.pl-stat__quote--danger { color: var(--danger); }
+.pl-cost:has(.pl-stat__quote--warn) .ico { color: var(--warn); }
+.pl-cost:has(.pl-stat__quote--danger) .ico { color: var(--danger); }
+
+/* ---------- R4: THE CONGESTION BLINK ----------
+   RATE carries the tier as well as hue does, and it is the half of the cue that
+   survives being glanced at: 900ms on the first rung, 520ms on the second.
+   `steps(2, end)` rather than a fade — the pixel design system's idiom, and a
+   hard on/off is what reads as an alarm at four characters where a cross-fade
+   reads as a slow breath.
+
+   OPACITY ONLY, which keeps this inside the same no-layout contract the dial
+   collapse states above: nothing here touches a box, so a blinking price cannot
+   move the rail beside it or the panel around it. sim/systems.ts parses these
+   keyframes back and fails on a geometry-changing property.
+
+   Reduced motion keeps the COLOUR and drops the flash. The cue is information —
+   the price really has gone up — so it survives; only the movement is asked
+   away, which is this stylesheet's rule everywhere else. */
+@keyframes quote-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.32; } }
+.pl-stat__quote--warn { animation: quote-blink 900ms steps(2, end) infinite; }
+.pl-stat__quote--danger { animation: quote-blink 520ms steps(2, end) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .pl-stat__quote--warn,
+  .pl-stat__quote--danger { animation: none; }
 }
-.pl-stat__quote--danger {
-  color: var(--danger);
-  text-shadow: 0 0 6px rgba(255, 45, 85, 0.9);
+
+/* ---------- R4: DIGIT-STABLE FIGURES ----------
+   Nothing on this panel may move when a digit arrives. Every figure reserves
+   its worst case in `ch` with tabular numerals, so growth fills space that was
+   already paid for. The worst cases are the ladder's own: funds 6 ("$18420"),
+   target 8 ("/ 21000", slash and space included), clock 4 ("1:40"), launches 2,
+   scrap 3, price 5 ("$168").
+
+   This is what the stacked funds figure bought. Side by side, reserving eight
+   characters for the target on top of six for the money would have taken the
+   whole column and left the clock nowhere to sit; stacked, the reservation is
+   the WIDER of the two, not their sum.
+
+   VERIFIED across bay 1, bay 6 and Tier 10: the clock's right edge and the
+   rail's width do not move by a pixel. */
+.pl-funds .v { font-variant-numeric: tabular-nums; }
+.pl-fundsrow > .v > span:first-child { display: inline-block; min-width: 6ch; }
+.pl-fundsrow > .v .tgt { display: inline-block; min-width: 8ch; }
+.pl-stat--rail .v {
+  display: inline-block; font-variant-numeric: tabular-nums; text-align: left;
 }
+.pl-launches .v { min-width: 2ch; }
+.pl-scrap .v { min-width: 3ch; }
 
 /* ---------- THE CHAIN LADDER (screens.ts's chainLadderHTML) ----------
    The combo streak as twelve rungs, an end-of-ladder star and a price, on the
@@ -4644,13 +4810,35 @@ body.crt-off #app::after { display: none; }
    a phone) is indistinguishable from one gradient across the row and costs no
    positioning arithmetic that a change to CHAIN_RUNGS would then have to
    chase. */
-/* NO margin-top: this is a row of `.plant__body`, which is a flex column
-   carrying the panel's one row-gap rhythm — see the "one rhythm" note under
-   `.pl-notch b` for what the per-row nudges cost and why they all went. */
+/* RULES TOP AND BOTTOM (R4), and this is the one row on the panel that earns a
+   band of its own: everything above it says what the bay is HOLDING (money made,
+   shots left, seconds), and this says what a row SELLS FOR. A different kind of
+   reading, ruled off.
+
+   NO MARGIN OF ITS OWN, and the rule above is why: a border IS a separation,
+   and a margin on top of one is the row saying the same thing twice. The air
+   this readout buys goes into exactly TWO margins — `.pl-notch`'s and
+   `.pl-mods`'s, 5 --fpx each — and nowhere else; `.plant__body`'s own gap and
+   padding are left as they ship.
+
+   THE AIR IS A BUDGET, not a taste. The panel is bottom-anchored and the BELT
+   sits in the band directly above it, so every pixel this body gains climbs
+   toward the belt; at the tightest row in sim/uifit's matrix (iPhone 13 mini,
+   --fpx 0.376) the finished panel leaves 13.4px of clear field under it, and
+   `plant` now asserts that clearance directly. Two other ways of finding the
+   same air were tried and are not to be retried: a field-share `min-height`
+   with `space-between` (the body's natural height is ~41% of the field on a
+   handset and ~35% at 1920, so one share starves the phone or inflates the
+   desktop by half again), and a wider body gap (it spent its pixels climbing
+   into the belt and collided at the 20px rail). If a fifth row is ever added to
+   this panel, take the pixels out of those two margins first. */
 .pl-chain {
   display: flex; align-items: center;
   gap: max(4px, calc(8 * var(--fpx)));
   min-width: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: max(1px, calc(5 * var(--fpx))) 0;
 }
 /* `line-height: 1` on both pixel-type ends of this row, and it is a HEIGHT
    decision rather than a typographic one. Press Start 2P's default leading adds
@@ -4659,11 +4847,11 @@ body.crt-off #app::after { display: none; }
    height is a measured fit on the tightest handset in sim/uifit's matrix, where
    three pixels is the difference between fitting and not. Nothing is clipped:
    the pixel face has no descenders and the row centres what it holds. */
-.pl-chain .lbl {
-  flex: none; line-height: 1;
-  font-family: var(--font-pixel); font-size: max(5px, calc(8 * var(--fpx)));
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
-}
+/* NO `.pl-chain .lbl` RULE. The row led with the word "Chain" in 8px pixel
+   type, and R4 deleted it: it named a row whose twelve rungs and star already
+   say what it is, and it stood where the row's one FIGURE belongs. The
+   line-height note it carried moved to `.pl-chain__word`, which is the only
+   pixel type left on this row. */
 /* `position: relative` for the gate line only — see .pl-chain__gate. */
 .pl-chain__rungs {
   position: relative;
@@ -4679,7 +4867,13 @@ body.crt-off #app::after { display: none; }
    this replaced. A 1px chamfer keeps the run reading as bars at every width and
    is the steppier shape the pixel design system asks for anyway. */
 .pl-chain__rung {
-  flex: 1 1 0; min-width: 0; height: 100%;
+  /* MIN-WIDTH 4px, not 0. The row's flexible middle is what shrinks first when
+     the figure at its head grows, and a rung allowed to reach zero turns the
+     ladder into a hairline before anything else on the panel gives — the run
+     has to stay a run of BARS or it is not saying anything. Four is the width
+     at which a 1px chamfer on each end still leaves two lit pixels between
+     them. */
+  flex: 1 1 0; min-width: 4px; height: 100%;
   border-radius: 1px;
   background: var(--surface-3);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -4712,9 +4906,7 @@ body.crt-off #app::after { display: none; }
   background: var(--danger);
   box-shadow: 0 0 6px rgba(255, 45, 85, 0.8);
 }
-.pl-chain--congest .lbl,
 .pl-chain--congest .pl-chain__val { color: var(--warn); }
-.pl-chain--congest-1 .lbl,
 .pl-chain--congest-1 .pl-chain__val { color: var(--danger); }
 /* THE STAR is the bay's promise: a full chain. It is `icons.ts`'s one star
    glyph in both states, told apart by COLOUR rather than by an outline/fill
@@ -4730,15 +4922,52 @@ body.crt-off #app::after { display: none; }
    be the one thing in the panel that never shrank with it. It floors at 9px,
    which still reads as a star at a glance — it is a silhouette, not a legend. */
 .pl-chain__star .ico {
-  width: max(9px, calc(13 * var(--fpx)));
-  height: max(9px, calc(13 * var(--fpx)));
+  width: max(11px, calc(24 * var(--fpx)));
+  height: max(11px, calc(24 * var(--fpx)));
 }
-.pl-chain--congest .pl-chain__star { color: var(--surface-3); }
+/* CONGESTED, the star goes FAINT rather than to `--surface-3`. Both say "no
+   full chain is possible this bay"; at the 9px the star used to draw at,
+   surface-3 read as dimmed, and at the size above it reads as a HOLE punched in
+   the row — a missing element rather than an unreachable one. `--text-faint` is
+   the same statement at the same weight as every other unreached readout in the
+   app. */
+.pl-chain--congest .pl-chain__star { color: var(--text-faint); }
+/* ---------- R4: THE PAYOUT LEADS ----------
+   `.pl-chain__val` moves to the FRONT of the row, where the pixel-type word
+   "Chain" used to sit naming a row whose rungs already say what it is, and it
+   stops being pixel type: it is a figure now, in the mono face every other
+   figure on this panel is set in. */
 .pl-chain__val {
-  flex: none; line-height: 1;
-  font-family: var(--font-pixel); font-size: max(5px, calc(8 * var(--fpx)));
-  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+  flex: none; line-height: 1; white-space: nowrap;
+  display: inline-flex; align-items: baseline;
+  gap: max(3px, calc(6 * var(--fpx)));
+  font-family: var(--font-mono);
   color: var(--accent);
+}
+/* The unit mark, muted like every other readout's. `align-self: center` because
+   the row aligns its children on the BASELINE and a replaced element has none
+   to offer — seated on the money's baseline the glyph rides high, which is the
+   same defect `.pl-notch b` documents one section down. */
+.pl-chain__unitico {
+  display: inline-flex; align-items: center; align-self: center;
+  color: var(--text-muted);
+}
+.pl-chain__unitico .ico {
+  width: max(9px, calc(18 * var(--fpx)));
+  height: max(9px, calc(18 * var(--fpx)));
+}
+.pl-chain__money {
+  font-family: var(--font-mono); font-weight: 800;
+  font-size: max(11px, calc(26 * var(--fpx)));
+  font-variant-numeric: tabular-nums; min-width: 5ch;
+}
+/* THE FULL-CHAIN VERDICT keeps the pixel face at the size the label had. It is
+   not a price — the bay is over, there is no next line to sell — so it wears no
+   unit mark, and ten mono characters at the money's size would take the rungs'
+   width for a string that is not a figure at all. */
+.pl-chain__word {
+  font-family: var(--font-pixel); font-size: max(5px, calc(8 * var(--fpx)));
+  letter-spacing: 0.04em; text-transform: uppercase; line-height: 1;
 }
 /* FULL CHAIN — the bay finished with every crush in one streak (game.ts's
    fullChain latch). Gold end to end: rungs, star and label together, because
@@ -4755,7 +4984,6 @@ body.crt-off #app::after { display: none; }
   border-color: transparent;
   box-shadow: 0 0 7px rgba(255, 229, 0, 0.6);
 }
-.pl-chain--full .lbl,
 .pl-chain--full .pl-chain__val,
 .pl-chain--full .pl-chain__star { color: var(--piece-o); }
 
@@ -4815,6 +5043,21 @@ body.crt-off #app::after { display: none; }
    section because it is a fact about the COLLAPSE, and the rule it is
    correcting is the line above it. */
 .pl-stat--rail.dial-collapse .v { transform-origin: 0% 100%; }
+/* …and to the RIGHT edge on the Deep Run's headline clock, which is neither of
+   those shapes: `.pl-timebig` is right-aligned against the funds column's own
+   edge (it is `margin-left: auto` inside `.pl-fundsrow`), so the edge the crush
+   has to spread inward from — per the origin note above — is the right one.
+   Spreading left is spreading across the panel; spreading right would send the
+   crush over the rail's hairline. */
+.pl-timebig.dial-collapse .v { transform-origin: 100% 100%; }
+.pl-timebig.dial-collapse .ico { color: var(--danger); }
+/* THE CLOCK IS INSIDE THE FUNDS BLOCK NOW, and `.dial-collapse .v` is a
+   DESCENDANT selector — so a `broke` loss, whose hook lands on `.pl-funds`,
+   would crush the countdown along with the bankroll. Two readouts going over
+   for one verdict, and the wrong one is the readout that did NOT run out.
+   `animation: none` and an inherited colour leave the clock exactly as it was
+   drawn: `--text`, or the alarm's red if the class was already on it. */
+.pl-funds.dial-collapse .pl-timebig .v { animation: none; color: inherit; }
 /* …and the GLYPH takes the red the label would have, because on the rail the
    glyph IS the label (see the stat rail section). Without this the clock mark
    would sit there in muted grey beside a crushed red figure — half a readout
@@ -4967,9 +5210,17 @@ body.crt-off #app::after { display: none; }
    moment the mark doubled, seventeen of the nineteen devices had that 9px
    sitting in the air `justify-content: space-between` was already spreading
    between the rows. Two did not: the iPhone 13 mini came up 1.6px short and
-   the 800x600 web window 7.6px, and a panel that grows is a `plant` violation,
-   not a rounding error — the design box is 0.4296 of the field height and the
-   assertion holds it there in both directions.
+   the 800x600 web window 7.6px, and a panel that grows was a `plant` violation,
+   not a rounding error — at the time the design box was 0.4296 of the field
+   height and the assertion held it there in both directions.
+
+   IT IS NO LONGER ONE NUMBER. The R4 readout spends the panel's remaining air
+   deliberately and then some: the ceiling is 0.50 of the field and the floor is
+   still 0.4296 (sim/uifit/run.ts's `plant`, which now also measures the
+   clearance under the belt, because the belt is what the panel really grows
+   into). The arithmetic below stands as written — it is why this row's 18px
+   fits at all, and every pixel it freed is still freed — but "the box" it
+   spends against is the floor, not a cap.
 
    Both shortfalls are paid out of air that was already surplus, and neither
    payment is a new idea; each one finishes a job this stylesheet had started:
@@ -5030,6 +5281,23 @@ body.crt-off #app::after { display: none; }
    for its content and the residual sits in baseline.json as what it is — a
    sub-2.4px typographic difference, accepted deliberately. */
 .hud:not(.hud--contract) .pl-notch { align-items: center; }
+/* THE SECOND OF THE THREE R4 MARGINS (see `.pl-chain`'s note for the budget and
+   for the two ways of finding this air that were tried and rejected). Deep Run
+   only, and scoped for the reason the alignment above it is: a Contract's Bay
+   row shares this class, has no ruled chain band above it to be pushed clear
+   of, and inherits none of the R4 readout — so an unscoped margin here would be
+   air added to a panel that did not ask for any. */
+.hud:not(.hud--contract) .pl-notch { margin-top: calc(5 * var(--fpx)); }
+/* ...AND NOT WHILE A TEACHING CARD IS SHARING THE PANEL. `[data-carded]` puts
+   the coach's or the lesson's card inside this column under a 0.52-of-field cap
+   (see `.hud[data-carded] .plant`), and what the card cannot have is the last
+   two pixels: measured at 800x600, the Deep Run readout under the retired
+   deck's final step left `.coach__body` 2px short and it started scrolling —
+   which is a CI failure in this repo, not a fallback. These two margins are the
+   first thing to give, for the same reason `.hud--contract .plant__body` zeroed
+   the per-row nudges: a panel sharing its box with a card is not spending air on
+   rhythm. 5 --fpx x 2 is 6.3px at that window, three times what was short. */
+.hud[data-carded] :is(.pl-notch, .pl-mods) { margin-top: 0; }
 .pl-notch b {
   /* center, not baseline — the same move .pl-tier b documents below, forced
      by the same shape: the tally's entries lead with an SVG now (the axis
@@ -5049,13 +5317,82 @@ body.crt-off #app::after { display: none; }
 /* The chip's border-top colour, carried over as the glyph colour: content axes
    bane-red, number axes tradeoff-amber. It is the fastest thing in the row to
    read and it survives the shrink from a chip to two letters. */
-.pl-notch__ax { flex: none; display: inline-flex; align-items: center; gap: 1px; }
+.pl-notch__ax { flex: none; display: inline-flex; align-items: center; gap: 1px; position: relative; }
 .pl-notch__ax.k-bane { color: var(--danger); }
 .pl-notch__ax.k-tradeoff { color: var(--warn); }
 /* The Final Inspection's clause on the last bay — same violet as its card, so
    the thing the player signed for and the thing biting them are one colour. */
 .pl-notch__ax.k-final { color: var(--accent-2); }
-.pl-notch__n { color: var(--text-dim); font-size: 0.85em; }
+/* ---------- R4: THE MARK, THE TOTAL, THE STACK BADGE ----------
+   The word "Notches" is the `notch` mark now and the figure beside it is what
+   the tally adds up to. The point of the total is the tail: with ten axes and a
+   clause the list overflows its scroller on a phone, so the number the list can
+   no longer be counted for is stated once, in front, where a scrolled-off tail
+   cannot take it. The list stays as the EXPLANATION of the figure — which is
+   also why there is nothing between the mark and its total (they are one
+   reading) and a rule after it (dividing the count from the axes).
+
+   Red, because it is a bill: the same danger the draft prices its cards in.
+   `.pl-notch--clean` takes the pair to the faint text colour at zero — a run
+   that has taken nothing is not an alarm, and the row's geometry is identical
+   either way, so the first notch of a run still shifts nothing above it. */
+/* SCOPED, and it has to be: `.pl-notch` is the Contract's Bay-conditions row as
+   well as the Deep Run's tally (they share the shell above), and unscoped this
+   turned that row's "BAY" label danger-red and made it a flex box — a Contract
+   has no notches to be billed for and nothing on it is in the red. The Contract
+   inherits nothing else from this section; see the parity note in
+   sim/uifit/run.ts's `plant` clause for the measurements. */
+.hud:not(.hud--contract) .pl-notch .lbl {
+  display: inline-flex; align-items: center; color: var(--danger);
+}
+.pl-notch__total {
+  flex: none; font-family: var(--font-mono); font-weight: 800;
+  font-size: max(11px, calc(24 * var(--fpx)));
+  font-variant-numeric: tabular-nums; min-width: 2ch;
+  color: var(--danger); line-height: 1;
+  border-right: 1px solid var(--line-strong);
+  padding-right: max(4px, calc(8 * var(--fpx)));
+  margin-right: max(2px, calc(4 * var(--fpx)));
+}
+.pl-notch--clean .pl-notch__total { color: var(--text-faint); }
+/* THE MARK'S CLEAN COLOUR CARRIES THE SAME SCOPE AS ITS RED ONE. The total
+   above needs none — `.pl-notch--clean` is only ever written onto a Deep Run
+   row — but the LABEL's red is scoped past a Contract (see the rule three above
+   this one), which puts it four classes deep, and a bare `.pl-notch--clean
+   .lbl` at two would lose to it and leave a zero-notch mark in danger red. */
+.hud:not(.hud--contract) .pl-notch--clean .lbl { color: var(--text-faint); }
+/* THE STACK BADGE. Per-axis count in the mark's bottom-right quarter — the
+   stack is a real fact (three notches on Sweeper is three times the tempo) and
+   the total on the row's left cannot carry which axis it is on. A BARE numeral:
+   the "×" was spelling "times" for a reader already told the row is a count,
+   two glyphs where one does the job, on the row that overflows first.
+
+   INSIDE the mark's box, because `.pl-notch b` is a scroller with hidden
+   overflow and a badge crossing the glyph's edge came back clipped. A square
+   box with the numeral flex-centred in it, mono rather than the pixel face
+   (two pixel digits at 6px is the smallest live text on the panel), keyline in
+   `currentColor` so a content axis badges bane-red and a number axis
+   tradeoff-amber. Rendered from two up only — an unbadged mark already says
+   one, and a badge on every mark is noise on eight of a Tier 10 run's eleven. */
+.pl-notch__n {
+  position: absolute; right: 0; bottom: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-weight: 700;
+  /* FIXED PIXELS, not `--fpx`, and this is the one rule on the panel where that
+     is right: the badge is scaled against the MARK it sits on, and the mark is
+     a fixed 18px (components.ts's NOTCH_MARK_PX — deliberately not proportional,
+     because it exists to stay legible where --fpx is smallest). A proportional
+     badge therefore grows away from a mark that does not, and at the top of the
+     range it eats the drawing it is annotating: at 1920x1080, --fpx is 1.434 and
+     `12 * --fpx` is a 17.2px opaque box over an 18px glyph, which rendered the
+     Tier 10 tally as a row of numbers with no axes behind them at all.
+     10 on 18 is the mark's bottom-right quarter plus a pixel of overhang, which
+     is where the badge was designed to sit. */
+  font-size: 8px; min-width: 10px; height: 10px;
+  line-height: 1; padding: 0;
+  color: var(--text); background: var(--bg-deep);
+  border: 1px solid currentColor; border-radius: var(--r-sm);
+}
 .pl-notch__none { color: var(--text-faint); }
 
 /* The tier line — the same label-plus-mono-value shell as .pl-notch and
@@ -5272,6 +5609,12 @@ body.crt-off #app::after { display: none; }
   /* headroom so the xN badge (top:-7px) and the B-key tag (bottom:-8px)
      survive this row's own scroll clipping */
   padding-top: 8px; padding-bottom: 9px;
+  /* THE THIRD OF THE THREE R4 MARGINS (see `.pl-chain` for the budget). The
+     smallest of them: this row already carries 8px of its own scroll headroom
+     above the plates, so what it needs here is the difference between "next
+     row" and "next SECTION" — the tally above it is a bill and this is the
+     ship, and the two were reading as one block. */
+  margin-top: calc(5 * var(--fpx));
 }
 .pl-mods::-webkit-scrollbar { display: none; }
 
@@ -6355,6 +6698,18 @@ body.crt-off #app::after { display: none; }
 .stat { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .stat b { font-family: var(--font-mono); font-size: 28px; }
 .stat span { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+/* A MARK-LED FIGURE in a stat cell (the bay-clear card's line count). The same
+   shape `.currency` uses further down and for exactly the reason it documents:
+   `icon()` emits a `display: block` SVG, and a plain inline `b` seats it ON the
+   text baseline and grows the line box by the glyph's whole height — on a card
+   that is centred in a fixed viewport with no scroller, that is height taken
+   out of the bottom margin.
+
+   SIZED IN `em`, so the mark follows the figure through the compact tier's
+   28px -> 20px step rather than standing over it there. 0.62 is the ratio the
+   funds readout already uses between a headline figure and its qualifier. */
+.stat b.stat__unit { display: inline-flex; align-items: center; gap: 0.18em; }
+.stat b.stat__unit .ico { width: 0.62em; height: 0.62em; color: var(--text-muted); }
 /* The run-end score breakdown, under the stat row. A class rather than the
    inline style it shipped as, so the compact tier can reach it — the loss
    modal's uncompacted breakdown was most of its last 640x360 overflow. */
@@ -9827,7 +10182,18 @@ button.panel { color: var(--text); }
    in one glance, by someone who does not know the panel scrolls. */
 .hud[data-carded]:not([data-coach]) .pl-launches { display: none; }
 .hud[data-carded] :is(.pl-funds, .pl-chain, .pl-time, .pl-scrap, .pl-notch, .pl-mods, .pl-lost) { display: none; }
-.hud[data-carded] .pl-stat__quote { display: none; }
+/* THE SHOT'S PRICE, and it moved out from under this selector. It used to be
+   `.pl-stat__quote` riding the launches figure, so hiding that class hid it;
+   R4 made it a rail ROW (`.pl-cost`), and `pl-stat__quote--warn/--danger` is
+   now only ever a live congestion class syncHud writes — a selector that can
+   only match mid-congestion is not a hide rule, it is a coincidence. The row
+   itself is what waits for the card, for the reason the paragraph above gives:
+   it is MONEY, and money waits for the final card.
+
+   Measured: left showing, the extra rail row took the pad deck's final card
+   2px past `.coach__body` on an 800x600 window and it started scrolling, which
+   this repo counts as the defect rather than the fallback. */
+.hud[data-carded] .pl-cost { display: none; }
 
 /* ---------- FLIGHT SCHOOL'S REVEAL (game/school.ts's REVEAL) --------------
    The same idea as the four-card deck's above, on a ladder rather than a deck,
@@ -9902,11 +10268,16 @@ button.panel { color: var(--text); }
    `.pl-funds` really is Funds/Target is the economy bay, and it sits at stage 3
    by construction; sim/systems.ts pins that so a reordering cannot quietly put a
    money readout under a stage that means to withhold one. */
-.hud[data-reveal="0"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="1"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="2"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="3"] :is(.pl-launches, .pl-chain, .pl-time, .pl-lost) { display: none; }
-.hud[data-reveal="4"] :is(.pl-launches, .pl-time, .pl-lost) { display: none; }
+/* `.pl-cost` rides with `.pl-launches` through every stage that withholds it,
+   which is what the price did when it WAS the launches figure's own quote span
+   (see the carded rule above). It is revealed at stage 5 with the count it
+   prices, because "22 shots" and "at $25 each" are one reading and a stage that
+   showed one without the other would be teaching half an arithmetic. */
+.hud[data-reveal="0"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="1"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="2"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="3"] :is(.pl-launches, .pl-cost, .pl-chain, .pl-time, .pl-lost) { display: none; }
+.hud[data-reveal="4"] :is(.pl-launches, .pl-cost, .pl-time, .pl-lost) { display: none; }
 .hud[data-reveal="5"] :is(.pl-time) { display: none; }
 
 /* No "Launches alone in the readout" rule here, unlike the four-card deck's

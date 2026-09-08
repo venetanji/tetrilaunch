@@ -274,7 +274,7 @@ const ASSERTIONS = [
   { id: "spill", desc: "a grid/flex item stays inside the box that lays it out" },
   { id: "draghint", desc: "the drag hint's gesture plays clear of the plant panel" },
   { id: "reveal", desc: "the tutorial's first step reveals only what it teaches" },
-  { id: "plant", desc: "the HUD plant panel stays inside its design box" },
+  { id: "plant", desc: "the HUD plant panel stays inside its design box, clear of the belt" },
   { id: "crest", desc: "the crest ring registers with the panel's own edges" },
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
@@ -732,44 +732,104 @@ function measure(cfg: {
   const rootStyle = getComputedStyle(document.documentElement);
   const cssPx = (name: string): number => parseFloat(rootStyle.getPropertyValue(name));
 
-  // --- plant: the HUD panel must stay inside its 42.96%-of-field box ---------
-  // A CARDED PANEL has its own, deliberately larger budget: while a teaching
-  // card shares the panel's column, app.css caps .plant at 52% of the field
-  // height — a cap derived from clearing the cannon sprite, see the
-  // `.hud[data-carded] .plant` max-height rule — so THAT cap is the design box
-  // the assertion holds the panel to on those screens. Same number, one
-  // source of truth in the stylesheet, read here rather than re-derived.
+  // --- plant: the HUD panel between its floor and its ceiling ---------------
+  // TWO DIFFERENT NUMBERS, and they stopped being the same one with the R4
+  // readout.
   //
-  // `[data-carded]`, not `[data-coach]`: the flag moved when Flight School's
-  // card turned out to share the panel on exactly the same terms as the retired
-  // deck's (app.css's `[data-carded]` note). Asking the old question held a
-  // lesson's carded panel to the UNCARDED box and reported it 29px over.
+  // THE FLOOR is `.plant`'s own `min-height: calc(0.4296 * var(--field-h))`,
+  // unconditional in app.css — there is no `.hud--contract` override on it — so
+  // 0.4296 is the smallest the panel may be on every screen, Contract or Deep
+  // Run, coached or not. That direction matters on its own: an upper bound
+  // alone only ever catches a panel that GREW, where a rule that shrinks it
+  // back (`.hud--contract .plant { min-height: 0 }` reappearing, or anything
+  // with that effect) would pass every device here and be caught only by a
+  // human reading the real app.
   //
-  // Both directions matter. The upper bound alone only ever catches a panel
-  // that grew; a rule that SHRINKS it back — `.hud--contract .plant { min-
-  // height: 0 }` reappearing, or any future rule with the same effect — passes
-  // every device here and would only ever be caught by a human reading the
-  // real app, which is not a repeatable gate. `.plant`'s own `min-height:
-  // calc(0.4296 * var(--field-h))` is unconditional in app.css — there is no
-  // `.hud--contract` override on it — so 0.4296 is the floor on every screen,
-  // Contract or Deep Run, coached or not.
+  // THE CEILING used to be that same 0.4296, because it described the panel
+  // exactly: every row fitted inside the min-height on every device, so the
+  // panel was that fraction everywhere and the floor doubled as the box. The
+  // R4 readout ends that. The panel is `height: auto` and bottom-anchored
+  // (app.css's `.plant` `bottom:` chain), the readout's figures are sized
+  // `max(floor, N * --fpx)`, and both halves of that now exceed what 42.96% of
+  // the field holds: proportionally the body runs to ~0.47 of the field at
+  // 1920, and on a handset the FLOORS take it to ~0.49 — an 812x375 phone
+  // carrying three abilities solves the field to 508x286 (the seven-slot rail
+  // takes the rest), where every figure on the panel is drawing at its floor.
+  // A ceiling that still said 0.4296 would report a violation on every Deep Run
+  // row of the matrix and describe nothing.
+  //
+  // 0.50 — HALF THE FIELD — is the new ceiling, and what it is measured
+  // against is the BELT, which is the thing the panel actually grows into
+  // (every pixel the body gains climbs upward toward it). The worst row in the
+  // matrix is the iPhone 13 mini's Tier 10 panel at 0.4915 of a 271px field,
+  // which leaves 13.4px of clear field under the belt's bottom edge; the
+  // clause below asserts that clearance directly rather than trusting the
+  // fraction to imply it, because the fraction cannot see where the belt is.
+  //
+  // A CARDED PANEL keeps its own, larger budget: while a teaching card shares
+  // the panel's column app.css caps `.plant` at 52% of the field height (a cap
+  // derived from clearing the cannon sprite — see the `.hud[data-carded]
+  // .plant` max-height rule), so THAT cap is the box on those screens. Same
+  // number, one source of truth in the stylesheet, read here rather than
+  // re-derived. `[data-carded]`, not `[data-coach]`: the flag moved when Flight
+  // School's card turned out to share the panel on exactly the same terms as
+  // the retired deck's (app.css's `[data-carded]` note). Asking the old
+  // question held a lesson's carded panel to the UNCARDED box and reported it
+  // 29px over. A lesson bay is a Contract, which renders none of the R4
+  // readout, so 0.52 is untouched by this change — measured: every
+  // `lesson-hud-*` and `hud-contract*` row still solves to exactly 0.4296.
+  const PLANT_FLOOR = 0.4296;
+  const PLANT_CEILING = 0.50;
   const plant = document.querySelector(".plant");
   if (plant) {
     const fh = cssPx("--field-h");
     const coached = !!document.querySelector(".hud[data-carded]");
-    const design = (coached ? 0.52 : 0.4296) * fh;
+    const design = (coached ? 0.52 : PLANT_CEILING) * fh;
     const h = plant.getBoundingClientRect().height;
     if (h > design + 1) {
       out.plant.push(
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
     }
-    // NOT `design`: on a carded screen `design` is 0.52 * fh, the card's
-    // MAX layered on top of the same 0.4296 floor (app.css never replaces the
-    // floor for that screen, only adds a ceiling above it) — reusing it here
-    // would demand a coached panel 21% taller than the stylesheet asks for.
-    if (h < 0.4296 * fh - 1) {
-      out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(0.4296 * fh)}px footprint`);
+    // NOT `design`: on a carded screen `design` is 0.52 * fh, the card's MAX
+    // layered on top of the same floor (app.css never replaces the floor for
+    // that screen, only adds a ceiling above it) — reusing it here would demand
+    // a coached panel 21% taller than the stylesheet asks for.
+    if (h < PLANT_FLOOR * fh - 1) {
+      out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(PLANT_FLOOR * fh)}px footprint`);
+    }
+    // ...AND IT MUST NOT REACH THE BELT. This is the constraint the fraction
+    // above is a proxy for, asserted directly now that the panel's height is
+    // content-driven rather than pinned to its own min-height.
+    //
+    // The belt is a sibling in the same field, in the band immediately above
+    // the panel, and neither box knows about the other: the belt is positioned
+    // off `--field-*` and the panel grows upward from the bay floor. So the
+    // only thing that keeps a row of the readout from sliding under the
+    // transport is arithmetic nobody was checking. It is checked here.
+    //
+    // TEN PIXELS of clear field, which is a floor on the GAP rather than a
+    // target: at the tightest row in the matrix the measured clearance is
+    // 13.4px, and ten is the point below which the two boxes read as one
+    // machine rather than as a panel under a belt. Scoped to a rendered belt —
+    // the coach and lesson fixtures inject over the same HUD, but a screen with
+    // no belt has no clearance to have.
+    //
+    // UNCARDED ONLY. A carded panel's height is the CARD's — app.css caps it at
+    // 0.52 of the field and the card fills what it is given — so its clearance
+    // is a fact about the teaching deck, not about this readout, and it is the
+    // same fact it was before this change: measured on the shipped panel, the
+    // 800x600 web window already left a carded panel 9.4px under the belt, and
+    // `lesson-card-pad` (a Contract, which renders none of the R4 readout at
+    // all) reports the same 9.6px after it. Asking the question there would be
+    // re-litigating the coach card's own budget through a clause that exists
+    // for a different reason.
+    const beltEl = coached ? null : document.querySelector(".belt");
+    if (beltEl) {
+      const clear = plant.getBoundingClientRect().top - beltEl.getBoundingClientRect().bottom;
+      if (clear < 10) {
+        out.plant.push(`${clear.toFixed(1)}px of field left under the belt — the panel has climbed into it`);
+      }
     }
   }
 
