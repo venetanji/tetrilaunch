@@ -1,25 +1,4 @@
 {
-  "Android · 640x360 budget|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · 640x360 budget|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · 640x360 budget|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · 640x360 budget|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · 640x360 budget|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · 640x360 budget|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · 640x360 budget|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
   "Android · 640x360 budget|menu-first|tap": [
     ".tower__floor 82x24",
     ".tower__base 92x22"
@@ -111,27 +90,6 @@
   "Android · 640x360 budget|menu|tap": [
     ".tower__floor 82x24",
     ".tower__base 92x22"
-  ],
-  "Android · Galaxy S8+|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Galaxy S8+|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Galaxy S8+|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Galaxy S8+|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Galaxy S8+|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Galaxy S8+|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Galaxy S8+|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
   ],
   "Android · Galaxy S8+|menu-first|tap": [
     ".tower__floor 108x24",
@@ -225,27 +183,6 @@
     ".tower__floor 108x24",
     ".tower__base 118x22"
   ],
-  "Android · OnePlus 12|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · OnePlus 12|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · OnePlus 12|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · OnePlus 12|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · OnePlus 12|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · OnePlus 12|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · OnePlus 12|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
   "Android · OnePlus 12|menu-first|tap": [
     ".tower__floor 108x24",
     ".tower__base 118x22"
@@ -337,27 +274,6 @@
   "Android · OnePlus 12|menu|tap": [
     ".tower__floor 108x24",
     ".tower__base 118x22"
-  ],
-  "Android · Pixel 5|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Pixel 5|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Pixel 5|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Pixel 5|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Pixel 5|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Pixel 5|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "Android · Pixel 5|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
   ],
   "Android · Pixel 5|menu-first|tap": [
     ".tower__floor 108x27",
@@ -451,27 +367,6 @@
     ".tower__floor 108x27",
     ".tower__base 118x22"
   ],
-  "Android · Pixel 7 cutout|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7 cutout|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7 cutout|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7 cutout|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7 cutout|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7 cutout|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7 cutout|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
   "Android · Pixel 7 cutout|menu-first|tap": [
     ".tower__floor 108x28",
     ".tower__base 118x22"
@@ -563,27 +458,6 @@
   "Android · Pixel 7 cutout|menu|tap": [
     ".tower__floor 108x28",
     ".tower__base 118x22"
-  ],
-  "Android · Pixel 7|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
-  ],
-  "Android · Pixel 7|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.19px below its label"
   ],
   "Android · Pixel 7|menu-first|tap": [
     ".tower__floor 108x28",
@@ -677,27 +551,6 @@
     ".tower__floor 108x28",
     ".tower__base 118x22"
   ],
-  "Android · Pixel Tablet|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
-  "Android · Pixel Tablet|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
-  "Android · Pixel Tablet|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
-  "Android · Pixel Tablet|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
-  "Android · Pixel Tablet|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
-  "Android · Pixel Tablet|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
-  "Android · Pixel Tablet|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 2.47px below its label"
-  ],
   "Android · Pixel Tablet|menu-first|tap": [
     ".tower__base 164x31"
   ],
@@ -765,27 +618,6 @@
   ],
   "Android · Pixel Tablet|menu|tap": [
     ".tower__base 164x31"
-  ],
-  "Web · 1000x760 window|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
-  ],
-  "Web · 1000x760 window|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
-  ],
-  "Web · 1000x760 window|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
-  ],
-  "Web · 1000x760 window|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
-  ],
-  "Web · 1000x760 window|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
-  ],
-  "Web · 1000x760 window|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
-  ],
-  "Web · 1000x760 window|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.63px below its label"
   ],
   "Web · 1000x760 window|menu-first|tap": [
     ".tower__base 118x22"
@@ -857,27 +689,6 @@
   ],
   "Web · 1269x663 windowed|draft-picked|scrollers": [
     ".draft__body scrolls 16px"
-  ],
-  "Web · 1269x663 windowed|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
-  ],
-  "Web · 1269x663 windowed|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
-  ],
-  "Web · 1269x663 windowed|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
-  ],
-  "Web · 1269x663 windowed|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
-  ],
-  "Web · 1269x663 windowed|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
-  ],
-  "Web · 1269x663 windowed|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
-  ],
-  "Web · 1269x663 windowed|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.92px below its label"
   ],
   "Web · 1269x663 windowed|menu-first|tap": [
     ".tower__floor 108x41",
@@ -969,27 +780,6 @@
     ".tower__floor 108x41",
     ".tower__base 118x22"
   ],
-  "Web · 1280x720 laptop|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
-  "Web · 1280x720 laptop|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
-  "Web · 1280x720 laptop|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
-  "Web · 1280x720 laptop|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
-  "Web · 1280x720 laptop|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
-  "Web · 1280x720 laptop|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
-  "Web · 1280x720 laptop|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.95px below its label"
-  ],
   "Web · 1280x720 laptop|menu-first|tap": [
     ".tower__base 118x22"
   ],
@@ -1057,27 +847,6 @@
   ],
   "Web · 1280x720 laptop|menu|tap": [
     ".tower__base 118x22"
-  ],
-  "Web · 1512x945 MacBook|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
-  ],
-  "Web · 1512x945 MacBook|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
-  ],
-  "Web · 1512x945 MacBook|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
-  ],
-  "Web · 1512x945 MacBook|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
-  ],
-  "Web · 1512x945 MacBook|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
-  ],
-  "Web · 1512x945 MacBook|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
-  ],
-  "Web · 1512x945 MacBook|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 2.33px below its label"
   ],
   "Web · 1512x945 MacBook|menu-first|tap": [
     ".tower__base 155x29"
@@ -1147,27 +916,6 @@
   "Web · 1512x945 MacBook|menu|tap": [
     ".tower__base 155x29"
   ],
-  "Web · 1920x1080 desktop|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
-  "Web · 1920x1080 desktop|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
-  "Web · 1920x1080 desktop|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
-  "Web · 1920x1080 desktop|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
-  "Web · 1920x1080 desktop|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
-  "Web · 1920x1080 desktop|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
-  "Web · 1920x1080 desktop|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 2.99px below its label"
-  ],
   "Web · 1920x1080 desktop|menu-first|tap": [
     ".tower__base 177x33"
   ],
@@ -1235,27 +983,6 @@
   ],
   "Web · 1920x1080 desktop|menu|tap": [
     ".tower__base 177x33"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
-  ],
-  "Web · 2560x1080 ultrawide|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 3.13px below its label"
   ],
   "Web · 2560x1080 ultrawide|menu-first|tap": [
     ".tower__base 177x33"
@@ -1395,27 +1122,6 @@
   "Web · 800x600 window|inspection|scrollers": [
     ".draft__body scrolls 75px"
   ],
-  "Web · 800x600 window|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
-  "Web · 800x600 window|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
-  "Web · 800x600 window|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
-  "Web · 800x600 window|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
-  "Web · 800x600 window|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
-  "Web · 800x600 window|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
-  "Web · 800x600 window|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.30px below its label"
-  ],
   "Web · 800x600 window|menu-first|tap": [
     ".tower__floor 108x41",
     ".tower__base 118x22"
@@ -1527,27 +1233,6 @@
     "#bond-chip 44x43",
     "#demo-chip 44x43"
   ],
-  "iOS · iPad Pro 12.9|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
-  "iOS · iPad Pro 12.9|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
-  "iOS · iPad Pro 12.9|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
-  "iOS · iPad Pro 12.9|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
-  "iOS · iPad Pro 12.9|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
-  "iOS · iPad Pro 12.9|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
-  "iOS · iPad Pro 12.9|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 2.23px below its label"
-  ],
   "iOS · iPad Pro 12.9|menu-first|tap": [
     ".tower__base 161x30"
   ],
@@ -1616,27 +1301,6 @@
   "iOS · iPad Pro 12.9|menu|tap": [
     ".tower__base 161x30"
   ],
-  "iOS · iPad mini|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
-  "iOS · iPad mini|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
-  "iOS · iPad mini|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
-  "iOS · iPad mini|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
-  "iOS · iPad mini|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
-  "iOS · iPad mini|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
-  "iOS · iPad mini|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.67px below its label"
-  ],
   "iOS · iPad mini|menu-first|tap": [
     ".tower__base 121x23"
   ],
@@ -1704,27 +1368,6 @@
   ],
   "iOS · iPad mini|menu|tap": [
     ".tower__base 121x23"
-  ],
-  "iOS · iPhone 13 mini|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 13 mini|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 13 mini|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 13 mini|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 13 mini|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 13 mini|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 13 mini|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
   ],
   "iOS · iPhone 13 mini|menu-first|tap": [
     ".tower__floor 108x23",
@@ -1818,27 +1461,6 @@
     ".tower__floor 108x23",
     ".tower__base 118x22"
   ],
-  "iOS · iPhone 15|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 15|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 15|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 15|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 15|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 15|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone 15|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
   "iOS · iPhone 15|menu-first|tap": [
     ".tower__floor 108x26",
     ".tower__base 118x22"
@@ -1930,27 +1552,6 @@
   "iOS · iPhone 15|menu|tap": [
     ".tower__floor 108x26",
     ".tower__base 118x22"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
-  ],
-  "iOS · iPhone 16 Pro Max|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.22px below its label"
   ],
   "iOS · iPhone 16 Pro Max|menu-first|tap": [
     ".tower__floor 108x30",
@@ -2044,27 +1645,6 @@
     ".tower__floor 108x30",
     ".tower__base 118x22"
   ],
-  "iOS · iPhone SE 3|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone SE 3|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone SE 3|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone SE 3|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone SE 3|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone SE 3|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone SE 3|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
   "iOS · iPhone SE 3|menu-first|tap": [
     ".tower__floor 82x26",
     ".tower__base 92x22"
@@ -2156,27 +1736,6 @@
   "iOS · iPhone SE 3|menu|tap": [
     ".tower__floor 82x26",
     ".tower__base 92x22"
-  ],
-  "iOS · iPhone X|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone X|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone X|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone X|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone X|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone X|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
-  ],
-  "iOS · iPhone X|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.17px below its label"
   ],
   "iOS · iPhone X|menu-first|tap": [
     ".tower__floor 108x25",

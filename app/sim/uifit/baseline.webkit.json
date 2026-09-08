@@ -1,24 +1,99 @@
 {
+  "Android · 640x360 budget|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Android · 640x360 budget|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · 640x360 budget|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · 640x360 budget|menu-first|tap": [
     ".tower__floor 82x24",
@@ -112,26 +187,101 @@
     ".tower__floor 82x24",
     ".tower__base 92x22"
   ],
+  "Android · Galaxy S8+|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Android · Galaxy S8+|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Galaxy S8+|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Galaxy S8+|menu-first|tap": [
     ".tower__floor 108x24",
@@ -225,26 +375,101 @@
     ".tower__floor 108x24",
     ".tower__base 118x22"
   ],
+  "Android · OnePlus 12|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Android · OnePlus 12|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · OnePlus 12|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · OnePlus 12|menu-first|tap": [
     ".tower__floor 108x24",
@@ -338,26 +563,101 @@
     ".tower__floor 108x24",
     ".tower__base 118x22"
   ],
+  "Android · Pixel 5|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Android · Pixel 5|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 5|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 5|menu-first|tap": [
     ".tower__floor 108x27",
@@ -451,26 +751,101 @@
     ".tower__floor 108x27",
     ".tower__base 118x22"
   ],
+  "Android · Pixel 7 cutout|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Android · Pixel 7 cutout|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7 cutout|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7 cutout|menu-first|tap": [
     ".tower__floor 108x28",
@@ -564,26 +939,101 @@
     ".tower__floor 108x28",
     ".tower__base 118x22"
   ],
+  "Android · Pixel 7|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Android · Pixel 7|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.81px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Android · Pixel 7|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Android · Pixel 7|menu-first|tap": [
     ".tower__floor 108x28",
@@ -679,100 +1129,100 @@
   ],
   "Android · Pixel Tablet|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
     ".pl-queue value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.68px below its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-end-exam|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-end-licence|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-end-lost|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-end-won|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hilite-rotate|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-0|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-1|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-2|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-3|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-4|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-5|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-6|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-7|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|lesson-hud-8|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
-    ".pl-tier value sits -0.79px above its label"
+    ".pl-tier value sits -0.80px above its label"
   ],
   "Android · Pixel Tablet|menu-first|tap": [
     ".tower__base 118x22"
@@ -843,101 +1293,101 @@
     ".tower__base 118x22"
   ],
   "Web · 1000x760 window|hud-contract-lines|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|hud-contract-setpiece|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|hud-contract|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".hud--contract .pl-notch value sits -0.55px above its label",
     ".pl-queue value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.11px below its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-end-exam|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-end-licence|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-end-lost|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-end-won|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hilite-rotate|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-0|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-1|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-2|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-3|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-4|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-5|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-6|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-7|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|lesson-hud-8|inkline": [
-    ".hud--contract .pl-notch value sits -0.51px above its label",
-    ".pl-tier value sits -0.51px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.58px above its label"
   ],
   "Web · 1000x760 window|menu-first|tap": [
     ".tower__base 118x22"
@@ -1011,101 +1461,101 @@
     ".draft__body scrolls 14px"
   ],
   "Web · 1269x663 windowed|hud-contract-lines|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|hud-contract-setpiece|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|hud-contract|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".hud--contract .pl-notch value sits -0.61px above its label",
     ".pl-queue value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.31px below its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-end-exam|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-end-licence|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-end-lost|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-end-won|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hilite-rotate|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-0|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-1|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-2|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-3|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-4|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-5|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-6|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-7|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|lesson-hud-8|inkline": [
-    ".hud--contract .pl-notch value sits -0.60px above its label",
-    ".pl-tier value sits -0.60px above its label"
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.62px above its label"
   ],
   "Web · 1269x663 windowed|menu-first|tap": [
     ".tower__floor 108x41",
@@ -1198,101 +1648,101 @@
     ".tower__base 118x22"
   ],
   "Web · 1280x720 laptop|hud-contract-lines|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|hud-contract-setpiece|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|hud-contract|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".hud--contract .pl-notch value sits -0.63px above its label",
     ".pl-queue value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.33px below its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-end-exam|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-end-licence|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-end-lost|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-end-won|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hilite-rotate|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-0|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-1|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-2|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-3|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-4|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-5|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-6|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-7|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|lesson-hud-8|inkline": [
-    ".hud--contract .pl-notch value sits -0.61px above its label",
-    ".pl-tier value sits -0.61px above its label"
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
   ],
   "Web · 1280x720 laptop|menu-first|tap": [
     ".tower__base 118x22"
@@ -1363,101 +1813,101 @@
     ".tower__base 118x22"
   ],
   "Web · 1512x945 MacBook|hud-contract-lines|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|hud-contract-setpiece|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|hud-contract|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".hud--contract .pl-notch value sits -0.74px above its label",
     ".pl-queue value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.59px below its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-end-exam|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-end-licence|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-end-lost|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-end-won|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hilite-rotate|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-0|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-1|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-2|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-3|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-4|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-5|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-6|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-7|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|lesson-hud-8|inkline": [
-    ".hud--contract .pl-notch value sits -0.73px above its label",
-    ".pl-tier value sits -0.73px above its label"
+    ".hud--contract .pl-notch value sits -0.74px above its label",
+    ".pl-tier value sits -0.75px above its label"
   ],
   "Web · 1512x945 MacBook|menu-first|tap": [
     ".tower__base 118x22"
@@ -1528,101 +1978,101 @@
     ".tower__base 118x22"
   ],
   "Web · 1920x1080 desktop|hud-contract-lines|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|hud-contract-setpiece|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|hud-contract|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".hud--contract .pl-notch value sits -0.96px above its label",
     ".pl-queue value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 2.04px below its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-end-exam|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-end-licence|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-end-lost|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-end-won|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hilite-rotate|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-0|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-1|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-2|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-3|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-4|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-5|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-6|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-7|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|lesson-hud-8|inkline": [
-    ".hud--contract .pl-notch value sits -0.95px above its label",
-    ".pl-tier value sits -0.95px above its label"
+    ".hud--contract .pl-notch value sits -0.96px above its label",
+    ".pl-tier value sits -0.97px above its label"
   ],
   "Web · 1920x1080 desktop|menu-first|tap": [
     ".tower__base 118x22"
@@ -1694,100 +2144,100 @@
   ],
   "Web · 2560x1080 ultrawide|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
     ".pl-queue value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 2.13px below its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-end-exam|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-end-licence|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-end-lost|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-end-won|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hilite-rotate|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-0|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-1|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-2|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-3|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-4|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-5|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-6|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-7|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|lesson-hud-8|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
-    ".pl-tier value sits -0.99px above its label"
+    ".pl-tier value sits -1.02px above its label"
   ],
   "Web · 2560x1080 ultrawide|menu-first|tap": [
     ".tower__base 118x22"
@@ -1887,6 +2337,18 @@
     "#bond-chip 44x43",
     "#demo-chip 44x43"
   ],
+  "Web · 800x600 window|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "Web · 800x600 window|hud-fullchain|tap": [
     "#bond-chip 44x43",
     "#demo-chip 44x43"
@@ -1928,25 +2390,88 @@
     ".draft__body scrolls 74px"
   ],
   "Web · 800x600 window|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.89px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "Web · 800x600 window|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "Web · 800x600 window|menu-first|tap": [
     ".tower__floor 108x41",
@@ -2061,100 +2586,100 @@
   ],
   "iOS · iPad Pro 12.9|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
     ".pl-queue value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.52px below its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-end-exam|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-end-licence|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-end-lost|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-end-won|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hilite-rotate|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-0|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-1|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-2|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-3|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-4|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-5|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-6|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-7|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|lesson-hud-8|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
-    ".pl-tier value sits -0.70px above its label"
+    ".pl-tier value sits -0.72px above its label"
   ],
   "iOS · iPad Pro 12.9|menu-first|tap": [
     ".tower__base 118x22"
@@ -2225,101 +2750,101 @@
     ".tower__base 118x22"
   ],
   "iOS · iPad mini|hud-contract-lines|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|hud-contract-setpiece|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|hud-contract|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".hud--contract .pl-notch value sits -0.55px above its label",
     ".pl-queue value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 1.14px below its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-end-exam|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-end-licence|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-end-lost|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-end-won|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hilite-rotate|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-0|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-1|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-2|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-3|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-4|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-5|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-6|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-7|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|lesson-hud-8|inkline": [
-    ".hud--contract .pl-notch value sits -0.52px above its label",
-    ".pl-tier value sits -0.52px above its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.57px above its label"
   ],
   "iOS · iPad mini|menu-first|tap": [
     ".tower__base 118x22"
@@ -2389,26 +2914,101 @@
   "iOS · iPad mini|menu|tap": [
     ".tower__base 118x22"
   ],
+  "iOS · iPhone 13 mini|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "iOS · iPhone 13 mini|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 13 mini|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 13 mini|menu-first|tap": [
     ".tower__floor 108x23",
@@ -2502,26 +3102,101 @@
     ".tower__floor 108x23",
     ".tower__base 118x22"
   ],
+  "iOS · iPhone 15|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "iOS · iPhone 15|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 15|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 15|menu-first|tap": [
     ".tower__floor 108x26",
@@ -2615,26 +3290,101 @@
     ".tower__floor 108x26",
     ".tower__base 118x22"
   ],
+  "iOS · iPhone 16 Pro Max|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "iOS · iPhone 16 Pro Max|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.83px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone 16 Pro Max|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone 16 Pro Max|menu-first|tap": [
     ".tower__floor 108x30",
@@ -2728,26 +3478,101 @@
     ".tower__floor 108x30",
     ".tower__base 118x22"
   ],
+  "iOS · iPhone SE 3|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "iOS · iPhone SE 3|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone SE 3|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone SE 3|menu-first|tap": [
     ".tower__floor 82x26",
@@ -2841,26 +3666,101 @@
     ".tower__floor 82x26",
     ".tower__base 92x22"
   ],
+  "iOS · iPhone X|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
   "iOS · iPhone X|lesson-card-aim-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|lesson-card-aim|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|lesson-card-last|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|lesson-card-lost|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|lesson-card-pad|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|lesson-card-well|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|lesson-card|inkline": [
-    ".hud--contract .pl-notch value sits 0.80px below its label"
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-end-exam|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-end-lost|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-4|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-5|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-6|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-7|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
+  ],
+  "iOS · iPhone X|lesson-hud-8|inkline": [
+    ".hud--contract .pl-notch value sits -0.55px above its label",
+    ".pl-tier value sits -0.55px above its label"
   ],
   "iOS · iPhone X|menu-first|tap": [
     ".tower__floor 108x25",

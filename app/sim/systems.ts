@@ -6784,6 +6784,203 @@ section("The R4 plant readout (screens.ts, components.ts, app.css)");
 }
 
 // ---------------------------------------------------------------------------
+section("R5: the Contract panel's small rows, and the card that sits over it");
+// Two owner reports off an iPhone X, both about the same panel, both verbatim:
+//
+//   "in contracts the tiers has labels with fonts too small"
+//   "i think the tip panel should not completely hide the hud, but be on top of
+//    it so the user understands that closing the hints display the hud."
+//
+// Everything below is read back out of app.css, because neither answer is
+// visible to any other harness in this repo. sim/uifit measures BOXES: a row
+// whose type shrank back to 6px still fits its panel, and a card that went back
+// to replacing the readout still measures as a card in a panel — the very
+// arrangement that was green on every assertion for the whole time the owner
+// was looking at it. What has to be pinned is the RULE.
+{
+  const r5Css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  // COMMENTS OFF FIRST, for the reason the badge pin above states: these
+  // sections argue at length about the sizes they replaced, and a search for a
+  // spelling would otherwise find it in the paragraph explaining why it is gone.
+  const css = r5Css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ");
+
+  // ---- 1. THE TWO ROWS ARE NO LONGER THE PANEL'S SMALLEST TYPE ------------
+  // Both were `max(6px, calc(10.7 * --fpx))` for label AND value — the shared
+  // shell's floor, which on an --fpx of 0.5 (every phone in sim/uifit's matrix
+  // is at or below it) is what the owner was reading. What is held here is the
+  // FLOOR, in both directions: it must have gone up, and it must still be a
+  // floor under an --fpx term rather than a fixed size that stops scaling.
+  //
+  // EVERY rule with that selector, not the first: these sections deliberately
+  // split one selector across two rules so each can carry its own note (the
+  // sizes under the sizing argument, the optical correction under the
+  // derivation that produces it), and a lookup that stopped at the first `{`
+  // read `null` for a property that was plainly in the file — which is a pin
+  // that fails for a reason that has nothing to do with what it is pinning.
+  const declFor = (selector: string, prop: string): string | null => {
+    let found: string | null = null;
+    for (let at = css.indexOf(selector + " {"); at >= 0; at = css.indexOf(selector + " {", at + 1)) {
+      const body = css.slice(at + selector.length + 2, css.indexOf("}", at));
+      const m = body.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`));
+      if (m) found = m[1].trim();
+    }
+    return found;
+  };
+  /** The pixel floor out of a `max(Npx, calc(K * var(--fpx)))` size, and the
+   *  coefficient beside it. Both halves are read, because a rule that dropped
+   *  the calc() would keep the floor and stop growing on a desktop, and a rule
+   *  that dropped the floor would keep the growth and go back to 5px on a
+   *  phone. Either alone is the defect wearing the other's clothes. */
+  const scaled = (value: string | null): { floor: number; coeff: number } | null => {
+    const m = value?.match(/^max\((\d+(?:\.\d+)?)px,\s*calc\((\d+(?:\.\d+)?) \* var\(--fpx\)\)\)$/);
+    return m ? { floor: Number(m[1]), coeff: Number(m[2]) } : null;
+  };
+  const lbl = scaled(declFor(".hud--contract :is(.pl-notch, .pl-tier)", "--pl-lbl"));
+  const bayVal = declFor(".hud--contract .pl-notch", "--pl-val");
+  const tierVal = scaled(declFor(".hud--contract .pl-tier", "--pl-val"));
+  check("a Contract's Bay and Tier labels floor at 9px, and still scale above it",
+    lbl !== null && lbl.floor >= 9 && lbl.coeff > 0,
+    JSON.stringify(lbl));
+  // The Bay row's value is a PHRASE on a scroller, so it reads at the label's
+  // own size — and it has to be that size BY REFERENCE, not by a repeated
+  // expression that can drift. Pinned as the reference, because a copy of the
+  // same numbers would pass this and still be the bug.
+  check("...the Bay row's conditions read at exactly the label's size",
+    bayVal === "var(--pl-lbl)", bayVal ?? "no --pl-val on the Bay row");
+  check("...and the Tier row's figure steps up, floored at the rail's own 13px",
+    tierVal !== null && tierVal.floor >= 13 && tierVal.floor > (lbl?.floor ?? 0),
+    JSON.stringify(tierVal));
+  // The two custom properties are only worth anything if something reads them.
+  check("both rows draw their label and their value from those two tokens",
+    css.includes(".hud--contract :is(.pl-notch, .pl-tier) { --pl-lbl:")
+      && declFor(".hud--contract :is(.pl-notch, .pl-tier)", "font-size") === "var(--pl-lbl)"
+      && declFor(".hud--contract :is(.pl-notch, .pl-tier) > b", "font-size") === "var(--pl-val)");
+  // THE SALVAGE GLYPH RIDES ITS FIGURE. screens.ts hands salvageHTML a fixed 9,
+  // which lands in the SVG's own width/height attributes; at a 13px figure that
+  // is the smallest thing on the row rather than the biggest. Sized off the
+  // same token in CSS, so it tracks --fpx the way the number beside it does.
+  check("the tier row's salvage mark is sized with the figure it belongs to",
+    declFor(".hud--contract .pl-tier .currency .ico", "width") === "var(--pl-val)"
+      && declFor(".hud--contract .pl-tier .currency .ico", "height") === "var(--pl-val)",
+    declFor(".hud--contract .pl-tier .currency .ico", "width") ?? "no rule");
+  // ---- 2. ...AND THE OPTICAL CORRECTION FOLLOWED THEM ---------------------
+  // `--pixel-optical-drop` is a per-em constant that is only correct while the
+  // label and the value are the SAME size — which every row it was written for
+  // was, because the shell set one font-size and the `<b>` inherited it. These
+  // two rows are now two sizes, so the correction has to be the subtraction the
+  // token compresses: (mono cap-mid × value) − (pixel cap-mid × label). Held as
+  // an ARITHMETIC IDENTITY rather than as a string: whatever two constants the
+  // rule uses, their difference must be the token, or one of the three numbers
+  // has drifted from the other two.
+  const drop = Number(
+    (r5Css.match(/--pixel-optical-drop:\s*(\d+(?:\.\d+)?)em/) ?? [])[1]
+      ?? (fs.readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+        "utf8",
+      ).match(/--pixel-optical-drop:\s*(\d+(?:\.\d+)?)em/) ?? [])[1],
+  );
+  const topRule = declFor(".hud--contract :is(.pl-notch, .pl-tier) > b", "top");
+  const mix = topRule?.match(
+    /^calc\((\d+(?:\.\d+)?) \* var\(--pl-val\) - (\d+(?:\.\d+)?) \* var\(--pl-lbl\)\)$/,
+  ) ?? null;
+  check("the two-size rows correct their value off BOTH sizes, not off one em",
+    mix !== null, topRule ?? "no top rule");
+  check("...and at equal sizes that correction is exactly --pixel-optical-drop",
+    mix !== null && Math.abs((Number(mix[2]) - Number(mix[1])) - drop) < 0.001,
+    `${mix?.[2]} - ${mix?.[1]} vs ${drop}`);
+
+  // ---- 3. THE TEACHING CARD IS A LAYER, NOT A REPLACEMENT ----------------
+  // The owner's second report. The card was the plant's first child in the
+  // panel's own FLOW, and a `[data-carded]` rule took every readout block out
+  // of the column beneath it — so while a card was up the panel WAS the card.
+  // Two things have to hold for the fix, and they are independent: the card has
+  // to be lifted OUT of the flow (or it pushes the readout again), and the
+  // readout has to be left alone (or it is hidden under a card that no longer
+  // needs the room).
+  check("a mounted card is positioned over the panel, not stacked in its column",
+    declFor(".hud[data-carded] .coach", "position") === "absolute"
+      && declFor(".hud[data-carded] .coach", "bottom") !== null
+      && declFor(".hud[data-carded] .coach", "top") === "auto"
+      && declFor(".hud[data-carded] .coach", "z-index") === "1",
+    declFor(".hud[data-carded] .coach", "position") ?? "no rule");
+  // ...AND CAPPED AT THE PANEL, NOT AT A FRACTION OF THE FIELD. The panel used
+  // to carry `max-height: 0.52 * --field-h` (the cannon-clearance figure) while
+  // it held the card, and translating that number onto the card was wrong by
+  // 14px: the panel's own height is 0.4296-0.4915 of the field, so a 0.52 sheet
+  // standing on the panel's floor rises above the panel's TOP — where `.pl-pwr`
+  // hangs, all but 2px of it outside the panel. Capping at `100%` of the panel
+  // less its two vertical insets is what keeps the sheet on the thing it is
+  // supposed to be a sheet on; sim/uifit's `.coach__card` vs `.pl-pwr` pair is
+  // the same claim measured. Both halves are read back, because the cap without
+  // the inset subtraction lands the sheet's top edge exactly on the meter's 2px
+  // join.
+  check("...capped at the panel's own box, less its two vertical insets",
+    declFor(".hud[data-carded] .coach", "max-height") === "calc(100% - 2 * var(--coach-inset-y))"
+      && declFor(".hud[data-carded] .coach", "bottom") === "var(--coach-inset-y)",
+    declFor(".hud[data-carded] .coach", "max-height") ?? "no cap");
+  // NOTHING IN THE READOUT IS HIDDEN BY THE CARD ANY MORE. Written as a search
+  // over every `[data-carded]` rule in the file rather than as an absence of
+  // one known selector: the old list named seven `.pl-` blocks and the way this
+  // regresses is a NEW list, not that exact one coming back.
+  //
+  // Scoped to `.pl-` selectors, which is what "the readout" means here. The one
+  // `[data-carded]` hide left in the file is the BELT's — at compact density
+  // the transport goes while a card is up (app.css's A6 rule), which is a
+  // decision about the band ABOVE the panel and about a phone's field, made
+  // long before this change and untouched by it. Counting it would make this
+  // pin fail for something that is not the readout at all.
+  const cardedHides = (css.match(/\.hud\[data-carded\][^{}]*\{[^{}]*\}/g) ?? [])
+    .filter((rule) => /display:\s*none/.test(rule) && /\.pl-/.test(rule.split("{")[0]));
+  check("no [data-carded] rule takes a readout block off the screen",
+    cardedHides.length === 0, cardedHides.join(" | "));
+  // ...and the panel behind the sheet is the panel the player gets back. Any
+  // `[data-carded]` rule that changed the readout's own BOX would make
+  // dismissing the card a re-flow rather than a reveal, which is the promise
+  // the whole overlay rests on. Opacity is the one property allowed through —
+  // it is what makes the readout read as being behind glass — and it lays
+  // nothing out.
+  const cardedBody = (css.match(/\.hud\[data-carded\] \.plant__body \{[^{}]*\}/g) ?? []).join(" ");
+  check("...and it does not re-flow the readout underneath it either",
+    cardedBody.length > 0 && !/(padding|margin|gap|justify-content|flex|height)/.test(cardedBody),
+    cardedBody || "no .hud[data-carded] .plant__body rule at all");
+  // The reveal ladders are what decide a bay's readout now, and they are
+  // untouched: a lesson's by STAGE, the retired deck's by STEP. The deck's list
+  // is what the carded list used to be — same seven blocks, the pacing half of
+  // an argument whose height half no longer exists.
+  check("the lesson's reveal ladder still governs a lesson bay, by stage",
+    /\.hud\[data-reveal="0"\] :is\(\.pl-launches, \.pl-cost, \.pl-chain, \.pl-time, \.pl-lost\)/.test(css));
+  check("...and the retired deck keeps its own economy-tier pacing, by step",
+    /\.hud\[data-coach\] :is\([^)]*\.pl-funds[^)]*\.pl-chain[^)]*\) \{ display: none; \}/.test(css),
+    (css.match(/\.hud\[data-coach\] :is\([^)]*\) \{ display: none; \}/) ?? ["no deck list"])[0]);
+  // ---- 4. AND THE PANEL IS STILL RENDERED UNDERNEATH ---------------------
+  // The markup half of the same claim, from the screen function rather than the
+  // stylesheet: hudHTML is what a lesson bay mounts, and the two rows the card
+  // used to erase are its goal readout and its pass condition.
+  const lessonPanel = hudHTML({
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: null,
+    tier: 1, target: 0, score: 0, launchCost: 0, bayNum: 1,
+    timeLimitSec: 0, timeLeftMs: 0, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0, autoloaderOwned: false,
+    ratchets: {} as Ratchets, tiers: newTiers(),
+    contract: {
+      name: "Rows", kind: "lines" as const, goal: 3, lines: 1, goalLabel: "Rows",
+      launchesLeft: 9, remaining: [], lost: 0, conditions: "clean bay", tier: 1,
+      progress: null,
+    },
+  });
+  check("a lesson bay's panel carries the goal readout and the pass condition",
+    lessonPanel.includes('class="pl-funds')
+      && lessonPanel.includes('class="pl-notch"')
+      && lessonPanel.includes('id="hud-conditions"'),
+    lessonPanel.replace(/\s+/g, " ").slice(0, 200));
+}
+
+// ---------------------------------------------------------------------------
 section("The dial collapse (screens.ts collapsingDial + app.css)");
 // The two losses a player could not tell apart. Running out of TIME and running
 // out of MONEY both ended the same way — field freezes, modal arrives — and

@@ -653,7 +653,7 @@ const withCoach = (hud: string, step: number, coach: string): string =>
     .replace('<div class="plant">', `<div class="plant">${coach}`);
 
 /**
- * A LESSON'S HUD WITH ITS CARD IN THE PANEL, exactly as main.ts mounts one.
+ * A LESSON'S HUD WITH ITS CARD OVER THE PANEL, exactly as main.ts mounts one.
  *
  * This used to go through `withCoach`, which stamped `data-coach` — an
  * attribute a lesson bay never carries. So the harness measured a panel that
@@ -663,7 +663,21 @@ const withCoach = (hud: string, step: number, coach: string): string =>
  * does not is not a stricter test; it is a test of a different screen.
  *
  * The three the app really stamps: the lesson's reveal STAGE, the card-in-panel
- * flag, and the card itself as the plant's first child.
+ * flag, and the card itself as the plant's FIRST CHILD — which is still the
+ * mount point, and matters more than it used to. The card is absolutely
+ * positioned over `.plant` now (app.css's `[data-carded]` overlay section, and
+ * the owner report quoted there), so being that element's child is what makes
+ * the panel its containing block; a fixture that appended the card anywhere
+ * else would measure a card floating over the field.
+ *
+ * WHAT THESE FIXTURES MEASURE THAT THEY DID NOT BEFORE: the readout underneath.
+ * `[data-carded]` used to `display: none` seven `.pl-` blocks, so every
+ * `lesson-card*` row was a card over a nearly empty panel and the reveal STAGE
+ * passed in here changed almost nothing about what was on screen. Nothing is
+ * hidden by the card any more — the stage alone decides — so each of these now
+ * puts a real card over the real readout that lesson has earned, which is the
+ * arrangement the player sees and the one the `plant` assertion's carded clause
+ * checks.
  */
 const withCard = (hud: string, stage: number, card: string): string =>
   stampHud(hud, `data-carded="1" data-reveal="${stage}"`)

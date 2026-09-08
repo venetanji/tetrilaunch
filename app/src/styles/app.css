@@ -5345,16 +5345,17 @@ body.crt-off #app::after { display: none; }
    of, and inherits none of the R4 readout — so an unscoped margin here would be
    air added to a panel that did not ask for any. */
 .hud:not(.hud--contract) .pl-notch { margin-top: calc(5 * var(--fpx)); }
-/* ...AND NOT WHILE A TEACHING CARD IS SHARING THE PANEL. `[data-carded]` puts
-   the coach's or the lesson's card inside this column under a 0.52-of-field cap
-   (see `.hud[data-carded] .plant`), and what the card cannot have is the last
-   two pixels: measured at 800x600, the Deep Run readout under the retired
-   deck's final step left `.coach__body` 2px short and it started scrolling —
-   which is a CI failure in this repo, not a fallback. These two margins are the
-   first thing to give, for the same reason `.hud--contract .plant__body` zeroed
-   the per-row nudges: a panel sharing its box with a card is not spending air on
-   rhythm. 5 --fpx x 2 is 6.3px at that window, three times what was short. */
-.hud[data-carded] :is(.pl-notch, .pl-mods) { margin-top: 0; }
+/* NO `[data-carded]` EXCEPTION ANY MORE. These two margins used to be zeroed
+   while a teaching card was up, because the card was a block in this column
+   under a 0.52-of-field cap and the last two pixels of air were what it needed:
+   measured at 800x600, the Deep Run readout under the retired deck's final step
+   left `.coach__body` 2px short and it started scrolling, which is a CI failure
+   in this repo rather than a fallback, and 5 --fpx x 2 is 6.3px at that window.
+   The card is a LAYER over the panel now (see the `[data-carded]` overlay
+   section) and takes none of the column's height, so there is nothing to pay
+   for — and a readout that changed its spacing when a card mounted would break
+   the one promise the overlay makes, which is that dismissing the card reveals
+   the panel unchanged rather than re-flowing it. */
 .pl-notch b {
   /* center, not baseline — the same move .pl-tier b documents below, forced
      by the same shape: the tally's entries lead with an SVG now (the axis
@@ -5597,6 +5598,134 @@ body.crt-off #app::after { display: none; }
    it would put the phones (the reason the mark is 18px at all) a whole pixel
    out to flatter a desktop. */
 .hud:not(.hud--contract) .pl-notch b { top: 0; }
+
+/* ---------- R5: THE CONTRACT PANEL'S TWO SMALLEST ROWS ---------------------
+   Reported off an iPhone X, verbatim: "in contracts the tiers has labels with
+   fonts too small". Measured on that device before this rule, `hud-contract`:
+   `.pl-notch` ("BAY · CLEAN BAY") and `.pl-tier` ("TIER 1 · 0/3 ⟨salvage⟩15")
+   both drew label AND value at 6px — the shared shell's `max(6px, 10.7 *
+   --fpx)` floor, since --fpx is 0.5 there — with the salvage glyph at a fixed
+   9px. Six pixels of Press Start 2P is a five-pixel cap: it is the smallest
+   live type in the app, on the two rows that carry the only two facts a
+   Contract states about ITSELF (what the bay demands, and what clearing it
+   pays). The R4 pass had already raised the Deep Run rail beside them to
+   `max(13px, 30 * --fpx)` figures and `max(12px, 19 * --fpx)` marks, so the
+   panel was reading at two different scales at once and the smaller one was
+   the one nobody could read.
+
+   SCOPED TO `.hud--contract`, which is both Contract bays and every Flight
+   School lesson (hudHTML emits the Contract-shaped panel for both). The same
+   three classes are the Deep Run's manifest tally, notch tally and — via the
+   shell — its own rows, and those ARE the R4 readout already: their figures
+   are `.pl-notch__total`/`.pl-chain__money` at 24-26 --fpx and their air is a
+   measured budget (see `.pl-chain`'s note). Widening this to the shell would
+   re-open that budget to buy nothing, on rows that are not small.
+
+   TWO SIZES, NOT THREE, and the split is about what the VALUE is:
+
+     THE LABEL, both rows: max(9px, 10.7 * --fpx). The coefficient is unchanged
+     — it is `.pl-funds .lbl`'s, i.e. the panel's own label size, so nothing
+     above --fpx 0.841 moves by a pixel — and only the FLOOR is raised, 6px ->
+     9px, which is where the reported defect lives. The two labels that grow are
+     "BAY" and "TIER N", 19px -> 28px and 37px -> 56px on the narrowest panel in
+     the matrix (measured, iPhone 13 mini).
+
+     THE TIER ROW'S VALUE steps up to max(13px, 19 * --fpx), because it is a
+     bounded FIGURE: 13 is the rail's own figure floor and 19 its mark
+     coefficient. `.pl-tier`'s note above proves the value cannot overflow, and
+     the proof survives at this size — measured on the 13 mini, label + gap +
+     value is 122px of the 277px `.plant__body` actually gives the row (56 + 4 +
+     62), against 78px before. "Tier 10" costs another ~9px of label. 2.2x
+     headroom where the note claimed 2.5x; the `overflow-x: auto` that rule
+     declines to add is still dead code.
+
+     THE BAY ROW'S VALUE DOES NOT, and stays at the label's size. It is a
+     PHRASE of a length the panel does not control, on a row that scrolls its
+     tail — so every pixel of type on it is paid for out of how much of the
+     sentence is on screen, and it is the one row on this panel where bigger
+     type is not straightforwardly better.
+
+     WHAT THE 9px COSTS, measured rather than reasoned. The worst case in
+     sim/uifit's matrix is `hud-contract-lines`'s "volatile shipments · tight
+     launch budget · crosswind", 51 characters. On the iPhone 13 mini it drew
+     into a 236px window at 6px and fitted; at 9px it is 279px into the 227px
+     the bigger label leaves it, so ~52px — the last word — is behind the tail.
+     On the 640x360 budget phone it was already 1px over before this and is now
+     70px over. At the tier row's 13px it would be ~400px into 227, i.e. two
+     fifths of the sentence gone.
+
+     THAT COST IS PAID KNOWINGLY, and three things make it the right side of
+     the trade: the row has always been a scroller and this stylesheet's own
+     argument for that shape is that a list the panel cannot bound belongs on a
+     row that can scroll its tail rather than in a line that can only wrap; the
+     Contract's board card states the same conditions IN FULL before the bay
+     starts, so the row is a reminder rather than the only statement; and every
+     conditions string shorter than the generator's worst — "6 shapes, no
+     waste" at 18 characters, the pattern and set-piece cases — still fits
+     whole at 9px on every device in the matrix. What is not acceptable is a
+     row nobody can read at all, which is what was filed.
+
+   THE ROWS ALL BUT COST THE PANEL NOTHING. `.plant` is bottom-anchored above a
+   0.4296 min-height and a Contract's body has always come in UNDER it: measured,
+   the panel is exactly 0.4296 of the field everywhere, with the two rows 8px and
+   9px tall inside a box with room to spare. After this they stand at 12px and
+   17px and the panel is still 0.4296 on iPhone SE 3, iPhone X, iPhone 13 mini,
+   640x360 and 1920x1080 — the one row of those fifteen that grows at all is the
+   13 mini's set-piece Contract, 144px -> 146px (0.4296 -> 0.4359 of the field,
+   against a 0.50 ceiling), which still leaves 35.2px of clear field under the
+   belt where the floor is 10. sim/uifit's `plant` clause checks both directions
+   and that clearance, on all nineteen devices. */
+.hud--contract :is(.pl-notch, .pl-tier) {
+  /* Named, because the optical correction below is a function of BOTH. */
+  --pl-lbl: max(9px, calc(10.7 * var(--fpx)));
+  font-size: var(--pl-lbl);
+}
+/* The phrase row reads at ONE size — see the BAY note above for the sentence
+   this buys back. Written as `var(--pl-lbl)` rather than by repeating the
+   expression, so the two can never drift apart and the correction below
+   collapses to `--pixel-optical-drop` here exactly as it does on every other
+   same-size row in the panel. */
+.hud--contract .pl-notch { --pl-val: var(--pl-lbl); }
+.hud--contract .pl-tier { --pl-val: max(13px, calc(19 * var(--fpx))); }
+.hud--contract :is(.pl-notch, .pl-tier) > b { font-size: var(--pl-val); }
+/* THE SALVAGE GLYPH RIDES ITS FIGURE. `salvageHTML(milestone, 9)` writes 9 into
+   the SVG's own width/height attributes, which is what `.pl-tier`'s note
+   measures the row's line box against — a fixed 9px mark beside a 6px number
+   was already the biggest thing on the row, and beside a 13px number it is the
+   smallest. Corrected in CSS rather than at the call site: the argument is a
+   fixed pixel count and this has to track --fpx, and `.currency`'s own
+   `align-items: center` plus `.pl-tier b`'s means growing it moves nothing
+   else. */
+.hud--contract .pl-tier .currency .ico { width: var(--pl-val); height: var(--pl-val); }
+/* ---------- ...AND THE OPTICAL CORRECTION BECOMES A SUBTRACTION -----------
+   `--pixel-optical-drop` (tokens.css, 0.195em) is only correct while the label
+   and the value are the SAME SIZE, which every row it was written for was: the
+   shell set one font-size and the `<b>` inherited it. Above, they are not.
+
+   The derivation the token compresses, in the two faces' own ems (tokens.css
+   carries the measurement): Press Start 2P's cap sits 0.125em above the
+   alphabetic baseline and is 0.875em tall, so its cap CENTRE is 0.5625em above
+   the baseline; JetBrains Mono's cap sits on the baseline and is 0.734em tall,
+   so its centre is 0.367em above it. On a baseline-aligned row the mono run
+   therefore has to be lifted by (0.5625 * label - 0.367 * value), which at
+   label == value is exactly the token's 0.195em and at any other pair is not.
+   Written as `top` (positive = down) that is the subtraction below, and it
+   collapses to `-0.195em` the moment the two sizes agree — the same rule, with
+   the constraint the token had silently assumed spelled out.
+
+   Measured on the tier row, the only one of the two whose sizes differ: -0.29px
+   on a phone (label 9, value 13) and +1.37px at 1920 (label 15.35, value 27.25)
+   — under half a pixel and just over one, i.e. the correction stays the
+   hairline nudge it has always been rather than becoming a layout move. On the
+   Bay row the two sizes are equal and the expression evaluates to the token's
+   own -0.195em. sim/uifit's `inkline` reads both rows back on every device.
+
+   `position: relative` and `top` for the reason the base rule gives: the
+   correction is optical and the panel's height is measured to the row box, so
+   nothing may actually move. */
+.hud--contract :is(.pl-notch, .pl-tier) > b {
+  top: calc(0.367 * var(--pl-val) - 0.5625 * var(--pl-lbl));
+}
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
    any more, and the compact override below is a one-liner for the same reason.
    Contract mode used to run its own two-column grid whose only job was letting
@@ -9658,21 +9787,22 @@ button.panel { color: var(--text); }
    action (see main.ts's tutorial driver). The card itself must never block the
    drag-anywhere aim gesture — only its buttons take pointer events.
 
-   PLACEMENT: the first child of the plant panel (main.ts's mountCoach), in the
-   panel's own column — NOT a layer over it. It used to be centred over the
-   field (left: field-center, top: field-y + 0.16*field-h), which on a
-   landscape phone put a 370x123 card at x 211..581 / y 58..180 of a 640x360
-   field — square in the airspace the pieces fly through, so the tutorial made
-   its own lesson unplayable.
+   PLACEMENT: the first child of the plant panel (main.ts's mountCoach), and a
+   LAYER over that panel rather than a block in its column — see the
+   `[data-carded]` overlay section for the geometry and for the report that
+   forced it. Two earlier placements are worth not repeating. It was once
+   centred over the FIELD (left: field-center, top: field-y + 0.16*field-h),
+   which on a landscape phone put a 370x123 card at x 211..581 / y 58..180 of a
+   640x360 field — square in the airspace the pieces fly through, so the
+   tutorial made its own lesson unplayable. It was then a SIBLING of the
+   readout, stacked above it in the panel's column, which is what this section's
+   old note argued was the safe shape: the two could never overlap, so no
+   revealed figure was ever half-clipped. What that bought at the price of the
+   readout was a panel with nothing in it but a card, which is the thing the
+   owner filed.
    The bottom-left is the one region of the field that is already chrome rather
-   than playfield, and during the tutorial it is largely empty anyway: the
-   plant reveals its readout a block at a time (see .hud[data-carded] below), so
-   the coach is not covering stats — it is holding their seat until they
-   arrive, then sitting above them as they do. Being a SIBLING of the readout
-   rather than a layer over it is what makes that safe: the two can never
-   overlap, so no revealed figure is ever half-clipped. The panel is
-   bottom-anchored with an auto height, so card + readout together grow it
-   upward into empty sky rather than clipping the card's buttons. */
+   than playfield, which is why the card belongs there in either shape. What the
+   overlay adds is that the chrome stays visible underneath it. */
 .coach {
   pointer-events: none;
   margin: calc(10 * var(--fpx)) calc(10 * var(--fpx)) 0;
@@ -9730,18 +9860,57 @@ button.panel { color: var(--text); }
    syncCarded publishes this from BOTH teachers, and `data-coach` now drives
    only the two rules that name a specific step.
 
-   While the card is in the panel the readout stacks UNDER it from the top
-   rather than being spread down the panel's full height — space-between with
-   half the blocks hidden would strand the survivors at the two extremes. */
-.hud[data-carded] .plant { justify-content: flex-start; }
-.hud[data-carded] .plant__body { flex: 0 0 auto; justify-content: flex-start; }
-/* The panel is taller than usual while it holds the card (190px against 159px
-   at the longest step), and `.hud > *` otherwise makes it swallow pointer
-   events — which would grow the bottom-left dead zone for the drag gesture at
-   exactly the moment the tutorial is teaching that gesture. Nothing in the
-   panel is tappable while a card is up anyway: the ability chips live in
-   .pl-mods, which is hidden by both teachers' reveal lists. The card's own
-   buttons opt back in via .coach__btn. */
+   ---------- R5: THE CARD IS A LAYER OVER THE PANEL, NOT A BLOCK IN IT ------
+   Reported off an iPhone X, verbatim: "the tip panel should not completely hide
+   the hud, but be on top of it so the user understands that closing the hints
+   display the hud." That is exactly what the sibling placement produced. The
+   card was the plant's first child and the `[data-carded]` hide list (further
+   down, now the deck's own) took every readout block out of the column beneath
+   it, so on a lesson bay the panel WAS the card: a player who had never
+   dismissed one had no way to know a readout was waiting behind it, and
+   dismissing it looked like a panel appearing out of nowhere rather than a
+   sheet lifting off one.
+
+   So the card is absolutely positioned over `.plant` — which is already
+   `position: absolute` itself, i.e. the containing block was there for free —
+   and NOTHING about the panel's own layout changes when a card mounts. That is
+   the property the whole fix rests on: the readout the player sees behind the
+   sheet is pixel-for-pixel the readout they get when the sheet goes, so
+   dismissing reveals rather than re-flows. Every `[data-carded]` rule that
+   re-templated the panel to make ROOM for the card is gone with the stacking it
+   was making room in — `justify-content: flex-start` on the panel and its body
+   (which existed because "space-between with half the blocks hidden would
+   strand the survivors at the two extremes", a state that can no longer occur),
+   the panel's `max-height`, the tightened body padding, the tightened card
+   margin, and the zeroed row margins up in the Notches section.
+
+   BOTTOM-ANCHORED, GROWING UPWARD, CAPPED WHERE THE PANEL USED TO BE. `top:
+   auto; bottom: <inset>` with `height: auto` sizes the sheet to its content and
+   grows it away from the panel's floor, and `max-height` holds it at the same
+   0.52 of the field height the PANEL used to be capped at — the cannon-clearance
+   number, derived in the note that used to sit on `.hud[data-carded] .plant`.
+   Keeping that exact number is what leaves the drag hint's anchor untouched:
+   `.hud[data-carded] .drag-hint` is written as `(0.9703 - 0.52) * --field-h`
+   (see the drag-hint section), which is the top edge of a 0.52-tall box
+   standing on the panel's floor — the card's box now, the panel's box before.
+
+   THE CARD GAINED ROOM BY THIS, it did not lose any, and the arithmetic is
+   structural rather than lucky: the card used to get the 0.52 cap MINUS the
+   readout rows the hide list had left standing, minus the panel's own vertical
+   padding, minus its own margin off the panel edge — three gutters and a
+   variable number of rows — and it now gets the cap minus its own four insets.
+   Measured on the 640x360 budget phone, the tightest box in the matrix (field
+   556x313, so the cap is 162.8px): the retired deck's longest card stands
+   112.9px and the lost-cargo lesson's 127.6px, i.e. 35-50px of slack, and
+   `.coach__body` reaches its scroll valve on no device in the matrix — which is
+   what sim/uifit asserts by keeping that selector off ALLOWED_SCROLLERS.
+
+   POINTER EVENTS stay off the panel, and the reason survives the change of
+   shape: `.hud > *` otherwise makes the panel swallow taps across the
+   bottom-left of the screen, which is where the drag-anywhere aim gesture the
+   cards are teaching begins. Nothing behind a card is tappable in any case —
+   the ability chips live in `.pl-mods`, which both teachers' reveal lists hide
+   — and the card's own buttons opt back in via `.coach__btn`. */
 .hud[data-carded] .plant { pointer-events: none; }
 
 /* ---------- Aim-through ----------
@@ -10050,15 +10219,32 @@ button.panel { color: var(--text); }
   .coach--fail .coach__body { font-size: 12px; line-height: 1.35; }
   .coach__foot--fail { gap: 6px; }
 }
-/* Short viewports: the card now lives in the plant's width (257-301px on a
+/* Short viewports: the card lives in the plant's width (257-301px on a
    landscape phone) rather than the 430px it had centred over the field, so the
-   same copy wraps to more lines — and every line it gains grows the panel
-   upward toward the cannon. The budget is real: at 667x375 the untightened
-   card measured 140px, which took the panel's top edge to y=138 against a
-   cannon spanning 141..168, i.e. the aiming reference hidden behind the panel
-   at the step that still needs aiming. This block buys that back.
-   No width rule here — the width is the plant's, at every viewport. */
-@media (max-height: 480px) {
+   same copy wraps to more lines. The budget was real from the day the card
+   moved into the panel: at 667x375 the untightened card measured 140px, which
+   took the panel's top edge to y=138 against a cannon spanning 141..168, i.e.
+   the aiming reference hidden behind the panel at the step that still needs
+   aiming. This block buys that back.
+   No width rule inside — the width is the plant's, at every viewport.
+
+   ---------- ...AND A SECOND CONDITION, because viewport height was only ever a
+   PROXY. What this block is really keyed on is a small PANEL, and the panel's
+   height is 0.4296 of the FIELD's — which is `min(viewport height, viewport
+   width x 9/16)` less the reserved bands, so a window can be tall and still
+   have a small field. Exactly one row in sim/uifit's matrix is that shape: the
+   800x600 web window, whose 600px height sails past `max-height: 480px` while
+   its 800px width solves the field to 450px tall and the panel to 193px. It was
+   invisible while the card could push the panel upward to fit; now that the
+   sheet is capped at the panel (see the overlay section), it is the one row
+   where the untightened card does not fit — measured, `.coach__body` scrolled
+   10px there with the pictogram already collapsed to nothing.
+
+   860px is the width at which the field stops being width-bound for this
+   matrix, and it adds exactly that one row: every other device it matches
+   (640x360 through 852x393) is already inside the height condition, and the
+   two phones outside 860 (915x412, 956x440) are caught by their height. */
+@media (max-height: 480px), (max-width: 860px) {
   /* Padding and gap are down again (7px/3px -> 4px/2px). The card's fixed
      furniture is a title, a 44px button — the tap floor, which is not
      negotiable and is 41% of the card on the shortest phone — and the space
@@ -10073,20 +10259,121 @@ button.panel { color: var(--text); }
   .coach__foot { margin-top: 0; }
   .coach__btn { padding: 5px 10px; font-size: 10px; }
   .coach__dots i { width: 6px; height: 6px; }
+  /* AND THE PICTOGRAM'S OWN BUDGET COMES DOWN WITH THEM, from 8% of the field
+     height to 6.5%. The strip gives way before the copy does (`.lart__strip`'s
+     `flex: 0 100 auto`) and it gives way by CLIPPING — `.lart` is width-driven
+     (`width: 100%`, `height: auto`), so a shrunk strip cuts the drawing rather
+     than scaling it. That was invisible while the card could push the panel
+     upward to fit; capped at the panel, the congestion card on the 640x360
+     budget phone came up 3px short and what those 3px held was the "x1.25"
+     multiplier tag — a readout inside an illustration, and the one thing in the
+     strip that is TEXT.
+     6.5% is 20px of drawing on that phone against the 25px 8% asks for, which
+     is 5px against the 3px that was short, and it is spent where the strip has
+     the least to lose: the drawing is a silhouette at this size either way, and
+     a tag that is legible beats an arc that is one pixel taller. Only inside
+     this block — a roomy card keeps the 8% its own note measures. */
+  .lart { max-height: min(calc(0.065 * var(--field-h)), calc(88 * var(--coach-px))); }
 }
 
-/* Hard ceiling on the panel while it carries the card, as a backstop to the
-   tightening above rather than a replacement for it.
-   The cannon sits at world y 288 with a 30-unit half-size over a 720-unit
-   field, so its BOTTOM edge is at 0.4417 of the field height and the panel's
-   bottom is at 0.9703. Clearing the whole sprite therefore allows the panel
-   0.9703 - 0.4417 = 0.5286 of the field; 0.52 keeps a hair of margin.
-   Capping against the cannon's TOP (0.3583) instead is the mistake this
-   replaces — it reads as generous but leaves the panel free to cover the
-   sprite's entire lower half, which is what it did at 640x360.
-   If the card ever exceeds the cap, its body gives up the tail rather than the
-   panel eating the cannon — min-height:0 is what lets a flex child shrink. */
-.hud[data-carded] .plant { max-height: calc(0.52 * var(--field-h)); }
+/* ---------- THE OVERLAY: the sheet's own box ------------------------------
+   Absolutely positioned inside `.plant` (which is `position: absolute` in its
+   own right, so it is already the containing block), anchored to the panel's
+   FLOOR and grown upward by its content. `top` is deliberately left `auto`:
+   with `bottom` set and `height` auto an absolutely positioned box sizes to its
+   content, so a two-line card is a two-line sheet rather than a full-panel slab
+   with a hole in it — the panel reads as showing through above the card as well
+   as around it.
+
+   THE INSET IS THE TELL. Four or five field pixels of the panel's own frame,
+   crest and readout are left showing on every side, which is the cheapest
+   possible statement that this is a sheet ON something — `inset: 0` would put
+   the card's edge exactly on the panel's and read as the panel having been
+   replaced, which is the defect being fixed. The side insets are the card's own
+   old margin (10 --fpx, floored at 4px); the vertical one is a shade tighter at
+   9 because it is spent twice — once at the foot and once again in the cap, so
+   that the sheet's top edge sits as far inside the panel as its foot does.
+
+   THE CAP IS THE PANEL ITSELF, and that is a change from the number it
+   replaces. `.plant` carried `max-height: 0.52 * --field-h` while it held the
+   card — the cannon-clearance figure: the cannon sits at world y 288 with a
+   30-unit half-size over a 720-unit field, so its BOTTOM edge is at 0.4417 of
+   the field and the panel's bottom is at 0.9703, which allows 0.9703 - 0.4417 =
+   0.5286; 0.52 kept a hair of margin. Moving that number onto the card was the
+   obvious translation and it was wrong by 14px: the panel's own height is
+   0.4296-0.4915 of the field, so a 0.52 sheet standing on the panel's floor can
+   rise ABOVE the panel's top — and the box directly above that top edge is
+   `.pl-pwr`, the power meter, hung at `top: calc(2px - --pwr-h)` so that all but
+   2px of it is outside the panel. Measured with the pair sim/uifit now carries:
+   the gamepad aim card covered the meter whole on the 800x600 window and by
+   14px on the 640x360 phone. PWR is the one readout a player is using WHILE a
+   card is up — the card's first lesson is the drag, and PWR is the number the
+   drag sets.
+
+   So the sheet is capped at the panel's own box less its two vertical insets,
+   which puts its top edge exactly as far below the panel's top as its foot is
+   above the panel's bottom, and clear of the meter's 2px join. The cannon
+   clearance comes back the same way it does for an uncarded panel — from the
+   panel's own height, which sim/uifit's `plant` holds under 0.50 of the field —
+   and the drag hint's carded anchor at `(0.9703 - 0.52)` now OVER-clears the
+   sheet rather than exactly meeting it, which its own note says costs nothing.
+
+   If the card wants more than the cap, the give-way chain on the base `.coach`
+   rule spends the PICTOGRAM first (`.lart__strip`'s `flex: 0 100 auto` — an
+   illustration drawn smaller still teaches, a sentence with its last clause
+   below the fold does not) and only then the body's scroll, which is a CI
+   failure in this repo. What never happens either way is the panel moving. */
+.hud[data-carded] .coach {
+  /* One inset per axis, named because the vertical one is spent twice: once as
+     the foot's offset and once again inside the cap below it. */
+  --coach-inset-x: max(4px, calc(10 * var(--fpx)));
+  --coach-inset-y: max(4px, calc(9 * var(--fpx)));
+  position: absolute;
+  left: var(--coach-inset-x);
+  right: var(--coach-inset-x);
+  bottom: var(--coach-inset-y);
+  top: auto;
+  margin: 0;
+  max-height: calc(100% - 2 * var(--coach-inset-y));
+  /* Above the readout it covers. `.plant__body` is in normal flow with no
+     z-index of its own, so 1 is enough and nothing in the HUD's own stacking
+     order (the panel is z-index 6 as a whole) is disturbed. */
+  z-index: 1;
+}
+/* ---------- ...AND THE READOUT BEHIND IT READS AS BEHIND -------------------
+   Two effects, and each is doing a different job.
+
+   THE SHEET IS FROSTED, not opaque. `.coach__card` ships at
+   `rgba(8, 8, 18, 0.92)`, which over a readout is a wall; at 0.82 with a blur
+   behind it the figures resolve as shapes without resolving as text, which is
+   precisely the reading wanted — "there is a panel under this" and not "here
+   are two things to read at once". The blur is what makes the lower alpha safe:
+   without it 0.82 leaves legible digits showing through the card's own copy.
+   `@supports` puts the alpha back where an engine has no backdrop-filter, so
+   the fallback is the wall the card shipped as rather than an unreadable card.
+
+   THE READOUT ITSELF DIMS to 0.62 — a second, cheaper statement of the same
+   thing, and the one that survives the fallback above. Opacity only: nothing
+   here may move a box, because the whole promise of the overlay is that
+   dismissing the card changes nothing about the panel's layout. It is the same
+   0.3-vs-0.82 idea the aim-through fade below already uses, one step gentler,
+   for the same reason — the thing behind must stay recognisable as a readout.
+
+   NOT `filter: blur()` ON THE READOUT. A filter on `.plant__body` would make it
+   a containing block for absolutely positioned descendants and a new stacking
+   context, both of which are load-bearing elsewhere in this panel (the ×N
+   badges, the crest strips), and it would blur the rows the reveal ladder has
+   deliberately left showing — a lesson's goal bar is meant to be READ while the
+   card is up, just not read first. */
+.hud[data-carded] .plant__body { opacity: 0.62; }
+.hud[data-carded] .coach__card {
+  background: rgba(8, 8, 18, 0.82);
+  backdrop-filter: blur(max(3px, calc(7 * var(--fpx))));
+  -webkit-backdrop-filter: blur(max(3px, calc(7 * var(--fpx))));
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hud[data-carded] .coach__card { background: rgba(8, 8, 18, 0.94); }
+}
 /* The card is the child that gives way at the cap, because its body is the one
    block in the panel that can scroll — see the give-way chain on the base
    `.coach` rule, which is where those three links now live and why they are no
@@ -10109,27 +10396,25 @@ button.panel { color: var(--text); }
    and it is why the card is a flex COLUMN: it makes `.coach__card` a flex ITEM,
    which is the only thing that lets `min-height: 0` reach it and hand the
    give-way to `.coach__body`. */
-/* ---------- The card's height budget, while it has the panel ----------
-   Two gutters sized for the panel's OTHER job, cut back for the job it is
-   doing here. `.plant__body`'s vertical padding is set for the full readout
-   running the panel's whole height; while the coach is up it is holding two
-   rows (Launches and Reload) under a card that has its own padding and its own
-   margin off the panel edge, so the panel's padding is a third gutter stacked
-   on two others. `.coach`'s margin is the second of them.
+/* ---------- The two gutters this used to squeeze, and why it stopped -------
+   Two rules stood here, both scoped to `[data-carded]`: `.coach`'s margin cut
+   from 10 --fpx to 5/10, and `.plant__body`'s vertical padding cut from its own
+   17 --fpx to 5. They bought the card ~8px of body on the 640x360 budget phone,
+   where the card's body had been left 28px — two lines minus a hair, for copy
+   that needs three — because the card and the readout were stacked in one
+   column under a 0.52-of-field cap and every gutter between them was a third
+   gutter on top of two others.
 
-   This is not tidying — it is where a whole LINE of the instruction comes
-   from. The panel is capped at 0.52 of the field height while it carries the
-   card (below), and on the shortest phone in the matrix (640x360, where the
-   field is 556x313) the card's body was left 28px: two lines minus a hair, for
-   copy that needs three. Every card in the deck overran it, the last one by
-   58px — a card read once, in one glance, ending mid-sentence with no
-   affordance saying there was more. These two gutters give back ~8px of that,
-   the short-viewport block above another ~8, and the copy gives back the rest
-   (screens.ts's coachSteps); together the deck fits the cap on all thirteen
-   devices, asserted by sim/uifit rather than assumed. Scoped to `[data-carded]`,
-   so the full readout keeps its own spacing. */
-.hud[data-carded] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
-.hud[data-carded] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
+   The card does not share the column any more, so neither rule has anything to
+   buy. `.coach`'s margin is replaced outright by the overlay's own insets
+   above; `.plant__body`'s padding goes back to the readout's, which is the
+   whole point — the panel behind the sheet has to be the panel the player gets
+   when the sheet lifts, gutters included. What the deck gained instead is the
+   whole cap rather than the cap minus a readout, which is worth more than these
+   two ever gave it (the overlay note above has the measurement). The
+   short-viewport tightening block above stays exactly as it is — it is about a
+   360px-tall VIEWPORT, not about sharing a column, and it is still the reason
+   the copy fits there at all. */
 /* The valve itself — unconditional, for the reason the base `.coach` rule
    gives: it is the last link of the card's own give-way, not a property of the
    HUD state the card happens to be sitting beside. Needing it is still the
@@ -10249,45 +10534,49 @@ button.panel { color: var(--text); }
    money, and money waits for the final card. The ladder is the most economic
    of the three — it quotes a price in dollars — and it is also the row a
    first-timer has nothing to read yet, having crushed nothing. */
-/* `[data-carded]`, NOT `[data-coach]` — because the argument above is about a
-   CARD sharing the panel's column, and Flight School's lesson card shares it on
-   exactly the same terms. A lesson's own goal readout and its pass-condition
-   row live in `.pl-funds` and `.pl-notch` (screens.ts renders both into the
-   Contract-shaped panel), and while a card is up they simply do not fit:
-   measured, the panel went 163px against a 134px cap on a 360px-tall viewport
-   with the card's own body scrolling 43px inside it. So they wait for the card
-   to leave, which is what the height budget above says and what the reveal
-   ladder below then hands over.
+/* `[data-coach]`, AND IT WENT BACK TO BEING THE DECK'S OWN AGAIN.
+   These were `[data-carded]` rules — the flag that says "a teaching card is
+   sharing the panel's column" — and they were carrying two arguments at once:
+   the deck's PACING (the economy tier is money, and money waits for the final
+   card) and a HEIGHT argument (a card and a full readout stacked in one column
+   do not both fit; measured, the panel went 163px against a 134px cap on a
+   360px-tall viewport with the card's body scrolling 43px inside it).
 
-   `.pl-lost` joins them for the last two lessons' sake and costs the coach
-   nothing: the Lost counter is a lines-Contract row (screens.ts), so a coached
-   Deep Run bay has none to hide. */
-/* ...AND THE STAT RAIL GOES WITH THEM, on a LESSON card only.
-   `:not([data-coach])` is what makes it a lesson: the retired deck reveals
-   Launches on its own schedule (`[data-coach="0"]` below withholds it for one
-   step and hands it over at the next), and that is its pacing to keep.
-   A lesson has no such step — Clutter's reveal stage is `all`, so
-   syncRevealStage deletes `data-reveal` entirely and no stage rule can reach
-   it, which made its card the tightest in the app: the one lesson whose reveal
-   withholds nothing, with its card sitting over a full readout, scrolling its
-   own last line 3px out of `.coach__body` on a 360px-tall viewport. The
-   stylesheet keeps that overflow valve for genuine emergencies and sim/uifit
-   treats needing it as the defect, which is exactly right — a card is read once,
-   in one glance, by someone who does not know the panel scrolls. */
-.hud[data-carded]:not([data-coach]) .pl-launches { display: none; }
-.hud[data-carded] :is(.pl-funds, .pl-chain, .pl-time, .pl-scrap, .pl-notch, .pl-mods, .pl-lost) { display: none; }
-/* THE SHOT'S PRICE, and it moved out from under this selector. It used to be
-   `.pl-stat__quote` riding the launches figure, so hiding that class hid it;
-   R4 made it a rail ROW (`.pl-cost`), and `pl-stat__quote--warn/--danger` is
-   now only ever a live congestion class syncHud writes — a selector that can
-   only match mid-congestion is not a hide rule, it is a coincidence. The row
-   itself is what waits for the card, for the reason the paragraph above gives:
-   it is MONEY, and money waits for the final card.
+   The card is a LAYER over the panel now, not a block in its column (see the
+   `[data-carded]` section's overlay rules), so the height argument has no
+   subject left: the readout and the card no longer share a single column's
+   worth of pixels, and hiding a row buys the card nothing at all. What is left
+   is the pacing, which belongs to the deck that has pacing — hence
+   `[data-coach]`, the attribute that carries the deck's step.
 
-   Measured: left showing, the extra rail row took the pad deck's final card
-   2px past `.coach__body` on an 800x600 window and it started scrolling, which
-   this repo counts as the defect rather than the fallback. */
-.hud[data-carded] .pl-cost { display: none; }
+   THE WHOLE POINT OF THE SPLIT is what it does to a LESSON. Reported off an
+   iPhone X, verbatim: "the tip panel should not completely hide the hud, but be
+   on top of it so the user understands that closing the hints display the hud."
+   Under the old selector every lesson bay answered a card by DELETING its own
+   goal readout and its pass-condition row (`.pl-funds` and `.pl-notch`,
+   screens.ts's Contract-shaped panel), so while a card was up the panel WAS the
+   card — nothing said a readout was waiting behind it. Now nothing on a lesson
+   is hidden by the card at all: what a lesson bay shows is exactly what its
+   reveal STAGE says it shows (the `data-reveal` ladder below), card up or card
+   dismissed, and the card is a translucent sheet over it.
+
+   `.pl-lost` stays in the deck's list for the last two lessons' sake and costs
+   it nothing: the Lost counter is a lines-Contract row (screens.ts), so a
+   coached Deep Run bay has none to hide.
+
+   `.pl-launches` is NOT here — it has its own step (`[data-coach="0"]` above
+   withholds it for one step and hands it over at the next), and that is the
+   deck's pacing to keep. It used to be hidden for a LESSON as well
+   (`[data-carded]:not([data-coach])`), on a height argument that no longer
+   exists; a lesson's Launches row is now governed by the reveal ladder alone,
+   which is where the ladder's own comment says the decision belongs.
+
+   THE SHOT'S PRICE rides the same list. It used to be `.pl-stat__quote` on the
+   launches figure, so hiding that class hid it; R4 made it a rail ROW
+   (`.pl-cost`), and `pl-stat__quote--warn/--danger` is now only ever a live
+   congestion class syncHud writes — a selector that can only match
+   mid-congestion is not a hide rule, it is a coincidence. */
+.hud[data-coach] :is(.pl-funds, .pl-chain, .pl-time, .pl-scrap, .pl-notch, .pl-mods, .pl-lost, .pl-cost) { display: none; }
 
 /* ---------- FLIGHT SCHOOL'S REVEAL (game/school.ts's REVEAL) --------------
    The same idea as the four-card deck's above, on a ladder rather than a deck,
