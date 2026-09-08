@@ -6782,7 +6782,12 @@ class App {
         // classList toggles beside it were always free: DOMTokenList.toggle
         // with an explicit force is specified to skip its update steps when
         // the class is already in the state asked for.
-        set("#hud-launch", `@ $${g.launchCostNow}`);
+        //
+        // A BARE PRICE (R4), where this used to prefix an at-sign: the
+        // price is a rail row with a mark of its own now, not a footnote hung
+        // off the launches figure, and that sign was the join to a figure that
+        // is no longer beside it.
+        set("#hud-launch", `$${g.launchCostNow}`);
         launchEl.classList.toggle("pl-stat__quote--warn", tierIdx === 0);
         launchEl.classList.toggle("pl-stat__quote--danger", tierIdx >= 1);
       }
@@ -7039,7 +7044,22 @@ class App {
       // colour and the cue must key off one threshold or they drift apart.
       const danger = g.timeLeftMs < S.LOW_TIME_WARN_MS;
       const ticking = danger && g.timeLeftMs > 0;
-      this.hudEl("#hud-time-chip")?.classList.toggle("pl-stat--danger", danger);
+      const chip = this.hudEl("#hud-time-chip");
+      chip?.classList.toggle("pl-stat--danger", danger);
+      // THE ALARM, ONE RUNG EARLIER (R4). The Deep Run's clock is a headline
+      // figure beside the funds now (screens.ts's `.pl-timebig`), and at that
+      // size the last minute is a state worth colouring rather than a state
+      // worth waiting out: `is-low` turns the figure and its mark danger-red
+      // under S.CLOCK_ALARM_MS, and LOW_TIME_WARN_MS's own class keeps the
+      // pulse and the tick for the last twenty seconds on top of it. Two rungs,
+      // one colour, escalating by MOVEMENT — the same shape the launch price's
+      // amber/red blink beside it uses.
+      //
+      // Free on a Contract, where `.pl-time` is a stacked column and app.css
+      // scopes the `is-low` sizing rules to `.pl-timebig`: the class lands and
+      // paints nothing, which is cheaper than a second predicate here that
+      // would have to know which readout shape this bay rendered.
+      chip?.classList.toggle("is-low", g.timeLeftMs < S.CLOCK_ALARM_MS);
       // THE TICK — the red pulse offered to the ear, on the BEAT rather than
       // per frame. syncHud runs every drawn frame, so the beat NUMBER changing
       // is the cue. It halves under FINAL_TIME_WARN_MS, which together with

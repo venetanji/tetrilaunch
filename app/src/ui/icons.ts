@@ -77,6 +77,14 @@ export type IconName =
   // for. Two meanings on one screen out of one drawing is how a player learns
   // to tap a number.
   | "crosshair"
+  // THE RUN'S RATCHET, and the CLEARED LINE — the two readout marks the plant
+  // panel's bottom half needed once its two densest rows stopped leading with a
+  // word. `notch` heads the tally (components.ts's runNotchTallyHTML, plus the
+  // draft's own notch stat, which counts the same thing); `line` is the chain
+  // row's UNIT, standing in for "per line" beside what a row sells for. Both
+  // are READOUT glyphs like `clock` and `crosshair` above — neither is
+  // pressable, and neither may be mistaken for a control.
+  | "notch" | "line"
   // THE NUMBER AXES that have no material to borrow a glyph from
   // (components.ts's axisIconHTML): the draft's cards give every MATERIAL its
   // belt icon, and a two-letter text code beside real glyphs read as a
@@ -342,6 +350,40 @@ const PATHS: Record<IconName, string> = {
   crosshair:
     `<path d="M4.5 4.5h7v7h-7z"/>` +
     `<path d="M8 1.5v3"/><path d="M8 11.5v3"/><path d="M1.5 8h3"/><path d="M11.5 8h3"/>`,
+  // THE NOTCH — the ratchet's CONSEQUENCE rather than its mechanism: every
+  // notch raises the floor the next bay is flown off. Monotonic and connected,
+  // where `leaderboard`'s podium is three SEPARATED bars with the tallest in
+  // the middle — the two are near neighbours in silhouette and must not be, so
+  // the staircase climbs once and its steps touch. Solid, because at the 16px
+  // the tally line gives it a stroked staircase closes up into a smudge.
+  //
+  // Four other candidates were drawn and refused, and the reasons are worth
+  // keeping: a sawtooth-and-pawl ratchet rail (the pawl closes against its
+  // teeth below ~16px), a rack (reads "steps available" as much as "steps
+  // taken"), tally scores with a slash (a neutral record, where this figure is
+  // a bill), and a stroked ratchet WHEEL — which is the Workshop's hex nut at a
+  // squint, and `salvage` is a handful of those.
+  notch: `<path d="M2 14V11h4V8h4V5h4v9z" fill="currentColor" stroke="none"/>`,
+  // A CLEARED LINE, as the chain row's unit. Brackets calling one row out of
+  // the stack — "per this" — with three EQUAL cubes centred between them. The
+  // first pass was four cubes with no brackets and read as a generic strip, one
+  // gap away from `micro`'s domino; the brackets are what make it a unit.
+  //
+  // The drawing sits 0.6 of a unit low in the box on purpose: the row aligns
+  // its children on the baseline, and centred-in-box read as raised beside the
+  // money. `.pl-chain__unitico` also sets `align-self: center`.
+  //
+  // Two more line marks were drawn and refused: BETWEEN THE WALLS (two bay
+  // posts with three cubes filling the gap) states the rule outright — a row
+  // must span the zone wall to wall — and survives 14px best of the three, but
+  // it reads as a bay rather than as a unit; ROW WITH THE CLEAR OVER IT (row
+  // low, two flash lines lifting off it) reads as an EVENT, which is right for
+  // a price and wrong for a unit.
+  line:
+    `<path d="M3.2 4.2H1.3v8.6H3.2"/><path d="M12.8 4.2h1.9v8.6H12.8"/>` +
+    `<path d="M3.75 6.9h2.5v3.4h-2.5z" fill="currentColor" stroke="none"/>` +
+    `<path d="M6.75 6.9h2.5v3.4h-2.5z" fill="currentColor" stroke="none"/>` +
+    `<path d="M9.75 6.9h2.5v3.4h-2.5z" fill="currentColor" stroke="none"/>`,
 };
 
 /**
