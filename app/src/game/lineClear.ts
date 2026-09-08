@@ -12,6 +12,11 @@ import {
 
 const SETTLE = 3.2; // px/step below which a cube counts as compacted/at rest
 const SETTLE_SQ = SETTLE * SETTLE; // squared-speed compare avoids a sqrt per cube
+/** The same threshold, exported so render.ts's landing hint can ask "is this
+ *  bay still moving" in the words this module already answers it in. A second
+ *  number for "at rest" would be a hint that dimmed at a speed the line check
+ *  does not recognise, which is a disagreement nothing on screen could explain. */
+export const SETTLE_SPEED = SETTLE;
 const BLINK_MS = 1400;
 
 /**

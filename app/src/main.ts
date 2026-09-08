@@ -6471,6 +6471,11 @@ class App {
         windAverage: this.meta.unlocks.includes("survey") ? g.windAverage : null,
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
+        // The bay has been resolved and the canvas is now backdrop to a result
+        // card. `settling` alone cannot say so — it closes at the very instant
+        // the status flips — and render.ts's landing hint has to be down for
+        // both halves of that handover (see Scene.bayOver).
+        bayOver: g.status !== "playing",
         strandWarning: g.strandWarning,
         // WHERE THIS FRAME SITS BETWEEN TWO STEPS. Whatever the accumulator
         // still holds after the while loop above is, by construction, less

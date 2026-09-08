@@ -19,6 +19,7 @@
 import Matter from "matter-js";
 import { Game } from "../../src/game/game";
 import { makeBaseLevel } from "../../src/game/level";
+import { LESSONS, lessonSeed, levelForLesson } from "../../src/game/school";
 import { CELL, WORLD } from "../../src/game/engine";
 import { MATERIAL_SPEC, PIECE_COLORS, shipmentColor, type Material, type PieceType } from "../../src/game/theme";
 import { mulberry32 } from "../../src/game/mods";
@@ -43,6 +44,20 @@ export interface RenderPerfOptions {
   dpr: number;
   /** Draw the aim arc + a live effects burst — the busiest a frame gets. */
   busy: boolean;
+  /**
+   * Fly a FLIGHT SCHOOL BAY instead of a generated one: the lesson at this
+   * index in school.ts's ladder, built through levelForLesson and seeded with
+   * lessonSeed, exactly as the app builds it.
+   *
+   * Its own option rather than a variant, because it is not another pile — it
+   * is a different LEVEL. A scaffolded lesson bay stands its gold wall, deals
+   * one shape and carries a landing target (render.ts's drawLandingTarget), and
+   * that last one is the only scene in the game where that draw path runs at
+   * all. `count` still applies on top, so a lesson bay can be measured empty
+   * (the frame a player actually sees) or buried under a synthetic pile (the
+   * frame that says the path does not scale with the field).
+   */
+  lesson?: number;
   /**
    * Swap the ordinary FX set for a sustained CHAIN DETONATION (boomEffects):
    * five coloured blasts, permanently live at staggered ages, which is the
@@ -281,9 +296,11 @@ function boomEffects(now: number): FxEvent[] {
   }));
 }
 
-function buildGame(variant: Variant, n: number): Game {
-  const cfg = { ...makeBaseLevel(0), timeLimitSec: 0 };
-  const g = new Game(cfg);
+function buildGame(variant: Variant, n: number, lesson?: number): Game {
+  const cfg = lesson === undefined
+    ? { ...makeBaseLevel(0), timeLimitSec: 0 }
+    : { ...levelForLesson(LESSONS[lesson]), timeLimitSec: 0 };
+  const g = lesson === undefined ? new Game(cfg) : new Game(cfg, {}, lessonSeed(lesson));
   const rng = mulberry32(1000 + n);
   if (variant === "loose") placeLoose(g, n, rng);
   else placeCliques(g, n, rng, cfg.jointStiffness, variant === "mixed");
@@ -327,7 +344,7 @@ function prepare(opts: RenderPerfOptions): {
   const ctx = gameContext(canvas);
   if (!ctx) throw new Error("no 2d context");
 
-  const g = buildGame(opts.variant, opts.count);
+  const g = buildGame(opts.variant, opts.count, opts.lesson);
   let now = performance.now();
 
   // Settle the pile first, un-timed: render cost depends on what the cubes are

@@ -79,7 +79,7 @@ import {
 } from "./canvasrec";
 import {
   COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark,
-  MAX_RENDER_DPR, renderScale, THAW_REACH, THAW_REACH_MS,
+  landingHint, MAX_RENDER_DPR, renderScale, THAW_REACH, THAW_REACH_MS,
 } from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -23032,6 +23032,266 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     new Set(LESSONS.map((_, i) => lessonSeed(i))).size === LESSON_COUNT);
   check("...and stable across calls",
     LESSONS.every((_, i) => lessonSeed(i) === lessonSeed(i)));
+
+  // ---- THE LANDING TARGET ------------------------------------------------
+  //
+  // A set piece states its answer twice — the gold says where the gap is, the
+  // card says what fills it — and neither is in the place the player is
+  // aiming. The owner's note after flying the ladder is exactly that: *"I'd
+  // like to see a hint to where the pieces should land"*. So the bay now
+  // carries the answer as DATA (LevelConfig.landingTarget, derived by
+  // school.ts's landingTargetFor) and render.ts paints it on the floor.
+  //
+  // The derivation is the part that can rot silently, because it is right
+  // twice over on the day it ships and wrong the first time a profile moves —
+  // which has already happened twice on this ladder (the well went from four
+  // deep to two, the streak bay's notch slid two columns down the field). So
+  // the derived answer is checked against FILL above, which is the SAME table
+  // the geometry pins use and was written by hand, from the profiles, as the
+  // answer a perfect shot puts on the board. Two independent statements of one
+  // fact; a derivation that drifts disagrees with a fixture that did not.
+  section("Flight School — the landing target says where the shipment goes");
+  {
+    const key = (c: { col: number; row: number }): string => `${c.col},${c.row}`;
+    const asSet = (cells: ReadonlyArray<{ col: number; row: number }>): string =>
+      [...cells].map(key).sort().join(" ");
+    const fillSet = (cells: Array<[number, number]>): string =>
+      cells.map(([col, row]) => `${col},${row}`).sort().join(" ");
+
+    for (const lesson of LESSONS) {
+      const cfg = levelForLesson(lesson);
+      const scaffolded = lesson.wallMaterial === "gold";
+      const fill = FILL[lesson.id];
+      if (!scaffolded) {
+        // Lost Cargo deals an ordinary 7-bag onto an empty floor and Clutter
+        // opens on a STANDARD pile the press can shove around. Neither has an
+        // authored place for a shipment to go, so neither may point at one.
+        check(`${lesson.id} has no landing target — it has no authored answer`,
+          cfg.landingTarget === null, JSON.stringify(cfg.landingTarget));
+        continue;
+      }
+      check(`${lesson.id} has a landing target`,
+        cfg.landingTarget !== null && cfg.landingTarget.length > 0);
+      // THE INDEPENDENT ANSWER. FILL is hand-written from the profile; this is
+      // fitted out of it by machine. They must be the same cells.
+      check(`...and it is exactly where a perfect shot lands`,
+        cfg.landingTarget !== null && fill !== undefined
+          && asSet(cfg.landingTarget) === fillSet(fill.cells),
+        `${cfg.landingTarget ? asSet(cfg.landingTarget) : "null"} vs ` +
+        `${fill ? fillSet(fill.cells) : "no FILL row"}`);
+      // INSIDE THE GAP, never on the scaffolding. A target cell over a gold
+      // column is a hint pointing at a slot that is already occupied.
+      const wall = lesson.wall ?? [];
+      check(`...and every cell of it is in a zero-height column`,
+        (cfg.landingTarget ?? []).every((c) => wall[c.col] === 0 && c.row >= 0),
+        (cfg.landingTarget ?? []).filter((c) => wall[c.col] !== 0).map(key).join(" "));
+      // ...AND IT COVERS THE WHOLE GAP. Half a trench outlined is an
+      // instruction to close half a row.
+      const zeros = wall.map((h, k) => [h, k] as const).filter(([h]) => h === 0).map(([, k]) => k);
+      check(`...and it spans every open column, no more and no fewer`,
+        new Set((cfg.landingTarget ?? []).map((c) => c.col)).size === zeros.length
+          && zeros.every((k) => (cfg.landingTarget ?? []).some((c) => c.col === k)),
+        `${zeros.join(",")} open`);
+      // ONE SHIPMENT PER GAP, exactly. The belt deals whole tetrominoes, so a
+      // target that is not a multiple of four cubes is asking for a shot that
+      // does not exist.
+      const gaps = zeros.filter((k) => !zeros.includes(k - 1)).length;
+      check(`...and it is ${gaps} whole shipment(s) of cargo`,
+        (cfg.landingTarget ?? []).length === gaps * 4,
+        `${(cfg.landingTarget ?? []).length} cells over ${gaps} gap(s)`);
+    }
+
+    // NOTHING OUTSIDE A SCAFFOLDED LESSON CARRIES ONE, and the drills are the
+    // case worth naming: several of them open on a standing wall too, so "has
+    // a wall" is not the condition and a rule written that way would put a
+    // hint on nine bays that never authored an answer.
+    check("no Deep Run bay has a landing target", makeBaseLevel(0).landingTarget === null);
+    check("...nor any drill, walls and all",
+      Object.entries(DRILLS).every(([id, spec]) => levelForDrill(id, spec).landingTarget === null),
+      Object.entries(DRILLS).filter(([id, spec]) => levelForDrill(id, spec).landingTarget !== null)
+        .map(([id]) => id).join(","));
+
+    // A GAP ITS OWN SHIPMENT CANNOT FILL POINTS AT NOTHING. Three columns open
+    // and a square on the belt: no orientation of an O is three wide, so there
+    // is no honest cell set and the bay gets no hint at all rather than a
+    // nearest guess. A hint in the wrong column is worse than none — the
+    // player trusts it, misses, and cannot see why.
+    {
+      const impossible = levelForLesson({
+        ...lessonById("two-at-once")!,
+        wall: [1, 0, 0, 0, 1, 1, 1, 1], sequence: ["O"],
+      });
+      check("a gap the bay's own shipment cannot fill gets no target",
+        impossible.landingTarget === null, JSON.stringify(impossible.landingTarget));
+      // ...while the same fabricated bay with a gap the shape DOES fit still
+      // gets one, so the check above is about the fit and not about the
+      // fabrication.
+      const possible = levelForLesson({
+        ...lessonById("two-at-once")!,
+        wall: [1, 0, 0, 1, 1, 1, 1, 1], sequence: ["O"],
+      });
+      check("...and the same bay one column narrower does",
+        possible.landingTarget !== null && possible.landingTarget.length === 4);
+    }
+  }
+
+  // ---- WHAT THE RENDERER DOES WITH IT ------------------------------------
+  //
+  // render.ts's landingHint is the whole life cycle in one pure function, and
+  // it is pure precisely so this can be asked headlessly rather than inferred
+  // from a screenshot. sim/uifit/lesson-shots.ts owns the pixels; these own the
+  // states, which are the half that can regress without looking any different
+  // in the one frame somebody happened to shoot.
+  section("Flight School — the landing target's life cycle (render.ts's landingHint)");
+  {
+    const lesson = lessonById("close-the-row")!;
+    const cfg = levelForLesson(lesson);
+    const fresh = (): Game => {
+      const g = new Game(levelForLesson(lesson), {}, lessonSeed(0));
+      for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+      return g;
+    };
+
+    {
+      const g = fresh();
+      const hint = landingHint(g.level, g.cubes, false);
+      check("a lesson bay opens with its target up",
+        hint !== null && hint.boxes.length === 1);
+      check("...one box, over the four open columns, one row deep",
+        hint !== null && hint.boxes[0].near === 2 && hint.boxes[0].far === 5
+          && hint.boxes[0].rowLo === 0 && hint.boxes[0].rowHi === 0,
+        JSON.stringify(hint?.boxes));
+      // The gold is standing IN this frame and it must not read as cargo: a
+      // scaffold that counted as "still moving" would dim the hint forever on
+      // a bay where nothing the player threw is on the field at all.
+      check("...and the standing scaffold does not count as cargo in flight",
+        hint !== null && !hint.inFlight);
+      // A BAY THAT IS OVER PUTS IT DOWN, on either fact. `settling` is the
+      // win-pending window; bayOver is the far side of the status flip, and
+      // without it the hint came straight back up behind the result card.
+      check("...and a bay that is over draws none of it",
+        landingHint(g.level, g.cubes, true) === null);
+      g.destroy();
+    }
+
+    // TWO GAPS, TWO BOXES. Lob or Skim is the one bay whose answer is two
+    // separate squares, and a single bounding box over both would outline the
+    // entire pile between them.
+    {
+      const ends = lessonById("lob-or-skim")!;
+      const g = new Game(levelForLesson(ends), {}, lessonSeed(3));
+      for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+      const hint = landingHint(g.level, g.cubes, false);
+      check("the two-gap lesson draws two boxes, not one over the pile",
+        hint !== null && hint.boxes.length === 2,
+        JSON.stringify(hint?.boxes));
+      check("...one at each end, two cells square",
+        hint !== null
+          && hint.boxes.every((b) => b.far - b.near === 1 && b.rowHi - b.rowLo === 1)
+          && hint.boxes[0].near === 0 && hint.boxes[1].near === 6,
+        JSON.stringify(hint?.boxes));
+      g.destroy();
+    }
+
+    // CARGO IN FLIGHT DIMS IT, and the signal is the cubes themselves rather
+    // than a launch flag: what the hint yields to is something moving on
+    // screen, and a shot in flight and a pile still shuffling are the same
+    // event from the player's side.
+    {
+      const g = fresh();
+      place(g, [[0, 4]], "I");
+      Matter.Body.setVelocity(g.cubes[g.cubes.length - 1].body, { x: 0, y: 12 });
+      const moving = landingHint(g.level, g.cubes, false);
+      check("a shipment in the air dims the target rather than hiding it",
+        moving !== null && moving.inFlight);
+      g.destroy();
+    }
+
+    // FILLED IS GONE, ALL OR NOTHING WITHIN A GAP. Half a shipment seated leaves
+    // two cells open, and a box that vanished on the first cube would say "done"
+    // at the exact moment the player is one column off. Outlining only the two
+    // still-open cells is the other wrong answer: that says "put the other half
+    // here", and the belt deals whole shipments.
+    {
+      const g = fresh();
+      place(g, [[2, 0], [3, 0]], "I");
+      const half = landingHint(g.level, g.cubes, false);
+      check("half the gap filled still shows the whole gap",
+        half !== null && half.boxes.length === 1
+          && half.boxes[0].near === 2 && half.boxes[0].far === 5,
+        JSON.stringify(half?.boxes));
+      place(g, [[4, 0], [5, 0]], "I");
+      check("...and the gap filled shows nothing at all",
+        landingHint(g.level, g.cubes, false) === null);
+      g.destroy();
+    }
+
+    // PER GAP, NOT PER BAY — the distinction only Lob or Skim can state. Its
+    // answer is a square in each end, so the end that has one must stop being
+    // pointed at while the other keeps its box. A bay-wide rule gets this
+    // backwards in both directions: hide-on-any takes down the gap still owed,
+    // hide-on-all leaves a chevron floating over a square already landed.
+    {
+      const ends = lessonById("lob-or-skim")!;
+      const g = new Game(levelForLesson(ends), {}, lessonSeed(3));
+      for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+      place(g, [[0, 0], [1, 0], [0, 1], [1, 1]], "O", 1);
+      const one = landingHint(g.level, g.cubes, false);
+      check("one end filled leaves the other end's box, and only it",
+        one !== null && one.boxes.length === 1 && one.boxes[0].near === 6,
+        JSON.stringify(one?.boxes));
+      place(g, [[6, 0], [7, 0], [6, 1], [7, 1]], "O", 2);
+      check("...and both ends filled leaves nothing",
+        landingHint(g.level, g.cubes, false) === null);
+      g.destroy();
+    }
+
+    // A NEAR MISS IS NOT A FILL. The seating test is lineClear's own slot
+    // tolerance, so a cube resting a third of a cell off — on the lip, where
+    // the row will not sell — leaves the target up. This is the one moment the
+    // hint is most worth having, and a rounding test would have taken it away.
+    {
+      const g = fresh();
+      place(g, [[2, 0], [3, 0], [4, 0], [5, 0]], "I");
+      for (const c of g.cubes) {
+        if (c.material !== "gold") {
+          Matter.Body.setPosition(c.body, { x: c.body.position.x, y: c.body.position.y - CELL * 0.6 });
+        }
+      }
+      check("a shipment perched short of the slot leaves the target up",
+        landingHint(g.level, g.cubes, false) !== null);
+      g.destroy();
+    }
+
+    // ...AND IT COMES BACK WITH THE BOARD. The press sells the row, the gold
+    // persists, the shipment is gone — which is a board reset seen from the
+    // hint's side, and it needs no notification of one: the cells are empty
+    // again, so the answer is up again for the next attempt.
+    {
+      let cleared = 0;
+      const g = new Game(levelForLesson(lesson), { onLineClear: (n) => { cleared += n; } },
+        lessonSeed(0));
+      for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+      place(g, [[2, 0], [3, 0], [4, 0], [5, 0]], "I");
+      check("the target is down the instant the gap is full",
+        landingHint(g.level, g.cubes, false) === null);
+      for (let s = 0; s < 60 * 30 && cleared === 0; s++) g.update(STEP_MS);
+      check("...the authored row really did sell", cleared > 0, String(cleared));
+      // Past the clear's blink, so the sold cubes have actually left the field.
+      for (let s = 0; s < 60 * 3; s++) g.update(STEP_MS);
+      const back = landingHint(g.level, g.cubes, false);
+      check("...and the target is back on the board the reset rebuilt",
+        back !== null && back.boxes.length === 1 && back.boxes[0].near === 2,
+        JSON.stringify(back?.boxes));
+      g.destroy();
+    }
+
+    // A bay with no authored answer never reaches any of the above.
+    check("an ordinary bay's frame asks for no hint at all",
+      landingHint(makeBaseLevel(0), [], false) === null);
+    check("...and nor does a lesson whose target was stripped",
+      landingHint({ ...cfg, landingTarget: null }, [], false) === null);
+  }
 }
 
 // ===========================================================================
@@ -23248,6 +23508,210 @@ section("The background layer re-bakes in place, it does not reallocate (render.
   glob.document = prevDoc;
   glob.window = prevWin;
   glob.Path2D = prevPath;
+}
+
+// ===========================================================================
+// WHAT THE LANDING TARGET COSTS THE FRAME (render.ts's drawLandingTarget).
+//
+// The claim the design rests on is that the hint is ONE STAMP PER GAP and
+// nothing anywhere else — no per-cell strokes, no Gaussian pass, and not a
+// single call on the bays that have no target. Milliseconds cannot settle
+// that: sim/renderperf's own header says a headless desktop Chromium ranks
+// draw paths rather than budgeting a device, and on this host the same build
+// measured 4.4-9.1ms p50 on the same lesson bay across six runs — a spread
+// several times anything this could add.
+//
+// Draw CALLS settle it exactly, and they are the numbers that survive the
+// trip to a phone. Two censuses of one build, differing only in whether the
+// level carries a target, which is the same A/B --reduced does for the
+// debris layer and for the same reason: no second checkout, no stash, no
+// chance of an unrelated edit landing in the difference.
+// ===========================================================================
+section("Flight School — the landing target costs one stamp per gap (render.ts)");
+{
+  /** Half of render.ts's HINT_PULSE_MS — the offset between the brightest and
+   *  dimmest frame of one breath. Written here rather than imported because
+   *  the point of the pin is that the two frames DIFFER, and a constant taken
+   *  from the module under test would follow it silently if the pulse were
+   *  retuned to a period this offset lands a whole cycle on. */
+  const HINT_HALF_BREATH_MS = 1100;
+  const stubs = installBrowserStubs();
+  const rec = newRec();
+  // THE SAME VIEWPORT THE SECTION ABOVE USES, and this section sits AFTER it
+  // deliberately. render.ts's background layer is a MODULE-LEVEL cache of one
+  // canvas: whichever section renders first creates it, under that section's
+  // own document stub, and every later section can only ever see it resized.
+  // Placed earlier — inside the Flight School block, where the rest of these
+  // pins live — this one silently took that creation away from the re-bake pin
+  // above, which then reported "none 1624 wide" and failed on code it does not
+  // test. Same size, downstream: nothing here is the first to paint.
+  const CSS_W = 812;
+  const CSS_H = 375;
+  const DPR = 2;
+  const canvas = { width: Math.floor(CSS_W * DPR), height: Math.floor(CSS_H * DPR) };
+  const ctx = makeRecCtx(canvas, rec) as unknown as CanvasRenderingContext2D;
+
+  const frameOf = (id: string, withTarget: boolean): Record<string, number> => {
+    const l = lessonById(id)!;
+    const g = new Game(levelForLesson(l), {}, lessonSeed(LESSONS.indexOf(l)));
+    for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+    const level = withTarget ? g.level : { ...g.level, landingTarget: null };
+    const paint = (): void => {
+      render(ctx, CSS_W, CSS_H, DPR, {
+        cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+        cannon: g.cannon, trajectory: [], now: 4000, aiming: false, effects: [],
+        level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+        reload: 1, settling: false, strandWarning: false,
+      });
+    };
+    // Warm first: the hint's sprite and the background layer are baked on
+    // their first frame, and a census that counted a bake would be counting
+    // something no steady frame pays.
+    paint();
+    resetRec(rec);
+    paint();
+    const out = {
+      drawImage: callCount(rec, "drawImage"),
+      stroke: callCount(rec, "stroke"),
+      strokeRect: callCount(rec, "strokeRect"),
+      setLineDash: callCount(rec, "setLineDash"),
+      shadowBlur: setCount(rec, "shadowBlur"),
+      save: callCount(rec, "save"),
+    };
+    g.destroy();
+    return out;
+  };
+
+  const oneGap = { on: frameOf("close-the-row", true), off: frameOf("close-the-row", false) };
+  const twoGaps = { on: frameOf("lob-or-skim", true), off: frameOf("lob-or-skim", false) };
+
+  check("a one-gap lesson frame stamps exactly one more sprite",
+    oneGap.on.drawImage - oneGap.off.drawImage === 1,
+    `${oneGap.off.drawImage} -> ${oneGap.on.drawImage}`);
+  check("...and a two-gap one exactly two",
+    twoGaps.on.drawImage - twoGaps.off.drawImage === 2,
+    `${twoGaps.off.drawImage} -> ${twoGaps.on.drawImage}`);
+  // THE STAMP IS THE WHOLE DRAW. Every dash, rule and chevron is inside the
+  // bake, so a frame that grew a stroke grew it live — which is the edit
+  // that would quietly put the box's geometry back into the frame loop.
+  check("...with no live strokes, dashes or rects of its own",
+    oneGap.on.stroke === oneGap.off.stroke
+      && oneGap.on.strokeRect === oneGap.off.strokeRect
+      && oneGap.on.setLineDash === oneGap.off.setLineDash
+      && twoGaps.on.stroke === twoGaps.off.stroke,
+    `stroke ${oneGap.off.stroke}->${oneGap.on.stroke}, ` +
+    `strokeRect ${oneGap.off.strokeRect}->${oneGap.on.strokeRect}`);
+  // NO GAUSSIAN PASS. shadowBlur is a full blur over the filled shape, re-run
+  // per fill; the glow budget is spent on things that are always on screen.
+  check("...and not one shadowBlur anywhere in it",
+    oneGap.on.shadowBlur === oneGap.off.shadowBlur
+      && twoGaps.on.shadowBlur === twoGaps.off.shadowBlur,
+    `${oneGap.off.shadowBlur} -> ${oneGap.on.shadowBlur}`);
+  // ONE save/restore PAIR, which is where the per-frame alpha lives.
+  check("...inside a single save/restore, whatever the gap count",
+    oneGap.on.save - oneGap.off.save === 1 && twoGaps.on.save - twoGaps.off.save === 1,
+    `${oneGap.on.save - oneGap.off.save} / ${twoGaps.on.save - twoGaps.off.save}`);
+
+  // THE OTHER HALF, and the one that covers the whole game: an ordinary bay
+  // draws exactly the frame it drew before, and it does so BECAUSE ITS FIELD
+  // IS NULL rather than because anything checks a mode. Spliced the other way
+  // round to say it — the same Deep Run bay, once as it ships and once with a
+  // target written onto it — because "the ordinary frame is unchanged" is
+  // only worth anything alongside evidence that this frame would change if
+  // the data were there. A `if (isLesson)` guard somewhere in render.ts would
+  // pass the first half and fail this.
+  {
+    const g = new Game(makeBaseLevel(0), {}, 11);
+    for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+    const paint = (level: LevelConfig): void => {
+      render(ctx, CSS_W, CSS_H, DPR, {
+        cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+        cannon: g.cannon, trajectory: [], now: 4000, aiming: false, effects: [],
+        level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+        reload: 1, settling: false, strandWarning: false,
+      });
+    };
+    // A trench in the middle of the floor: not a bay any lesson authors, just
+    // four cells this frame has no cargo in.
+    const spliced: LevelConfig = {
+      ...g.level,
+      landingTarget: [2, 3, 4, 5].map((col) => ({ col, row: 0 })),
+    };
+    paint(g.level);
+    paint(spliced);
+    resetRec(rec);
+    paint(g.level);
+    const plain = callCount(rec, "drawImage");
+    resetRec(rec);
+    paint(spliced);
+    check("an ordinary bay is silent only because its target field is null",
+      callCount(rec, "drawImage") - plain === 1,
+      `${plain} -> ${callCount(rec, "drawImage")} drawImage`);
+    g.destroy();
+  }
+
+  // REDUCED MOTION KEEPS THE BOX AND DROPS THE BREATH. The preference asks
+  // for no motion, not for a fainter hint — so the same one stamp, held at
+  // the TOP of the pulse rather than somewhere inside it, which is why the
+  // alpha is a constant across frames instead of a cosine of the clock.
+  //
+  // THE ALPHA IS ISOLATED BY DIFFERENCE, not by "the largest one under 1" —
+  // a frame writes globalAlpha a few dozen times (the chute, the pistons, the
+  // press, the muzzle ghost) and reading the maximum picked whichever of
+  // those happened to be above the hint at that phase, which made a breathing
+  // hint look motionless at 0.45. Two otherwise identical frames, one with a
+  // target and one without, differ by exactly the hint's own writes; taking
+  // the multiset difference names them without the frame having to be
+  // instrumented.
+  {
+    const l = lessonById("close-the-row")!;
+    const g = new Game(levelForLesson(l), {}, lessonSeed(0));
+    for (let s = 0; s < 60 * 2; s++) g.update(STEP_MS);
+    const alphas = (level: LevelConfig, now: number): number[] => {
+      resetRec(rec);
+      render(ctx, CSS_W, CSS_H, DPR, {
+        cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+        cannon: g.cannon, trajectory: [], now, aiming: false, effects: [],
+        level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+        reload: 1, settling: false, strandWarning: false,
+      });
+      return rec.sets.filter(([k]) => k === "globalAlpha").map(([, v]) => v as number);
+    };
+    const bare = { ...g.level, landingTarget: null };
+    const hintAlphaAt = (now: number): number => {
+      const withT = alphas(g.level, now);
+      const rest = alphas(bare, now);
+      const pool = [...withT];
+      for (const v of rest) {
+        const i = pool.indexOf(v);
+        if (i >= 0) pool.splice(i, 1);
+      }
+      // Exactly one write survives: the stamp's own alpha.
+      return pool.length === 1 ? pool[0] : NaN;
+    };
+    setReducedMotion(true);
+    hintAlphaAt(0);
+    const a1 = hintAlphaAt(1000);
+    const a2 = hintAlphaAt(1000 + HINT_HALF_BREATH_MS);
+    check("the hint's own alpha is the one write that frame does not otherwise make",
+      Number.isFinite(a1) && Number.isFinite(a2), `${a1} / ${a2}`);
+    check("under prefers-reduced-motion the target does not breathe",
+      Math.abs(a1 - a2) < 1e-9, `${a1} vs ${a2}`);
+    setReducedMotion(false);
+    hintAlphaAt(0);
+    const b1 = hintAlphaAt(1000);
+    const b2 = hintAlphaAt(1000 + HINT_HALF_BREATH_MS);
+    check("...and with motion allowed it does",
+      Math.abs(b1 - b2) > 0.05, `${b1} vs ${b2}`);
+    // AND NEVER LOUDER THAN THE CARGO. The pile draws at 1; a hint that
+    // reached it would be the thing the eye lands on rather than the thing it
+    // looks past.
+    check("...and never brighter than the cargo it sits under",
+      Math.max(a1, a2, b1, b2) <= 0.5 + 1e-9, String(Math.max(a1, a2, b1, b2)));
+    g.destroy();
+  }
+
+  stubs.restore();
 }
 
 section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSeams)");
