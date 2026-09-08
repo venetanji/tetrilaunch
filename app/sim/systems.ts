@@ -124,6 +124,7 @@ import {
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
+  cheapestInstall, recordLesson, rigStarted,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
   skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
   SLOT_BASE, SLOT_CAP, SLOT_PRICES, buySlot, isMounted, mountedIds, slotPrice, slotsFor,
@@ -1054,8 +1055,55 @@ section("Installs — what salvage buys (meta.ts)");
   check("...and lifts the moment the fourth basic lands",
     nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT - 1 }) === "licence"
       && nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) !== "licence");
-  check("a newly licensed pilot is sent into the real game first",
-    nextStep({ ...newMeta(), licence: LICENCE_LESSON_COUNT }) === "run");
+  // THE ON-RAMP, WALKED WITH THE REAL FUNCTIONS. The old order sent a fresh
+  // licence straight at a Deep Run, which is a ten-bay run with three refit
+  // stops in it — and a rig with nothing installed docks at all three to find
+  // empty shelves, because a refit RAISES what the ship already carries and
+  // refuses tier 0. That is the owner's report ("confusing to get to the refit
+  // shop with nothing to upgrade"), and the fix is an ORDER, so an order is
+  // what is pinned: licence -> Contracts -> Workshop -> run.
+  //
+  // Driven through recordLesson / recordContractClear / buyInstall rather than
+  // by hand-setting salvage and a loadout, because the claim is arithmetic as
+  // much as it is routing: the walk only reaches the Workshop at all if one
+  // first clear really banks a milestone that really covers an entry install.
+  // Hand-set numbers would pin the routing and quietly stop measuring the price
+  // that makes this a step instead of a grind.
+  let ramp = newMeta();
+  for (let i = 0; i < LICENCE_LESSON_COUNT; i++) ramp = recordLesson(ramp, i);
+  check("a newly licensed pilot is sent to the Contract board to earn",
+    nextStep(ramp) === "contracts", nextStep(ramp));
+  const rampPaid = recordContractClear(ramp, { id: "ramp-1", tier: 1 }).meta;
+  check("...one first clear banks exactly the entry install's price",
+    rampPaid.salvage === tierMilestoneSalvage(1)
+      && rampPaid.salvage === (cheapestInstall(rampPaid)?.cost ?? -1),
+    `${rampPaid.salvage} vs ${cheapestInstall(rampPaid)?.cost}`);
+  check("...so the step becomes the Workshop, with the money in hand",
+    nextStep(rampPaid) === "workshop", nextStep(rampPaid));
+  const rampRigged = buyInstall(rampPaid, "reactor");
+  check("...and the first system points at the first run",
+    rampRigged !== null && nextStep(rampRigged) === "run",
+    rampRigged ? nextStep(rampRigged) : "purchase refused");
+  // THE GATE IS "ANY SYSTEM", NOT THE REACTOR, and this is the case that
+  // decides it: both entry installs cost 15, so a gate naming one would make
+  // the other a trap — the same salvage, spent legally in the shop the step had
+  // just pointed at, leaving the door shut and the wallet empty.
+  const rampLauncher = buyInstall(rampPaid, "launcher");
+  check("...whichever of the two entry systems the salvage went on",
+    rampLauncher !== null && nextStep(rampLauncher) === "run",
+    rampLauncher ? nextStep(rampLauncher) : "purchase refused");
+  // The control: salvage one short of the cheapest system is still the board's
+  // problem and not the shop's, which is what makes the Workshop branch above
+  // a measurement of the price rather than of the ordering alone.
+  check("...while a wallet short of any system stays on the board",
+    nextStep({ ...ramp, salvage: (cheapestInstall(ramp)?.cost ?? 15) - 1 }) === "contracts");
+  // The predicate the door asks (screens.ts's tierOpen reads it through
+  // TowerState.rigged), pinned beside the step that fills it so the two can
+  // never come to mean different things. Monotone: nothing sells a system back,
+  // so a door this opens never shuts again.
+  check("the rig gate is empty before the purchase and full after it",
+    !rigStarted(rampPaid) && rampRigged !== null && rigStarted(rampRigged)
+      && rampLauncher !== null && rigStarted(rampLauncher));
   check("after that first run, Contracts become the next step",
     nextStep(freshMeta()) === "contracts");
   check("salvage covering an install says Workshop",
@@ -11738,8 +11786,15 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
   // who can open this floor arrives with a maxed Workshop and every rung the
   // yard can still sell is one flat price.
   {
-    const sky = skyRun();
-    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    // BOTH RIGS CARRY A RAISABLE SYSTEM, and that is a correction rather than a
+    // decoration. The stop is only open to a rig the yard can sell something to
+    // (run.ts's refitAfterBay), so pinning the SCHEDULE on stock tiers would
+    // have been pinning the shelf's emptiness instead — and the note above
+    // already says what a Skydeck pilot arrives with: "a maxed Workshop and
+    // every rung still on the shelf at one flat price".
+    const stocked = { ...newTiers(), reactor: 1 };
+    const sky = { ...skyRun(), tiers: stocked };
+    const ladder = newRun(7, [], 0, stocked, MARK_COUNT);
     const skyStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
       .filter((i) => refitAfterBay(sky, i));
     const ladderStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
@@ -22220,6 +22275,123 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     });
     check("...and says nothing of the sort once it is held",
       !held.includes("Flight School first"));
+  }
+
+  // THE DEEP RUN'S SECOND LOCK — a system installed (meta.ts's rigStarted).
+  //
+  // The owner's report is the whole argument: a Deep Run flown on a stock rig
+  // docks at three refit stops with nothing on the shelves, because a refit
+  // raises tracks the ship already carries and refuses tier 0. So the exam's
+  // door is shut until the first purchase, the Workshop is the step that opens
+  // it (nextStep's on-ramp above), and this is the pair that keeps the door and
+  // the step describing the same rule.
+  //
+  // THE ABSENT FIELD READS AS RIGGED, which is what keeps every caller that
+  // predates the on-ramp — menuScreen's fallback tower, every uifit fixture —
+  // rendering the tower it always did. Pinned, because it is the one thing that
+  // makes this change safe to add to a shape with a dozen callers.
+  {
+    const shut: S.TowerState = {
+      unlocked: 1, selected: 1, skydeck: false, contracts: 0, licensed: true, rigged: false,
+    };
+    const open: S.TowerState = { ...shut, rigged: true };
+    const legacy: S.TowerState = { unlocked: 1, selected: 1, skydeck: false, contracts: 0 };
+    check("a licensed pilot with no system installed cannot fly Tier 1",
+      !S.tierOpen(shut, 1));
+    check("...and one install opens it", S.tierOpen(open, 1));
+    check("...while the lobby stays open, because it is the one floor nothing gates",
+      S.tierOpen(shut, S.LICENCE_TIER));
+    check("...and a caller that never heard of the rig renders the ladder it always did",
+      S.tierOpen(legacy, 1));
+    // The floor says WHY, in the same slot the licence uses and never both at
+    // once: the locks are read in the order they are earned, so a player still
+    // in school is told about school and not about a shop.
+    check("a rig-locked floor names the shop",
+      S.tierTowerHTML(shut).includes("install a system first"));
+    check("...and a school-locked floor still names the school, not the shop",
+      S.tierTowerHTML({ ...shut, licensed: false }).includes("Flight School first")
+        && !S.tierTowerHTML({ ...shut, licensed: false }).includes("install a system first"));
+    check("...and an opened floor names neither",
+      !S.tierTowerHTML(open).includes("install a system first"));
+    // THE PRIMARY IS A DEAD BUTTON OTHERWISE. The tower's floors may refuse a
+    // tap — refusing a pick is information from a chooser — but the primary IS
+    // the action, and an enabled action that does nothing is the worst control
+    // on the screen. Its subtitle carries the reason, so the disabled state is
+    // never mute.
+    const licensed: MetaState = { ...newMeta(), licence: LICENCE_LESSON_COUNT, salvage: 15 };
+    const menuOf = (twr: S.TowerState): string =>
+      menuScreen(0, 15, undefined, tierProgressFor(licensed),
+        { step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false },
+        twr);
+    const primary = (html: string): string =>
+      /<button[^>]*id="menu-play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+    check("the rig-locked menu disables its primary",
+      primary(menuOf(shut)).includes("disabled"));
+    check("...and says which door opens it",
+      primary(menuOf(shut)).includes("Install your first system in the Workshop"));
+    check("...and an opened ladder leaves the primary live",
+      !primary(menuOf(open)).includes("disabled"));
+    // The Contract board's own subtitle, on the same state: while one clear
+    // buys the system that opens the exam, the number leads and what follows it
+    // is what it BUYS rather than the board's terms.
+    check("the Contracts button says what a clear buys on the on-ramp",
+      menuOf(shut).includes("one buys your first system"));
+    check("...and goes back to the board's terms once the rig exists",
+      menuOf(open).includes("no clock, no launch cost")
+        && !menuOf(open).includes("one buys your first system"));
+    // THE SHOP IS THE OTHER END OF THE SAME DOOR. Its Start Run is a second
+    // entrance to the exam (main.ts's startGame), so it has to be shut by the
+    // same rule the tower is — a laxer second door is the failure meta.ts's
+    // buyInstall note argues against for the loadout — and its blurb has to say
+    // what this visit is FOR rather than how salvage is paid.
+    const wsShut = workshopScreen(licensed);
+    const wsRig = workshopScreen({ ...licensed, loadout: { ...newTiers(), reactor: 1 } });
+    check("the Workshop's first visit names the door the purchase opens",
+      wsShut.includes("the Deep Run opens with it"));
+    check("...and refuses the run it cannot yet fly",
+      wsShut.includes(`data-action="play" disabled`));
+    check("...while a rigged shop offers it",
+      wsRig.includes("Start Run") && !wsRig.includes(`data-action="play" disabled`));
+  }
+
+  // THE YARD SKIPS A STOP IT HAS NOTHING TO SELL AT (run.ts's refitAfterBay,
+  // upgrades.ts's yardHasStock).
+  //
+  // The other half of the same report: the on-ramp now guarantees a system
+  // before the first run, but the empty stop is not a phase — a rig that has
+  // maxed everything its Mark offers reaches it at the top of the ladder, and a
+  // Mark-1 rig carrying only the Launcher reaches it because refitTracks sells
+  // the Reactor alone there. So the shelf is asked as DATA, every stop.
+  {
+    const stocked = { ...newTiers(), reactor: 1 };
+    const stops = (tiers: UpgradeTiers, mark: number): number[] =>
+      Array.from({ length: RUN_LEVELS }, (_, i) => i)
+        .filter((i) => refitAfterBay(newRun(7, [], 0, tiers, mark), i));
+    check("a rig with a raisable system keeps the ladder's three stops",
+      stops(stocked, 1).join(",") === "2,5,8", stops(stocked, 1).join(","));
+    check("...and a rig with nothing installed docks nowhere",
+      stops(newTiers(), 1).length === 0, stops(newTiers(), 1).join(","));
+    // The case that proves the predicate reads the SHELF and not merely "owns
+    // something": at Mark 1 the yard sells the Reactor track alone, so a
+    // Launcher-only rig has an empty order there and a full one a Mark later.
+    const launcherOnly = { ...newTiers(), launcher: 1 };
+    check("...nor does a rig whose one system this Mark's yard does not sell",
+      stops(launcherOnly, 1).length === 0, stops(launcherOnly, 1).join(","));
+    check("...and the same rig docks once the yard opens its full shelf",
+      stops(launcherOnly, 2).join(",") === "2,5,8", stops(launcherOnly, 2).join(","));
+    // A maxed rig is the late-ladder version of the same state, and it is what
+    // makes this data rather than an on-ramp flag.
+    const maxed = Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as UpgradeTiers;
+    check("...and a rig with every rung bought stops docking too",
+      stops(maxed, MARK_COUNT).length === 0, stops(maxed, MARK_COUNT).join(","));
+    // THE COUNTDOWN CANNOT PROMISE A STOP THE RUN WILL SKIP. The draft screen
+    // prints "refit in N" off this, and a countdown to a shop that never opens
+    // is the same lie in a smaller font.
+    check("the refit countdown goes quiet when the yard has nothing to sell",
+      baysUntilRefitFor(newRun(7, [], 0, newTiers(), 1)) === null);
+    check("...and counts as ever for a rig the yard can serve",
+      baysUntilRefitFor(newRun(7, [], 0, stocked, 1)) === REFIT_EVERY,
+      String(baysUntilRefitFor(newRun(7, [], 0, stocked, 1))));
   }
 
   // THE LADDER DEALS MORE THAN ONE SHAPE.
