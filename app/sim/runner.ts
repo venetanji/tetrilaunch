@@ -70,6 +70,12 @@ export interface BayOutcome {
    *  field here, and under a graded payout they may have banked very different
    *  money doing it. */
   grades: GradeTally;
+  /** The longest run of CONSECUTIVE TIMED crushes this bay reached
+   *  (`Game.bestTimedStreak`) — a SET PIECE Contract's whole win condition
+   *  (contracts.ts), and unreadable from `grades` above: a tally of four timed
+   *  rows says nothing about whether they arrived in a row, which is the only
+   *  thing that Contract asks. */
+  bestTimedStreak: number;
 }
 
 /**
@@ -127,6 +133,7 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     volatileLosses: g.volatileLosses,
     incineratedFunds: g.incineratedFunds,
     grades: { ...g.gradeTally },
+    bestTimedStreak: g.bestTimedStreak,
   };
 
   g.destroy();

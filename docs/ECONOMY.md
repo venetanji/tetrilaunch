@@ -425,6 +425,23 @@ once-ever first clear, only at the current tier, and only for the first three,
 so replaying can't farm the currency. (An earlier per-run formula —
 `3 + 5×bays + …` — is long gone; this section used to quote it.)
 
+**A third Contract kind changes none of that, deliberately.** The Set Piece
+(`docs/DESIGN.md`, "the kind that grades WHEN") pays exactly what a lines
+Contract of the same tier pays, because `recordContractClear` never asks what
+kind it was settling — it takes an id and a tier, and the milestone share is a
+property of the *tier*, not of the card. That is what keeps the three kinds
+substitutable to a player filling a quota: a board that paid its hardest card
+more would turn "clear three Contracts" into "clear the three cheapest", and the
+whole point of dealing three different problems is that the player picks the one
+they feel like flying. It is also what keeps the alternation free: on an odd day
+the board's slot 1 is a set piece and on an even day it is a lines Contract, and
+a tier's 45 salvage of Contract milestones is the same either way.
+
+The set piece spends nothing else. No bankroll, no clock, no launch price, no
+spill fine — the Contract stripping, unchanged — so its only currency is the
+launch budget, and its only ledger entry is the milestone. What escalates with
+the tier is the ask (1, then 2, then 3 timed crushes in a row), never the pay.
+
 ### And what it buys once the shelf is finished: rack slots
 
 The shelf runs out. It was 575 salvage against 600 of ladder income when the

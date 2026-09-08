@@ -2710,10 +2710,11 @@ export function hudHTML(opts: {
   restart?: boolean;
   contract?: {
     name: string;
-    kind: "lines" | "pattern";
+    kind: "lines" | "pattern" | "setpiece";
     goal: number;
     lines: number;
-    /** Label for the numerator; lessons may count a timing grade or streak. */
+    /** Label for the numerator; lessons may count a timing grade or streak, and
+     *  a SET PIECE Contract counts its best run of timed crushes. */
     goalLabel?: string;
     /** Flight School shows this once the streak has been introduced. */
     showCombo?: boolean;
@@ -3144,9 +3145,15 @@ export function hudHTML(opts: {
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
           </div>
           ${
-            contract.kind === "lines"
-              ? `<div class="pl-stat pl-lost"><div class="lbl">Lost</div><div class="v" id="hud-lost">${contract.lost}</div></div>`
-              : ""
+            // LOST RIDES BOTH BUDGETED KINDS. On a lines Contract it is the
+            // launch budget quietly draining; on a SET PIECE it is the harsher
+            // reading of the same number — a lost cube breaks the streak
+            // outright (game.ts's chargeLostCubes), so this column is the one
+            // place the player can watch the thing that ends their run. Only
+            // the pattern bay is excluded, for the reason argued on `lost`.
+            contract.kind === "pattern"
+              ? ""
+              : `<div class="pl-stat pl-lost"><div class="lbl">Lost</div><div class="v" id="hud-lost">${contract.lost}</div></div>`
           }
           ${timeBlock}`
               : `<div class="pl-funds${collapse === "funds" ? " dial-collapse" : ""}">
@@ -6020,13 +6027,23 @@ export function contractsScreen(opts: {
             : `<span class="contract-card__state">Practice</span>`;
       return `<button class="contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}"${capped ? ' disabled aria-label="Daily Contract limit reached"' : ""}>
         <span class="contract-card__top">
-          <span class="contract-card__kind">${c.kind === "pattern" ? "Pattern" : "Lines"}</span>
+          <span class="contract-card__kind">${
+            c.kind === "pattern" ? "Pattern" : c.kind === "setpiece" ? "Set Piece" : "Lines"
+          }</span>
           ${state}
         </span>
         <span class="contract-card__name">${c.name}</span>
         <span class="contract-card__ask">
           <b class="contract-card__goal">${c.goal}</b>
-          <span class="contract-card__unit">line${c.goal === 1 ? "" : "s"}</span>
+          <!-- THE UNIT IS THE KIND'S OWN. A set piece's number is a run of
+               timed crushes, not a row count, and a card that said "3 lines"
+               over a Contract that can be cleared with three rows out of
+               fourteen would be advertising the wrong exam. -->
+          <span class="contract-card__unit">${
+            c.kind === "setpiece"
+              ? "timed in a row"
+              : `line${c.goal === 1 ? "" : "s"}`
+          }</span>
         </span>
         <span class="contract-card__supply">
           <span class="contract-card__supply-lbl">${c.kind === "pattern" ? "Supply" : "Budget"}</span>
@@ -6101,7 +6118,10 @@ export function contractsScreen(opts: {
 export interface ContractCard {
   id: string;
   name: string;
-  kind: "lines" | "pattern";
+  kind: "lines" | "pattern" | "setpiece";
+  /** What the card ASKS FOR, in the units its kind states: lines for the two
+   *  line-counting kinds, and consecutive TIMED crushes on a set piece
+   *  (contracts.ts's setpiecePasses). */
   goal: number;
   launches: number;
   /** The exact inventory, for a pattern Contract. Empty otherwise. */
@@ -6468,7 +6488,10 @@ export function lessonEndModal(opts: {
 export function contractEndModal(opts: {
   won: boolean;
   name: string;
-  kind: "lines" | "pattern";
+  kind: "lines" | "pattern" | "setpiece";
+  /** The numerator the bay was judged on: rows cleared on the two line-counting
+   *  kinds, and the best run of consecutive timed crushes on a set piece
+   *  (game.ts's bestTimedStreak). */
   lines: number;
   goal: number;
   launchesUsed: number;
@@ -6516,10 +6539,16 @@ export function contractEndModal(opts: {
   skydeck?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
+  const setpiece = opts.kind === "setpiece";
   const supplyLabel = pattern ? "Shipments" : "Launches";
   const supplyTotal = pattern ? opts.queue.length : opts.launches;
   const stats = `<div class="stat-row">
-      <div class="stat"><b style="color:var(--accent)">${opts.lines}/${opts.goal}</b><span>Lines</span></div>
+      <div class="stat"><b style="color:var(--accent)">${opts.lines}/${opts.goal}</b><span>${
+    // The stat has to name what it counted. "Lines" over a set piece's 2/3
+    // would read as two rows out of three, when what it says is that the
+    // longest run of timed crushes was two and the card asked for three.
+    setpiece ? "Best streak" : "Lines"
+  }</span></div>
       <div class="stat"><b style="color:var(--warn)">${opts.launchesUsed}/${supplyTotal}</b><span>${supplyLabel}</span></div>
       ${
         pattern
@@ -6538,7 +6567,14 @@ export function contractEndModal(opts: {
       ? opts.cubesWasted > 0
         ? `<b>${opts.cubesWasted}</b> cube${opts.cubesWasted === 1 ? "" : "s"} never made it into a line — with an exact manifest, that's the whole margin.`
         : "The manifest ran out before the goal did."
-      : "Nothing lost — a Contract costs you nothing to retry.";
+      : setpiece
+        // NAMES WHAT BROKE IT, not what the streak reached — the stat row above
+        // already prints the run's length, and a card that said it twice would
+        // spend its one sentence agreeing with the number beside it. A player
+        // who ran out of launches on a set piece knows how far they got; what
+        // they need is the rule that kept resetting them.
+        ? "A row the press had to grind, or a cube short of the zone, starts the count over. A shot that closes nothing does not."
+        : "Nothing lost — a Contract costs you nothing to retry.";
     return `<div class="modal-scrim" id="scrim">
       <div class="panel modal end end--contract pop">
         <div class="end__main">
@@ -6657,7 +6693,15 @@ export function contractEndModal(opts: {
           ${
             pattern
               ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`
-              : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
+              // A SET PIECE DELIVERED NO LINE COUNT worth celebrating — it can
+              // be cleared on three rows of a fourteen-row bay — so the win
+              // names the run instead. The spare-launch flourish still applies:
+              // it is the same skill expression on the same budget, and on this
+              // kind it says something sharper, which is that the streak came
+              // together without needing the misses the card allowed for.
+              : setpiece
+                ? `<b>${opts.goal}</b> rows in a row, every one of them timed${spare > 0 ? `, with <b>${spare}</b> launch${spare === 1 ? "" : "es"} unspent` : ""}.`
+                : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
           }
         </p>
         ${stats}

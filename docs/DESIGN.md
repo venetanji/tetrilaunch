@@ -1144,6 +1144,128 @@ inventory builder's fallback was a stack of I pieces, which works only because
 four horizontal I tile a row of 8. At Narrow Gauge's 6 they tile nothing at all,
 so the safety net was itself the bug. It retreats to a plain Contract now.
 
+### Set Piece Contracts: the kind that grades WHEN
+
+The two Contract kinds above both grade **where**. Lines asks for enough cargo in
+enough rows; pattern asks for exactly this cargo in exactly these cells. The
+timing grade — the one axis the whole economy is steered by (`timedShare`, and
+the reason the Tier target raise was affordable at all) — was until now a thing
+that *happened* to a Contract rather than a thing one had ever asked for.
+
+It could not ask for it, and the reason is the whole design: **you cannot demand
+a well-timed shot from a random field.** On an unauthored board the player is
+still solving where the cargo goes, and the press is a second problem arriving on
+top of the first. So the set piece removes the where. The bay opens on a **rack**
+— a standing wall with one four-wide trench cut through it — and the belt deals
+nothing but the flat I that fills that trench. One legal placement, one legal
+rotation, and exactly one variable left: the phase of the press when the cargo
+settles.
+
+**The rack.** `standingWall` is a skyline, so an authored field can only be a
+skyline, and that single fact forces the construction:
+
+```
+[R, R, 0, 0, 0, 0, R, R]     depth R, a four-wide trench
+
+  ██....██      land a flat I in the trench -> row 0 completes -> clears
+  ██....██      everything above drops one row
+  ██....██      ...and the field is the IDENTICAL set piece at depth R-1
+```
+
+Self-similarity is not a nicety, it is the enabling property: `createStandingWall`
+runs once at bay start and the engine cannot re-seed a board mid-bay, so a
+Contract that needed re-authoring between links could not exist. The trench is
+**interior**, scrap on both sides, which is Flight School's rule for its own
+scaffolded boards and load-bearing for the same reason — an edge gap is open on
+one side, so an overshoot slides away into the bay and the exercise silently
+becomes a different one. The rack is in fact the licence's very first board
+(`school.ts`'s `TRENCH`) at depth, which is the honest description of what this
+Contract is for.
+
+**The rack ceiling is derived, not chosen.** `PILE_TIERS[0]` congests above 32
+live cubes and a congested bay is capped at SWEPT, so a congested bay physically
+cannot award the band this Contract asks for:
+
+```
+4R + 4 <= 32   ->   R <= 7
+```
+
+Deepening past that ships a Contract that opens one shipment from unwinnable.
+The shipped depths are far shallower than the ceiling, and the depth turned out
+to be a **measurement, not arithmetic**. The rule started as `streak + 2` — 3,
+4, 5 — and was swept against its neighbours, 40 seeds a cell, calibration bot on
+the `timed` strategy, reading the share of bays that reached the streak:
+
+| streak | R=2 | R=3 | R=4 | R=5 | R=6 |
+|---|---|---|---|---|---|
+| 1 (tier 2) | 93% | **98%** | 78% | — | — |
+| 1 (tier 3) | 100% | **100%** | 88% | — | — |
+| 2 (tier 4) | — | **80%** | 48% | 63% | — |
+| 2 (tier 6) | — | **85%** | 45% | — | — |
+| 3 (tier 7) | — | 25% | 23% | **35%** | 38% |
+| 3 (tier 10) | — | 28% | 18% | **20%** | 40% |
+
+Two things in that table decided the shape. **Deeper is not harder-but-fairer**,
+it is simply worse at the shallow end: the standing cubes are most of the
+congestion budget, so a deep rack crosses the knee on the second miss and every
+grade after that is capped at SWEPT — a streak that can no longer be extended at
+all. And **four is a bad rack** at every streak tested, losing to *both* its
+neighbours; the timed share says why (0.42-0.49 at depth 4 against 0.63-0.70 at
+depth 3 — the cargo is arriving and then being ground in rather than dropping
+clean). A lip four cells tall is too tall to skim and not tall enough to be
+obviously a lob, and that awkwardness is geometric rather than instrumental, so
+a player meets it too.
+
+The shipped table is **3, 3, 5**, which is also the only assignment that leaves
+the ladder monotone: at 3/4/5 the tier-4 card measured *harder* than the tier-7
+one, and a difficulty ladder that bounces is not a ladder. Six is the one cell
+that beats five on a single reading (40% at tier 10) and it is rejected for the
+same monotonicity reason from the other end — at R=6 the tier-10 card comes out
+*easier* than the tier-7 one, where the only thing that differs inside the band
+is the press speed, so the bay should get harder and not flatter. The rack is a
+tee, not a wall.
+
+**The 1-2-3.** One card, escalating by tier: **1** timed crush in a row at tiers
+2-3, **2** at 4-6, **3** at 7-10. Not one bay with three internal passes (six
+qualifying clears in the best case, and a rack deep enough to pay for every
+restart, which the ceiling will not sell) and not three cards of the same kind
+(the whole board spent on one idea). "Timed" means EXCELLENT **or** GOOD — the
+measurable band the rest of the balance is steered by, not excellent-only, whose
+100ms window no instrument in `sim/` can reach and which would therefore ship on
+device feel with no sweep behind it.
+
+**What breaks a streak, and what does not.**
+
+| Event | Streak |
+|---|---|
+| A crush the player beat the press to (EXCELLENT or GOOD) | **+1** |
+| A crush the press found on its own (SWEPT or LUCKY) | **reset** |
+| A cube lost short of the zone | **reset** |
+| A launch that closes nothing | **untouched** |
+
+The whiff is neutral because there is no honest "shot resolved" moment in this
+game — a shipment can sit four strokes and then close a row, and inventing a
+resolution clock would be inventing a second clock beside the grade's. It is not
+free either: it costs a launch and leaves four cubes standing, and cubes standing
+is what drives congestion, which caps every remaining grade at SWEPT and so
+breaks the streak through the first rule rather than through a fourth.
+
+The streak is banded off the **headline row** — the row the shot just closed —
+not the best row of a multi-row crush, on `headlineGrade`'s own argument: taking
+the best would let one stack-and-collapse bank a three-streak, which is the play
+the grade ladder exists to price down. One crush is at most one link, so a
+two-row crush spends two rack rows for one link and is self-punishing without a
+special case.
+
+**The slot alternates.** `DAILY_COUNT` is what Unlimited sells, so a third kind
+converts a slot rather than adding a fourth card. From tier 2 the set piece takes
+**slot 1 on odd days** and the ordinary lines Contract keeps it on even ones. A
+player who wants the budgeted bay still finds two of them every other day; a
+player who wants the timing exam finds it every other day; and the board is never
+more than three kinds wide, which is the count the bed window is sized to. The
+lead-axis rotation shifts with it, or the day's one lines Contract would lead
+`wind` every other day of the year.
+
 ## Materials — the content engine
 
 Match-3 games get thousands of levels out of one verb by never adding mechanics

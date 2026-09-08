@@ -1,5 +1,6 @@
 import { HAZARDS, MATERIAL_CAP, materialRate, type HazardId } from "./hazards";
 import { MATERIAL_GAP } from "./belt";
+import { SETPIECE_MIN_TIER, setpiecePasses } from "./contracts";
 import {
   COMBO_STEP, makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
 } from "./level";
@@ -735,6 +736,21 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` <b>pattern</b> Contract: you are handed the exact inventory that tiles the goal, so`
       + ` every cube must end up in a completed row. Contracts are where a new material is safe`
       + ` to learn.`,
+  },
+  {
+    // GATED AT THE SET PIECE'S OWN FLOOR (contracts.ts's SETPIECE_MIN_TIER),
+    // quoted rather than typed — a topic that opened before the card it
+    // describes would be teaching a bay the board does not deal, and a topic
+    // that opened after it would leave the one Contract in the game that grades
+    // the timing band as the only one nothing explains.
+    id: "setpiece", chapter: "modes", tier: SETPIECE_MIN_TIER,
+    name: "Set Pieces",
+    summary: "A rigged bay with one trench and one shape. The only thing left to decide is when.",
+    body: `Other Contracts grade <b>where</b> the cargo goes. The rack has one trench and the`
+      + ` belt deals one shape, so this one grades <b>when</b>: close rows at <b>GOOD</b> or`
+      + ` better <b>back to back</b> — ${setpiecePasses(SETPIECE_MIN_TIER)} at tier`
+      + ` ${SETPIECE_MIN_TIER}, up to <b>${setpiecePasses(MARK_COUNT)}</b> at the top. A swept`
+      + ` row breaks the run, and so does a lost cube. A shot that closes nothing does not.`,
   },
   {
     // THE SEAL, at tier 1, and that is a deliberate departure from the rule the

@@ -81,9 +81,9 @@ import {
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailySeed, generateContract, levelForContract, contractBed, variantSpec,
+  dailySeed, levelForContract, contractBed, variantSpec,
   availableContracts, canStartContract, claimedContractsOnDay, FREE_DAILY_CONTRACTS,
-  PATTERN_SLOT, SKYDECK_CONTRACT_TIER, isSkydeckBoard,
+  SKYDECK_CONTRACT_TIER, isSkydeckBoard,
   type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
 import {
@@ -101,7 +101,7 @@ import {
   ratchetTotal, sandboxAxes, sandboxRunFor, SANDBOX_FINAL_BAY,
   type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
-import { sandboxScreen } from "./ui/sandbox-screen";
+import { sandboxContract, sandboxScreen } from "./ui/sandbox-screen";
 import { render, renderScale } from "./game/render";
 import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
@@ -1786,8 +1786,8 @@ class App {
     const goal = this.lesson?.goal;
     if (!goal) return g.level.objectiveLines;
     if (goal.kind === "atOnce") return goal.lines;
-    if (goal.kind === "combo") return goal.to;
-    return goal.count;
+    if (goal.kind === "grade") return goal.count;
+    return goal.to;
   }
 
   private linesBay(g: Game): boolean {
@@ -1895,7 +1895,13 @@ class App {
    */
   private chainState(g: Game): S.ChainState {
     return {
-      combo: g.combo,
+      // THE STREAK THIS BAY IS ABOUT (game.ts's chainCount), which is the payout
+      // combo everywhere except a SET PIECE Contract, where it is the run of
+      // TIMED crushes the card asks for. The ladder sits directly under that
+      // bay's goal bar, and a rung lighting on a swept crush while the bar
+      // stood still would be the panel contradicting itself in two adjacent
+      // rows.
+      combo: g.chainCount,
       // The tier in force RIGHT NOW, which is what the readout is describing —
       // not game.ts's latched stepPileTier, which exists to price a clear
       // against the bay as it stood before the crush removed the cubes.
@@ -2114,7 +2120,24 @@ class App {
               : `${this.contract.name} · ${variantSpec(this.contract.variant).name}`,
             kind: this.contract.kind,
             goal: this.contract.goal,
-            lines: g.linesTotal,
+            // The numerator of whatever the bay is judged on — rows on the two
+            // line-counting kinds, the best run of timed crushes on a set
+            // piece. One accessor rather than a branch here, for syncHud's
+            // reason: the panel cannot be BUILT off one number and PATCHED off
+            // another.
+            lines: g.objectiveCurrent,
+            // WHAT THE GOAL BAR IS COUNTING, on the one kind where it is not
+            // lines. Left undefined elsewhere so the block keeps the label it
+            // has always had.
+            goalLabel: this.contract.kind === "setpiece" ? "Best streak" : undefined,
+            // THE CHAIN LADDER IS THE PICTURE OF THE STREAK, so it renders on
+            // exactly the Contract that has one. Every other Contract hides it
+            // (screens.ts) because a Contract's clear pays no money and there
+            // is no price for the row to quote; here the row is not quoting a
+            // price at all, it is drawing how far along the run is — and
+            // chainRungsFor makes it exactly N rungs long, so a full ladder and
+            // a cleared card are the same picture.
+            showCombo: this.contract.kind === "setpiece",
             // Whichever supply this Contract runs on — its shipment queue or
             // its launch budget. Exactly one of the two is finite (see
             // contracts.ts's levelForContract).
@@ -3289,7 +3312,9 @@ class App {
               won: g.status === "won",
               name: this.contract.name,
               kind: this.contract.kind,
-              lines: g.linesTotal,
+              // The same accessor the live panel counted with, so the card
+              // reports the number the bay was actually judged on.
+              lines: g.objectiveCurrent,
               goal: this.contract.goal,
               launchesUsed:
                 this.contract.kind === "pattern"
@@ -6711,7 +6736,14 @@ class App {
     if (this.linesBay(g)) {
       const pattern = this.contract?.kind === "pattern";
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
-      set("#hud-score", String(this.lesson ? g.objectiveCurrent : g.linesTotal));
+      // THE NUMERATOR OF WHATEVER THIS BAY IS JUDGED ON, from the one accessor
+      // that knows (Game.objectiveCurrent). It used to branch on `this.lesson`
+      // because lessons were the only bays counting something other than rows;
+      // a SET PIECE Contract counts a streak, so the branch would have needed a
+      // second arm saying the same thing. objectiveCurrent already returns
+      // linesTotal on every line-counting bay, so this is the identical write
+      // everywhere it used to be one.
+      set("#hud-score", String(g.objectiveCurrent));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
       // Gated on `pattern`, matching #hud-queue's and #hud-time's own gates
       // below: a pattern Contract has no #hud-lost element (screens.ts's
@@ -7768,7 +7800,9 @@ class App {
           ? { kind: "bay", bay: 1 }
           : mode === "lines"
             ? { kind: "lines" }
-            : { kind: "pattern", variant: "plain" };
+            : mode === "setpiece"
+              ? { kind: "setpiece" }
+              : { kind: "pattern", variant: "plain" };
         break;
       }
       case "sbx-tier": {
@@ -7965,12 +7999,11 @@ class App {
       this.startLevel();
       return;
     }
-    this.startContract(
-      t.kind === "pattern"
-        ? generateContract(this.sandbox.seed, this.sandbox.tier, PATTERN_SLOT, t.variant)
-        : generateContract(this.sandbox.seed, this.sandbox.tier, 0),
-      true,
-    );
+    // THROUGH THE BRIEFING'S OWN CALL (sandbox-screen.ts's sandboxContract).
+    // The panel and this button used to hold one ternary each, and a fourth
+    // mode is exactly how that becomes a panel describing one bay and a button
+    // launching another.
+    this.startContract(sandboxContract(this.sandbox), true);
   }
 
   /** In-game [data-game] buttons act on pointerdown, not click: browsers

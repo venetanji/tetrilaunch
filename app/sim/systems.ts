@@ -16,7 +16,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
-import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS } from "../src/game/game";
+import {
+  Game, nextTimedStreak, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS,
+} from "../src/game/game";
 import { CHAIN_RUNGS_MAX, CHAIN_RUNGS_MIN, chainRungsFor,
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
   LAUNCH_COST_BASE, LAUNCH_COST_TOP, TARGET_BASE, TARGET_PER_BAY,
@@ -39,7 +41,8 @@ import {
   addGradeTally, awardedGrade, CONGESTION_GRADE_CAP, GRADE_PAY, gradedLinePay,
   gradeForRow, GRADES, gradeTallyTotal,
   EXCELLENT_WINDOW_MS, EXCELLENT_WINDOW_STEPS, STEP_MS,
-  LUCKY_SWEEPS, newGradeTally, timedShare, type ClearClock, type ClearContext,
+  LUCKY_SWEEPS, meetsBand, newGradeTally, timedShare, TIMED_BAND,
+  type ClearClock, type ClearContext,
   type ClearGrade, type LandingStamp, type RowParticipation,
 } from "../src/game/grades";
 import { BOTS } from "./bots";
@@ -155,6 +158,10 @@ import {
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
   SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
+  RACK_CEILING_CUBES, RACK_LIP_COLUMNS, RACK_MAX_DEPTH, RACK_PIECE, RACK_TRENCH_CELLS,
+  SETPIECE_MIN_TIER, SETPIECE_SLACK_SHOTS, SETPIECE_SLOT, SETPIECE_SPARE_ROWS,
+  isSetpieceSlot, rackDepthFor, rackLipColumns, rackProfile, setpieceConditions, setpieceDay,
+  setpieceLaunches, setpiecePasses,
   type ContractVariant,
 } from "../src/game/contracts";
 import {
@@ -2928,6 +2935,300 @@ section("Pattern variants (contracts.ts VARIANTS)");
     /maxed rig/.test(ceTop) && /every Tier sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
 }
 
+
+// ---------------------------------------------------------------------------
+section("Set Piece Contracts (contracts.ts)");
+// ---------------------------------------------------------------------------
+// The third Contract kind: a rigged bay with one trench and one shape, asking
+// for N crushes IN A ROW that the player beat the press to. Everything below is
+// an invariant the DESIGN states in prose (docs/DESIGN.md's "the kind that
+// grades WHEN"), pinned as the invariant rather than as one bay's layout.
+
+// --- THE RACK CEILING, and it is the first pin because breaking it ships an
+// unwinnable Contract. PILE_TIERS[0] congests above RACK_CEILING_CUBES live
+// cubes and a congested bay is capped at SWEPT (CONGESTION_GRADE_CAP), so a
+// congested bay cannot award the band this Contract asks for at all. The rack
+// plus the one shipment in the air therefore has to fit UNDER the knee.
+{
+  check("the rack ceiling IS the first congestion rung",
+    RACK_CEILING_CUBES === PILE_TIERS[0].cubes,
+    `${RACK_CEILING_CUBES} vs ${PILE_TIERS[0].cubes}`);
+  check("the deepest legal rack is solved from that ceiling",
+    RACK_TRENCH_CELLS * RACK_MAX_DEPTH + SIZE_SPEC.std.cubes <= RACK_CEILING_CUBES
+    && RACK_TRENCH_CELLS * (RACK_MAX_DEPTH + 1) + SIZE_SPEC.std.cubes > RACK_CEILING_CUBES,
+    `max depth ${RACK_MAX_DEPTH}`);
+  // ...and every tier the ladder actually deals, not just the arithmetic
+  // maximum. This is the assertion to mutate first: raise SETPIECE_SPARE_ROWS
+  // by two and tiers 7-10 go red here before anything else notices.
+  let opensClear = true;
+  for (let t = SETPIECE_MIN_TIER; t <= SKYDECK_CONTRACT_TIER; t++) {
+    const cubes = rackProfile(rackDepthFor(t)).reduce((a, h) => a + h, 0);
+    if (cubes + SIZE_SPEC.std.cubes > RACK_CEILING_CUBES) opensClear = false;
+    check(`tier ${t}'s rack is exactly trench x depth`,
+      cubes === RACK_TRENCH_CELLS * rackDepthFor(t), `${cubes}`);
+  }
+  check("no tier's rack can be congested by its first shipment", opensClear);
+}
+
+// --- THE RACK'S SHAPE. The same three properties salvageProfile keeps, and the
+// fourth that makes a streak possible on one authored board.
+{
+  const prof = rackProfile(5);
+  check("the rack spans exactly one line", prof.length === CUBES_PER_LINE);
+  check("the trench is a flat shipment wide",
+    prof.filter((h) => h === 0).length === RACK_TRENCH_CELLS);
+  // NO ROW OPENS COMPLETE — the whole reason the trench columns are pinned to
+  // zero. A rack with a full bottom row hands the player a link on frame one.
+  check("no row of the rack is already complete", prof.includes(0));
+  // INTERIOR, scrap on both sides (school.ts's rule for its own boards): an
+  // edge gap is open on one side, so an overshoot slides away into the bay.
+  check("the trench has a lip at both ends",
+    prof.slice(0, RACK_LIP_COLUMNS).every((h) => h > 0)
+    && prof.slice(-RACK_LIP_COLUMNS).every((h) => h > 0), JSON.stringify(prof));
+  // SELF-SIMILAR UNDER A CLEAR. createStandingWall runs once at bay start and
+  // the engine cannot re-seed a board mid-bay, so a set piece whose rack was
+  // not the same shape one row shallower could not serve a streak at all.
+  check("a cleared row leaves the identical set piece one shallower",
+    JSON.stringify(prof.map((h) => Math.max(0, h - 1))) === JSON.stringify(rackProfile(4)));
+  check("the rack is clamped to the ceiling however deep it is asked for",
+    rackProfile(RACK_MAX_DEPTH + 5).every((h) => h === 0 || h === RACK_MAX_DEPTH));
+  // THE TRENCH IS THE FIXED THING AND THE LIP IS WHAT IS LEFT OVER. A constant
+  // lip would turn a narrower line (level.ts calls the width a tunable seam;
+  // mods.ts's Short Lines takes it to 6) into a narrower TRENCH — a two-cell
+  // slot a flat I cannot enter, which is an unwinnable Contract produced by
+  // arithmetic rather than by design. Pinned at every width the game can reach.
+  for (const w of [6, 8, PENTOMINO_LINE_CELLS]) {
+    const p = rackProfile(3, w);
+    check(`a ${w}-cell line still cuts a ${RACK_TRENCH_CELLS}-wide trench`,
+      p.length === w
+      && p.filter((h) => h === 0).length === RACK_TRENCH_CELLS
+      && p[0] > 0 && p[w - 1] > 0,
+      JSON.stringify(p));
+  }
+  check("the shipped lip is the eight-cell one",
+    RACK_LIP_COLUMNS === rackLipColumns(CUBES_PER_LINE) && RACK_LIP_COLUMNS === 2);
+}
+
+// --- THE 1-2-3. N by tier, and it is the card's whole ask.
+{
+  const table: [number, number][] = [[2, 1], [3, 1], [4, 2], [5, 2], [6, 2], [7, 3], [8, 3], [9, 3], [10, 3]];
+  for (const [tier, want] of table) {
+    check(`tier ${tier} asks for ${want} timed in a row`, setpiecePasses(tier) === want,
+      String(setpiecePasses(tier)));
+  }
+  let monotone = true;
+  for (let t = SETPIECE_MIN_TIER + 1; t <= MARK_COUNT; t++) {
+    if (setpiecePasses(t) < setpiecePasses(t - 1)) monotone = false;
+  }
+  check("the ask never gets easier further up the ladder", monotone);
+  // THE DEPTH TABLE IS MEASURED, so what is pinned is the two things the table
+  // may not violate however it is retuned: the rack has to hold the streak with
+  // a row still under it (a rack that held exactly the streak is a Contract
+  // with no second attempt in it — see SETPIECE_SPARE_ROWS), and the rack must
+  // not be one the ceiling has silently clamped. This is the pin that goes red
+  // first when someone edits RACK_DEPTHS, which is what a play pass will edit.
+  let deepEnough = true, budgeted = true, unclamped = true;
+  for (let t = SETPIECE_MIN_TIER; t <= MARK_COUNT; t++) {
+    if (rackDepthFor(t) < setpiecePasses(t) + SETPIECE_SPARE_ROWS) deepEnough = false;
+    if (rackDepthFor(t) >= RACK_MAX_DEPTH) unclamped = false;
+    if (setpieceLaunches(t) !== rackDepthFor(t) + SETPIECE_SLACK_SHOTS) budgeted = false;
+    if (setpieceLaunches(t) < setpiecePasses(t)) budgeted = false;
+  }
+  check("every rack holds its streak with a spare row under it", deepEnough);
+  check("no shipped rack is the ceiling's clamp in disguise", unclamped);
+  check("every budget is one shot a rack row plus the stated slack", budgeted);
+  // The ladder is monotone in the ASK, and the rack never shrinks under it —
+  // the 3/4/5 assignment this table replaced made the tier-4 card measurably
+  // harder than the tier-7 one, and a difficulty ladder that bounces is not one.
+  let rackMonotone = true;
+  for (let t = SETPIECE_MIN_TIER + 1; t <= MARK_COUNT; t++) {
+    if (rackDepthFor(t) < rackDepthFor(t - 1)) rackMonotone = false;
+  }
+  check("the rack never gets shallower as the ask gets longer", rackMonotone);
+}
+
+// --- THE STREAK RULE ITSELF (game.ts's nextTimedStreak), pinned as the rule
+// rather than as a bay that happens to exercise one branch of it. The neutral
+// case can only be pinned here at all: a launch that closes nothing produces no
+// event for a test to observe, which is exactly what makes it neutral.
+{
+  check("an EXCELLENT crush extends the streak", nextTimedStreak(2, "excellent") === 3);
+  check("a GOOD crush extends it too — the band is TIMED, not excellent-only",
+    nextTimedStreak(2, "good") === 3);
+  check("a SWEPT crush breaks it", nextTimedStreak(2, "swept") === 0);
+  check("a LUCKY crush breaks it", nextTimedStreak(2, "lucky") === 0);
+  check("a launch that closes nothing leaves it alone", nextTimedStreak(2, null) === 2);
+  check("...including from zero", nextTimedStreak(0, null) === 0);
+  // The band the rule reads is the one the sweeps are steered by, not a private
+  // copy: a Contract grading against its own idea of "perfect" would be
+  // steering by a number no table in this directory reports.
+  check("the streak's band is grades.ts's TIMED_BAND",
+    GRADES.filter((g) => nextTimedStreak(0, g) === 1).every((g) => meetsBand(g, TIMED_BAND))
+    && GRADES.filter((g) => meetsBand(g, TIMED_BAND)).every((g) => nextTimedStreak(0, g) === 1));
+}
+
+// --- THE BAY. What levelForContract actually builds, driven for real.
+{
+  const day = 20260815; // an ODD day, so the board deals a set piece
+  const sp = generateContract(day, 7, SETPIECE_SLOT);
+  check("an odd day's slot 1 is a set piece", sp.kind === "setpiece", sp.kind);
+  const cfg = levelForContract(sp);
+  check("the bay is won on the streak, not on a line count",
+    cfg.objectiveLines === 0
+    && cfg.lessonGoal?.kind === "timedStreak" && cfg.lessonGoal.to === setpiecePasses(7),
+    JSON.stringify(cfg.lessonGoal));
+  check("the belt deals the trench's own shape, forever",
+    cfg.pieceSequence?.length === 1 && cfg.pieceSequence[0] === RACK_PIECE
+    && cfg.pieceQueue === null);
+  check("the bay runs on a launch budget", cfg.launchBudget === sp.launches);
+  check("the rack is STANDARD, not scaffolding — the press has to be able to spend it",
+    cfg.standingWallMaterial === "standard");
+  // THE BOARD DOES NOT COME BACK. A lesson's gold board resets so the exercise
+  // is the authored one every attempt; a Contract's rack is cargo, and a miss
+  // leaving four cubes standing is half the price of a whiff.
+  check("a set piece's board never resets", !cfg.boardResets);
+  check("no wind, at any tier", cfg.windMax === 0 && cfg.windGust === 0);
+  check("nothing is spent, so nothing is fined",
+    cfg.launchCost === 0 && cfg.penaltyPerLostPiece === 0 && cfg.timeLimitSec === 0);
+  check("no material can un-author the rack", mixTotal(cfg.materialMix) === 0);
+
+  // THE LADDER IS EXACTLY N. A Contract's targetScore is unreachable, so
+  // chainRungsFor's economic branch would hand it the full 14-rung row — a
+  // ladder promising a streak eleven rungs past the one that wins the bay.
+  check("the chain ladder is exactly as long as the ask",
+    chainRungsFor(cfg) === setpiecePasses(7), String(chainRungsFor(cfg)));
+
+  // OPENS UNCONGESTED, through the real Game rather than through the
+  // arithmetic: the rack on the field, plus one shipment, under the knee.
+  const g = new Game(cfg, {}, sp.seed);
+  const standing = sp.standing.reduce((a, h) => a + h, 0);
+  check("the bay opens with its rack on the field", g.cubes.length === standing,
+    `${g.cubes.length} vs ${standing}`);
+  check("the bay does not open congested", g.pileTier === null);
+  check("...and is not one shipment from congested either",
+    g.cubes.length + SIZE_SPEC.std.cubes <= RACK_CEILING_CUBES);
+  check("a set piece is never born unwinnable", !g.objectiveUnreachable && !g.objectiveMet);
+  // The HUD's numerator and denominator, off the accessors the panel reads.
+  check("the goal bar counts the streak, from zero",
+    g.objectiveCurrent === 0 && g.objectiveProgress === 0);
+  // The ladder pictures the TIMED streak here, not the payout combo.
+  g.combo = 4;
+  g.timedStreak = 1;
+  check("the chain ladder pictures the timed streak, not the combo", g.chainCount === 1);
+  g.destroy();
+}
+
+// --- A LOST CUBE BREAKS IT, driven rather than asserted: the rule lives in
+// chargeLostCubes beside the combo's own reset, and a pin that only read
+// nextTimedStreak would never see it.
+{
+  const sp = generateContract(20260815, 7, SETPIECE_SLOT);
+  const g = new Game(levelForContract(sp), {}, 1);
+  g.timedStreak = 3;
+  g.bestTimedStreak = 3;
+  // A minimum-power flat shot lands short of the zone and blinks away, which is
+  // the event — the same one that costs a Deep Run its combo.
+  g.cannon.angle = 0;
+  g.cannon.power = g.cannon.speedMin;
+  g.updateTrajectory();
+  g.shoot(0);
+  for (let i = 1; i < 900 && g.lostTotal === 0; i++) g.update(i * (1000 / 60));
+  check("a shot short of the zone is lost", g.lostTotal > 0, `lost ${g.lostTotal}`);
+  check("a lost cube breaks the timed streak", g.timedStreak === 0, String(g.timedStreak));
+  check("...and the combo with it, which is the same rule", g.combo === 0);
+  check("the best streak is a high-water mark, not live state", g.bestTimedStreak === 3);
+  g.destroy();
+}
+
+// --- THE ALTERNATION. Deterministic per day seed, never two on one board, and
+// never a board without a launch-budget card on it.
+{
+  let oneAtMost = true, deterministic = true, hasBudgeted = true, patternKept = true;
+  let sawSetpiece = false, sawPlainDay = false;
+  let roofClean = true;
+  for (let seed = 20260801; seed <= 20260831; seed++) {
+    // The ROOF is checked too, and what is pinned there is the absence: the
+    // Skydeck board's identity is its pentomino cargo, and a flat-I Contract on
+    // that floor would be the one card up there that is neither dealt nor bulk.
+    if (dailyContracts(SKYDECK_CONTRACT_TIER, seed).some((c) => c.kind === "setpiece")) {
+      roofClean = false;
+    }
+    for (let tier = 1; tier <= MARK_COUNT; tier++) {
+      const board = dailyContracts(tier, seed);
+      const pieces = board.filter((c) => c.kind === "setpiece");
+      if (pieces.length > 1) oneAtMost = false;
+      if (pieces.length === 1) sawSetpiece = true; else sawPlainDay = true;
+      if (!board.some((c) => c.kind === "lines")) hasBudgeted = false;
+      if (board.filter((c) => c.kind === "pattern").length !== 1) patternKept = false;
+      // Regenerating the same (seed, tier) has to deal the same board — the
+      // whole basis of a shared daily and of a per-Contract leaderboard.
+      const again = Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, i));
+      if (again.map((c) => c.kind).join() !== board.map((c) => c.kind).join()) deterministic = false;
+      if (pieces.length === 1 && pieces[0].slot !== SETPIECE_SLOT) oneAtMost = false;
+    }
+  }
+  check("never two set pieces on one board", oneAtMost);
+  check("the Skydeck board never deals one", roofClean);
+  check("the alternation is deterministic per (seed, tier)", deterministic);
+  check("every board still offers a launch-budget Contract", hasBudgeted);
+  check("the pattern slot is untouched — exactly one a board", patternKept);
+  check("the month contains set-piece days", sawSetpiece);
+  check("...and ordinary days, so it genuinely alternates", sawPlainDay);
+  // The rule itself, stated: odd day, past the floor, slot 1.
+  check("a set piece is an odd day past the floor, in slot 1",
+    isSetpieceSlot(SETPIECE_MIN_TIER, SETPIECE_SLOT, 20260815)
+    && !isSetpieceSlot(SETPIECE_MIN_TIER, SETPIECE_SLOT, 20260816)
+    && !isSetpieceSlot(SETPIECE_MIN_TIER - 1, SETPIECE_SLOT, 20260815)
+    && !isSetpieceSlot(SETPIECE_MIN_TIER, PATTERN_SLOT, 20260815)
+    && !isSetpieceSlot(SETPIECE_MIN_TIER, 0, 20260815));
+  // Consecutive days flip, which is what "alternates" means. dailySeed is
+  // YYYYMMDD, so parity flips with the date rather than with a hash.
+  check("consecutive days flip the slot",
+    setpieceDay(5, 20260815) !== setpieceDay(5, 20260816));
+  check("tier 1 never deals one", !setpieceDay(1, 20260815));
+}
+
+// --- THE CARD SAYS N. A player who cannot restate a Contract before firing has
+// been handed a surprise rather than a puzzle, and N is the whole ask.
+{
+  for (let tier = SETPIECE_MIN_TIER; tier <= MARK_COUNT; tier++) {
+    const n = setpiecePasses(tier);
+    const cond = setpieceConditions(tier);
+    check(`tier ${tier}'s conditions name the streak`, cond.includes(`${n} timed in a row`), cond);
+    check(`tier ${tier}'s conditions name the shipment`, cond.includes(`all ${RACK_PIECE}`), cond);
+    const c = generateContract(20260815, tier, SETPIECE_SLOT);
+    check(`tier ${tier}'s card carries those conditions`, c.conditions === cond);
+    // COUNTED OFF THE PROFILE the Contract actually carries, not off a product
+    // of the depth and the trench width — that product is the standing count
+    // only while the lip is two columns a side, so a pin written that way would
+    // measure the eight-cell line and nothing else.
+    check(`tier ${tier}'s brief leads with the cubes already down`,
+      c.brief === `${c.standing.reduce((a, h) => a + h, 0)} cubes already down · ${cond}`,
+      c.brief);
+    // The card's ASK is the streak, in the units the card's unit string states.
+    check(`tier ${tier}'s goal is the streak, not a line count`, c.goal === n);
+  }
+}
+
+// --- IT PAYS WHAT THE TIER PAYS, and the pin is that nothing about the kind
+// reaches the ledger. A board that paid its hardest card more would turn "clear
+// three Contracts" into "clear the three cheapest", which is the opposite of
+// dealing three different problems and letting the player choose.
+{
+  // A save parked at the set piece's own floor, so both cards are AT the tier
+  // the milestone gate settles on (recordContractClear: unclaimed, at the
+  // current tier, under the cap).
+  const meta = { ...newMeta(), mark: SETPIECE_MIN_TIER - 1, tierContracts: 0 };
+  const board = dailyContracts(SETPIECE_MIN_TIER, 20260815);
+  const setpiece = board.find((c) => c.kind === "setpiece")!;
+  const lines = board.find((c) => c.kind === "lines")!;
+  check("the set-piece board still carries a lines Contract to compare against",
+    setpiece !== undefined && lines !== undefined);
+  const a = recordContractClear(meta, setpiece);
+  const b = recordContractClear(meta, lines);
+  check("a set piece banks the same milestone share as a lines Contract",
+    a.salvage === b.salvage && a.salvage > 0, `${a.salvage} vs ${b.salvage}`);
+}
 
 // ---------------------------------------------------------------------------
 section("The payout banner (screens.ts .salvage-row + app.css)");

@@ -49,7 +49,8 @@ import {
   type GradedRow,
 } from "./lineClear";
 import {
-  GRADES, gradedLinePay, newGradeTally, STEP_MS, type ClearClock, type GradeTally,
+  GRADES, gradedLinePay, meetsBand, newGradeTally, STEP_MS, TIMED_BAND,
+  type ClearClock, type ClearGrade, type GradeTally,
 } from "./grades";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -542,6 +543,31 @@ interface Bomb {
   bornStep: number;
 }
 
+/**
+ * THE TIMED STREAK'S WHOLE RULE, as one total function of (streak, what the
+ * crush was) — the SET PIECE Contract's win condition (contracts.ts).
+ *
+ * A function rather than three lines inside the clear handler because it is a
+ * DESIGN RULE and not an implementation detail: it decides what "in a row"
+ * means, its three cases were each argued separately (see Game.timedStreak),
+ * and sim/systems.ts pins the rule itself rather than a bay that happens to
+ * exercise one branch of it. Pinning the rule is also the only way to state the
+ * neutral case at all — a launch that closes nothing produces no event for a
+ * test to observe, which is exactly what makes it neutral.
+ *
+ * `headline` is the AWARDED band of the row the shot just closed
+ * (lineClear.ts's headlineGrade), or null when the step closed no row.
+ */
+export function nextTimedStreak(streak: number, headline: ClearGrade | null): number {
+  // NO CRUSH, NO VERDICT. Cargo can sit four strokes and then close a row, so
+  // there is no honest moment at which a shot has "missed" — the launch budget
+  // and the cubes left standing are what a whiff costs.
+  if (headline === null) return streak;
+  // A crush the press found on its own is a clear that was not timed, which is
+  // the one distinction this streak exists to draw.
+  return meetsBand(headline, TIMED_BAND) ? streak + 1 : 0;
+}
+
 export class Game {
   phys: PhysicsWorld;
   cannon: Cannon;
@@ -646,6 +672,38 @@ export class Game {
    *  downstream could otherwise tell a streak of three from one that never
    *  started. */
   bestCombo = 0;
+  /**
+   * CONSECUTIVE TIMED CRUSHES — the SET PIECE Contract's live streak
+   * (contracts.ts, level.ts's LessonGoal "timedStreak").
+   *
+   * A second counter beside `combo` rather than a reading of it, because the
+   * two count different things and one of them is the Contract's whole point:
+   * `combo` advances on ANY crush, so it is a streak of CLEARS and a player who
+   * lets the press grind four stale rows shut keeps it; this advances only on a
+   * crush the player beat the press to (grades.ts's TIMED_BAND), so it is a
+   * streak of SHOTS.
+   *
+   * THE THREE RULES, and each is a decision rather than a consequence:
+   *
+   *  - AN UNTIMED CRUSH BREAKS IT. A swept or lucky row is a clear that was not
+   *    timed, which is exactly what the streak exists to distinguish, so it
+   *    cannot be neutral — that would make the Contract a line count wearing a
+   *    grade's name.
+   *  - A LOST CUBE BREAKS IT, on the combo's own rule and in the combo's own
+   *    place (chargeLostCubes). Two streaks in one bay that disagreed about
+   *    whether spilling cargo costs you something would be teaching two games.
+   *  - A LAUNCH THAT CLEARS NOTHING IS NEUTRAL. There is no honest "shot
+   *    resolved" moment in this game — a shipment can sit four strokes and then
+   *    close a row — so a whiff has no instant to be judged at. It is not free
+   *    either: it costs a launch out of the budget and leaves cargo in the bay,
+   *    and cargo in the bay is what drives congestion, which caps every
+   *    subsequent grade at SWEPT (grades.ts's CONGESTION_GRADE_CAP) and so
+   *    breaks the streak through the first rule rather than through a fourth.
+   */
+  timedStreak = 0;
+  /** The longest `timedStreak` this bay reached, kept after it breaks — the
+   *  number the Contract is judged on, for bestCombo's reason exactly. */
+  bestTimedStreak = 0;
   /** CUBES lost off the wrong side, not pieces: it sums lostCubes.length, and
    *  the penalty is charged per cube too. Telemetry ships it as the badly named
    *  `lostPieces`; dividing it by a shot count gives cubes per shot, never a
@@ -954,12 +1012,17 @@ export class Game {
     if (goal) {
       if (goal.kind === "atOnce") return this.bestClear >= goal.lines;
       if (goal.kind === "combo") return this.bestCombo >= goal.to;
+      // THE BEST STREAK, not the live one: a Contract cleared on its third
+      // consecutive timed crush is cleared, and the bay is resolved on the same
+      // step. Reading `timedStreak` would be the same test everywhere except
+      // the one frame a lost cube and a winning crush arrive together.
+      if (goal.kind === "timedStreak") return this.bestTimedStreak >= goal.to;
       // Grades are ORDERED, so "two EXCELLENT" is satisfied by two rows at that
       // band or better — which for EXCELLENT is only EXCELLENT, and for GOOD
       // counts the excellent ones too. A lesson that refused a better row than
       // it asked for would be teaching the player to aim worse.
-      const at = GRADES.indexOf(goal.grade);
-      return GRADES.slice(0, at + 1).reduce((n, g) => n + this.gradeTally[g], 0) >= goal.count;
+      return GRADES.filter((g) => meetsBand(g, goal.grade))
+        .reduce((n, g) => n + this.gradeTally[g], 0) >= goal.count;
     }
     if (this.level.objectiveLines > 0) return this.linesTotal >= this.level.objectiveLines;
     return this.score >= this.target;
@@ -971,11 +1034,31 @@ export class Game {
     if (goal) {
       if (goal.kind === "atOnce") return this.bestClear;
       if (goal.kind === "combo") return this.bestCombo;
-      const at = GRADES.indexOf(goal.grade);
-      return GRADES.slice(0, at + 1).reduce((n, grade) => n + this.gradeTally[grade], 0);
+      if (goal.kind === "timedStreak") return this.bestTimedStreak;
+      return GRADES.filter((g) => meetsBand(g, goal.grade))
+        .reduce((n, grade) => n + this.gradeTally[grade], 0);
     }
     if (this.level.objectiveLines > 0) return this.linesTotal;
     return this.score;
+  }
+
+  /**
+   * WHAT THE CHAIN LADDER IS A PICTURE OF in this bay (ui/screens.ts's
+   * chainLadderHTML, through main.ts's chainState).
+   *
+   * The ladder is the drawn form of "how long is the run you are on", and on a
+   * SET PIECE Contract the run being asked for is the TIMED one — the ladder
+   * sits directly under a goal bar reading "best streak / N", and a rung
+   * lighting on a swept crush while that bar stood still would be the panel
+   * contradicting itself in two adjacent rows. Everywhere else the run being
+   * asked for is the payout combo, because everywhere else the ladder is
+   * quoting the next crush's price.
+   *
+   * Decided here rather than at the HUD because it is a fact about the bay's
+   * win condition, and the HUD is not where a win condition should be read.
+   */
+  get chainCount(): number {
+    return this.level.lessonGoal?.kind === "timedStreak" ? this.timedStreak : this.combo;
   }
 
   /** This bay was won on a perfect chain — read-only, and false for the whole
@@ -989,7 +1072,9 @@ export class Game {
   get objectiveProgress(): number {
     const goal = this.level.lessonGoal;
     if (goal) {
-      const target = goal.kind === "atOnce" ? goal.lines : goal.kind === "combo" ? goal.to : goal.count;
+      const target = goal.kind === "atOnce"
+        ? goal.lines
+        : goal.kind === "grade" ? goal.count : goal.to;
       return target > 0 ? Math.min(1, this.objectiveCurrent / target) : 0;
     }
     if (this.level.objectiveLines > 0) {
@@ -1344,6 +1429,11 @@ export class Game {
   private chargeLostCubes(lost: { x: number; y: number }[], _now: number): number {
     const n = lost.length;
     this.combo = 0;
+    // ...AND THE TIMED STREAK WITH IT, in the same statement rather than in a
+    // rule of its own. A bay that let a spill cost you the payout streak but
+    // not the Contract's would be running two definitions of "you dropped it",
+    // and the player would have to learn both.
+    this.timedStreak = 0;
     this.lostTotal += n;
     // PRICED A CUBE AT A TIME, and the position each cube was AT when it was
     // destroyed. Both halves are the Incinerator (chute.ts's INCINERATOR_Y):
@@ -2413,6 +2503,19 @@ export class Game {
       // clear is resolved and the combo has already advanced above.
       if (clear.lines > this.bestClear) this.bestClear = clear.lines;
       if (this.combo > this.bestCombo) this.bestCombo = this.combo;
+      // THE TIMED STREAK, banded off the HEADLINE row and not off the crush's
+      // best one. headlineRow's argument carries over whole: taking the best
+      // band of a multi-row crush would let one stack-and-collapse bank a
+      // three-streak, which is the play the grade ladder exists to price down.
+      // The row the shot just closed is the row the shot is a verdict on.
+      //
+      // ONE CRUSH IS AT MOST ONE LINK, which is why this reads the crush rather
+      // than looping `clear.graded`: a two-row crush spends two rack rows for
+      // one link, which is self-punishing on a rack of finite depth and needs
+      // no special case to be.
+      const headline = headlineRow(clear.graded);
+      this.timedStreak = nextTimedStreak(this.timedStreak, headline?.grade ?? null);
+      if (this.timedStreak > this.bestTimedStreak) this.bestTimedStreak = this.timedStreak;
       // Scrap is earned per LINE, flat, combo-free AND UNGRADED (unlike funds):
       // capital shouldn't spike on a lucky multi-clear, or one good stroke
       // would buy a whole upgrade track. See level.ts's SCRAP_PER_LINE note,
@@ -2423,7 +2526,7 @@ export class Game {
       this.events.onLineClear?.(clear.lines, crush);
       // The ROW the toast is a verdict on, not just its band: the callout also
       // has to say when a gate took the band away, and a bare grade cannot.
-      this.spawnClearFx(clear, awarded, headlineRow(clear.graded), now);
+      this.spawnClearFx(clear, awarded, headline, now);
       // A MAXED Demolition Rack returns charges as rows close. Run against the
       // cumulative line count rather than this clear's delta so a four-line
       // crush pays everything it earned — see level.ts's bombResupply for why
