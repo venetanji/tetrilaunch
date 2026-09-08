@@ -245,7 +245,7 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
-import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
+import { pieceMiniHTML, runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
 import {
   BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForRun, boardDayForView,
   boardForRun, boardForView, DAY_NONE,
@@ -6838,10 +6838,10 @@ section("R5: the Contract panel's small rows, and the card that sits over it");
     const m = value?.match(/^max\((\d+(?:\.\d+)?)px,\s*calc\((\d+(?:\.\d+)?) \* var\(--fpx\)\)\)$/);
     return m ? { floor: Number(m[1]), coeff: Number(m[2]) } : null;
   };
-  const lbl = scaled(declFor(".hud--contract :is(.pl-notch, .pl-tier)", "--pl-lbl"));
+  const lbl = scaled(declFor(".hud--contract :is(.pl-queue, .pl-notch, .pl-tier)", "--pl-lbl"));
   const bayVal = declFor(".hud--contract .pl-notch", "--pl-val");
-  const tierVal = scaled(declFor(".hud--contract .pl-tier", "--pl-val"));
-  check("a Contract's Bay and Tier labels floor at 9px, and still scale above it",
+  const figVal = scaled(declFor(".hud--contract :is(.pl-queue, .pl-tier)", "--pl-val"));
+  check("a Contract's Left, Bay and Tier labels floor at 9px, and still scale above it",
     lbl !== null && lbl.floor >= 9 && lbl.coeff > 0,
     JSON.stringify(lbl));
   // The Bay row's value is a PHRASE on a scroller, so it reads at the label's
@@ -6850,14 +6850,20 @@ section("R5: the Contract panel's small rows, and the card that sits over it");
   // same numbers would pass this and still be the bug.
   check("...the Bay row's conditions read at exactly the label's size",
     bayVal === "var(--pl-lbl)", bayVal ?? "no --pl-val on the Bay row");
-  check("...and the Tier row's figure steps up, floored at the rail's own 13px",
-    tierVal !== null && tierVal.floor >= 13 && tierVal.floor > (lbl?.floor ?? 0),
-    JSON.stringify(tierVal));
+  // ONE declaration for BOTH figure rows — the tier's line and the manifest's
+  // counts. Pinned as the shared selector rather than as two lookups that
+  // happen to return the same string: two copies of one expression is how the
+  // panel drifts back into reading at two scales at once, which is the defect
+  // this whole section was opened on.
+  check("...and the two figure rows step up together, floored at the rail's own 13px",
+    figVal !== null && figVal.floor >= 13 && figVal.floor > (lbl?.floor ?? 0),
+    JSON.stringify(figVal));
   // The two custom properties are only worth anything if something reads them.
-  check("both rows draw their label and their value from those two tokens",
-    css.includes(".hud--contract :is(.pl-notch, .pl-tier) { --pl-lbl:")
-      && declFor(".hud--contract :is(.pl-notch, .pl-tier)", "font-size") === "var(--pl-lbl)"
-      && declFor(".hud--contract :is(.pl-notch, .pl-tier) > b", "font-size") === "var(--pl-val)");
+  check("all three rows draw their label and their value from those two tokens",
+    css.includes(".hud--contract :is(.pl-queue, .pl-notch, .pl-tier) { --pl-lbl:")
+      && declFor(".hud--contract :is(.pl-queue, .pl-notch, .pl-tier)", "font-size") === "var(--pl-lbl)"
+      && declFor(".hud--contract :is(.pl-queue, .pl-notch, .pl-tier) > b", "font-size")
+        === "var(--pl-val)");
   // THE SALVAGE GLYPH RIDES ITS FIGURE. screens.ts hands salvageHTML a fixed 9,
   // which lands in the SVG's own width/height attributes; at a 13px figure that
   // is the smallest thing on the row rather than the biggest. Sized off the
@@ -6882,7 +6888,7 @@ section("R5: the Contract panel's small rows, and the card that sits over it");
         "utf8",
       ).match(/--pixel-optical-drop:\s*(\d+(?:\.\d+)?)em/) ?? [])[1],
   );
-  const topRule = declFor(".hud--contract :is(.pl-notch, .pl-tier) > b", "top");
+  const topRule = declFor(".hud--contract :is(.pl-queue, .pl-notch, .pl-tier) > b", "top");
   const mix = topRule?.match(
     /^calc\((\d+(?:\.\d+)?) \* var\(--pl-val\) - (\d+(?:\.\d+)?) \* var\(--pl-lbl\)\)$/,
   ) ?? null;
@@ -6892,7 +6898,142 @@ section("R5: the Contract panel's small rows, and the card that sits over it");
     mix !== null && Math.abs((Number(mix[2]) - Number(mix[1])) - drop) < 0.001,
     `${mix?.[2]} - ${mix?.[1]} vs ${drop}`);
 
-  // ---- 3. THE TEACHING CARD IS A LAYER, NOT A REPLACEMENT ----------------
+  // ---- 3. THE MANIFEST ROW IS CARGO, NOT LETTERS -------------------------
+  // The same panel, the same reader, one release later: with the Bay and Tier
+  // rows at 9-13px, `.pl-queue` was left on the 6px floor and became the
+  // smallest thing on the panel. It joins the rule above AND changes what it
+  // draws — piece miniatures with counts instead of coloured letters and "×n"
+  // (screens.ts's queueTallyHTML, components.ts's pieceMiniHTML).
+  //
+  // sim/uifit cannot hold any of this either, for the reason this section
+  // already gives: a row that went back to letters at 6px still fits its panel
+  // and still measures as a row. What can be held is the DRAWING (does a
+  // miniature have the piece's cells in it, on one baseline, without a
+  // hand-copied second shape table drifting from theme.ts's), the TALLY (one
+  // item per type still owed, in a stated order, carrying its count) and the
+  // SIZING (that both come off the row's own tokens rather than off px).
+  {
+    // A tetromino is four cells; the mini draws four rects and nothing else, so
+    // a drawing that lost a cell or gained an empty-cell backdrop fails here.
+    // Read out of the STRING, because that is what the renderer returns and
+    // what the browser is handed.
+    const cellsOf = (html: string): Array<[number, number]> =>
+      [...html.matchAll(/x="([\d.]+)" y="([\d.]+)"/g)]
+        .map(([, x, y]) => [Math.round((Number(x) - 0.5) / 10), Math.round((Number(y) - 0.5) / 10)]);
+    const minis = PIECE_TYPES.map((t) => ({ t, html: pieceMiniHTML(t, 12), cells: cellsOf(pieceMiniHTML(t, 12)) }));
+    check("every piece miniature draws the four cells of its tetromino",
+      minis.every((m) => m.cells.length === 4 && (m.html.match(/<rect/g) ?? []).length === 4),
+      minis.map((m) => `${m.t}:${m.cells.length}`).join(" "));
+    // TWO ROWS, EVERY PIECE — the property a run of them on one line rests on.
+    // Held as the drawn cells AND as the viewBox, because a piece that stood up
+    // in a box that grew with it would still be "two rows" by the cells alone.
+    check("...on one two-row box, whatever the piece",
+      minis.every((m) =>
+        Math.max(...m.cells.map(([, y]) => y)) === 1
+        && Math.min(...m.cells.map(([, y]) => y)) >= 0
+        && / viewBox="0 0 \d+ 20"/.test(m.html)),
+      minis.map((m) => `${m.t}:${m.html.match(/viewBox="([^"]+)"/)?.[1]}`).join(" "));
+    // ...IN THE FLATTEST OF ITS POSES. miniCells takes the turn with the most
+    // cells in the bottom row, which is what makes a run of them read as crates
+    // on a shelf; pinned as the seven poses themselves, because the rule is a
+    // loop over rotations and the failure it can have is picking a legal pose
+    // that stands the piece on a corner. A cell in the bottom row is NOT the
+    // pin it looks like — normalising drops every shape onto the floor, so
+    // every turn would pass it.
+    const POSES: Record<PieceType, string> = {
+      I: "0,1 1,1 2,1 3,1",   // ....  /  ####
+      O: "0,0 0,1 1,0 1,1",   // ##    /  ##
+      T: "0,1 1,0 1,1 2,1",   // .#.   /  ###
+      L: "0,1 1,1 2,0 2,1",   // ..#   /  ###
+      J: "0,0 0,1 1,1 2,1",   // #..   /  ###
+      S: "0,1 1,0 1,1 2,0",   // .##   /  ##.
+      Z: "0,0 1,0 1,1 2,1",   // ##.   /  .##
+    };
+    const poseOf = (cells: Array<[number, number]>): string =>
+      cells.map(([x, y]) => `${x},${y}`).sort().join(" ");
+    check("...each in the flattest pose it has",
+      minis.every((m) => poseOf(m.cells) === POSES[m.t]),
+      minis.filter((m) => poseOf(m.cells) !== POSES[m.t])
+        .map((m) => `${m.t}: ${poseOf(m.cells)}`).join(" | "));
+    // THE WIDTH IS THE PIECE'S, and `--mini-cols` is how CSS is told it. The
+    // two have to agree or the stylesheet draws the piece at the wrong aspect:
+    // app.css sizes the width as cols * half the height.
+    check("...and states its own column count for CSS to size the width from",
+      minis.every((m) => {
+        const cols = Math.max(...m.cells.map(([x]) => x)) + 1;
+        return m.html.includes(`--mini-cols:${cols}`)
+          && m.html.includes(`viewBox="0 0 ${cols * 10} 20"`);
+      }),
+      minis.map((m) => `${m.t}:${m.html.match(/--mini-cols:(\d+)/)?.[1]}`).join(" "));
+    // SEVEN DISTINCT SILHOUETTES. The whole claim of the change is that a shape
+    // identifies a shipment where a 6px letter could not; two pieces drawn the
+    // same would quietly retire that claim, and the derivation (rotate until it
+    // fits, then take the flattest turn) is exactly the kind of code that can
+    // collapse two of them onto one pose.
+    const shapes = minis.map((m) => poseOf(m.cells));
+    check("...and no two pieces draw the same silhouette",
+      new Set(shapes).size === PIECE_TYPES.length,
+      shapes.join(" | "));
+    check("a miniature is drawn in the piece's own colour",
+      minis.every((m) => m.html.includes(`fill="${PIECE_COLORS[m.t]}"`)));
+
+    // THE TALLY: one item per type STILL OWED, in PIECE_TYPES order, each
+    // carrying its count. The order matters because the row is read as an
+    // inventory and an inventory that reshuffles itself as it empties cannot be
+    // scanned; the count matters because the miniature only says "at least one".
+    const tally = S.queueTallyHTML(["Z", "O", "I", "O", "L"]);
+    const items = [...tally.matchAll(
+      /<span class="queue-mini">.*?--mini-cols:(\d+)[\s\S]*?<span class="queue-mini__n">(\d+)<\/span><\/span>/g,
+    )].map(([, cols, n]) => `${cols}x${n}`);
+    check("the manifest tally renders one miniature and count per type still owed",
+      items.length === 4, `${items.length}: ${tally}`);
+    check("...counted per type, in PIECE_TYPES order",
+      // I(4 cols) 1, O(2) 2, L(3) 1, Z(3) 1 — the order the types are declared
+      // in, not the order they were handed over.
+      items.join(" ") === "4x1 2x2 3x1 3x1", items.join(" "));
+    check("...and an em-dash, not an empty row, once nothing is owed",
+      S.queueTallyHTML([]).includes("—") && !S.queueTallyHTML([]).includes("queue-mini"));
+    // NOT A `<b>`, however much it is a figure: `.pl-queue b` is the ROW's
+    // value rule and it matches any `<b>` descendant, so a nested one takes the
+    // row's scroller declarations and its optical drop — which lifted every
+    // count 0.195em off the baseline its miniature stands on and hung it
+    // through the row's own clip, on all 21 devices.
+    check("...with the count in a span, out of the row's own `b` rule's reach",
+      !tally.includes("<b"), tally.slice(0, 120));
+    // The pairs join with <wbr> so the board card's narrow supply column can
+    // still wrap a long manifest; the plant's row hides them (app.css) because
+    // a `<wbr>` breaks a line even under `white-space: nowrap`, and that row is
+    // a fixed slot in a height-budgeted panel.
+    check("...joined with a zero-width break opportunity, not a space",
+      tally.includes("</span><wbr><span class=\"queue-mini\"") && !/<\/span> <span/.test(tally),
+      tally);
+    check("...which the plant's one-line row removes from its own box tree",
+      declFor(".pl-queue b wbr", "display") === "none",
+      declFor(".pl-queue b wbr", "display") ?? "no rule");
+
+    // THE SIZING IS THE ROW'S OWN. The miniature is drawn in em off whatever
+    // type the surface sets — which on this row is --pl-val, the figure size
+    // the rule above gives it — so the drawing cannot be left behind by a
+    // change to the row's type the way a px argument at the call site would be.
+    // Both halves: the height in em, and the width off --mini-cols.
+    const miniW = declFor(".queue-mini > .piece-mini", "width");
+    const miniH = declFor(".queue-mini > .piece-mini", "height");
+    check("the manifest's miniatures are sized in em off the row's own figure",
+      miniH !== null && /^[\d.]+em$/.test(miniH)
+        && miniW !== null && /var\(--mini-cols\)/.test(miniW) && /em/.test(miniW),
+      `${miniW} / ${miniH}`);
+    // ...and the cell that produces at the row's floor is the number the
+    // legibility argument rests on: half the drawing's height, so 0.5em of a
+    // 13px figure is 6.5px, against ~3px for a cell reading as separate from
+    // its neighbour. Recomputed here rather than restated, so a smaller
+    // drawing fails this instead of quietly shipping a smudge.
+    const cellEm = Number(miniH?.replace("em", "")) / 2;
+    check("...which leaves a cell of at least 3px at the row's 13px floor",
+      cellEm * (figVal?.floor ?? 0) >= 3,
+      `${(cellEm * (figVal?.floor ?? 0)).toFixed(2)}px`);
+  }
+
+  // ---- 4. THE TEACHING CARD IS A LAYER, NOT A REPLACEMENT ----------------
   // The owner's second report. The card was the plant's first child in the
   // panel's own FLOW, and a `[data-carded]` rule took every readout block out
   // of the column beneath it — so while a card was up the panel WAS the card.

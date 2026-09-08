@@ -7203,7 +7203,8 @@ class App {
         .hudEl("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", supply <= S.LOW_SUPPLY_WARN);
       // The remaining manifest, re-rendered only when it actually changes —
-      // it's HTML (colored per piece type), so this can't go through `set`.
+      // it's HTML (a piece miniature and a count per type), so this can't go
+      // through `set`.
       if (pattern) {
         const tally = this.hudEl<HTMLElement>("#hud-queue");
         const html = S.queueTallyHTML(g.piecesRemaining);

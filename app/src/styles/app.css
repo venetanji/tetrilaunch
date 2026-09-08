@@ -5220,6 +5220,15 @@ body.crt-off #app::after { display: none; }
   min-width: 0; flex: 1 1 auto;
 }
 .pl-queue b::-webkit-scrollbar { display: none; }
+/* THE ROW DOES NOT TAKE THE TALLY'S BREAK OPPORTUNITIES. queueTallyHTML joins
+   its pairs with `<wbr>` so the Contract card's narrow supply column can wrap a
+   long manifest onto a second line (app.css's MANIFEST TALLY section). A `<wbr>`
+   breaks a line even inside `white-space: nowrap` — that is the element's whole
+   job — and this row must not break: it is a fixed slot in a height-budgeted
+   panel, and a second line here is 17px the plant does not have. Removing the
+   element from the box tree removes the opportunity with it, which leaves the
+   row exactly what it has always been, a single line that scrolls its tail. */
+.pl-queue b wbr { display: none; }
 
 /* ---------- Notches: the run's ratcheted axes, one dense line --------------
    Built on the manifest row above, for the same reason it exists: a list whose
@@ -5573,7 +5582,7 @@ body.crt-off #app::after { display: none; }
    out to flatter a desktop. */
 .hud:not(.hud--contract) .pl-notch b { top: 0; }
 
-/* ---------- R5: THE CONTRACT PANEL'S TWO SMALLEST ROWS ---------------------
+/* ---------- R5: THE CONTRACT PANEL'S SMALLEST ROWS -------------------------
    Reported off an iPhone X, verbatim: "in contracts the tiers has labels with
    fonts too small". Measured on that device before this rule, `hud-contract`:
    `.pl-notch` ("BAY · CLEAN BAY") and `.pl-tier` ("TIER 1 · 0/3 ⟨salvage⟩15")
@@ -5587,6 +5596,18 @@ body.crt-off #app::after { display: none; }
    panel was reading at two different scales at once and the smaller one was
    the one nobody could read.
 
+   THE THIRD ROW CAME BACK A RELEASE LATER, from the same reader and about the
+   same panel: with `.pl-notch` and `.pl-tier` at 9-13px, `.pl-queue` — the
+   pattern Contract's remaining manifest, and the only row of the three that
+   is a LIST — was left alone on the shell's 6px floor and became visibly the
+   smallest thing on the panel. It is in this rule now, and its VALUE changed
+   shape at the same time: it was coloured letters and "×n" text and it is a
+   run of piece miniatures with counts (screens.ts's queueTallyHTML, sized in
+   app.css's MANIFEST TALLY section). The two moves are one answer to one
+   defect — a letter at 6px is unreadable and a letter at 13px does not fit
+   seven of itself on a phone, while a drawing is legible at a size a
+   letterform is not and costs less width than the letter it replaces.
+
    SCOPED TO `.hud--contract`, which is both Contract bays and every Flight
    School lesson (hudHTML emits the Contract-shaped panel for both). The same
    three classes are the Deep Run's manifest tally, notch tally and — via the
@@ -5597,15 +5618,24 @@ body.crt-off #app::after { display: none; }
 
    TWO SIZES, NOT THREE, and the split is about what the VALUE is:
 
-     THE LABEL, both rows: max(9px, 10.7 * --fpx). The coefficient is unchanged
-     — it is `.pl-funds .lbl`'s, i.e. the panel's own label size, so nothing
-     above --fpx 0.841 moves by a pixel — and only the FLOOR is raised, 6px ->
-     9px, which is where the reported defect lives. The two labels that grow are
-     "BAY" and "TIER N", 19px -> 28px and 37px -> 56px on the narrowest panel in
-     the matrix (measured, iPhone 13 mini).
+     THE LABEL, all three rows: max(9px, 10.7 * --fpx). The coefficient is
+     unchanged — it is `.pl-funds .lbl`'s, i.e. the panel's own label size, so
+     nothing above --fpx 0.841 moves by a pixel — and only the FLOOR is raised,
+     6px -> 9px, which is where the reported defect lives. The labels that grow
+     are "BAY", "TIER N" and "LEFT", 19px -> 28px, 37px -> 56px and 25px -> 37px
+     on the narrowest panel in the matrix (measured, iPhone 13 mini).
 
-     THE TIER ROW'S VALUE steps up to max(13px, 19 * --fpx), because it is a
-     bounded FIGURE: 13 is the rail's own figure floor and 19 its mark
+     THE FIGURE ROWS' VALUES step up to max(13px, 19 * --fpx), because a
+     bounded FIGURE is what they carry — the tier's "1 0/3 ⟨salvage⟩15" and the
+     manifest's per-shape counts, both of them numbers the panel itself
+     generates and can size against. One declaration for the two of them, since
+     two figures on one panel at two sizes is the defect this section opened
+     with. On the manifest row that number also sizes the MINIATURES beside it,
+     which are drawn in em (the MANIFEST TALLY section works the width out): the
+     tightest cell it produces is 6.5px at the 13px floor, against a ~3px floor
+     for one cell reading as separate from its neighbour.
+
+     THE TIER ROW in particular: 13 is the rail's own figure floor and 19 its mark
      coefficient. `.pl-tier`'s note above proves the value cannot overflow, and
      the proof survives at this size — measured on the 13 mini, label + gap +
      value is 122px of the 277px `.plant__body` actually gives the row (56 + 4 +
@@ -5648,8 +5678,17 @@ body.crt-off #app::after { display: none; }
    13 mini's set-piece Contract, 144px -> 146px (0.4296 -> 0.4359 of the field,
    against a 0.50 ceiling), which still leaves 35.2px of clear field under the
    belt where the floor is 10. sim/uifit's `plant` clause checks both directions
-   and that clearance, on all nineteen devices. */
-.hud--contract :is(.pl-notch, .pl-tier) {
+   and that clearance, on all nineteen devices.
+
+   AND THE MANIFEST ROW COSTS IT ONE DEVICE'S 1.3px. Re-measured across the
+   whole matrix when that row joined: it grows 8px -> 17px (21 -> 36 at 1920),
+   i.e. exactly the tier row's height, and the panel is still on its 0.4296 floor
+   on twenty of the twenty-one devices. The exception is the iPhone 13 mini,
+   whose pattern Contract goes 144.0px -> 145.3px — 0.4296 -> 0.4334 of the
+   field against the 0.50 ceiling, the smallest of the three growths this
+   section has now paid for. The row's WIDTH is the interesting cost and it is
+   worked out where the width is set, in the MANIFEST TALLY section. */
+.hud--contract :is(.pl-queue, .pl-notch, .pl-tier) {
   /* Named, because the optical correction below is a function of BOTH. */
   --pl-lbl: max(9px, calc(10.7 * var(--fpx)));
   font-size: var(--pl-lbl);
@@ -5660,8 +5699,14 @@ body.crt-off #app::after { display: none; }
    collapses to `--pixel-optical-drop` here exactly as it does on every other
    same-size row in the panel. */
 .hud--contract .pl-notch { --pl-val: var(--pl-lbl); }
-.hud--contract .pl-tier { --pl-val: max(13px, calc(19 * var(--fpx))); }
-.hud--contract :is(.pl-notch, .pl-tier) > b { font-size: var(--pl-val); }
+/* THE TWO FIGURE ROWS, IN ONE RULE. The tier's "1 0/3 ⟨salvage⟩15" and the
+   manifest's counts are the same kind of value — bounded numbers the panel
+   itself generates — so they take the same size, and they take it from the same
+   declaration rather than from two copies of one expression. Two figures on one
+   panel at two sizes is the defect this section was opened to fix, and a
+   repeated expression is how a panel drifts back into it. */
+.hud--contract :is(.pl-queue, .pl-tier) { --pl-val: max(13px, calc(19 * var(--fpx))); }
+.hud--contract :is(.pl-queue, .pl-notch, .pl-tier) > b { font-size: var(--pl-val); }
 /* THE SALVAGE GLYPH RIDES ITS FIGURE. `salvageHTML(milestone, 9)` writes 9 into
    the SVG's own width/height attributes, which is what `.pl-tier`'s note
    measures the row's line box against — a fixed 9px mark beside a 6px number
@@ -5697,7 +5742,7 @@ body.crt-off #app::after { display: none; }
    `position: relative` and `top` for the reason the base rule gives: the
    correction is optical and the panel's height is measured to the row box, so
    nothing may actually move. */
-.hud--contract :is(.pl-notch, .pl-tier) > b {
+.hud--contract :is(.pl-queue, .pl-notch, .pl-tier) > b {
   top: calc(0.367 * var(--pl-val) - 0.5625 * var(--pl-lbl));
 }
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
@@ -9442,6 +9487,115 @@ button.panel { color: var(--text); }
   .salvage-row__amt { font-size: 18px; }
   .salvage-row__body { gap: 2px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
+}
+
+/* ============================================================================
+   THE MANIFEST TALLY (screens.ts's queueTallyHTML) — ONE component on three
+   surfaces: the Contract board card (the set you are accepting), the plant
+   panel's LEFT row (what is still owed) and the end card's stat (what you had).
+
+   It used to be coloured letters and "×n" text, and the argument for that is in
+   queueTallyHTML's own note along with the two things that retired it. What
+   lands here is the consequence: the tally is now a run of piece MINIATURES
+   (components.ts's pieceMiniHTML), each with a mono count beside it, and this
+   section is the whole of how it is sized.
+
+   SIZED IN EM, NEVER IN PX, so the component has no opinion about which surface
+   it is on and every surface keeps the type scale it already had. One cell is
+   half the drawing's height and the drawing is 1em tall, so a miniature stands
+   exactly as tall as the em box of the figure beside it:
+
+     the plant's LEFT row   --pl-val = max(13px, 19 * --fpx)  ->  cell 6.5-14px
+     the board card         --fs-sm 14px (--fs-xs 12 short)   ->  cell 7px
+     the end card's stat    15px (12px under 480px of height) ->  cell 6-7.5px
+
+   1em AND NOT THE 0.734em CAP HEIGHT the row's optical correction is derived
+   from, which is what this was first drawn at. A cap-height miniature is
+   exactly as tall as the digit's ink and reads as SMALLER than it — the digit
+   has a whole em box of air around it and the drawing has none — so the count
+   became the loud half of a pair whose subject is the shape. At 1em the two
+   carry the same weight, and it costs the row nothing in height: the line box
+   is the mono strut's, which is taller than 1em at every size here, so the row
+   still measures the tier row's 17px on every phone in the matrix.
+
+   The floor that matters is the CELL, not the drawing: below ~3px a cell stops
+   separating from its neighbour and an S, a Z and a T become one smudge. The
+   tightest cell any surface produces is the plant row's on its 13px floor, i.e.
+   6.5px — twice the floor, on the device that reported the defect.
+
+   WIDTH COMES FROM THE PIECE. pieceMiniHTML puts the column count on the
+   element as `--mini-cols` precisely so this can be exact rather than left to
+   the engine's intrinsic-ratio sizing of a viewBox — one cell is half the
+   drawing's height by construction, so the width is cols * 0.5em and an I is
+   twice an O without either being scaled.
+
+   THE PAIR IS ONE OBJECT, and inline layout gives that away for nothing: a
+   replaced element sits its bottom edge on the text baseline, so the crates
+   stand on the line their counts sit on and the whole run rides the row's own
+   baseline with them. The gaps are what say which count belongs to which shape:
+   0.22em inside a pair against 0.6em between pairs, i.e. nearly triple, which
+   is the ratio the eye needs to group a pair without a separator character
+   between them.
+
+   THE COUNT IS NOT IN A CHIP, which is the one thing here that was asked for
+   and is not what shipped. A filled badge was drawn, measured and rejected on
+   both counts it could be judged on: at the plant row's 13px it is a lit box
+   around a single digit standing next to a 6.5px cell, so the loudest thing on
+   the panel is the number 1 seven times over; and its padding costs 0.44em a
+   pair, which is 26px of the 200px the narrowest row in the matrix has — a
+   whole piece's worth of width spent on a frame around a digit. What the badge
+   was for, saying which count belongs to which shape, is done by the gap ratio
+   above for nothing.
+
+   BOTH GAPS ARE THIS STYLESHEET'S, because the renderer joins with `<wbr>` and
+   not with a space. A space is a line-break opportunity the board card needs
+   (it is a narrow column and its supply line has always wrapped), but it is
+   also ~0.6em of mono per join that the plant panel's row cannot spare — six
+   joins is a whole piece's width. `<wbr>` breaks and costs nothing, so the
+   separation is a margin, which can be set against the intra-pair gap instead
+   of being whatever a space happens to measure in three different faces.
+
+   WHAT IT COSTS THE PLANT'S ROW, measured at the 13px floor every phone in the
+   matrix lands on: a pair is its miniature plus 10.7px of gap and count, and a
+   join is 7.8px. A pattern Contract mixes at most FOUR shapes (contracts.ts's
+   patternVariety), and that worst case — four shapes, one of them a two-digit
+   count — fits WHOLE inside the narrowest row in the matrix, the 640x360 budget
+   phone's 200px, with the 212px iPhone SE 3 and 217px 13 mini behind it. What
+   does not fit is the `hud-contract` fixture's deliberately over-wide six
+   (223px, so 23px behind the tail there, 11 on an SE, 6 on a 13 mini, and whole
+   on the other eighteen devices) and the renderer's seven-type ceiling, which
+   no Contract generates, at 262px. That is what `.pl-queue b`'s `overflow-x:
+   auto` is for and why it stays — and it is not licence for the real case to
+   need it, which is why the numbers above are in this comment.
+   ========================================================================== */
+/* PLAIN INLINE, NOT A FLEX BOX. The alignment this component needs is the one
+   inline layout already performs: a replaced element sits its bottom margin
+   edge ON the text baseline, which is exactly where a crate belongs, and the
+   count beside it is text on that same baseline. A flex box would have to be
+   told to do that (`align-items: baseline`), told not to squash the drawing on
+   a crowded row (`flex: none`), and it would still hand the count a blockified
+   LINE box where inline layout hands it a text box. Nothing here is laid out in
+   two dimensions; there is nothing for a flex container to decide.
+
+   `white-space: nowrap` because the one break a manifest must never take is
+   between a shape and its own count — the pairs are joined with `<wbr>` so the
+   line CAN break, and every break opportunity has to fall between pairs. */
+.queue-mini { white-space: nowrap; margin-right: 0.6em; }
+/* The last pair's trailing margin taken back off, so the run's own width is
+   exactly its items and the row's scroller has nothing past the final count to
+   scroll to. */
+.queue-mini:last-child { margin-right: 0; }
+.queue-mini > .piece-mini { width: calc(var(--mini-cols) * 0.5em); height: 1em; margin-right: 0.22em; }
+/* THE COUNT. Mono and bold because it is a figure and every other figure on
+   these three surfaces is — restated here rather than inherited, because the
+   plant row's own `b` sets both and the card and the end stat do not. `--text`
+   and not the piece's colour: seven hues of digit is the letter tally this
+   replaced, and theme.ts's palette note is explicit that colour is a
+   first-glance hint here while shape identifies. The shape is doing that job
+   0.22em to its left. */
+.queue-mini__n {
+  font-family: var(--font-mono); font-weight: var(--fw-bold);
+  color: var(--text);
 }
 
 /* ============================================================================
