@@ -6558,7 +6558,7 @@ export function drillEndModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--warn)"}">${opts.topic} · Drill</div>
         <h2 class="display">${opts.won ? "Lesson Landed" : "Run It Again"}</h2>
-        <p class="muted" style="margin-top:-6px">${opts.won ? `${opts.name} cleared. Nothing was banked and nothing was spent — a drill never touches your save.` : opts.brief}</p>
+        <p class="muted end__lede">${opts.won ? `${opts.name} cleared. Nothing was banked and nothing was spent — a drill never touches your save.` : opts.brief}</p>
         ${stats}
       </div>
       <div class="row end__actions">
@@ -6594,7 +6594,7 @@ export function draftIntroModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:var(--warn)">Bay cleared · the ratchet</div>
         <h2 class="display">Pick your poison</h2>
-        <p class="muted" style="margin-top:-6px">
+        <p class="muted end__lede">
           Every bay you clear deals <b>${opts.offered} difficulty axes</b>, and you must take
           ${opts.picks === 1 ? "a notch on <b>one</b>" : `<b>${opts.picks}</b> notches`}.
           It sticks for the <b>rest of the run</b>, and each further notch on the same axis
@@ -6631,7 +6631,7 @@ export function refitIntroModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:var(--accent)">The refit yard</div>
         <h2 class="display">Spend it all</h2>
-        <p class="muted" style="margin-top:-6px">
+        <p class="muted end__lede">
           <b>${opts.stops} times a run</b> the bay ends here instead of at the next one.
           Scrap buys rungs of the systems you brought, and everything you buy lasts the
           <b>whole run</b>.
@@ -6678,7 +6678,7 @@ export function contractsIntroModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:var(--accent)">The Contract Board</div>
         <h2 class="display">Free to fail</h2>
-        <p class="muted" style="margin-top:-6px">
+        <p class="muted end__lede">
           <b>${opts.daily} a day</b>, from a shared seed — everyone gets the same three.
           <b>No clock and no bankroll</b>: what limits you is a launch budget, so a lost
           attempt costs nothing and you can retry as often as you like.
@@ -6723,7 +6723,7 @@ export function systemDrillOfferModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:var(--success)">Installed · ${opts.name}</div>
         <h2 class="display">Try it?</h2>
-        <p class="muted" style="margin-top:-6px">${opts.brief}</p>
+        <p class="muted end__lede">${opts.brief}</p>
       </div>
       <div class="row end__actions">
         <button class="btn btn--primary" data-action="sys-drill-go">${opts.drill} →</button>
@@ -6819,7 +6819,7 @@ export function lessonEndModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--warn)"}">Flight School · ${opts.index + 1}/${opts.total}</div>
         <h2 class="display">${title}</h2>
-        <p class="muted" style="margin-top:-6px">${blurb}</p>
+        <p class="muted end__lede">${blurb}</p>
         ${stats}
       </div>
       <div class="row end__actions">
@@ -6957,7 +6957,7 @@ export function contractEndModal(opts: {
         <div class="end__main">
           <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
           <h2 class="display">${heading}</h2>
-          <p class="muted" style="margin-top:-6px">${why}</p>
+          <p class="muted end__lede">${why}</p>
           ${stats}
         </div>
         <div class="row end__actions">
@@ -7066,7 +7066,7 @@ export function contractEndModal(opts: {
       <div class="end__main">
         <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
         <h2 class="display" style="color:var(--success)">Contract Complete</h2>
-        <p class="muted" style="margin-top:-6px">
+        <p class="muted end__lede">
           ${
             pattern
               ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`

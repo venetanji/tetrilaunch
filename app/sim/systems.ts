@@ -6589,20 +6589,29 @@ section("The R4 plant readout (screens.ts, components.ts, app.css)");
     const bareCss = r4Css.replace(/\/\*[\s\S]*?\*\//g, "");
     const badge = bareCss.slice(bareCss.indexOf(".pl-notch__n {"));
     const box = badge.slice(0, badge.indexOf("}"));
-    const px = (prop: string): number =>
-      Number(box.match(new RegExp(`${prop}:\\s*(\\d+(?:\\.\\d+)?)px`))?.[1] ?? NaN);
     check("the stack badge is sized against the mark, not against --fpx",
       !/(min-width|height|font-size):[^;]*--fpx/.test(box),
       box.replace(/\s+/g, " "));
-    // The mark's box read off the RENDERED tally rather than off
-    // components.ts's constant, for the reason the size section above states:
-    // a check that imported NOTCH_MARK_PX would agree with any value it ever
-    // takes. This one compares two independent numbers.
+    // THE MARK SCALES NOW (`.pl-notch { --notch-mark: max(18px, ...) }`), so
+    // the badge is held as a FRACTION of that token rather than as a pixel
+    // count under a fixed 18: every one of its three sizes must be written
+    // `calc(var(--notch-mark) * N / 18)` with N below 18, which is the same
+    // "strictly under the mark" claim at every --fpx at once. The floor is
+    // read back too — the phone keeps the 18px the SVG attribute states.
+    const frac = (prop: string): number => {
+      const m = box.match(new RegExp(`${prop}:\\s*calc\\(var\\(--notch-mark\\) \\* (\\d+) / 18\\)`));
+      return m ? Number(m[1]) / 18 : NaN;
+    };
     const markPx = Number(badged.match(/width="(\d+)"/)?.[1] ?? NaN);
-    check("...and stays inside the glyph it annotates",
-      markPx > 0 && px("min-width") > 0 && px("min-width") < markPx
-        && px("height") > 0 && px("height") < markPx,
-      `${px("min-width")}x${px("height")} on a ${markPx}px mark`);
+    const markRule = bareCss.match(/\.pl-notch \{ --notch-mark: max\((\d+)px, calc\((\d+) \* var\(--fpx\)\)\); \}/);
+    check("the mark scales with the panel and floors at the SVG's own size",
+      markRule !== null && Number(markRule[1]) === markPx && Number(markRule[2]) > markPx,
+      `${markRule?.[0] ?? "no --notch-mark rule"} against a ${markPx}px attribute`);
+    check("...and the badge stays inside the glyph it annotates, at every size",
+      frac("min-width") > 0 && frac("min-width") < 1
+        && frac("height") > 0 && frac("height") < 1
+        && frac("font-size") > 0 && frac("font-size") < frac("height"),
+      `${frac("min-width")}x${frac("height")} of the mark, text ${frac("font-size")}`);
   }
 
   // ---- 6. THE TWO NEW GLYPHS ---------------------------------------------

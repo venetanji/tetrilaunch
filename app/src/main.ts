@@ -2760,7 +2760,15 @@ class App {
     // down at the floor it was already parked on, rather than sliding somewhere
     // first. Riding back to a Mark writes the index again and the lift comes up.
     const off = tier === S.SANDBOX_TIER;
-    if (!off) shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(tier)));
+    // THE LOBBY IS NOT A LANE. tierTowerHTML parks the lobby's car on floor 1
+    // (the lift does not serve the ground floor — see towerIndexOf's note),
+    // and this in-place update wrote towerIndexOf(LICENCE_TIER) instead: "one
+    // past the ground floor", a twelfth lane the shaft does not have. Picking
+    // a Mark and then the lobby sent the car past floor 1, over the plate and
+    // out of the box (reported with a screenshot). Same mapping as the mount,
+    // so the two can never disagree about where the lobby parks the car.
+    const lane = tier === S.LICENCE_TIER ? 1 : tier;
+    if (!off) shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(lane)));
     shaft.parentElement?.classList.toggle("tower--off", off);
     // The headhouse is in this list because it is a floor (screens.ts) — left
     // out, riding to the roof would light nothing and riding away from it would

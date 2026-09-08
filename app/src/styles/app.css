@@ -5318,6 +5318,23 @@ body.crt-off #app::after { display: none; }
    bane-red, number axes tradeoff-amber. It is the fastest thing in the row to
    read and it survives the shrink from a chip to two letters. */
 .pl-notch__ax { flex: none; display: inline-flex; align-items: center; gap: 1px; position: relative; }
+/* THE MARK SCALES WITH THE PANEL, floored where --fpx is smallest. It shipped
+   at a fixed 18px (components.ts's NOTCH_MARK_PX is still the SVG's own
+   attribute, and the floor here), chosen to stay legible on a phone — and on
+   a laptop at fullscreen, beside a 24 * --fpx total and 30 * --fpx rail
+   figures, an 18px axis glyph was the one thing on the readout that had not
+   grown ("desktop icon size for the ladder grid is too small"). 26 world px
+   is the rail mark's own coefficient plus the badge's overhang, so at 1920
+   the axis draws at ~37px against a 34px total. One token, because the badge
+   below is a FRACTION of it and the two must move together. */
+.pl-notch { --notch-mark: max(18px, calc(26 * var(--fpx))); }
+/* Both kinds of mark: the number axes draw icons.ts glyphs (`.ico`), the
+   content axes draw the material's own belt glyph (`.mat-icon`, from
+   components.ts's materialIconHTML). Scaling one and not the other is how
+   the Tier 10 tally at 1920 rendered its cryo/slag/rebar marks as badges
+   with nothing behind them: the badge had grown with the token and the
+   18px material glyph had not. */
+.pl-notch__ax .ico, .pl-notch__ax .mat-icon { width: var(--notch-mark); height: var(--notch-mark); }
 .pl-notch__ax.k-bane { color: var(--danger); }
 .pl-notch__ax.k-tradeoff { color: var(--warn); }
 /* The Final Inspection's clause on the last bay — same violet as its card, so
@@ -5378,17 +5395,15 @@ body.crt-off #app::after { display: none; }
   position: absolute; right: 0; bottom: 0;
   display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--font-mono); font-weight: 700;
-  /* FIXED PIXELS, not `--fpx`, and this is the one rule on the panel where that
-     is right: the badge is scaled against the MARK it sits on, and the mark is
-     a fixed 18px (components.ts's NOTCH_MARK_PX — deliberately not proportional,
-     because it exists to stay legible where --fpx is smallest). A proportional
-     badge therefore grows away from a mark that does not, and at the top of the
-     range it eats the drawing it is annotating: at 1920x1080, --fpx is 1.434 and
-     `12 * --fpx` is a 17.2px opaque box over an 18px glyph, which rendered the
-     Tier 10 tally as a row of numbers with no axes behind them at all.
-     10 on 18 is the mark's bottom-right quarter plus a pixel of overhang, which
-     is where the badge was designed to sit. */
-  font-size: 8px; min-width: 10px; height: 10px;
+  /* A FRACTION OF THE MARK, never of --fpx on its own. Written as `12 * --fpx`
+     against a mark that did not scale, the badge grew away from its glyph and
+     at 1920x1080 a 17.2px opaque box sat over an 18px drawing — the Tier 10
+     tally rendered as numbers with no axes behind them. Now the mark scales
+     (--notch-mark above) and the badge is 10/18 of whatever it is, so it stays
+     in the mark's bottom-right quarter plus a pixel of overhang at every size.
+     sim/systems.ts reads the ratio back and holds it under one. */
+  font-size: calc(var(--notch-mark) * 8 / 18);
+  min-width: calc(var(--notch-mark) * 10 / 18); height: calc(var(--notch-mark) * 10 / 18);
   line-height: 1; padding: 0;
   color: var(--text); background: var(--bg-deep);
   border: 1px solid currentColor; border-radius: var(--r-sm);
@@ -6743,6 +6758,7 @@ body.crt-off #app::after { display: none; }
   .modal { padding: clamp(10px, 3vh, 20px); gap: var(--sp-2); }
   .modal .btn { padding: 10px 20px; }
   .modal h2 { font-size: clamp(18px, 4.5vh, 32px); }
+
   .stat-row { margin: 0; }
   .stat b { font-size: 20px; }
   .submit-row .name-input,
@@ -6767,6 +6783,27 @@ body.crt-off #app::after { display: none; }
    .end itself needs the same treatment as the grid between them. */
 .end { min-height: 0; }
 .end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* THE LEDE UNDER A DISPLAY TITLE. The intro and result cards open eyebrow →
+   title → one paragraph, and the paragraph used to carry `margin-top:-6px`
+   inline on every one of them: written against the 44px desktop title, whose
+   0.95 line-height leaves that much descender air under it. At the compact
+   tier the title is 18px and has no such air, so the same -6px pulled the
+   paragraph onto the title's baseline and the eyebrow sat on its cap height —
+   three lines of three faces with no space between them (reported from an
+   iPhone X: "the font spacing in the title is off"). One class, so the
+   negative margin can be taken back where the title is small. */
+.end__lede { margin-top: -6px; }
+/* ...AND TAKEN BACK WHERE THE TITLE IS SMALL. Declared here, AFTER the base
+   rule, because the compact @media block further up loses to it on source
+   order at equal specificity — measured: inside that block the override left
+   the lede at -6px and the paragraph's top 2px INSIDE the title's box on a
+   780x360 phone. 2px on each side of the title against the column's 4px gap
+   gives the three lines 6px of air, which is what the desktop's descender
+   room amounts to. */
+@media (max-height: 480px) {
+  .end__lede { margin-top: 2px; }
+  .end__main > h2 { margin-top: 2px; }
+}
 /* …AND THE HEIGHT HALF BELONGS TO THE SIDE COLUMN ONLY. It was on both, and
    that is the whole of the Tier S banner bug: the two columns are not
    symmetric. `.end__side` has somewhere to put a squeeze — #lb-body is on the
