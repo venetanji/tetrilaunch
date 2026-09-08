@@ -1304,7 +1304,24 @@ export type LessonGoal =
   /** Rows awarded this band or better, across the bay. */
   | { kind: "grade"; grade: ClearGrade; count: number }
   /** A combo streak reaching this length. */
-  | { kind: "combo"; to: number };
+  | { kind: "combo"; to: number }
+  /** CONSECUTIVE TIMED CRUSHES reaching this length — the SET PIECE Contract's
+   *  condition (contracts.ts), and the one member of this union that is not a
+   *  Flight School bay's.
+   *
+   *  It rides the same field rather than getting a Contract-only dial of its
+   *  own, and the field's own note above is the argument: `objectiveLines`
+   *  counts rows and `targetScore` counts money, so a bay whose pass condition
+   *  is neither has exactly one seam to hang it on. A second seam beside this
+   *  one would give game.ts's objectiveMet a fourth branch saying the same
+   *  thing in different words, and the two would drift the first time either
+   *  moved.
+   *
+   *  Distinct from "combo", which the streak lesson asks for, and the
+   *  difference is the whole Contract: a combo advances on ANY crush, so it is
+   *  a streak of CLEARS; this advances only on a crush the player beat the
+   *  press to (grades.ts's TIMED_BAND), so it is a streak of SHOTS. */
+  | { kind: "timedStreak"; to: number };
 
 /** Per-shipment probability of each non-standard material. See
  *  LevelConfig.materialMix. */
@@ -1519,8 +1536,14 @@ export function chainRungsFor(level: {
   // own maximum has no such problem — padding a combo-of-three goal up to the
   // floor would leave a dark rung at the end of a bay that cannot light it,
   // which is the whole defect being fixed.
-  if (level.lessonGoal?.kind === "combo") {
-    return Math.max(1, Math.min(CHAIN_RUNGS_MAX, Math.round(level.lessonGoal.to)));
+  // BOTH STREAK GOALS ON ONE BRANCH, because they make the same claim about the
+  // row: this bay's ladder ends where its goal does. The streak lesson asks for
+  // a combo of N; a SET PIECE Contract asks for N TIMED crushes in a row and
+  // draws the same ladder against the same rungs — game.ts's `chainCount` is
+  // what decides which of the two streaks lights them.
+  const streak = level.lessonGoal;
+  if (streak && (streak.kind === "combo" || streak.kind === "timedStreak")) {
+    return Math.max(1, Math.min(CHAIN_RUNGS_MAX, Math.round(streak.to)));
   }
   // No funding target to solve against (a Contract, a drill, a scaffolded
   // lesson — targetScore is MAX_SAFE_INTEGER there) or no price on a line.

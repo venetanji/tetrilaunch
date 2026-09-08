@@ -540,7 +540,7 @@ const LESSON_HUD = (l: (typeof LESSONS)[number]) => ({
   name: l.name,
   kind: "lines" as const,
   goal: l.goal
-    ? (l.goal.kind === "atOnce" ? l.goal.lines : l.goal.kind === "combo" ? l.goal.to : l.goal.count)
+    ? (l.goal.kind === "atOnce" ? l.goal.lines : l.goal.kind === "grade" ? l.goal.count : l.goal.to)
     : l.lines,
   lines: 1,
   goalLabel: l.goalLabel,
@@ -852,6 +852,14 @@ export const SCREENS: Record<string, () => string> = {
   workshop: () => S.workshopScreen(midMeta()),
   "workshop-owned": () => S.workshopScreen(ownedMeta()),
 
+  // THE BOARD, AND IT IS A SET-PIECE BOARD — 20260815 is an odd day and tier 3
+  // is past SETPIECE_MIN_TIER, so contracts.ts's alternation deals Lines / Set
+  // Piece / Pattern here rather than Lines / Lines / Pattern. Kept on this seed
+  // deliberately rather than moved to an even one: three DIFFERENT card kinds
+  // side by side is the widest the board's card grid ever has to be, since the
+  // set piece's ask ("3 timed in a row") is the longest unit string any card
+  // renders and the kind chip "Set Piece" the longest kind label. An even-day
+  // board is the same grid with two identical cards in it.
   contracts: () =>
     S.contractsScreen({
       contracts: dailyContracts(3, 20_260_815),
@@ -1123,6 +1131,53 @@ export const SCREENS: Record<string, () => string> = {
         // 9), and this is the longest set of notes the generator emits — 52
         // chars, measured across 400 seeds x tiers 1-12.
         conditions: "volatile shipments · tight launch budget · crosswind",
+        progress: PROGRESS,
+      },
+    }),
+
+  // THE THIRD CONTRACT KIND, and the only one that renders the CHAIN LADDER
+  // (contracts.ts's SET PIECE). It is the tallest of the three plant panels by
+  // exactly one row and the widest goal label of any Contract — "Best streak /
+  // Goal" against "Lines / Goal" — so it is the case that decides whether the
+  // readout's three columns still fit once the funds block's label grows.
+  //
+  // The ladder is deliberately SHORT here (rungs 3, the tier-7 ask) rather than
+  // CHAIN_AT_REST's 14: chainRungsFor returns exactly the goal on a set piece,
+  // and a fixture that measured the 14-rung row would be measuring a state this
+  // bay cannot reach while missing the one it always shows.
+  "hud-contract-setpiece": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      ratchets: {} as Ratchets,
+      // Everything a Contract cannot carry, for hud-contract's reasons exactly.
+      tiers: {} as UpgradeTiers,
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
+      thawOwned: false,
+      thawCharges: 0,
+      timeLimitSec: 0,
+      // MID-STREAK, not at rest: two rungs lit of three, which is the only
+      // state in which the ladder's lit, next and dark rungs are all on screen
+      // at once.
+      chain: { combo: 2, tierIdx: -1, capMult: 1, scorePerLine: 0, full: false, rungs: 3 },
+      contract: {
+        name: "Transfer Yard",
+        kind: "setpiece",
+        tier: 7,
+        goal: 3,
+        lines: 2,
+        goalLabel: "Best streak",
+        showCombo: true,
+        launchesLeft: 6,
+        remaining: [],
+        lost: 4,
+        // setpieceConditions at tier 7 — the longest the string gets, because N
+        // and the rack depth are both at their ladder maximum there
+        // (contracts.ts's RACK_DEPTHS).
+        conditions: "3 timed in a row · all I · 5-deep rack",
         progress: PROGRESS,
       },
     }),

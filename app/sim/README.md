@@ -884,6 +884,21 @@ roughly zero, and read GOOD as the arms' real separator.
 Results and the tuning argument: `design/balance/timed-clears.md`.
 Pictures of the callout: `sim/uifit/grade-shots.ts`.
 
+A fifth probe asks the timing band's other question — not "can a bot reach the
+band" but "can it reach it TWICE IN A ROW at the same trench".
+`_scratch-teeshot.ts` builds a SET PIECE bay (`contracts.ts`'s rack: a standing
+wall with one four-wide trench, an I-only belt) and reports clears, the timed
+share of them, and the distribution of `Game.bestTimedStreak`. Four arms:
+default sweeps rack depth against tier, `SHAPES=1` sweeps the lip split,
+`PLAN=1` (with `GRID`/`DEPTHS`/`BUDGETS`) sweeps the shipping candidates, and
+`SHIP=1` reads the depths and budgets straight off `contracts.ts` so the table
+in a commit message cannot drift from the code it is defending. It exists
+because the design's whole bet was a variance claim nobody had measured: the
+grid-wide launch-to-rest spread is 33-107 steps against a ~17-step crush window,
+so three timed rows fired blind is ~1% — and the claim was that the same arc at
+the same trench is far tighter than the grid-wide figure. It is (0.42-0.70 of
+clears land in the band), which is what made the Contract shippable.
+
 Four throwaway probes live beside it and are named in the findings:
 `_scratch-target.ts` (win rate AND seconds-to-win as a bay's target is
 multiplied — the calibration that chose the recalibrated curve),

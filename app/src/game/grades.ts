@@ -479,6 +479,34 @@ export function gradeTallyTotal(t: GradeTally): number {
 }
 
 /**
+ * THE TIMED BAND — the rung at or above which a row counts as "on the press".
+ *
+ * `timedShare` below is the single statistic the balance sweeps are steered by,
+ * and a row is in it when the player beat the press to it rather than letting
+ * the press find the row on its own. Named because a second surface now asks
+ * the same question of a single row rather than of a tally: a SET PIECE
+ * Contract's streak (contracts.ts) links on a TIMED crush and breaks on an
+ * untimed one, and a Contract that graded against its own private idea of
+ * "perfect" would be steering by a number no sweep reports.
+ */
+export const TIMED_BAND: ClearGrade = "good";
+
+/**
+ * Is `band` at or above `required`?
+ *
+ * ONE RANKING IN THE CODEBASE, which is the whole reason this is a function.
+ * GRADES is ordered best-first, so "at or above" is an index comparison — and
+ * it had been open-coded twice (game.ts's lesson goal took a slice of GRADES,
+ * timedShare below just named the two bands) before a third caller wanted it.
+ * A band ordering re-derived per consumer is a band ordering one consumer gets
+ * backwards, and the one that got it backwards would be the streak, where the
+ * comparison decides a win rather than a payout.
+ */
+export function meetsBand(band: ClearGrade, required: ClearGrade): boolean {
+  return GRADES.indexOf(band) <= GRADES.indexOf(required);
+}
+
+/**
  * The share of a tally's rows that were TIMED — excellent or good.
  *
  * The single statistic the balance sweeps are steered by, so it is defined once
@@ -488,5 +516,8 @@ export function gradeTallyTotal(t: GradeTally): number {
  */
 export function timedShare(t: GradeTally): number {
   const n = gradeTallyTotal(t);
-  return n > 0 ? (t.excellent + t.good) / n : 0;
+  if (n <= 0) return 0;
+  let timed = 0;
+  for (const g of GRADES) if (meetsBand(g, TIMED_BAND)) timed += t[g];
+  return timed / n;
 }

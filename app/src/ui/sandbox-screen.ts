@@ -46,7 +46,8 @@ import {
 import { MATERIAL_SPEC } from "../game/theme";
 import { formatMMSS, materialIconHTML } from "./components";
 import {
-  generateContract, levelForContract, PATTERN_SLOT, variantSpec,
+  generateContract, levelForContract, PATTERN_SLOT, SETPIECE_SLOT, variantSpec,
+  type Contract,
 } from "../game/contracts";
 import { levelForRun, RUN_LEVELS } from "../game/run";
 import { finalById } from "../game/finals";
@@ -169,10 +170,28 @@ function bayBriefing(s: SandboxState, meta: MetaState): string {
  *  generator so the panel and the LAUNCH button cannot drift. Regenerating on
  *  every render is free at this size and is what makes RESEED a one-tap way to
  *  walk the whole space one variant can produce at one tier. */
+/** The Contract the sandbox's current mode names, from the SHIPPING generator.
+ *
+ *  Exported so main.ts's launchSandbox reads the same call the briefing panel
+ *  previewed — the two used to be one ternary each, which is how a fourth mode
+ *  becomes a panel describing one bay and a button launching another. */
+export function sandboxContract(s: SandboxState): Contract {
+  if (s.target.kind === "pattern") {
+    return generateContract(s.seed, s.tier, PATTERN_SLOT, s.target.variant);
+  }
+  // FORCED, because the slot alone cannot summon it: the set piece alternates
+  // by the day (contracts.ts's setpieceDay), so asking for its slot on an even
+  // seed would hand back the lines Contract that slot holds. Its own tier floor
+  // still applies — below it the generator deals what the tier really has,
+  // which is the honest answer to "show me tier 1's set piece".
+  if (s.target.kind === "setpiece") {
+    return generateContract(s.seed, s.tier, SETPIECE_SLOT, undefined, true);
+  }
+  return generateContract(s.seed, s.tier, 0);
+}
+
 function contractBriefing(s: SandboxState): string {
-  const c = s.target.kind === "pattern"
-    ? generateContract(s.seed, s.tier, PATTERN_SLOT, s.target.variant)
-    : generateContract(s.seed, s.tier, 0);
+  const c = sandboxContract(s);
   const cfg = levelForContract(c);
   const wall = c.standing.reduce((a, h) => a + h, 0);
   return `<div class="sbx-brief">
@@ -182,7 +201,11 @@ function contractBriefing(s: SandboxState): string {
     } · ${c.pieceSize} shipments</div>
     <p class="sbx-brief__brief">${c.brief}</p>
     <div class="sbx-brief__facts">
-      ${factHTML("Goal", String(c.goal), "var(--accent)")}
+      <!-- The goal's UNIT is the kind's. A set piece's number is a run of
+           timed crushes, and a fact row reading "Goal 3" beside "Line 8 cells"
+           on a bay that clears a dozen rows would be the one number on this
+           panel a tester could read as the wrong thing. -->
+      ${factHTML(c.kind === "setpiece" ? "Streak" : "Goal", String(c.goal), "var(--accent)")}
       ${factHTML("Line", `${c.lineCells} cells`)}
       ${factHTML(c.kind === "pattern" ? "Queue" : "Launches",
         c.kind === "pattern" ? `${c.queue.length} pcs` : String(c.launches))}
@@ -194,7 +217,9 @@ function contractBriefing(s: SandboxState): string {
       refit — so the rig and axes above are ignored here. ${
         c.kind === "pattern"
           ? "The queue tiles the goal exactly: every shipment has a right place."
-          : "Retry it as often as you like; the seed is the puzzle."
+          : c.kind === "setpiece"
+            ? "The rack is the board and the press is the exam: only a row you beat the press to counts, and they have to arrive in a row."
+            : "Retry it as often as you like; the seed is the puzzle."
       }</p>
     <div class="sbx-brief__id">${c.id}</div>
   </div>`;
@@ -289,6 +314,13 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
       title: "A generated pattern Contract — a fixed queue that tiles the goal" },
     { value: "lines", text: "Lines", on: s.target.kind === "lines",
       title: "The tier's launch-budget Contract: clear lines inside a shot budget" },
+    // A FOURTH MODE, and it is here for a reason the other three did not have:
+    // the daily board deals a set piece only every other day (contracts.ts's
+    // setpieceDay), so the one Contract kind whose subject is a 100ms-scale
+    // judgement would otherwise be device-testable on half the days of the year.
+    // A tool for testing a bay has to be able to reach the bay.
+    { value: "setpiece", text: "Set Piece", on: s.target.kind === "setpiece",
+      title: "The tier's rigged bay: one trench, one shape, N timed rows in a row" },
   ];
 
   return `<div class="screen neon-backdrop">

@@ -27,6 +27,15 @@ export type SandboxTarget =
   | { kind: "pattern"; variant: ContractVariant }
   /** The chosen tier's launch-budget Contract (daily slot 0). */
   | { kind: "lines" }
+  /** The chosen tier's SET PIECE (contracts.ts) — the rigged bay that grades
+   *  the timing band.
+   *
+   *  It needs a mode of its own for a reason the other two do not: the daily
+   *  board only deals one every other day (contracts.ts's setpieceDay), so
+   *  without this the one Contract kind whose whole subject is a 100ms-scale
+   *  judgement could be device-tested on half the days of the year. A tool for
+   *  testing a bay must be able to reach the bay. */
+  | { kind: "setpiece" }
   /** A Deep Run bay, started directly at `bay` with the chosen rig. */
   | { kind: "bay"; bay: number };
 

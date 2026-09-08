@@ -447,6 +447,10 @@
     ".hud--contract .pl-notch value sits -0.79px above its label",
     ".pl-tier value sits -0.79px above its label"
   ],
+  "Android · Pixel Tablet|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
+  ],
   "Android · Pixel Tablet|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
     ".pl-queue value sits -0.79px above its label",
@@ -566,6 +570,10 @@
     ".tower__base 118x22"
   ],
   "Web · 1000x760 window|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.51px above its label",
+    ".pl-tier value sits -0.51px above its label"
+  ],
+  "Web · 1000x760 window|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.51px above its label",
     ".pl-tier value sits -0.51px above its label"
   ],
@@ -691,6 +699,10 @@
     ".draft__body scrolls 14px"
   ],
   "Web · 1269x663 windowed|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.60px above its label",
+    ".pl-tier value sits -0.60px above its label"
+  ],
+  "Web · 1269x663 windowed|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.60px above its label",
     ".pl-tier value sits -0.60px above its label"
   ],
@@ -831,6 +843,10 @@
     ".hud--contract .pl-notch value sits -0.61px above its label",
     ".pl-tier value sits -0.61px above its label"
   ],
+  "Web · 1280x720 laptop|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.61px above its label",
+    ".pl-tier value sits -0.61px above its label"
+  ],
   "Web · 1280x720 laptop|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.61px above its label",
     ".pl-queue value sits -0.61px above its label",
@@ -950,6 +966,10 @@
     ".tower__base 118x22"
   ],
   "Web · 1512x945 MacBook|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.73px above its label",
+    ".pl-tier value sits -0.73px above its label"
+  ],
+  "Web · 1512x945 MacBook|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.73px above its label",
     ".pl-tier value sits -0.73px above its label"
   ],
@@ -1075,6 +1095,10 @@
     ".hud--contract .pl-notch value sits -0.95px above its label",
     ".pl-tier value sits -0.95px above its label"
   ],
+  "Web · 1920x1080 desktop|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.95px above its label",
+    ".pl-tier value sits -0.95px above its label"
+  ],
   "Web · 1920x1080 desktop|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.95px above its label",
     ".pl-queue value sits -0.95px above its label",
@@ -1194,6 +1218,10 @@
     ".tower__base 118x22"
   ],
   "Web · 2560x1080 ultrawide|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.99px above its label",
+    ".pl-tier value sits -0.99px above its label"
+  ],
+  "Web · 2560x1080 ultrawide|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.99px above its label",
     ".pl-tier value sits -0.99px above its label"
   ],
@@ -1478,6 +1506,10 @@
     ".hud--contract .pl-notch value sits -0.70px above its label",
     ".pl-tier value sits -0.70px above its label"
   ],
+  "iOS · iPad Pro 12.9|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
+  ],
   "iOS · iPad Pro 12.9|hud-contract|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
     ".pl-queue value sits -0.70px above its label",
@@ -1597,6 +1629,10 @@
     ".tower__base 118x22"
   ],
   "iOS · iPad mini|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
+  ],
+  "iOS · iPad mini|hud-contract-setpiece|inkline": [
     ".hud--contract .pl-notch value sits -0.52px above its label",
     ".pl-tier value sits -0.52px above its label"
   ],

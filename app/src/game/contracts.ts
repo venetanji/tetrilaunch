@@ -31,7 +31,10 @@
  */
 import { buildOrder } from "./buildable";
 import { HAZARDS } from "./hazards";
-import { makeBaseLevel, NO_MATERIALS, WIND_GUST_FRACTION, type LevelConfig } from "./level";
+import { applyBayDials } from "./drills";
+import {
+  makeBaseLevel, NO_MATERIALS, PILE_TIERS, WIND_GUST_FRACTION, type LevelConfig,
+} from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
 import { bayMusic, RUN_LEVELS, type BayTrack } from "./run";
@@ -229,8 +232,17 @@ export function contractBed(c: Contract, rng: () => number = Math.random): Contr
  *                object, which turns the bay into a planning problem instead of
  *                a physics grind. Deep Run can't copy this — its queue has to
  *                stay random for its own reasons.
+ *  - "setpiece"  — the bay is RIGGED and the belt deals one shape forever, so
+ *                the only thing left to decide is WHEN. Close N rows in a row,
+ *                each one beating the press to it. A launch budget again,
+ *                because what can run out is shots.
+ *
+ *                The two halves are one idea: you cannot demand a well-timed
+ *                shot from a random field, and you can from an authored one.
+ *                The set piece removes the WHERE so the Contract can grade the
+ *                WHEN — see the SET PIECE section below.
  */
-export type ObjectiveKind = "lines" | "pattern";
+export type ObjectiveKind = "lines" | "pattern" | "setpiece";
 
 /** Materials a Contract may ship. Slag is excluded STRUCTURALLY, not by policy:
  *  a slag cube can never count toward a line (theme.ts's countsForLines), so no
@@ -1172,6 +1184,403 @@ function patternConditions(
   }
 }
 
+/* -------------------------------------------------------------------------
+ * SET PIECE CONTRACTS — the rigged bay that grades WHEN.
+ *
+ * Every other Contract grades WHERE. Lines asks you to put enough cargo in
+ * enough rows; pattern asks you to put exactly this cargo in exactly these
+ * cells. Both are placement problems, and the timing grade (grades.ts) — the
+ * one axis the whole economy is steered by (timedShare) — is a thing that
+ * HAPPENS to a Contract rather than a thing one has ever asked for.
+ *
+ * It could not ask for it, because you cannot demand a well-timed shot from a
+ * random field: on an unauthored board the player is still solving where the
+ * cargo goes, and the press is a second problem arriving on top of the first.
+ * A SET PIECE removes the WHERE. The bay opens on a rack with one trench cut
+ * through it, the belt deals the one shape that fills that trench, and the
+ * trench is the only place a row can be closed. One legal placement, one legal
+ * rotation, and exactly one variable left: the phase of the press when the
+ * cargo settles.
+ *
+ * THE RACK. `standingWall` is a SKYLINE (level.ts) — column heights from the
+ * floor — so an authored field can only be a skyline, and that single fact
+ * forces the construction:
+ *
+ *     [R, R, 0, 0, 0, 0, R, R]        depth R, a four-wide trench
+ *
+ *     ██....██     land a flat I in the trench -> row 0 completes -> clears
+ *     ██....██     everything above drops one row
+ *     ██....██     ...and the field is the IDENTICAL set piece at depth R-1
+ *
+ * Three properties, all by shape rather than by check-and-retry, and they are
+ * the same three salvageProfile keeps:
+ *
+ *  1. NOTHING FLOATS. A column profile is bottom-anchored by definition.
+ *  2. NO ROW OPENS COMPLETE — the trench columns are 0, so the bay cannot
+ *     clear a line on its first frame and hand the player a link they did not
+ *     earn.
+ *  3. THE RACK IS SELF-SIMILAR UNDER A CLEAR, which is what lets one authored
+ *     board serve a streak: `createStandingWall` runs once at bay start and
+ *     the engine cannot re-seed a board mid-bay, so a set piece that needed
+ *     re-authoring between links could not exist.
+ *
+ * THE TRENCH IS INTERIOR, scrap on both sides of it, which is school.ts's rule
+ * for its scaffolded boards and is load-bearing for the same reason: an edge
+ * gap is open on one side, so a shipment that overshoots slides away into the
+ * bay and the exercise silently becomes a different one. The rack is in fact
+ * the licence's very first board (school.ts's TRENCH, [1,1,0,0,0,0,1,1]) at
+ * depth — which is the honest description of what this Contract is for.
+ * ---------------------------------------------------------------------- */
+
+/** The shipment a set piece deals, forever (level.ts's pieceSequence cycles).
+ *  A flat I is exactly RACK_TRENCH_CELLS wide, and a vertical one fills a
+ *  single column four deep and closes nothing — so rotation is part of the
+ *  shot without being the subject of it. */
+export const RACK_PIECE: PieceType = "I";
+
+/** Cells the trench spans — a horizontal I's footprint, and therefore the one
+ *  number in the rack that is not a taste call. */
+export const RACK_TRENCH_CELLS = 4;
+
+/**
+ * Columns of standing scrap at EACH end of the trench, over a line `lineCells`
+ * wide. Two and two at the bay's own eight, which is what leaves the trench
+ * exactly RACK_TRENCH_CELLS wide with a lip on both sides.
+ *
+ * A function of the width rather than a constant, because the TRENCH is the
+ * fixed thing and the lip is what is left over. level.ts calls the line width a
+ * tunable seam (mods.ts's Short Lines takes it to 6), and a constant lip would
+ * turn a narrower line into a narrower TRENCH — at six cells, a two-cell slot a
+ * flat I cannot enter, i.e. an unwinnable Contract produced by arithmetic. This
+ * is the same failure the pattern generator's all-I fallback shipped, and it is
+ * fixed here the same way: derive from the width the bay will actually have.
+ */
+export function rackLipColumns(lineCells = CUBES_PER_LINE): number {
+  return Math.max(1, Math.floor((lineCells - RACK_TRENCH_CELLS) / 2));
+}
+
+/** The lip over the bay's own eight-cell line — the shipped case, named so
+ *  consumers that are not building a profile do not have to say "8". */
+export const RACK_LIP_COLUMNS = rackLipColumns();
+
+/**
+ * THE RACK CEILING — the constraint that decides how deep a rack may be cut,
+ * and it is derived rather than chosen.
+ *
+ * `PILE_TIERS[0]` congests above this many live cubes, and a congested bay is
+ * capped at SWEPT (grades.ts's CONGESTION_GRADE_CAP) — so a congested bay
+ * physically cannot award the band this Contract asks for. The rack plus the
+ * one shipment in the air therefore has to fit UNDER the knee:
+ *
+ *     RACK_TRENCH_CELLS * R  +  SIZE_SPEC.std.cubes  <=  RACK_CEILING_CUBES
+ *     4R + 4 <= 32   ->   R <= 7
+ *
+ * Deepening the rack past that ships a Contract that opens one shipment away
+ * from being unwinnable, so it is the first thing sim/systems.ts pins.
+ */
+export const RACK_CEILING_CUBES = PILE_TIERS[0].cubes;
+
+/** The deepest rack the ceiling above allows, solved rather than written down. */
+export const RACK_MAX_DEPTH = Math.floor(
+  (RACK_CEILING_CUBES - SIZE_SPEC.std.cubes) / RACK_TRENCH_CELLS,
+);
+
+/**
+ * The lowest tier that deals a set piece.
+ *
+ * Two, not one. The Contract's whole subject is the timing band, and a tier-1
+ * board belongs to a player who has just finished the licence and has met the
+ * grade exactly once (school.ts's "Time the Row"). A Contract that graded them
+ * on it the same day would be an exam on a lesson, not practice for one.
+ */
+export const SETPIECE_MIN_TIER = 2;
+
+/**
+ * Which board slot a set piece takes — and it ALTERNATES with the lines
+ * Contract that otherwise lives there, by the day's own seed.
+ *
+ * DAILY_COUNT is what Unlimited sells (see PATTERN_SLOT), so a third kind has
+ * to CONVERT a slot rather than add a fourth card. Slot 1 rather than slot 0
+ * because slot 2 is the pattern Contract's and a board that dealt a set piece
+ * and a pattern with no launch-budget card at all would have no easy card on
+ * it at any tier.
+ *
+ * Alternating rather than taking the slot outright is the whole of the answer
+ * to "one fewer lines Contract every single day". A player who wants the
+ * ordinary budgeted bay still finds two of them every other day; a player who
+ * wants the timing exam finds it every other day; and the board is never more
+ * than three kinds wide, which is the count the bed window is sized to
+ * (CONTRACT_BED_TOP_BASE).
+ *
+ * The day's seed is YYYYMMDD, so its parity flips with the date and the
+ * alternation is a genuine every-other-day one rather than a hash that happens
+ * to look like one. Deterministic per seed, which is what keeps the daily
+ * board a SHARED board — sim/systems.ts pins both halves.
+ */
+export const SETPIECE_SLOT = 1;
+
+/**
+ * Is this a day the board deals a set piece at all?
+ *
+ * NOT ON THE ROOF, and it is the same ruling the pentomino got from the other
+ * direction. The Skydeck board's identity IS its cargo — every card there ships
+ * five-cube shipments and plays bay 5's 5/4 bed because of it (patternSize,
+ * contractBed) — and a set piece is a flat-I Contract by construction, so one
+ * dealt on that floor would be the one card up there that is neither. It is
+ * also the floor that deals rather than rolls (generatePatternContract's note):
+ * a board whose whole premise is that nobody tunes it to their taste does not
+ * then alternate by the day.
+ */
+export function setpieceDay(tier: number, seed: number): boolean {
+  if (isSkydeckBoard(tier)) return false;
+  return Math.floor(tier) >= SETPIECE_MIN_TIER && Math.abs(Math.floor(seed)) % 2 === 1;
+}
+
+/** Does (tier, slot, seed) name the set piece? One predicate, because the board
+ *  generator, the LEAD rotation and every pin ask the same question and a
+ *  comparison repeated is a comparison that gets one of its copies wrong. */
+export function isSetpieceSlot(tier: number, slot: number, seed: number): boolean {
+  return setpieceDay(tier, seed) && slot % DAILY_COUNT === SETPIECE_SLOT;
+}
+
+/**
+ * THE 1-2-3 — how many timed crushes IN A ROW a tier asks for.
+ *
+ * One card, escalating by tier, rather than one bay running three internal
+ * passes or three cards of the same kind on one board. A bay with three passes
+ * inside it needs six qualifying clears in the best case and a rack deep enough
+ * to pay for every restart — which the RACK CEILING will not sell — and it
+ * hides two of its three win conditions behind the first. Three cards would
+ * spend the whole board on one idea. One card that gets longer as the ladder
+ * does is the shape the rest of this file already uses (patternGoal,
+ * budgetForTier): the tier is the difficulty, and the card states its number.
+ *
+ * The bands are wide on purpose — 2-3, 4-6, 7-10. A streak's difficulty is
+ * multiplicative in its length, so each step up is a much bigger ask than the
+ * tier gap suggests, and stepping every tier would outrun the player faster
+ * than any other ladder in the game.
+ */
+export function setpiecePasses(tier: number): number {
+  const t = Math.max(SETPIECE_MIN_TIER, Math.floor(tier));
+  if (t <= 3) return 1;
+  if (t <= 6) return 2;
+  return 3;
+}
+
+/**
+ * Spare rack rows the streak must have UNDER it, at minimum.
+ *
+ * A break costs the player whatever rows the broken part of the streak already
+ * spent, and the rack is the only place a link is cheap — once it is level with
+ * the floor the bay is an ordinary pile with an I-only belt, where closing a
+ * row takes two shipments and the second one has to be timed. So a rack that
+ * held exactly the streak would be a Contract with no second attempt in it.
+ *
+ * A FLOOR, not the rule. What the rule is turned out to be a measurement — see
+ * RACK_DEPTHS.
+ */
+export const SETPIECE_SPARE_ROWS = 1;
+
+/**
+ * How deep the rack is cut, BY THE STREAK IT HAS TO HOLD — and it is a measured
+ * table rather than the arithmetic it started as.
+ *
+ * The obvious rule was `streak + 2`, which gives 3, 4, 5. It was measured
+ * against its neighbours over 40 seeds a cell, calibration bot on the `timed`
+ * strategy, reading the share of bays reaching the streak:
+ *
+ *     streak  R=2   R=3   R=4   R=5   R=6
+ *       1     93%   98%   78%    -     -      (tier 2)
+ *       1    100%  100%   88%    -     -      (tier 3)
+ *       2      -    80%   48%   63%    -      (tier 4)
+ *       2      -    85%   45%    -     -      (tier 6)
+ *       3      -    25%   23%   35%   38%     (tier 7)
+ *       3      -    28%   18%   20%    -      (tier 10)
+ *
+ * Two things in that table decided the shape. DEEPER IS NOT HARDER-BUT-FAIRER,
+ * it is simply worse at the shallow end: the standing cubes are themselves most
+ * of the congestion budget, so a deep rack crosses PILE_TIERS[0] on the second
+ * miss and every grade after that is capped at SWEPT — a streak that can no
+ * longer be extended at all. And FOUR IS A BAD RACK at every streak tested,
+ * losing to BOTH its neighbours. The share of clears landing in the timed band
+ * says why: 0.42-0.49 at depth 4 against 0.63-0.70 at depth 3, i.e. the cargo
+ * is arriving and then being ground in rather than dropping clean. A lip four
+ * cells tall is the height a flat shot clips and a lofted one overshoots — too
+ * tall to skim, not tall enough to be obviously a lob — and the awkwardness is
+ * geometric rather than instrumental, so a player meets it too.
+ *
+ * The shipped table is therefore 3, 3, 5, which is also the only assignment
+ * that makes the LADDER MONOTONE: at 3/4/5 the tier-4 card measured harder than
+ * the tier-7 one (48% against 35% is the wrong way round for two rungs), and a
+ * difficulty ladder that bounces is not a ladder. SIX is the one cell that
+ * beats five on a single reading (40% at tier 10) and is rejected on the same
+ * grounds from the other end: at depth 6 the tier-10 card comes out EASIER than
+ * the tier-7 one, and inside a band the only thing that differs is the press
+ * speed — the bay is supposed to get harder there, not flatter.
+ */
+const RACK_DEPTHS: Record<number, number> = { 1: 3, 2: 3, 3: 5 };
+
+/** How deep this tier cuts the rack — never shallower than the streak plus its
+ *  spare row, and never past the ceiling. */
+export function rackDepthFor(tier: number): number {
+  const n = setpiecePasses(tier);
+  return Math.min(RACK_MAX_DEPTH, RACK_DEPTHS[n] ?? n + SETPIECE_SPARE_ROWS);
+}
+
+/**
+ * Shots the card allows on top of one per rack row — i.e. how many times the
+ * card says out loud you may miss.
+ *
+ * The budget is `rackDepthFor(tier) + SETPIECE_SLACK_SHOTS` rather than a
+ * number per tier, because the two halves are the two things a set piece can
+ * spend: a shipment into the trench (which buys a row) and a shipment that
+ * misses (which buys nothing and leaves four cubes in the bay). Deriving it
+ * from the rack keeps the deeper tiers' longer streaks paid for automatically.
+ *
+ * MEASURED at 6, and the number is a CEILING as much as a floor — which is not
+ * how a launch budget usually behaves and is the whole reason it is written
+ * down. A bigger budget stops buying a longer streak, because every miss leaves
+ * four cubes standing and the rack plus enough misses crosses PILE_TIERS[0],
+ * capping every remaining grade at SWEPT: a streak that can no longer be
+ * extended at all. Measured over 40 seeds a cell, calibration bot on the
+ * `timed` strategy, share of bays reaching the streak:
+ *
+ *     tier 2, streak 1, rack 3   budget  8  10  12  14   ->  98  98  98  98 %
+ *     tier 4, streak 2, rack 3   budget  8  10  12  14   ->  70  80  80  80 %
+ *     tier 7, streak 3, rack 5   budget  9      12       ->  35      35   %
+ *
+ * — flat past the first couple of shots in every row, while peak live cubes
+ * climbed from 25 to 34, 24 to 35 and 34 to 35. So the slack is set where the
+ * curve stops paying rather than where it stops rising, and the bay stays a
+ * place a streak can be built in for its whole length.
+ */
+export const SETPIECE_SLACK_SHOTS = 6;
+
+export function setpieceLaunches(tier: number): number {
+  return rackDepthFor(tier) + SETPIECE_SLACK_SHOTS;
+}
+
+/**
+ * THE LADDER AS SHIPPED, measured end to end — this file's calibration note,
+ * kept here for the reason level.ts keeps its own: the next person to retune
+ * any of the three numbers above needs the table they were set against, not the
+ * argument that produced them.
+ *
+ *   sim/_scratch-teeshot.ts, SHIP=1 SEEDS=60, calibration bot on the `timed`
+ *   strategy, share of bays whose best timed streak reached the card's ask:
+ *
+ *     tier  ask  rack  budget    win   timed share   peak cubes
+ *       2    1     3      9      97%      0.55           27
+ *       3    1     3      9      98%      0.69           25
+ *       4    2     3      9      67%      0.68           26
+ *       5    2     3      9      67%      0.67           26
+ *       6    2     3      9      77%      0.67           26
+ *       7    3     5     11      32%      0.52           35
+ *       8    3     5     11      30%      0.47           36
+ *       9    3     5     11      20%      0.42           37
+ *      10    3     5     11      20%      0.42           37
+ *
+ * THE SHAPE IS THE POINT: three flat bands with a step between them, because
+ * the ask is what escalates and the ask changes at 4 and at 7. Inside a band
+ * the bay gets slightly harder anyway — the crush window is
+ * `0.5 * CELL / compactorSpeed` (sim/aim-strategies.ts's crushWindowSteps) and
+ * compactorSpeed ramps per bay in makeBaseLevel, so the window narrows on its
+ * own without a knob being turned.
+ *
+ * READ IT AS A FLOOR, and by a wide margin. sim's known biases are all
+ * pessimistic here and two of them bite this Contract specifically: the pilot
+ * flies open-loop off a single flight-step estimate (TIMED_FLIGHT_STEPS = 75
+ * against a measured 33-107 spread) where a human watches the arc AND the bar,
+ * and it never uses a Bond Breaker. The top of the ladder landing near 20% puts
+ * it beside the pattern Contract's measured 23% clear rate, which is the right
+ * neighbourhood for the hardest card on a board whose whole promise is that
+ * failing is free.
+ */
+
+/**
+ * The rack itself, as a column profile — indexed from the wall outward, the
+ * same index lineClear.ts's slot `k` and level.ts's standingWall use.
+ *
+ * Closed form with no failure branch, which is what a Contract's opening board
+ * has to be (salvageProfile's third invariant is the same demand): the trench
+ * columns are pinned to 0, so no row of it is complete, and the count of
+ * standing cubes is exactly RACK_TRENCH_CELLS * depth, which is what makes the
+ * RACK CEILING checkable before the bay is built rather than after.
+ */
+export function rackProfile(depth: number, lineCells = CUBES_PER_LINE): number[] {
+  const d = Math.max(1, Math.min(RACK_MAX_DEPTH, Math.floor(depth)));
+  const lip = rackLipColumns(lineCells);
+  return Array.from({ length: lineCells }, (_, k) =>
+    (k < lip || k >= lineCells - lip ? d : 0));
+}
+
+/**
+ * The set piece's complications line — verbatim what the card and the plant
+ * panel's Bay row show.
+ *
+ * IT NAMES N, which is the one thing the row must do: a card that said "timed
+ * crushes in a row" without saying how many would be a Contract the player
+ * cannot restate before firing, which is this file's own test for a bad
+ * Contract. sim/systems.ts pins the number's presence rather than the wording.
+ */
+export function setpieceConditions(tier: number): string {
+  const n = setpiecePasses(tier);
+  return `${n} timed in a row · all ${RACK_PIECE} · ${rackDepthFor(tier)}-deep rack`;
+}
+
+function generateSetpieceContract(seed: number, tier: number, slot: number): Contract {
+  const passes = setpiecePasses(tier);
+  const depth = rackDepthFor(tier);
+  const lineCells = lineCellsForTier(tier);
+  const standing = rackProfile(depth, lineCells);
+  // COUNTED OFF THE PROFILE, never `depth * RACK_TRENCH_CELLS`. That product is
+  // only the standing count while the lip happens to be two columns a side,
+  // which is true at the bay's own eight-cell line and false at any other width
+  // (rackLipColumns). A card quoting a cube count the bay does not contain is
+  // the same defect as a card naming a wall the bay does not open with, which
+  // generatePatternContract already refuses to ship.
+  const cubes = standing.reduce((a, h) => a + h, 0);
+  const conditions = setpieceConditions(tier);
+  return {
+    id: `${seed}-${tier}-${slot}`,
+    slot,
+    seed: seed + slot * 7919,
+    tier,
+    name: NAMES[(seed + slot * 3) % NAMES.length],
+    kind: "setpiece",
+    // THE STREAK RIDES `goal`, which every consumer of a Contract already reads
+    // — the card's ask, the HUD's denominator, the end card's fraction. A
+    // fourth field carrying the same number for one kind would be a second
+    // place all three of them could read the wrong one from. What the number
+    // MEANS is stated by the kind, which is what a kind is for.
+    goal: passes,
+    launches: setpieceLaunches(tier),
+    queue: [],
+    pieceSize: "std",
+    // NO MATERIAL, AT ANY TIER, and it is a decision rather than an omission.
+    // Cryo, volatile and tar all change what a landed cube IS, which un-authors
+    // the rack the same way it un-proves a tiling. Magnetic squares a cube onto
+    // its slot as it settles — it would GIFT the placement half of the shot
+    // this Contract exists to grade, so it is excluded on exactly the grounds
+    // that make it a gentle pattern variant. Rebar changes nothing that matters
+    // here: a shatter cannot stop a row of eight slots from being eight slots,
+    // so "nothing shatters" buys a set piece the honesty it buys a pattern
+    // Contract at the price of a difficulty dial nobody measured.
+    material: null,
+    materialRate: 0,
+    // Never any wind, for generatePatternContract's reason exactly: an authored
+    // board plus a lateral force the player cannot fully cancel is not a
+    // puzzle, it is a dice roll — and here it would be a dice roll against the
+    // single tightest tolerance in the game.
+    windMax: 0,
+    variant: "plain",
+    lineCells,
+    standing,
+    brief: `${cubes} cubes already down · ${conditions}`,
+    conditions,
+  };
+}
+
 /**
  * One Contract from the day's board.
  *
@@ -1181,12 +1590,30 @@ function patternConditions(
  * per-Contract leaderboard. It is a parameter rather than a separate exported
  * generator so the sandbox exercises the SHIPPING path with one argument
  * changed, instead of a parallel one that could quietly diverge from it.
+ *
+ * `forceSetpiece` is the same argument for the same caller, and it exists
+ * because the set piece is the one kind the slot rule alone cannot summon: it
+ * alternates by the DAY (setpieceDay), so a sandbox asking for slot 1 on an
+ * even seed would be handed the lines Contract that slot holds instead — a mode
+ * button that silently launches another kind, which is exactly the failure the
+ * salvage variant's "a Contract that could not get a wall is NOT a salvage
+ * Contract" note is about. It is refused below the kind's own tier floor rather
+ * than granted anyway, because "tier 1's set piece" is a bay that does not
+ * exist and the honest answer is the card that tier really deals.
  */
 export function generateContract(
   seed: number, tier: number, slot = 0, variant?: ContractVariant,
+  forceSetpiece = false,
 ): Contract {
   if (variant) return generatePatternContract(seed, tier, slot, variant);
+  if (forceSetpiece && Math.floor(tier) >= SETPIECE_MIN_TIER && !isSkydeckBoard(tier)) {
+    return generateSetpieceContract(seed, tier, slot);
+  }
   if (slot % DAILY_COUNT === PATTERN_SLOT) return generatePatternContract(seed, tier, slot);
+  // The set piece is checked SECOND, so the pattern slot is never in play for
+  // it — a board that dealt a set piece and a pattern with no launch-budget
+  // card at all is the one three-card combination the board must not produce.
+  if (isSetpieceSlot(tier, slot, seed)) return generateSetpieceContract(seed, tier, slot);
   const rng = mulberry32(seed + slot * 7919);
   let budget = budgetForTier(tier);
 
@@ -1261,7 +1688,15 @@ export function generateContract(
   // with a rotated axis makes the daily set read as curated, which is also just
   // a better offer: pick the challenge you feel like, not the least-bad roll.
   const LEAD: (keyof typeof COST)[][] = [["wind"], ["material", "micro", "tightLaunches"]];
-  const lead = LEAD[slot % LEAD.length];
+  // THE ROTATION IS OVER THE LINES CARDS ON OFFER, not over raw slot indices,
+  // and the shift is what makes that true on a set-piece day. Slot 1 is not a
+  // lines Contract then (isSetpieceSlot), so a raw index would leave the day's
+  // ONE launch-budget card permanently on `wind` — every other day of the year,
+  // the only budgeted bay on the board would be the windy one, which is exactly
+  // the "three rolls of one die" the rotation exists to prevent. Shifting by
+  // whether the day deals a set piece hands slot 0 the other axis on precisely
+  // those days, so across any two days each lead is offered once.
+  const lead = LEAD[(slot + (setpieceDay(tier, seed) ? 1 : 0)) % LEAD.length];
   const ordered = [
     ...options.filter((o) => lead.includes(o.id)),
     ...shuffleSeeded(options.filter((o) => !lead.includes(o.id)), rng),
@@ -1536,6 +1971,37 @@ export function levelForContract(c: Contract, rng: () => number = Math.random): 
   } else {
     cfg.launchBudget = c.launches;
     cfg.pieceQueue = null;
+  }
+  if (c.kind === "setpiece") {
+    // THE GOAL IS NOT A LINE COUNT, so objectiveLines goes back to 0 and the
+    // condition moves to the one seam that can state it (level.ts's
+    // LessonGoal). Both, in that order, and never both live: game.ts's
+    // objectiveMet asks the goal first, and a bay carrying a line count as well
+    // would be two win conditions racing.
+    cfg.objectiveLines = 0;
+    cfg.lessonGoal = { kind: "timedStreak", to: c.goal };
+    // The rack and the belt that fills it, through the SAME applyBayDials every
+    // drill and every lesson bay goes through (drills.ts). Not a second copy of
+    // those four assignments: a teaching bay and a set piece are the same kind
+    // of authored object, and the day the wall dials grow a fifth field is the
+    // day two copies of this disagree about what an authored bay is.
+    applyBayDials(cfg, {
+      wall: [...c.standing],
+      // STANDARD, never gold. A lesson's scaffolding persists because the board
+      // has to come back for the next attempt (school.ts); a Contract's rack is
+      // CARGO — the press clears it, the rows it fills sell, and the rack gets
+      // one row shallower every time. Gold here would be a rack that could
+      // never be spent, i.e. a bay with an infinite supply of links, which is a
+      // streak nobody has to hold together.
+      wallMaterial: "standard",
+      sequence: [RACK_PIECE],
+    });
+    // ...AND THE BOARD DOES NOT COME BACK (level.ts's boardResets stays false).
+    // A miss leaves four cubes standing exactly where they landed, which is the
+    // budget's other half: the launch is spent AND the bay is that much closer
+    // to the congestion knee that caps every remaining grade at SWEPT. That is
+    // the whole price of a whiff, and it is why the streak needs no rule
+    // against one.
   }
   // Nothing is spent, so nothing needs to be earned back.
   //
