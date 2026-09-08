@@ -2,7 +2,7 @@ import Matter from "matter-js";
 import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
 import { CHUTE, chuteMouth, chuteRightEdge, INCINERATOR_Y } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
-import { cushionEdgeX } from "./lineClear";
+import { cushionEdgeX, SETTLE_SPEED } from "./lineClear";
 import { computeLayout, skyTop } from "./layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
@@ -15,7 +15,7 @@ import { pieceOffsets, type Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
 import { blinkVisible } from "./lineClear";
-import type { LevelConfig } from "./level";
+import type { LandingCell, LevelConfig } from "./level";
 import { BLAST_AMBER, FX_TTL, type FxEvent, PENALTY_SINK_PX } from "./fx";
 
 export interface Viewport {
@@ -203,6 +203,22 @@ export interface Scene {
    *  sits over the field. A DOM cue would be hidden by the thing it is warning
    *  about. */
   strandWarning: boolean;
+  /**
+   * THE BAY IS NO LONGER BEING PLAYED — won, lost or otherwise resolved
+   * (game.ts's `status !== "playing"`).
+   *
+   * One consumer, and it is the reason this is on Scene rather than inferred:
+   * the landing target (landingHint) has to come DOWN on a bay that is over.
+   * `settling` covers the win-pending window and stops the instant the status
+   * flips, and the result card is a modal over a canvas that keeps painting —
+   * so without this the hint returns the moment a lesson is passed, pointing at
+   * a gap on a board nobody can shoot at any more, behind the card that says so.
+   *
+   * OPTIONAL, DEFAULTING TO FALSE, for the reason `alpha` is: "draw the bay as
+   * a live one" is what every harness that steps and draws in lockstep means,
+   * and their pixels are unchanged by any of this.
+   */
+  bayOver?: boolean;
   /**
    * HOW FAR INTO THE STEP NOW IN PROGRESS this frame sits, 0..1 — main.ts's
    * leftover accumulator over one STEP. Every physics body is drawn between
@@ -545,6 +561,16 @@ export function render(
   // sits ON has to be behind whatever is sitting on it. Its EDGE is drawn with
   // the trajectory instead — see drawCushionEdge.
   drawCushionBed(ctx, scene.level);
+  // FLOOR PAINT, so it goes where floor paint goes: over the liner it is
+  // painted on, under the press, under the cargo. Under the cargo is the half
+  // that matters — the hint must never be the thing in front of the shipment
+  // the player is watching land, and a shipment that covers it is a shipment
+  // that has arrived. The bar never reaches it: the press's full-advance stop
+  // is compactorMinLineCells, which is the width of the authored board itself,
+  // so the two do not overlap on any lesson bay.
+  drawLandingTarget(ctx,
+    landingHint(scene.level, scene.cubes, scene.settling || scene.bayOver === true),
+    scene.now);
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor, alpha);
   drawPistons(ctx, scene.compactor, alpha);
@@ -1302,6 +1328,355 @@ function drawIncineratorLine(ctx: CanvasRenderingContext2D, level: LevelConfig):
   ctx.moveTo(0, y);
   ctx.lineTo(WORLD.width, y);
   ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * THE LANDING TARGET — where this bay wants the shipment, painted on its floor.
+ *
+ * A Flight School set piece is a board that already IS the answer: gold on
+ * either side of a gap the dealt shipment fits exactly (school.ts's profiles).
+ * The player still had to read a card to find out which columns those were —
+ * "put the dotted arc through the four-wide gap" is a sentence about a place
+ * that is right there on screen — and the owner's note after flying the ladder
+ * is that sentence's whole problem: *"I'd like to see a hint to where the
+ * pieces should land"*.
+ *
+ * WHY IT IS ON THE CANVAS. The same argument the strand warning's own note
+ * makes, and it is stronger here: the thing being pointed at is a rectangle of
+ * the FIELD, and no DOM cue can be over the field without covering the cargo
+ * that has to land in it.
+ *
+ * WHAT IT LOOKS LIKE, and every choice here is "subordinate to the cargo":
+ *
+ *   - Aim cyan (theme.ts's COLORS.aim, tokens.css's --accent), because that is
+ *     already the colour of every surface answering "where is this shot going"
+ *     — the trajectory's ready state, the muzzle ring the instant it is
+ *     fireable, the wall glow. A fifth hue for a fifth aiming affordance is a
+ *     fifth thing to learn.
+ *   - DASHED, for the reason drawIncineratorLine gives about its own plane:
+ *     nothing in this game rests on a dashed line, so a dashed box cannot be
+ *     mistaken for a surface or for cargo already standing there.
+ *   - Stamped at HINT_ALPHA and under, well below the cargo's 1. A hint the eye
+ *     has to look past to see the pile is the wrong way round.
+ *   - NO shadowBlur anywhere, live or baked. The glow budget is spent on what
+ *     is always on screen, and this is on screen in seven bays out of the whole
+ *     game — nowhere near enough to buy a Gaussian pass in the frame loop.
+ *
+ * WHAT IT IS NOT, AND THE ONE THAT WAS CONSIDERED AND REFUSED: a second,
+ * fainter ghost at the muzzle showing the FITTED orientation on Four in the
+ * Well. The bay already says "turn it" three times — the card's rotate verb in
+ * the live device's own words, the rail's two spotlit buttons (Lesson.spotlight)
+ * and, now, a target box that is one column wide and four cells tall, which is
+ * a shape a flat I visibly cannot enter. A fourth statement of one instruction
+ * is not emphasis, it is noise; and it would be the only cue in the frame that
+ * contradicts the muzzle, which is showing the shipment's REAL rotation and has
+ * to keep meaning that. Skipped deliberately, not overlooked.
+ *
+ * WHAT IT COSTS. One drawImage per gap — two at most, on Lob or Skim — plus one
+ * pass over the bay's cubes to ask whether the gap is still open. Every bay
+ * outside a scaffolded lesson pays a single null check
+ * (LevelConfig.landingTarget), which is why none of this is conditional on a
+ * mode flag: the data is absent and the whole path is skipped.
+ */
+
+/** Peak stamp alpha. The cargo draws at 1 and the gold scaffolding it sits
+ *  between is opaque; 0.5 is the level at which the box reads as a marking ON
+ *  the floor rather than as a fifth thing standing in the bay. */
+const HINT_ALPHA = 0.5;
+/** Floor of the breathing pulse, as a fraction of HINT_ALPHA. Not zero and not
+ *  near it: a hint that fully disappears every two seconds is a hint the player
+ *  has to wait for. */
+const HINT_PULSE_FLOOR = 0.62;
+/** Milliseconds per breath. Slow enough to read as breathing rather than as a
+ *  warning blink — the two blinking things in this game (a lost cube, the
+ *  strand ring) both run an order of magnitude faster, and the hint must not
+ *  borrow their urgency. */
+const HINT_PULSE_MS = 2200;
+/** What the hint drops to while cargo is still moving. The shipment in flight
+ *  IS the thing to watch; the hint yields to it and comes back when the bay is
+ *  still again. */
+const HINT_FLIGHT_DIM = 0.34;
+
+/** World-px the dashed box is inset inside its cells, so the stroke sits in the
+ *  gap rather than on the gold shoulders either side of it.
+ *
+ *  SIX, and it was measured rather than picked. A cube's sprite is its face
+ *  PLUS an edge highlight and a glow that spill a few px past the 40px cell it
+ *  stands in, and the cargo draws after this does — so at 3.5 the box's two
+ *  vertical edges vanished under the scaffolding for every row the gold is
+ *  tall, leaving Four in the Well's outline apparently floating two cells above
+ *  its own floor (sim/uifit/lesson-shots.ts, iPhone SE 3). Six clears the spill
+ *  on both sides and still leaves a 28px box inside a 40px cell, which reads as
+ *  the cell it is marking. */
+const HINT_INSET = 6;
+const HINT_STROKE = 2.5;
+/** Dash period, chosen against the CELL rather than the box: at 11 on / 9 off a
+ *  40px cell edge carries exactly two dashes, so a four-wide gap still reads as
+ *  four cells wherever the interior rules are too faint to count. */
+const HINT_DASH: readonly [number, number] = [11, 9];
+/** The rules between cells, so "four wide" is countable. Fainter than the
+ *  outline by design: the box is the instruction, the divisions are its scale. */
+const HINT_RULE_ALPHA = 0.3;
+/** The wash inside the box. Just enough to separate an empty gap from the black
+ *  field behind it at a phone's field scale (checked on the 667x375 and 780x360
+ *  rows of sim/uifit/devices.ts), and far too little to read as a fill. */
+const HINT_FILL_ALPHA = 0.12;
+
+/** The chevron over the gap: half-width, drop, the gap above the box, and the
+ *  stroke. Sized against the cell — a mark under about half a cell is lost at a
+ *  phone's field scale, and one wider than a cell stops pointing at a
+ *  one-column well. */
+const HINT_CHEV_HALF = CELL * 0.34;
+const HINT_CHEV_DROP = CELL * 0.3;
+const HINT_CHEV_GAP = CELL * 0.3;
+const HINT_CHEV_STROKE = 4;
+/** Sprite rows above the box: the chevron, its gap, and the round cap that
+ *  overhangs its apex. Derived once because the bake and the stamp both need
+ *  exactly this number and a disagreement would slide the hint off its gap. */
+const HINT_HEAD = HINT_CHEV_DROP + HINT_CHEV_GAP + HINT_CHEV_STROKE;
+
+/** Margin the hint sprite is baked with, past its own ink. The outline stroke
+ *  is centred on the inset box so half of it lies outside, and the chevron's
+ *  cap overhangs its apex — 4 world px covers both with room. Unlike the cube
+ *  sprites this one is stamped twice a frame at most, so trimToInk would be
+ *  paying a readback to save nothing. */
+const HINT_PAD = 4;
+
+/** How far a cube's centre may sit from a cell's centre and still count as
+ *  SEATED in it — lineClear.ts's own slot tolerance (X_TOL and Y_TOL, both 0.3
+ *  of a cell, and equal). "Is this cell filled" has to be the question the row
+ *  scan asks, or the hint would come down over a row that is still short: a
+ *  cube resting on the lip of the well rounds into the cell it is not in, and
+ *  the near miss is the one moment the hint must still be up. */
+const HINT_SEAT_TOL = 0.3 * CELL;
+
+/** A contiguous run of target cells and the box that bounds it — one gap, one
+ *  stamp. Lob or Skim has two; every other lesson has one. */
+interface HintBox {
+  /** Slot columns, wall-outward, so `far` is the higher index — further from
+   *  the wall, which is further LEFT in the world. */
+  near: number;
+  far: number;
+  rowLo: number;
+  rowHi: number;
+}
+
+/** What one frame draws for this bay, or null when it draws nothing. */
+export interface LandingHint {
+  /** The gaps still open, already grouped for stamping. Never empty — a bay
+   *  whose target is filled returns null instead of an empty list. */
+  boxes: HintBox[];
+  /** Cargo is still moving somewhere in the bay: dim, do not hide. */
+  inFlight: boolean;
+}
+
+/**
+ * Is a cube seated in this authored cell?
+ *
+ * Slot arithmetic is createStandingWall's, exactly: a cell's centre is
+ * `WALL_INNER - CELL/2 - col*CELL` across and `WORLD.height - CELL/2 - row*CELL`
+ * up, which is where the wall's own cubes stand. Gold is skipped because the
+ * scaffolding is never IN the gap — a gold cube inside a target cell would mean
+ * the profile and the target disagree, and taking the hint down for it would
+ * hide that rather than show it.
+ */
+function seatedAt(cubes: readonly Cube[], cell: LandingCell): boolean {
+  const cx = WALL_INNER - CELL / 2 - cell.col * CELL;
+  const cy = WORLD.height - CELL / 2 - cell.row * CELL;
+  for (const cube of cubes) {
+    if (cube.material === "gold") continue;
+    const p = cube.body.position;
+    if (Math.abs(p.x - cx) <= HINT_SEAT_TOL && Math.abs(p.y - cy) <= HINT_SEAT_TOL) return true;
+  }
+  return false;
+}
+
+/**
+ * WHAT THE HINT SHOULD BE DOING THIS FRAME — the whole life cycle, in one pure
+ * function so it can be pinned headlessly (sim/systems.ts) rather than inferred
+ * from a picture.
+ *
+ * The states it has to produce, and where each one comes from:
+ *
+ *   up      the bay has an authored target and none of it is filled. That is
+ *           bay start, and it is also every BOARD RESET — level.ts's
+ *           boardResets sweeps a missed shipment off the scaffolding, so the
+ *           cells empty again and the hint comes back with the board, with
+ *           nothing here having to know a reset happened.
+ *   dimmed  something is still moving. Read off the cubes rather than off a
+ *           launch flag, because what the hint yields to is cargo ON SCREEN — a
+ *           shot in flight and a pile still shuffling are the same event from
+ *           the player's side of the glass.
+ *   gone    the gap is filled — per GAP, which is the unit a shipment comes in.
+ *           Lob or Skim's answer is a square in each end, so the end that has
+ *           one stops being pointed at while the other keeps its box; every
+ *           other lesson has one gap and loses its only box. When the press
+ *           takes the row the cells empty and the hint returns for the next
+ *           attempt, which is what a lesson with unlimited shipments wants.
+ *   gone    the bay is OVER. Two facts, because one is not enough: `settling`
+ *           is game.ts's win-pending window, which opens the instant
+ *           objectiveMet turns true and CLOSES when the status flips — and the
+ *           result card is a modal over a canvas that keeps painting, so on the
+ *           far side of that flip the board is authored again, the gap is empty
+ *           again, and the hint came straight back up behind the card. Seen in
+ *           sim/uifit/lesson-shots.ts's `filled` frame on Two at Once, which is
+ *           what put Scene.bayOver on the other side of it.
+ *
+ * Deliberately NOT cached. The scan is O(cubes) over a lesson bay's couple of
+ * dozen, behind a field that is null on every other bay in the game, and a
+ * cached answer would need invalidating on exactly the events this reads.
+ */
+export function landingHint(
+  level: LevelConfig,
+  cubes: readonly Cube[],
+  /** The bay is not being played: its objective is met and the field is
+   *  settling (game.ts's `settling`), or it has already resolved
+   *  (Scene.bayOver). One argument because the hint owes them one answer. */
+  over: boolean,
+): LandingHint | null {
+  const target = level.landingTarget;
+  if (!target || target.length === 0 || over) return null;
+
+  // Group into contiguous column runs FIRST, because the run is the unit
+  // everything below is decided per: one gap, one shipment, one box, one
+  // instruction. The cells arrive in the order landingTargetFor emitted them —
+  // one gap at a time, each gap's columns together — but sorting makes that an
+  // accident this does not depend on.
+  const cols = [...new Set(target.map((c) => c.col))].sort((a, b) => a - b);
+  const boxes: HintBox[] = [];
+  for (const col of cols) {
+    const last = boxes[boxes.length - 1];
+    if (last && col === last.far + 1) last.far = col;
+    else boxes.push({ near: col, far: col, rowLo: Infinity, rowHi: -Infinity });
+  }
+
+  // ALL OR NOTHING WITHIN A GAP, and it is ALL that has to be seated. A
+  // shipment that landed one column off fills three of the trench's four
+  // cells; a box that vanished on the first of them would tell the player they
+  // were done at the exact moment they are not, on a board that is about to be
+  // authored again underneath them.
+  //
+  // What is deliberately NOT drawn is the still-open cells on their own. Two
+  // cells outlined say "put the other half here", and the belt deals whole
+  // shipments — there is no such shot.
+  const open = new Array<number>(boxes.length).fill(0);
+  for (const cell of target) {
+    const i = boxes.findIndex((b) => cell.col >= b.near && cell.col <= b.far);
+    boxes[i].rowLo = Math.min(boxes[i].rowLo, cell.row);
+    boxes[i].rowHi = Math.max(boxes[i].rowHi, cell.row);
+    if (!seatedAt(cubes, cell)) open[i] += 1;
+  }
+  const live = boxes.filter((_, i) => open[i] > 0);
+  if (live.length === 0) return null;
+
+  let inFlight = false;
+  for (const cube of cubes) {
+    if (cube.material === "gold") continue;
+    if (cube.body.speed > SETTLE_SPEED) { inFlight = true; break; }
+  }
+  return { boxes: live, inFlight };
+}
+
+/**
+ * Bake one gap's box + chevron, keyed by its size in CELLS.
+ *
+ * Keyed on the cell counts rather than on the columns, so lesson 1's trench and
+ * lesson 5's — the same 4x1 gap, the same place — share one bake, and so do Lob
+ * or Skim's two 2x2 ends. Nothing in the sprite has an absolute position in it:
+ * the caller stamps it at its own gap's corner.
+ *
+ * Everything is drawn against a box starting at (HINT_PAD, HINT_HEAD +
+ * HINT_PAD) in the sprite's own world-unit space, which is what makes the
+ * caller's stamp a single translate of the sprite's top-left.
+ */
+function getHintSprite(cols: number, rows: number): HTMLCanvasElement {
+  const boxW = cols * CELL;
+  const boxH = rows * CELL;
+  return getSprite(`hint:${cols}x${rows}`, boxW + HINT_PAD * 2, boxH + HINT_HEAD + HINT_PAD * 2,
+    (c) => {
+      const x = HINT_PAD + HINT_INSET;
+      const y = HINT_PAD + HINT_HEAD + HINT_INSET;
+      const w = boxW - HINT_INSET * 2;
+      const h = boxH - HINT_INSET * 2;
+
+      c.fillStyle = COLORS.aim;
+      c.globalAlpha = HINT_FILL_ALPHA;
+      c.fillRect(x, y, w, h);
+
+      // The cell rules, inside the wash and under the outline: they divide the
+      // box, they do not frame it.
+      c.globalAlpha = HINT_RULE_ALPHA;
+      c.strokeStyle = COLORS.aim;
+      c.lineWidth = 1;
+      c.beginPath();
+      for (let i = 1; i < cols; i++) {
+        const rx = HINT_PAD + i * CELL;
+        c.moveTo(rx, y);
+        c.lineTo(rx, y + h);
+      }
+      for (let i = 1; i < rows; i++) {
+        const ry = HINT_PAD + HINT_HEAD + i * CELL;
+        c.moveTo(x, ry);
+        c.lineTo(x + w, ry);
+      }
+      c.stroke();
+
+      c.globalAlpha = 1;
+      c.lineWidth = HINT_STROKE;
+      c.setLineDash([...HINT_DASH]);
+      c.strokeRect(x, y, w, h);
+      c.setLineDash([]);
+
+      // The chevron, centred over the box and pointing INTO it. A second cue
+      // rather than a decoration: the dashed box says "this rectangle" and the
+      // chevron says "from above", which is the half of the instruction a
+      // rectangle painted on the floor cannot give.
+      const mid = HINT_PAD + boxW / 2;
+      const tipY = HINT_PAD + HINT_HEAD - HINT_CHEV_GAP;
+      c.lineWidth = HINT_CHEV_STROKE;
+      c.lineCap = "round";
+      c.lineJoin = "round";
+      c.beginPath();
+      c.moveTo(mid - HINT_CHEV_HALF, tipY - HINT_CHEV_DROP);
+      c.lineTo(mid, tipY);
+      c.lineTo(mid + HINT_CHEV_HALF, tipY - HINT_CHEV_DROP);
+      c.stroke();
+    });
+}
+
+/**
+ * Stamp the hint. One drawImage per gap, at a per-frame alpha and nothing else
+ * per frame — the geometry is all in the bake.
+ *
+ * The pulse is a raised cosine on the wall clock: HINT_PULSE_FLOOR..1 of
+ * HINT_ALPHA, once per HINT_PULSE_MS. Under prefers-reduced-motion it is held
+ * at the TOP of that range rather than in the middle — the preference asks for
+ * no motion, not for a fainter hint, and the brightest frame of the animation
+ * is the one the animation exists to produce.
+ */
+function drawLandingTarget(
+  ctx: CanvasRenderingContext2D,
+  hint: LandingHint | null,
+  now: number,
+): void {
+  if (!hint) return;
+  const breath = prefersReducedMotion()
+    ? 1
+    : HINT_PULSE_FLOOR
+      + (1 - HINT_PULSE_FLOOR) * (0.5 + 0.5 * Math.cos((now / HINT_PULSE_MS) * Math.PI * 2));
+  ctx.save();
+  ctx.globalAlpha = HINT_ALPHA * breath * (hint.inFlight ? HINT_FLIGHT_DIM : 1);
+  for (const box of hint.boxes) {
+    const cols = box.far - box.near + 1;
+    const rows = box.rowHi - box.rowLo + 1;
+    // The sprite's top-left in world space. `far` is the leftmost column, and a
+    // column's left edge is one full cell further out than its own centre line.
+    const x = WALL_INNER - (box.far + 1) * CELL - HINT_PAD;
+    const y = WORLD.height - (box.rowHi + 1) * CELL - HINT_HEAD - HINT_PAD;
+    ctx.drawImage(getHintSprite(cols, rows), x, y,
+      cols * CELL + HINT_PAD * 2, rows * CELL + HINT_HEAD + HINT_PAD * 2);
+  }
   ctx.restore();
 }
 

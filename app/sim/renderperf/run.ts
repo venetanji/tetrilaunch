@@ -8,6 +8,8 @@
  *   npx tsx sim/renderperf/run.ts --dpr 3 --css 844x390     # a phone's numbers
  *   npx tsx sim/renderperf/run.ts --dprs 1,1.5,2,3          # what resolution costs
  *   npx tsx sim/renderperf/run.ts --engine webkit           # WebKit, where installed
+ *   npx tsx sim/renderperf/run.ts --lesson 0               # a Flight School bay
+ *   npx tsx sim/renderperf/run.ts --lesson 0,1,2,3 --counts 0,100
  *   npx tsx sim/renderperf/run.ts --breakdown               # cost per scene layer
  *   npx tsx sim/renderperf/run.ts --breakdown --boom        # …on a chain detonation
  *   npx tsx sim/renderperf/run.ts --breakdown --boom --reduced   # …the same, motion off
@@ -136,6 +138,26 @@ const BOOM = argv.includes("--boom");
  */
 const REDUCED = argv.includes("--reduced");
 const BLIT_AB = argv.includes("--blit-ab");
+/**
+ * FLIGHT SCHOOL BAYS, by index into school.ts's ladder — the one class of scene
+ * that carries a landing target, and therefore the only place render.ts's
+ * drawLandingTarget can be priced.
+ *
+ * A mode of its own rather than a variant, and the reason is what the mode has
+ * to prove: the hint's whole claim is that it costs one stamp per gap on the
+ * seven bays that have one and NOTHING at all anywhere else. Two halves of that
+ * need two different scenes, so this mode measures the lesson bays and the
+ * ordinary sweep — unchanged, still `makeBaseLevel(0)` — measures the other
+ * half by not moving.
+ */
+const LESSONS_ARG = (opt("lesson") ?? "")
+  .split(",")
+  .map((t) => parseInt(t.trim(), 10))
+  .filter((n) => Number.isFinite(n) && n >= 0);
+/** The same flag as an options fragment, so `--probe --lesson N` censuses a
+ *  lesson bay rather than a generated one. Empty — and therefore inert — on
+ *  every invocation that did not ask for a lesson. */
+const LESSON_SCENE = LESSONS_ARG.length > 0 ? { lesson: LESSONS_ARG[0] } : {};
 
 interface Row {
   variant: Variant;
@@ -389,7 +411,7 @@ if (PROBE) {
   for (const count of COUNTS) {
     const c = await page.evaluate(
       (o) => window.__renderperf.probe(o),
-      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM },
+      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, ...LESSON_SCENE },
     );
     // THE CUBE LAYER, ISOLATED BY DELTA — the same ladder --breakdown walks.
     //
@@ -404,20 +426,20 @@ if (PROBE) {
     const bare = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       {
-        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM,
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, ...LESSON_SCENE,
         layers: { cubes: false, seams: false, trajectory: true, effects: true },
       },
     );
     const cubesOnly = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       {
-        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM,
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, ...LESSON_SCENE,
         layers: { cubes: true, seams: false, trajectory: true, effects: true },
       },
     );
     const s = await page.evaluate(
       (o) => window.__renderperf.snapshot(o),
-      { count, variant: PROBE_VARIANT, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
+      { count, variant: PROBE_VARIANT, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, ...LESSON_SCENE },
     );
     const f = c.frames;
     const per = (n: number): string => (n / f).toFixed(1);
@@ -488,7 +510,37 @@ if (PROBE) {
   process.exit(0);
 }
 
-if (BREAKDOWN) {
+if (LESSONS_ARG.length > 0) {
+  // One row per (lesson, N), busy — the arc is up because a player lining up
+  // the authored shot is exactly when the hint is on screen.
+  const lessonRows: Array<{ lesson: number; count: number } & Row> = [];
+  for (const lesson of LESSONS_ARG) {
+    for (const count of COUNTS) {
+      const r = await page.evaluate(
+        (o) => window.__renderperf.run(o),
+        {
+          count, variant: PROBE_VARIANT, frames: FRAMES,
+          cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, lesson,
+        },
+      );
+      lessonRows.push({ lesson, count, variant: PROBE_VARIANT, busy: true, ...r });
+    }
+  }
+  console.log("# Tetrilaunch render-cost — Flight School bays\n");
+  console.log(
+    `css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} busy=yes` +
+    `${REDUCED ? " prefers-reduced-motion=reduce" : ""}\n`,
+  );
+  console.log("| Lesson | N | Avg ms | p50 ms | p95 ms | Worst ms | % over 16.67ms |");
+  console.log("|---|---|---|---|---|---|---|");
+  for (const r of lessonRows) {
+    console.log(
+      `| ${r.lesson} | ${r.count} | ${r.avgMs.toFixed(3)} | ${r.p50Ms.toFixed(3)} | ` +
+      `${r.p95Ms.toFixed(3)} | ${r.worstMs.toFixed(3)} | ${r.overBudgetPct.toFixed(1)}% |`,
+    );
+  }
+  console.log();
+} else if (BREAKDOWN) {
   // A LADDER, not a set of isolated runs: each rung adds one layer to the one
   // below it, so the delta between two rungs is that layer's cost in a frame
   // that already carries everything under it. Isolated runs would each re-pay
@@ -542,7 +594,7 @@ if (BREAKDOWN) {
 await browser.close();
 await server.close();
 
-if (!BREAKDOWN) {
+if (!BREAKDOWN && LESSONS_ARG.length === 0) {
 console.log("# Tetrilaunch render-cost sweep\n");
 console.log(
   `css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} (60-frame warmup, not timed) ` +

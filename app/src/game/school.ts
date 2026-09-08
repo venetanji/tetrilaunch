@@ -1,8 +1,11 @@
 import { applyBayDials, CONGESTED, type BayDials } from "./drills";
 import { EXCELLENT_WINDOW_MS, GRADE_PAY } from "./grades";
 import {
-  makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, type LessonGoal, type LevelConfig,
+  makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS,
+  type LandingCell, type LessonGoal, type LevelConfig,
 } from "./level";
+import { ORIENTATIONS, type Cell } from "./tiling";
+import type { PieceSize, PieceType } from "./theme";
 
 /**
  * FLIGHT SCHOOL — the licence, and the ground floor of the tower.
@@ -602,6 +605,75 @@ export function lessonSeed(index: number): number {
 }
 
 /**
+ * WHERE THIS BAY'S SHIPMENT GOES — the cells the renderer paints a landing
+ * target on (LevelConfig.landingTarget, render.ts's drawLandingTarget).
+ *
+ * DERIVED FROM THE BAY, NOT AUTHORED BESIDE IT. The gap and the shape that
+ * fills it are already written down twice — the profile's zero columns and the
+ * belt's one-entry `sequence` — and a hand-typed third copy is a hint that
+ * points at the old gap the first time a profile moves. That is not a
+ * hypothetical: the well went from four deep to two and the streak bay's notch
+ * slid two columns down the field, both after the lesson they belong to
+ * shipped.
+ *
+ * THE FIT. A profile's gap is a RUN of zero-height columns (school.ts's
+ * profiles all keep it that way, and sim/systems.ts pins that the shortest
+ * column is zero), so the answer is the dealt shipment stood in the orientation
+ * whose width is the run's width, bottom-anchored on the floor. Every set piece
+ * on the ladder is an exact fit by construction — that is what "the gap narrows
+ * from four columns to two to one" means — so an exact width match is what this
+ * asks for, and a run with no orientation that width yields NO TARGET AT ALL
+ * rather than a nearest guess. A hint in the wrong column is worse than none:
+ * the player trusts it and then cannot understand why the row did not sell.
+ *
+ * Ties (a shape with two orientations the same width) take the SHORTEST, which
+ * is the flattest way to fill the run and therefore the one that closes a row
+ * with the least left standing. No shipped lesson has one — I and O between
+ * them have three orientations and no two share a width — but the rule has to
+ * be stated for the ladder to be extendable.
+ *
+ * Coordinates are the wall-outward slot pair `standingWall` uses, so `col`
+ * grows LEFTWARD while a shape's own x grows rightward: the run's far end is
+ * where a shape's x = 0 lands, hence `(end - 1) - x`. Invisible on I and O,
+ * which are the only shapes the ladder deals and both mirror-symmetric, and
+ * wrong for an S or a J the day one is authored.
+ */
+function landingTargetFor(
+  wall: readonly number[],
+  sequence: readonly PieceType[] | null,
+  size: PieceSize,
+): LandingCell[] | null {
+  const type = sequence?.[0];
+  if (!type || wall.length === 0) return null;
+
+  const orientations = ORIENTATIONS[size][type];
+  const cells: LandingCell[] = [];
+  for (let k = 0; k < wall.length;) {
+    if (wall[k] !== 0) { k += 1; continue; }
+    let end = k;
+    while (end < wall.length && wall[end] === 0) end += 1;
+    const width = end - k;
+
+    let fit: Cell[] | null = null;
+    let fitHeight = Infinity;
+    for (const cand of orientations) {
+      const w = Math.max(...cand.map(([x]) => x)) + 1;
+      const h = Math.max(...cand.map(([, y]) => y)) + 1;
+      if (w === width && h < fitHeight) { fit = cand; fitHeight = h; }
+    }
+    // No orientation is exactly this wide: the bay's own shipment cannot fill
+    // its own gap, so there is nothing honest to point at anywhere on it.
+    if (!fit) return null;
+
+    // Normalized cells run top row first (tiling.ts's `normalize`), and the
+    // shipment lands on the floor, so the shape's last row is board row 0.
+    for (const [x, y] of fit) cells.push({ col: (end - 1) - x, row: (fitHeight - 1) - y });
+    k = end;
+  }
+  return cells.length > 0 ? cells : null;
+}
+
+/**
  * Build the bay for one lesson.
  *
  * Starts from `makeBaseLevel(0)` — bay 1 of the ladder, the calmest bay the
@@ -717,5 +789,22 @@ export function levelForLesson(lesson: Lesson): LevelConfig {
   cfg.boardResetStrokes = cumulative ? 8 : 1;
 
   applyBayDials(cfg, lesson);
+
+  // THE LANDING TARGET, read off the bay the dials just finished writing rather
+  // than off the lesson that asked for it. `standingWall`, `pieceSequence` and
+  // `pieceSize` are what the bay will actually build, deal and throw, so a
+  // future dial that rewrote any of them cannot leave the hint describing the
+  // lesson's intent instead of the bay's behaviour.
+  //
+  // SCAFFOLDED BAYS ONLY, and it is the same condition boardResets is set from
+  // two blocks up, for the same reason: the gold is what makes the gap an
+  // authored answer that will still be there on the next attempt. Lost Cargo
+  // and Clutter deal an ordinary board — there is no authored place for a
+  // shipment to go on either, so pointing at one would be a lie about the bay
+  // they are teaching.
+  cfg.landingTarget = cfg.boardResets
+    ? landingTargetFor(cfg.standingWall, cfg.pieceSequence, cfg.pieceSize)
+    : null;
+
   return cfg;
 }

@@ -1,6 +1,15 @@
 import type { ClearGrade } from "./grades";
 import type { BeltMaterial, Material, PieceSize, PieceType } from "./theme";
 
+/** One cell of a bay's authored LANDING TARGET (LevelConfig.landingTarget), in
+ *  slot coordinates: `col` counts from the wall outward, `row` counts up from
+ *  the floor. The same pair createStandingWall builds its profile in, so the
+ *  gap and the answer that fills it are stated on one grid. */
+export interface LandingCell {
+  col: number;
+  row: number;
+}
+
 /**
  * A single level's tunables. This is the primary ROADMAP SEAM: future levels and
  * roguelite modifiers (gravity flips, faster compactors, custom bags, mutators)
@@ -340,6 +349,28 @@ export interface LevelConfig {
   /** This bay's pass condition when the two above cannot state it — a Flight
    *  School lesson, and nothing else (see LessonGoal). Null everywhere else. */
   lessonGoal: LessonGoal | null;
+  /** WHERE THE AUTHORED SHIPMENT IS SUPPOSED TO GO — the cells render.ts
+   *  outlines on the floor as a landing target (drawLandingTarget).
+   *
+   *  A Flight School set piece states its answer twice: the gold says where the
+   *  gap is, and the card says what fills it. Neither is on the FIELD in the
+   *  place the player is aiming at, and the owner's note after playing the
+   *  ladder is exactly that — *"I'd like to see a hint to where the pieces
+   *  should land"*. Reading a card to find out which four columns are open is
+   *  the one thing a set piece was supposed to remove.
+   *
+   *  Slot coordinates, the same pair `standingWall` and lineClear.ts's nearest-
+   *  slot `k` are indexed by: `col` counts from the wall outward, `row` up from
+   *  the floor. DERIVED, never authored — school.ts's landingTargetFor fits the
+   *  bay's own dealt shipment into the bay's own zero-height columns, so a
+   *  profile edited without its hint being edited with it is not a state this
+   *  field can be in.
+   *
+   *  Null on every bay that is not a scaffolded lesson, which is every Deep Run
+   *  bay, every Contract, every drill and the two lessons that deliberately
+   *  deal an ordinary board (Lost Cargo, Clutter). A bay with no authored
+   *  answer has no answer to point at. */
+  landingTarget: LandingCell[] | null;
   /** THE BAY HAS NO PILE: cargo the press has had its chances at is written off
    *  and the board returns to how it was authored (lineClear.ts's
    *  sweepStaleCubes).
@@ -1799,6 +1830,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // so a restarted bay replays its exact deal.
     pieceSequence: null,
     lessonGoal: null,
+    landingTarget: null,
     boardResets: false,
     boardResetAttempts: 1,
     boardResetStrokes: 1,
