@@ -148,7 +148,11 @@ async function providerLogin(
   let name: string | null = null;
   let email: string | null = null;
   if (provider === "google") {
-    const { result } = await social.login({ provider: "google", options: { scopes: ["profile", "email"] } });
+    // No `scopes` here: on Android the plugin refuses any scopes request unless
+    // MainActivity is its ModifiedMainActivityForSocialLoginPlugin (ours is a
+    // plain BridgeActivity), and email/profile/openid are the defaults on every
+    // platform anyway.
+    const { result } = await social.login({ provider: "google", options: {} });
     if (result.responseType === "online") {
       idToken = result.idToken;
       name = result.profile.name;
