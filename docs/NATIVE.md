@@ -177,6 +177,16 @@ than half-implemented:
    them into a freshly generated project. Both run automatically —
    `assets:generate` stages, every `android:*` script restores.
 
+   The launcher icon is adaptive, and `rasterize-assets.mjs` splits its two
+   layers out of the same SVG: the backdrop rects (gradient + grid) become the
+   background layer, which the OEM mask crops freely, and the mark alone sits
+   on a transparent foreground, centred and scaled to 80% of the 66dp safe
+   zone. It used to be the whole icon shrunk to 62% of the foreground — inside
+   every mask, but drawn at about half the size of the icons around it.
+   `stage-android-assets.mjs` also re-renders both layers at the 108dp sizes
+   Android expects (81–432 px): `@capacitor/assets` 3.0.5 writes explicitly
+   supplied layers through its legacy 48dp templates.
+
    Until this existed, `cap add android` left **Capacitor's default
    blue-X-on-white launcher icon** in place, and the debug APKs CI published had
    it. `patch-android.mjs` now fails loudly if `native/android/res/` is missing
