@@ -7119,6 +7119,69 @@ section("R5: the Contract panel's small rows, and the card that sits over it");
       && lessonPanel.includes('class="pl-notch"')
       && lessonPanel.includes('id="hud-conditions"'),
     lessonPanel.replace(/\s+/g, " ").slice(0, 200));
+
+  // ---- 5. THE PANEL DOES NOT EAT THE AIM GESTURE -------------------------
+  // A P1 the review found and this file could not see: `.hud > *` hands the
+  // panel `pointer-events: auto`, and the panel is 47.08% of the field's width
+  // by at least 42.96% of its height, bottom-anchored — so a press on the pile
+  // in the bottom-left of a phone's bay landed on DOM and did nothing, under a
+  // hint (anchored to this same panel's top edge) reading "touch the field and
+  // pull back". sim/uifit cannot catch it either: the panel measured as a
+  // correctly placed panel the whole time, which is why the claim pinned here
+  // is the RULE.
+  //
+  // The declaration EXISTED, scoped to `.hud[data-carded]` — lesson bays only —
+  // and the note on it predicted the general case in as many words. So the
+  // first two checks are "it is unconditional now" and "the conditional copy is
+  // gone": a file carrying both would pass a naive search for the selector
+  // while leaving the scoped rule as the thing a reader trusts.
+  //
+  // NOT `declFor(".plant", …)` for this one, and the difference is the whole
+  // point: declFor finds its selector by substring, so `.hud[data-carded]
+  // .plant {` answers to `.plant {` and the scoped rule this fix replaced
+  // would have satisfied the pin it exists to catch (proven — it did, on the
+  // deliberately broken tree). Anchoring the selector to a rule boundary is
+  // what makes the claim "unconditional" rather than "present somewhere".
+  const plantRule = css.match(/(?:^|\})\s*\.plant \{([^{}]*)\}/);
+  check("the plant panel is transparent to pointers in every bay, not just a carded one",
+    plantRule !== null && /pointer-events:\s*none/.test(plantRule[1]),
+    plantRule ? (plantRule[1].match(/pointer-events:[^;]*/) ?? ["no declaration"])[0] : "no .plant rule");
+  const cardedPE = (css.match(/\.hud\[data-carded\][^{}]*\{[^{}]*\}/g) ?? [])
+    .filter((rule) => /pointer-events/.test(rule));
+  check("...with no [data-carded] copy left to disagree with it",
+    cardedPE.length === 0, cardedPE.join(" | "));
+  // The rail's idiom, and the whole reason this is safe: dead panel, live
+  // controls. The chips are real <button>s and the card's button lives INSIDE
+  // the panel (main.ts's mountCoach inserts `.coach` as its first child), so
+  // `.coach__btn`'s opt-in stopped being a lesson-only detail the day the
+  // panel went dead in every bay.
+  check("...and its ability chips opt back in",
+    declFor(".plant .mod", "pointer-events") === "auto",
+    declFor(".plant .mod", "pointer-events") ?? "no rule");
+  check("...as does the teaching card's own button, which mounts inside the panel",
+    declFor(".coach__btn", "pointer-events") === "auto",
+    declFor(".coach__btn", "pointer-events") ?? "no rule");
+  // THE OPT-IN LIST IS COMPLETE, checked against the markup rather than
+  // trusted: a control added to this panel without a pointer-events line would
+  // be a dead button, which is the failure mode this fix buys. Every <button>
+  // hudHTML puts in the panel has to be a `.mod` — with all three abilities
+  // owned, so the chips are actually in the string.
+  const armed = hudHTML({
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: null,
+    tier: 3, target: 900, score: 120, launchCost: 25, bayNum: 2,
+    timeLimitSec: 150, timeLeftMs: 150000, pieceSize: "std" as const,
+    bondBreakerOwned: true, bondCharges: 2, demoOwned: true, bombCharges: 1,
+    thawOwned: true, thawCharges: 1, autoloaderOwned: true,
+    ratchets: {} as Ratchets, tiers: newTiers(), contract: null,
+  });
+  const panelHTML = armed.slice(
+    armed.indexOf('<div class="plant">'), armed.indexOf('class="settle-note"'),
+  );
+  const panelButtons = panelHTML.match(/<button[^>]*>/g) ?? [];
+  check("every control in the panel's markup is one the stylesheet re-arms",
+    panelButtons.length === 3 && panelButtons.every((b) => /class="mod /.test(b)),
+    panelButtons.map((b) => (b.match(/class="([^"]*)"/) ?? ["?"])[1]).join(" | ") || "no buttons found");
 }
 
 // ---------------------------------------------------------------------------
