@@ -219,7 +219,7 @@ export interface SubmitResult {
  * asking a two-part key with one part.
  */
 export class BoardCache {
-  private rows: Record<string, ScoreEntry[]> = {};
+  private rows: Record<string, ScoreEntry[] | null> = {};
 
   /** One entry per (board, day) actually visited. Bounded by the session: one
    *  key per board, plus one more per board per midnight crossed. */
@@ -227,12 +227,16 @@ export class BoardCache {
     return `${board}:${day}`;
   }
 
-  /** The rows held for exactly this board AND day — never another day's. */
-  get(board: BoardId, day: BoardDay): ScoreEntry[] {
-    return this.rows[this.key(board, day)] ?? [];
+  /** The rows held for exactly this board AND day — never another day's.
+   *  NULL when the last fetch of it failed (fetchLeaderboard), so the screen
+   *  can say so instead of calling the board empty; `[]` for a board not yet
+   *  asked for, which draws as empty until its fetch lands. */
+  get(board: BoardId, day: BoardDay): ScoreEntry[] | null {
+    const held = this.rows[this.key(board, day)];
+    return held === undefined ? [] : held;
   }
 
-  set(board: BoardId, day: BoardDay, rows: ScoreEntry[]): void {
+  set(board: BoardId, day: BoardDay, rows: ScoreEntry[] | null): void {
     this.rows[this.key(board, day)] = rows;
   }
 }
@@ -260,20 +264,27 @@ function boardPath(day: BoardDay): string {
   return day === DAY_NONE ? "/api/scores" : "/api/daily";
 }
 
+/**
+ * The board's rows, or NULL when they could not be fetched. Not `[]`: an empty
+ * board and an unreachable one used to be the same value, so a phone with no
+ * signal printed "No scores at this Tier yet — be the first!" over a board
+ * full of scores. The two are different news and the screen draws them
+ * differently (screens.ts's leaderboardRowsHTML).
+ */
 export async function fetchLeaderboard(
   board: BoardId,
   limit = 10,
   /** DAY_NONE for an all-time board; a Skydeck day key otherwise. */
   day: BoardDay = DAY_NONE,
-): Promise<ScoreEntry[]> {
+): Promise<ScoreEntry[] | null> {
   try {
     const q = `mark=${board}&limit=${limit}${day === DAY_NONE ? "" : `&day=${day}`}`;
     const res = await fetch(`${apiBase()}${boardPath(day)}?${q}`);
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const data = (await res.json()) as { scores: ScoreEntry[] };
     return data.scores ?? [];
   } catch {
-    return [];
+    return null;
   }
 }
 

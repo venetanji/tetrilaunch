@@ -2466,14 +2466,29 @@ export function emptyBoardText(board: BoardId): string {
     : "No scores at this Tier yet — be the first!";
 }
 
+/** What the board says when it could not be fetched (lib/api.ts's
+ *  fetchLeaderboard returning null). Its own line, because "No scores at this
+ *  Tier yet" over a board that has plenty is the board lying. */
+export const BOARD_UNAVAILABLE_TEXT = "Couldn't load the board";
+
+/** What the end card's submit row says when the post did not go through
+ *  (main.ts's onSubmitScore) — over a Submit button that still works, because
+ *  a score that never landed is one the player can still send. */
+export const SUBMIT_FAILED_TEXT = "Couldn't submit — check your connection";
+
 export function leaderboardRowsHTML(
-  rows: BoardRow[],
+  /** NULL when the board could not be fetched — drawn as its own line, never
+   *  as the empty board's. */
+  rows: BoardRow[] | null,
   highlight?: string,
   /** Which board these rows are from — only read when there are none. Defaults
    *  to a Tier's wording, which is what every caller that predates the daily
    *  board meant. */
   board: BoardId = 1,
 ): string {
+  if (rows === null) {
+    return `<div class="muted lb__unavailable" role="status" style="padding:20px;text-align:center">${BOARD_UNAVAILABLE_TEXT}</div>`;
+  }
   if (!rows.length) {
     return `<div class="muted" style="padding:20px;text-align:center">${emptyBoardText(board)}</div>`;
   }
@@ -6359,6 +6374,10 @@ export function endModal(opts: {
                action, and two primaries made the exit compete with it. -->
           <button class="btn btn--secondary" data-action="submit-score">Submit</button>
         </div>
+        <!-- Hidden until a post fails (main.ts's onSubmitScore) — so it adds no
+             height to the card the fixtures measure, and no line until there
+             is something to say. -->
+        <p class="muted end__submit-note" id="submit-note" role="alert" hidden></p>
         <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">

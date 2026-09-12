@@ -141,7 +141,7 @@ import { captureScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForView, boardForView, DAY_NONE,
-  fetchLeaderboard, isLadderBoard, submitScore,
+  fetchLeaderboard, isLadderBoard, submitScore, type ScoreEntry,
   type BoardDay, type BoardId, type BoardView,
 } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
@@ -942,6 +942,9 @@ class App {
    *  it from the run rather than from here. */
   private lbDay: BoardDay = DAY_NONE;
   private submitted = false;
+  /** A score post is in flight (onSubmitScore) — the button is disabled for
+   *  it too, but the flag is what makes a second tap the same tap. */
+  private submitting = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
    *  once-per-session idle timer, armed at each bay start. */
@@ -3778,7 +3781,8 @@ class App {
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
           S.leaderboardRowsHTML(
-            S.fullBoard(this.boards.get(this.lbBoard, this.lbDay)), undefined, this.lbBoard,
+            this.boardRows(this.boards.get(this.lbBoard, this.lbDay), S.fullBoard),
+            undefined, this.lbBoard,
           ),
           {
             board: this.lbBoard,
@@ -3940,8 +3944,9 @@ class App {
               best: loadBest(this.runBoard()),
               name: loadName(),
               rows: S.leaderboardRowsHTML(
-                S.endBoard(
-                  this.boards.get(this.runBoard(), this.boardDay()), loadName() || undefined,
+                this.boardRows(
+                  this.boards.get(this.runBoard(), this.boardDay()),
+                  (rows) => S.endBoard(rows, loadName() || undefined),
                 ),
                 loadName() || undefined,
                 this.runBoard(),
@@ -6787,6 +6792,15 @@ class App {
    *  but on a real device's network it reads as "the leaderboard shows
    *  twice" — the modal visibly pops in, then pops in again a moment later
    *  once the fetch lands. */
+  /** A cached board sliced for the screen, or null carried through when the
+   *  cache holds a failed fetch (BoardCache) — so every reader draws the
+   *  "couldn't load" line rather than an empty board. */
+  private boardRows(
+    cached: ScoreEntry[] | null, slice: (rows: ScoreEntry[]) => S.BoardRow[],
+  ): S.BoardRow[] | null {
+    return cached === null ? null : slice(cached);
+  }
+
   private renderBoardRows(highlight?: string): void {
     const body = this.overlay.querySelector("#lb-body");
     if (!body) return;
@@ -6803,8 +6817,10 @@ class App {
     const screen = this.state === "leaderboard";
     const board = screen ? this.lbBoard : this.runBoard();
     const day = screen ? this.lbDay : this.boardDay();
-    const cached = this.boards.get(board, day);
-    const rows = screen ? S.fullBoard(cached) : S.endBoard(cached, highlight);
+    const rows = this.boardRows(
+      this.boards.get(board, day),
+      (cached) => screen ? S.fullBoard(cached) : S.endBoard(cached, highlight),
+    );
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight, board);
   }
 
@@ -9360,15 +9376,24 @@ class App {
     }
   }
 
+  /** Post the score, and mark the row done ONLY once the Worker has said so.
+   *  It used to mark itself done before the request: a post that failed —
+   *  no signal, a Worker down — left a greyed Submit nobody could press again
+   *  over a board that then read "be the first!", and the score was gone. */
   private async onSubmitScore(): Promise<void> {
     const g = this.game;
-    if (!g || this.submitted) return;
+    if (!g || this.submitted || this.submitting) return;
     const input = this.overlay.querySelector<HTMLInputElement>("#name-input");
     const name = (input?.value || loadName() || "ACE").toUpperCase().slice(0, 12);
     saveName(name);
-    this.submitted = true;
     const row = this.overlay.querySelector("#submit-row");
-    row?.classList.add("done");
+    const btn = row?.querySelector<HTMLButtonElement>("button") ?? null;
+    const note = this.overlay.querySelector<HTMLElement>("#submit-note");
+    // Held shut for the request's duration rather than marked done: a second
+    // tap mid-flight is the same score twice, and a failure has to hand the
+    // button back.
+    this.submitting = true;
+    if (btn) btn.disabled = true;
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
     // The board the RUN was flown on. A Tier S score never touches the Deep
     // Run board, and a Skydeck score never touches Tier 10's — see lib/api.ts's
@@ -9384,7 +9409,18 @@ class App {
     const res = await submitScore(
       name, this.finalScore(g, this.state === "won"), board, bay, lines, day,
     );
-    this.boards.set(board, day, res?.scores ?? (await fetchLeaderboard(board, 10, day)));
+    this.submitting = false;
+    if (btn) btn.disabled = false;
+    if (res === null) {
+      // The row stays live and says why. The cache is left alone: whatever the
+      // board showed before the tap is still the truest thing known about it.
+      if (note) { note.textContent = S.SUBMIT_FAILED_TEXT; note.hidden = false; }
+      return;
+    }
+    this.submitted = true;
+    row?.classList.add("done");
+    if (note) note.hidden = true;
+    this.boards.set(board, day, res.scores);
     this.renderBoardRows(name);
     void successHaptic();
   }

@@ -13350,18 +13350,18 @@ section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
     const dayN1 = dailySeed(DAY_B);
     cache.set(BOARD_SKYDECK, dayN, rows("YESTERDAY"));
     check("yesterday's rows are not today's board",
-      cache.get(BOARD_SKYDECK, dayN1).length === 0);
-    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY");
+      cache.get(BOARD_SKYDECK, dayN1)?.length === 0);
+    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)?.[0]?.name === "YESTERDAY");
     cache.set(BOARD_SKYDECK, dayN1, rows("TODAY"));
     check("...with both days held at once, so neither tab blanks the other",
-      cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY"
-        && cache.get(BOARD_SKYDECK, dayN1)[0]?.name === "TODAY");
+      cache.get(BOARD_SKYDECK, dayN)?.[0]?.name === "YESTERDAY"
+        && cache.get(BOARD_SKYDECK, dayN1)?.[0]?.name === "TODAY");
     // The all-time boards go on behaving exactly as they did: one key each.
     cache.set(MARK_COUNT, DAY_NONE, rows("TIER10"));
     check("an all-time board is one entry, on the day it does not have",
-      cache.get(MARK_COUNT, DAY_NONE)[0]?.name === "TIER10");
+      cache.get(MARK_COUNT, DAY_NONE)?.[0]?.name === "TIER10");
     check("...and does not collide with another board's",
-      cache.get(BOARD_SANDBOX, DAY_NONE).length === 0);
+      cache.get(BOARD_SANDBOX, DAY_NONE)?.length === 0);
   }
 
   // ---- THE WIRE -----------------------------------------------------------
@@ -26511,6 +26511,110 @@ section("Each pocket wears its shop's mark (screens.ts's salvageHTML / scrapHTML
     /<h2 class="display refit__title">\s*<svg class="ico"/.test(yard));
 }
 
+section("A board that could not be fetched says so, and a score that did not post can be sent again (lib/api.ts / screens.ts / main.ts)");
+// ---------------------------------------------------------------------------
+{
+  // ---- THE CLIENT TELLS "EMPTY" FROM "UNREACHABLE" (lib/api.ts) ------------
+  // fetchLeaderboard returned [] on every failure, so a phone with no signal
+  // drew "No scores at this Tier yet — be the first!" over a board full of
+  // scores. Null is the new answer for a fetch that did not land; [] is still
+  // a board that landed empty. Same location/fetch stubbing the Skydeck board's
+  // route checks use.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "localhost" }, configurable: true, writable: true,
+    });
+    const answer = (impl: () => Promise<unknown>): void => {
+      Object.defineProperty(globalThis, "fetch", { value: impl, configurable: true, writable: true });
+    };
+    try {
+      answer(async () => { throw new TypeError("Failed to fetch"); });
+      check("a fetch that throws is null, not an empty board",
+        (await fetchLeaderboard(MARK_COUNT, 10)) === null);
+      check("...and a score that never posts is null too",
+        (await submitScore("ACE", 100, MARK_COUNT, 10, 40)) === null);
+      answer(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+      check("a Worker that refuses is null as well",
+        (await fetchLeaderboard(MARK_COUNT, 10)) === null
+          && (await submitScore("ACE", 100, MARK_COUNT, 10, 40)) === null);
+      answer(async () => ({ ok: true, json: async () => ({ scores: [] }) }));
+      const empty = await fetchLeaderboard(MARK_COUNT, 10);
+      check("a board that landed empty is still []", Array.isArray(empty) && empty.length === 0);
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+  }
+  // ---- …AND THE CACHE CARRIES THE DIFFERENCE (lib/api.ts's BoardCache) -----
+  {
+    const cache = new BoardCache();
+    check("a board never asked for draws as empty until its fetch lands",
+      cache.get(MARK_COUNT, DAY_NONE)?.length === 0);
+    cache.set(MARK_COUNT, DAY_NONE, null);
+    check("...and a board whose fetch failed is held as null, not as empty",
+      cache.get(MARK_COUNT, DAY_NONE) === null);
+  }
+  // ---- …AND THE SCREEN DRAWS IT AS ITS OWN LINE (screens.ts) ---------------
+  {
+    const down = S.leaderboardRowsHTML(null, undefined, MARK_COUNT);
+    check("an unreachable board says so",
+      down.includes(S.BOARD_UNAVAILABLE_TEXT) && S.BOARD_UNAVAILABLE_TEXT === "Couldn't load the board");
+    check("...and never calls itself empty", !down.includes("be the first"));
+    check("...on every board, the roof's included",
+      !S.leaderboardRowsHTML(null, undefined, BOARD_SKYDECK).includes("today's board yet"));
+    check("an empty board still says what it always said",
+      S.leaderboardRowsHTML([], undefined, MARK_COUNT).includes(S.emptyBoardText(MARK_COUNT)));
+    check("the standalone screen carries the line through",
+      S.leaderboardScreen(S.leaderboardRowsHTML(null), { board: 1, tier: 1, sandbox: false })
+        .includes(S.BOARD_UNAVAILABLE_TEXT));
+  }
+  // ---- THE SUBMIT ROW IS DONE WHEN THE WORKER SAYS SO (main.ts) ------------
+  // onSubmitScore set `submitted` and greyed #submit-row BEFORE the POST, so a
+  // post that failed left a Submit nobody could press again and a score that
+  // was simply gone. Pinned as order in the source: the done marks have to
+  // come after the await, and only on the branch that got a response.
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const submitAt = mainSrc.indexOf("private async onSubmitScore(");
+    const submitBody = mainSrc.slice(submitAt, mainSrc.indexOf("\n  }\n", submitAt));
+    const postAt = submitBody.indexOf("await submitScore(");
+    check("the submit handler exists to be checked", submitAt > 0 && postAt > 0);
+    check("the row is marked done only after the post",
+      submitBody.indexOf("this.submitted = true;") > postAt
+        && submitBody.indexOf('classList.add("done")') > postAt);
+    check("...and only when the post landed",
+      /if \(res === null\) \{[\s\S]*?return;\s*\n\s*\}\s*\n\s*this\.submitted = true;/.test(submitBody));
+    check("a failed post says why, over a Submit that still works",
+      /if \(res === null\) \{[\s\S]*?note\.textContent = S\.SUBMIT_FAILED_TEXT;[\s\S]*?note\.hidden = false;[\s\S]*?return;/
+        .test(submitBody)
+        && submitBody.indexOf("btn.disabled = false;") < submitBody.indexOf("if (res === null)")
+        && S.SUBMIT_FAILED_TEXT === "Couldn't submit — check your connection");
+    // The line lives on the card, hidden, so a failure has somewhere to write
+    // without re-rendering the modal — which would replay its entrance.
+    const card = S.endModal({
+      won: false, runComplete: false, score: 1, lines: 1, baysCleared: 0, funds: 0, best: 0,
+      name: "ACE", rows: "", reason: "topout", bayNum: 1, bayName: "Bay", tierCompleted: null,
+      tierSalvage: 0, progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 0,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
+    });
+    check("the end card carries the note's line, hidden until needed",
+      /<p class="muted end__submit-note" id="submit-note" role="alert" hidden><\/p>/.test(card));
+    // …and a failed fetch reaches the rows as null from every reader of the
+    // cache, so no screen can turn it back into an empty board on the way.
+    check("every board reader carries a failed fetch through as null",
+      (mainSrc.match(/this\.boardRows\(/g) ?? []).length >= 3
+        && /return cached === null \? null : slice\(cached\);/.test(mainSrc));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Player accounts (social login + RevenueCat identity)");
 // ---------------------------------------------------------------------------
 {
