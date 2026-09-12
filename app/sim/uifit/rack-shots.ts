@@ -46,7 +46,8 @@ const NONE = { left: 0, right: 0, top: 0, bottom: 0 };
  *               from.
  *  - 13mini     the tightest compact row in the fleet (209px), where nine and
  *               ten slots still come in under the square cap.
- *  - win1269    the desktop shell's default window minus its titlebar.
+ *  - win1269    a 1280x720 desktop FRAME minus its titlebar (the shell's
+ *               default page until main.js sized the content; devices.ts).
  *  - laptop1280 the authored box, so the numbers here are the reference ones.
  *  - desk1920   the top of the magnified range, where an uncapped plate does
  *               its worst.

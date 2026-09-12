@@ -106,6 +106,17 @@ function createWindow() {
     // "desktop" rather than a stretched tablet. Resizing is left ON deliberately
     // — the spike wants to see how the chrome magnification that landed in #93
     // behaves at sizes the ui-fit harness does not cover.
+    //
+    // 1280x720 is the CONTENT size, not the frame's. Without useContentSize
+    // these numbers size the outer window, and the OS titlebar and borders
+    // come out of them: on Windows the page was handed 1269x663, which is the
+    // uifit matrix's "windowed" row and the box in which the draft body
+    // scrolls by 16px and the projection tile is cut in half. The shell was
+    // opening on a layout the game itself files as a dragged-narrow window.
+    // useContentSize also makes minWidth/minHeight content constraints (Electron
+    // applies the min/max pair through the same switch), so 960x540 is now the
+    // smallest PAGE, which is the number the layout solver was given to hold.
+    useContentSize: true,
     width: 1280,
     height: 720,
     minWidth: 960,

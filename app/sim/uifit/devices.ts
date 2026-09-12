@@ -121,9 +121,11 @@ export const DEVICES: Device[] = [
   //
   // Every web row above is a viewport whose height is a round number, because
   // that is how a fullscreen display or a maximised browser reports itself.
-  // The desktop shell (app/desktop) deliberately allows free resizing, and its
-  // default 1280x720 window minus the OS titlebar hands the page ~1269x663 —
-  // a height that is nobody's round number and therefore nobody's breakpoint.
+  // The desktop shell (app/desktop) deliberately allows free resizing, and a
+  // 1280x720 FRAME minus the OS titlebar hands the page ~1269x663 — a height
+  // that is nobody's round number and therefore nobody's breakpoint. That was
+  // the shell's default box until main.js sized the content instead of the
+  // frame; it is still the box any dragged window can land in.
   //
   // That is exactly why this row exists. The menu's demo panel used to be
   // sized by a staircase of height media queries whose middle step (440px) was
