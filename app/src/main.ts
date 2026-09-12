@@ -126,8 +126,8 @@ import {
 import { InputController } from "./game/input";
 import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
-  actionForKey, padFamilyFromId, resetKeyBindings, resetPadBindings, setKeyBinding,
-  setPadBinding, setPadFamily,
+  isPauseKey, padFamilyFromId, resetKeyBindings, resetPadBindings, setFullscreenKeys,
+  setKeyBinding, setPadBinding, setPadFamily,
   type BindableAction, type InputProfile, type PadFamily,
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
@@ -153,7 +153,7 @@ import {
   lockLandscape, isPortrait, isNative, isDesktop, tapHaptic, successHaptic, impactHaptic,
   readyHaptic, hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
-  applySafeAreaInsets, purgeNativeServiceWorker,
+  shellFullscreenKeys, applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
@@ -1205,6 +1205,10 @@ class App {
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
+    // Before the first render: the pause card and the Controls screen read
+    // these keycaps out of bindings.ts, and a card rendered before they are
+    // set would name no fullscreen key on the one shell that has one.
+    setFullscreenKeys(shellFullscreenKeys());
 
     // NOT fire-and-forget any more. The rotation this asks for is the single
     // biggest viewport change the app will ever see, and it happens AFTER the
@@ -4232,6 +4236,17 @@ class App {
 
   private onFullscreenChange = (): void => {
     this.syncFullscreenButtons();
+    // LEAVING FULLSCREEN MID-BAY IS A PAUSE, the same pause as ⏸ or the
+    // portrait guard (onResize), and for the same reason: the viewport just
+    // changed under a live bay and the layout is re-solving beneath it. It is
+    // also the only way Escape can keep its promise. In browser fullscreen
+    // Chromium consumes Escape whole — the page is never handed the keydown —
+    // and the Electron shell claims it the same way (desktop/main.js), so a
+    // player pressing the pause card's Esc in fullscreen got a fullscreen
+    // exit and a bay still running. Pausing HERE, off the transition itself,
+    // means every exit pauses whichever key or button caused it. Entering
+    // fullscreen does nothing: it is the player's own gesture on a button.
+    if (!isFullscreen() && this.state === "playing") this.pause();
   };
 
   /** Arm (or extend) the dimension watchdog for `ms`. See the WATCHDOG_*
@@ -7670,8 +7685,13 @@ class App {
       return;
     }
     this.setProfile("keyboard");
-    // The pause binding, from the rebindable table (Escape by default).
-    if (actionForKey(e.key) === "pause") {
+    // The pause binding from the rebindable table (P by default), OR the
+    // Escape alias — bindings.ts's isPauseKey, which is what the pause card
+    // and the Controls screen render from, so the keys that pause and the
+    // keys that say they pause cannot drift apart. In fullscreen Escape does
+    // not arrive here at all (the browser or the desktop shell keeps it); that
+    // path pauses through onFullscreenChange instead.
+    if (isPauseKey(e.key)) {
       if (this.state === "playing") this.pause();
       else if (this.state === "paused") this.resume();
     }

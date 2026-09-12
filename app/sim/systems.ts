@@ -228,9 +228,9 @@ import {
   chainLadderHTML, CHAIN_AT_REST,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
-  padChip, padFamilyFromId, resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
-  setPadFamily,
+  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintRotate, isPauseKey,
+  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, resetKeyBindings,
+  resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
@@ -7291,6 +7291,36 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       new Set(BINDABLE_ACTIONS.map(keyFor)).size === BINDABLE_ACTIONS.length);
   resetKeyBindings();
   check("reset restores the keyboard defaults", keyFor("fire") === " " && keyFor("rotl") === "q");
+
+  // THE PAUSE KEY IS ONE NO SHELL EATS. Escape is the leave-fullscreen key in
+  // every shell — Chromium keeps it whole in browser fullscreen and
+  // desktop/main.js claims it (with preventDefault) to leave fullscreen — so a
+  // binding of Escape was a rail chip naming a key that, in fullscreen, did
+  // nothing the game could see. P is the binding; Escape stays as a fixed
+  // alias, read through isPauseKey by the same handler.
+  check("pause defaults to P, a key no shell consumes", keyFor("pause") === "p");
+  check("Escape pauses as a fixed alias, on top of the binding",
+    isPauseKey("Escape") && isPauseKey("p") && isPauseKey("P") && !isPauseKey("q"));
+  check("the card's pause chips are the binding, then the alias",
+    pauseKeyLabels().join("/") === "P/Esc");
+  // The alias follows a rebind of the binding rather than replacing it...
+  setKeyBinding("pause", "g");
+  check("a rebound pause keeps Escape beside it",
+    isPauseKey("g") && !isPauseKey("p") && isPauseKey("Escape")
+      && pauseKeyLabels().join("/") === "G/Esc");
+  // ...and YIELDS to a table that has put Escape on another action. Only a
+  // swap can do that (the capture refuses Escape), but a save that did must
+  // not have one key doing two things — and the card must stop naming it.
+  setKeyBinding("auto", PAUSE_ALIAS);
+  check("an Escape claimed by another action stops pausing",
+    actionForKey("Escape") === "auto" && !isPauseKey("Escape")
+      && pauseKeyLabels().join("/") === "G");
+  resetKeyBindings();
+  check("reset restores the alias with the binding", pauseKeyLabels().join("/") === "P/Esc");
+  // The shell's fullscreen keys are set by main.ts from the platform and are
+  // empty until then — a browser or a native shell renders no such line.
+  check("no shell fullscreen keys until a shell says so", fullscreenKeys().length === 0);
+
   setPadBinding("bond", 5);
   check("a conflicting pad rebind swaps the same way",
     padFor("bond") === 5 && padFor("rotr") === 2);
@@ -7340,6 +7370,25 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   check("a capturing row says so",
     controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
       .includes("Press a key…"));
+  // ESCAPE IS A ROW WITH NO REBIND BUTTON: it is an alias, not a binding, and
+  // the row says the one thing that is true of it on every shell — it pauses,
+  // and in fullscreen it leaves that first (which pauses, main.ts's
+  // onFullscreenChange). The pause bind row itself carries the binding.
+  const escRow = /<div class="bind-row bind-row--info">\s*<span class="bind-row__label">Esc<\/span>[\s\S]*?<\/div>/.exec(kb)?.[0] ?? "";
+  check("the keyboard tab has an Escape info row under the bindings",
+    escRow.includes("also pauses") && escRow.includes("leaves fullscreen") && !escRow.includes('data-action="rebind"'));
+  check("...and the pause bind row shows P, the binding",
+    /<span class="bind-row__label">Pause<\/span>\s*<span class="bind-row__key">P<\/span>/.test(kb));
+  // The desktop shell's fullscreen keys appear only once the shell has set
+  // them (main.ts's boot, from lib/platform's shellFullscreenKeys) — in a
+  // browser or a native shell there is no such row to mislead with.
+  check("no fullscreen row until the shell names its keys", !/bind-row__label">Fullscreen</.test(kb));
+  setFullscreenKeys(["⌃⌘F", "F11"]);
+  const kbDesk = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
+  check("the desktop shell's Controls names its fullscreen keys, Mac convention first",
+    /bind-row__label">Fullscreen<\/span>\s*<span class="bind-row__key">⌃⌘F · F11</.test(kbDesk)
+      && !kbDesk.includes('data-bind="fullscreen"'));
+  setFullscreenKeys([]);
   const padPane = controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null });
   check("an absent gamepad reads as absent, not broken", padPane.includes("No gamepad"));
   check("the touch tab carries the left-hand rail toggle",
@@ -17632,6 +17681,45 @@ section("Rail legends: the keycap and the pad mark on the button (D2)");
 }
 
 // ---------------------------------------------------------------------------
+section("Leaving fullscreen pauses, and Escape's two lives (main.ts)");
+// ---------------------------------------------------------------------------
+// The state machine cannot be driven here (no DOM, no Game), so the pin is on
+// the source, anchored on the two handlers by name: each is a class-field arrow
+// with one body, so a slice from its declaration to the next `};` is the whole
+// of it and nothing else. The behaviour under pin is the half of the Escape
+// contract that lives on the page: desktop/main.js keeps Escape from the page
+// in fullscreen and a browser does the same, so the ONLY way the pause card's
+// Esc can be true in fullscreen is for the exit itself to pause.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const bodyOf = (decl: string): string => {
+    const at = mainSrc.indexOf(decl);
+    return at < 0 ? "" : mainSrc.slice(at, mainSrc.indexOf("\n  };", at));
+  };
+  const fsChange = bodyOf("private onFullscreenChange = (): void => {");
+  check("a fullscreen exit while playing pauses through the one pause path",
+    /if \(!isFullscreen\(\) && this\.state === "playing"\) this\.pause\(\);/.test(fsChange));
+  check("...and that is the handler's only pause — entering fullscreen pauses nothing",
+    (fsChange.match(/this\.pause\(\)/g) ?? []).length === 1);
+  const globalKey = bodyOf("private onGlobalKey = (e: KeyboardEvent): void => {");
+  check("the global handler reads the pause key through isPauseKey, alias included",
+    /if \(isPauseKey\(e\.key\)\) \{/.test(globalKey) && !/actionForKey\(e\.key\) === "pause"/.test(globalKey));
+  check("...so it is the one place a key pauses or resumes",
+    /this\.state === "playing"\) this\.pause\(\);\s*else if \(this\.state === "paused"\) this\.resume\(\);/.test(globalKey));
+  // Escape is refused by the rebind capture — that is what makes it safe to
+  // be the alias: no rebind can bind it directly, so only a swap can move it.
+  check("the rebind capture still refuses Escape",
+    /if \(e\.key !== "Escape"\) setKeyBinding\(this\.rebinding, e\.key\);/.test(globalKey));
+  // The shell's keys reach the card before anything renders.
+  check("the shell's fullscreen keys are set at boot, from the platform",
+    mainSrc.includes("setFullscreenKeys(shellFullscreenKeys());")
+      && mainSrc.indexOf("setFullscreenKeys(shellFullscreenKeys());") < mainSrc.indexOf("this.renderOverlay()"));
+}
+
+// ---------------------------------------------------------------------------
 section("The pause card is the whole input scheme (screens.ts)");
 // ---------------------------------------------------------------------------
 // These checks used to be split between the field strip and this card, because
@@ -17674,6 +17762,27 @@ section("The pause card is the whole input scheme (screens.ts)");
     /break bonds/.test(full_kb) && /arm charge/.test(full_kb) && /autofire/.test(full_kb));
   check("the reference points at the Controls screen for the rest",
     /Settings → Controls/.test(full_kb));
+  // THE PAUSE LINE NAMES BOTH KEYS. The keyboard arm never carried one — the
+  // pause key was Escape and the card was read on the pause modal, so it went
+  // without saying — and then Escape became the key every fullscreen consumes.
+  // P is the chip the rail wears; Esc is the alias, true on every shell: the
+  // page pauses where it sees it, and where the browser or the desktop shell
+  // keeps it, the fullscreen exit it causes pauses (onFullscreenChange).
+  check("the card names the pause binding and the Escape alias",
+    full_kb.includes('<span class="kbd">P</span>/<span class="kbd">Esc</span> pause'));
+  setKeyBinding("auto", PAUSE_ALIAS);
+  check("...and drops the alias the moment another action holds Escape",
+    S.pauseModal(true, "keyboard", full).includes('<span class="kbd">P</span> pause')
+      && !S.pauseModal(true, "keyboard", full).includes("Esc</span> pause"));
+  resetKeyBindings();
+  // The desktop shell's fullscreen keys: on the card only when the shell has
+  // set them, and only on the keyboard arm — a pad has no F11.
+  check("no fullscreen line off the desktop shell", !/fullscreen<\/span>/.test(full_kb));
+  setFullscreenKeys(["F11"]);
+  check("the desktop card names the shell's fullscreen key",
+    S.pauseModal(true, "keyboard", full).includes('<span class="kbd">F11</span> fullscreen')
+      && !S.pauseModal(true, "gamepad", full).includes("F11"));
+  setFullscreenKeys([]);
   // The gamepad arm re-labels the whole table — main.ts patches #pause-keys on
   // a profile flip mid-pause, and on a pad-family change under an unchanged
   // profile (relabelHintSurfaces).
