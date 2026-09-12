@@ -290,6 +290,9 @@ const WATCHDOG_RESUME_MS = 3_000;
  *  intermediate box. The watchdog would catch the settled size on its next
  *  tick anyway; this just gets there first, in one frame instead of five. */
 const LOCK_SETTLE_MS = 400;
+/** How long the menu's subtitle carries "store unavailable" after a tap on a
+ *  paywalled floor before the parked floor's line comes back. */
+const STORE_NOTE_MS = 2600;
 
 /**
  * States whose overlay covers the canvas outright, so the field behind it is
@@ -596,6 +599,9 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** noteStoreUnavailable's restore. Its own clock rather than denyTimer's:
+   *  620ms is a shake, not a reading speed. */
+  private storeNoteTimer = 0;
   /** Clears the destination panel's arrival flash. A timer rather than
    *  animationend for the same reason the shake's is one: under
    *  prefers-reduced-motion there is no animation, and the panel would stay
@@ -1381,6 +1387,7 @@ class App {
     if (s !== "menu") {
       window.clearTimeout(this.towerTravel ?? undefined);
       window.clearTimeout(this.denyTimer);
+      window.clearTimeout(this.storeNoteTimer);
       window.clearTimeout(this.bayLandTimer);
       this.towerTravel = null;
       // The unlock ceremony belongs to the home screen and dies with it. It has
@@ -2788,6 +2795,23 @@ class App {
    * animation is `none` under prefers-reduced-motion, where animationend never
    * fires and the floor would stay red forever.
    */
+  /**
+   * The primary's subtitle says the store is down for long enough to read,
+   * then goes back to the parked floor's line. Restored through setPlaySub so
+   * the words that come back are the menu's one rule (see that method), not a
+   * copy of it — and not at all while the car is in flight, whose arrival
+   * rewrites the line anyway.
+   */
+  private noteStoreUnavailable(): void {
+    const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
+    if (!sub) return;
+    sub.textContent = S.STORE_UNAVAILABLE_TEXT;
+    window.clearTimeout(this.storeNoteTimer);
+    this.storeNoteTimer = window.setTimeout(() => {
+      if (this.towerTravel === null) this.setPlaySub(this.towerState().selected);
+    }, STORE_NOTE_MS);
+  }
+
   private pickTier(tier: number): void {
     const state = this.towerState();
     const shaft = this.overlay.querySelector<HTMLElement>(".tower__shaft");
@@ -2804,8 +2828,18 @@ class App {
       // progression hint; the floor's accessible label says the same thing.
       if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !this.fullGame()
         && S.tierOpen({ ...state, fullGame: true }, tier)) {
-        void this.onPaywall();
-        return;
+        if (purchasesReady()) {
+          void this.onPaywall();
+          return;
+        }
+        // NO STORE, NO OFFER. presentPaywall returns silently while the SDK is
+        // unconfigured (no key in this build, configure failed, first launch
+        // offline), so routing there answered the tap with nothing at all — no
+        // sheet, no shake, no words. The floor shakes like any other refusal
+        // below, and the reason goes on the primary's own line rather than in
+        // a toast over the tower, for the reason this method's note gives: the
+        // tower is what the player is reading.
+        this.noteStoreUnavailable();
       }
       // THE ROOF'S REFUSAL ANSWERS "WHICH ONES". Every other locked floor is
       // refused by one number the player can read off the tower already — the

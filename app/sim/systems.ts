@@ -26736,6 +26736,38 @@ section("Player accounts (social login + RevenueCat identity)");
     check("offerings are prefetched at configure, not at the buy tap",
       /void Purchases\.getOfferings\(\)\.catch\(/.test(purchasesSrc));
   }
+
+  /* ---- A paywalled floor with no store behind it -----------------------
+   * presentPaywall is a no-op until the SDK has configured — no key in the
+   * build, configure failed, first launch offline — and the tower routed every
+   * tap on a paywalled floor straight to it. So on exactly those builds Tier 4
+   * answered a tap with nothing: no sheet, no shake, no words (audit F1). The
+   * tap now asks the store first, and a tap with no store takes the same
+   * refusal every other locked floor takes, with the reason on the primary's
+   * subtitle rather than in a toast over the tower. */
+  {
+    const pickAt = mainSrc.indexOf("private pickTier(");
+    const pickBody = mainSrc.slice(pickAt, mainSrc.indexOf("\n  private ", pickAt + 1));
+    check("the paywalled floor's tap asks the store before offering the paywall",
+      /if \(purchasesReady\(\)\) \{\s*\n\s*void this\.onPaywall\(\);\s*\n\s*return;/.test(pickBody));
+    // The shape that was the bug: the paywall route with nothing in front of
+    // it. Its absence is the pin, because the gate above could be added beside
+    // it without removing it.
+    check("...and no ungated route to it survives",
+      !/fullGame: true \}, tier\)\) \{\s*\n\s*void this\.onPaywall\(\);/.test(pickBody));
+    check("...and a tap with no store falls through to the shake, not to silence",
+      pickBody.indexOf("this.noteStoreUnavailable()") > 0
+        && pickBody.indexOf("this.noteStoreUnavailable()")
+          < pickBody.indexOf('classList.add("is-denied")'));
+    check("...saying why on the primary's own line",
+      /sub\.textContent = S\.STORE_UNAVAILABLE_TEXT/.test(mainSrc)
+        && S.STORE_UNAVAILABLE_TEXT === "Store unavailable — try again later");
+    // The silence the gate is for, pinned so the gate cannot outlive it
+    // unexplained: both paywall paths return before presenting while !ready.
+    check("presentPaywall is silent until the SDK has configured",
+      /if \(!ready \|\| !webPurchases\) return unlimited;/.test(purchasesSrc)
+        && /if \(!ready\) return unlimited;/.test(purchasesSrc));
+  }
 }
 
 console.log(

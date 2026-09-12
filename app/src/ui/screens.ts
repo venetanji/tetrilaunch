@@ -1442,6 +1442,13 @@ export interface SchoolPrompt {
   step: number | null;
 }
 
+/** What the primary's subtitle says when a paywalled floor is tapped and there
+ *  is no store to sell it (main.ts's noteStoreUnavailable — purchases.ts's
+ *  presentPaywall is a silent no-op until the SDK has configured). On the
+ *  button's line rather than in a toast, because the tower is what the player
+ *  is reading when they tap it. */
+export const STORE_UNAVAILABLE_TEXT = "Store unavailable — try again later";
+
 export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
   /** Flight School's progress, while the ground floor still owes a rung. Null
