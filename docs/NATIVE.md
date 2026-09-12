@@ -597,16 +597,44 @@ only true on ultrawide. Measured:
 `app/src/game/layout.ts` replaces that assumption with a solver that picks a
 mode and — critically — **reserves the band it needs before fitting the world**,
 so the field scales down a few percent instead of the controls being drawn over
-it:
+it. The order below *is* the policy: **a vertical rail wherever its column
+fits.**
 
 - **`wide`** — a natural side gutter fits the rail. Vertical column, right
   gutter, nothing reserved.
-- **`snug`** — no usable natural gutter (near-16:9). Reserve a right band, refit
-  the world into what's left. Costs ~6% of field scale at 16:9 and buys back the
-  entire play area.
-- **`tall`** — the top/bottom band is the roomy one (4:3, 16:10). The rail
-  becomes a horizontal strip in the bottom band, which is also a better thumb
-  reach on a tablet than a far-right column.
+- **`snug`** — no usable natural **side** gutter, but the rail's column still
+  stacks. Reserve a side band, refit the world into what's left. Costs ~6% of
+  field scale at 16:9, 4–8% on 16:10 and 4:3, and buys back the entire play area.
+- **`tall`** — the column does **not** stack (a fully drafted eight-slot rail
+  needs 410px of height). Reserve a bottom band and put the buttons in it as a
+  horizontal strip. **Fallback only:** a ~360dp Android phone with four
+  abilities drafted, or a browser window dragged very short. No aspect ratio
+  selects it.
+
+`tall` used to be chosen second, off the natural **top/bottom** gutter — so a
+16:10 laptop or a 4:3 iPad took the bottom strip, and it cost the field nothing.
+That order was reversed deliberately, and the cost was accepted:
+
+- The band is free but the **strip** is not. It puts the primary controls under
+  the bay floor, across the compactor sweep, on the edge Android reserves for its
+  back-swipe, and in a different place from where the same buttons live on every
+  phone and every desktop window.
+- The thumb-reach argument for a tablet strip is **retired**. The boxes that
+  actually took that branch are a 16:10 Mac in fullscreen and a 4:3 iPad — one
+  has no thumbs on it at all, and the other is as often on a table.
+
+Consequence, measured: 16:10 Mac fullscreen (1470×956, 1512×982, 1728×1117,
+1920×1200, 2560×1600) and the 4:3 tablets (iPad mini, iPad Pro 12.9) now solve
+`snug` with a reserved right band and a field 4–8% smaller. The natural
+top/bottom gutter is spent the way every other unused band is: as **open sky**
+above the field.
+
+Which is the second half of the same change. The field is **bottom-anchored in
+every fit**, not only on notched phones. A centred fit split the letterbox
+evenly, and while the half above the field is painted as sky (`skyTop`; the shaft
+is unbounded upward by design), the half below it could only ever be raw backdrop
+— a dead black band under a glowing bay floor, 71px at 1512×945 and 96px at
+1024×768. The whole leftover now goes overhead, where something already draws it.
 
 Safe-area insets are subtracted from the usable box in **every** mode. In
 landscape — the only orientation this game plays in — a notch/Dynamic Island and
@@ -632,7 +660,9 @@ only be confirmed on device:
 - iPhone landscape: field clear of the Dynamic Island, rail clear of the home
   indicator, both left- and right-hand rotations.
 - Android gesture navigation: the bottom-edge swipe zone vs. the `tall`-mode
-  rail strip.
+  rail strip — which is now only reachable on a ~360dp phone with a fully
+  drafted rail, and is one of the reasons that mode is a fallback rather than a
+  preference.
 - Android WebView cutout: `patch-android.mjs` sets `shortEdges` explicitly.
   Capacitor sets **no** cutout mode of its own — the generated manifest and
   themes leave it at the platform default, which letterboxes and blacks out the

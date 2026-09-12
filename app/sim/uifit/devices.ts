@@ -144,12 +144,30 @@ export const DEVICES: Device[] = [
   { name: "Web · 1512x945 MacBook", platform: "web", w: 1512, h: 945, dpr: 2, insets: NONE, pointer: "fine" },
   { name: "Web · 1920x1080 desktop", platform: "web", w: 1920, h: 1080, dpr: 1, insets: NONE, pointer: "fine" },
   { name: "Web · 2560x1080 ultrawide", platform: "web", w: 2560, h: 1080, dpr: 1, insets: NONE, pointer: "fine" },
-  // Two windows the player dragged narrow. Both are 4:3-ish, so the solver goes
-  // "tall" and the hint strip takes its one override; the 800x600 row is here
-  // because it is the width at which a hint strip sized by its CONTENT rather
-  // than by the field stops fitting, and a bound nothing ever tests is a bound
-  // that is not there. It is a legitimate browser window, not a synthetic
-  // worst case — narrower than any tablet row, and taller than every phone.
+  // TRUE 16:10 FULLSCREEN, which the two rows above are not.
+  //
+  // Every Mac sold since 2021 has a 16:10 panel and reports 1470x956, 1512x982,
+  // 1728x1117 or 1920x1200 CSS px with the browser in fullscreen; a Windows
+  // laptop at 1920x1200 reports the last of those. NOT ONE of those boxes was in
+  // this file. "Web · 1512x945" is a 1512-wide MacBook with a browser CHROME bar
+  // on it — a windowed viewport whose height happens to be 16:9.6 — so the
+  // matrix sampled the windowed case on that machine and the fullscreen case
+  // nowhere.
+  //
+  // That mattered the moment mode selection stopped asking about the vertical
+  // gutter (layout.ts): a 16:10 box used to be the archetypal "tall" solve and
+  // is now the archetypal "snug" one, its field 4-8% smaller with an 84px band
+  // reserved out of the width. These two rows are the boxes that change, at both
+  // ends of the range and at both device scale factors — the 1512 row at dpr 2
+  // because that is what a MacBook Retina panel is, the 1920 row at dpr 1
+  // because that is what an external monitor is.
+  { name: "Web · 1512x982 MacBook fullscreen", platform: "web", w: 1512, h: 982, dpr: 2, insets: NONE, pointer: "fine" },
+  { name: "Web · 1920x1200 desktop 16:10", platform: "web", w: 1920, h: 1200, dpr: 1, insets: NONE, pointer: "fine" },
+  // Two windows the player dragged narrow. Both are 4:3-ish — they used to be
+  // the rows that proved the "tall" bottom strip, and they now take the reserved
+  // side band like everything else; the 800x600 row is here because it is the
+  // narrowest box in the web block, narrower than any tablet row and taller than
+  // every phone, and a bound nothing ever tests is a bound that is not there.
   { name: "Web · 1000x760 window", platform: "web", w: 1000, h: 760, dpr: 1, insets: NONE, pointer: "fine" },
   { name: "Web · 800x600 window", platform: "web", w: 800, h: 600, dpr: 1, insets: NONE, pointer: "fine" },
 ];

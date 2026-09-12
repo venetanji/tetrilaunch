@@ -26,15 +26,46 @@ import { WORLD } from "./engine";
  * get real space, instead of the field keeping every pixel and the controls
  * being drawn over it.
  *
+ * THE ORDER IS THE POLICY, and it is "vertical rail wherever the column fits":
+ *
  *   "wide" — a side gutter already fits the rail. Vertical rail, right gutter,
  *            nothing reserved. (Ultrawide phones, most landscape handsets.)
- *   "tall" — a top/bottom gutter already fits a horizontal bar. The rail
- *            becomes a horizontal strip centered in the bottom band, which is
- *            also a better thumb reach on a tablet than a far-right column.
- *   "snug" — neither gutter fits anything (near-16:9). Reserve a right band and
- *            refit the world into what's left; vertical rail in the reserved
- *            band. Costs ~6% of field scale at 16:9 and buys back the entire
- *            play area.
+ *   "snug" — no side gutter, but the rail's COLUMN still stacks. Reserve a
+ *            right band and refit the world into what's left; vertical rail in
+ *            the reserved band. Costs ~6% of field scale at 16:9, 4-8% on the
+ *            16:10 and 4:3 boxes that used to take a bottom strip, and buys
+ *            back the entire play area either way.
+ *   "tall" — the column does NOT stack. Reserve a bottom band and put the rail
+ *            in it as a horizontal strip. This is a FALLBACK for a window too
+ *            short to hold the buttons end to end (a fully drafted eight-slot
+ *            rail needs 410px of height; see RAIL_SLOTS_MAX), not a mode any
+ *            aspect ratio selects.
+ *
+ * WHAT CHANGED, AND WHY THE OLD ORDER WENT. "tall" used to be chosen second,
+ * off the NATURAL top/bottom gutter: a 16:10 laptop or a 4:3 tablet has 50-96px
+ * of free letterbox above and below, that band fits a horizontal bar, and
+ * spending it cost the field nothing. Two arguments were made for it — the band
+ * is free, and a bottom strip is a better thumb reach on a tablet than a
+ * far-right column — and neither survived being looked at on the devices:
+ *
+ *   - The band is free, but the STRIP is not. It puts the game's primary
+ *     controls under the bay floor, across the compactor sweep the player is
+ *     watching, on the edge Android reserves for its own back-swipe, and in a
+ *     different place from where the same buttons live on every phone and every
+ *     desktop window. One control surface in two shapes, chosen by aspect
+ *     ratio, is a worse product than one control surface that costs a few
+ *     percent of field scale.
+ *   - The thumb-reach argument is retired outright. It was about holding a
+ *     tablet in two hands, and the boxes that actually take this branch are a
+ *     16:10 Mac in fullscreen and a 4:3 iPad — one of them has no thumbs on it
+ *     at all, and the other is as often on a table or in a cover.
+ *
+ * So the natural top/bottom gutter no longer buys a bottom strip. It is spent
+ * the way every other unused band is spent: as open sky above the field (see
+ * FIELD ANCHOR below). The cost is measured and was accepted: 16:10 Mac
+ * fullscreen (1470x956, 1512x982, 1728x1117, 1920x1200, 2560x1600) and the 4:3
+ * tablets (iPad mini, iPad Pro 12.9) now solve "snug" with a reserved right
+ * band and a field 4-8% smaller than the bottom-strip fit gave them.
  *
  * Safe-area insets (iOS notch/home indicator, which in LANDSCAPE eat the left
  * or right edge, not the top) are subtracted from the usable box first, in every
@@ -65,8 +96,14 @@ export const NO_INSETS: Insets = { left: 0, right: 0, top: 0, bottom: 0 };
 export const RAIL_MIN = 44;
 export const RAIL_MAX = 60;
 /** Breathing room between the rail and both the field edge and the viewport
- *  edge. A gutter must fit RAIL_MIN + this to count as usable. */
-const RAIL_PAD = 12;
+ *  edge. A gutter must fit RAIL_MIN + this to count as usable, and "snug"
+ *  reserves RAIL_MAX + 2 of these as its band.
+ *
+ *  Exported so sim/systems.ts can DERIVE that band rather than restate it: a pin
+ *  that checks a reserve of 84 is a pin that goes stale silently the day the
+ *  padding changes, which is the one number in this file most likely to be
+ *  tuned by eye. */
+export const RAIL_PAD = 12;
 
 /** Buttons the rail carries on every loadout: fullscreen, pause, rotate CCW,
  *  rotate CW. Fullscreen is the one conditional member — where the toggle
@@ -234,7 +271,8 @@ const DENSITY_ROOMY = 0.995;
 export interface Layout {
   mode: LayoutMode;
   /** Chrome bands deliberately reserved out of the viewport before fitting the
-   *  world. Zero in "wide"/"tall" (a natural gutter is already doing the job). */
+   *  world. Zero only in "wide", where a natural side gutter is already doing
+   *  the job; "snug" reserves a side band and "tall" a bottom one. */
   reserve: Insets;
   /** Safe-area insets folded into the usable box. */
   safe: Insets;
@@ -449,6 +487,38 @@ export function uiScaleFor(
 }
 
 /**
+ * FIELD ANCHOR — the letterbox is spent as SKY, never as a black strip below.
+ *
+ * The field is authored 16:9 and fitted into whatever box the winning mode left
+ * it, so on most boxes it does not fill that box's height and a band is left
+ * over. Where that band went used to be two different answers: bottom-anchored
+ * where there was an indicator to bleed into (the block below), and split evenly
+ * everywhere else.
+ *
+ * The even split is the one that was wrong, and it was wrong on the most common
+ * windows in the matrix. A centred fit paints HALF the leftover above the field,
+ * which render.ts fills with open sky (skyTop — the shaft is unbounded upward by
+ * design), and the other half BELOW the field, where there is nothing to paint
+ * but raw backdrop: a dead black band directly under a glowing bay floor, 71px
+ * tall at 1512x945 in "snug" and 96px at 1024x768. The band above reads as sky;
+ * the identical band below reads as a rendering fault, because the floor is the
+ * one edge of this world the player is told is solid.
+ *
+ * So the field is bottom-anchored in EVERY fit, not only the bleeding ones: the
+ * whole leftover goes overhead, where something already draws it. Nothing but
+ * `oy` changes — the scale, width and height of the field are whatever the box
+ * could afford either way — and skyTop is a pure function of (scale, oy), so the
+ * sky follows the field down without being told.
+ *
+ * What follows it down is everything anchored to the published --field-* rect:
+ * `.belt`, `.bay-banner` and `.settle-note` ride the field's TOP edge, and
+ * `.plant` rides its BOTTOM edge onto the box's floor. The rail does NOT move —
+ * it is anchored to the viewport, not the field — which is the whole reason its
+ * band is reserved here rather than left to the stylesheet. sim/systems.ts walks
+ * the plant panel's clearance over every device and every rail budget; on the
+ * tightest row (640x360 Android, "snug") it comes out at 9.3px, and that is the
+ * number a future layout change has to keep positive.
+ *
  * FIELD BLEED — the bay reaches the glass, the chrome still clears the indicator.
  *
  * The safe-area subtraction above is written for CHROME: text and buttons must
@@ -470,16 +540,16 @@ export function uiScaleFor(
  *      1280x720 world, so 375px of height budget still solves to a 360px-tall
  *      field. The extra budget is taken where it exists and ignored where it
  *      doesn't; nothing is forced.
- *   2. Whatever height it lands on, the field is then BOTTOM-ANCHORED instead of
- *      centred, so the leftover letterbox is spent as sky above (which render.ts
- *      already paints — see skyTop; the shaft is open at the top by design) and
- *      never as a black band below. This is the half that guarantees the bottom
- *      edge lands on the glass whether the fit came out height- or width-bound.
+ *   2. Whatever height it lands on, the field lands on that budget's FLOOR,
+ *      because the fit is bottom-anchored for every box now (FIELD ANCHOR
+ *      above) — which is what guarantees the bottom edge reaches the glass
+ *      whether the fit came out height- or width-bound.
  *
  * `bleed === 0` — every Android row, every desktop window, every device with no
- * bottom inset — returns to the centred fit byte for byte: the height budget is
- * unchanged and the anchor branch is not taken. The redesign is invisible
- * anywhere there was no indicator band to reclaim.
+ * bottom inset — is untouched by THIS block: the height budget is unchanged, so
+ * the field's floor lands on the usable box's own bottom edge, which on a device
+ * with no indicator is the glass anyway. The anchor is no longer this block's to
+ * own; only the extra height is.
  *
  * WHAT COMES DOWN WITH THE FIELD, because this is not only a canvas decision:
  * everything anchored to the published --field-* rect moves with it, and one
@@ -520,12 +590,18 @@ function fitField(
     // is a size limit, not a smaller box, and centring in it would shove the
     // field sideways by half the rail's gutter on rows the bleed never touches.
     ox: bx + (bw - fw) / 2,
-    oy: bleed > 0 ? by + budget - fh : by + (bh - fh) / 2,
+    // ...and BOTTOM-ANCHORED vertically, unconditionally. `bleed` still decides
+    // how much HEIGHT the field may take; it no longer decides where the field
+    // sits inside what it took. See FIELD ANCHOR above — the whole leftover goes
+    // overhead, where render.ts paints sky, instead of half of it going under
+    // the bay floor where nothing paints anything at all.
+    oy: by + budget - fh,
   };
 }
 
-/** Fit the world into a box, centered — the no-bleed case, spelled out for the
- *  call sites (mode selection, and both "tall" branches) that must keep it. */
+/** Fit the world into a box with no indicator band to bleed into — spelled out
+ *  for the call sites (mode selection, the "tall" fallback) that must not take
+ *  one. Still bottom-anchored: the anchor is not the bleed. */
 function fit(bx: number, by: number, bw: number, bh: number) {
   return fitField(bx, by, bw, bh);
 }
@@ -544,14 +620,18 @@ export function computeLayout(cw: number, ch: number): Layout {
   const ui = uiScaleFor(uw, uh);
 
   // MODE SELECTION IS A QUESTION ABOUT THE CHROME, so it is asked of the chrome
-  // box and of the centred fit — the bleed below may move and grow the field,
-  // but it must never be the reason a device changes layout mode. (It would
-  // otherwise: a taller field is a shorter top/bottom gutter, and a tablet whose
-  // gutter stopped fitting the horizontal bar would flip to "snug" for the sake
-  // of 20px of home indicator.)
+  // box and of the unbled fit — the bleed below may move and grow the field, but
+  // it must never be the reason a device changes layout mode. (It would
+  // otherwise: a taller field is a narrower side gutter, and a phone whose gutter
+  // stopped fitting the rail would flip to "snug" for the sake of 20px of home
+  // indicator.)
+  //
+  // Only the WIDTH of this fit is read now. The vertical gutter used to be the
+  // second question asked — "does a natural top/bottom band fit a horizontal
+  // strip?" — and it is not asked at all any more; see the module header for why
+  // the bottom strip stopped being something an aspect ratio can choose.
   const natural = fit(ux, uy, uw, uh);
   const gutterX = (uw - natural.fw) / 2;
-  const gutterY = (uh - natural.fh) / 2;
 
   const usable = RAIL_MIN + RAIL_PAD;
 
@@ -569,6 +649,12 @@ export function computeLayout(cw: number, ch: number): Layout {
   // short landscape phone seven buttons at RAIL_MIN plus gaps can exceed the
   // viewport height, in which case a horizontal bar is the honest answer even
   // though the side gutter is wide enough.
+  //
+  // THIS IS NOW THE ONLY THING THAT CAN SELECT "tall". Every other box gets a
+  // vertical rail, so the predicate is not a tie-breaker between two good
+  // layouts any more — it is the whole question of whether the good one is
+  // available. At the eight-slot worst case it needs 410px of usable height; at
+  // the three slots a native shell boots with, 160.
   const columnFits = railColumnCap(uh) >= RAIL_MIN;
 
   if (gutterX >= usable && columnFits) {
@@ -594,25 +680,18 @@ export function computeLayout(cw: number, ch: number): Layout {
     };
   }
 
-  if (gutterY >= usable) {
-    return {
-      mode: "tall",
-      reserve: NO_INSETS,
-      safe,
-      // `natural`, i.e. NO BLEED — the bottom gutter is the rail strip's home
-      // (app.css's :root[data-layout="tall"] .side-rail), so there is no dead
-      // band down there to reclaim and nothing below the field to bleed into
-      // that is not already a button.
-      ...natural,
-      railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, gutterY - RAIL_PAD)),
-      ...ui,
-    };
-  }
-
-  // Neither natural gutter is usable: reserve one. Prefer a right band (a
-  // vertical rail keeps the bottom clear for the plant panel and the compactor
-  // sweep) unless the column genuinely doesn't fit, in which case reserve the
-  // bottom for a horizontal bar instead.
+  // NO NATURAL SIDE GUTTER, so reserve one — and reserve it on the SIDE while
+  // the column stacks, whatever the aspect ratio says. There used to be a branch
+  // above this one that took a natural top/bottom gutter instead (16:10 laptops,
+  // 4:3 tablets, which have 50-96px of free letterbox and no side gutter at
+  // all); the module header records why it is gone and what the ~4-8% of field
+  // scale it saved was buying. The vertical rail keeps the bottom of the screen
+  // clear for the plant panel, the compactor sweep and Android's back-swipe, and
+  // it puts one control surface in ONE place on every device the app ships to.
+  //
+  // The bottom strip survives only below this: a window too short to stack the
+  // column end to end, where a vertical rail is not an option rather than a
+  // preference.
   if (columnFits) {
     const band = RAIL_MAX + RAIL_PAD * 2;
     // The band goes on the rail's edge (setRailSide): a left-handed rail
@@ -635,16 +714,23 @@ export function computeLayout(cw: number, ch: number): Layout {
     };
   }
 
+  // THE FALLBACK, and the only "tall" left. The column does not stack, so the
+  // buttons go in a horizontal strip and the band that holds it is reserved out
+  // of the bottom of the usable box. A 360dp phone with a fully drafted rail and
+  // a browser window dragged under ~410px tall are the two boxes that land here,
+  // and they land here for the same arithmetic rather than for their aspect.
   const band = RAIL_MIN + RAIL_PAD * 2;
   const reserve: Insets = { left: 0, right: 0, top: 0, bottom: band };
   return {
     mode: "tall",
     reserve,
     safe,
-    // No bleed here either, and for the same reason as the branch above: the
-    // band this reserves is the strip's, and the indicator's band underneath it
-    // is what the strip's own `bottom: max(calc(4px + var(--inset-b)), …)`
+    // No bleed here, and that is this mode's one difference from the two above:
+    // the band it reserves is the STRIP's, and the indicator's band underneath
+    // it is what the strip's own `bottom: max(calc(4px + var(--inset-b)), …)`
     // clears. A field that grew into either would be growing into the buttons.
+    // It is still bottom-ANCHORED — onto the reserved band's top edge, which is
+    // this box's floor — so the leftover goes overhead here too.
     ...fit(ux, uy, uw, uh - band),
     railSize: RAIL_MIN,
     ...ui,

@@ -201,7 +201,9 @@ import {
   computeLayout,
   getRailSlots,
   RAIL_GAP,
+  RAIL_MAX,
   RAIL_MIN,
+  RAIL_PAD,
   RAIL_SLOTS_BASE,
   RAIL_SLOTS_MAX,
   railSlotsFor,
@@ -5468,6 +5470,75 @@ section("Layout solver (layout.ts)");
     }
   }
 
+  // A VERTICAL RAIL WHEREVER THE COLUMN FITS — the mode-selection policy, on the
+  // boxes that changed their answer.
+  //
+  // These five used to be the archetypal "tall" solves: a 16:10 laptop has ~50px
+  // of natural top/bottom letterbox and a 4:3 tablet ~96px, that band fits a
+  // horizontal button strip, and spending it cost the field nothing at all. The
+  // solver no longer asks. It reserves a SIDE band while the rail's column
+  // stacks — one control surface, in one place, on every device the app ships
+  // to — and the 4-8% of field scale that costs was accepted rather than
+  // discovered.
+  //
+  // THREE CLAIMS PER BOX, because the mode name alone does not say the reserve
+  // worked. The mode is "snug"; the buttons are at their FULL 60px rather than
+  // squeezed toward the 44px floor (RAIL_MAX, which is what a box this tall
+  // should be able to afford); and the field's floor sits on the bottom of the
+  // box it was given rather than halfway up a letterbox. The last of those is
+  // the FIELD ANCHOR half of the same change and is the one a centred fit would
+  // fail — it would leave half the band under the bay floor, which is where a
+  // render review found 71px of dead black at 1512x945 and 96px at 1024x768.
+  //
+  // Boxes chosen off real hardware, not off aspect arithmetic: 1512x982 and
+  // 1920x1200 are a MacBook and a 16:10 monitor with the browser in fullscreen
+  // (both new rows in sim/uifit/devices.ts, because neither was measured
+  // anywhere), 1024x768 and 1366x1024 are the iPad mini and iPad Pro 12.9.
+  // Solved with no insets, i.e. the browser/bare-window reading of each box; the
+  // iPads' own indicator band is walked separately by the bleed check below.
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+  for (const [name, w, h] of [
+    ["1512x982 MacBook fullscreen", 1512, 982],
+    ["1920x1200 desktop 16:10", 1920, 1200],
+    ["1600x1000 16:10 laptop", 1600, 1000],
+    ["1024x768 iPad mini", 1024, 768],
+    ["1366x1024 iPad Pro 12.9", 1366, 1024],
+  ] as [string, number, number][]) {
+    const l = computeLayout(w, h);
+    check(`${name} keeps the vertical rail in a reserved side band`,
+      l.mode === "snug" && l.reserve.right === RAIL_MAX + 2 * RAIL_PAD && l.reserve.bottom === 0,
+      `${l.mode}, reserve r${l.reserve.right} b${l.reserve.bottom}`);
+    check(`${name} affords the full-size rail button`, l.railSize === RAIL_MAX,
+      `${l.railSize.toFixed(1)}px`);
+    check(`${name} lands the bay floor on the bottom of its box`,
+      Math.abs(l.oy + l.fh - h) < 0.5,
+      `floor at ${(l.oy + l.fh).toFixed(1)} of ${h}, ${(h - l.oy - l.fh).toFixed(1)}px of dead band below`);
+    // ...and the whole letterbox is therefore ABOVE, where render.ts paints sky.
+    // Stated as an identity rather than "oy > 0": a solve that had shortened the
+    // field and then bottom-anchored it would pass the check above and fail this
+    // one.
+    check(`${name} spends its whole letterbox as sky overhead`,
+      Math.abs(l.oy - (h - l.fh)) < 0.5,
+      `${l.oy.toFixed(1)}px above of a ${(h - l.fh).toFixed(1)}px band`);
+  }
+
+  // ...AND "tall" IS STILL THERE, for the one thing it is now for. The bottom
+  // strip is not gone, it is a fallback: a window too short to stack the column
+  // has no vertical rail available, whatever its aspect ratio. At the eight-slot
+  // worst case that is 410px of usable height (8x44 + 7x6 + 16), so a 16:10 box
+  // 400px tall takes the strip and the same box 420px tall does not — the flip
+  // is a statement about the COLUMN, and this is the pair that says so.
+  check("a window too short for the column still falls back to the bottom strip",
+    computeLayout(640, 400).mode === "tall" && computeLayout(672, 420).mode !== "tall",
+    `${computeLayout(640, 400).mode} at 400 tall, ${computeLayout(672, 420).mode} at 420`);
+  // And the flip is not about the aspect: the SAME 16:10 shape at a height the
+  // column fits comfortably is "snug" all the way up.
+  check("a 16:10 box is snug at every height the column stacks in",
+    [420, 600, 800, 1000, 1200, 1600].every((h) => computeLayout(Math.round(h * 1.6), h).mode === "snug"),
+    [420, 600, 800, 1000, 1200, 1600]
+      .map((h) => `${h}:${computeLayout(Math.round(h * 1.6), h).mode}`).join(" "));
+
   // Safe areas must actually push the field off the notch.
   const plain = computeLayout(2400, 1080);
   setSafeAreaInsets({ left: 60, right: 0, top: 0, bottom: 20 });
@@ -5549,52 +5620,67 @@ section("Layout solver (layout.ts)");
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
   setRailSlots(RAIL_SLOTS_MAX);
 
-  // ...AND THE BLEED IS A NO-OP EVERYWHERE ELSE, walked over the whole device
+  // ...AND THE ANCHOR IS THE SAME EVERYWHERE, walked over the whole device
   // matrix rather than argued from the source.
   //
-  // The rule has exactly two branches and this states both as one predicate.
-  // The field is CENTRED in its vertical box — the box being the usable height
-  // less whatever band the solver reserved, which is the letterboxing this app
-  // has always done — unless it was handed an indicator band to bleed into, in
-  // which case it is bottom-anchored to the glass. So:
+  // This used to be the pin that said the bleed was a NO-OP off the notched
+  // rows: the field was centred in its vertical box everywhere else, and the
+  // clause "desktop and Android must solve exactly as they did" was the thing
+  // being defended. That clause has been deliberately withdrawn. A centred fit
+  // splits the leftover letterbox in two, and only the half ABOVE the field is
+  // painted (render.ts's skyTop — the shaft is unbounded upward by design); the
+  // half below could only ever be raw backdrop, a dead black band under a
+  // glowing bay floor, 71px tall at 1512x945 and 96px at 1024x768. So every fit
+  // is bottom-anchored now and the whole band goes overhead.
   //
-  //   inset.bottom === 0  ->  centred, on every row and every mode. This is the
-  //                           "desktop and Android must solve exactly as they
-  //                           did" clause, and it is a clause rather than a
-  //                           hope: thirteen of the nineteen rows have no
-  //                           bottom inset, and a bleed that leaked into the
-  //                           general path would move every one of them.
-  //   inset.bottom > 0    ->  centred in "tall" (the bottom band is the rail
-  //                           strip's, so there is nothing down there to take)
-  //                           and bottom-anchored otherwise.
+  // ONE PREDICATE FOR ALL NINETEEN ROWS, which is the point of stating it this
+  // way — there is no longer a bleeding branch and a centred branch to keep in
+  // step. The field's floor sits on the bottom of the box the solver gave it:
   //
-  // Written off `l.reserve.bottom` so it covers the reserved-band "tall" as
-  // well as the natural one without either branch being spelled out twice, and
-  // reported ONE LINE PER DEVICE over every rail budget a run can build — the
+  //   "wide" / "snug"  ->  the GLASS (d.h). The usable box stops at the
+  //                        indicator, but the field is handed that band back as
+  //                        `bleed` (FIELD BLEED) and reaches through it; on a
+  //                        row with no indicator the two edges are the same
+  //                        pixel and this is the same claim.
+  //   "tall"           ->  the top of the RESERVED STRIP BAND, which is the one
+  //                        band the field may not enter, because it is full of
+  //                        buttons. Written off `l.reserve.bottom` rather than
+  //                        off the mode name, so a mode that changed its mind
+  //                        about reserving would be re-measured here rather
+  //                        than mis-measured.
+  //
+  // A SECOND CLAUSE that the floor claim does not imply: the field's TOP is
+  // still inside the box. Bottom-anchoring an over-budget fit — one whose height
+  // came out taller than the box it was fitted into — satisfies the floor
+  // exactly and hangs the field's first rows off the top of the screen, and
+  // "the floor is where I said" is precisely the reading that would not notice.
+  // Reported ONE LINE PER DEVICE over every rail budget a run can build — the
   // same scoreboard-not-a-wall rule the plant section below states at length.
   for (const d of DEVICES) {
     let bad = "";
-    let bled = 0;
+    let strips = 0;
     for (let slots = RAIL_SLOTS_BASE - 1; slots <= RAIL_SLOTS_MAX; slots++) {
       setSafeAreaInsets(d.insets);
       setRailSlots(slots);
       const l = computeLayout(d.w, d.h);
-      const above = l.oy - d.insets.top;
-      const below = (d.h - d.insets.bottom - l.reserve.bottom) - (l.oy + l.fh);
-      const bleeds = d.insets.bottom > 0 && l.mode !== "tall";
-      if (bleeds) bled += 1;
-      const ok = bleeds
-        ? Math.abs(l.oy + l.fh - d.h) < 0.5
-        : Math.abs(above - below) < 0.5;
+      // The bottom of the box this mode was fitted into. The strip's band is
+      // measured off the USABLE box (the strip clears the indicator itself, with
+      // its own `bottom: max(calc(4px + var(--inset-b)), …)`); every other mode
+      // reaches the glass.
+      const boxBottom = l.reserve.bottom > 0
+        ? d.h - d.insets.bottom - l.reserve.bottom
+        : d.h;
+      if (l.reserve.bottom > 0) strips += 1;
+      const ok = Math.abs(l.oy + l.fh - boxBottom) < 0.5 && l.oy >= d.insets.top - 0.5;
       if (!ok && !bad) {
-        bad = `${slots} slots, ${l.mode}: ${above.toFixed(2)} above / ${below.toFixed(2)} below, `
-          + `floor at ${(l.oy + l.fh).toFixed(2)} of ${d.h}`;
+        bad = `${slots} slots, ${l.mode}: floor at ${(l.oy + l.fh).toFixed(2)} of ${boxBottom}, `
+          + `top at ${l.oy.toFixed(2)} of a box starting at ${d.insets.top}`;
       }
     }
     check(
-      d.insets.bottom
-        ? `${d.name} bleeds to the glass in ${bled} of its 6 budgets and letterboxes in the rest`
-        : `${d.name} letterboxes exactly as it did, at every budget`,
+      strips
+        ? `${d.name} anchors the bay on its box floor at every budget, taking the strip band in ${strips} of its 6`
+        : `${d.name} anchors the bay on its box floor at every budget`,
       bad === "",
       bad,
     );
@@ -5926,6 +6012,51 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
     clamps.length === 2 && clamps[0][2] === clamps[1][2] && Number(clamps[1][2]) === BOTTOM_FRAC,
     clamps.map((m) => m[2]).join(" vs "));
 
+  // THE NARROW-PANEL RESTRUCTURE, read back out of the stylesheet for the same
+  // reason the anchor above is: two files own halves of one decision.
+  //
+  // It exists because of the layout policy change, and the arithmetic is in
+  // app.css beside the rule. The build row is BUILD tag + ability chips + the
+  // whole ship rack, and the row's width is a fraction of the FIELD's while
+  // every floor in it — the chips' 44px tap target, the plate's 17.5px around an
+  // 8.5px mark — is an absolute pixel count. "snug" reserving the rail's band
+  // out of the width took 10.5% off the 800x600 window's field, and 10.5% off
+  // that row is more than the last two rack slots: measured on `hud-lance`
+  // before the rule, slots #8 and #9 sat 9px and 28px past the row's visible
+  // edge, and `hud-rig4`'s four wide plates took the panel 7px past half the
+  // field height.
+  //
+  // The fix is the restructure the phones already take — the chips are a
+  // DUPLICATE of the rail's three ability buttons, which carry the same icon,
+  // the same keycap or pad mark and the same live charge count on every pointer
+  // — promoted from a density verdict to a width one, because density is a
+  // verdict on the WINDOW and this row's budget is a fraction of the FIELD.
+  //
+  // PINNED AS THE THRESHOLD AND THE SELECTOR TOGETHER, because either alone can
+  // be satisfied wrongly: a rule at the right width that hides the wrong thing
+  // reads as coverage, and so does the right selector at a width no window
+  // reaches. 862 is 779 (the field width the row needs at its floors) plus the
+  // 84px band "snug" reserves, which is what makes a viewport query a field
+  // query in that mode.
+  const narrow = css.slice(css.indexOf("@media (max-width: 862px)"));
+  // A FIXED WINDOW, not up to the next "\n}": the block's own closing brace is
+  // the first one at column zero only while every declaration inside stays on
+  // one line, and a pin that depends on that formats itself into a false pass
+  // the day one of them is wrapped. 600 characters is the whole block with room.
+  const narrowBlock = narrow.slice(0, 600);
+  check("the build row drops the ability chips on a panel too narrow for both",
+    narrow.startsWith("@media (max-width: 862px)")
+      && /\.pl-mods\s+:is\(\.mod--bb,\s*\.mod--demo,\s*\.mod--thaw\)\s*\{\s*display:\s*none/.test(narrowBlock),
+    narrowBlock.slice(0, 240));
+  // ...and takes the headroom back with them, which is the half that answers the
+  // panel's HEIGHT rather than the row's width. The 8/9px above and below the
+  // row are a chip's xN badge and key tag hanging out of it; with no chip there
+  // nothing overhangs but a plate's 2px hard shadow. Same two numbers the
+  // compact block uses, and asserted so the pair cannot be half-edited.
+  check("...and reclaims the chip headroom the row no longer needs",
+    /\.pl-mods\s*\{\s*padding-top:\s*5px;\s*padding-bottom:\s*2px/.test(narrowBlock),
+    narrowBlock.slice(0, 400));
+
   // Every budget a RUN can build: three on a shell that mounts no fullscreen
   // toggle (the native builds — see the rail section above), seven at the
   // deepest reachable rail. Reported per device rather than per pair, because
@@ -6000,11 +6131,17 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
       worstContent >= -0.5, `${worstContent.toFixed(2)}px`);
   }
   // Stated as a number, because the MARGIN is the whole argument on the rows
-  // that still make the old claim. Ten and a half pixels on the tightest of
-  // them is not a rounding step, so the clamp is nowhere near binding there and
-  // changes nothing sim/uifit measures on those rows. A future layout that ate
-  // into this would fail here first, next to the reasoning, rather than by
-  // quietly handing the max() a job it was never meant to have.
+  // that still make the old claim. It is 9.3px now, at three rail slots on the
+  // 640x360 Android — down from 10.5, and the loss is layout.ts's FIELD ANCHOR
+  // working rather than eroding: a centred fit left half the letterbox below the
+  // field and handed this panel that half as free clearance, and there is no
+  // band below the field any more to be generous with. What is left is the
+  // 2.97% of field height the panel hangs above the bay floor, which is the only
+  // clearance the design ever actually promised. Nine pixels is still not a
+  // rounding step, so the clamp is nowhere near binding on those rows and
+  // changes nothing sim/uifit measures there. A future layout that ate into this
+  // would fail here first, next to the reasoning, rather than by quietly handing
+  // the max() a job it was never meant to have.
   check("the tightest non-bleeding row clears the fold by a real margin",
     worst > 8, `${worst.toFixed(2)}px at ${worstAt}`);
   // ...and the guard is STILL a guard, which is the half of the old pin that
@@ -6057,22 +6194,41 @@ section("The plant panel never hangs below the fold (app.css .plant's anchor)");
     overshootAt(400) > 21, overshootAt(400).toFixed(2));
   check("the reported crop is a solve about 1.5x too tall",
     overshootAt(560) > 100, overshootAt(560).toFixed(2));
-  // Monotonic WITHIN A MODE, which is the honest form of this claim now.
-  // Bottom-anchoring makes the crop grow twice as fast with a wrong height as
-  // centring did (the field's floor chases the fake viewport's bottom edge
-  // instead of half-chasing it), so the curve is steeper — and it RESETS where
-  // the wrong height gets tall enough to flip the solve into "tall" (~540 on
-  // this box), because a mode that letterboxes symmetrically starts the panel
-  // from a different place. 375..520 is the whole snug range on this box, and
-  // reading the overshoot backwards to a height is only ever a statement about
-  // the mode the device is actually in.
-  const sweep = [375, 400, 440, 480, 520].map(overshootAt);
-  check("a taller wrong reading is always a worse crop, up to the mode flip",
+  // Monotonic, and now monotonic over the WHOLE sweep rather than only within a
+  // mode. Bottom-anchoring makes the crop grow twice as fast with a wrong height
+  // as centring did — the field's floor chases the fake viewport's bottom edge
+  // instead of half-chasing it — so the curve is steeper. It used to RESET part
+  // way up: a wrong reading tall enough (~540 on this box) flipped the solve into
+  // "tall", whose symmetric letterbox started the panel from somewhere else
+  // entirely, and this pin had to stop short of that. It does not any more,
+  // because a tall reading no longer flips the mode at all: "tall" is selected by
+  // the rail's COLUMN not fitting, and reading a HEIGHT too high can only ever
+  // make the column fit better.
+  //
+  // That is a real improvement in the instrument, not just a tidier pin. The
+  // overshoot a device tester reads off a bad solve is now a monotonic function
+  // of the wrong height over the whole range a WebView could plausibly report,
+  // so it can be read backwards to that height without first establishing which
+  // mode the device was in.
+  const sweep = [375, 400, 440, 480, 520, 560].map(overshootAt);
+  check("a taller wrong reading is always a worse crop",
     sweep.every((v, i) => i === 0 || v > sweep[i - 1]),
     sweep.map((v) => v.toFixed(0)).join(" "));
-  check("...and the flip is above the range that was swept",
-    computeLayout(812, 520).mode === "snug" && computeLayout(812, 560).mode === "tall",
-    `${computeLayout(812, 520).mode} at 520, ${computeLayout(812, 560).mode} at 560`);
+  check("...and no wrong HEIGHT flips the mode, at any point in the sweep",
+    [375, 400, 440, 480, 520, 560].every((h) => computeLayout(812, h).mode === "snug"),
+    [375, 400, 440, 480, 520, 560].map((h) => `${h}:${computeLayout(812, h).mode}`).join(" "));
+  // What DOES flip it is the COLUMN, so the flip is reached by changing the rail
+  // budget rather than the height — at this box's real 354px of usable height, a
+  // three-slot boot rail needs 160px and stacks easily, and a fully drafted
+  // eight-slot rail needs 410 and does not. Pinned so the pair above is read as
+  // "the mode is a property of the column" rather than "the mode never changes".
+  setRailSlots(RAIL_SLOTS_MAX);
+  const draftedMode = computeLayout(812, 375).mode;
+  setRailSlots(RAIL_SLOTS_BASE - 1);
+  const bootMode = computeLayout(812, 375).mode;
+  check("...the strip fallback is the column's verdict, not the height's",
+    bootMode === "snug" && draftedMode === "tall",
+    `${bootMode} at 3 slots, ${draftedMode} at ${RAIL_SLOTS_MAX}`);
 
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
   setRailSlots(RAIL_SLOTS_MAX);
