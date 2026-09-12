@@ -3476,7 +3476,50 @@ body.crt-off #app::after { display: none; }
   /* visible: the PWR cap rides ABOVE the top edge, and the mod chips' xN
      badges / B-key tag poke past the panel's box (see .pl-pwr / .mod). */
   overflow: visible;
+  /* THE PANEL IS A READOUT, AND A READOUT MUST NOT EAT THE AIM GESTURE.
+     `.hud > *` hands every direct child of the HUD `pointer-events: auto`, and
+     this panel is one: 47.08% of the field's width by at least 42.96% of its
+     height (the two fractions above), bottom-anchored — so it covered the
+     bottom-left of the bay, which is precisely where the slingshot drag starts
+     on a phone. A press on the pile there did nothing at all, under a hint
+     reading "touch the field and pull back" that is itself anchored to this
+     panel's top edge. On a mouse it cost the other scheme the same corner:
+     click-to-target could not aim at any point behind the panel.
+
+     TWO COMMENTS IN THIS FILE PREDICTED IT. `.side-rail`'s — "only the buttons
+     themselves may take pointer events, or the column would eat drag-to-aim
+     gestures started in the gutter" — and the teaching card's, which is where
+     this declaration used to live: `.hud[data-carded] .plant`, scoped to bays
+     with a card up. The panel eats the gesture in EVERY bay, so the scope is
+     gone and that rule with it; what stays is the rail's idiom, dead panel plus
+     live controls.
+
+     WHAT OPTS BACK IN, and it is the whole list: the ability chips (`.plant
+     .mod` below — the only controls hudHTML puts in this panel, everything
+     else in it is a number) and the teaching card's button (`.coach__btn`,
+     which already declares `auto` because `.coach` has always been `none`).
+     The card is a DESCENDANT here, not a sibling: main.ts's mountCoach inserts
+     it as the panel's first child.
+
+     WHAT IT GIVES UP, stated rather than discovered later: the ship rack's
+     native `title` tooltips (`.ship-plate`), which are hover-only and so
+     desktop-only. A plate is a readout of what is mounted, not a control, and
+     its row stands on the panel's floor — the most gesture-valuable strip on
+     the whole panel. The three horizontal scrollers in here go quiet with it
+     (`.pl-mods`, and the `b` tails on `.pl-notch` / `.pl-queue`), which costs
+     nothing measured: all three are deliberately OFF sim/uifit's
+     ALLOWED_SCROLLERS, i.e. the harness asserts they never overflow on any
+     device in the matrix — the same stance it takes on `.coach__body` and
+     `.guide__body`, where needing the valve IS the defect. A row that starts
+     overflowing has a CI failure waiting for it either way, and would want the
+     readout written back to its box rather than a swipe on the one panel the
+     aim gesture starts behind. */
+  pointer-events: none;
 }
+/* The panel's live controls — see the pointer-events note above. Bond Breaker,
+   Demolition and the Thaw Lance, each a real <button> (screens.ts), each
+   hidden at compact density where the rail carries the same triggers. */
+.plant .mod { pointer-events: auto; }
 
 /* PWR meter — a raised cap riveted on TOP of the plant's edge, right-aligned
    (mockup: x 150..468 over the 16..468 panel, i.e. ~70% of the panel's
@@ -10032,13 +10075,18 @@ button.panel { color: var(--text); }
    `.coach__body` reaches its scroll valve on no device in the matrix — which is
    what sim/uifit asserts by keeping that selector off ALLOWED_SCROLLERS.
 
-   POINTER EVENTS stay off the panel, and the reason survives the change of
-   shape: `.hud > *` otherwise makes the panel swallow taps across the
-   bottom-left of the screen, which is where the drag-anywhere aim gesture the
-   cards are teaching begins. Nothing behind a card is tappable in any case —
-   the ability chips live in `.pl-mods`, which both teachers' reveal lists hide
-   — and the card's own buttons opt back in via `.coach__btn`. */
-.hud[data-carded] .plant { pointer-events: none; }
+   POINTER EVENTS ARE NO LONGER THIS BLOCK'S BUSINESS, and the way they left it
+   is the point. `.hud[data-carded] .plant { pointer-events: none }` used to sit
+   right here, on the reasoning that `.hud > *` otherwise makes the panel
+   swallow taps across the bottom-left of the screen — where the drag-anywhere
+   aim gesture the cards are teaching begins. Every word of that is true of a
+   bay with no card in it as well: the panel is the same size, in the same
+   corner, and the gesture starts in the same place. So the declaration is
+   unconditional now, on `.plant` itself, with the chips opting back in beside
+   it (see the pointer-events note in the RECYCLING PLANT block) — and the card
+   is covered by the same rule it used to be the trigger for. Its own buttons
+   still opt in via `.coach__btn`, which is unchanged and now load-bearing in
+   every bay rather than only a lesson one. */
 
 /* ---------- Aim-through ----------
    While a drag is live (main.ts's syncHud toggles .hud--aiming), the chrome
