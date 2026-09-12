@@ -90,3 +90,45 @@ export function restoreScroll(
     if (y !== undefined) r.scrollTop = y;
   }
 }
+
+/**
+ * WHERE A SHELF HAS TO SIT TO SHOW ONE ROW IN THE MIDDLE OF IT.
+ *
+ * The other half of "keep the player's place": some regions have a place that
+ * is not the player's to choose. The tier tower's run of floors is one — at
+ * compact density it is ~510px of building behind a ~290px window (app.css's
+ * "THE BUILDING ON A PHONE") and the floor that matters is the one the car is
+ * parked on, because it is the floor the recap panel beside it is quoting and
+ * the floor the primary button below it will fly. A shaft that opened at the
+ * top would put the Skydeck under a panel describing Tier 3.
+ *
+ * CENTRED rather than merely revealed, and that is the difference from
+ * padnav's revealShift (which scrolls the least it can, because there a
+ * SELECTION moved and everything else on screen should stay where the player
+ * left it). Here the offset is being chosen from nothing on a fresh render,
+ * and the honest answer for a building is the floors either side of the one
+ * you are on: a parked floor flush against the top edge says "this is the top
+ * of the ladder", which on Mark 1 is the opposite of true.
+ *
+ * CLAMPED to the range the region actually has, which is what makes the two
+ * ends behave — the ground floor cannot be centred in a window with nothing
+ * below it. The DOM would clamp an out-of-range write anyway; doing it here is
+ * what lets sim/systems.ts pin the ends with no browser in the room.
+ *
+ * PURE, over four numbers, for the same reason the capture/restore pair above
+ * is. The DOM half — which element, which row, and when — stays at main.ts's
+ * one call seam (parkTowerView).
+ */
+export function centreScroll(
+  /** The row's top edge in the region's own scroll coordinates (offsetTop). */
+  rowTop: number,
+  rowHeight: number,
+  /** The region's visible height (clientHeight) and its content height
+   *  (scrollHeight). A region no taller than its window has exactly one legal
+   *  offset and this returns it: 0. */
+  viewHeight: number,
+  contentHeight: number,
+): number {
+  const wanted = rowTop + rowHeight / 2 - viewHeight / 2;
+  return Math.max(0, Math.min(wanted, contentHeight - viewHeight));
+}

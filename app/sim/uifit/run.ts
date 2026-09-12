@@ -136,6 +136,29 @@ const ALLOWED_SCROLLERS = [
   // CI failure. Exactly the stance `.coach__body` takes above, for exactly the
   // same reason: copy is written to the pane.
   "#guide-list",
+  // THE TIER TOWER'S RUN OF FLOORS (ui/screens.ts's tierTowerHTML), at compact
+  // density only — the box is `overflow: visible` at every other one, so this
+  // entry can only ever match on a phone-shaped viewport.
+  //
+  // Added on arithmetic, like every entry above it. The shaft is ~313px on a
+  // 360px-tall landscape phone and it has to carry ELEVEN named floors plus
+  // the ground floor's plate; divided, that is 22-26px a rung, which is what
+  // 662 of this file's baselined `tap` findings were — the single largest
+  // block in it, on the home screen, on the first control a new player
+  // touches. Eleven 44px rungs are 510px, so there is no layout that fits
+  // them: only rungs under the tap floor (what shipped), or a ladder that is
+  // read a few floors at a time. It is the workshop shelf's category exactly
+  // — a list with more stock than screen — with the one addition that the
+  // player never has to find the row that matters: main.ts parks the shaft on
+  // the selected floor on every render and every ride (its parkTowerView, off
+  // ui/scrollkeep's centreScroll, pinned in sim/systems.ts), so the floor the
+  // recap panel is quoting is always in the window.
+  //
+  // NOT `.tower__shaft` itself, and the distinction is load-bearing: the
+  // headhouse is drawn 19px above the shaft on a negative `top`, so a shaft
+  // that scrolled would clip the beacon — and the Tier S gesture with it —
+  // off the top of the building. The frame stays; the floors move inside it.
+  ".tower__floors",
 ];
 
 /**

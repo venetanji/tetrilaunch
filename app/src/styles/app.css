@@ -1283,6 +1283,17 @@ body.crt-off #app::after { display: none; }
   --tower-gap: 2px;
   --tower-slack: calc(2 * var(--tower-pad) + (var(--tower-floors) - 1) * var(--tower-gap));
   --tower-floor-h: calc((100% - var(--tower-slack)) / var(--tower-floors));
+  /* THE RUN — how much height eleven rungs actually occupy, padding and gaps
+     included. The same three numbers --tower-floor-h divides, multiplied back
+     out, so the two can never disagree about the building's length.
+
+     It is 100% of the shaft by construction at every density that DIVIDES the
+     column (the quotient above is defined to make it so), and the reason it
+     exists is the density that does not: at compact the floors are a fixed
+     44px and the run is taller than the box showing it, so anything sized
+     against the whole building — the car's guide rail — has to ask for the
+     run rather than for the box. */
+  --tower-run-h: calc(var(--tower-slack) + var(--tower-floors) * var(--tower-floor-h));
   /* HOW TALL THE ROOF'S TAP TARGET IS (.tower__head--floor). Invisible in both
      directions — the lamp and its masts are drawn at the bottom of the box and
      everything above them is transparent padding.
@@ -1378,12 +1389,44 @@ body.crt-off #app::after { display: none; }
   position: relative;
   flex: 1; min-height: 0;
   display: flex; flex-direction: column;
-  gap: var(--tower-gap);
-  padding: var(--tower-pad);
   background: linear-gradient(180deg, rgba(27, 27, 46, 0.9), rgba(8, 8, 18, 0.96));
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-md) var(--r-md) 0 0;
   box-shadow: var(--shadow-hard);
+}
+/* THE RUN OF FLOORS (screens.ts's tierTowerHTML) — the housing's contents,
+   and at compact density the box that scrolls.
+
+   THE PADDING AND THE GAP MOVED HERE FROM THE SHAFT, rather than being
+   restated: with the shaft's padding at zero this box fills the shaft's
+   padding box exactly, so its own padding box IS the box every number in this
+   section was measured against. The floors divide the same height between the
+   same eleven rungs, the rail and the car resolve `top`, `height` and
+   --tower-floor-h's `100%` against the same rectangle, and the roomy building
+   is byte-identical with this element in the tree — which is the condition
+   sim/uifit's baseline for every desktop and tablet row is holding.
+
+   `position: relative` with no z-index, so it is a containing block for the
+   rail and the car and NOT a stacking context: their 1 and 2 go on being read
+   against the shaft's context, where the headhouse's 3 still outranks them. */
+.tower__floors {
+  position: relative;
+  /* `flex: 1 1 0` AND NOT `flex: 1`, which is a flexbox corner worth the line
+     it costs. The shorthand `flex: 1` expands to a basis of 0%, and a
+     PERCENTAGE basis in a column whose height is indefinite — which this one
+     is while the menu's grid row is being sized — falls back to the item's
+     CONTENT. With the floors at a fixed 44px (the compact block far below)
+     that made the run's intrinsic height 510px, the shaft's the same, and the
+     menu row grew to 578px on a 360px phone: `.screen overflows by 218px`,
+     with the action column and the ground floor off the bottom of the glass.
+     A `0` basis is a length, so it is definite, so the intrinsic contribution
+     is zero and the grow is applied to whatever height the row hands the
+     shaft — which is the box the floors then scroll inside. The same spelling
+     .tower__floor has always used, for the same reason. */
+  flex: 1 1 0; min-height: 0;
+  display: flex; flex-direction: column;
+  gap: var(--tower-gap);
+  padding: var(--tower-pad);
 }
 /* The headhouse — the motor room on a real lift's roof. Sits ABOVE the shaft's
    own box (negative top) so the floors keep the full height, and is the reason
@@ -1825,6 +1868,37 @@ body.crt-off #app::after { display: none; }
 /* The track is a row of buttons now, so it needs the height its tallest child
    asks for rather than the bar's 6px. */
 .lic-track:has(.lic-pip--pick) { align-items: center; }
+/* TEN TARGETS OR ONE — the row's two faces, and the density picks (screens.ts
+   emits both; see the `flat` track's note there for why this cannot be one
+   markup with a media query over it).
+
+   THE MEASUREMENT, off sim/uifit's own baseline rather than off a breakpoint
+   that sounded phone-shaped. The pick track is 44px tall everywhere and its
+   WIDTH is one tenth of the recap panel's column:
+
+     640x360 budget / iPhone SE 3        15-18px
+     every other handset (740-956 wide)  22-25px
+     iPad mini, 800x600 and 1269x663     22-25px
+     1512x945 / 1920x1080 / iPad Pro     29-36px
+
+   So the honest reading of "keep the picker where a pip clears 44px" is that
+   NO viewport in the fleet does: the pip is ~24 CSS px before chrome
+   magnification (game/layout.ts's chromeZoom), which needs a zoom of ~1.83 —
+   a window over 1850x1330 — to reach the floor, and the matrix's biggest row
+   is 1.5. What the density switch fixes is the twelve rows where the target
+   is at its worst AND the finger is the only pointer: every handset in the
+   matrix is compact (a 440px-tall viewport at the most, against layout.ts's
+   518px verdict), and every desktop and tablet row is not. The 22-36px pips
+   left on those rows are a mouse's target and stay in the baseline, named
+   here so the next pass at this row starts from the number and not from
+   scratch.
+
+   Written against `.base-bay--licence .lic-track` (which sets the row's own
+   `display: flex`) rather than against the bare class, so the switch outranks
+   it on class count instead of on source order. */
+.base-bay--licence .lic-track--flat { display: none; }
+[data-density="compact"] .base-bay--licence .lic-track--pick { display: none; }
+[data-density="compact"] .base-bay--licence .lic-track--flat { display: flex; }
 .lic-note {
   margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45;
 }
@@ -2005,6 +2079,116 @@ body.crt-off #app::after { display: none; }
      progress indicator that does not move is not one. Only its transition
      goes, so it steps rather than eases. */
   .tower__head[style*="--beacon"] b { transition: none; }
+}
+
+/* ============================================================================
+   THE BUILDING ON A PHONE — eleven rungs at the tap floor, in a column that
+   fits six.
+
+   THE ARITHMETIC THIS REPLACES. A 360px-tall phone gives the shaft ~313px;
+   eleven floors, two 3px paddings and ten 2px gaps divide that to 26px a
+   floor, and the plinth under them is 22px. sim/uifit recorded exactly that —
+   `.tower__floor 82x22` through `108x30`, `.tower__base 92x22`, across 662
+   baselined `tap` findings, the largest single block of them in the file — and
+   the note that used to stand here called it settled: "eleven floors cannot
+   each be 44px in a 313px shaft by arithmetic". That is true of a shaft that
+   must show all eleven at once, and that was the assumption, never a
+   requirement. The ladder is a LIST — eleven named floors, read one at a time,
+   with one of them parked on — and a list longer than its column is the one
+   case the product rule has always had an answer for: it scrolls, and the
+   answer is written down in sim/uifit/run.ts's allowlist beside the workshop's
+   stock and the guide's index.
+
+   So at compact density the run of floors becomes an allowlisted scroller and
+   every rung takes the 44px floor: 11 x 44 + 10 x 2 + 6 = 510px of building
+   behind a ~291px window, which the player moves through by drag
+   — and which main.ts parks on the selected floor on every render and every
+   ride (its parkTowerView, off ui/scrollkeep's centreScroll), so the floor the
+   rest of the screen is describing is never the one below the fold.
+
+   WHAT DOES NOT CHANGE, and both halves are load-bearing:
+
+     - EVERY OTHER DENSITY. Regular and roomy still divide the column between
+       eleven rungs, because there the answer to "does a floor clear 44px" is
+       arithmetic about a column that has the height (a 1280x720 laptop gets
+       42px, a 1920x1080 desktop 44.7) rather than a hard no. Nothing above
+       this block is touched, so no desktop or tablet row in the baseline
+       moves — the condition this whole change is held to.
+     - THE CEREMONY. Not one property here is a thing the ride animates: the
+       ride writes `top` on the car and paint on the plates, and the car is
+       absolutely positioned INSIDE the scroller, so it rides the shaft's own
+       floor-plus-gap step — read from the same token the floors are, 46px
+       here against roomy's 28 — and the scroll offset simply carries it. The
+       destination floor is pinned into view before the ride starts (it is the
+       selected floor, and that is what parkTowerView reveals on the mount
+       that starts the ceremony), so the car climbs into a window that is
+       already showing where it is going.
+
+   THE HEADHOUSE IS STILL 22px HERE, and that is a measurement rather than an
+   omission. It is drawn in the 19px band ABOVE the shaft, and on the budget
+   phone that band is the whole distance to the top of the glass — the tower's
+   box starts 19px down a 360px viewport. Growing the roof to 44px sends it 25px
+   off the screen; growing it downward puts it over the Skydeck's own rung,
+   which is the mis-tap .tower__head--floor's note rejects it for. The only fit
+   that works is the roof becoming a row INSIDE this scroller, which is a
+   restructure of the beacon (and of where the Tier S gesture lives) rather
+   than a size, so it is left for the owner's call and its 24 baseline entries
+   stand.
+   ========================================================================== */
+[data-density="compact"] .tower {
+  /* THE TAP FLOOR, as a floor rather than a quotient. 44px is WCAG 2.5.5 /
+     iOS HIG, the same number every button on this screen is built to and the
+     one the rail's own buttons cannot go under. */
+  --tower-floor-h: 44px;
+}
+/* …AND THE PLINTH WITH THEM. The earned ground floor is furniture — it took
+   22px on the argument that it should share the rungs' trade (see
+   .tower__base--floor) — and with the rungs off that trade there is nothing
+   left to share: it is a real control, on the ladder's own column, and the
+   22px it gives back to the shaft is 22px of a run that scrolls anyway.
+   The ENTRANCE is excluded because it is already over the floor: while the
+   licence is owed the plate is clamp(44px, 13%, 72px), which is 44 at worst
+   and 47.5px on a 412px-tall phone — writing 44 here would make the door
+   SMALLER on half the fleet. */
+[data-density="compact"] .tower:not(.tower--lobby) { --tower-lobby-h: 44px; }
+[data-density="compact"] .tower__floors {
+  overflow-y: auto;
+  /* A rubber-band at the top of the shaft must not propagate to the WebView
+     and drag the whole app — the same containment every [data-scroll] region
+     takes, spelled here because this box is not one of them (see below). */
+  overscroll-behavior: contain;
+  /* THE FADE, so a floor cut by the window's edge reads as a building
+     continuing rather than as a plate drawn wrong. 12px is half a rung: enough
+     that the clipped plate is visibly dissolving, small enough that the floor
+     under the fold is still identifiable as a numbered floor rather than a
+     smudge. Symmetric, because both ends are cut at every offset except the
+     two extremes.
+     `mask-image` and its -webkit- twin, in that order: iOS 15's WKWebView —
+     which this app ships to — knows only the prefixed property, and a browser
+     that knows both takes the last one it understands. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px,
+    #000 calc(100% - 12px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 12px,
+    #000 calc(100% - 12px), transparent 100%);
+}
+/* NO SCROLLBAR IN THE SHAFT, on the one pointer that would draw one. The
+   building is 92-118px wide and 22 of those are the car's lane, so the 10px
+   the fine-pointer rule gives every scroller (see "The scrollbar, on the
+   engines that draw one") would come off the floors' own number column. A
+   compact viewport with a fine pointer is a desktop window dragged under
+   518px tall; the mask above is the affordance there as much as on a phone. */
+[data-density="compact"] .tower__floors::-webkit-scrollbar { width: 0; height: 0; }
+/* The rungs stop dividing the column and start stacking in it. */
+[data-density="compact"] .tower__floor { flex: none; height: var(--tower-floor-h); }
+/* The guide rail spans the RUN, not the window. `bottom` resolves against the
+   scrollport (the padding box, i.e. the ~291px on screen) for an absolutely
+   positioned child of a scroller, so a rail written as top/bottom would end
+   two hundred pixels short of the building it is a rail for and scroll away
+   from the car. Same 6px inset at each end as the roomy rule, taken off the
+   run instead. */
+[data-density="compact"] .tower__rail {
+  bottom: auto;
+  height: calc(var(--tower-run-h) - 12px);
 }
 
 /* ============================================================================

@@ -1098,9 +1098,20 @@ export function tierTowerHTML(state: TowerState): string {
   return `<div class="tower${off ? " tower--off" : ""}${entrance ? " tower--lobby" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}${ride}">
       ${towerHeadHTML(state)}
-      <div class="tower__rail" aria-hidden="true"></div>
-      <div class="tower__car" aria-hidden="true"><span></span></div>
-      ${floors.join("")}
+      <!-- THE RUN OF FLOORS, inside the shaft's housing and separate from it,
+           because at compact density this is the box that SCROLLS (app.css's
+           "THE BUILDING ON A PHONE", sim/uifit/run.ts's ALLOWED_SCROLLERS) and
+           two things in the shaft must not: the headhouse, drawn 19px above it
+           on a negative top and clipped clean off by any overflow the shaft
+           itself takes, and the shaft's own frame. The rail and the car ride
+           in here with the floors — both are drawings of where the car is on
+           the ladder, and a car that stayed put while its floor scrolled away
+           would be pointing at nothing. -->
+      <div class="tower__floors">
+        <div class="tower__rail" aria-hidden="true"></div>
+        <div class="tower__car" aria-hidden="true"><span></span></div>
+        ${floors.join("")}
+      </div>
     </div>
     ${towerLobbyHTML(state)}
   </div>`;
@@ -1204,6 +1215,11 @@ function beltLadderHTML(mark: number, unknown = false): string {
  * player has reached is pressable and flies its bay; a locked one stays a span,
  * so the track cannot become a way to skip the ladder.
  *
+ * …ON A SCREEN WITH ROOM FOR TEN TARGETS. At compact density the row ships as
+ * a plain readout instead and the primary button below it is the whole of the
+ * forward action — see the `flat` track below for the measured widths and the
+ * argument.
+ *
  * THE TWO GATES ARE NOT PIPS. They were, for a release, and the track drew
  * twelve — which is the count the owner asked to come off every surface
  * ("everything is in 10"). They have not stopped existing: a gate SHUTS the
@@ -1234,8 +1250,11 @@ function licencePanelHTML(
   // swallow the press, which is the worst of the three possible behaviours: a
   // control that looks live, is pressed, and does nothing.
   const reach = Math.min(total - 1, ladder.gate ? done - 1 : done);
-  const pips = SCHOOL_LADDER.filter((r) => r.step !== null).map((rung, i) => {
-    const cls = `lic-pip lic-pip--${rung.kind}${i < done ? " lic-pip--done" : ""}`;
+  const rungs = SCHOOL_LADDER.filter((r) => r.step !== null);
+  const pipClass = (rung: (typeof rungs)[number], i: number): string =>
+    `lic-pip lic-pip--${rung.kind}${i < done ? " lic-pip--done" : ""}`;
+  const pips = rungs.map((rung, i) => {
+    const cls = pipClass(rung, i);
     if (i > reach) return `<span class="${cls}"></span>`;
     const name = rung.kind === "exam"
       ? `Fly the ${FINAL_EXAM} — Tier 1, bay 1`
@@ -1245,6 +1264,30 @@ function licencePanelHTML(
     }" data-lesson="${rung.flight}"`
       + ` aria-label="Step ${rung.step} of ${total} — ${name}"></button>`;
   }).join("");
+  // THE SAME TRACK WITH NO PICKER IN IT — the phone's copy of this row.
+  //
+  // A pickable pip is 44px TALL and, at compact density, 15-25px WIDE: ten
+  // buttons sharing one panel row is a target a third of the tap floor wide,
+  // on the screen every first-time player passes through (sim/uifit records
+  // `.lic-pip 15x44` on the 640x360 budget phone and the iPhone SE 3, 22x44
+  // through 25x44 on every other handset). The bar is a PROGRESS READOUT
+  // first; on a phone it goes back to being only that, and the row's forward
+  // action is the primary button directly underneath — whose subtitle already
+  // reads "Step N of 10 · resume" in these exact words (menuPlaySub) and
+  // whose press flies the rung the ladder owes. One 44x44-clearing control
+  // instead of ten that cannot be one.
+  //
+  // BOTH TRACKS SHIP AND app.css PICKS ONE BY DENSITY, the same trade the
+  // plant panel's two build labels make: a tag cannot be turned into a span
+  // by a media query, and the alternative — handing this pure function a
+  // viewport — would make every fixture in sim/uifit measure whatever density
+  // its ONE cached string was built for.
+  //
+  // ONE NAME FOR THE WHOLE ROW rather than ten. The pips are a shape, and a
+  // screen reader walking ten unlabelled spans learns nothing the panel's own
+  // "N / M" head and this label do not already say.
+  const flat = rungs.map((rung, i) => `<span class="${pipClass(rung, i)}"></span>`).join("");
+  const step = Math.min(total, done + 1);
   // THE COUNT IS THE LADDER'S, on both sides of the licence. It used to be
   // dropped the moment the fourth lesson landed — the panel printed "Licence
   // earned" over a constant "5 advanced exercises remain", which was still
@@ -1257,7 +1300,8 @@ function licencePanelHTML(
     <div class="base-bay__head">
       <div class="base-bay__best">${done} / ${total}</div>
     </div>
-    <div class="lic-track" role="group" aria-label="${done} of ${total} steps cleared — pick one">${pips}</div>
+    <div class="lic-track lic-track--pick" role="group" aria-label="${done} of ${total} steps cleared — pick one">${pips}</div>
+    <div class="lic-track lic-track--flat" role="img" aria-label="Step ${step} of ${total}">${flat}</div>
     <p class="lic-note">${
       // DERIVED, not typed, every number of it. A count spelled out in prose is
       // a count that goes stale the day a rung is added — the same rule the
