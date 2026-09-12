@@ -984,6 +984,78 @@ body.crt-off #app::after { display: none; }
   color: var(--text-faint); text-transform: uppercase; white-space: nowrap;
   flex: none;
 }
+/* THE PARKED FLOOR'S SEAL, IN WORDS — the state the tower stamps one column
+   over, written down beside the floor's other terms (screens.ts's
+   baseBayPanelHTML).
+
+   ON THE ROW THAT WAS ALREADY THERE, and that is arithmetic rather than taste.
+   The head held one right-aligned readout and had the rest of the row spare, so
+   the line takes the slack instead of a line-height: measured, the row goes
+   7.00px -> 11.88px and the panel 103px -> 107.9px on a 360px phone, where its
+   own row of text would have cost three times that. The 4.9px is paid by the
+   three buttons under it — `flex: 1 1 auto` against a `flex: none` recap, so
+   they come out 63.2/58.4/58.4 instead of 64.8/60.0/60.0 on the 640x360 budget
+   row and stay 14px clear of the 44px tap floor — and NOT by the column, whose
+   height is the grid row's. The tower beside it measures 319.84px with the line
+   and without: the building this panel is describing does not move.
+
+   `margin-right: auto` and nothing else on the right: BEST keeps the edge it
+   already sat on, to the pixel, so sim/uifit's baseline for this panel moves
+   only by what the new line itself draws.
+
+   NOT THE PIXEL FACE the row's other readout wears. --font-pixel is Press
+   Start 2P at one em per glyph: "SEAL BROKEN — RE-FLY WITH NO BAY RETRY TO
+   SEAL IT" is 48 characters, which at this row's 6.5px is 330px of a column
+   that has nothing like it. The pixel font is for numbers and labels on this
+   screen; a sentence gets the text face, one step under the panel's smallest
+   label, in --text-dim so the four values it sits over stay the panel's
+   loudest thing.
+
+   The 3px gap lands on top of the 2px the shared glyph already carries
+   (.btn__seal's margin-right, the air it needs beside a button label): 5px
+   between an 11px stamp and a 9.5px line, where the button's own 2px alone
+   had the octagon touching the S. */
+.base-bay__seal {
+  margin: 0 auto 0 0;
+  min-width: 0;
+  display: flex; align-items: center; gap: 3px;
+  font-size: 9.5px; line-height: 1.25;
+  color: var(--text-dim);
+}
+/* ONE LINE, WHATEVER THE PHONE. A wrap here is not cosmetic: a second line
+   costs the row a full line-height, which is the growth the whole arrangement
+   above exists to avoid. So the words are held to one line and elided where the
+   column cannot take them — which, measured, is the 640x360 budget row alone
+   (181px of words in 121px) and no other device in the fleet. The harness reads
+   a deliberate ellipsis as a warning rather than a clip, and the state reaches
+   a screen reader through the floor's accessible name either way (floorHTML's
+   aria-label), which is the same division of labour the stamp on the plate has
+   always had. */
+.base-bay__sealtxt {
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* THE AT-STAKE GLYPH IS THE TOWER'S SOCKET, NOT THE BUTTON'S ALARM. The shared
+   glyph (.btn__seal, via screens.ts's sealFaceHTML) paints an intact seal in
+   --danger, and the note at that rule says exactly why: on a retry button the
+   stamp is about to be spent by the control it is sitting on. Nothing on this
+   panel is about to spend it — this is a readout, and nine floors out of ten
+   are in this state — so a permanent red dot on the home screen would be alarm
+   the state has not earned. Same box, same clip, the tower's own unpressed
+   wash instead.
+
+   0.2 rather than the socket's own 0.16: the tower draws it in an open floor's
+   --text, and this line is --text-dim, so the number is nudged to land at the
+   same apparent ink rather than at the same declaration.
+
+   `:not()` on both pressed states rather than a class of its own, because the
+   two that ARE pressed already own their washes at the shared rule and the
+   struck one owns its gradient there — restating that bar here to win a
+   specificity contest is how the two copies of it drift apart. */
+.base-bay__seal .btn__seal:not(.btn__seal--held):not(.btn__seal--broken) {
+  background: currentColor;
+  opacity: 0.2;
+}
 /* Two by two rather than four across: at the brand column's ~283px a
    four-column grid gives each cell 65px, and "$800→1700" needs 58px of mono
    before its glyph. Two rows of two is the same four numbers at a size they
@@ -1611,6 +1683,39 @@ body.crt-off #app::after { display: none; }
    sixth of the area, and matching the NUMBER would have left the socket
    reading fainter than the sockets beside it. */
 .tower__seal--owed { opacity: 0.16; }
+/* THE STRUCK STAMP — the socket's middle state: a Tier that is BEHIND the
+   player (screens.ts's floorSealState) wearing no stamp, because a bay retry
+   took it. One glyph was carrying two states until the owner's pass separated
+   them — "never cleared" and "cleared, seal gone" drew the same faint octagon,
+   so the building could state the roof's bill and could not state the player's
+   own history.
+
+   THE STRIKE IS THE BUTTON'S IDIOM, reused rather than reinvented: a 45deg
+   gradient bar in --bg-deep laid over the fill, exactly as .btn__seal--broken
+   draws it on the retry doors (see the note there for why it is a gradient and
+   not an ::after — the clip-path has to cut the bar as well as the fill, or it
+   paints outside the octagon and reads as a tick).
+
+   0.55, BETWEEN THE TWO STATES IT SITS BETWEEN. The pressed stamp is 0.85 and
+   the empty socket 0.16; a struck one is a stamp that existed, so it reads
+   nearer the stamp than the socket without ever being mistaken for one — the
+   bar is the distinction, and the wash is what stops the bar from being read
+   as dirt on an unpressed socket. Same 8px box, same clip-path, same absolute
+   position: this state costs the plate no width either, which is what keeps
+   sim/uifit measuring the tower identically whichever stamp a floor wears.
+
+   The 2px bar is the button glyph's, un-scaled, on a box 3px narrower — a
+   proportionally heavier strike, and deliberately: at 8px a 1px bar is one
+   device pixel that a phone's rounding can drop entirely, and the state has to
+   survive a greyscale screenshot to be worth drawing at all. */
+.tower__seal--broken {
+  background:
+    linear-gradient(45deg,
+      transparent calc(50% - 1px), var(--bg-deep) calc(50% - 1px),
+      var(--bg-deep) calc(50% + 1px), transparent calc(50% + 1px)),
+    currentColor;
+  opacity: 0.55;
+}
 /* …and the refusal points at them. A tap on the locked roof shakes it
    (.is-denied) and flares every floor still owing a seal, so "all seals" is
    answered as WHICH seals, in the tower rather than in a toast over it. Two
@@ -1621,6 +1726,28 @@ body.crt-off #app::after { display: none; }
 @keyframes tower-owed {
   0%, 100% { opacity: 0.16; }
   50% { opacity: 1; background: var(--danger); }
+}
+/* …AND A STRUCK FLOOR IS FLARED TOO, because it owes the roof a seal exactly
+   as an untouched one does — that is why the struck stamp keeps `--owed` in
+   its class list (screens.ts's floorHTML), so main.ts's query for the bill
+   finds it without knowing this state exists.
+
+   Its own keyframes for one reason: the pulse above sets `background`, and the
+   shorthand would drop the layered gradient and take the STRIKE off the glyph
+   for the frames the refusal is pointing at it. So the struck one pulses
+   opacity alone, 0.55 to full, and keeps the bar it is being flared for. Same
+   300ms, same two beats, so the two glyphs answer the tap as one event.
+
+   Reduced motion needs no rule of its own: the block below holds every
+   `--owed` socket at 0.85 with the animation off, and a struck one carries
+   that class, so it answers the refusal in the same held state with its bar
+   intact. */
+.tower__floor.is-owed .tower__seal--broken {
+  animation: tower-owed-struck 300ms ease 2;
+}
+@keyframes tower-owed-struck {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 .tower__floor.is-selected {
   border-color: var(--accent); color: var(--accent);

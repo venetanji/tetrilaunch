@@ -15922,18 +15922,33 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
   const base: S.TowerState = { unlocked: 3, selected: 3, skydeck: false, sealed: [2] };
   const html = S.tierTowerHTML(base);
   /** Stamps PRESSED — the filled seal, and only it. Matched on the closing
-   *  quote so the empty socket's own class (`tower__seal tower__seal--owed`)
-   *  cannot be counted as one: the two are now one glyph in two states, and a
-   *  substring test would call the bill a receipt. */
+   *  quote so the unpressed states' own classes (`tower__seal tower__seal--owed`
+   *  and the struck `… tower__seal--broken`) cannot be counted as one: the
+   *  three are one glyph in three states, and a substring test would call the
+   *  bill a receipt. */
   const stamped = (h: string): number => (h.match(/class="tower__seal"/g) ?? []).length;
+  /** Floors that still OWE the roof a seal, in either unpressed state. The
+   *  class is what main.ts's pickTier queries to itemise the roof's refusal
+   *  (`is-owed`), so this counts the BILL and not one wash of it — a struck
+   *  stamp carries `--owed` too, precisely so that query keeps finding it. */
   const owed = (h: string): number => (h.match(/tower__seal--owed/g) ?? []).length;
+  /** …and the subset of those that are struck: cleared Tiers with no stamp. */
+  const struck = (h: string): number => (h.match(/tower__seal--broken/g) ?? []).length;
+  /** One floor's markup, for the assertions that are about WHICH floor wears
+   *  what. Non-greedy to the first close tag, which is exact here because a
+   *  button cannot contain another one. */
+  const floorOf = (h: string, tier: number): string =>
+    new RegExp(`<button[^>]*data-tier="${tier}"[\\s\\S]*?</button>`).exec(h)?.[0] ?? "";
   check("a sealed floor is marked", stamped(html) === 1, `${stamped(html)} stamps`);
-  // THE EMPTY SOCKET is what makes "all seals open the roof" legible without a
-  // sentence on the menu (screens.ts's floorHTML): the building shows its own
-  // bill. Three here — Marks 1 and 3, which are open and unsealed, and the
-  // locked roof, which is waiting on both of them.
-  check("every floor that still owes a seal shows an empty socket",
-    owed(html) === 3, `${owed(html)} sockets`);
+  // THE BILL is what makes "all seals open the roof" legible without a
+  // sentence on the menu (screens.ts's floorHTML): the building shows what it
+  // is owed. Three here — Marks 1 and 3, which are open and unsealed, and the
+  // locked roof, which is waiting on both of them. Mark 1 is drawn STRUCK
+  // rather than empty (below), and it is still one of the three: a Tier the
+  // player finished messily owes the roof a seal exactly as an unflown one
+  // does, and the refusal has to flare it.
+  check("every floor that still owes a seal is billed for one",
+    owed(html) === 3, `${owed(html)} billed`);
   // …and NOT on a Mark the player cannot fly yet. A floor above the unlock has
   // a Mark question, not a seal question, and ten sockets on a Mark-1 tower
   // would be a bill for a mode whose door that player cannot see.
@@ -15948,6 +15963,123 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     "the seal is named, not merely drawn",
     html.includes('aria-label="Tier 2 — sealed"'),
   );
+
+  /* -----------------------------------------------------------------------
+   * THE THIRD STATE — the struck stamp (screens.ts's floorSealState).
+   *
+   * The socket was answering two questions with one picture: "never cleared
+   * this Tier" and "cleared it, then a retry took the seal" drew the same
+   * faint octagon, so the tower could state the roof's bill and could not
+   * state the player's own history. The owner's pass ("S1") separates them,
+   * and `base` above is exactly the save that shows all three at once —
+   * unlocked 3, sealed [2] — so Mark 1 is cleared and unstamped, Mark 2 is
+   * stamped, and Mark 3 is the floor being flown.
+   * -------------------------------------------------------------------- */
+  check("a Tier behind the player with no stamp wears a struck one",
+    struck(html) === 1 && floorOf(html, 1).includes("tower__seal--broken"),
+    `${struck(html)} struck`);
+  // …and it is STILL billed, which is the reason the struck stamp keeps both
+  // classes. main.ts flares `.tower__seal--owed` on a tap at the locked roof;
+  // a state that dropped the class would quietly fall out of the itemised
+  // refusal, and nothing in that file would say so.
+  check("...and is still one of the floors the roof's refusal points at",
+    floorOf(html, 1).includes("tower__seal--owed"));
+  // The strike is a shape and the shape is aria-hidden, so the floor's NAME
+  // carries it — the same division of labour the stamp has always had (see
+  // above). Asserted as the whole label: `includes("broken")` would pass on
+  // the class name alone.
+  check("...and the struck stamp is NAMED as well as drawn",
+    floorOf(html, 1).includes('aria-label="Tier 1 — seal broken"'));
+  // THE FLOOR BEING FLOWN IS NOT STRUCK. It sits AT the unlock, so it is not
+  // behind the player, and a strike there would say "done, and you lost the
+  // stamp" about the Tier the game is currently asking them to finish.
+  check("the Tier at the unlock keeps the plain socket",
+    floorOf(html, 3).includes("tower__seal--owed")
+      && !floorOf(html, 3).includes("tower__seal--broken")
+      && !floorOf(html, 3).includes("seal broken"));
+  // …and the sealed floor is untouched by all of it: one pressed stamp, no
+  // socket, no strike.
+  check("a sealed floor wears neither socket nor strike",
+    floorOf(html, 2).includes('class="tower__seal"')
+      && !floorOf(html, 2).includes("tower__seal--"));
+
+  // THE RULE ITSELF, at the three boundaries that decide it.
+  check("the rule reads the tower's own two numbers",
+    S.floorSealState(base, 1) === "broken"
+      && S.floorSealState(base, 2) === "sealed"
+      && S.floorSealState(base, 3) === "at-stake");
+  // A TIER WHOSE BAYS ARE WON BUT WHOSE CONTRACTS ARE OWED IS AT STAKE — the
+  // case the owner asked to be decided deliberately. It sits at `unlocked`
+  // (meta.ts's advanceTier has not ticked it), the Contract pips one column
+  // away are still counting its clears, and the seal is still earnable by a
+  // clean re-fly whenever the player likes, so the socket is the honest
+  // picture and a strike would call an unfinished Tier finished.
+  check("a Tier with its run done and Contracts owed is at stake, not broken",
+    S.floorSealState({ unlocked: 3, selected: 3, skydeck: false, contracts: 1 }, 3) === "at-stake");
+  // THE LADDER'S TOP FLOOR UNDER-CLAIMS, pinned so the limit is a decision
+  // rather than a surprise: markUnlocked saturates at MARK_COUNT, so a
+  // finished ladder leaves Mark 10 AT the unlock and a messy Mark 10 draws the
+  // socket. Not a lie — the seal really is unheld and really is still there to
+  // be earned — and the tower is handed no number that could separate it from
+  // "Mark 10 unflown". See floorSealState's note.
+  check("the saturated top of the ladder reads at stake, not broken",
+    S.floorSealState({ unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false }, MARK_COUNT)
+      === "at-stake");
+  // NO SEAL QUESTION AT ALL on the floors that have none: a Mark the player
+  // may not fly has a Mark question, and the roof, the lobby and the bench are
+  // not Marks (meta.ts records no seal for any of them).
+  check("floors with no seal question answer null",
+    S.floorSealState(base, 4) === null
+      && S.floorSealState(base, S.SKYDECK_TIER) === null
+      && S.floorSealState(base, S.LICENCE_TIER) === null
+      && S.floorSealState(base, S.SANDBOX_TIER) === null);
+  check("...and a locked ladder answers null on every rung of it",
+    S.floorSealState({ ...base, licensed: false }, 1) === null
+      && S.floorSealState({ ...base, rigged: false }, 1) === null);
+
+  /* -----------------------------------------------------------------------
+   * THE SAME STATE, WHERE THE FLOOR IS NAMED — the destination panel beside
+   * the tower (screens.ts's baseBayPanelHTML).
+   *
+   * The stamp is a shape on a plate and aria-hidden, so until the owner's pass
+   * the only place a floor's seal was written down was one aria-label. The
+   * panel states it in words, one line, on the head row it already had.
+   * -------------------------------------------------------------------- */
+  {
+    const panel = (seal: S.FloorSeal | null): string =>
+      S.baseBayPanelHTML({ tier: 3, best: 12, seal });
+    check("the destination panel states a held seal",
+      panel("sealed").includes(">Sealed<"));
+    check("...states a broken one, with the way back to it",
+      panel("broken").includes(">Seal broken — re-fly with no bay retry to seal it<"));
+    check("...states one still at stake",
+      panel("at-stake").includes(">Seal at stake<"));
+    // Nothing at all where there is no seal question, so the roof, the lobby
+    // and a locked Mark do not grow a line about a stamp they cannot hold.
+    check("...and says nothing when the floor has no seal",
+      !panel(null).includes("base-bay__seal"));
+    // ONE GLYPH, TWO SURFACES. The panel draws the retry doors' own octagon
+    // (sealFaceHTML) rather than a second copy of it, which is the whole
+    // reason the tower, the pause card and the loss card cannot come to
+    // disagree about what a struck stamp looks like.
+    check("the panel's glyph is the retry doors' glyph",
+      panel("sealed").includes(S.sealFaceHTML("held"))
+        && panel("broken").includes(S.sealFaceHTML("spent"))
+        && panel("at-stake").includes(S.sealFaceHTML("at-stake")));
+    check("...mapped state for state",
+      S.floorSealFace("sealed") === "held"
+        && S.floorSealFace("broken") === "spent"
+        && S.floorSealFace("at-stake") === "at-stake");
+    // AND IT IS WIRED TO THE PARKED FLOOR, not merely available: the menu
+    // reads the one rule for the floor the car is on, so the panel cannot
+    // claim a stamp the building is not drawing one column over.
+    const parked = (tier: number): string =>
+      S.menuScreen(12, 0, undefined, undefined, undefined, { ...base, selected: tier });
+    check("the menu states the parked floor's seal beside its terms",
+      parked(2).includes(">Sealed<")
+        && parked(1).includes(">Seal broken — re-fly with no bay retry to seal it<")
+        && parked(3).includes(">Seal at stake<"));
+  }
   // The Skydeck is not a Mark. meta.ts can never record a seal for it, so a
   // build in which the Skydeck could wear a PRESSED stamp is drawing a state
   // nothing produces — and an OPEN roof wears nothing at all, socket included:
@@ -15968,6 +16100,54 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     check("...but a shut one shows what it is waiting for",
       shutRoof.includes("tower__seal--owed"));
   }
+  /* -----------------------------------------------------------------------
+   * ONE OCTAGON, THREE SURFACES — the stylesheet's half of the agreement.
+   *
+   * The tower stamps a floor's seal, the retry doors stamp a run's, and the
+   * destination panel now writes the floor's down beside the doors' glyph. The
+   * markup pins above can only say that each surface draws SOMETHING; that the
+   * shapes are the same shape is a fact about app.css, and it is the whole
+   * reason the strike is legible as "the seal you had is gone" wherever the
+   * player meets it. Read off the stylesheet's own text rather than trusted to
+   * a comment, because the two rules sit 9000 lines apart.
+   * -------------------------------------------------------------------- */
+  {
+    const css = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const rule = (sel: string): string => {
+      const at = css.indexOf(`\n${sel} {`);
+      return at < 0 ? "" : css.slice(at, css.indexOf("}", at) + 1);
+    };
+    /** The clip, with every run of whitespace flattened — the two rules are
+     *  formatted differently and that is not a difference in the shape. */
+    const clip = (body: string): string =>
+      (/clip-path:([\s\S]*?);/.exec(body)?.[1] ?? "MISSING").replace(/\s+/g, " ").trim();
+    check("the tower's stamp and the buttons' stamp are the same octagon",
+      clip(rule(".tower__seal")) === clip(rule(".btn__seal"))
+        && clip(rule(".tower__seal")).startsWith("polygon("),
+      `${clip(rule(".tower__seal"))} vs ${clip(rule(".btn__seal"))}`);
+    /** The whole painted stack of a struck stamp, same flattening: the bar's
+     *  angle, its width and the fill under it, which together are the picture
+     *  the player recognises. */
+    const strike = (body: string): string =>
+      (/background:([\s\S]*?);/.exec(body)?.[1] ?? "MISSING").replace(/\s+/g, " ").trim();
+    check("...and the struck stamp is struck the same way on both",
+      strike(rule(".tower__seal--broken")) === strike(rule(".btn__seal--broken"))
+        && strike(rule(".tower__seal--broken")).startsWith("linear-gradient(45deg"),
+      `${strike(rule(".tower__seal--broken"))} vs ${strike(rule(".btn__seal--broken"))}`);
+    // THE WASH IS THE ONE THING THAT DIFFERS, and deliberately: the struck
+    // stamp sits between the socket's 0.16 and the pressed stamp's 0.85 on the
+    // tower, where it is a record, and at the retry doors' own muted 0.4, where
+    // it is a price already paid. Pinned so a future tidy-up cannot "unify"
+    // the two into one number and flatten the tower's three states into two.
+    check("...at the wash the tower's three states need",
+      /opacity: 0\.55;/.test(rule(".tower__seal--broken"))
+        && /opacity: 0\.16;/.test(rule(".tower__seal--owed"))
+        && /opacity: 0\.85;/.test(rule(".tower__seal")));
+  }
+
   // THE ROOF'S PRICE IN WORDS. The sockets are a shape and the shape is
   // aria-hidden, so the locked floor's accessible name is the only place the
   // count reaches a screen-reader user — and the count is the whole gate

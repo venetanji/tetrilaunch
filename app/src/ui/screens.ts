@@ -651,6 +651,109 @@ export function towerRisePassMs(to: number, tier: number): number | null {
   return Math.round(TOWER_RISE_HOLD_MS + towerRiseMs(to) * t);
 }
 
+/**
+ * THE THREE STATES A MARK'S SEAL CAN BE IN — one rule, every surface.
+ *
+ * The tower drew two of them: a filled stamp for a sealed Mark, and a faint
+ * SOCKET for everything else. That socket was doing two jobs, and the owner's
+ * pass caught it doing them in one glyph — "never cleared this Tier yet" and
+ * "cleared it, then broke the seal on a retry" are the same picture, so the
+ * building could state the roof's bill and could not state a player's own
+ * history. The middle state is the one a player actually asks about, because it
+ * is the one they can do something about: the Tier is behind them, and the only
+ * thing left to earn on that floor is the stamp.
+ *
+ * CLEARED IS `tier < state.unlocked`, which is the tower's own existing
+ * arithmetic and not a second answer beside it: floorHTML lights all three
+ * windows on exactly that comparison ("a beaten floor burns all three"), and
+ * `unlocked` is meta.ts's markUnlocked — `mark + 1` — so a floor below it is a
+ * floor whose Deep Run AND Contracts have both landed (advanceTier). Nothing is
+ * added to the save and nothing is migrated; the state was already in the two
+ * numbers the tower is handed.
+ *
+ * A TIER WHOSE BAYS ARE WON BUT WHOSE CONTRACTS ARE STILL OWED IS **AT STAKE**,
+ * deliberately. It sits AT the unlock, not below it, so it reads as the socket
+ * — and that is the honest picture rather than a rounding of it: the floor is
+ * still the one the game is asking the player to finish, the same panel and the
+ * same Contract pips are counting its clears one column away, and a struck
+ * stamp there would say "done, and you lost the stamp" about a Tier that is not
+ * done. The seal is not lost in that state either — recordRunEnd's seal is
+ * deliberately not gated on the Tier being current, so a clean re-fly stamps it
+ * whenever the player likes — which is exactly what "at stake" means.
+ *
+ * THE LADDER'S TOP FLOOR IS THE ONE PLACE THIS UNDER-CLAIMS, and it is worth
+ * stating rather than hiding. markUnlocked SATURATES at MARK_COUNT (the bug
+ * PR #134 chased through three other surfaces), so a finished ladder leaves
+ * Mark 10 AT `unlocked` rather than below it, and a Mark 10 cleared messily
+ * therefore draws the socket instead of the struck stamp. The tower is handed
+ * no number that can separate "mark 9, Tier 10 unflown" from "mark 10, Tier 10
+ * cleared", so the choice is between under-claiming and inventing state; and
+ * the socket is not a lie in that state, because the seal really is unheld and
+ * really is still there to be earned. A future pass that wants the strike on
+ * the top floor has to be PASSED the completed Mark, not guess it.
+ *
+ * Null is "this floor has no seal question": the roof (meta.ts records no seal
+ * for the Skydeck), the lobby, the bench, and every Mark the player may not fly
+ * yet — a locked floor has a Mark question, not a seal question.
+ */
+export type FloorSeal = "sealed" | "broken" | "at-stake";
+
+export function floorSealState(state: TowerState, tier: number): FloorSeal | null {
+  if (tier < 1 || tier > MARK_COUNT) return null;
+  if (!tierOpen(state, tier)) return null;
+  if ((state.sealed ?? []).includes(tier)) return "sealed";
+  return tier < state.unlocked ? "broken" : "at-stake";
+}
+
+/**
+ * …and the same rule's WORDS, for every surface that states a floor's seal
+ * beside its name rather than stamping it on a plate.
+ *
+ * One function because the tower's glyph is aria-hidden and a shape has no
+ * accessible name: the destination panel's line is where the state is written
+ * down, and two copies of it would drift the way the three retry doors' copy
+ * drifted before sealFaceLabel was one function (see its note).
+ *
+ * The broken line is the only one that carries an INSTRUCTION, because it is
+ * the only state with an action in it. "Sealed" is a receipt and "Seal at
+ * stake" is the resting state of nine floors out of ten — a sentence there
+ * would be a nag on the home screen — but a struck stamp raises exactly one
+ * question, and the line answers it in the ladder's own vocabulary ("no bay
+ * retry", the term the primary's seal subtitle and the retry doors already
+ * use).
+ */
+export function floorSealLine(seal: FloorSeal): string {
+  return seal === "sealed"
+    ? "Sealed"
+    : seal === "broken"
+      ? "Seal broken — re-fly with no bay retry to seal it"
+      : "Seal at stake";
+}
+
+/**
+ * The floor's seal state in the RUN's vocabulary (run.ts's SealState) — which
+ * is how the glyph gets picked, and the whole reason the tower and the retry
+ * doors cannot come to draw two different octagons for one fact.
+ *
+ * The three states line up exactly once, and they line up on the SHAPE rather
+ * than on the wash:
+ *
+ *  - sealed   → **held**: the stamp is on the tower and nothing can take it.
+ *  - broken   → **spent**: the stamp is gone, and the strike is the same
+ *    picture the pause card and the loss card already draw for it
+ *    (.btn__seal--broken). A run spends its seal; a floor wears what is left.
+ *  - at-stake → **at-stake**: unsealed, and still there to be earned.
+ *
+ * The two vocabularies stay separate in WORDS, because they are statements
+ * about different things and run.ts's sealStateFor exists to keep that straight:
+ * sealFaceLabel says "this run's seal is already broken" about the run in
+ * front of the player, and floorSealLine says "Seal broken" about the floor.
+ * One shape, two subjects.
+ */
+export function floorSealFace(seal: FloorSeal): SealState {
+  return seal === "sealed" ? "held" : seal === "broken" ? "spent" : "at-stake";
+}
+
 function floorHTML(state: TowerState, tier: number): string {
   const open = tierOpen(state, tier);
   const paywalled = state.fullGame === false && tier <= MARK_COUNT
@@ -749,10 +852,25 @@ function floorHTML(state: TowerState, tier: number): string {
   // question yet — it has a Mark question — and ten sockets on a Mark-1 tower
   // would be a bill for a mode that player cannot see the door of.
   const owesSeal = sky ? !open : open && !isSealed;
+  // THE STRUCK STAMP — the socket's middle state, on a Mark that is BEHIND the
+  // player and carries no stamp (floorSealState's "broken"). The socket was
+  // answering two questions with one picture until the owner's pass separated
+  // them: a floor nobody has cleared and a floor whose seal a retry took look
+  // identical, so the building could show the roof's bill and could not show
+  // the player their own history.
+  //
+  // IT KEEPS `--owed` AS WELL, and that is the load-bearing half of the markup.
+  // `--owed` means "this floor still owes the roof a seal" — it is what the
+  // locked roof's refusal flares (main.ts's pickTier queries exactly that
+  // class) and what the bill is itemised from — and a struck floor owes one
+  // every bit as much as an untouched one does. `--broken` adds the second fact
+  // on top: that the Tier itself is done. Two classes because there are two
+  // facts, and app.css's later rule wins the wash.
+  const struck = floorSealState(state, tier) === "broken";
   const seal = isSealed
     ? `<span class="tower__seal" aria-hidden="true"></span>`
     : owesSeal
-      ? `<span class="tower__seal tower__seal--owed" aria-hidden="true"></span>`
+      ? `<span class="tower__seal tower__seal--owed${struck ? " tower__seal--broken" : ""}" aria-hidden="true"></span>`
       : "";
   // THE CEREMONY'S TIMING, per floor and inline — the one thing about this
   // drawing that cannot be a stylesheet constant, because it depends on where
@@ -769,7 +887,7 @@ function floorHTML(state: TowerState, tier: number): string {
   const rideAt = pass === null ? "" : ` style="--tower-pass:${pass}ms"`;
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"${rideAt}`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}${licenceNote}${accessNote}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${licenceNote}${accessNote}${isSealed ? " — sealed" : struck ? " — seal broken" : ""}${sealsNote}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${sky ? "SKY" : tier}</span>`
     + windows
@@ -1213,6 +1331,21 @@ export function baseBayPanelHTML(opts: {
    *  moment the elevator moved. Absent only on callers that predate the ground
    *  floor, where it falls back to a fresh save's zero. */
   licence?: { done: number; total: number; gate?: SchoolStepKind | null };
+  /** The parked floor's seal, when it has one (floorSealState) — the state in
+   *  WORDS, next to the floor the tower is stamping one column over.
+   *
+   *  The stamp on the plate is a shape and it is aria-hidden, so until now the
+   *  only place a floor's seal was written down was one aria-label; the owner's
+   *  pass asked for it where the floor's other terms are read. It rides the
+   *  head row the panel already has rather than a row of its own — see the
+   *  .base-bay__seal note in app.css and the one at the markup below for the
+   *  arithmetic, whose short version is that the eyebrow had the slack and a
+   *  row of its own would have cost three times as much.
+   *
+   *  Absent or null draws nothing, which is what every floor with no seal
+   *  question (the roof, the lobby, the bench, a locked Mark) and every caller
+   *  that predates the line renders. */
+  seal?: FloorSeal | null;
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
@@ -1245,8 +1378,37 @@ export function baseBayPanelHTML(opts: {
   // and directly above a Deep Run button whose plate says it a third time.
   // Best is what survives: the one number on this panel that appears nowhere
   // else on the screen.
+  // THE SEAL, IN WORDS, on the row that was already there — the eyebrow that
+  // holds Best, which until now was one right-aligned readout with the whole
+  // row to itself.
+  //
+  // WHAT IT COSTS, measured rather than hoped (Chromium, the uifit fleet): the
+  // head row goes 7.00px -> 11.88px and the panel 103px -> 107.9px on a 360px
+  // phone. That is not free, and the argument is about WHO PAYS it. The action
+  // column's height is the grid row's, and the recap is `flex: none` at the
+  // head of it with three buttons sharing what is left — so the 4.9px comes
+  // off the buttons' slack (64.8/60.0/60.0 -> 63.2/58.4/58.4 on the 640x360
+  // budget row, still 14px clear of the 44px tap floor) and NOT off the column
+  // total. The tower beside it measures identically with the line and without
+  // (319.84px on that row either way), which is what keeps sim/uifit's baseline
+  // for the building honest about a change made to the panel. A line of its own
+  // under the row would have cost a whole line-height instead, and the phone
+  // block in app.css has already spent every pixel this panel had spare.
+  //
+  // The GLYPH is the retry doors' own (sealFaceHTML), so the picture next to
+  // the floor's name and the picture on the button that spends it are the same
+  // octagon in the same three states — see floorSealFace.
+  const sealLine = opts.seal
+    // The words are their own element because the glyph is a flex item beside
+    // them: a text node cannot be ellipsised, and the ellipsis is what keeps
+    // the broken state's sentence from wrapping this row (see app.css).
+    ? `<p class="base-bay__seal">${sealFaceHTML(floorSealFace(opts.seal))}<span class="base-bay__sealtxt">${
+      floorSealLine(opts.seal)
+    }</span></p>`
+    : "";
   return `<div class="panel base-bay" aria-label="Selected tier \u2014 base bay">
     <div class="base-bay__head">
+      ${sealLine}
       <div class="base-bay__best">Best ${opts.best}</div>
     </div>
     <div class="base-bay__grid">
@@ -1791,6 +1953,11 @@ export function menuScreen(
              travelled past the whole tower to reach the button they qualify. -->
         ${baseBayPanelHTML({
           tier: sel, best,
+          // The parked floor's seal, stated beside the floor's other terms. The
+          // tower is stamping the same floor one column over and both read the
+          // one rule (floorSealState), so the panel cannot claim a stamp the
+          // building is not drawing.
+          seal: floorSealState(twr, sel),
           // The panel wants the LADDER, not the "still owed" flag `licence` is
           // — see baseBayPanelHTML's note.
           licence: {
