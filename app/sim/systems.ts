@@ -79,16 +79,17 @@ import {
 } from "./canvasrec";
 import {
   COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark,
-  landingHint, MAX_RENDER_DPR, renderScale, THAW_REACH, THAW_REACH_MS,
+  landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale, THAW_REACH, THAW_REACH_MS,
 } from "../src/game/render";
-import { FX_TTL, BLAST_AMBER, type FxEvent } from "../src/game/fx";
+import { FX_TTL, BLAST_AMBER, PENALTY_SINK_PX, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
   AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, dragLenForRatio, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
-  CHUTE, CHUTE_BLAST_R, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
+  CHUTE, CHUTE_BLAST_R, CHUTE_MOUTH_X0, CHUTE_ROOF_BASE_Y, CHUTE_ROOF_LIFT_MAX, CHUTE_SURFACE_Y,
+  chuteMouth, chuteRightEdge, chuteRoofY, inChute, pathStrands, setChuteRoofY,
   INCINERATOR_Y, inIncinerator,
 } from "../src/game/chute";
 import { render, screenToWorld } from "../src/game/render";
@@ -14799,6 +14800,12 @@ section("Misfire prevention");
       const m = plant.match(re);
       return m ? Number(m[1]) : null;
     };
+    /** The same read against the WHOLE stylesheet — the panel-height tiers the
+     *  roof's bound comes from live on `.drag-hint`, not inside `.plant`. */
+    const frac0 = (re: RegExp): number | null => {
+      const m = css.match(re);
+      return m ? Number(m[1]) : null;
+    };
     const left = frac(/left:\s*calc\(var\(--field-x\)\s*\+\s*([\d.]+)\s*\*\s*var\(--field-w\)\)/);
     const width = frac(/width:\s*calc\(([\d.]+)\s*\*\s*var\(--field-w\)\)/);
     // `bottom:` is no longer a bare calc(): the anchor is a `max()` against the
@@ -14841,6 +14848,40 @@ section("Misfire prevention");
       check("...and it still ends where the panel does",
         Math.abs(stock.x0 + stock.w - (left + width) * WORLD.width) < 0.5,
         `${stock.x0 + stock.w} vs ${(left + width) * WORLD.width}`);
+
+      // THE PANEL DOES NOT STAY AT ITS MIN-HEIGHT, and the check above cannot
+      // see that. `min-height` is a FLOOR: the declaration it reads is real,
+      // and the roof it derives is the roof of the SHORTEST panel the app can
+      // render. app.css itself says so three times over — the `.drag-hint`
+      // anchors step 0.4296 / 0.50 / 0.52 of the field for a Contract's panel,
+      // a Deep Run's and a carded one, each tier added after the previous one
+      // went stale under a taller readout. So the drawn roof is measured
+      // (chute.ts's chuteRoofY), and what is pinned here is the BOUND that
+      // measurement is clamped into.
+      const carded = frac0(
+        /\.hud\[data-carded\] \.drag-hint:not\(\.drag-hint--at\)\s*\{\s*top:\s*calc\(var\(--field-y\)\s*\+\s*\(([\d.]+)\s*-\s*[\d.]+\)/,
+      );
+      const cardedH = frac0(
+        /\.hud\[data-carded\] \.drag-hint:not\(\.drag-hint--at\)\s*\{\s*top:\s*calc\(var\(--field-y\)\s*\+\s*\([\d.]+\s*-\s*([\d.]+)\)/,
+      );
+      check("the stylesheet's tallest planned-for panel is still readable",
+        carded !== null && cardedH !== null && carded === bottom,
+        `carded tier (${carded} - ${cardedH}) against the panel's own bottom ${bottom}`);
+      if (cardedH !== null) {
+        check("the roof's lift bound is the tallest panel app.css plans for",
+          CHUTE_ROOF_LIFT_MAX === Math.round(CHUTE.y0 - (bottom - cardedH) * WORLD.height),
+          `${CHUTE_ROOF_LIFT_MAX} vs ${Math.round(CHUTE.y0 - (bottom - cardedH) * WORLD.height)}`);
+        // ...and it has to cover the panel the game is mostly PLAYED with. A
+        // Deep Run's measures 0.4915..0.52 of the field (sim/uifit's matrix,
+        // and run.ts's PLANT_CEILING of 0.50), i.e. a roof at world y 361..324
+        // — all of which has to be reachable, or the clamp would quietly put
+        // the cues back behind the panel on the commonest screen in the game.
+        check("...and it reaches the Deep Run panel's measured roof",
+          CHUTE_ROOF_BASE_Y - CHUTE_ROOF_LIFT_MAX
+            <= Math.round((bottom - 0.4915) * WORLD.height),
+          `base ${CHUTE_ROOF_BASE_Y} - lift ${CHUTE_ROOF_LIFT_MAX} vs ` +
+            `${Math.round((bottom - 0.4915) * WORLD.height)}`);
+      }
     }
   }
   // A press that reaches inside the panel's own left edge is not a mouth to
@@ -25101,19 +25142,38 @@ section("Flight School — the authored geometry holds (game/school.ts)");
 // one, because a 2017 phone and a desktop GPU are not the same machine being
 // asked the same question.
 //
-// FOUR THINGS THAT WOULD SILENTLY UNDO IT, which is why they are pinned rather
+// ...AND A RATIO IS NOT A PIXEL COUNT, which is the second half of the policy
+// and the half that was missing. A ceiling on devicePixelRatio bounds nothing
+// until it is multiplied by a viewport, and nothing bounded the viewport: css
+// 2560x1600 at dpr 2 passed both ceilings above and allocated 5120x3200 —
+// 16.38 MP, measured at 150.1 ms against 57.0 ms for the 3.69 MP reference
+// frame (css 1280x720 at dpr 2) on the same machine. The same renderperf ladder
+// measured 4.10 MP at that big viewport at 55.6 ms, i.e. the same cost as
+// 3.69 MP at the small one: the frame is fill-bound in device pixels and the
+// viewport they cover does not enter into it. So MAX_RENDER_PIXELS bounds the
+// AREA, and renderScale takes the square root of the budget because the scale
+// applies to both axes.
+//
+// SIX THINGS THAT WOULD SILENTLY UNDO IT, which is why they are pinned rather
 // than left to the function's own comment:
 //
 //   1. THE PHONE CASE ACTUALLY BINDS. An iPhone X in landscape must come out at
 //      the compact ceiling, not the desktop one. Get the threshold wrong by one
 //      orientation and the device the change was written for keeps its old cost.
-//   2. THE DESKTOP CASE IS UNTOUCHED. Every viewport that was capped at 2 before
-//      is still capped at 2 — this pass buys frame time on phones, it does not
-//      spend sharpness anywhere else.
+//   2. THE REFERENCE VIEWPORT IS UNTOUCHED. css 1280x720 at dpr 2 is where every
+//      number in sim/results was taken, and it must still resolve to exactly 2 —
+//      a budget that shaved it would invalidate the whole ladder it is argued
+//      from.
 //   3. IT IS THE SHORT EDGE, NOT THE WIDTH. A phone rotates; the policy must not.
 //   4. main.ts ACTUALLY ASKS. The policy is only worth anything if the canvas
 //      is sized through it, and a resize path that quietly went back to its own
 //      Math.min would leave every number above describing code nobody runs.
+//   5. NO VIEWPORT ESCAPES THE BUDGET. The failing case was a large desktop
+//      window, so the pin walks up past it and asserts the pixel count rather
+//      than the ratio — a ratio assertion is exactly what missed this.
+//   6. THE MENU ASKS THE SAME FUNCTION. attract.ts used to cap devicePixelRatio
+//      on its own terms, which is a second resolution policy free to drift from
+//      this one.
 // ===========================================================================
 section("The canvas is sized by policy, and phones get a lower ceiling (render.ts's renderScale)");
 {
@@ -25140,14 +25200,32 @@ section("The canvas is sized by policy, and phones get a lower ceiling (render.t
     renderScale(3, 844, 390) === 1.5 && renderScale(2.75, 932, 430) === 1.5,
     `${renderScale(3, 844, 390)} at 844x390, ${renderScale(2.75, 932, 430)} at 932x430`);
 
-  // AND NOTHING ELSE MOVES. A tablet's short edge is 768 and a desktop's is
-  // larger still; both keep exactly the ceiling they had before this existed.
+  // A DESKTOP KEEPS THE DESKTOP CEILING wherever the pixel budget leaves room
+  // for it. 1024x768 is 0.79 MP of CSS, so dpr 2 spends 3.15 MP and the budget
+  // never enters into it.
   check("a tablet keeps the desktop ceiling",
     renderScale(2, 1024, 768) === 2,
     `${renderScale(2, 1024, 768)} at 1024x768`);
-  check("...and so does a retina laptop, which is where the 2 was always aimed",
-    renderScale(2, 1440, 900) === 2 && renderScale(3, 1440, 900) === 2,
-    `${renderScale(2, 1440, 900)} / ${renderScale(3, 1440, 900)} at 1440x900`);
+  // THE REFERENCE FRAME, EXACTLY 2, and this is the one number the budget was
+  // chosen around: 1280x720 at dpr 2 is 3.6864 MP against a 4.0 MP budget, so
+  // every renderperf figure in render.ts's own comment still describes the
+  // canvas the policy actually asks for. Written as `=== 2` rather than against
+  // MAX_RENDER_DPR on the same argument as the 1.5s above.
+  check("the reference desktop viewport is untouched by the budget",
+    renderScale(2, 1280, 720) === 2,
+    `${renderScale(2, 1280, 720)} at 1280x720, dpr 2`);
+  // ...AND A RETINA LAPTOP NOW COMES DOWN, which is a deliberate change of
+  // behaviour rather than a casualty of one. 1440x900 at dpr 2 is 5.18 MP — 40%
+  // over the budget — so the ratio drops to ~1.76 and the canvas lands at 4.0 MP.
+  // It is still 1.76x the CSS box, i.e. comfortably above native, which is why
+  // this is the right side to give: the alternative is a frame the renderer
+  // cannot fill.
+  check("a retina laptop comes down to the budget, and not below it",
+    renderScale(2, 1440, 900) < 2
+      && renderScale(2, 1440, 900) > 1
+      && Math.round(1440 * 900 * renderScale(2, 1440, 900) ** 2) <= MAX_RENDER_PIXELS,
+    `${renderScale(2, 1440, 900)} at 1440x900 -> ` +
+      `${(1440 * 900 * renderScale(2, 1440, 900) ** 2 / 1e6).toFixed(2)} MP`);
   // A CEILING, never a floor: a 1x display asks for 1 and gets 1, on any
   // viewport. Returning the ceiling unconditionally would UPSCALE a cheap
   // canvas into an expensive one, which is the bug this shape of function
@@ -25160,6 +25238,44 @@ section("The canvas is sized by policy, and phones get a lower ceiling (render.t
   check("a browser that has not laid out yet still gets a drawable canvas",
     renderScale(0, 0, 0) === 1 && renderScale(Number.NaN, 812, 375) === 1,
     `${renderScale(0, 0, 0)} / ${renderScale(Number.NaN, 812, 375)}`);
+
+  // THE BUDGET ITSELF — the case a ratio assertion cannot see.
+  //
+  // css 2560x1600 is the viewport the review measured at 146.8 ms. Asserted as
+  // a PIXEL COUNT, not as a ratio, because the ratio is not the quantity that
+  // costs anything: before the budget existed this viewport returned 2 and
+  // spent 16.38 MP, and every check in this section passed.
+  const px = (w: number, h: number, ratio: number): number =>
+    Math.round(w * h * renderScale(ratio, w, h) ** 2);
+  check("a large desktop window cannot spend more than the pixel budget",
+    px(2560, 1600, 2) <= MAX_RENDER_PIXELS,
+    `${(px(2560, 1600, 2) / 1e6).toFixed(2)} MP at 2560x1600 dpr 2, ` +
+      `budget ${(MAX_RENDER_PIXELS / 1e6).toFixed(2)} MP ` +
+      `(dpr ${renderScale(2, 2560, 1600).toFixed(3)})`);
+  // NO VIEWPORT ESCAPES IT, walked up past the one that failed — a 4K window and
+  // a 5K one are the same bug one rung further on, and a budget expressed as a
+  // ratio at ANY single viewport would leave them behind again.
+  for (const [w, h] of [[1512, 982], [1920, 1080], [2560, 1600], [3840, 2160], [5120, 2880]]) {
+    check(`...at ${w}x${h} too, at any ratio the device asks for`,
+      [1, 1.25, 1.5, 2, 3].every((r) => px(w, h, r) <= MAX_RENDER_PIXELS),
+      [1, 1.25, 1.5, 2, 3].map((r) => `${r}->${(px(w, h, r) / 1e6).toFixed(2)}MP`).join(" "));
+  }
+  // THE BUDGET IS ALLOWED BELOW 1 and must be, which is the clause that stops a
+  // well-meaning `Math.max(1, …)` floor from reopening the hole. At css
+  // 2560x1600 the CSS box is 4.10 MP on its own — over budget before any device
+  // ratio is applied at all — so the only honest answer is a hair of upscaling.
+  check("a viewport whose CSS area alone exceeds the budget scales below 1",
+    renderScale(2, 2560, 1600) < 1 && renderScale(2, 2560, 1600) > 0.9,
+    `${renderScale(2, 2560, 1600)} at 2560x1600`);
+  // AND THE PHONES DO NOT MOVE. The compact ceiling has to go on being the
+  // binding cap on a phone-sized viewport: the budget allows 3.49 at css
+  // 844x390, so if it ever became the binding one there it would mean the
+  // compact ceiling had been raised out from under this pass.
+  check("the pixel budget never binds on a phone — the compact ceiling still does",
+    [[812, 375], [375, 812], [844, 390], [932, 430]].every(
+      ([w, h]) => Math.sqrt(MAX_RENDER_PIXELS / (w * h)) > COMPACT_MAX_RENDER_DPR),
+    [[812, 375], [844, 390]].map(([w, h]) =>
+      `${w}x${h} allows ${Math.sqrt(MAX_RENDER_PIXELS / (w * h)).toFixed(2)}`).join(", "));
 
   // THE WIRE. main.ts's resize path must size the canvas through the policy,
   // and the canvas must be the only thing it sizes — the DOM chrome keeps the
@@ -25175,6 +25291,20 @@ section("The canvas is sized by policy, and phones get a lower ceiling (render.t
   check("...and the ratio it hands the canvas is the ratio it hands render()",
     /this\.canvas\.width = Math\.floor\(w \* this\.dpr\)/.test(renderMainSrc)
       && /render\(this\.ctx, window\.innerWidth, window\.innerHeight, this\.dpr,/.test(renderMainSrc));
+  // THE SECOND WIRE. The menu's attract demo draws through the same render()
+  // and shares its module-level sprite bake caches, so a demo that capped
+  // devicePixelRatio on its own terms was a second resolution policy in the
+  // app — free to ask for a ratio the field's budget had just refused. It may
+  // narrow what renderScale returns (its own smaller panel ceiling) and it may
+  // not go around it.
+  const attractSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "game", "attract.ts"),
+    "utf8",
+  );
+  check("the attract demo's backing ratio comes through renderScale",
+    /renderScale\(window\.devicePixelRatio \|\| 1, window\.innerWidth, window\.innerHeight\)/
+      .test(attractSrc)
+      && !/Math\.min\(window\.devicePixelRatio \|\| 1, MAX_DPR\)/.test(attractSrc));
 }
 
 // ===========================================================================
@@ -25862,6 +25992,228 @@ section("A detonation's debris is a burst, not a standing cost (render.ts's draw
     `chute ${debrisCount(CHUTE_BLAST_R)} vs volatile ${debrisCount(VOLATILE_R)}`,
   );
 
+  g.destroy();
+  stubs.restore();
+}
+
+// ===========================================================================
+// ===========================================================================
+// EVERY VISIBLE CUE ABOUT THE INTAKE HANGS OFF THE PANEL'S MEASURED ROOF
+// (chute.ts's chuteRoofY / setChuteRoofY).
+//
+// THE BUG. chute.ts authors the maw at world y 389, off `.plant`'s MIN-height
+// (0.4296 of the field height). The panel is `height: auto`: it grows upward out
+// of that box whenever its content needs the room, and since the R4 readout it
+// always does. MEASURED through sim/uifit's own harness — `.plant`'s
+// border-box top, converted to world y through the published `--field-y` /
+// `--fscale`, on every fixture of three devices:
+//
+//   Deep Run  (hud, hud-rich, hud-t10, hud-rig4, hud-notched, hud-pad,
+//              hud-congested, hud-lance, pause*, bayclear*, seal-break)
+//     Web 800x600      roof 344.9..348.0   panel 48.70..49.13% of the field
+//     iPhone 13 mini   roof 359.3          panel 47.14%
+//     iPad 1080x810    roof 358.9..360.9   panel 46.91..47.19%
+//   hud-stock          roof 368.6..382.0   panel 43.97..45.84%
+//   Contracts, coach and every lesson row
+//                      roof 389.3          panel 42.96% — the min-height
+//
+// So the authored constant is right for exactly the short panels and wrong by
+// 28..44 world px everywhere the game is actually played, and every canvas cue
+// about the machine was drawn inside that band:
+//
+//   - the LIP BAR (render.ts, 11px tall at the roof) was entirely behind the
+//     panel — the one part of the maw drawChute's own comment claims is visible
+//     at every panel height;
+//   - the WARNING PLUME (58px rising to the lip) kept only its faint top half,
+//     the half whose alpha is nearly zero;
+//   - the INTAKE BLAST (a 68px band lifted 0.3r clear of the lip precisely so
+//     it would not be drawn behind chrome) was more than half behind it;
+//   - the "-$" TOAST, spawned a full PENALTY_SINK_PX up so it would sink to the
+//     lip and stop, sank to 369 on every screen — eight pixels inside the
+//     shallowest Deep Run panel and twenty-four inside the deepest.
+//
+// WHAT IS PINNED, AND WHY IT IS PINNED TWICE. Once at the measured Deep Run
+// roof, where every one of those four has to clear the panel; and once at the
+// authored roof, where a Contract's and a lesson's panel actually sit and where
+// every number has to be EXACTLY what it was before this existed. The second
+// half is the whole risk of the change: the shorter panels show the bare maw,
+// and "fixed the Deep Run, moved the lesson" is the regression this shape of
+// fix invites.
+//
+// The geometry is read out of a RECORDED FRAME rather than recomputed here
+// (sim/canvasrec) — arithmetic restated in a test is arithmetic that agrees
+// with itself.
+// ===========================================================================
+section("Every intake cue hangs off the plant panel's measured roof (chute.ts's chuteRoofY)");
+{
+  const rec = newRec();
+  const stubs = installBrowserStubs();
+  const canvas: Record<string, unknown> = { width: 2560, height: 1440 };
+  // fillRect for the lip bar and its highlight, drawImage for the baked plume.
+  const ctx = makeRecCtx(canvas, rec, ["fillRect", "drawImage"]);
+
+  /**
+   * A Deep Run panel's roof in world y — the number this whole change is about.
+   *
+   * 361 is the SHALLOWEST lift in the measured set above (the iPad's 360.9,
+   * rounded away from the panel), deliberately: it is the case where the fix
+   * has the least room to work with, so a cue that clears the panel here
+   * clears it on every row of the matrix. Picking the Web window's 345 would
+   * make every clearance below look 16px more comfortable than the worst
+   * screen actually is.
+   */
+  const DEEP_ROOF = 361;
+
+  const g = new Game(makeBaseLevel(0), {}, 11);
+  g.status = "playing";
+  const mouth = chuteMouth(chuteRightEdge(g.strandCutoffX));
+
+  const paint = (roof: number): Rec => {
+    setChuteRoofY(roof);
+    resetRec(rec);
+    render(ctx as unknown as CanvasRenderingContext2D, 1280, 720, 2, {
+      cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      // The plume only draws while the aim is feeding the grinder, which is the
+      // state the cue exists for.
+      reload: 1, settling: false, strandWarning: true,
+    });
+    return {
+      calls: [...rec.calls], sets: [...rec.sets],
+      args: rec.args.map(([k, a]) => [k, [...a]] as [string, unknown[]]),
+    };
+  };
+
+  /** The lip bar's fills, identified by the MOUTH span they run across — the
+   *  panel's own left edge to the press's stop, which nothing else in the frame
+   *  spans (see chuteMouth, pinned against app.css above). */
+  const lipFills = (r: Rec): number[][] =>
+    r.args.filter(([k, a]) => k === "fillRect" && a[0] === mouth.x0 && a[2] === mouth.w)
+      .map(([, a]) => a as number[]);
+  /** The baked plume, identified the same way: a 5-arg drawImage stamped across
+   *  exactly the mouth. Returns [dy, dh]. */
+  const plume = (r: Rec): number[] | null => {
+    const hit = r.args.find(([k, a]) =>
+      k === "drawImage" && a.length === 5 && a[1] === mouth.x0 && a[3] === mouth.w);
+    return hit ? [hit[1][2] as number, hit[1][4] as number] : null;
+  };
+
+  // Warm the sprite and background caches before anything is measured: a cold
+  // frame bakes, and a bake draws into an offscreen context of its own.
+  paint(CHUTE_ROOF_BASE_Y);
+
+  // --- 1. THE AUTHORED ROOF IS UNTOUCHED -----------------------------------
+  // A Contract's panel, a lesson's, and the HUD-less attract demo. Literal
+  // numbers on purpose: `roof + 0` would pass on a function that had stopped
+  // reading the roof at all, which is exactly the edit to catch.
+  {
+    const bare = paint(CHUTE_ROOF_BASE_Y);
+    const fills = lipFills(bare);
+    check("a panel at its min-height draws the lip exactly where it always did",
+      fills.length === 2 && fills.every((f) => f[1] === 389)
+        && fills.some((f) => f[3] === 11) && fills.some((f) => f[3] === 2),
+      fills.map((f) => f.join(",")).join(" | ") || "no lip drawn");
+    check("...and the warning plume exactly where it always did",
+      JSON.stringify(plume(bare)) === JSON.stringify([331, 58]),
+      `${JSON.stringify(plume(bare))} vs [331, 58]`);
+  }
+
+  // --- 2. A DEEP RUN'S ROOF MOVES ALL OF IT --------------------------------
+  {
+    const deepFrame = paint(DEEP_ROOF);
+    const fills = lipFills(deepFrame);
+    // The bar's TOP edge is the roof — it is the panel's machined edge, so it
+    // starts where the panel starts and its 11px run down into the machine is
+    // behind the panel by design. What must not happen is the WHOLE bar being
+    // in there.
+    check("a Deep Run's panel takes the lip bar up to its own top edge",
+      fills.length === 2 && fills.every((f) => f[1] === DEEP_ROOF),
+      fills.map((f) => f.join(",")).join(" | ") || "no lip drawn");
+    check("...and the bright highlight lands ON that edge, not inside the panel",
+      fills.some((f) => f[1] === DEEP_ROOF && f[3] === 2),
+      fills.map((f) => f.join(",")).join(" | "));
+    // The plume is the one cue drawn wholly in open field, so it gets the
+    // strict form: every pixel of it at or above the roof.
+    const p = plume(deepFrame);
+    check("the whole warning plume rises ABOVE a Deep Run's panel, not into it",
+      p !== null && p[0] + p[1] === DEEP_ROOF && p[0] === DEEP_ROOF - 58,
+      `${JSON.stringify(p)} against roof ${DEEP_ROOF}`);
+    // ...and it moved by exactly the roof's own travel. A cue re-anchored to
+    // something that merely happens to sit near the panel would pass the
+    // absolute checks above on one viewport and drift on the next.
+    const base = plume(paint(CHUTE_ROOF_BASE_Y));
+    check("...by exactly the distance the roof moved, no other term in it",
+      p !== null && base !== null && base[0] - p[0] === CHUTE_ROOF_BASE_Y - DEEP_ROOF,
+      `plume moved ${base && p ? base[0] - p[0] : "?"}, roof moved ${CHUTE_ROOF_BASE_Y - DEEP_ROOF}`);
+  }
+
+  // --- 3. THE BLAST AND THE TOAST ------------------------------------------
+  // game.ts's half of the same anchor, driven by an actual shot into the maw
+  // rather than by restating the spawn expressions. A steep weak aim strands
+  // down the chute (pinned in the cannon section above), so the shipment is
+  // taken by the surface within a couple of dozen steps.
+  const DT = 1000 / 60;
+  const intake = (roof: number): { blast: number | null; toast: number | null } => {
+    setChuteRoofY(roof);
+    const b = new Game(makeBaseLevel(0), {}, 13);
+    b.cannon.angle = -Math.PI / 4;
+    b.cannon.power = b.cannon.speedMin;
+    b.shoot(0);
+    for (let i = 1; i < 240 && b.cubes.length; i++) b.update(i * DT);
+    const blast = b.effects.find((e) => e.kind === "explosion" && e.r === CHUTE_BLAST_R);
+    const toast = b.effects.find((e) => e.kind === "penalty");
+    b.destroy();
+    return { blast: blast ? blast.y : null, toast: toast ? toast.y : null };
+  };
+
+  const fxBare = intake(CHUTE_ROOF_BASE_Y);
+  const fxDeep = intake(DEEP_ROOF);
+  check("the intake really does take a stranded shipment, at both roofs",
+    fxBare.blast !== null && fxBare.toast !== null
+      && fxDeep.blast !== null && fxDeep.toast !== null,
+    `base ${JSON.stringify(fxBare)} / deep ${JSON.stringify(fxDeep)}`);
+  // TODAY'S NUMBERS, LITERALLY: 389 - 0.3 * 34 for the blast's centre, and
+  // 389 - 20 - PENALTY_SINK_PX for the toast's spawn.
+  check("a short panel spawns the blast and the toast exactly where it always did",
+    fxBare.blast === 389 - CHUTE_BLAST_R * 0.3
+      && fxBare.toast === 389 - 20 - PENALTY_SINK_PX,
+    `${fxBare.blast} / ${fxBare.toast} vs ` +
+      `${389 - CHUTE_BLAST_R * 0.3} / ${389 - 20 - PENALTY_SINK_PX}`);
+  // THE WHOLE POINT, stated as the two occlusion questions rather than as
+  // arithmetic. The blast is meant to sit ON the roof with its base tucked
+  // under it — two thirds clear is what 0.3r of lift buys — and the toast is
+  // meant to come to REST above it, which is a claim about where it finishes
+  // (spawn + PENALTY_SINK_PX), not about where it starts.
+  if (fxDeep.blast !== null && fxDeep.toast !== null) {
+    const clear = (DEEP_ROOF - (fxDeep.blast - CHUTE_BLAST_R)) / (2 * CHUTE_BLAST_R);
+    check("a Deep Run's blast is two thirds in open field, not half behind the panel",
+      fxDeep.blast < DEEP_ROOF && clear > 0.6,
+      `${(clear * 100).toFixed(0)}% of the band above roof ${DEEP_ROOF}`);
+    check("...and the penalty finishes its sink above the panel, not inside it",
+      fxDeep.toast + PENALTY_SINK_PX <= DEEP_ROOF - 20,
+      `sinks to ${fxDeep.toast + PENALTY_SINK_PX}, roof ${DEEP_ROOF}`);
+  }
+
+  // --- 4. THE CLAMP --------------------------------------------------------
+  // A measurement, not a constant, so the reads that are not measurements have
+  // to be refused: a stale `--field-*` publication, a rect taken mid-relayout,
+  // an element that has not laid out at all.
+  setChuteRoofY(CHUTE_ROOF_BASE_Y + 50);
+  check("a roof read BELOW the min-height panel is refused — that is a stale rect",
+    chuteRoofY() === CHUTE_ROOF_BASE_Y, `${chuteRoofY()}`);
+  setChuteRoofY(0);
+  check("...as is one read above the tallest panel app.css plans for",
+    chuteRoofY() === CHUTE_ROOF_BASE_Y - CHUTE_ROOF_LIFT_MAX, `${chuteRoofY()}`);
+  setChuteRoofY(Number.NaN);
+  check("...and a non-finite read falls back to the bare maw",
+    chuteRoofY() === CHUTE_ROOF_BASE_Y, `${chuteRoofY()}`);
+  setChuteRoofY(DEEP_ROOF);
+  check("a real Deep Run measurement is inside the clamp and survives it",
+    chuteRoofY() === DEEP_ROOF, `${chuteRoofY()}`);
+
+  // Left as it was found, so no section after this one inherits a roof.
+  setChuteRoofY(CHUTE_ROOF_BASE_Y);
   g.destroy();
   stubs.restore();
 }
