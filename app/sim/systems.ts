@@ -16902,6 +16902,40 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
         && !bayOne.includes('data-action="quit-run"'));
   }
 
+  // ---- …AND SO DOES THE LOSS CARD (screens.ts's endModal `runRetry`) ------
+  // The game-over card on bay 1 offered a seal-priced Retry Bay beside a free
+  // Retry Run, and both re-dealt bay 1 (main.ts: resetBay and startGame each
+  // construct a new Game with no seed). Only pauseModal consulted
+  // retryIsWholeRun; the loss card now takes the same read.
+  {
+    const seal = { seal: "at-stake" as SealState, mark: 4 };
+    const bayOne = end({ bayNum: 1, retryBay: seal, runRetry: true });
+    const bayTwo = end({ bayNum: 2, retryBay: seal, runRetry: false });
+    check("bay 1's loss card offers no priced bay retry",
+      !bayOne.includes('data-action="retry-bay"') && !/Retry Bay/.test(bayOne));
+    check("...and quotes no seal price for a button that is not there",
+      !/breaks this run's seal/.test(bayOne) && !bayOne.includes("end__seal"));
+    check("...while the run is still offered back, in the pause card's words",
+      /data-action="restart"[^>]*>Retry Run</.test(bayOne));
+    check("bay 2's loss card still offers the bay, priced",
+      bayTwo.includes('data-action="retry-bay"') && bayTwo.includes("btn__seal")
+        && /breaks this run's seal/.test(bayTwo));
+    check("...and so does every caller that predates the argument",
+      end({ bayNum: 1, retryBay: seal }).includes('data-action="retry-bay"'));
+    // The card's read is the run's: main.ts passes runRetryOffered, the same
+    // gate the pause card is handed, so the two cards cannot disagree about
+    // which bay is the run.
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const endCallAt = mainSrc.indexOf("S.endModal({");
+    const endCall = mainSrc.slice(endCallAt, mainSrc.indexOf("}),", endCallAt));
+    check("the loss card is handed the same read the pause card is",
+      /runRetry: this\.runRetryOffered\(\),/.test(endCall)
+        && /this\.runRetryOffered\(\)\);/.test(mainSrc.slice(mainSrc.indexOf("S.pauseModal("))));
+  }
+
   // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
   // The idiom is arm-then-confirm rather than a second panel: Quit is already
   // ON a modal, and the seal notice earned its own panel because it interrupts

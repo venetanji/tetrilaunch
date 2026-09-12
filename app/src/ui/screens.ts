@@ -6194,8 +6194,21 @@ export function endModal(opts: {
      *  stop agreeing. */
     mark: number;
   };
+  /** Whether the retry this card's primary offers is the whole RUN rather
+   *  than the bay (run.ts's retryIsWholeRun) — true only on the first bay of
+   *  a ladder run, where the bay and the run are the same deal and only one
+   *  of them was free. Drops Retry Bay and its seal line, exactly as
+   *  pauseModal's `runRetry` drops Restart Bay: a seal-priced button beside
+   *  a free one that hands back the same bay is a price for nothing.
+   *
+   *  Defaults false, so every caller that predates the argument draws the
+   *  card it always did. */
+  runRetry?: boolean;
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
+  // The bay retry, minus bay 1 (see `runRetry`). Resolved once, because the
+  // seal line and the button below both read it and must agree.
+  const retryBay = opts.runRetry ? undefined : opts.retryBay;
   // Demolition recovery, appended to whichever foot line the branch below
   // renders. Suppressed at zero rather than printed as "$0": a charge is a
   // draft pick most runs never make, so the line would be dead weight on the
@@ -6408,11 +6421,11 @@ export function endModal(opts: {
           // and is worded so it cannot be read as this RUN having sealed
           // something: a re-fly seals nothing until it is won clean, and the
           // player is looking at a loss.
-          opts.retryBay
-            ? opts.retryBay.seal === "at-stake"
+          retryBay
+            ? retryBay.seal === "at-stake"
               ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
-              : opts.retryBay.seal === "held"
-                ? `<p class="muted end__seal">Tier ${opts.retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
+              : retryBay.seal === "held"
+                ? `<p class="muted end__seal">Tier ${retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
                 : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
             : ""
         }
@@ -6468,12 +6481,17 @@ export function endModal(opts: {
           // pause modal went out with a bare button as a result — so the rule
           // moved out to be shared rather than being copied to the second
           // caller. Nothing about this button's face changed in the move.
-          opts.retryBay
+          //
+          // …AND NOT ON BAY 1 (`runRetry`), where it would sit beside Retry
+          // Run charging the seal for the same re-deal that button hands back
+          // free. The pause card already refuses the same pair; the argument
+          // is run.ts's retryIsWholeRun.
+          retryBay
             ? `<button class="btn btn--secondary" data-action="retry-bay"
               aria-label="${
-                sealNameWith(`Retry Bay ${opts.bayNum}`, opts.retryBay.seal, opts.retryBay.mark)
+                sealNameWith(`Retry Bay ${opts.bayNum}`, retryBay.seal, retryBay.mark)
               }"
-            >${sealFaceHTML(opts.retryBay.seal)}Retry Bay</button>`
+            >${sealFaceHTML(retryBay.seal)}Retry Bay</button>`
             : ""
         }
         ${

@@ -4008,6 +4008,10 @@ class App {
                 this.state === "lost" && seal !== null
                   ? { seal, mark: this.run.mark }
                   : undefined,
+              // …EXCEPT ON BAY 1, where the bay and the run are the same deal
+              // and Retry Run already hands it back free (run.ts's
+              // retryIsWholeRun) — the same read the pause card takes.
+              runRetry: this.runRetryOffered(),
             }),
           );
         }
