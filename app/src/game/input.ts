@@ -176,17 +176,22 @@ export function wheelNotch(
  *
  * The bay is 16:9 and the viewport is not, so screenToWorld happily returns
  * points out in the letterbox bands and in the strip the control rail is
- * parked over (render.ts's computeViewport reserves it). A CLICK out there is
- * still a click — the player pressed the button, they meant something by it,
- * and the solver's clamps turn it into the nearest honest arc. A HOVER out
- * there is just a mouse on its way somewhere, and answering it would swing the
- * barrel at the bay's edge every time the cursor crossed the band on its way
- * to a menu.
+ * parked over (render.ts's computeViewport reserves it). Neither a HOVER nor a
+ * PRESS out there is aimed at the bay: the hover is a mouse on its way to a
+ * menu, and the press is a hand that reached for a rail button and missed (see
+ * onDown, which refuses it — it used to solve and fire).
  *
- * Hence: the same path for both, one extra test on the hover. The world rect
- * rather than the playable interior (WALL_INNER) because the walls, the chute
- * mouth and the floor are all things a player legitimately aims at the face
- * of, and half a cube of slop at the boundary is smaller than the payload.
+ * THE WORLD RECT *IS* THE FIELD RECT, which is why neither caller has to know
+ * anything about the layout. screenToWorld inverts exactly the transform
+ * computeLayout fitted the field with, so "outside 1280x720" and "outside the
+ * drawn field" are one statement — it covers the band reserved in "snug", the
+ * letterbox gutters in "wide"/"tall" and the open sky above the field's top
+ * edge, with no second copy of the solver's arithmetic in this file to drift.
+ *
+ * The world rect rather than the playable interior (WALL_INNER) because the
+ * walls, the chute mouth and the floor are all things a player legitimately
+ * aims at the face of, and half a cube of slop at the boundary is smaller than
+ * the payload.
  */
 function inField(p: { x: number; y: number }): boolean {
   return p.x >= 0 && p.x <= WORLD.width && p.y >= 0 && p.y <= WORLD.height;
@@ -463,11 +468,50 @@ export class InputController {
     // A second finger landing on the canvas mid-aim (reaching for the rail
     // and missing a button) must not re-anchor the drag in progress.
     if (this.dragging) return;
+    const press = this.worldPoint(e);
+    // A MOUSE CLICK THAT MISSES A RAIL BUTTON IS NOT A SHOT.
+    //
+    // Every pixel of the chrome band is live canvas, by three deliberate
+    // decisions that nobody wrote down together: `.side-rail` is
+    // `pointer-events: none` with only `.icon-btn` opting back in (app.css),
+    // the overlay is `pointer-events: none` for the whole of "playing"
+    // (main.ts's setState), and #game is full-bleed. So a press that lands in
+    // the band but not on a button arrives here, and until this guard existed
+    // it ran the entire targeting gesture: onDown solved, onUp fired. Measured
+    // on a 1280x720 desktop window, which computeLayout solves as "snug" (84px
+    // reserved on the right, field 1196x672.75 at ox 0 / oy 23.63) — a click
+    // 10px under the ⟳ button launched the shipment at a target clamped to the
+    // back wall. A launch, its price and its cargo, spent on a missed button.
+    //
+    // THE MISFIRE GATE CANNOT COVER THIS, and that is not an oversight to fix
+    // there: it reads gesture LENGTH (MIN_FIRE_RATIO) and is skipped for a
+    // mouse on purpose (see onUp), because a click is a deliberate act at a
+    // pixel the player chose. The pixel is exactly what is wrong here, so the
+    // test is the pixel.
+    //
+    // REFUSED AT THE PRESS, NOT AT THE RELEASE. Nothing starts: no capture, no
+    // aimBefore, no swing — so there is no aim to restore afterwards, which is
+    // a stronger "nothing happened" than restoring one. It also means onUp
+    // needs no second copy of this test: its fire path is reachable only
+    // through a gesture onDown admitted (`dragging` is the single gate), and a
+    // guard on an unreachable branch is a cost this file has already paid once
+    // (the mid-aim chord onDown "handled" until review found onMove owned it).
+    //
+    // AND NO MISFIRE CUE: onMisfire replays the finger-drag guide at the
+    // pointer (main.ts's showMisfireGuide), teaching a pull-back gesture to
+    // someone holding a mouse. Silence is the honest answer to a missed button.
+    //
+    // MOUSE ONLY. The slingshot aims from a drag DELTA and works anywhere on
+    // the glass (applyAim), so a thumb that starts in the gutter and pulls back
+    // into the bay is a real gesture, not a slip — and touch already has the
+    // gate that reads intent. Gated on pointerType for the same reason every
+    // other line in this file is: a pen lands on touch hardware.
+    if (e.pointerType === "mouse" && !inField(press)) return;
     this.dragging = true;
     this.dragGated = e.pointerType !== "mouse";
     this.targeting = e.pointerType === "mouse";
     this.dragPointerId = e.pointerId;
-    this.dragStart = this.worldPoint(e);
+    this.dragStart = press;
     this.dragRatio = 0;
     this.aimBefore = { angle: g.cannon.angle, power: g.cannon.power };
     g.aiming = true;
@@ -656,6 +700,11 @@ export class InputController {
     // solve a problem that device does not have. Same line the drag hint draws
     // (app.css hides it under `pointer: fine`). Pen and unknown pointer types
     // stay gated: both land on touch hardware.
+    //
+    // The one accident a mouse DOES have — a click that missed a rail button
+    // and landed on the canvas behind it — is refused at the press instead,
+    // where the pixel it landed on is still in hand (onDown's inField guard).
+    // A gesture that reaches this line began inside the field.
     const misfired = e.pointerType !== "mouse" && this.dragRatio < MIN_FIRE_RATIO;
     // THE RELEASE POINT IS THE AIM, applied here rather than left to the next
     // animation frame that will never come. onMove only records where the

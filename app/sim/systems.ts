@@ -18986,6 +18986,55 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     send(onWindow, "pointerup", ptr(0, "touch", 700));
   }) === 0);
 
+  // A MOUSE CLICK THAT MISSED A RAIL BUTTON USED TO FIRE A SHOT (P1, found in
+  // review). The rail is `pointer-events: none` but for its buttons, the
+  // overlay is `none` for the whole of "playing", and #game is full-bleed — so
+  // the band around the buttons is live canvas, and a press there ran the
+  // targeting gesture end to end: onDown solved, onUp launched at a target
+  // clamped to the back wall. The misfire gate that catches the equivalent
+  // thumb-graze is skipped for a mouse by design, so nothing downstream could
+  // have caught it.
+  //
+  // THE OFF-FIELD PIXEL IS DERIVED, NOT TYPED. The band's width is the
+  // solver's (layout.ts's RAIL_MIN + RAIL_PAD, and it moves with the viewport),
+  // so the press point is read off the fitted field — 10px past its right edge,
+  // the same "just under the ⟳ button" miss the report measured on a 1280x720
+  // desktop window. The stub canvas is 800x450, which computeLayout solves as
+  // "snug" exactly as that window does. Asserted as four separate claims
+  // because a pin that only counted shots would also pass if that pixel were
+  // inside the field after all, if the press stopped reaching the handler
+  // entirely, or if it swung the barrel on the way to refusing the launch.
+  {
+    const l = computeLayout(800, 450);
+    const bandX = l.ox + l.fw + 10;
+    const bandW = screenToWorld(800, 450, 0, 0, bandX, 260);
+    check("10px past the field's right edge is off the field, not a bay target",
+      bandW.x > WORLD.width, `world x ${bandW.x.toFixed(1)} vs ${WORLD.width}`);
+    const held = { angle: g.cannon.angle, power: g.cannon.power };
+    const band = fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "mouse", bandX));
+      send(onWindow, "pointerup", ptr(0, "mouse", bandX));
+    });
+    check("a mouse click in the reserved rail band fires nothing", band === 0,
+      `${band} shots from client x ${bandX.toFixed(1)}`);
+    // Refused at the PRESS, so there is no aim to restore — the barrel never
+    // moved. Stated as equality against the aim the bay was holding, which is
+    // what a player who missed a button keeps.
+    check("...and leaves the aim the player had lined up exactly where it was",
+      g.cannon.angle === held.angle && g.cannon.power === held.power,
+      `${held.angle.toFixed(4)}/${held.power.toFixed(2)} -> ${g.cannon.angle.toFixed(4)}/${g.cannon.power.toFixed(2)}`);
+    // TOUCH IS NOT GATED BY THIS, deliberately: the slingshot aims from a drag
+    // DELTA, so a thumb that lands in the gutter and pulls back into the bay is
+    // a real gesture rather than a slip, and the misfire gate is already the
+    // reader of intent there. This is the half a bare `!inField(press)` would
+    // have broken.
+    check("...while a touch drag that STARTS in the band still fires", fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "touch", bandX));
+      send(onCanvas, "pointermove", ptr(0, "touch", 120));
+      send(onWindow, "pointerup", ptr(0, "touch", 120));
+    }) === 1);
+  }
+
   // THE CLASSIC-WHEEL OPTION (settings.wheelRotates, the Controls toggle):
   // the wheel turns the shipment again — wheel-down clockwise, as it
   // originally shipped — and arc height moves onto the right-button chord
@@ -19153,10 +19202,12 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   }
 
   // OUT OF THE FIELD. The bay is 16:9 and a viewport is not, so a cursor in
-  // the letterbox band maps to a world point outside the bay. A CLICK there
-  // still means something (the solver clamps it to the nearest honest arc); a
-  // hover there is a mouse on its way to a menu, and answering it would swing
-  // the barrel at the bay's edge every time one crossed.
+  // the letterbox band maps to a world point outside the bay — a mouse on its
+  // way to a menu, and answering it would swing the barrel at the bay's edge
+  // every time one crossed. A PRESS out there is refused too now, by the same
+  // test at the other end of the gesture (input.ts's onDown; the block above
+  // pins it), so the two halves of the mouse scheme agree about where the bay
+  // is instead of the hover holding the line alone.
   {
     const held = aim();
     move(5000, 300);
