@@ -7533,6 +7533,85 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
 }
 
 // ---------------------------------------------------------------------------
+section("The desktop restructures, it does not magnify (app.css data-density=roomy)");
+// ---------------------------------------------------------------------------
+// TWO PANES THAT SCROLLED ON EVERY MAC AT FULLSCREEN, and the reason neither
+// showed up as a uifit violation: both are on ALLOWED_SCROLLERS, so the harness
+// measures the scroll and permits it. What made them wrong is that the scroll
+// was not buying anything — the Controls panel sat at its 760px measure with an
+// empty right third of screen beside it (+92px of cut rebind rows at
+// 1728x1117), and the refit shelf ran a single 485px column past its box while
+// the projection next to it held 127-355px of dead height (+796px staged).
+//
+// The fix is the same move on both, and it is `density`'s move: at `roomy` the
+// pane RESTRUCTURES — a third bind-row track, a second card track — rather than
+// being rendered bigger. Which is why this is a source pin and not a uifit
+// number: chrome-zoom means a 2560x1600 display and a 1000x720 window lay the
+// same panel out in the same logical box (layout.ts's UI_REF_H / uiScaleFor),
+// so "it fits on my screen" is never evidence here, and an accidental revert to
+// two tracks would be reported by the harness as nothing at all.
+// ---------------------------------------------------------------------------
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleFor = (selector: string): string =>
+    [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+      .filter((m) => m[1].trim() === selector)
+      .map((m) => m[2])
+      .join(" ");
+
+  check("the Controls pane runs three tracks at roomy density",
+    /repeat\(\s*3\s*,/.test(ruleFor('[data-density="roomy"] .controls__pane')),
+    ruleFor('[data-density="roomy"] .controls__pane'));
+  // The third track is bought out of the empty screen beside the panel, so the
+  // measure has to move with it — three tracks inside the 760px box would be
+  // 248px each, which is narrower than the rows were ever drawn for.
+  check("...and the panel widens to carry them",
+    /max-width:\s*1140px/.test(ruleFor('[data-density="roomy"] .controls')),
+    ruleFor('[data-density="roomy"] .controls'));
+
+  check("the refit shelf runs two card tracks at roomy density",
+    /repeat\(\s*2\s*,/.test(ruleFor('[data-density="roomy"] #refit-grid')),
+    ruleFor('[data-density="roomy"] #refit-grid'));
+  // Both halves of the alignment, because the cards are drawn to hug their own
+  // content: stretched rows would put padding inside a card that the card
+  // beside it earned, which is the one thing this layout was not allowed to do.
+  check("...packed from the top, each card its own height",
+    /align-content:\s*start/.test(ruleFor('[data-density="roomy"] #refit-grid'))
+      && /align-items:\s*start/.test(ruleFor('[data-density="roomy"] #refit-grid')));
+  // Two tracks only pay off above the ~460px wrap cliff (app.css's note): below
+  // it the blurbs wrap to five lines and two columns are TALLER than one, so
+  // the width and the column count are one change and have to stay one.
+  check("...in a yard wide enough for two 460px tracks",
+    /width:\s*min\(1040px/.test(ruleFor('[data-density="roomy"] .modal--refit')),
+    ruleFor('[data-density="roomy"] .modal--refit'));
+  // The projection stacks under the shelf, which is where the shelf's new
+  // height comes from. Capped rather than content-sized, so a projection that
+  // outgrows its row still SCROLLS and still trips the harness (it is not
+  // allowlisted) instead of silently squeezing the shelf to nothing.
+  check("...and the projection sits in a capped row beneath it",
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/.test(ruleFor('[data-density="roomy"] .refit__body'))
+      && /grid-template-rows:[^;]*fit-content\(/.test(ruleFor('[data-density="roomy"] .refit__body')),
+    ruleFor('[data-density="roomy"] .refit__body'));
+  // …all of which a single inline `style="width:…"` on the panel would beat, so
+  // the width has to have LEFT screens.ts for any of it to hold.
+  check("the yard's width is the stylesheet's, not an inline style",
+    !/modal--refit[^>]*style="width/.test(
+      refitScreen({
+        bayNum: 3, nextBayName: "Cryo Vault", scrap: 340, tiers: newTiers(), mark: 6,
+        order: {}, preview: [],
+      }),
+    ));
+  // Compact is untouched: the phones keep the single column the tap floor
+  // forces on them (run.ts's ALLOWED_SCROLLERS carries that arithmetic).
+  check("none of it reaches the compact tier",
+    ruleFor('[data-density="compact"] #refit-grid') === ""
+      && ruleFor('[data-density="compact"] .controls__pane') === "");
+}
+
+// ---------------------------------------------------------------------------
 section("Chrome scale (layout.ts uiScaleFor / data-density)");
 // The DOM chrome's counterpart to the field's --fpx. These are the invariants
 // the 15 hand-tuned `max-height` blocks in app.css never had: monotonic, bounded
