@@ -6867,8 +6867,9 @@ body.crt-off #app::after { display: none; }
      the ✕ back under the camera. `max-width: 100%` is the one expression that
      caps all of them at once — the scrim's content box under a scrim, the
      screen's under `.screen.center` — without editing nine `vw` guards and the
-     three inline `min(940px, 96vw)` styles in screens.ts, and without teaching
-     any of them what an inset is.
+     two remaining inline `min(940px, 96vw)` styles in screens.ts (the yard's
+     third moved into this file when its width became density-dependent — see
+     `.modal--refit`), and without teaching any of them what an inset is.
      `min-width: 0` is what lets the cap take effect at all. A flex item's
      automatic minimum is its min-content width, so a modal whose columns are
      wider than the safe box refuses to shrink and simply overflows — measured
@@ -8350,6 +8351,11 @@ button.panel { color: var(--text); }
    pips, a before/after, an undo — are this screen's own.
    ========================================================================== */
 .modal--refit { text-align: left; }
+/* THE WIDTH, which used to be an inline `style` on the panel (screens.ts) and
+   cannot be one any more: it is the only modal width that has to change with
+   `density`, and an inline declaration wins over every rule in this file.
+   940 is what the yard shipped at and what every non-roomy row still gets. */
+.modal--refit { width: min(940px, 96vw); }
 /* The title block takes the leftover width and the scrap box stays pinned
    right. Without `min-width: 0` the block's prose sets an intrinsic minimum
    wide enough to push the box onto its own line at some copy lengths — which
@@ -8428,6 +8434,96 @@ button.panel { color: var(--text); }
    scrolls, and a scroll here is the regression, not the design). */
 .refit__body .projection { align-self: stretch; min-height: 0; overflow-y: auto; }
 .refit__short { margin: 0; font-size: var(--fs-sm); }
+
+/* ----------------------------------------------------------------------------
+   THE YARD AT ROOMY DENSITY — canvas D2, measured on a Mac at fullscreen.
+
+   The shelf beside the projection is a HEIGHT failure on every desktop size.
+   The yard offers ten tracks; a card whose blurb fits on one line is 92px and
+   one that takes two is 112px, so the single 485px column comes to 1173px
+   unstaged and 1272px with the whole order staged — against the 478px the body
+   gets under the header and Undock. Measured scroll on #refit-grid at
+   1470x956 / 1512x982 / 1728x1117 / 1920x1200 / 2560x1600, fully staged:
+   +776/+789/+796/+769/+697, i.e. three tracks of ten whole with the fourth cut
+   through the middle, while the projection beside it sat on 127-355px of dead
+   height (it needs 351 of the 478 it is given, and 202 of it at 2560x1600).
+
+   The fix is BOTH halves of that sentence, and neither works alone:
+
+   1. The projection goes UNDER the shelf, which is where its dead height comes
+      back from. Its tiles are `repeat(auto-fit, minmax(96px, 1fr))`, so given
+      the whole width it packs nine to a row instead of three, and the same tiles
+      stand 123-186px tall instead of 351-478. The side-by-side
+      split this replaces is argued from a LANDSCAPE PHONE (see .refit__body:
+      "stacking would put the numbers a tap is meant to move below the fold"),
+      and that argument is true there and false here — stacked at roomy the
+      whole projection is on screen, pinned under the shelf, at every order.
+   2. The shelf takes the freed width in TWO columns. Two columns of the box it
+      has today would be a REGRESSION, not a fix: halving 485px to 236px wraps
+      every blurb to five or six lines and takes the same ten cards to 1413px,
+      worse than the single column it replaced. The cliff is at ~460px — above
+      it a blurb is one or two lines and a card is 92-112px; below it every 40px
+      of width costs a line. Hence the width below: two 460px+ tracks plus the
+      shelf's 8px gap and 2px padding either side is 932px of body, and 40px of
+      modal padding either side makes 1012 — so `min(1040px, 96vw)`, which is
+      the narrowest box that keeps the cards' own composition, and which still
+      leaves a margin on the narrowest roomy row (1051px at 1470x956) rather
+      than going edge to edge the way `max-width: 100%` alone would.
+
+   Measured after, same five sizes and same fixtures: +266/+264/+289/+265/+192
+   with nothing staged (was +678/+689/+696/+689/+617) and +406/+385/+418/+394/
+   +321 fully staged (was +776/+789/+796/+769/+697) — a little under half, on
+   every one of them. Four cards are whole on screen instead of three and a
+   sliced fourth, the fold falls between rows rather than through a card, and
+   the projection's tiles are whole underneath them in two rows of nine instead
+   of five rows of three with a quarter of the column left empty.
+
+   IT STILL SCROLLS, AND THAT IS ARITHMETIC RATHER THAN A LOOSE END. Ten cards
+   at the 92px floor in two columns is five rows, 460 + four 8px gaps = 492px;
+   the staged projection under them is another 186 plus the 12px gap, so the
+   no-scroll layout needs 690px of BODY. The modal is 720px tall at every 16:10
+   desktop size and cannot be more — chrome-zoom magnifies the panel to fill the
+   window, so the logical box is the authored one whatever the display measures
+   (layout.ts's UI_REF_H) — and the header and Undock are 240 of that 720. So
+   #refit-grid stays on sim/uifit's ALLOWED_SCROLLERS: it is earned on a desktop
+   for the same reason it is earned on a 360px phone, and this rule halves the
+   scroll rather than removing it. Nothing short of a shorter CARD removes it,
+   and the card is the part of this screen that is not up for negotiation — the
+   Workshop settled that argument for both shelves ("a shop where you cannot
+   read what you are buying is not a denser shop, it is a broken one").
+   ------------------------------------------------------------------------- */
+[data-density="roomy"] .modal--refit { width: min(1040px, 96vw); }
+[data-density="roomy"] .refit__body {
+  grid-template-columns: minmax(0, 1fr);
+  /* The shelf takes what is left after the projection's own content height.
+     `fit-content(45%)` on the projection row rather than a plain `auto` keeps
+     the loudness contract the .refit__body .projection rule above is written
+     for: content-sized, the panel could never overflow its row and a
+     projection that outgrew the modal would silently squeeze the shelf to
+     nothing instead. Capped, it scrolls — and it is deliberately NOT on
+     ALLOWED_SCROLLERS, so the harness fires the moment it needs to. 45% of the
+     478px body is 215, against a worst measured 186 (refit-staged, the densest
+     order this stop can place), so the cap does not bind on anything shipping. */
+  grid-template-rows: minmax(0, 1fr) fit-content(45%);
+}
+/* Two card tracks, packed from the top. Both alignment declarations are
+   load-bearing, and for the same reason — a card must be the box it was drawn
+   as, whatever the card beside it holds:
+     align-content: start  — otherwise the five ROWS share the shelf's height
+       and each card grows padding it was not drawn with;
+     align-items: start    — otherwise each card STRETCHES to its row, i.e. to
+       whichever of the pair has the longer blurb, and the shorter one carries
+       up to 60px of air under its pips. Equal-height pairs look tidier and are
+       the wrong trade: the refit card's frame is drawn to hug its own content
+       (see .shop-card), and the row's other card is not part of that content.
+   The rows are ragged either way — the taller card sets the row's height — so
+   this only moves the slack from inside the short card's frame to outside it. */
+[data-density="roomy"] #refit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  align-items: start;
+}
 
 /* THE CARD. .shop-card carries the frame, the two-track row and the price rail;
    everything below is the parts a refit has and an unlock does not.
@@ -9034,6 +9130,47 @@ button.panel { color: var(--text); }
   .bind-row { gap: 6px; padding: 2px 8px; }
   .bind-row__label { font-size: 12px; }
 }
+/* A THIRD TRACK AT ROOMY DENSITY — canvas D3, measured on a Mac at fullscreen.
+   Two columns is a HEIGHT failure, not a taste one. The pane's tallest tab is
+   Keyboard: three info rows, twelve bindings and two toggle rows, i.e. fifteen
+   row items plus two full-width settings. Two columns flows the fifteen into
+   eight rows of ~52px, which with the toggles and the 6px gaps comes to 547-554
+   of content — against the 461-462 the pane actually gets under the header, the
+   tab strip and Done. Measured overflow at the five Mac fullscreen sizes
+   (1470x956, 1512x982, 1728x1117, 1920x1200, 2560x1600): +85/+84/+92/+90/+13 on
+   Keyboard and +78/+77/+84/+83/+5 on Gamepad — every one of them a scroll that
+   cuts a rebind row through the middle, with the system-pointer toggle under the
+   fold on the tab a mouse player opens to find it.
+
+   Three columns flows the same fifteen into five rows and drops 174px of
+   content, which clears every one of those (0 on all three tabs at all five
+   sizes, and on the 800x600 / 1000x760 / iPad / Pixel Tablet rows too).
+
+   1140px, not "as wide as it gets": that is exactly three of the tracks the
+   pane is authored at — 3 x 375 + two 6px gaps + the pane's own 2px padding
+   either side — so the third column is bought out of the empty right third of
+   the screen and costs the other two nothing. Every roomy row in the matrix has
+   less width than that (944 on an iPad Pro, 1051 at 1470x956, 1100 at
+   1280x720), so in practice `width: 100%` binds first and the tracks land at
+   309-375px; the cap is what stops the pane spreading past its authored measure
+   on an ultrawide. No label truncates and no info row gains a line at any of
+   those widths — swept from 248px per track upward, so there is headroom if a
+   reserved rail band ever narrows the screen this panel is laid out in.
+
+   Keyed on DENSITY, not on a width media query, deliberately: `roomy` already
+   means "the chrome renders at its authored size or magnified" (layout.ts's
+   uiScaleFor), which is precisely the condition under which a third authored
+   track exists to be had — and unlike a `min-width` it cannot be knocked into
+   the wrong branch by a solver that reserves a side band out of the viewport.
+   The pane is a screen-anchored DOM panel and reads no --field- or --rail-
+   value, so a "snug" reserve moves nothing here but the width `100%` resolves
+   to, which the sweep above already covers.
+
+   Row-major flow, so padnav needs nothing: the pane's DOM order is its reading
+   order in two columns and stays its reading order in three (left to right, top
+   to bottom), and padnav's picker is spatial over the rendered rects anyway. */
+[data-density="roomy"] .controls { max-width: 1140px; }
+[data-density="roomy"] .controls__pane { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 /* ============================================================================
    CONTRACTS BOARD (see screens.ts's contractsScreen) — the daily, retryable

@@ -4663,8 +4663,12 @@ export function refitScreen(opts: {
     }</span>
   </div>`;
 
+  // NO INLINE WIDTH, unlike its draft siblings: the yard is the one modal whose
+  // width is DENSITY-DEPENDENT (app.css's `.modal--refit` pair — the roomy
+  // shelf needs two 460px+ card tracks, which a 940px box cannot hold), and an
+  // inline `style` beats every stylesheet rule including that one.
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal modal--refit pop" style="width:min(940px,96vw)">
+    <div class="panel modal modal--refit pop">
       <div class="refit__hdr">
         <div style="text-align:left">
           <div class="eyebrow">Tier ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
