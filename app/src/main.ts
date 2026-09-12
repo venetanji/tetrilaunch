@@ -160,7 +160,8 @@ import {
   presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
 } from "./lib/purchases";
 import {
-  accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, onAuthChange,
+  accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, isUserCancelled,
+  onAuthChange,
   signIn, signOut, type AuthState,
 } from "./lib/auth";
 import {
@@ -647,6 +648,15 @@ class App {
    * Account is a plain sign-in, not a resumed purchase.
    */
   private paywallReturn: AppState | null = null;
+  /** The account screen's failure line (screens.ts's StoreState.account.error).
+   *  Set by a deletion that did not complete, cleared on every exit from the
+   *  screen — the next visit starts clean, and a retry starts by leaving for
+   *  the notice. */
+  private accountError: string | null = null;
+  /** A provider sheet is up. One sheet at a time: the tapped button is also
+   *  disabled, but a second tap can land in the frame before the attribute
+   *  does, and two Google sheets stacked is what it opened. */
+  private accountBusy = false;
   /**
    * The RevenueCat identify started by the last auth change (see onAuthChange).
    *
@@ -1423,6 +1433,7 @@ class App {
     // sets the field and THEN calls setState("account"), so arming it does not
     // trip this on the way in.
     if (s !== "account") this.paywallReturn = null;
+    if (s !== "account") this.accountError = null;
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -2370,6 +2381,7 @@ class App {
         ready: this.auth.ready,
         label: this.auth.user ? accountLabel(this.auth.user) : null,
         providers: this.auth.providers,
+        error: this.accountError,
       },
     };
   }
@@ -9229,12 +9241,21 @@ class App {
    *  failed sign-in drops the destination for the same reason — the player did
    *  not sign in, so there is nothing to resume onto. */
   private async onAccountSignIn(provider: "google" | "apple"): Promise<void> {
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>(`[data-action="account-${provider}"]`);
+    this.accountBusy = true;
+    if (btn) btn.disabled = true;
     try {
       await signIn(provider);
     } catch (err) {
       console.warn("[auth] sign-in failed", err);
       this.paywallReturn = null;
       return;
+    } finally {
+      // Unconditional: on success onAuthChange has replaced the screen and
+      // this node is detached, so the write is a no-op there.
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
     }
     const back = this.paywallReturn;
     this.paywallReturn = null;
@@ -9281,14 +9302,34 @@ class App {
   /** The deletion itself. Success lands on Settings — the account screen's own
    *  door, and the screen the player is now signed out on; a failure hands the
    *  account screen back rather than leaving the confirmation up, so the panel
-   *  can never be the thing standing between a player and a retry. */
+   *  can never be the thing standing between a player and a retry — WITH A
+   *  LINE SAYING SO. It used to hand the screen back mute, which read as the
+   *  button having done nothing; the one failure that stays mute is the
+   *  player closing the provider's sheet, which the notice now warns is
+   *  coming and which they already know they did.
+   *
+   *  BOTH LANDINGS RE-ASK THE STATE, the guard onAccountSignIn opens its resume
+   *  with: deleteAccount waits on a provider sheet and a network round trip,
+   *  and a player who walked out of the notice during either was being dropped
+   *  onto Settings — or back onto the account screen — from wherever they had
+   *  got to. */
   private async onAccountDelete(): Promise<void> {
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>('[data-action="account-delete-go"]');
+    this.accountBusy = true;
+    if (btn) btn.disabled = true;
     try {
       await deleteAccount();
+      if (this.state !== "account-delete") return;
       this.setState("settings");
     } catch (err) {
       console.warn("[auth] account deletion failed", err);
+      if (this.state !== "account-delete") return;
+      this.accountError = isUserCancelled(err) ? null : S.ACCOUNT_DELETE_FAILED_TEXT;
       this.setState("account");
+    } finally {
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
     }
   }
 

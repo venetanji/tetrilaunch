@@ -1913,8 +1913,18 @@ export interface StoreState {
     ready: boolean;
     label: string | null;
     providers: { google: boolean; apple: boolean };
+    /** The last account action's failure, worded for the player (main.ts's
+     *  accountError) — drawn as a line on the screen, so a deletion that did
+     *  not complete is never a silent return to the signed-in face. */
+    error?: string | null;
   };
 }
+
+/** What the account screen says under a deletion that did not go through —
+ *  the Worker refused, the network dropped, the fresh provider token never
+ *  came. NOT shown when the player closed the provider's sheet themselves
+ *  (auth.ts's isUserCancelled): they know. */
+export const ACCOUNT_DELETE_FAILED_TEXT = "Deletion didn't complete — try again";
 
 function unlimitedBadgeHTML(): string {
   return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Full Game</div>`;
@@ -2356,6 +2366,7 @@ export function accountScreen(account: NonNullable<StoreState["account"]>): stri
         <button class="icon-btn" data-action="settings" aria-label="Back">${icon("close", 18)}</button>
       </div>
       ${body}
+      ${account.error ? `<p class="account__error" role="alert">${accountText(account.error)}</p>` : ""}
     </div>
   </div>`;
 }
@@ -2391,7 +2402,8 @@ export function accountDeleteModal(): string {
       <h2 class="display">Delete this player account?</h2>
       <p class="account-note__body">This removes the <b>purchase-recovery identity</b> — the
       customer record your Google or Apple sign-in names at RevenueCat — and the sign-in stored
-      on this device. It cannot be undone, and signing in again creates a new, empty one.</p>
+      on this device. It cannot be undone, and signing in again creates a new, empty one.
+      You'll be asked to sign in again to confirm it's you.</p>
       <p class="account-note__body"><b>Your Full Game purchase is not deleted.</b> It stays with
       the Apple, Google or web store account that bought it, and <b>Restore Purchases</b> finds
       it again. Your progress is untouched too — salvage, unlocks, seals and best scores are

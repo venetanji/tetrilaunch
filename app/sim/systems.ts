@@ -26639,11 +26639,96 @@ section("Player accounts (social login + RevenueCat identity)");
     del.includes("Full Game purchase is not deleted") && del.includes("Restore Purchases"));
   check("...and that local progress is untouched",
     /progress is untouched/.test(del) && del.includes("saved on this device"));
+  // THE SECOND SHEET IS ANNOUNCED. deleteAccount re-runs the provider login
+  // for a fresh token (pinned above), so "Delete Account" opens a Google or
+  // Apple sheet the player was never told to expect — and dismissing that
+  // sheet, reasonably, landed them back on the account screen still signed
+  // in, with nothing said.
+  check("the notice says a sign-in is coming",
+    del.includes("You'll be asked to sign in again to confirm it's you."));
 
   const mainSrc = fs.readFileSync(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
     "utf8",
   );
+
+  // -------------------------------------------------------------------------
+  // A DELETION THAT DID NOT COMPLETE SAYS SO (main.ts's onAccountDelete).
+  //
+  // Every failure was a console.warn and a mute return to the signed-in face,
+  // which reads as the button having done nothing. The screen now carries the
+  // failure as a line it renders from state — except for the one failure the
+  // player caused on purpose, closing the provider's sheet.
+  {
+    const failed = S.accountScreen({
+      available: true, ready: true, label: "Pilot", providers: both,
+      error: S.ACCOUNT_DELETE_FAILED_TEXT,
+    });
+    check("a failed deletion renders its line on the account screen",
+      /<p class="account__error" role="alert">Deletion didn&#39;t complete — try again<\/p>/
+        .test(failed));
+    check("...beside the exits, not instead of them",
+      failed.includes('data-action="account-delete"') && failed.includes('data-action="account-signout"'));
+    check("...and no line at all when nothing failed",
+      !signedIn.includes("account__error")
+        && !S.accountScreen({ available: true, ready: true, label: "Pilot", providers: both, error: null })
+          .includes("account__error"));
+    check("the line is escaped like the label is",
+      S.accountScreen({ available: true, ready: true, label: "Pilot", providers: both, error: "<b>" })
+        .includes("&lt;b&gt;"));
+
+    const deleteBody = mainSrc.slice(
+      mainSrc.indexOf("private async onAccountDelete("),
+      mainSrc.indexOf("private async onRestore("),
+    );
+    check("the handler exists to be checked", deleteBody.length > 0 && deleteBody.length < 3000);
+    // BOTH LANDINGS RE-ASK THE STATE. deleteAccount waits on a sheet and a
+    // round trip; a player who walked out of the notice during either was
+    // being dropped onto Settings, or the account screen, from wherever they
+    // had got to — mid-run included. Same guard onAccountSignIn's resume opens
+    // with.
+    check("a deletion resolving after the player left the notice lands nowhere",
+      /await deleteAccount\(\);\s*\n\s*if \(this\.state !== "account-delete"\) return;\s*\n\s*this\.setState\("settings"\)/
+        .test(deleteBody));
+    check("...and so does one failing after they left",
+      /catch \(err\) \{[\s\S]*?if \(this\.state !== "account-delete"\) return;[\s\S]*?this\.setState\("account"\)/
+        .test(deleteBody));
+    // The line is STATE the screen renders from, not a node patched into it:
+    // setState("account") re-renders, and a patch would be torn down by it.
+    check("a failure sets the line before handing the screen back",
+      /this\.accountError = isUserCancelled\(err\) \? null : S\.ACCOUNT_DELETE_FAILED_TEXT;\s*\n\s*this\.setState\("account"\)/
+        .test(deleteBody));
+    check("...and the screen renders it from that state",
+      /error: this\.accountError,/.test(mainSrc));
+    check("...and leaving the screen clears it",
+      /if \(s !== "account"\) this\.accountError = null;/.test(mainSrc));
+    // ONE SHEET AT A TIME. A second tap on Continue with Google, or on Delete
+    // Account, while the first sheet was still coming up opened a second one.
+    const signInBody = mainSrc.slice(
+      mainSrc.indexOf("private async onAccountSignIn("),
+      mainSrc.indexOf("private async onAccountSignOut("),
+    );
+    for (const [name, body] of [["sign-in", signInBody], ["deletion", deleteBody]] as const) {
+      check(`a ${name} in flight refuses a second tap`,
+        body.includes("if (this.accountBusy) return;")
+          && body.includes("this.accountBusy = true;")
+          && /finally \{[\s\S]*?this\.accountBusy = false;/.test(body));
+      check(`...and disables the button it was tapped on`,
+        body.includes("btn.disabled = true;") && /finally \{[\s\S]*?btn\.disabled = false;/.test(body));
+    }
+    // The cancel code is the plugin's own, on every platform (its errors.js is
+    // the one place it is spelled). auth.ts must match it or every dismissed
+    // sheet reads as a failure.
+    const pluginErrors = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "node_modules",
+        "@capgo", "capacitor-social-login", "dist", "esm", "errors.js"),
+      "utf8",
+    );
+    check("the cancel code auth.ts reads is the plugin's",
+      pluginErrors.includes("USER_CANCELLED_CODE = 'USER_CANCELLED'")
+        && /export function isUserCancelled\(err: unknown\): boolean \{[\s\S]*?\.code === "USER_CANCELLED"/
+          .test(authSrc));
+  }
   // The whole point of the panel: no browser dialog stands between a player and
   // this action any more. Asked of the file rather than of the handler, because
   // the failure mode is a `window.confirm` growing back anywhere in it.
