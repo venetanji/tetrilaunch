@@ -1671,6 +1671,25 @@ export const SCREENS: Record<string, () => string> = {
     withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 0, S.coachHTML(0, BAY_1, "gamepad")),
   "coach-final-pad": () =>
     withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 3, S.coachHTML(3, BAY_1, "gamepad")),
+  // THE THIRD PROFILE, which had no fixture at all. Every coach and lesson
+  // fixture above is "touch" or "gamepad", so the KEYBOARD sentence out of the
+  // one hint table (bindings.ts's hintAim) was rendered nowhere the harness
+  // could measure it — and it is the longest of the three, because it describes
+  // two controls rather than one: the mouse points at a spot and the cannon
+  // solves the arc onto it, and the aim/power keys are spelled out beside that.
+  // Step 0 is the step that prints it, and this is the profile every desktop
+  // player who has not picked up a pad is on — i.e. the fine-pointer rows, where
+  // the card has the reserved rail band taken out of its width as well.
+  //
+  // No rootHooksFor entry, deliberately, and for once that is not a shortcut:
+  // the harness's boot default for a fine-pointer row IS "keyboard", so on the
+  // rows this fixture is about the root hook and the copy already agree. On a
+  // handset row the copy is keyboard and the hook is touch — the same looseness
+  // `coach-pad` has always carried, and on those rows this is measuring the
+  // longest gesture sentence the table can produce against the narrowest card,
+  // which is a worth-having reading even though no such player exists.
+  "coach-kbd": () =>
+    withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "keyboard" }), 0, S.coachHTML(0, BAY_1, "keyboard")),
   /* FLIGHT SCHOOL (game/school.ts). Two things need measuring and they are
      independent, so they get separate fixtures.
 
@@ -1729,6 +1748,16 @@ export const SCREENS: Record<string, () => string> = {
     S.hudHTML({ ...LESSON_HUD_OPTS(LESSONS[0]), profile: "gamepad" }),
     LESSONS[0].reveal,
     S.lessonCardHTML(LESSONS[0], lessonStep(0), 0, lessonTotal(0), "gamepad"),
+  ),
+  // ...and the same gap on the Flight School deck: `lesson-card-aim` is touch,
+  // `lesson-card-aim-pad` is the gamepad, and the KEYBOARD card — the first
+  // thing a desktop player reads — was measured by neither. Same lesson, same
+  // stage, so the only thing that varies is the gesture sentence the card leads
+  // with, which is the point.
+  "lesson-card-kbd": () => withCard(
+    S.hudHTML({ ...LESSON_HUD_OPTS(LESSONS[0]), profile: "keyboard" }),
+    LESSONS[0].reveal,
+    S.lessonCardHTML(LESSONS[0], lessonStep(0), 0, lessonTotal(0), "keyboard"),
   ),
   "lesson-card-well": () => withCard(
     S.hudHTML(LESSON_HUD_OPTS(LESSONS[2])), LESSONS[2].reveal,

@@ -2444,14 +2444,22 @@ body.crt-off #app::after { display: none; }
      [data-layout="wide"]  a natural side gutter is wide enough -> vertical
                            column in the right gutter, top-anchored. (Ultrawide
                            and most landscape handsets.)
-     [data-layout="snug"]  no usable natural gutter (near-16:9) -> the solver
-                           RESERVED a right band and shrank the field to make
-                           room, so the same vertical column now has real space
-                           instead of sitting on top of the play field.
-     [data-layout="tall"]  a top/bottom band is the roomy one (4:3, 16:10
-                           tablets) -> horizontal strip centered in the bottom
-                           band, which is also a better thumb reach there than a
-                           far-right column.
+     [data-layout="snug"]  no usable natural side gutter -> the solver RESERVED
+                           a side band and shrank the field to make room, so the
+                           same vertical column has real space instead of sitting
+                           on top of the play field. Near-16:9 phones, and since
+                           the solver stopped choosing a bottom strip by aspect
+                           ratio, every 16:10 laptop and 4:3 tablet as well.
+     [data-layout="tall"]  the rail's COLUMN does not stack in the window's
+                           height (a fully drafted rail needs 410px) ->
+                           horizontal strip in a reserved bottom band.
+                           FALLBACK-ONLY: it is what a ~360dp phone with four
+                           abilities drafted gets, and what a browser window
+                           dragged very short gets, and nothing else. The
+                           overrides below are live but no aspect ratio selects
+                           them any more — see layout.ts's module header for why
+                           the thumb-reach argument for a tablet strip was
+                           retired.
 
    The default rules below are the vertical form (wide + snug are identical once
    --gutter-r is correct, which is the point of solving it in JS); the tall
@@ -2513,8 +2521,11 @@ body.crt-off #app::after { display: none; }
 }
 
 /* Tall layouts: a horizontal strip centered in the bottom band. The band is
-   either the natural letterbox gutter or one the solver reserved; either way
-   --gutter-b is its height, so this rule doesn't need to know which. */
+   always one the solver RESERVED now — the natural-letterbox-gutter case is gone
+   (layout.ts) — but --gutter-b is still its height either way, so this rule did
+   not need to know which then and does not need to now. Kept in full: the mode
+   is a live fallback for a window too short to stack the column, not dead code.
+   */
 :root[data-layout="tall"] .side-rail {
   flex-direction: row;
   /* Re-centered: the top-anchoring above is a COLUMN argument. This strip runs
@@ -6218,6 +6229,63 @@ body.crt-off #app::after { display: none; }
    one. */
 @media (pointer: coarse) {
   .mod--bb .key, .mod--demo .key, .mod--thaw .key { display: none; }
+}
+
+/* THE COMPACT RESTRUCTURE, EARNED BY WIDTH RATHER THAN BY DENSITY.
+   The three rules above this file's compact block already hide these chips on
+   every phone, and the reason given there is arithmetic, not screen class: the
+   build row is BUILD tag + chips + the WHOLE ship rack, and a narrow panel
+   cannot pay for both the chips and ten legible system plates. `[data-density]`
+   is a verdict on the WINDOW, though, and the row's budget is a fraction of the
+   FIELD — two numbers that used to track each other and stopped when the layout
+   solver began reserving the rail's band out of the width on every box whose
+   column fits (game/layout.ts). A 4:3 browser window is the case: 800x600 now
+   solves "snug" with a 716px field where it used to take a bottom strip and an
+   800px one, and 10.5% off the field is 10.5% off this row.
+
+   THE ARITHMETIC, at the row's own floors, because it is what picks the number:
+
+     row client   = 0.4707·fw (the panel spans the chute mouth) less its 2px
+                    borders and the body's 2 x 19·--fpx side padding
+                  = 0.441·fw - 2
+     row content  = 6px BUILD tag + 3 x 44px chips (the TAP floor; these are
+                    buttons and it is the one number density may not buy)
+                  + 4 gaps at 8·--fpx + the rack's 10 x 17.5px + 9 x 1px
+                  = 322 + 0.025·fw
+
+   which needs fw >= 779. Every remaining lever is already on a floor — the
+   plate's 17.5px is 1.8 marks plus its borders and the mark's 8.5px is a stated
+   legibility floor, the chips' 44px is WCAG 2.5.5 — so under that width the row
+   does not shave, it restructures, and the restructure is the one the phones
+   already take. Nothing is lost: the rail draws all three abilities on every
+   pointer now, each with its icon, its keycap or pad mark AND its live charge
+   count (screens.ts renders `bondRailBtn` beside `bondChip` and this decides
+   which one the player sees), so the chip is the duplicate of the two.
+
+   862px, i.e. 779 + the 84px band "snug" reserves: in that mode the field is
+   the viewport less the band, so a viewport query is the field query here. It
+   is deliberately a VIEWPORT width and not a density tier — the only row in
+   sim/uifit's matrix it reaches that is not already compact is 800x600, and
+   every wide-mode box narrower than this (792x360, 915x412 and every phone
+   under them) is compact and hiding these chips anyway.
+
+   Scoped `.pl-mods` rather than bare, for the cascade: `.mod`'s own
+   `display: flex` is declared later in this file at equal specificity, so the
+   row selector is what makes this rule the winner rather than the loser. */
+@media (max-width: 862px) {
+  .pl-mods :is(.mod--bb, .mod--demo, .mod--thaw) { display: none; }
+  /* ...AND THE HEADROOM THE CHIPS WERE THE ONLY CLAIMANT ON, which is the same
+     second half the compact block states a few hundred lines up, for the same
+     reason and in the same two numbers. The row's 8px above and 9px below are
+     there for a chip's xN badge (`top: -7px`) and its key tag (`bottom: -8px`);
+     with no chip in the row nothing hangs out of it but a plate's own
+     --shadow-hard-sm, which is a 2px offset and is exactly what 2px is left
+     for. Left as 17px it was the panel's problem rather than the row's: a
+     four-slot rig draws the tallest build row this density has — its plates are
+     wide enough that the 44px `--row-h` cap binds where a ten-slot rack comes
+     in at 30 — so `hud-rig4` alone ran 208px against half a 402px field, 7px
+     over, with the other fourteen HUD rows already inside it. */
+  .pl-mods { padding-top: 5px; padding-bottom: 2px; }
 }
 
 /* Ship plates — one per system, ALL SEVEN, tier shown as pips (see
