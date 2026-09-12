@@ -473,6 +473,31 @@ const TOWER_TOP: S.TowerState = {
   sealed: ALL_SEALED,
 };
 
+/** THE THREE SEAL STATES ON ONE TOWER, and the car parked on the state with
+ *  something to say (screens.ts's floorSealState).
+ *
+ *  Nothing else in the matrix reaches two of them. TOWER_TOP is fully sealed by
+ *  construction (the roof it draws open costs every seal) and every other menu
+ *  fixture is a Mark-0 or unlicensed save, so the struck stamp — a Tier behind
+ *  the player with no stamp — rendered nowhere at all, and the destination
+ *  panel's seal line was only ever measured in its shortest state.
+ *
+ *  Unlocked 7 with Marks 2 and 5 sealed puts four struck stamps, two pressed
+ *  ones and two sockets in one shaft (Mark 7 owes its seal, the locked roof
+ *  owes the set), which is also the only fixture where the tower mixes all
+ *  three washes in one column.
+ *
+ *  PARKED ON MARK 4, which is struck, because that is the state with a sentence
+ *  in it: "Seal broken — re-fly with no bay retry to seal it" is four times the
+ *  length of either other line, and it rides the recap's existing head row
+ *  rather than a row of its own (app.css's .base-bay__seal). This is the
+ *  fixture that holds it to ONE line — measured, it wants 181px and gets 121 on
+ *  the 640x360 budget row alone, where it ellipsises and the harness warns; on
+ *  every other device in the fleet it fits whole. */
+const TOWER_SEALS: S.TowerState = {
+  unlocked: 7, selected: 4, skydeck: false, contracts: 1, sealed: [2, 5],
+};
+
 /** The same tower with Tier S open — the tallest the column ever gets, because
  *  the basement plate is drawn UNDER the base slab and raises the tower's own
  *  height cap by its height rather than taking it out of the shaft (see
@@ -827,6 +852,15 @@ export const SCREENS: Record<string, () => string> = {
     S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP),
   "menu-tower-top-live": () =>
     live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP)),
+  // Mid-ladder with the seals mixed: the only fixture that draws a STRUCK stamp
+  // and the only one that measures the destination panel's seal line in the
+  // state that has a sentence in it. Paired live and not, like every other menu
+  // state, because the brand column's height is what the row is measured
+  // against.
+  "menu-seals": () =>
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SEALS),
+  "menu-seals-live": () =>
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SEALS)),
   // Tier S open: the tower grows a basement plate under its slab, so the menu's
   // centre column is taller than any other fixture makes it. Paired live and
   // not, like every other menu state, because the brand column's height is what

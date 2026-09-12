@@ -873,6 +873,29 @@ bay (`meta.ts`'s `sealedMarks`, written in `recordRunEnd`). The tower stamps
 that floor; floors that still owe one draw an empty socket in the same glyph, so
 the building states its own bill without a sentence anywhere on the menu.
 
+**Three states, not two.** That socket was carrying two facts at once — a Tier
+nobody has cleared and a Tier that was cleared with a retry drew the same faint
+octagon — so the building could state the roof's bill and could not state the
+player's own history. A cleared Tier with no stamp now wears the **struck**
+stamp: the same octagon with the 45° bar the retry buttons already put on it
+(`.btn__seal--broken`), at a wash between the socket's 0.16 and the stamp's 0.85,
+so it reads as a stamp that existed rather than as a socket with dirt on it. The
+floor's accessible name gains "— seal broken" to go with it, because the glyph is
+`aria-hidden` and a shape has no name. **Cleared** is read off the two numbers the
+tower is already handed (`tier < markUnlocked`), which is the same comparison that
+lights a beaten floor's windows — nothing is added to the save and nothing is
+migrated. A Tier whose bays are won but whose Contracts are still owed sits *at*
+the unlock and keeps the socket, deliberately: it is still the floor the game is
+asking the player to finish, its Contract pips are counting one column away, and
+its seal is still earnable by a clean re-fly. The one place this under-claims is
+the top of the ladder, where `markUnlocked` saturates and a messily-cleared Mark
+10 therefore draws the socket — silent rather than wrong, and fixable only by
+passing the completed Mark rather than guessing it. The destination panel beside
+the tower states whichever of the three the parked floor is in, in words, on the
+head row it already had ("Sealed", "Seal broken — re-fly with no bay retry to seal
+it", "Seal at stake") and with the retry doors' own glyph, so the tower, the panel
+and the two modals draw one octagon in three states rather than four opinions.
+
 **A retry costs the seal and nothing else.** The run still counts, the salvage
 still banks, the tier still opens. This is the half a player gets wrong on their
 own — someone who believes a restart forfeits the tier will abandon runs they

@@ -2815,10 +2815,16 @@ class App {
       // refused by one number the player can read off the tower already — the
       // Mark above their unlock — so a shake is the whole answer. The Skydeck
       // is refused by a SET, and "all ten seals" is not a thing a shaking plate
-      // can say. So the tap flares the empty sockets on every floor that still
+      // can say. So the tap flares the seal glyph on every floor that still
       // owes one (screens.ts's .tower__seal--owed), and the bill is itemised in
       // the building the player is already looking at rather than in a toast
       // over it — the same argument the shake itself has always made.
+      //
+      // BOTH UNPRESSED STATES, which is what the class means and why the query
+      // can stay one selector: an untouched floor wears the empty socket and a
+      // cleared one whose seal a retry took wears the struck stamp, and both
+      // carry `--owed` because both owe the roof a seal (screens.ts's
+      // floorSealState). app.css flares each in its own wash.
       const owed = tier === S.SKYDECK_TIER
         ? Array.from(shaft.querySelectorAll<HTMLElement>(".tower__seal--owed"))
           .map((s) => s.parentElement)
