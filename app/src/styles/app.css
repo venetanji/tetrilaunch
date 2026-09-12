@@ -1741,6 +1741,37 @@ body.crt-off #app::after { display: none; }
 /* The track is a row of buttons now, so it needs the height its tallest child
    asks for rather than the bar's 6px. */
 .lic-track:has(.lic-pip--pick) { align-items: center; }
+/* TEN TARGETS OR ONE — the row's two faces, and the density picks (screens.ts
+   emits both; see the `flat` track's note there for why this cannot be one
+   markup with a media query over it).
+
+   THE MEASUREMENT, off sim/uifit's own baseline rather than off a breakpoint
+   that sounded phone-shaped. The pick track is 44px tall everywhere and its
+   WIDTH is one tenth of the recap panel's column:
+
+     640x360 budget / iPhone SE 3        15-18px
+     every other handset (740-956 wide)  22-25px
+     iPad mini, 800x600 and 1269x663     22-25px
+     1512x945 / 1920x1080 / iPad Pro     29-36px
+
+   So the honest reading of "keep the picker where a pip clears 44px" is that
+   NO viewport in the fleet does: the pip is ~24 CSS px before chrome
+   magnification (game/layout.ts's chromeZoom), which needs a zoom of ~1.83 —
+   a window over 1850x1330 — to reach the floor, and the matrix's biggest row
+   is 1.5. What the density switch fixes is the twelve rows where the target
+   is at its worst AND the finger is the only pointer: every handset in the
+   matrix is compact (a 440px-tall viewport at the most, against layout.ts's
+   518px verdict), and every desktop and tablet row is not. The 22-36px pips
+   left on those rows are a mouse's target and stay in the baseline, named
+   here so the next pass at this row starts from the number and not from
+   scratch.
+
+   Written against `.base-bay--licence .lic-track` (which sets the row's own
+   `display: flex`) rather than against the bare class, so the switch outranks
+   it on class count instead of on source order. */
+.base-bay--licence .lic-track--flat { display: none; }
+[data-density="compact"] .base-bay--licence .lic-track--pick { display: none; }
+[data-density="compact"] .base-bay--licence .lic-track--flat { display: flex; }
 .lic-note {
   margin: 0; color: var(--ink-dim); font-size: 11px; line-height: 1.45;
 }

@@ -23490,13 +23490,20 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       strip0(panel(SCHOOL_STEPS - 1, SCHOOL_STEPS)).includes("1 to go"));
     check("...and stops promising any at the end",
       strip0(panel(SCHOOL_STEPS, SCHOOL_STEPS)).includes("the ladder is finished"));
+    // THE ROW SHIPS TWICE and app.css picks one by density (screens.ts's
+    // licencePanelHTML), so every count below is taken from ONE of the two
+    // tracks rather than off the whole panel — a count of the panel would be
+    // twenty pips and would pass while either track was wrong.
+    const track = (html: string, kind: "pick" | "flat"): string =>
+      new RegExp(`<div class="lic-track lic-track--${kind}"[^>]*>(.*?)</div>`)
+        .exec(html)?.[1] ?? "";
     // THE TRACK IS THE LADDER'S TEN FLIGHTS, and it cannot outrun itself: a
     // rung the player has not reached stays inert markup, so the track is a way
     // back rather than a way past.
     const rungs = (done: number): number =>
-      (panel(done, SCHOOL_STEPS).match(/class="lic-pip/g) ?? []).length;
+      (track(panel(done, SCHOOL_STEPS), "pick").match(/class="lic-pip/g) ?? []).length;
     const picks = (done: number): number =>
-      (panel(done, SCHOOL_STEPS).match(/lic-pip--pick/g) ?? []).length;
+      (track(panel(done, SCHOOL_STEPS), "pick").match(/lic-pip--pick/g) ?? []).length;
     check("the track draws one rung per flight",
       rungs(0) === SCHOOL_STEPS && SCHOOL_STEPS === LESSON_COUNT + 1, String(rungs(0)));
     check("a fresh save can press only the rung it is on", picks(0) === 1);
@@ -23546,6 +23553,54 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         SCHOOL_LADDER.filter((r) => r.step === null).map((r) => r.kind).join() === "contract,workshop");
       check("...while every numbered rung is a flight",
         SCHOOL_LADDER.every((r) => (r.step === null) === (r.flight === null)));
+    }
+    /* THE PHONE'S TRACK — the same ten rungs with nothing to press.
+     *
+     * A pickable pip is 44px tall and 15-25px WIDE on a handset (sim/uifit
+     * records `.lic-pip 15x44` on the 640x360 budget phone and the iPhone SE
+     * 3), so at compact density the row goes back to being the progress
+     * readout it draws as and the panel's forward action is the primary button
+     * under it. Pinned here rather than left to the harness because sim/uifit
+     * measures what it can SEE: a flat track that quietly kept a data-action
+     * would be display:none on a phone and would fail nothing, while still
+     * shipping ten 15px targets to a pointer that hovers.
+     */
+    {
+      const flat = (done: number): string => track(panel(done, SCHOOL_STEPS), "flat");
+      check("the phone's track draws the same rung per flight",
+        (flat(0).match(/class="lic-pip/g) ?? []).length === SCHOOL_STEPS,
+        String((flat(0).match(/class="lic-pip/g) ?? []).length));
+      check("...and lights the cleared ones by the same count",
+        (flat(3).match(/lic-pip--done/g) ?? []).length === 3,
+        String((flat(3).match(/lic-pip--done/g) ?? []).length));
+      check("...and not one of them is a control",
+        !flat(SCHOOL_STEPS).includes("data-action")
+          && !flat(SCHOOL_STEPS).includes("<button")
+          && !flat(SCHOOL_STEPS).includes("lic-pip--pick"),
+        flat(SCHOOL_STEPS).slice(0, 120));
+      // ONE NAME FOR THE WHOLE ROW. Ten unlabelled spans tell a screen reader
+      // nothing, and the step they add up to is the number the row is for.
+      check("...under one name that states the step",
+        panel(3, SCHOOL_STEPS).includes(
+          `<div class="lic-track lic-track--flat" role="img" aria-label="Step 4 of ${SCHOOL_STEPS}">`,
+        ));
+      check("...which never runs past the ladder",
+        panel(SCHOOL_STEPS, SCHOOL_STEPS)
+          .includes(`aria-label="Step ${SCHOOL_STEPS} of ${SCHOOL_STEPS}"`));
+      // AND EXACTLY ONE OF THE TWO IS EVER DRAWN. Both ship in the markup
+      // because a <button> cannot be turned into a <span> by a media query;
+      // the stylesheet is what makes them alternatives rather than duplicates,
+      // so the switch is pinned off its own text.
+      const sheet = fs.readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+        "utf8",
+      ).replace(/\r\n/g, "\n");
+      check("the stylesheet draws one track per density, never both",
+        /\.base-bay--licence \.lic-track--flat \{ display: none; \}/.test(sheet)
+          && /\[data-density="compact"\] \.base-bay--licence \.lic-track--pick \{ display: none; \}/
+            .test(sheet)
+          && /\[data-density="compact"\] \.base-bay--licence \.lic-track--flat \{ display: flex; \}/
+            .test(sheet));
     }
   }
 
