@@ -137,7 +137,7 @@ import {
   armActivate, armRelease, DISARMED, focusInitial, focusOn, focusTargets, moveFocus,
   PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, type ArmState,
 } from "./ui/padnav";
-import { captureScroll, restoreScroll } from "./ui/scrollkeep";
+import { captureScroll, centreScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForView, boardForView, DAY_NONE,
@@ -2780,6 +2780,65 @@ class App {
   }
 
   /**
+   * Put the parked floor in the window, when the shaft is taller than its box.
+   *
+   * THE DOM HALF of ui/scrollkeep's centreScroll, and the whole of the
+   * scrolling shaft's behaviour (app.css's "THE BUILDING ON A PHONE"): at
+   * compact density eleven 44px rungs are ~510px of building behind a ~290px
+   * window, and the floor that has to be visible is the one the car is on —
+   * the recap panel one column over is quoting that floor's bay and the
+   * primary button under it flies it.
+   *
+   * ASKED OF THE LIVE BOX, not of the density. `scrollHeight - clientHeight`
+   * is the only honest test of "does this scroll", and it answers 0 on every
+   * regular and roomy row (where the floors divide the column and fit it
+   * exactly), so this method is a two-line no-op on desktop and tablet rather
+   * than a second opinion about what compact means.
+   *
+   * THE SELECTED FLOOR, OR THE ONE THE CAR IS IN THE LANE OF. The roof and the
+   * ground floor are drawn OUTSIDE the run (screens.ts's tierTowerHTML), so
+   * with either of those picked there is no selected rung in this scroller at
+   * all — and on a fresh save that is the usual case, because the lobby is
+   * where the car starts. The fallback is the lane the car parks in, read off
+   * the same `--tower-idx` the car's own `top` is computed from, so the window
+   * lands where the lift is: Tier S powers the car down at the top of the
+   * shaft, and the lobby parks it at the foot, beside Mark 1 — which is the
+   * floor the ground floor's whole ladder is for.
+   *
+   * INSTANT ON A RENDER, ANIMATED ON A RIDE. A mount has no previous position
+   * to move from, and the harness measures the settled page (sim/uifit would
+   * otherwise photograph a smooth scroll mid-flight); a ride is a movement the
+   * player asked for, so the shaft travels with the car — unless the player
+   * has asked for less motion, where the same `motionMQ` every other animation
+   * on this screen consults turns it back into a jump.
+   */
+  private parkTowerView(animate = false): void {
+    const run = this.overlay.querySelector<HTMLElement>(".tower__floors");
+    if (!run || run.scrollHeight - run.clientHeight <= 1) return;
+    const rungs = run.querySelectorAll<HTMLElement>(".tower__floor");
+    // The lane is a floor INDEX counted from the roof (screens.ts's
+    // towerIndexOf), and the floors are in that same order in the DOM
+    // (tierTowerHTML pushes them roof-first), so it indexes them directly.
+    // Read through the cascade rather than off the shaft's style attribute:
+    // the property is written there on the mount AND by the in-place elevator
+    // update, and inheriting it is how the car itself reads it.
+    const lane = Math.round(Number(getComputedStyle(run).getPropertyValue("--tower-idx")));
+    const floor = run.querySelector<HTMLElement>(".tower__floor.is-selected")
+      ?? rungs[Math.max(0, Math.min(rungs.length - 1, lane))];
+    if (!floor) return;
+    // offsetTop is measured from this scroller's own padding edge and does not
+    // move with the offset, so it IS the row's coordinate in the scroll
+    // content. Both it and the two heights are LOCAL css px; compact implies
+    // chromeZoom 1 (game/layout.ts's uiScaleFor), so there is no zoom to
+    // convert through here the way padnav's reveal has to.
+    const top = centreScroll(
+      floor.offsetTop, floor.offsetHeight, run.clientHeight, run.scrollHeight,
+    );
+    if (animate && !this.motionMQ?.matches) run.scrollTo({ top, behavior: "smooth" });
+    else run.scrollTop = top;
+  }
+
+  /**
    * Ride the car to `tier`, or refuse.
    *
    * The refusal is the floor shaking its head, not a toast: the tower is what
@@ -2913,6 +2972,11 @@ class App {
       f.setAttribute("aria-pressed", String(sel));
       f.classList.remove("is-denied");
     }
+    // ...and on a phone the shaft rides with the car. This is AFTER the loop
+    // rather than before it because the floor it reveals is found by
+    // `.is-selected`, which the loop has just moved — one source for "which
+    // floor is chosen", the same one the panel and the plate are rolling to.
+    this.parkTowerView(true);
     // In flight the plate ROLLS from one floor's number to the next, in the
     // direction the car is going. It used to blank to two dots, which changed
     // the plate's width and made the primary button grow and shrink for the
@@ -3979,6 +4043,13 @@ class App {
     } else if (focusedToggle) {
       this.overlay.querySelector<HTMLElement>(`[data-toggle="${focusedToggle}"]`)?.focus();
     }
+    // BEFORE the pad's landing, deliberately. On a phone the tower's floors are
+    // a scroller (app.css's "THE BUILDING ON A PHONE") and this parks it on the
+    // floor the car is on; if the pad's selection is a DIFFERENT floor — the
+    // player walked the stick up the shaft to read a locked Mark — padnav's own
+    // reveal then moves the shaft the minimum needed to show it, and the
+    // player's own navigation gets the last word over the default.
+    this.parkTowerView();
     this.syncPadFocus();
     this.syncFullscreenButtons();
     this.syncAttract();

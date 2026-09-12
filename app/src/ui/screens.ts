@@ -979,9 +979,20 @@ export function tierTowerHTML(state: TowerState): string {
   return `<div class="tower${off ? " tower--off" : ""}${entrance ? " tower--lobby" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}${ride}">
       ${towerHeadHTML(state)}
-      <div class="tower__rail" aria-hidden="true"></div>
-      <div class="tower__car" aria-hidden="true"><span></span></div>
-      ${floors.join("")}
+      <!-- THE RUN OF FLOORS, inside the shaft's housing and separate from it,
+           because at compact density this is the box that SCROLLS (app.css's
+           "THE BUILDING ON A PHONE", sim/uifit/run.ts's ALLOWED_SCROLLERS) and
+           two things in the shaft must not: the headhouse, drawn 19px above it
+           on a negative top and clipped clean off by any overflow the shaft
+           itself takes, and the shaft's own frame. The rail and the car ride
+           in here with the floors — both are drawings of where the car is on
+           the ladder, and a car that stayed put while its floor scrolled away
+           would be pointing at nothing. -->
+      <div class="tower__floors">
+        <div class="tower__rail" aria-hidden="true"></div>
+        <div class="tower__car" aria-hidden="true"><span></span></div>
+        ${floors.join("")}
+      </div>
     </div>
     ${towerLobbyHTML(state)}
   </div>`;

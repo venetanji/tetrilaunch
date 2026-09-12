@@ -238,7 +238,7 @@ import {
   FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
-import { captureScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
+import { captureScroll, centreScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
 import * as S from "../src/ui/screens";
 import {
   CHAPTERS, GUIDE_TOPICS, drillUnlocked, guideTopics, topicById, topicsIn,
@@ -15190,6 +15190,154 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     check("the shaft's decoration takes no taps from the floors under it",
       /\.tower__rail,\s*\.tower__car\s*\{\s*pointer-events:\s*none;\s*\}/.test(towerCss),
       "the rail and the car still swallow taps aimed at a floor");
+
+    /* ---------------------------------------------------------------------
+     * …AND ON A PHONE THE ARITHMETIC CHANGES INSTEAD OF THE TARGET.
+     *
+     * The note above is still true of a shaft that must show eleven floors at
+     * once, and that was an assumption rather than a requirement: the ladder
+     * is a LIST, and a list longer than its column is the one case the no-
+     * scroll product rule has always had an answer for. At compact density
+     * the run of floors is an allowlisted scroller (sim/uifit/run.ts) and
+     * every rung takes the 44px floor — 11 x 44 + 10 x 2 + 6 = 510px of
+     * building behind ~290px of window.
+     *
+     * PINNED AS THE STYLESHEET'S OWN TEXT, in this process, because none of
+     * it is a question sim/uifit can ask: the harness measures the boxes that
+     * result, and what has to hold is that they result from ONE set of
+     * numbers and that the density switch is the only thing that moved.
+     * ------------------------------------------------------------------ */
+    const towerVars = towerCss.slice(towerCss.indexOf(".tower {"));
+    check("the floor's height is a token the rungs and the car both read",
+      /--tower-floor-h:\s*calc\(\(100% - var\(--tower-slack\)\) \/ var\(--tower-floors\)\)/
+        .test(towerVars));
+    // THE RUN IS THE SAME THREE NUMBERS MULTIPLIED BACK OUT, never a second
+    // copy of the building's length: the quotient above and this product have
+    // to stay each other's inverse or the guide rail stops matching the floors
+    // it is a rail for.
+    check("...and the whole run is that token multiplied back out",
+      /--tower-run-h:\s*calc\(var\(--tower-slack\) \+ var\(--tower-floors\) \* var\(--tower-floor-h\)\)/
+        .test(towerVars));
+    check("a compact phone gives every rung the 44px tap floor",
+      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px/.test(towerCss)
+        && /\[data-density="compact"\] \.tower__floor \{ flex: none; height: var\(--tower-floor-h\); \}/
+          .test(towerCss),
+      towerCss.slice(towerCss.indexOf('[data-density="compact"] .tower {'), 400));
+    // …AND THE EARNED PLINTH WITH THEM, which is the other half of the 662
+    // baselined findings. The ENTRANCE is excluded by selector rather than by
+    // omission: while the licence is owed the plate is clamp(44px, 13%, 72px),
+    // so writing 44 there would make the door smaller on every phone taller
+    // than 360px.
+    check("...and the ground floor's plinth takes it too",
+      /\[data-density="compact"\] \.tower:not\(\.tower--lobby\) \{ --tower-lobby-h: 44px; \}/
+        .test(towerCss));
+    // THE SCROLLER IS THE RUN, NOT THE SHAFT. The headhouse is drawn 19px
+    // above the shaft on a negative `top`, so an overflow on the shaft itself
+    // would clip the beacon — and the Tier S gesture with it — off the top of
+    // the building.
+    check("the box that scrolls is the run of floors, not the housing",
+      /\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto/.test(towerCss)
+        && !/\.tower__shaft \{[^}]*overflow/.test(towerCss));
+    // THE PADDING AND THE GAP MOVED rather than being restated: with the
+    // shaft's own padding gone, the run fills the shaft's padding box exactly,
+    // which is the box every number in this section was measured against — and
+    // the condition under which no desktop or tablet row of the baseline moves.
+    check("...and it lays the floors out on the shaft's own two numbers",
+      /\.tower__floors \{[^}]*gap: var\(--tower-gap\);\n\s*padding: var\(--tower-pad\);/
+        .test(towerCss)
+        && !/\.tower__shaft \{[^}]*padding: var\(--tower-pad\)/.test(towerCss),
+      towerCss.slice(towerCss.indexOf(".tower__floors {"), towerCss.indexOf(".tower__floors {") + 320));
+    // A CUT FLOOR HAS TO READ AS A BUILDING CONTINUING. 12px is half a rung,
+    // at both ends because both ends are cut at every offset but the two
+    // extremes, and the -webkit- twin is there because iOS 15's WKWebView —
+    // which this app ships to — knows only the prefixed property.
+    check("...behind a fade at both cut edges, on both engines",
+      /-webkit-mask-image: linear-gradient\(180deg, transparent 0, #000 12px,/.test(towerCss)
+        && /\n  mask-image: linear-gradient\(180deg, transparent 0, #000 12px,/.test(towerCss)
+        && /#000 calc\(100% - 12px\), transparent 100%\)/.test(towerCss));
+    // THE RAIL SPANS THE BUILDING, NOT THE WINDOW. `bottom` on an absolutely
+    // positioned child of a scroller resolves against the scrollport, so a
+    // rail written as top/bottom would stop ~220px short of the run and scroll
+    // away from the car it is a rail for.
+    check("the car's guide rail spans the run once the run is longer than its box",
+      /\[data-density="compact"\] \.tower__rail \{\n\s*bottom: auto;\n\s*height: calc\(var\(--tower-run-h\) - 12px\);/
+        .test(towerCss));
+    // THE CEREMONY IS UNTOUCHED BY ALL OF IT. The ride writes `top` on the car
+    // and paint on the plates; the car is absolutely positioned INSIDE the
+    // scroller, so it rides the shaft's own floor-plus-gap step (46px here
+    // against roomy's 28) and the offset simply carries it. What must stay
+    // true is that the ride's own `from` keyframe
+    // still reads the floor token rather than a number of its own.
+    check("the ride still climbs in floor-height steps",
+      /@keyframes tower-rise \{\n\s*from \{\n\s*top: calc\(var\(--tower-pad\)\n\s*\+ var\(--tower-rise-from\) \* \(var\(--tower-floor-h\) \+ var\(--tower-gap\)\)\)/
+        .test(towerCss));
+  }
+
+  /* -------------------------------------------------------------------------
+   * THE SCROLLING SHAFT'S MARKUP AND ITS ONE CALL SEAM.
+   *
+   * The stylesheet above can only scroll a box that exists, and only the
+   * floors may be inside it. Both are claims about two other files, so they
+   * are pinned against their text: screens.ts for the box, main.ts for the
+   * parking.
+   * ---------------------------------------------------------------------- */
+  {
+    const tower = S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false });
+    check("the shaft carries a run of floors for the floors to scroll in",
+      tower.includes('<div class="tower__floors">'));
+    // THE RAIL AND THE CAR RIDE WITH THE FLOORS. Both are drawings of where
+    // the car is on the ladder; a car that stayed put while its floor scrolled
+    // away would be pointing at nothing.
+    const run = tower.slice(tower.indexOf('<div class="tower__floors">'));
+    check("...with the rail and the car inside it",
+      run.includes("tower__rail") && run.includes("tower__car")
+        && run.indexOf("tower__rail") < run.indexOf('<button class="tower__floor'));
+    // …AND THE HEADHOUSE OUTSIDE IT, which is the whole reason the run is a
+    // box of its own: it hangs 19px above the shaft, and an overflow around it
+    // would clip the beacon off the building.
+    check("...and the headhouse above it, outside anything that scrolls",
+      tower.indexOf("tower__head") < tower.indexOf('<div class="tower__floors">'));
+    // ARIA UNCHANGED. The run is a plain box: the group is the tower, the
+    // controls are the floors, and a generic div between them adds nothing to
+    // the accessibility tree.
+    check("...and the run itself says nothing to a screen reader",
+      /<div class="tower__floors">/.test(tower)
+        && !/<div class="tower__floors"[^>]*(role|aria-)/.test(tower));
+    const mainTs = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    // THE PARK IS CENTRESCROLL'S ONE CALLER, over the live box rather than
+    // over the density: `scrollHeight - clientHeight` is the only honest test
+    // of "does this scroll", and it answers 0 on every desktop and tablet row.
+    check("the shaft is parked on the selected floor, off the region's own numbers",
+      /private parkTowerView\([\s\S]{0,1400}?querySelector<HTMLElement>\("\.tower__floors"\)/
+        .test(mainTs)
+        && /scrollHeight - run\.clientHeight <= 1\) return;/.test(mainTs)
+        && /querySelector<HTMLElement>\("\.tower__floor\.is-selected"\)/.test(mainTs)
+        // …or, with the roof or the lobby picked (neither of which is a rung
+        // in this scroller), the lane the car parks in — the same --tower-idx
+        // the car's own `top` is computed from, so the window lands where the
+        // lift is rather than wherever the run happened to be left.
+        && /getComputedStyle\(run\)\.getPropertyValue\("--tower-idx"\)/.test(mainTs)
+        && /centreScroll\(\n\s*floor\.offsetTop, floor\.offsetHeight, run\.clientHeight, run\.scrollHeight,\n\s*\)/
+          .test(mainTs));
+    // BOTH SEAMS. A render mounts the tower (and with it the unlock ceremony,
+    // whose destination has to be in the window before the car starts
+    // climbing); a pick moves the car. Either one without the other leaves the
+    // parked floor below the fold on exactly the screen that is describing it.
+    //
+    // …AND THE RENDER'S SEAM IS PINNED AS THE PAIR OF LINES IT IS, which is
+    // the order as well as the presence: the park lands BEFORE the pad's
+    // landing, so a player who walked the stick up the shaft to read a locked
+    // Mark keeps their own place — padnav's reveal then moves the run the
+    // minimum needed and the player's navigation gets the last word over the
+    // default. (Asserted as adjacency rather than as two indexOf positions:
+    // syncPadFocus is called from three places in this file, and the earliest
+    // of them is a thousand lines above this seam.)
+    check("...on every render and on every ride",
+      /this\.parkTowerView\(\);\n\s*this\.syncPadFocus\(\);/.test(mainTs)
+        && /this\.parkTowerView\(true\);/.test(mainTs));
   }
 
   // THE TOP FLOOR'S NAME, pinned on the two things that can break it.
@@ -17965,6 +18113,49 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
   // worse than leaving it at the top.
   check("an anonymous region is left alone rather than guessed at",
     scrollKey(region("", "")) === "" && captureScroll([region("", "", 90)]).size === 0);
+
+  /* ---------------------------------------------------------------------------
+   * THE OTHER KIND OF PLACE — the one the player does not choose (centreScroll).
+   *
+   * The tier tower's run of floors at compact density: eleven 44px rungs, two
+   * 3px paddings and ten 2px gaps is 510px of building behind the ~290px the
+   * shaft has on a 360px-tall landscape phone (app.css's "THE BUILDING ON A
+   * PHONE"). Which floor has to be in the window is not a matter of where the
+   * player last dragged: it is the floor the car is parked on, because the
+   * recap panel one column over is quoting THAT floor's bay and the primary
+   * button under it flies it. main.ts's parkTowerView is the DOM half; the
+   * arithmetic is here, with the real numbers in it.
+   * ------------------------------------------------------------------------ */
+  {
+    const RUN = 510;     // 11 x 44 + 10 x 2 + 2 x 3 — the whole building
+    const WINDOW = 290;  // the shaft on a 640x360 phone, with the plinth off it
+    const row = (i: number): number => 3 + i * 46;  // pad + i x (floor + gap)
+    // A MIDDLE FLOOR IS CENTRED, so the floors either side of it are visible
+    // and the building reads as a building. Mark 6 is the sixth rung from the
+    // roof (index 5): its middle sits at 3 + 5*46 + 22 = 255, and a 290px
+    // window centred on that starts at 110.
+    check("a floor in the middle of the shaft is centred in the window",
+      centreScroll(row(5), 44, WINDOW, RUN) === 110,
+      String(centreScroll(row(5), 44, WINDOW, RUN)));
+    // THE TWO ENDS CANNOT BE CENTRED and must not be asked to be. The roof is
+    // the first rung, and a window flush with the top of the run is the only
+    // honest answer for it — the -120 a literal centring asks for would scroll
+    // the building down into the shaft and leave a gap above SKY.
+    check("...the top floor sits flush rather than asking for a negative offset",
+      centreScroll(row(0), 44, WINDOW, RUN) === 0,
+      String(centreScroll(row(0), 44, WINDOW, RUN)));
+    // …and the same at the bottom: Mark 1 is the last rung, and the furthest
+    // the run can travel is its own length less the window.
+    check("...and the bottom floor stops at the end of the run",
+      centreScroll(row(10), 44, WINDOW, RUN) === RUN - WINDOW,
+      String(centreScroll(row(10), 44, WINDOW, RUN)));
+    // EVERY OTHER DENSITY. The floors divide the column and fit it exactly
+    // there, so the run is no taller than its window and the one legal offset
+    // is 0 — which is what makes parkTowerView a no-op on desktop and tablet
+    // rather than a second opinion about what compact means.
+    check("a shaft that fits its column has one offset, and this is it",
+      centreScroll(row(5), 26, 313, 313) === 0);
+  }
 
   // THE PAD'S HALF OF THE SAME RENDER (ui/padnav.ts's pickInView, driven by
   // main.ts's reseatPadSelection). Restoring the offset is only half an
