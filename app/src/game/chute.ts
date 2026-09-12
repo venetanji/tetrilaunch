@@ -51,6 +51,12 @@ import { wakeNear } from "./lineClear";
  * Reading the panel would hand each of those different physics. The chute is
  * therefore drawn on the CANVAS as part of the room (render.ts's drawChute),
  * with the DOM panel mounted inside it.
+ *
+ * THE ROOF IT IS *DRAWN* AT IS MEASURED, and that is not a contradiction of the
+ * paragraph above — see chuteRoofY below. What may not vary with HUD size is
+ * what HAPPENS; where the frame says it happened has to vary with the HUD or it
+ * says it behind the HUD. This rect decides the first and knows nothing about
+ * the second.
  */
 export const CHUTE = {
   x0: 0,
@@ -59,9 +65,127 @@ export const CHUTE = {
   y1: WORLD.height,
 } as const;
 
-/** The lip a "-$" toast is spawned on, so the penalty renders ABOVE the panel
- *  instead of behind it — the whole point of the exercise. */
-export const CHUTE_LIP_Y = CHUTE.y0;
+/** `.plant`'s bottom anchor as a fraction of the field height (app.css: the
+ *  panel hangs 2.97% of a field above the bay floor). Named because the roof
+ *  arithmetic below is a subtraction from it and a bare 0.9703 in that
+ *  expression says nothing. */
+const PLANT_BOTTOM_FRAC = 0.9703;
+/**
+ * The tallest `.plant` anything in the app plans for, as a fraction of the
+ * field height.
+ *
+ * NOT a `max-height` — app.css deliberately refuses to put one on `.plant`
+ * (the panel is `overflow: visible`, so a capped box would report green while
+ * the content spilled anyway). It is the largest of the three tiers the
+ * stylesheet's own fraction rules step through for the same question: 0.4296
+ * for a Contract's panel, 0.50 for a Deep Run's (sim/uifit's PLANT_CEILING),
+ * 0.52 for a carded one — see the `.drag-hint` anchors, which clear this
+ * panel's top edge and have had to be re-tiered twice as the readout grew.
+ *
+ * Used here only as a SANITY BOUND on a measurement: a roof read higher than
+ * this is not a tall panel, it is a bad read. That is why this file measures
+ * rather than adding a fourth tier — the tiers keep going stale because the
+ * panel's height is content-driven, and a renderer that can read the box has
+ * no reason to guess at it.
+ */
+const PLANT_MAX_HEIGHT_FRAC = 0.52;
+
+/**
+ * THE PANEL'S ROOF, AS DRAWN — the y every visible cue about the intake is
+ * anchored to, and the one number in this file that is MEASURED rather than
+ * authored.
+ *
+ * WHY IT CANNOT BE CHUTE.y0. That constant comes off `.plant`'s MIN-height
+ * (0.4296 of the field height), and the panel is `height: auto` with
+ * `min-height` — it grows UPWARD out of that box whenever its content needs
+ * the room, which on a Deep Run is always. Measured through sim/uifit's
+ * harness, `.plant`'s border-box top in world y: 344.9..348.0 on an 800x600
+ * window, 359.3 on an iPhone 13 mini, 358.9..360.9 on an iPad — 28 to 44 world
+ * px above the authored roof, and the only fixtures that measure 389 are the
+ * Contracts, coach and lesson rows. Every canvas cue about the maw was drawn
+ * inside that band:
+ *
+ *   - the lip bar (render.ts's CHUTE_LIP_H, y0..y0+11) was ENTIRELY behind the
+ *     panel — the one piece of the machine that is supposed to be visible at
+ *     every panel height, invisible on every Deep Run screen in the matrix;
+ *   - the strand-warning plume (CHUTE_WARN_RISE, 58px rising to the lip) lost
+ *     its strong bottom half, which is the half carrying the alpha;
+ *   - the intake blast (game.ts, a 68px band centred 0.3r above the lip) was
+ *     more than half covered, so "which shipment did I just lose" was answered
+ *     behind opaque chrome;
+ *   - the "−$" toast, spawned a full PENALTY_SINK_PX above the lip precisely so
+ *     it would sink to y0 and stop, sank to 369 and finished BEHIND the panel.
+ *
+ * Every one of those is the exact failure the lip constant was introduced to
+ * avoid, reintroduced by the panel outgrowing the fraction it was derived from.
+ *
+ * MEASURED, AND THAT IS NOT A CONTRADICTION OF THE RECT ABOVE. CHUTE stays
+ * authored because PHYSICS may not vary with HUD size — seed determinism
+ * depends on it, and the note on CHUTE spells out why. This is the opposite
+ * kind of number: nothing here decides what happens, only where the frame says
+ * it happened. A screen whose panel is taller hides more of the machine and so
+ * needs its cues drawn higher; a screen with a shorter panel (a Contract, a
+ * lesson) measures 389 and is drawn exactly as it was before this existed; a
+ * screen with no panel at all (the attract demo) never sets it and gets the
+ * authored default, which is the bare maw.
+ *
+ * A min-height panel actually measures 389.3, not 389 — `.plant`'s own
+ * fractions land a third of a world pixel below the rounded constant. The
+ * clamp in setChuteRoofY takes that off, which is why the short-panel cues are
+ * drawn at EXACTLY the numbers they were drawn at before this existed rather
+ * than a third of a pixel under them.
+ */
+let roofY: number = CHUTE.y0;
+
+/** The roof with the panel at its CSS min-height — the authored default, the
+ *  bare-maw value, and the LOWEST the roof can be. */
+export const CHUTE_ROOF_BASE_Y = CHUTE.y0;
+
+/**
+ * The most the measured roof may be lifted above CHUTE_ROOF_BASE_Y, derived
+ * from the stylesheet's own numbers rather than picked: `.plant` is anchored
+ * PLANT_BOTTOM_FRAC of a field height off the bay floor and the tallest panel
+ * anything plans for is PLANT_MAX_HEIGHT_FRAC of it, so the highest border-box
+ * top either can account for is (0.9703 - 0.52) of the field below the field's
+ * own top edge — world y 324, 65px above the authored roof. A measurement above
+ * that is a bad read, not a tall panel: a mid-relayout rect, a `--field-*`
+ * value published for a viewport that has since changed. Clamping costs one
+ * comparison; not clamping draws the machine's lip up in the sky for a frame.
+ *
+ * sim/systems.ts pins this against the stylesheet's fractions, the same way it
+ * pins CHUTE.x1 and CHUTE.y0.
+ */
+export const CHUTE_ROOF_LIFT_MAX = Math.round(
+  CHUTE.y0 - (PLANT_BOTTOM_FRAC - PLANT_MAX_HEIGHT_FRAC) * WORLD.height,
+);
+
+/**
+ * Adopt a measured panel roof, in WORLD y. Module-level state set from outside
+ * and read per-frame, the same pattern layout.ts's setRailSlots / setRailSide
+ * use and for the same reason: main.ts (and the uifit harness) know what the
+ * DOM is doing, the renderer is called sixty times a second and must not go
+ * and ask.
+ *
+ * Clamped rather than trusted, in BOTH directions. Below the base the panel
+ * cannot go — `min-height` is unconditional in app.css, there is no
+ * `.hud--contract` override on it — so a lower reading is a stale field rect,
+ * and honouring it would draw the lip down inside the machine. Above
+ * CHUTE_ROOF_LIFT_MAX is a read the stylesheet cannot produce; see that
+ * constant. A non-finite reading (an element that has not laid out, a
+ * `--field-*` property published as an empty string) resets to the default,
+ * which is the bare maw and is always safe to draw.
+ */
+export function setChuteRoofY(worldY: number): void {
+  roofY = Number.isFinite(worldY)
+    ? Math.min(CHUTE_ROOF_BASE_Y, Math.max(CHUTE_ROOF_BASE_Y - CHUTE_ROOF_LIFT_MAX, worldY))
+    : CHUTE_ROOF_BASE_Y;
+}
+
+/** The roof every visible intake cue is anchored to — render.ts's lip bar and
+ *  warning plume, game.ts's intake blast and "−$" toast. */
+export function chuteRoofY(): number {
+  return roofY;
+}
 
 /**
  * Where the machine's FACE starts — `.plant`'s own left frame fraction (1.67%

@@ -1,6 +1,6 @@
 import Matter from "matter-js";
 import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
-import { CHUTE, chuteMouth, chuteRightEdge, INCINERATOR_Y } from "./chute";
+import { CHUTE, chuteMouth, chuteRightEdge, chuteRoofY, INCINERATOR_Y } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { cushionEdgeX, SETTLE_SPEED } from "./lineClear";
 import { computeLayout, skyTop } from "./layout";
@@ -105,10 +105,20 @@ export function fitViewport(cssW: number, cssH: number): Viewport {
  * display area, which is below the ~300 ppi that a phone at arm's length can
  * resolve. It IS softer. Two things make it the right trade anyway:
  *
- *   - Every glyph the player reads is DOM, and the DOM keeps the device's full
- *     ratio — the HUD, the plant crest, the rail, every modal. This changes the
- *     resolution of neon glow art whose edges are Gaussian by construction, and
- *     of nothing with a letterform in it.
+ *   - Every glyph the player READS is DOM, and the DOM keeps the device's full
+ *     ratio — the HUD, the plant crest, the rail, every modal. What this
+ *     softens is mostly neon glow art whose edges are Gaussian by
+ *     construction.
+ *     NOT "nothing with a letterform in it", which is what this line used to
+ *     claim and is simply false: grep fillText in this file and eight sites
+ *     answer — the wind gauge's WIND/CALM/direction labels and its STAB
+ *     readout, the payout toast, the grade callout, the congestion tag, the
+ *     salvage toast and the penalty toast. All eight are short, glanced
+ *     numbers and tags rather than prose, none is on the reading path, and
+ *     every one of them has a DOM twin that stays crisp — which is why the
+ *     trade still holds. But they are letterforms and they do get softer.
+ *     Moving them to DOM (or to baked sprites) is a separate item; a
+ *     resolution policy is not the place to fix it.
  *   - The alternative is worse than soft. main.ts's accumulator caps catch-up at
  *     MAX_CATCHUP_STEPS, so a frame that misses 30fps does not drop frames, it
  *     runs the SIMULATION slow. Over-budget frames are not a smoothness problem
@@ -122,6 +132,67 @@ export function fitViewport(cssW: number, cssH: number): Viewport {
  * and differ only in how large each one is stamped. No extra bakes, no extra
  * sprite memory, and no cache flush when a device crosses the threshold by
  * rotating.
+ *
+ * A RATIO CAP IS NOT A PIXEL BUDGET, and the two ceilings above are ratio caps.
+ * That is the hole MAX_RENDER_PIXELS closes, and it is a big one: the whole
+ * argument above is that the frame is fill-bound, i.e. that what costs
+ * milliseconds is DEVICE PIXELS — and a ratio says nothing about how many of
+ * those there are until you multiply it by a viewport nobody bounded. A
+ * 2560x1600 desktop window at devicePixelRatio 2 passes both ceilings untouched
+ * and asks for a 5120x3200 backing store: 16.4 MP, four and a half times the
+ * 3.69 MP the reference desktop viewport rasterises, on the same machine and in
+ * the same frame budget.
+ *
+ * MEASURED (sim/renderperf --dprs, N=300 mixed busy, headless Chromium, p50 of
+ * 180 timed frames, rungs interleaved inside one browser session, one machine —
+ * these are ratios for comparing a before against an after, not a device
+ * budget):
+ *
+ *     css 2560x1600 dpr 2      5120x3200  16.38 MP   150.1 ms
+ *     css 2560x1600 dpr 1.5    3840x2400   9.22 MP    91.9 ms
+ *     css 2560x1600 dpr 1      2560x1600   4.10 MP    55.6 ms
+ *     css 1280x720  dpr 2      2560x1440   3.69 MP    57.0 ms
+ *
+ * Read the last two rows together: 4.10 MP at a 2560x1600 viewport costs the
+ * same ~56 ms as 3.69 MP at a 1280x720 one. The cost is the pixels and only the
+ * pixels — the viewport they are spread over does not enter into it — so the
+ * thing to bound is their COUNT.
+ *
+ * WHY 4.0 MP. It is the reference frame plus 8.5% of headroom. 1280x720 at dpr 2
+ * is 3.686400 MP exactly, and that viewport is where every number in
+ * sim/results was taken; a budget at 3.69 would leave it sitting ON the
+ * boundary, where the first extra CSS pixel in either direction starts shaving
+ * the ratio. 4.0 leaves it strictly inside, so the ladder of measurements this
+ * renderer was tuned against is untouched, and the cap only begins to bite at
+ * the first viewport LARGER than the reference one (at dpr 2 that is any css
+ * area above 1.0 MP). What it costs where it bites, each pair interleaved in
+ * one run:
+ *
+ *     css 1280x720   2 -> 2       3.69 MP ->  3.69 MP    57.0 -> 57.0 ms
+ *     css 1512x982   2 -> 1.641   5.94 MP ->  4.00 MP    72.5 -> 59.0 ms  -19%
+ *     css 2560x1600  2 -> 0.988  16.38 MP ->  4.00 MP   150.1 -> 60.3 ms  -60%
+ *
+ * An iPad Pro 12.9's 1366x1024 goes from 5.59 MP to 4.00 MP for the same
+ * reason, and a phone does not move at all (see the note in the function).
+ *
+ * IT CAN GO BELOW 1, AND THAT IS DELIBERATE. At css 2560x1600 the budget
+ * resolves to 0.988 — a backing store 1.2% narrower than the CSS box, i.e. a
+ * hair of upscaling. That is the correct answer rather than an accident to floor
+ * away: a viewport whose CSS area alone exceeds the budget is asking for more
+ * pixels than the renderer can fill in a frame, and the ratio is the only place
+ * to say no. A floor at 1 would hand 2560x1600 a 4.10 MP canvas and hand a 5K
+ * display an 8 MP one, which is the uncapped behaviour this exists to end. The
+ * only floor is the NaN/zero guard below, which is about a bad reading, not
+ * about how sharp a big window deserves to be.
+ *
+ * ONE NUMBER, READ ONCE. Everything sized in device pixels downstream takes the
+ * dpr render() was handed — the background layer's backing store
+ * (getBackgroundLayer keys its cache on cssW*dpr x cssH*dpr) and the sprite bake
+ * scale (syncSpriteScale's vp.scale * dpr) — so the budget reaches all three
+ * without any of them knowing it exists. The menu's attract demo asks this same
+ * function for the device's effective ratio before applying its own smaller
+ * panel ceiling (attract.ts's MAX_DPR), rather than capping devicePixelRatio a
+ * second time on its own terms.
  *
  * THIS IS THE STATIC HALF OF THE RIGHT ANSWER. The honest version measures the
  * frame it is actually achieving and steps the scale down a rung when it cannot
@@ -137,6 +208,10 @@ export const COMPACT_MAX_RENDER_DPR = 1.5;
 /** @see renderScale — short edge, in CSS px, at or under which a viewport is
  *  treated as a phone's. */
 export const COMPACT_SHORT_EDGE_CSS = 480;
+/** @see renderScale — the most device pixels a frame may be rasterised onto,
+ *  whatever ratio the device asks for. 4.0 MP: the reference desktop frame
+ *  (1280x720 at dpr 2 = 3.6864 MP) with 8.5% of headroom over it. */
+export const MAX_RENDER_PIXELS = 4_000_000;
 
 export function renderScale(deviceRatio: number, cssW: number, cssH: number): number {
   // A ratio of 0, NaN or undefined is a browser that has not laid out yet, not
@@ -144,7 +219,18 @@ export function renderScale(deviceRatio: number, cssW: number, cssH: number): nu
   const ratio = Number.isFinite(deviceRatio) && deviceRatio > 0 ? deviceRatio : 1;
   const shortEdge = Math.min(cssW, cssH);
   const compact = shortEdge > 0 && shortEdge <= COMPACT_SHORT_EDGE_CSS;
-  return Math.min(ratio, compact ? COMPACT_MAX_RENDER_DPR : MAX_RENDER_DPR);
+  const capped = Math.min(ratio, compact ? COMPACT_MAX_RENDER_DPR : MAX_RENDER_DPR);
+  const cssPx = cssW * cssH;
+  // A viewport with no area has no pixel budget to divide by — that is the same
+  // pre-layout browser the ratio guard above answers, and the ratio cap is the
+  // whole answer for it.
+  if (!(cssPx > 0)) return capped;
+  // The budget is an AREA and the scale applies to both axes, so the ratio it
+  // permits is the square root. Phones are covered by the same line rather than
+  // exempted from it: at css 844x390 the budget allows 3.49, so
+  // COMPACT_MAX_RENDER_DPR's 1.5 goes on being the binding cap and no phone's
+  // resolution moves by a pixel.
+  return Math.min(capped, Math.sqrt(MAX_RENDER_PIXELS / cssPx));
 }
 
 /** Map a client (CSS px) point to world coordinates. */
@@ -1925,10 +2011,16 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor, alpha: numbe
  * the panel is merely bolted into it.
  *
  * Nearly all of it sits behind that panel, so the drawing budget goes almost
- * entirely on the LIP: a machined bar across the mouth, at the one edge that
- * is visible at every panel height. The recess below is a flat wash that
- * reads through the panel's translucent aim-through state and does nothing
- * the rest of the time.
+ * entirely on the LIP: a machined bar across the mouth, at the one edge that is
+ * visible at every panel height.
+ *
+ * "AT EVERY PANEL HEIGHT" WAS A CLAIM, NOT A FACT, until the roof became a
+ * measurement. The lip was drawn at CHUTE.y0, which is the panel at its CSS
+ * MIN-height — and the panel is `height: auto`, so on every Deep Run screen in
+ * sim/uifit's matrix the bar was 28..44 world px inside an opaque panel: the
+ * one piece of the machine this function exists to draw, invisible on the
+ * screens the game is mostly played on. It hangs off chute.ts's chuteRoofY
+ * now, and the claim is true.
  *
  * NO TEETH here any more. The intake spikes moved to the DOM plant panel
  * (app.css's .plant__crest, mounted by screens.ts's hudHTML), because the
@@ -1953,11 +2045,12 @@ const CHUTE_WARN_RISE = 58;
  * THE RISE ITSELF, because the plume has to be as soft sideways as it is
  * upward or it stops reading as gas. A rect of heat has four edges and only its
  * top one was ever fading: the band ran the mouth's full width at full strength
- * and then simply stopped, which above the panel's top — where 35 of those 58px
- * are open canvas with nothing occluding them — is a straight red line standing
- * in the air. Worst at the RIGHT end, where the raised PWR cap's shoulder
- * climbs past the panel's top edge and the cut runs up the cap's flank beside
- * the readout, which is exactly where the owner's screenshot caught it.
+ * and then simply stopped, which above the panel's top — now the whole 58px,
+ * since the plume hangs off the MEASURED roof rather than off the authored rect
+ * it used to be half-buried in — is a straight red line standing in the air.
+ * Worst at the RIGHT end, where the raised PWR cap's shoulder climbs past the
+ * panel's top edge and the cut runs up the cap's flank beside the readout,
+ * which is exactly where the owner's screenshot caught it.
  *
  * A ramp this wide leaves 487 of the mouth's 603px at full strength on a stock
  * bay, so the cue itself is untouched — what changes is only the last ~10% at
@@ -2014,7 +2107,13 @@ function drawChute(
   now: number,
   rightEdge: number,
 ): void {
-  const { y0 } = CHUTE;
+  // THE ROOF AS MEASURED, not CHUTE.y0 (chute.ts's chuteRoofY). Everything this
+  // function draws is drawn relative to the top edge of an opaque DOM panel,
+  // and that edge is 28..44 world px higher than the authored rect on every
+  // Deep Run screen — which put the lip bar entirely behind the panel and cost
+  // the warning plume its strong half. A Contract's or a lesson's panel
+  // measures the authored value and is drawn exactly as before.
+  const y0 = chuteRoofY();
   // The MOUTH is what gets drawn, at whatever width this bay's press leaves it
   // (chute.ts's chuteRightEdge — Bay Extension T3 narrows it). Nothing below
   // the lip is drawn at all now: the throat is internal machinery, behind the

@@ -13,7 +13,7 @@
 // demo can't or shouldn't run (reduced motion, no 2D context).
 import { Game } from "./game";
 import { makeBaseLevel, type LevelConfig } from "./level";
-import { fitViewport, render } from "./render";
+import { fitViewport, render, renderScale } from "./render";
 import { createAutopilot, type Autopilot } from "./autopilot";
 
 /** Physics step (ms) — engine.ts's fixed 60Hz, same as main.ts's STEP. */
@@ -66,9 +66,10 @@ const CYCLE_MS = 90_000;
  *  the pile teleporting away. */
 const FADE_MS = 450;
 
-/** Hard cap on the demo's backing-store scale. The play field uses up to 2;
- *  this is a decorative panel a fraction of the size, and 1.5 is the point
- *  past which nobody can tell on a canvas this small. */
+/** Hard cap on the demo's backing-store scale, on TOP of whatever the field's
+ *  own resolution policy allows (render.ts's renderScale). The play field uses
+ *  up to 2; this is a decorative panel a fraction of the size, and 1.5 is the
+ *  point past which nobody can tell on a canvas this small. */
 const MAX_DPR = 1.5;
 
 /**
@@ -286,7 +287,18 @@ export class AttractDemo {
     const h = canvas.clientHeight;
     if (w <= 0 || h <= 0) return; // laid out to nothing (hidden tab, mid-relayout)
     if (w !== this.cssW || h !== this.cssH) {
-      this.dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      // THROUGH renderScale, not past it. The demo used to cap
+      // devicePixelRatio on its own terms, which made it a second resolution
+      // policy in the app: a machine the field's pixel budget had just decided
+      // could not afford 4 MP went on being asked for the full ratio here, and
+      // the menu runs a live Game as well as drawing one. Asked of the WINDOW
+      // (the device's question, which is what renderScale answers) and then
+      // narrowed by this panel's own smaller ceiling, so the two can only ever
+      // agree or come down.
+      this.dpr = Math.min(
+        renderScale(window.devicePixelRatio || 1, window.innerWidth, window.innerHeight),
+        MAX_DPR,
+      );
       this.cssW = w;
       this.cssH = h;
       canvas.width = Math.max(1, Math.floor(w * this.dpr));

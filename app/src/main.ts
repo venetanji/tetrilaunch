@@ -106,6 +106,7 @@ import {
 } from "./game/sandbox";
 import { sandboxContract, sandboxScreen } from "./ui/sandbox-screen";
 import { render, renderScale } from "./game/render";
+import { CHUTE_ROOF_BASE_Y, setChuteRoofY } from "./game/chute";
 import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
 import { AttractDemo } from "./game/attract";
@@ -911,6 +912,12 @@ class App {
   private endScrimTimer: number | null = null;
 
   private dpr = 1;
+  /** Watches the mounted `.plant` for a height change and re-publishes the
+   *  panel's roof to the renderer (see syncPlantRoof). One observer for the
+   *  app's life, re-pointed at each newly rendered panel; null in a shell with
+   *  no ResizeObserver, where the render-time and resize-time measurements are
+   *  the whole of it. */
+  private plantRoofObserver: ResizeObserver | null = null;
   /** The viewport reading the CURRENTLY PUBLISHED layout was solved from —
    *  written by onResize, read by the watchdog. Null until the first solve,
    *  which viewportChanged treats as "disagrees with everything". */
@@ -4047,6 +4054,84 @@ class App {
     this.syncPadFocus();
     this.syncFullscreenButtons();
     this.syncAttract();
+    this.syncPlantRoof();
+  }
+
+  /**
+   * THE PLANT PANEL'S ROOF, HANDED TO THE RENDERER (chute.ts's setChuteRoofY).
+   *
+   * The canvas draws the intake's lip, its warning plume, its blast and its
+   * "−$" toast relative to the top edge of this panel, and the panel is
+   * `height: auto`: it grows upward out of the 0.4296-of-the-field min-height
+   * the authored chute geometry was derived from. On a Deep Run it measures
+   * 0.4691..0.4913 of the field instead (sim/uifit's matrix, three devices),
+   * and every one of those cues was drawn 28 to 44 world px too low — behind
+   * the very chrome it exists to stay clear of. So the roof is MEASURED and
+   * published, exactly as the field rect itself is.
+   *
+   * TWO TRIGGERS, because the panel's top edge moves for two different reasons.
+   * A re-render can change which panel is mounted (a Contract's, a lesson's, a
+   * carded one, or none at all on the menu) — that is this method, called at
+   * the end of every renderOverlay. And a panel already on screen can CHANGE
+   * HEIGHT without any re-render at all: syncHud patches the readout's figures
+   * in place, and a bankroll crossing into four digits, a mod row gaining a
+   * chip or a font finishing loading all move the roof. That is the
+   * ResizeObserver, which is also what makes the first measurement free — the
+   * callback fires once on observe with the box already laid out.
+   *
+   * The observer is re-pointed rather than re-created: `.plant` is destroyed and
+   * rebuilt by every wholesale innerHTML rewrite, so the element to watch is
+   * new each time while the callback never is.
+   */
+  private syncPlantRoof(): void {
+    const plant = this.overlay.querySelector<HTMLElement>(".plant");
+    this.plantRoofObserver?.disconnect();
+    if (!plant) {
+      // No panel on this screen (the menu, every modal-only state) — the maw is
+      // bare and the authored roof is exactly right for it. This also covers
+      // the attract demo, which draws the same chute through the same renderer
+      // with no HUD over it at all.
+      setChuteRoofY(CHUTE_ROOF_BASE_Y);
+      return;
+    }
+    if (!this.plantRoofObserver && typeof ResizeObserver === "function") {
+      this.plantRoofObserver = new ResizeObserver(() => this.measurePlantRoof());
+    }
+    this.plantRoofObserver?.observe(plant);
+    // ...and measure now regardless, because a shell with no ResizeObserver
+    // still has a panel, and because onResize calls this synchronously after
+    // publishing a new field rect — the observer would not fire for a move that
+    // left the panel's own box the same size.
+    this.measurePlantRoof();
+  }
+
+  /**
+   * One rect read, converted to world y through the field rect this frame was
+   * published with.
+   *
+   * Through the PUBLISHED `--field-y` / `--fscale` rather than through a fresh
+   * computeLayout call, on purpose: those two properties are what the panel is
+   * positioned by (app.css's `.plant` bottom chain), so converting through them
+   * is converting through the solve the browser actually laid the panel out
+   * against. Re-solving here would be a second opinion about the same frame,
+   * and the first opinion is the one on screen.
+   *
+   * BORDER-BOX TOP, which `getBoundingClientRect` gives and which is the edge
+   * that occludes: `.plant` is `overflow: visible` and its PWR cap and crest
+   * brow ride ABOVE that edge, so a layout-box measurement would place the roof
+   * up at the cap's shoulder and lift every cue off the machine.
+   */
+  private measurePlantRoof(): void {
+    const plant = this.overlay.querySelector<HTMLElement>(".plant");
+    if (!plant) { setChuteRoofY(CHUTE_ROOF_BASE_Y); return; }
+    const root = getComputedStyle(document.documentElement);
+    const fy = parseFloat(root.getPropertyValue("--field-y"));
+    const scale = parseFloat(root.getPropertyValue("--fscale"));
+    // Nothing published yet (first paint beats the first solve in some shells).
+    // Leave the roof where it is rather than guessing: setChuteRoofY clamps a
+    // bad number, but it cannot clamp a wrong-by-a-scale-factor one.
+    if (!Number.isFinite(fy) || !(scale > 0)) return;
+    setChuteRoofY((plant.getBoundingClientRect().top - fy) / scale);
   }
 
   /**
@@ -4443,6 +4528,11 @@ class App {
     // syncAttract). Cheap when nothing changed: mount() is a no-op once it's
     // already running against this canvas.
     this.syncAttract();
+    // The field rect just moved, so the panel's roof moved with it even where
+    // the panel's own box did not change size — which is precisely the case the
+    // ResizeObserver cannot see. One rect read per resize (see syncPlantRoof),
+    // after the properties it converts through have been published.
+    this.syncPlantRoof();
   };
 
   // ---------------- game lifecycle ----------------

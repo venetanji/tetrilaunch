@@ -6,7 +6,7 @@ import {
   AIM_CONE, AIM_LOFT_DEFAULT, CANNON, Cannon, predictTrajectory, solveAimForTarget,
 } from "./cannon";
 import {
-  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, inIncinerator, pathStrands, shredInChute,
+  CHUTE_BLAST_R, chuteRoofY, chuteRightEdge, inChute, inIncinerator, pathStrands, shredInChute,
 } from "./chute";
 import { Compactor, rigidPressDrag } from "./compactor";
 import {
@@ -1579,13 +1579,23 @@ export class Game {
     // died is a blast behind opaque chrome; lifting it a third of its radius
     // clear puts the body of it in open field with its base tucked under the
     // roof, which is what an impact ON a surface looks like anyway.
+    //
+    // ...OFF THE ROOF THE PANEL ACTUALLY HAS (chute.ts's chuteRoofY), which is
+    // the half that was missing. The lift is measured from a MEASUREMENT now,
+    // not from CHUTE.y0: the panel is `height: auto`, and a Deep Run's roof
+    // measures 28..44 world px above the min-height the constant comes from. So
+    // the "third of a radius clear" left 16 of this band's 68px in open field
+    // at the shallowest measured roof (361, an iPad) and essentially none of it
+    // at the deepest (345, an 800x600 window) — the whole of the lift, spent
+    // clearing an edge that was not there. Same third, the right edge to lift
+    // from.
     let cx = 0;
     for (const cube of shredded) {
       const px = cube.body.position.x;
       cx += px;
       this.throwChunks(cube, now);
       this.effects.push({
-        kind: "explosion", x: px, y: CHUTE_LIP_Y - CHUTE_BLAST_R * 0.3, r: CHUTE_BLAST_R,
+        kind: "explosion", x: px, y: chuteRoofY() - CHUTE_BLAST_R * 0.3, r: CHUTE_BLAST_R,
         // The CUBE'S OWN colour, so the spray over the lip is made of the
         // cargo the intake just took — the same argument throwChunks makes one
         // line up, one layer down. This is the cue the player reads to know
@@ -1607,12 +1617,20 @@ export class Game {
     );
     if (deducted > 0) {
       // Spawned a full SINK above the lip, not 20px above it. The toast
-      // travels PENALTY_SINK_PX down over its life, and the plant panel's top
-      // edge is CHUTE_LIP_Y — so the old anchor put the number in clear air
+      // travels PENALTY_SINK_PX down over its life and has to come to rest ON
+      // the panel's top edge — so the old anchor put the number in clear air
       // for its first third and behind an opaque panel for the rest, which is
       // the exact failure the lip constant was introduced to avoid.
+      //
+      // AND THE EDGE IS MEASURED (chute.ts's chuteRoofY). Anchored to CHUTE.y0
+      // the sink always landed at 369, which on the shallowest Deep Run roof in
+      // the matrix (361) is eight pixels inside the panel and on the deepest
+      // (345) is twenty-four: the toast spent its whole second sliding INTO the
+      // chrome it was lifted to clear, which is the same failure again with the
+      // fix applied to the wrong number. A Contract's shorter panel measures
+      // 389 and the numbers are unchanged.
       this.effects.push({
-        kind: "penalty", x: cx, y: CHUTE_LIP_Y - 20 - PENALTY_SINK_PX, amount: deducted, t0: now,
+        kind: "penalty", x: cx, y: chuteRoofY() - 20 - PENALTY_SINK_PX, amount: deducted, t0: now,
       });
     }
   }
