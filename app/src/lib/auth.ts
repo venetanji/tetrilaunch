@@ -261,6 +261,19 @@ export async function deleteAccount(): Promise<void> {
   await signOut();
 }
 
+/**
+ * Whether a provider-login failure was the player closing the sheet.
+ *
+ * The plugin marks those with one code on every platform — Android's
+ * GetCredentialCancellationException, iOS's canceledLogin, the web popup being
+ * closed — and it is the one failure the account screen must NOT report: a
+ * player who backed out of a sheet already knows they did.
+ */
+export function isUserCancelled(err: unknown): boolean {
+  return typeof err === "object" && err !== null
+    && (err as { code?: unknown }).code === "USER_CANCELLED";
+}
+
 export function accountLabel(user: AuthUser): string {
   return user.label || "Player account";
 }

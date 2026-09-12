@@ -11041,6 +11041,10 @@ button.panel { color: var(--text); }
    Quit's own hover rule exists to stop (.btn--quit[data-armed="true"]). Colour
    is never the only carrier: the face says "Delete Account", the accessible
    name says what it removes, and the panel above it says it twice. */
+/* The account screen's failure line (screens.ts's accountScreen `error`). The
+   danger colour is the same one the notice's Delete button wears, so the line
+   reads as that press's answer. */
+.account__error { margin: 0; font-size: var(--fs-sm); line-height: 1.35; color: var(--danger); }
 .account-note { width: min(460px, 92vw); text-align: left; }
 .account-note__body { margin: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-dim); }
 .account-note .row { justify-content: flex-end; }

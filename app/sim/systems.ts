@@ -13462,18 +13462,18 @@ section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
     const dayN1 = dailySeed(DAY_B);
     cache.set(BOARD_SKYDECK, dayN, rows("YESTERDAY"));
     check("yesterday's rows are not today's board",
-      cache.get(BOARD_SKYDECK, dayN1).length === 0);
-    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY");
+      cache.get(BOARD_SKYDECK, dayN1)?.length === 0);
+    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)?.[0]?.name === "YESTERDAY");
     cache.set(BOARD_SKYDECK, dayN1, rows("TODAY"));
     check("...with both days held at once, so neither tab blanks the other",
-      cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY"
-        && cache.get(BOARD_SKYDECK, dayN1)[0]?.name === "TODAY");
+      cache.get(BOARD_SKYDECK, dayN)?.[0]?.name === "YESTERDAY"
+        && cache.get(BOARD_SKYDECK, dayN1)?.[0]?.name === "TODAY");
     // The all-time boards go on behaving exactly as they did: one key each.
     cache.set(MARK_COUNT, DAY_NONE, rows("TIER10"));
     check("an all-time board is one entry, on the day it does not have",
-      cache.get(MARK_COUNT, DAY_NONE)[0]?.name === "TIER10");
+      cache.get(MARK_COUNT, DAY_NONE)?.[0]?.name === "TIER10");
     check("...and does not collide with another board's",
-      cache.get(BOARD_SANDBOX, DAY_NONE).length === 0);
+      cache.get(BOARD_SANDBOX, DAY_NONE)?.length === 0);
   }
 
   // ---- THE WIRE -----------------------------------------------------------
@@ -17192,6 +17192,40 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     check("bay 1 still resumes, and still leaves on one press",
       bayOne.includes('data-action="resume"') && bayOne.includes('data-action="menu"')
         && !bayOne.includes('data-action="quit-run"'));
+  }
+
+  // ---- …AND SO DOES THE LOSS CARD (screens.ts's endModal `runRetry`) ------
+  // The game-over card on bay 1 offered a seal-priced Retry Bay beside a free
+  // Retry Run, and both re-dealt bay 1 (main.ts: resetBay and startGame each
+  // construct a new Game with no seed). Only pauseModal consulted
+  // retryIsWholeRun; the loss card now takes the same read.
+  {
+    const seal = { seal: "at-stake" as SealState, mark: 4 };
+    const bayOne = end({ bayNum: 1, retryBay: seal, runRetry: true });
+    const bayTwo = end({ bayNum: 2, retryBay: seal, runRetry: false });
+    check("bay 1's loss card offers no priced bay retry",
+      !bayOne.includes('data-action="retry-bay"') && !/Retry Bay/.test(bayOne));
+    check("...and quotes no seal price for a button that is not there",
+      !/breaks this run's seal/.test(bayOne) && !bayOne.includes("end__seal"));
+    check("...while the run is still offered back, in the pause card's words",
+      /data-action="restart"[^>]*>Retry Run</.test(bayOne));
+    check("bay 2's loss card still offers the bay, priced",
+      bayTwo.includes('data-action="retry-bay"') && bayTwo.includes("btn__seal")
+        && /breaks this run's seal/.test(bayTwo));
+    check("...and so does every caller that predates the argument",
+      end({ bayNum: 1, retryBay: seal }).includes('data-action="retry-bay"'));
+    // The card's read is the run's: main.ts passes runRetryOffered, the same
+    // gate the pause card is handed, so the two cards cannot disagree about
+    // which bay is the run.
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const endCallAt = mainSrc.indexOf("S.endModal({");
+    const endCall = mainSrc.slice(endCallAt, mainSrc.indexOf("}),", endCallAt));
+    check("the loss card is handed the same read the pause card is",
+      /runRetry: this\.runRetryOffered\(\),/.test(endCall)
+        && /this\.runRetryOffered\(\)\);/.test(mainSrc.slice(mainSrc.indexOf("S.pauseModal("))));
   }
 
   // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
@@ -26914,6 +26948,110 @@ section("Each pocket wears its shop's mark (screens.ts's salvageHTML / scrapHTML
     /<h2 class="display refit__title">\s*<svg class="ico"/.test(yard));
 }
 
+section("A board that could not be fetched says so, and a score that did not post can be sent again (lib/api.ts / screens.ts / main.ts)");
+// ---------------------------------------------------------------------------
+{
+  // ---- THE CLIENT TELLS "EMPTY" FROM "UNREACHABLE" (lib/api.ts) ------------
+  // fetchLeaderboard returned [] on every failure, so a phone with no signal
+  // drew "No scores at this Tier yet — be the first!" over a board full of
+  // scores. Null is the new answer for a fetch that did not land; [] is still
+  // a board that landed empty. Same location/fetch stubbing the Skydeck board's
+  // route checks use.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "localhost" }, configurable: true, writable: true,
+    });
+    const answer = (impl: () => Promise<unknown>): void => {
+      Object.defineProperty(globalThis, "fetch", { value: impl, configurable: true, writable: true });
+    };
+    try {
+      answer(async () => { throw new TypeError("Failed to fetch"); });
+      check("a fetch that throws is null, not an empty board",
+        (await fetchLeaderboard(MARK_COUNT, 10)) === null);
+      check("...and a score that never posts is null too",
+        (await submitScore("ACE", 100, MARK_COUNT, 10, 40)) === null);
+      answer(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+      check("a Worker that refuses is null as well",
+        (await fetchLeaderboard(MARK_COUNT, 10)) === null
+          && (await submitScore("ACE", 100, MARK_COUNT, 10, 40)) === null);
+      answer(async () => ({ ok: true, json: async () => ({ scores: [] }) }));
+      const empty = await fetchLeaderboard(MARK_COUNT, 10);
+      check("a board that landed empty is still []", Array.isArray(empty) && empty.length === 0);
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+  }
+  // ---- …AND THE CACHE CARRIES THE DIFFERENCE (lib/api.ts's BoardCache) -----
+  {
+    const cache = new BoardCache();
+    check("a board never asked for draws as empty until its fetch lands",
+      cache.get(MARK_COUNT, DAY_NONE)?.length === 0);
+    cache.set(MARK_COUNT, DAY_NONE, null);
+    check("...and a board whose fetch failed is held as null, not as empty",
+      cache.get(MARK_COUNT, DAY_NONE) === null);
+  }
+  // ---- …AND THE SCREEN DRAWS IT AS ITS OWN LINE (screens.ts) ---------------
+  {
+    const down = S.leaderboardRowsHTML(null, undefined, MARK_COUNT);
+    check("an unreachable board says so",
+      down.includes(S.BOARD_UNAVAILABLE_TEXT) && S.BOARD_UNAVAILABLE_TEXT === "Couldn't load the board");
+    check("...and never calls itself empty", !down.includes("be the first"));
+    check("...on every board, the roof's included",
+      !S.leaderboardRowsHTML(null, undefined, BOARD_SKYDECK).includes("today's board yet"));
+    check("an empty board still says what it always said",
+      S.leaderboardRowsHTML([], undefined, MARK_COUNT).includes(S.emptyBoardText(MARK_COUNT)));
+    check("the standalone screen carries the line through",
+      S.leaderboardScreen(S.leaderboardRowsHTML(null), { board: 1, tier: 1, sandbox: false })
+        .includes(S.BOARD_UNAVAILABLE_TEXT));
+  }
+  // ---- THE SUBMIT ROW IS DONE WHEN THE WORKER SAYS SO (main.ts) ------------
+  // onSubmitScore set `submitted` and greyed #submit-row BEFORE the POST, so a
+  // post that failed left a Submit nobody could press again and a score that
+  // was simply gone. Pinned as order in the source: the done marks have to
+  // come after the await, and only on the branch that got a response.
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const submitAt = mainSrc.indexOf("private async onSubmitScore(");
+    const submitBody = mainSrc.slice(submitAt, mainSrc.indexOf("\n  }\n", submitAt));
+    const postAt = submitBody.indexOf("await submitScore(");
+    check("the submit handler exists to be checked", submitAt > 0 && postAt > 0);
+    check("the row is marked done only after the post",
+      submitBody.indexOf("this.submitted = true;") > postAt
+        && submitBody.indexOf('classList.add("done")') > postAt);
+    check("...and only when the post landed",
+      /if \(res === null\) \{[\s\S]*?return;\s*\n\s*\}\s*\n\s*this\.submitted = true;/.test(submitBody));
+    check("a failed post says why, over a Submit that still works",
+      /if \(res === null\) \{[\s\S]*?note\.textContent = S\.SUBMIT_FAILED_TEXT;[\s\S]*?note\.hidden = false;[\s\S]*?return;/
+        .test(submitBody)
+        && submitBody.indexOf("btn.disabled = false;") < submitBody.indexOf("if (res === null)")
+        && S.SUBMIT_FAILED_TEXT === "Couldn't submit — check your connection");
+    // The line lives on the card, hidden, so a failure has somewhere to write
+    // without re-rendering the modal — which would replay its entrance.
+    const card = S.endModal({
+      won: false, runComplete: false, score: 1, lines: 1, baysCleared: 0, funds: 0, best: 0,
+      name: "ACE", rows: "", reason: "topout", bayNum: 1, bayName: "Bay", tierCompleted: null,
+      tierSalvage: 0, progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 0,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
+    });
+    check("the end card carries the note's line, hidden until needed",
+      /<p class="muted end__submit-note" id="submit-note" role="alert" hidden><\/p>/.test(card));
+    // …and a failed fetch reaches the rows as null from every reader of the
+    // cache, so no screen can turn it back into an empty board on the way.
+    check("every board reader carries a failed fetch through as null",
+      (mainSrc.match(/this\.boardRows\(/g) ?? []).length >= 3
+        && /return cached === null \? null : slice\(cached\);/.test(mainSrc));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Player accounts (social login + RevenueCat identity)");
 // ---------------------------------------------------------------------------
 {
@@ -27042,11 +27180,96 @@ section("Player accounts (social login + RevenueCat identity)");
     del.includes("Full Game purchase is not deleted") && del.includes("Restore Purchases"));
   check("...and that local progress is untouched",
     /progress is untouched/.test(del) && del.includes("saved on this device"));
+  // THE SECOND SHEET IS ANNOUNCED. deleteAccount re-runs the provider login
+  // for a fresh token (pinned above), so "Delete Account" opens a Google or
+  // Apple sheet the player was never told to expect — and dismissing that
+  // sheet, reasonably, landed them back on the account screen still signed
+  // in, with nothing said.
+  check("the notice says a sign-in is coming",
+    del.includes("You'll be asked to sign in again to confirm it's you."));
 
   const mainSrc = fs.readFileSync(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
     "utf8",
   );
+
+  // -------------------------------------------------------------------------
+  // A DELETION THAT DID NOT COMPLETE SAYS SO (main.ts's onAccountDelete).
+  //
+  // Every failure was a console.warn and a mute return to the signed-in face,
+  // which reads as the button having done nothing. The screen now carries the
+  // failure as a line it renders from state — except for the one failure the
+  // player caused on purpose, closing the provider's sheet.
+  {
+    const failed = S.accountScreen({
+      available: true, ready: true, label: "Pilot", providers: both,
+      error: S.ACCOUNT_DELETE_FAILED_TEXT,
+    });
+    check("a failed deletion renders its line on the account screen",
+      /<p class="account__error" role="alert">Deletion didn&#39;t complete — try again<\/p>/
+        .test(failed));
+    check("...beside the exits, not instead of them",
+      failed.includes('data-action="account-delete"') && failed.includes('data-action="account-signout"'));
+    check("...and no line at all when nothing failed",
+      !signedIn.includes("account__error")
+        && !S.accountScreen({ available: true, ready: true, label: "Pilot", providers: both, error: null })
+          .includes("account__error"));
+    check("the line is escaped like the label is",
+      S.accountScreen({ available: true, ready: true, label: "Pilot", providers: both, error: "<b>" })
+        .includes("&lt;b&gt;"));
+
+    const deleteBody = mainSrc.slice(
+      mainSrc.indexOf("private async onAccountDelete("),
+      mainSrc.indexOf("private async onRestore("),
+    );
+    check("the handler exists to be checked", deleteBody.length > 0 && deleteBody.length < 3000);
+    // BOTH LANDINGS RE-ASK THE STATE. deleteAccount waits on a sheet and a
+    // round trip; a player who walked out of the notice during either was
+    // being dropped onto Settings, or the account screen, from wherever they
+    // had got to — mid-run included. Same guard onAccountSignIn's resume opens
+    // with.
+    check("a deletion resolving after the player left the notice lands nowhere",
+      /await deleteAccount\(\);\s*\n\s*if \(this\.state !== "account-delete"\) return;\s*\n\s*this\.setState\("settings"\)/
+        .test(deleteBody));
+    check("...and so does one failing after they left",
+      /catch \(err\) \{[\s\S]*?if \(this\.state !== "account-delete"\) return;[\s\S]*?this\.setState\("account"\)/
+        .test(deleteBody));
+    // The line is STATE the screen renders from, not a node patched into it:
+    // setState("account") re-renders, and a patch would be torn down by it.
+    check("a failure sets the line before handing the screen back",
+      /this\.accountError = isUserCancelled\(err\) \? null : S\.ACCOUNT_DELETE_FAILED_TEXT;\s*\n\s*this\.setState\("account"\)/
+        .test(deleteBody));
+    check("...and the screen renders it from that state",
+      /error: this\.accountError,/.test(mainSrc));
+    check("...and leaving the screen clears it",
+      /if \(s !== "account"\) this\.accountError = null;/.test(mainSrc));
+    // ONE SHEET AT A TIME. A second tap on Continue with Google, or on Delete
+    // Account, while the first sheet was still coming up opened a second one.
+    const signInBody = mainSrc.slice(
+      mainSrc.indexOf("private async onAccountSignIn("),
+      mainSrc.indexOf("private async onAccountSignOut("),
+    );
+    for (const [name, body] of [["sign-in", signInBody], ["deletion", deleteBody]] as const) {
+      check(`a ${name} in flight refuses a second tap`,
+        body.includes("if (this.accountBusy) return;")
+          && body.includes("this.accountBusy = true;")
+          && /finally \{[\s\S]*?this\.accountBusy = false;/.test(body));
+      check(`...and disables the button it was tapped on`,
+        body.includes("btn.disabled = true;") && /finally \{[\s\S]*?btn\.disabled = false;/.test(body));
+    }
+    // The cancel code is the plugin's own, on every platform (its errors.js is
+    // the one place it is spelled). auth.ts must match it or every dismissed
+    // sheet reads as a failure.
+    const pluginErrors = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "node_modules",
+        "@capgo", "capacitor-social-login", "dist", "esm", "errors.js"),
+      "utf8",
+    );
+    check("the cancel code auth.ts reads is the plugin's",
+      pluginErrors.includes("USER_CANCELLED_CODE = 'USER_CANCELLED'")
+        && /export function isUserCancelled\(err: unknown\): boolean \{[\s\S]*?\.code === "USER_CANCELLED"/
+          .test(authSrc));
+  }
   // The whole point of the panel: no browser dialog stands between a player and
   // this action any more. Asked of the file rather than of the handler, because
   // the failure mode is a `window.confirm` growing back anywhere in it.
@@ -27138,6 +27361,38 @@ section("Player accounts (social login + RevenueCat identity)");
     // becoming a network wait is what invited the tapping in the first place.
     check("offerings are prefetched at configure, not at the buy tap",
       /void Purchases\.getOfferings\(\)\.catch\(/.test(purchasesSrc));
+  }
+
+  /* ---- A paywalled floor with no store behind it -----------------------
+   * presentPaywall is a no-op until the SDK has configured — no key in the
+   * build, configure failed, first launch offline — and the tower routed every
+   * tap on a paywalled floor straight to it. So on exactly those builds Tier 4
+   * answered a tap with nothing: no sheet, no shake, no words (audit F1). The
+   * tap now asks the store first, and a tap with no store takes the same
+   * refusal every other locked floor takes, with the reason on the primary's
+   * subtitle rather than in a toast over the tower. */
+  {
+    const pickAt = mainSrc.indexOf("private pickTier(");
+    const pickBody = mainSrc.slice(pickAt, mainSrc.indexOf("\n  private ", pickAt + 1));
+    check("the paywalled floor's tap asks the store before offering the paywall",
+      /if \(purchasesReady\(\)\) \{\s*\n\s*void this\.onPaywall\(\);\s*\n\s*return;/.test(pickBody));
+    // The shape that was the bug: the paywall route with nothing in front of
+    // it. Its absence is the pin, because the gate above could be added beside
+    // it without removing it.
+    check("...and no ungated route to it survives",
+      !/fullGame: true \}, tier\)\) \{\s*\n\s*void this\.onPaywall\(\);/.test(pickBody));
+    check("...and a tap with no store falls through to the shake, not to silence",
+      pickBody.indexOf("this.noteStoreUnavailable()") > 0
+        && pickBody.indexOf("this.noteStoreUnavailable()")
+          < pickBody.indexOf('classList.add("is-denied")'));
+    check("...saying why on the primary's own line",
+      /sub\.textContent = S\.STORE_UNAVAILABLE_TEXT/.test(mainSrc)
+        && S.STORE_UNAVAILABLE_TEXT === "Store unavailable — try again later");
+    // The silence the gate is for, pinned so the gate cannot outlive it
+    // unexplained: both paywall paths return before presenting while !ready.
+    check("presentPaywall is silent until the SDK has configured",
+      /if \(!ready \|\| !webPurchases\) return unlimited;/.test(purchasesSrc)
+        && /if \(!ready\) return unlimited;/.test(purchasesSrc));
   }
 }
 

@@ -141,7 +141,7 @@ import { captureScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForView, boardForView, DAY_NONE,
-  fetchLeaderboard, isLadderBoard, submitScore,
+  fetchLeaderboard, isLadderBoard, submitScore, type ScoreEntry,
   type BoardDay, type BoardId, type BoardView,
 } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
@@ -160,7 +160,8 @@ import {
   presentPaywall, restorePurchases, identifyPurchasesUser, resetPurchasesUser,
 } from "./lib/purchases";
 import {
-  accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, onAuthChange,
+  accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, isUserCancelled,
+  onAuthChange,
   signIn, signOut, type AuthState,
 } from "./lib/auth";
 import {
@@ -290,6 +291,9 @@ const WATCHDOG_RESUME_MS = 3_000;
  *  intermediate box. The watchdog would catch the settled size on its next
  *  tick anyway; this just gets there first, in one frame instead of five. */
 const LOCK_SETTLE_MS = 400;
+/** How long the menu's subtitle carries "store unavailable" after a tap on a
+ *  paywalled floor before the parked floor's line comes back. */
+const STORE_NOTE_MS = 2600;
 
 /**
  * States whose overlay covers the canvas outright, so the field behind it is
@@ -596,6 +600,9 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** noteStoreUnavailable's restore. Its own clock rather than denyTimer's:
+   *  620ms is a shake, not a reading speed. */
+  private storeNoteTimer = 0;
   /** Clears the destination panel's arrival flash. A timer rather than
    *  animationend for the same reason the shake's is one: under
    *  prefers-reduced-motion there is no animation, and the panel would stay
@@ -641,6 +648,15 @@ class App {
    * Account is a plain sign-in, not a resumed purchase.
    */
   private paywallReturn: AppState | null = null;
+  /** The account screen's failure line (screens.ts's StoreState.account.error).
+   *  Set by a deletion that did not complete, cleared on every exit from the
+   *  screen — the next visit starts clean, and a retry starts by leaving for
+   *  the notice. */
+  private accountError: string | null = null;
+  /** A provider sheet is up. One sheet at a time: the tapped button is also
+   *  disabled, but a second tap can land in the frame before the attribute
+   *  does, and two Google sheets stacked is what it opened. */
+  private accountBusy = false;
   /**
    * The RevenueCat identify started by the last auth change (see onAuthChange).
    *
@@ -926,6 +942,9 @@ class App {
    *  it from the run rather than from here. */
   private lbDay: BoardDay = DAY_NONE;
   private submitted = false;
+  /** A score post is in flight (onSubmitScore) — the button is disabled for
+   *  it too, but the flag is what makes a second tap the same tap. */
+  private submitting = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
    *  once-per-session idle timer, armed at each bay start. */
@@ -1385,6 +1404,7 @@ class App {
     if (s !== "menu") {
       window.clearTimeout(this.towerTravel ?? undefined);
       window.clearTimeout(this.denyTimer);
+      window.clearTimeout(this.storeNoteTimer);
       window.clearTimeout(this.bayLandTimer);
       this.towerTravel = null;
       // The unlock ceremony belongs to the home screen and dies with it. It has
@@ -1420,6 +1440,7 @@ class App {
     // sets the field and THEN calls setState("account"), so arming it does not
     // trip this on the way in.
     if (s !== "account") this.paywallReturn = null;
+    if (s !== "account") this.accountError = null;
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -2367,6 +2388,7 @@ class App {
         ready: this.auth.ready,
         label: this.auth.user ? accountLabel(this.auth.user) : null,
         providers: this.auth.providers,
+        error: this.accountError,
       },
     };
   }
@@ -2792,6 +2814,23 @@ class App {
    * animation is `none` under prefers-reduced-motion, where animationend never
    * fires and the floor would stay red forever.
    */
+  /**
+   * The primary's subtitle says the store is down for long enough to read,
+   * then goes back to the parked floor's line. Restored through setPlaySub so
+   * the words that come back are the menu's one rule (see that method), not a
+   * copy of it — and not at all while the car is in flight, whose arrival
+   * rewrites the line anyway.
+   */
+  private noteStoreUnavailable(): void {
+    const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
+    if (!sub) return;
+    sub.textContent = S.STORE_UNAVAILABLE_TEXT;
+    window.clearTimeout(this.storeNoteTimer);
+    this.storeNoteTimer = window.setTimeout(() => {
+      if (this.towerTravel === null) this.setPlaySub(this.towerState().selected);
+    }, STORE_NOTE_MS);
+  }
+
   private pickTier(tier: number): void {
     const state = this.towerState();
     const shaft = this.overlay.querySelector<HTMLElement>(".tower__shaft");
@@ -2808,8 +2847,18 @@ class App {
       // progression hint; the floor's accessible label says the same thing.
       if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !this.fullGame()
         && S.tierOpen({ ...state, fullGame: true }, tier)) {
-        void this.onPaywall();
-        return;
+        if (purchasesReady()) {
+          void this.onPaywall();
+          return;
+        }
+        // NO STORE, NO OFFER. presentPaywall returns silently while the SDK is
+        // unconfigured (no key in this build, configure failed, first launch
+        // offline), so routing there answered the tap with nothing at all — no
+        // sheet, no shake, no words. The floor shakes like any other refusal
+        // below, and the reason goes on the primary's own line rather than in
+        // a toast over the tower, for the reason this method's note gives: the
+        // tower is what the player is reading.
+        this.noteStoreUnavailable();
       }
       // THE ROOF'S REFUSAL ANSWERS "WHICH ONES". Every other locked floor is
       // refused by one number the player can read off the tower already — the
@@ -3742,7 +3791,8 @@ class App {
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
           S.leaderboardRowsHTML(
-            S.fullBoard(this.boards.get(this.lbBoard, this.lbDay)), undefined, this.lbBoard,
+            this.boardRows(this.boards.get(this.lbBoard, this.lbDay), S.fullBoard),
+            undefined, this.lbBoard,
           ),
           {
             board: this.lbBoard,
@@ -3904,8 +3954,9 @@ class App {
               best: loadBest(this.runBoard()),
               name: loadName(),
               rows: S.leaderboardRowsHTML(
-                S.endBoard(
-                  this.boards.get(this.runBoard(), this.boardDay()), loadName() || undefined,
+                this.boardRows(
+                  this.boards.get(this.runBoard(), this.boardDay()),
+                  (rows) => S.endBoard(rows, loadName() || undefined),
                 ),
                 loadName() || undefined,
                 this.runBoard(),
@@ -3967,6 +4018,10 @@ class App {
                 this.state === "lost" && seal !== null
                   ? { seal, mark: this.run.mark }
                   : undefined,
+              // …EXCEPT ON BAY 1, where the bay and the run are the same deal
+              // and Retry Run already hands it back free (run.ts's
+              // retryIsWholeRun) — the same read the pause card takes.
+              runRetry: this.runRetryOffered(),
             }),
           );
         }
@@ -6762,6 +6817,15 @@ class App {
    *  but on a real device's network it reads as "the leaderboard shows
    *  twice" — the modal visibly pops in, then pops in again a moment later
    *  once the fetch lands. */
+  /** A cached board sliced for the screen, or null carried through when the
+   *  cache holds a failed fetch (BoardCache) — so every reader draws the
+   *  "couldn't load" line rather than an empty board. */
+  private boardRows(
+    cached: ScoreEntry[] | null, slice: (rows: ScoreEntry[]) => S.BoardRow[],
+  ): S.BoardRow[] | null {
+    return cached === null ? null : slice(cached);
+  }
+
   private renderBoardRows(highlight?: string): void {
     const body = this.overlay.querySelector("#lb-body");
     if (!body) return;
@@ -6778,8 +6842,10 @@ class App {
     const screen = this.state === "leaderboard";
     const board = screen ? this.lbBoard : this.runBoard();
     const day = screen ? this.lbDay : this.boardDay();
-    const cached = this.boards.get(board, day);
-    const rows = screen ? S.fullBoard(cached) : S.endBoard(cached, highlight);
+    const rows = this.boardRows(
+      this.boards.get(board, day),
+      (cached) => screen ? S.fullBoard(cached) : S.endBoard(cached, highlight),
+    );
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight, board);
   }
 
@@ -9221,12 +9287,21 @@ class App {
    *  failed sign-in drops the destination for the same reason — the player did
    *  not sign in, so there is nothing to resume onto. */
   private async onAccountSignIn(provider: "google" | "apple"): Promise<void> {
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>(`[data-action="account-${provider}"]`);
+    this.accountBusy = true;
+    if (btn) btn.disabled = true;
     try {
       await signIn(provider);
     } catch (err) {
       console.warn("[auth] sign-in failed", err);
       this.paywallReturn = null;
       return;
+    } finally {
+      // Unconditional: on success onAuthChange has replaced the screen and
+      // this node is detached, so the write is a no-op there.
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
     }
     const back = this.paywallReturn;
     this.paywallReturn = null;
@@ -9273,14 +9348,34 @@ class App {
   /** The deletion itself. Success lands on Settings — the account screen's own
    *  door, and the screen the player is now signed out on; a failure hands the
    *  account screen back rather than leaving the confirmation up, so the panel
-   *  can never be the thing standing between a player and a retry. */
+   *  can never be the thing standing between a player and a retry — WITH A
+   *  LINE SAYING SO. It used to hand the screen back mute, which read as the
+   *  button having done nothing; the one failure that stays mute is the
+   *  player closing the provider's sheet, which the notice now warns is
+   *  coming and which they already know they did.
+   *
+   *  BOTH LANDINGS RE-ASK THE STATE, the guard onAccountSignIn opens its resume
+   *  with: deleteAccount waits on a provider sheet and a network round trip,
+   *  and a player who walked out of the notice during either was being dropped
+   *  onto Settings — or back onto the account screen — from wherever they had
+   *  got to. */
   private async onAccountDelete(): Promise<void> {
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>('[data-action="account-delete-go"]');
+    this.accountBusy = true;
+    if (btn) btn.disabled = true;
     try {
       await deleteAccount();
+      if (this.state !== "account-delete") return;
       this.setState("settings");
     } catch (err) {
       console.warn("[auth] account deletion failed", err);
+      if (this.state !== "account-delete") return;
+      this.accountError = isUserCancelled(err) ? null : S.ACCOUNT_DELETE_FAILED_TEXT;
       this.setState("account");
+    } finally {
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -9311,15 +9406,24 @@ class App {
     }
   }
 
+  /** Post the score, and mark the row done ONLY once the Worker has said so.
+   *  It used to mark itself done before the request: a post that failed —
+   *  no signal, a Worker down — left a greyed Submit nobody could press again
+   *  over a board that then read "be the first!", and the score was gone. */
   private async onSubmitScore(): Promise<void> {
     const g = this.game;
-    if (!g || this.submitted) return;
+    if (!g || this.submitted || this.submitting) return;
     const input = this.overlay.querySelector<HTMLInputElement>("#name-input");
     const name = (input?.value || loadName() || "ACE").toUpperCase().slice(0, 12);
     saveName(name);
-    this.submitted = true;
     const row = this.overlay.querySelector("#submit-row");
-    row?.classList.add("done");
+    const btn = row?.querySelector<HTMLButtonElement>("button") ?? null;
+    const note = this.overlay.querySelector<HTMLElement>("#submit-note");
+    // Held shut for the request's duration rather than marked done: a second
+    // tap mid-flight is the same score twice, and a failure has to hand the
+    // button back.
+    this.submitting = true;
+    if (btn) btn.disabled = true;
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
     // The board the RUN was flown on. A Tier S score never touches the Deep
     // Run board, and a Skydeck score never touches Tier 10's — see lib/api.ts's
@@ -9335,7 +9439,18 @@ class App {
     const res = await submitScore(
       name, this.finalScore(g, this.state === "won"), board, bay, lines, day,
     );
-    this.boards.set(board, day, res?.scores ?? (await fetchLeaderboard(board, 10, day)));
+    this.submitting = false;
+    if (btn) btn.disabled = false;
+    if (res === null) {
+      // The row stays live and says why. The cache is left alone: whatever the
+      // board showed before the tap is still the truest thing known about it.
+      if (note) { note.textContent = S.SUBMIT_FAILED_TEXT; note.hidden = false; }
+      return;
+    }
+    this.submitted = true;
+    row?.classList.add("done");
+    if (note) note.hidden = true;
+    this.boards.set(board, day, res.scores);
     this.renderBoardRows(name);
     void successHaptic();
   }

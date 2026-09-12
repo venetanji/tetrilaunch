@@ -1605,6 +1605,13 @@ export interface SchoolPrompt {
   step: number | null;
 }
 
+/** What the primary's subtitle says when a paywalled floor is tapped and there
+ *  is no store to sell it (main.ts's noteStoreUnavailable — purchases.ts's
+ *  presentPaywall is a silent no-op until the SDK has configured). On the
+ *  button's line rather than in a toast, because the tower is what the player
+ *  is reading when they tap it. */
+export const STORE_UNAVAILABLE_TEXT = "Store unavailable — try again later";
+
 export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
   /** Flight School's progress, while the ground floor still owes a rung. Null
@@ -2074,8 +2081,18 @@ export interface StoreState {
     ready: boolean;
     label: string | null;
     providers: { google: boolean; apple: boolean };
+    /** The last account action's failure, worded for the player (main.ts's
+     *  accountError) — drawn as a line on the screen, so a deletion that did
+     *  not complete is never a silent return to the signed-in face. */
+    error?: string | null;
   };
 }
+
+/** What the account screen says under a deletion that did not go through —
+ *  the Worker refused, the network dropped, the fresh provider token never
+ *  came. NOT shown when the player closed the provider's sheet themselves
+ *  (auth.ts's isUserCancelled): they know. */
+export const ACCOUNT_DELETE_FAILED_TEXT = "Deletion didn't complete — try again";
 
 function unlimitedBadgeHTML(): string {
   return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Full Game</div>`;
@@ -2531,6 +2548,7 @@ export function accountScreen(account: NonNullable<StoreState["account"]>): stri
         <button class="icon-btn" data-action="settings" aria-label="Back">${icon("close", 18)}</button>
       </div>
       ${body}
+      ${account.error ? `<p class="account__error" role="alert">${accountText(account.error)}</p>` : ""}
     </div>
   </div>`;
 }
@@ -2566,7 +2584,8 @@ export function accountDeleteModal(): string {
       <h2 class="display">Delete this player account?</h2>
       <p class="account-note__body">This removes the <b>purchase-recovery identity</b> — the
       customer record your Google or Apple sign-in names at RevenueCat — and the sign-in stored
-      on this device. It cannot be undone, and signing in again creates a new, empty one.</p>
+      on this device. It cannot be undone, and signing in again creates a new, empty one.
+      You'll be asked to sign in again to confirm it's you.</p>
       <p class="account-note__body"><b>Your Full Game purchase is not deleted.</b> It stays with
       the Apple, Google or web store account that bought it, and <b>Restore Purchases</b> finds
       it again. Your progress is untouched too — salvage, unlocks, seals and best scores are
@@ -2629,14 +2648,29 @@ export function emptyBoardText(board: BoardId): string {
     : "No scores at this Tier yet — be the first!";
 }
 
+/** What the board says when it could not be fetched (lib/api.ts's
+ *  fetchLeaderboard returning null). Its own line, because "No scores at this
+ *  Tier yet" over a board that has plenty is the board lying. */
+export const BOARD_UNAVAILABLE_TEXT = "Couldn't load the board";
+
+/** What the end card's submit row says when the post did not go through
+ *  (main.ts's onSubmitScore) — over a Submit button that still works, because
+ *  a score that never landed is one the player can still send. */
+export const SUBMIT_FAILED_TEXT = "Couldn't submit — check your connection";
+
 export function leaderboardRowsHTML(
-  rows: BoardRow[],
+  /** NULL when the board could not be fetched — drawn as its own line, never
+   *  as the empty board's. */
+  rows: BoardRow[] | null,
   highlight?: string,
   /** Which board these rows are from — only read when there are none. Defaults
    *  to a Tier's wording, which is what every caller that predates the daily
    *  board meant. */
   board: BoardId = 1,
 ): string {
+  if (rows === null) {
+    return `<div class="muted lb__unavailable" role="status" style="padding:20px;text-align:center">${BOARD_UNAVAILABLE_TEXT}</div>`;
+  }
   if (!rows.length) {
     return `<div class="muted" style="padding:20px;text-align:center">${emptyBoardText(board)}</div>`;
   }
@@ -6357,8 +6391,21 @@ export function endModal(opts: {
      *  stop agreeing. */
     mark: number;
   };
+  /** Whether the retry this card's primary offers is the whole RUN rather
+   *  than the bay (run.ts's retryIsWholeRun) — true only on the first bay of
+   *  a ladder run, where the bay and the run are the same deal and only one
+   *  of them was free. Drops Retry Bay and its seal line, exactly as
+   *  pauseModal's `runRetry` drops Restart Bay: a seal-priced button beside
+   *  a free one that hands back the same bay is a price for nothing.
+   *
+   *  Defaults false, so every caller that predates the argument draws the
+   *  card it always did. */
+  runRetry?: boolean;
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
+  // The bay retry, minus bay 1 (see `runRetry`). Resolved once, because the
+  // seal line and the button below both read it and must agree.
+  const retryBay = opts.runRetry ? undefined : opts.retryBay;
   // Demolition recovery, appended to whichever foot line the branch below
   // renders. Suppressed at zero rather than printed as "$0": a charge is a
   // draft pick most runs never make, so the line would be dead weight on the
@@ -6537,6 +6584,10 @@ export function endModal(opts: {
                action, and two primaries made the exit compete with it. -->
           <button class="btn btn--secondary" data-action="submit-score">Submit</button>
         </div>
+        <!-- Hidden until a post fails (main.ts's onSubmitScore) — so it adds no
+             height to the card the fixtures measure, and no line until there
+             is something to say. -->
+        <p class="muted end__submit-note" id="submit-note" role="alert" hidden></p>
         <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
@@ -6567,11 +6618,11 @@ export function endModal(opts: {
           // and is worded so it cannot be read as this RUN having sealed
           // something: a re-fly seals nothing until it is won clean, and the
           // player is looking at a loss.
-          opts.retryBay
-            ? opts.retryBay.seal === "at-stake"
+          retryBay
+            ? retryBay.seal === "at-stake"
               ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
-              : opts.retryBay.seal === "held"
-                ? `<p class="muted end__seal">Tier ${opts.retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
+              : retryBay.seal === "held"
+                ? `<p class="muted end__seal">Tier ${retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
                 : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
             : ""
         }
@@ -6627,12 +6678,17 @@ export function endModal(opts: {
           // pause modal went out with a bare button as a result — so the rule
           // moved out to be shared rather than being copied to the second
           // caller. Nothing about this button's face changed in the move.
-          opts.retryBay
+          //
+          // …AND NOT ON BAY 1 (`runRetry`), where it would sit beside Retry
+          // Run charging the seal for the same re-deal that button hands back
+          // free. The pause card already refuses the same pair; the argument
+          // is run.ts's retryIsWholeRun.
+          retryBay
             ? `<button class="btn btn--secondary" data-action="retry-bay"
               aria-label="${
-                sealNameWith(`Retry Bay ${opts.bayNum}`, opts.retryBay.seal, opts.retryBay.mark)
+                sealNameWith(`Retry Bay ${opts.bayNum}`, retryBay.seal, retryBay.mark)
               }"
-            >${sealFaceHTML(opts.retryBay.seal)}Retry Bay</button>`
+            >${sealFaceHTML(retryBay.seal)}Retry Bay</button>`
             : ""
         }
         ${
