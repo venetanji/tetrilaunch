@@ -41,6 +41,9 @@
       <feDropShadow dx="0" dy="0" stdDeviation="25.6" flood-color="#00ff85" flood-opacity="0.9"/>
     </filter>
   </defs>
+  <!-- Backdrop. rasterize-assets.mjs splits the Android adaptive icon here: these
+       two rects become the background layer, and everything after them is the
+       mark it centres on the foreground. Keep them adjacent, and the mark below. -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
   <rect width="1024" height="1024" fill="url(#grid)"/>
   <g filter="url(#tileGlow)">

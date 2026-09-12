@@ -23,6 +23,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const generated = path.join(appDir, "android", "app", "src", "main", "res");
@@ -64,3 +65,28 @@ if (!files) {
 console.log(
   `stage-android-assets: staged ${files} files (${(bytes / 1048576).toFixed(2)} MB) -> native/android/res/`,
 );
+
+/* Adaptive-icon layers at the size Android expects.
+ *
+ * The two adaptive layers are 108dp — 81/108/162/216/324/432 px across the six
+ * densities — and @capacitor/assets 3.0.5 (the latest) defines exactly those
+ * templates. But when icon-foreground.png / icon-background.png are supplied
+ * explicitly it routes them through its legacy 48dp icon templates instead
+ * (36…192 px), so Android stretched every layer 2.25× at draw time. Re-render
+ * both layers here from the same 1024 sources at the real sizes.
+ * ic_launcher.png / ic_launcher_round.png stay the generator's: those are the
+ * pre-Android-8 legacy icons, and 48dp is right for them. */
+const ADAPTIVE_DP = 108;
+const DENSITIES = { ldpi: 0.75, mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
+let layers = 0;
+for (const layer of ["foreground", "background"]) {
+  const source = path.join(appDir, "resources", `icon-${layer}.png`);
+  for (const [density, factor] of Object.entries(DENSITIES)) {
+    const px = Math.round(ADAPTIVE_DP * factor);
+    const dst = path.join(staged, `mipmap-${density}`, `ic_launcher_${layer}.png`);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    await sharp(source).resize(px, px).png().toFile(dst);
+    layers++;
+  }
+}
+console.log(`stage-android-assets: re-rendered ${layers} adaptive layer(s) at 108dp (81–432 px)`);
