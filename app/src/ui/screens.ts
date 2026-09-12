@@ -43,7 +43,8 @@ import {
 } from "../game/hazards";
 import type { FinalDef, FinalId } from "../game/finals";
 import {
-  ACTION_LABELS, BINDABLE_ACTIONS, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
+  ACTION_LABELS, BINDABLE_ACTIONS, PAUSE_ALIAS, fullscreenKeys, hintAim, hintRotate, keyFor,
+  keyLabel, padFor, padLabel, pauseKeyLabels,
   type BindableAction, type InputProfile,
 } from "../game/bindings";
 import type { PreviewPart, PreviewRow } from "../game/preview";
@@ -2242,6 +2243,20 @@ export function controlsScreen(opts: {
       ${infoRow("Arc height", "scroll · up comes down steeper")}
       ${infoRow("Mouse rotate", "right-click ⟳ · wheel press ⟲")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
+      ${
+        // ESCAPE, UNDER THE PAUSE ROW IT IS NOT. Info rows, not bind rows:
+        // Escape is a fixed alias (bindings.ts's PAUSE_ALIAS) and the
+        // fullscreen keys are the desktop shell's own, read before the page
+        // sees them — a Rebind button on either would offer a rebind nothing
+        // could honour. The Escape row states what it does in every shell:
+        // pause, and in fullscreen leave that first (which pauses too,
+        // main.ts's onFullscreenChange). It goes when a swap has given Escape
+        // to another action, whose own row then names it.
+        pauseKeyLabels().length > 1
+          ? infoRow(keyLabel(PAUSE_ALIAS), "also pauses · leaves fullscreen first")
+          : ""
+      }
+      ${fullscreenKeys().length ? infoRow("Fullscreen", fullscreenKeys().join(" · ")) : ""}
       ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}
       ${
         // THE POINTER, HANDED BACK (store.ts's systemCursor, styles/cursors.css).
@@ -3972,6 +3987,21 @@ function hintParts(
     // name and in the guide, where a sentence fits.
     if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
     if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
+    /* THE PAUSE KEYS, plural: the rebindable one (P by default) and Escape,
+       which bindings.ts keeps as a fixed alias and which pauses on every
+       shell — directly where the page sees it, and through the fullscreen
+       exit it causes where a browser or the desktop shell consumes it
+       (main.ts's onFullscreenChange). The alias chip is the keyboard arm's
+       one relaxation of "every chip is a live binding", on the pad arm's own
+       terms: a key no rebind may touch cannot go stale. It is dropped from
+       the card the moment a swap hands Escape to another action. */
+    part(`${pauseKeyLabels().map(kbd).join("/")} pause`);
+    /* The desktop shell's fullscreen keys (F11; ⌃⌘F leads on a Mac), which
+       exist nowhere the player can otherwise read them — the shell handles
+       them before the page sees the keydown. Empty in a browser and on the
+       native shells, where the line is not rendered (lib/platform's
+       shellFullscreenKeys). Fixed chips, same relaxation as the alias. */
+    if (fullscreenKeys().length) part(`${fullscreenKeys().map(kbd).join("/")} fullscreen`);
     /* "click to aim", not "drag to aim", and this strip is the one place the
        change is safe to state flatly. It renders only under `pointer: fine`
        (see the block below), where the pointer IS a mouse — and the mouse is

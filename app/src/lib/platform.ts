@@ -175,6 +175,19 @@ export async function toggleFullscreen(): Promise<void> {
   else await requestFullscreen();
 }
 
+/** The keys the Electron shell toggles fullscreen on (desktop/main.js's
+ *  before-input-event), as keycap labels for the pause card and the Controls
+ *  screen — bindings.ts's setFullscreenKeys carries them there. Ctrl+Cmd+F is
+ *  the macOS convention and leads on a Mac; F11 works on all three. Empty off
+ *  the desktop shell: a browser's own F11 is the browser's fullscreen, not the
+ *  page's, and the native shells have nothing to toggle. */
+export function shellFullscreenKeys(): string[] {
+  if (!isDesktop) return [];
+  const nav = navigator as unknown as { userAgentData?: { platform?: string }; platform?: string };
+  const mac = nav.userAgentData?.platform === "macOS" || /^Mac/.test(nav.platform ?? "");
+  return mac ? ["⌃⌘F", "F11"] : ["F11"];
+}
+
 /** Called from *inside* the Play/Start button's click handler (never on a
  *  timer or outside a gesture — browsers reject/ignore fullscreen requests
  *  that aren't a direct result of user activation). Only auto-requests on

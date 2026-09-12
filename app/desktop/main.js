@@ -106,6 +106,17 @@ function createWindow() {
     // "desktop" rather than a stretched tablet. Resizing is left ON deliberately
     // — the spike wants to see how the chrome magnification that landed in #93
     // behaves at sizes the ui-fit harness does not cover.
+    //
+    // 1280x720 is the CONTENT size, not the frame's. Without useContentSize
+    // these numbers size the outer window, and the OS titlebar and borders
+    // come out of them: on Windows the page was handed 1269x663, which is the
+    // uifit matrix's "windowed" row and the box in which the draft body
+    // scrolls by 16px and the projection tile is cut in half. The shell was
+    // opening on a layout the game itself files as a dragged-narrow window.
+    // useContentSize also makes minWidth/minHeight content constraints (Electron
+    // applies the min/max pair through the same switch), so 960x540 is now the
+    // smallest PAGE, which is the number the layout solver was given to hold.
+    useContentSize: true,
     width: 1280,
     height: 720,
     minWidth: 960,
@@ -142,6 +153,37 @@ function createWindow() {
   return win;
 }
 
+/**
+ * Fullscreen is asked of the PAGE first, and of the window only when the page
+ * cannot answer.
+ *
+ * win.setFullScreen() is the window's fullscreen and nothing more: the DOM
+ * never hears about it — document.fullscreenElement stays null and no
+ * fullscreenchange fires — so the game's own fullscreen button keeps saying
+ * "Fullscreen" over a window that already is, and a bay that should pause when
+ * fullscreen ends (app/src/main.ts's onFullscreenChange) never learns that it
+ * did. The page's Fullscreen API is the other way round: Electron makes the
+ * window fullscreen to honour requestFullscreen() and fires the DOM event on
+ * both edges, so the button, the pause and the shell's keys all agree on one
+ * state. Escape from an F11 fullscreen and Escape from a button fullscreen are
+ * then the same exit.
+ *
+ * userGesture: true is the documented reason executeJavaScript takes that
+ * argument at all — requestFullscreen() is gated on user activation, and a
+ * before-input-event handler is not one as far as the page knows.
+ *
+ * The fallback is the previous behaviour, kept for the cases where the page
+ * cannot act: nothing loaded yet, a rejected request, or exitFullscreen() on a
+ * window that only the fallback ever made fullscreen (it rejects when there is
+ * no fullscreenElement, which is exactly that state). The next toggle then
+ * tries the page again, so one refusal does not pin the shell to the window
+ * path.
+ */
+function setFullscreen(win, on) {
+  const js = on ? "document.documentElement.requestFullscreen()" : "document.exitFullscreen()";
+  win.webContents.executeJavaScript(js, true).catch(() => win.setFullScreen(on));
+}
+
 // A second launch must hand focus to the window that already exists rather
 // than opening a rival one. Two instances share userData, and userData is
 // where localStorage — the save — lives, so the second writer silently wins.
@@ -161,13 +203,44 @@ if (!app.requestSingleInstanceLock()) {
     registerAppProtocol();
     const win = createWindow();
 
-    // F11 is the fullscreen convention on Windows and Linux; Escape leaves it.
-    // Steam builds normally launch fullscreen, but a spike you are trying to
-    // observe is far easier to watch in a window.
-    win.webContents.on("before-input-event", (_event, input) => {
-      if (input.type !== "keyDown") return;
-      if (input.key === "F11") win.setFullScreen(!win.isFullScreen());
-      if (input.key === "Escape" && win.isFullScreen()) win.setFullScreen(false);
+    // THE KEYS THE SHELL OWNS. F11 toggles fullscreen — the convention on
+    // Windows and Linux — and so does Ctrl+Cmd+F on macOS, which is that
+    // platform's convention (F11 is kept there too; it is just not what a Mac
+    // player reaches for). Escape leaves fullscreen. Steam builds normally
+    // launch fullscreen, but a window is far easier to watch a build in.
+    //
+    // event.preventDefault() IS THE FIX, not decoration. Without it the page
+    // sees the same keydown: the game's pause key used to be Escape, so one
+    // press in fullscreen left fullscreen AND opened the pause modal while the
+    // layout re-solved underneath it. Prevented, the key is the shell's alone
+    // — the page's own keydown never fires, and neither does a menu shortcut
+    // (Electron documents both for this event), which matters on macOS, where
+    // the default application menu already carries Ctrl+Cmd+F as Toggle Full
+    // Screen and would otherwise toggle it a second time. The page still
+    // learns that fullscreen ended, through the DOM, which is what
+    // setFullscreen below is built around; it pauses a live bay on that
+    // signal (app/src/main.ts's onFullscreenChange), so leaving fullscreen by
+    // any of these keys never leaves the bay running.
+    //
+    // NO TEST HARNESS reaches this file — the sims run the page's modules
+    // under Node, and a BrowserWindow needs a display — so the contract is
+    // stated here and pinned on the page side: bindings.ts's pause default
+    // and alias, and onFullscreenChange's pause, are in sim/systems.ts.
+    // Verify a change to this block by hand: F11 (and ⌃⌘F on a Mac) toggles
+    // fullscreen without pausing; Escape in fullscreen leaves it and the bay
+    // pauses once; Escape in a window pauses and resumes; none of the three
+    // reaches the page as a keydown while fullscreen.
+    win.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || input.isAutoRepeat) return;
+      const toggle =
+        input.key === "F11" ||
+        (process.platform === "darwin" &&
+          input.control && input.meta && !input.alt && !input.shift &&
+          input.key.toLowerCase() === "f");
+      const leave = input.key === "Escape" && win.isFullScreen();
+      if (!toggle && !leave) return;
+      event.preventDefault();
+      setFullscreen(win, toggle ? !win.isFullScreen() : false);
     });
 
     app.on("activate", () => {

@@ -56,8 +56,62 @@ const DEFAULT_KEYS: Record<BindableAction, string> = {
   // the other aims. V was the alternative and is a worse fit — it puts a
   // fourth key on the row for a control the player uses in bursts.
   bond: "b", demo: "x", thaw: "c", auto: "f",
-  pause: "escape",
+  // P, not Escape. Escape is the LEAVE-FULLSCREEN key in every shell the game
+  // runs in — Chromium consumes it outright in browser fullscreen (the page
+  // never sees the keydown), and the Electron shell claims it to leave
+  // fullscreen and stops it reaching the page for the same reason (see
+  // desktop/main.js). A pause key that a whole mode of the app eats before
+  // the game can read it is a keycap describing nothing, so the binding is a
+  // key no shell wants. Escape still pauses wherever the page does see it —
+  // PAUSE_ALIAS below — it is just not the key the rail's chip is built on.
+  pause: "p",
 };
+
+/**
+ * Escape pauses too, as a FIXED alias rather than a binding: it cannot be
+ * rebound in either direction (main.ts's rebind capture refuses it, because a
+ * pause key you cannot type would strand the player), so the table has no row
+ * for it, and isPauseKey/pauseKeyLabels read it alongside the row that exists.
+ * It yields to a table that has put it on another action, which only a swap
+ * can do — the capture never binds it directly — so that a player who moved
+ * their bindings around never has one key doing two things.
+ */
+export const PAUSE_ALIAS = "escape";
+
+/** Whether `key` (a KeyboardEvent.key) pauses: the rebindable pause key, or
+ *  the Escape alias when nothing else has claimed Escape. */
+export function isPauseKey(key: string): boolean {
+  const action = actionForKey(key);
+  return action === "pause" || (action === null && key.toLowerCase() === PAUSE_ALIAS);
+}
+
+/** The keycaps that pause, for the card and the Controls screen: the live
+ *  binding first, then the alias whenever it is still free. */
+export function pauseKeyLabels(): string[] {
+  const out = [keyLabel(keyFor("pause"))];
+  if (isPauseKey(PAUSE_ALIAS) && keyFor("pause") !== PAUSE_ALIAS) out.push(keyLabel(PAUSE_ALIAS));
+  return out;
+}
+
+/**
+ * THE SHELL'S FULLSCREEN KEYS — "F11", or "⌃⌘F" and "F11" on a Mac — set by
+ * main.ts from lib/platform's shellFullscreenKeys and read by the pause card
+ * and the Controls screen, the way padFamily is set from the connected pad
+ * and read everywhere. Empty everywhere but the Electron shell: a browser's
+ * F11 is the BROWSER's fullscreen, which is not the page's and fires no
+ * fullscreenchange, and the native shells have no fullscreen to toggle at all.
+ * Not a BindableAction, and deliberately: the shell reads these keys before
+ * the page ever sees them, so nothing in the page could honour a rebind.
+ */
+let fullscreenKeyLabels: string[] = [];
+
+export function setFullscreenKeys(labels: string[]): void {
+  fullscreenKeyLabels = [...labels];
+}
+
+export function fullscreenKeys(): string[] {
+  return fullscreenKeyLabels;
+}
 
 const KEYS_KEY = "tetrilaunch.keys";
 
