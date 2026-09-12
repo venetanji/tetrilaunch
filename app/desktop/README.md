@@ -153,7 +153,10 @@ runs it first. In CI the tag is checked against that version rather than
 written into the build, because electron-builder bakes the number into the NSIS
 uninstall entry, the macOS `Info.plist` and the AppImage's desktop entry — so a
 tag that disagreed with the committed version would ship an app that disagrees
-with the repo. Bump both files, commit, then tag.
+with the repo. Bump both files, commit, then tag — in that order: the bump
+commit has to be an ancestor of the tag, because the check fails the tag
+outright when it names a version the tagged commit does not carry (v1.0.3 was
+tagged against a committed 1.0.2 and all three OS jobs stopped there).
 
 ### CI
 
