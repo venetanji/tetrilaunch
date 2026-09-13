@@ -28618,6 +28618,99 @@ section("No infinite animation survives Reduce Motion on a specificity technical
   );
 }
 
+section("--text-faint is decorative; text uses --text-faint-ink (tokens.css, app.css, F8)");
+// ---------------------------------------------------------------------------
+// #55557a measures 2.13:1 on --surface-3 and 2.89:1 on --bg-deep — under WCAG
+// AA (4.5:1) and under the 3:1 large-text floor on every ground in the palette
+// — and twenty declarations in app.css were painting with it, fifteen of them
+// under words: the menu's best-score line, the tower's locked floors, the
+// guide's locked marks and drill rows, the plant's clean-notch readout and its
+// mods label, the yard's idle spend, the rack's shed label, the Contract card's
+// state and supply labels, and Tier S's seed id.
+//
+// The token is not deleted, because the five that remain are not reading
+// matter: a stowed system's 15px icon, the full-chain star in two states, the
+// " ·" generated between owned items, and the build stamp (aria-hidden,
+// pointer-events none — sim/uifit's own DECORATIVE list calls it "nothing a
+// player reads"). Splitting the token is what lets one step of the ramp go on
+// being the quietest shape in the room while no sentence is set in it.
+// ---------------------------------------------------------------------------
+{
+  const tokens = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  const hex = (name: string): string =>
+    (new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`).exec(tokens) ?? ["", ""])[1];
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (h: string): number => {
+    const n = parseInt(h.slice(1), 16);
+    return 0.2126 * toLinear((n >> 16) & 255)
+      + 0.7152 * toLinear((n >> 8) & 255)
+      + 0.0722 * toLinear(n & 255);
+  };
+  const contrast = (a: string, b: string): number => {
+    const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const WCAG_AA = 4.5;
+  const ink = hex("text-faint-ink");
+  const faint = hex("text-faint");
+  const muted = hex("text-muted");
+  const bg = hex("bg");
+  check("a text-weight companion to --text-faint exists", /^#[0-9a-f]{6}$/i.test(ink), ink || "absent");
+  // THE REPORT, MEASURED — kept so the reason the split exists survives a
+  // future palette pass that might otherwise "simplify" the two back into one.
+  check(
+    "--text-faint fails AA on the app's own ground, which is why it is decorative-only",
+    contrast(faint, bg) < WCAG_AA,
+    `${faint} on ${bg} is ${contrast(faint, bg).toFixed(2)}:1`,
+  );
+  check(
+    "--text-faint-ink clears AA on that ground",
+    contrast(ink, bg) >= WCAG_AA,
+    `${ink} on ${bg} is ${contrast(ink, bg).toFixed(2)}:1`,
+  );
+  // Still a RAMP: the new step has to stay quieter than --text-muted, or the
+  // hierarchy the four stops encode collapses into three.
+  check(
+    "...and is still a step below --text-muted, not a second copy of it",
+    lum(ink) < lum(muted) && lum(ink) > lum(faint),
+    `${faint} < ${ink} < ${muted}`,
+  );
+
+  // The five that may keep it, by name. A sixth appearing without an argument
+  // beside it is the thing this pin is here to stop.
+  const DECORATIVE = [
+    ".build-tag",                       // aria-hidden debug stamp
+    ".pl-chain__star",                  // the full-chain promise, an SVG star
+    ".pl-chain--congest .pl-chain__star",
+    ".rack-slot--shed",                 // a stowed system's icon and pips
+    ".workshop__owned-item:not(:last-child)::after", // a generated " ·"
+  ];
+  const users = [...APP_CSS.matchAll(/(?:^|[};])\s*([^{}@]+?)\s*\{[^}]*var\(--text-faint\)[^}]*\}/g)]
+    .map((m) => m[1].trim().replace(/\s+/g, " "));
+  check(
+    "only the five decorative sites still paint with --text-faint",
+    users.length === DECORATIVE.length && users.every((u) => DECORATIVE.includes(u)),
+    users.filter((u) => !DECORATIVE.includes(u)).join(" | ") || `${users.length} sites`,
+  );
+  // …and the labels that moved actually landed on the new token rather than on
+  // a fresh hex, which is the other way this could have been "fixed".
+  check(
+    "the text sites moved to the token, not to a new colour",
+    (APP_CSS.match(/var\(--text-faint-ink\)/g) ?? []).length === 15,
+    String((APP_CSS.match(/var\(--text-faint-ink\)/g) ?? []).length),
+  );
+  check(
+    "...and app.css still writes no raw hex for either step",
+    !APP_CSS.includes("#55557a") && !APP_CSS.includes(ink),
+  );
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."

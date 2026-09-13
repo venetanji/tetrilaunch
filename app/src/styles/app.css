@@ -981,7 +981,7 @@ body.crt-off #app::after { display: none; }
 }
 .base-bay__best {
   font-family: var(--font-pixel); font-size: 6.5px; letter-spacing: 0.06em;
-  color: var(--text-faint); text-transform: uppercase; white-space: nowrap;
+  color: var(--text-faint-ink); text-transform: uppercase; white-space: nowrap;
   flex: none;
 }
 /* THE PARKED FLOOR'S SEAL, IN WORDS — the state the tower stamps one column
@@ -1250,7 +1250,7 @@ body.crt-off #app::after { display: none; }
 .bay-belt__mat.is-dark { opacity: 0.22; filter: grayscale(1); }
 .bay-belt__count {
   margin-left: auto; min-width: 0;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* The developer sandbox entry, and only that — the entitlement pair moved onto
@@ -1815,7 +1815,7 @@ body.crt-off #app::after { display: none; }
   background: rgba(255, 176, 32, 0.16);
 }
 .tower__floor.is-locked {
-  color: var(--text-faint);
+  color: var(--text-faint-ink);
   background: rgba(255, 255, 255, 0.012);
   opacity: 0.55;
   cursor: not-allowed;
@@ -5355,8 +5355,12 @@ body.crt-off #app::after { display: none; }
    full chain is possible this bay"; at the 9px the star used to draw at,
    surface-3 read as dimmed, and at the size above it reads as a HOLE punched in
    the row — a missing element rather than an unreachable one. `--text-faint` is
-   the same statement at the same weight as every other unreached readout in the
-   app. */
+   the quietest step of the text ramp, and this is one of the five places still
+   entitled to it: the star is a GLYPH, not reading matter, so the contrast
+   floor that moved every faint LABEL in the app onto `--text-faint-ink`
+   (tokens.css) deliberately does not reach it. A shape at the bottom of the
+   ramp is the statement; the same dimming under a sentence is a sentence
+   nobody can read. */
 .pl-chain--congest .pl-chain__star { color: var(--text-faint); }
 /* ---------- R4: THE PAYOUT LEADS ----------
    `.pl-chain__val` moves to the FRONT of the row, where the pixel-type word
@@ -5807,13 +5811,13 @@ body.crt-off #app::after { display: none; }
   padding-right: max(4px, calc(8 * var(--fpx)));
   margin-right: max(2px, calc(4 * var(--fpx)));
 }
-.pl-notch--clean .pl-notch__total { color: var(--text-faint); }
+.pl-notch--clean .pl-notch__total { color: var(--text-faint-ink); }
 /* THE MARK'S CLEAN COLOUR CARRIES THE SAME SCOPE AS ITS RED ONE. The total
    above needs none — `.pl-notch--clean` is only ever written onto a Deep Run
    row — but the LABEL's red is scoped past a Contract (see the rule three above
    this one), which puts it four classes deep, and a bare `.pl-notch--clean
    .lbl` at two would lose to it and leave a zero-notch mark in danger red. */
-.hud:not(.hud--contract) .pl-notch--clean .lbl { color: var(--text-faint); }
+.hud:not(.hud--contract) .pl-notch--clean .lbl { color: var(--text-faint-ink); }
 /* THE STACK BADGE. Per-axis count in the mark's bottom-right quarter — the
    stack is a real fact (three notches on Sweeper is three times the tempo) and
    the total on the row's left cannot carry which axis it is on. A BARE numeral:
@@ -5844,7 +5848,7 @@ body.crt-off #app::after { display: none; }
   color: var(--text); background: var(--bg-deep);
   border: 1px solid currentColor; border-radius: var(--r-sm);
 }
-.pl-notch__none { color: var(--text-faint); }
+.pl-notch__none { color: var(--text-faint-ink); }
 
 /* The tier line — the same label-plus-mono-value shell as .pl-notch and
    .pl-queue above, so it inherits their optical correction below rather than
@@ -6505,7 +6509,7 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .lbl__q { display: none; }
 [data-density="compact"] .pl-mods > .lbl { display: none; }
 .pl-mods > .lbl {
-  flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint);
+  flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint-ink);
   writing-mode: vertical-rl; transform: rotate(180deg); align-self: stretch; text-transform: uppercase;
 }
 .mod {
@@ -8379,7 +8383,7 @@ body.crt-off #app::after { display: none; }
 .guide__row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .guide__mark { flex: none; font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; }
 .guide__mark--drill { color: var(--accent); font-family: var(--font-ui); font-size: 13px; }
-.guide__mark--locked { color: var(--text-faint); }
+.guide__mark--locked { color: var(--text-faint-ink); }
 
 /* THE PANE. Never scrolls — see .guide__body. */
 .guide__pane {
@@ -8445,7 +8449,7 @@ body.crt-off #app::after { display: none; }
 }
 .guide__drill-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .guide__drill-kind { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; color: var(--accent); }
-.guide__drill--locked .guide__drill-kind { color: var(--text-faint); }
+.guide__drill--locked .guide__drill-kind { color: var(--text-faint-ink); }
 .guide__drill-brief {
   font-size: var(--fs-xs); color: var(--text-dim); line-height: 1.35;
   /* Two lines, then ellipsis. The brief is a restatement of a pass condition
@@ -8457,7 +8461,7 @@ body.crt-off #app::after { display: none; }
   flex: none; display: inline-flex; align-items: center; gap: 4px;
   font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; color: var(--accent);
 }
-.guide__drill--locked .guide__drill-go { color: var(--text-faint); }
+.guide__drill--locked .guide__drill-go { color: var(--text-faint-ink); }
 
 /* Landscape phones. Everything here buys back height for the pane's copy, and
    nothing here shrinks a tap target: the two 44px floors (a row, the drill
@@ -8938,7 +8942,7 @@ button.panel { color: var(--text); }
   font-family: var(--font-mono); font-size: 10px; color: var(--accent);
   display: inline-flex; align-items: center; white-space: nowrap;
 }
-.refit__order-spend--idle { color: var(--text-faint); font-family: var(--font-body); }
+.refit__order-spend--idle { color: var(--text-faint-ink); font-family: var(--font-body); }
 
 /* Shelf and projection side by side, the draft modal's own split and for its
    own reason: landscape phones are WIDE and short, so stacking would put the
@@ -9426,7 +9430,7 @@ button.panel { color: var(--text); }
 .rack__shed { padding-top: 8px; border-top: 1px dashed var(--line); }
 .rack__shed-label {
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
-  color: var(--text-faint); flex: none; margin-right: 2px;
+  color: var(--text-faint-ink); flex: none; margin-right: 2px;
 }
 .rack__note { font-size: var(--fs-sm); line-height: 1.4; margin: 0; }
 /* 44 square, which is the tap floor and not a coincidence: this control has no
@@ -9821,7 +9825,7 @@ button.panel { color: var(--text); }
    salvageHTML (screens.ts's two currencies), a drawn glyph beside a number. */
 .contract-card__state {
   font-family: var(--font-mono); font-weight: 700; font-size: 12px; line-height: 1;
-  color: var(--text-faint); flex: none; white-space: nowrap;
+  color: var(--text-faint-ink); flex: none; white-space: nowrap;
 }
 .contract-card__state--pays { color: var(--warn); }
 .contract-card__state--done { color: var(--success); }
@@ -9847,7 +9851,7 @@ button.panel { color: var(--text); }
 .contract-card__supply { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .contract-card__supply-lbl {
   font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--text-faint); flex: none;
+  color: var(--text-faint-ink); flex: none;
 }
 .contract-card__supply-val { font-size: var(--fs-sm); color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
 .contract-card__supply-val b { color: var(--text); }
@@ -12053,7 +12057,7 @@ button.panel { color: var(--text); }
 }
 .sbx-brief__id {
   margin-top: auto;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint-ink);
   word-break: break-all;
 }
 

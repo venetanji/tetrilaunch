@@ -17,7 +17,25 @@
   --text: #eaeaff;
   --text-dim: #b6b6df;
   --text-muted: #8080ac;
+  /* DECORATIVE ONLY — a glyph, a separator, a tint. Measured against every
+     ground in this file it runs 2.13:1 (on --surface-3) to 2.89:1 (on
+     --bg-deep), i.e. it fails WCAG AA (4.5:1) and AA-large (3:1) on all five,
+     so anything a player READS may not use it. It stays because a dash, a
+     stowed system's icon, the " ·" between owned items and the belt's
+     empty-shipment tint are not reading matter: they are shapes at the quietest
+     step of the ramp, and taking that step away would flatten them into the
+     text beside them. */
   --text-faint: #55557a;
+  /* …and the same STEP for text. One notch below --text-muted (#8080ac) so the
+     four-stop ramp still reads as a ramp, and as far up as it can go without
+     colliding with it: 4.69:1 on --bg and 4.78:1 on --bg-deep — the grounds
+     almost every faint label in the app actually sits on — 4.34:1 on
+     --surface, 3.95:1 on --surface-2 and 3.53:1 on --surface-3. AA on the
+     first three, AA-large on the last two, which is exactly where --text-muted
+     itself lands on those surfaces (4.51:1 and 4.03:1): the deep panels are a
+     property of the palette's ground, not of this token, and matching --muted's
+     behaviour there is the most this step can do while remaining a step. */
+  --text-faint-ink: #7676a6;
 
   /* --- Brand / accent (I-piece cyan drives the brand) --- */
   --accent: #00f0ff;
