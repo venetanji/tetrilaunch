@@ -1850,6 +1850,34 @@ body.crt-off #app::after { display: none; }
   25% { transform: translateX(-3px); }
   75% { transform: translateX(3px); }
 }
+/* D6: THE RUNG UNDER THE CURSOR SAYS SO.
+   Eleven <button> floors, the menu's whole navigation, and a mouse got nothing
+   back from any of them. `.is-selected` above is where the CAR is — a
+   different question from where this click would send it — so a desktop
+   player hovering the ladder had no way to tell which plate they were about to
+   press except by counting rows.
+
+   HALF OF .is-selected, ON PURPOSE. The same cyan border and the same tint at
+   half strength (0.06 against 0.12), because a hover that matched the selected
+   state would say the car had already moved. The text goes from --text-dim to
+   --text and stops there: the accent belongs to the floor the lift is parked
+   on.
+
+   THE THREE EXCLUSIONS ARE IN THE SELECTOR, not in source order. `.is-locked`,
+   `.is-selected` and `.is-denied` are all (0,2,0), exactly what a bare
+   `.tower__floor:hover` would be, so whichever came last in this file would
+   win — and a locked floor lighting up under the pointer is the building
+   offering a rung it will refuse. Written as :not() the answer does not depend
+   on where the next edit puts anything.
+
+   AND IT MOVES NOTHING. Colour only: the floors are `flex: 1 1 0` in a fixed
+   shaft at this density, and a hover that touched padding or a border width
+   would reflow the whole building under the cursor. */
+.tower__floor:not(.is-locked):not(.is-selected):not(.is-denied):hover {
+  border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.06);
+  color: var(--text);
+}
 /* The slab the building stands on: square-bottomed, so the shaft above it
    cannot read as a floating card. */
 /* THE LOBBY'S RECAP PANEL (screens.ts's licencePanelHTML) — the four stat cells
@@ -1970,6 +1998,36 @@ body.crt-off #app::after { display: none; }
   color: var(--ink-dim); font: inherit;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
+/* D6: …AND ON A DESKTOP THE PLINTH IS NOT FURNITURE EITHER.
+   The 22px above is a TRADE, and the note argues it honestly: eleven rungs in
+   a fixed shaft cannot each be 44px, so the earned ground floor takes the same
+   deal they do. The compact block further down has since bought the ladder out
+   of that trade entirely (the run of floors scrolls, every rung is 44, and
+   `[data-density="compact"] .tower:not(.tower--lobby)` hands the plinth 44 as
+   well) — which left exactly one class of device still paying for a shortage
+   it does not have: the roomy rows, where sim/uifit measured `.tower__base` at
+   22-33px across every menu fixture of every desktop and tablet in the matrix.
+
+   A ROOMY COLUMN HAS THE ROOM. The shaft is ~490-560px there, and `.tower` is
+   a flex column with the shaft on `flex: 1`, so the 22px the plate takes comes
+   off the eleven rungs at 2px each — from ~46.6px to ~44.6px on the tightest
+   roomy row in the fleet (the 1280x720 laptop, which is the only one at chrome
+   zoom 1; every other roomy row magnifies and has more slack still). Two
+   pixels off a rung that clears the floor, to take a control that does not
+   clear it from 22px to 44px.
+
+   max(), NOT A FLAT 44px, and that is the whole reason this reads as it does.
+   While the licence is owed the plate is the ENTRANCE and `.tower--lobby` has
+   already given it `clamp(44px, 13%, 72px)` — up to 72px on a tall window. A
+   flat 44 here is (0,2,0) against the lobby's (0,1,0), so it would win, and
+   the one control in the building that was already comfortably over the tap
+   floor would SHRINK to meet it.
+
+   DENSITY-SCOPED AND NOTHING ELSE IS. `roomy` is layout.ts's verdict that
+   nothing on screen had to be shrunk at all, so it is exactly the set of rows
+   that can afford this — and the compact path below stays byte for byte as
+   round one measured it. */
+[data-density="roomy"] .tower__base--floor { height: max(44px, var(--tower-lobby-h)); }
 /* THE PLATE, in the shaft's own vocabulary: the pixel face at the weight the
    rungs give their numbers, so "LS" at the foot of the column reads as a floor
    marker exactly as "SKY" does at the top of it. */

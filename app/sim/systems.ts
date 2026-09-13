@@ -28275,6 +28275,97 @@ section("Every button class answers a mouse (D5 — app.css .btn--primary:hover)
     css.match(/@media[^{]*\(hover\s*:[^{]*/)?.[0] ?? "");
 }
 
+// ---------------------------------------------------------------------------
+section("The tower answers a cursor, and its plinth is a desktop target (D6)");
+// ---------------------------------------------------------------------------
+// TWO HALVES OF ONE DESKTOP FINDING, both in app.css's tower block.
+//
+//   1. Eleven <button> floors lit NOTHING under the pointer. The building is
+//      the menu's primary navigation and a mouse got no reading of which rung
+//      it was about to press — `.is-selected` says where the car IS, which is
+//      a different question from where this click would send it.
+//   2. `.tower__base--floor` is 22px once the licence is earned, and sim/uifit
+//      records it as an accepted `tap` violation on every menu fixture of
+//      every desktop and tablet row. On a PHONE that was the honest trade the
+//      plate's own note argued, and the compact block below has since bought
+//      the whole ladder out of it by scrolling. On a roomy row it was never a
+//      trade at all: the shaft has 490+px, and handing 22 of them to the
+//      plinth costs each rung 2px it can spare.
+//
+// WHICH IS WHY THE HEIGHT IS DENSITY-SCOPED AND NOTHING ELSE IS. `roomy` is
+// layout.ts's verdict that nothing on screen had to be shrunk (uiScale >=
+// DENSITY_ROOMY), so it is exactly the set of rows that can afford this and
+// exactly the set the phone arithmetic was never about. The compact path —
+// the scroller, the 44px rungs, the 44px plinth, the tokens under all three —
+// is untouched, and the last check here says so by quoting it back.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+
+  const floorHover = css.match(/(^|\n)\.tower__floor[^{\n]*:hover[^{]*\{[^}]*\}/)?.[0] ?? "";
+  check("a floor lights under the cursor", floorHover !== "", "no .tower__floor hover rule");
+  // A HOVER MAY NOT IMPERSONATE A STATE. `.is-selected` is where the car is
+  // parked, `.is-locked` is a floor that refuses, `.is-denied` is one mid-
+  // refusal — all three are (0,2,0) selectors, exactly what a bare
+  // `.tower__floor:hover` would be, so the exclusions are written INTO the
+  // selector rather than left to source order, where the next edit to this
+  // block could silently reverse them.
+  for (const state of ["is-locked", "is-selected", "is-denied"]) {
+    check(`...and never over a floor that is .${state}`,
+      floorHover.includes(`:not(.${state})`), floorHover.slice(0, 140));
+  }
+  // Geometry is the one thing this hover may not touch: the floors are
+  // `flex: 1 1 0` inside a fixed shaft at roomy density, so a hover that moved
+  // padding, a border width or a height would reflow the whole building under
+  // the pointer.
+  check("...and moves no pixel of the building",
+    !/[\s;{](padding|margin|border-width|height|width|font-size|transform)\s*:/
+      .test(floorHover.slice(floorHover.indexOf("{"))),
+    floorHover);
+
+  // --- the plinth's desktop height ------------------------------------------
+  const roomyTower = [...css.matchAll(/(^|\n)\[data-density="roomy"\][^{]*\{[^}]*\}/g)]
+    .map((m) => m[0].trim())
+    .filter((r) => r.includes(".tower"));
+  check("exactly one roomy-density rule reaches into the tower",
+    roomyTower.length === 1, roomyTower.join(" | ") || "none");
+  const plinth = roomyTower[0] ?? "";
+  check("...and it is the ground-floor plate, nothing else in the building",
+    /\[data-density="roomy"\]\s*\.tower__base--floor\s*\{/.test(plinth), plinth);
+  check("...taking the plate to the 44px tap floor",
+    /height:\s*max\(\s*44px\s*,/.test(plinth), plinth);
+  // max(), not a flat 44px. While the licence is OWED the plate is the entrance
+  // and `.tower--lobby` has already given it clamp(44px, 13%, 72px) — up to
+  // 72px on a tall row. A flat 44 here is (0,2,0) against the lobby's (0,1,0),
+  // so it would WIN and shrink the one control in the building that was
+  // already comfortably over the floor.
+  check("...without shrinking the entrance the lobby state grows",
+    plinth.includes("var(--tower-lobby-h)"), plinth);
+
+  // THE PHONE'S ARITHMETIC IS BYTE-IDENTICAL, quoted back declaration by
+  // declaration. If a later pass moves one of these to buy the plinth its
+  // 44px, the 640x360 budget phone loses the ladder's scroller — and that is a
+  // regression no roomy-scoped rule can show.
+  const compact: Array<[string, RegExp]> = [
+    ["the rungs keep their own 44px token",
+      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px;[^}]*\}/],
+    ["the earned plinth keeps its compact 44px",
+      /\[data-density="compact"\] \.tower:not\(\.tower--lobby\) \{ --tower-lobby-h: 44px; \}/],
+    ["the run of floors is still the allowlisted scroller",
+      /\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto;/],
+    ["...and the rungs still stack in it rather than divide it",
+      /\[data-density="compact"\] \.tower__floor \{ flex: none; height: var\(--tower-floor-h\); \}/],
+  ];
+  for (const [name, re] of compact) check(`compact is untouched: ${name}`, re.test(css));
+  const tokens = css.match(/(^|\n)\.tower \{[^}]*\}/)?.[0] ?? "";
+  check("compact is untouched: the shaft's shared tokens are where they were",
+    /--tower-pad:\s*3px;/.test(tokens) && /--tower-gap:\s*2px;/.test(tokens)
+      && /--tower-lobby-h:\s*22px;/.test(tokens) && /--tower-floors:\s*11;/.test(tokens),
+    tokens.replace(/\s+/g, " ").slice(0, 220));
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
