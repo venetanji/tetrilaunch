@@ -1199,7 +1199,14 @@ class App {
     // is what makes them no longer LOAD-BEARING: it does not matter any more
     // whether iOS finishes rotating before the 1000ms timer, because a
     // disagreement after it is still caught.
-    window.visualViewport?.addEventListener("resize", this.onResize);
+    // THE SOFT KEYBOARD'S OWN SIGNAL as well: with Android's default
+    // adjustResize the IME shrinks the WebView, and this is the one moment the
+    // field being typed into can be kept in view (onViewportResize). The
+    // re-solve it also asks for is the same onResize as above, typing guard
+    // included.
+    window.visualViewport?.addEventListener("resize", this.onViewportResize);
+    // The deferred layout solve's one trigger — see onResize's typing guard.
+    this.overlay.addEventListener("focusout", this.onOverlayFocusOut);
     window.setTimeout(this.onResize, 250);
     window.setTimeout(this.onResize, 1000);
     window.addEventListener("pointerdown", () => { unlockAudio(); this.syncAudioSettings(); },
@@ -4574,19 +4581,108 @@ class App {
     if (viewportChanged(this.lastSolve, readingOf(w, h, applySafeAreaInsets()))) this.onResize();
   }
 
+  /** A layout solve that arrived while a text field on the overlay had focus,
+   *  held until the field blurs — see onResize. */
+  private solveDeferred = false;
+
+  /** Is the player typing into a text field on the overlay? The question
+   *  onResize asks before it touches the chrome. */
+  private typingInOverlay(): boolean {
+    const el = document.activeElement;
+    if (!el || !this.overlay.contains(el)) return false;
+    if (el instanceof HTMLTextAreaElement) return true;
+    // Text-shaped inputs only. A range slider or a checkbox with focus has no
+    // keyboard to wait for, and a window resized with one of those focused
+    // would otherwise sit on a stale layout until the control blurred.
+    return el instanceof HTMLInputElement
+      && ["text", "search", "email", "url", "tel", "number", "password"].includes(el.type);
+  }
+
+  /**
+   * A viewport change. Re-solves and publishes the layout — UNLESS a text
+   * field on the overlay is being typed into, in which case the solve waits
+   * for the field to blur (onOverlayFocusOut).
+   *
+   * The wait exists because of the soft keyboard. There is no keyboard plugin
+   * and Android's default soft-input mode is adjustResize, so the IME SHRINKS
+   * THE WEBVIEW by close to half its height, and window.innerHeight moves
+   * mid-keystroke — once when the keyboard opens, once when it closes, and on
+   * some IMEs once more per suggestion strip. Every one of those used to be a
+   * full solve: --chrome-zoom, data-density, data-layout and the --field-*
+   * rect rewritten under the player's finger. Measured at the run-end card
+   * (sim/systems.ts, "Typing a name under a soft keyboard"): on a 1600x1000
+   * tablet the keyboard's box solves to zoom 1.389 → 1 and roomy → regular,
+   * and the focused field shrinks from 64px to 48px tall and moves; on a
+   * 792x360 phone the mode flips wide → tall and --field-h halves. None of
+   * it is for the player's benefit — the field it lays out is under a scrim —
+   * and all of it is why the card felt "quirky to type in". The canvas's
+   * backing store is the one thing kept honest meanwhile: it is not chrome,
+   * and render() reads the window every frame and would draw stretched.
+   *
+   * The loop's belt (resolveIfStale) keeps asking while the size disagrees
+   * with the last solve, which is the point: the moment the field is gone —
+   * blurred, or removed by a re-render, which fires no focusout — the next
+   * frame's ask goes through.
+   */
   private onResize = (): void => {
+    if (this.typingInOverlay()) {
+      this.sizeCanvas(window.innerWidth, window.innerHeight);
+      this.solveDeferred = true;
+      return;
+    }
+    this.solveLayout();
+  };
+
+  /** The deferred solve's one trigger. Solves DIRECTLY rather than through
+   *  onResize: document.activeElement is not reliably cleared while focusout
+   *  is being dispatched, and a solve that re-asked the typing guard could
+   *  defer itself forever. */
+  private onOverlayFocusOut = (): void => {
+    if (!this.solveDeferred) return;
+    this.solveLayout();
+  };
+
+  /** The visual viewport's resize — the IME opening or closing, on top of
+   *  every change the layout viewport also reports. Same solve as onResize,
+   *  plus the one thing only this moment can do: keep the field being typed
+   *  into in view. `nearest` because under adjustResize the scrim
+   *  (overflow-y: auto) is what shrank, so the field is scrolled exactly as
+   *  far as it must be and a card that still fits is not yanked. */
+  private onViewportResize = (): void => {
+    this.onResize();
+    const el = document.activeElement;
+    if (this.typingInOverlay() && el instanceof HTMLElement) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  };
+
+  /** The canvas's backing store for a CSS box. How many device pixels one
+   *  CSS px gets: the ceiling depends on the viewport — a phone-sized one
+   *  gets a lower one, because the frame is fill-bound and a 2017 phone
+   *  cannot hold the budget at the ratio a desktop can. The whole derivation,
+   *  with the numbers, is over renderScale in game/render.ts. Only the CANVAS
+   *  is affected: the DOM chrome keeps the device's real ratio, so every
+   *  letterform on screen stays as crisp as the panel can draw it.
+   *
+   *  Assigned only when the size actually moved: assigning canvas.width
+   *  throws the backing store away and allocates a fresh one (see render.ts's
+   *  note on the same), and the settle timers and the typing guard both
+   *  arrive here at sizes that did not. */
+  private sizeCanvas(w: number, h: number): void {
+    this.dpr = renderScale(window.devicePixelRatio || 1, w, h);
+    if (this.canvas.width !== Math.floor(w * this.dpr)
+      || this.canvas.height !== Math.floor(h * this.dpr)) {
+      this.canvas.width = Math.floor(w * this.dpr);
+      this.canvas.height = Math.floor(h * this.dpr);
+    }
+  }
+
+  /** The solve and publish onResize guards. */
+  private solveLayout(): void {
+    this.solveDeferred = false;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    // How many device pixels of canvas backing store one CSS px gets. The
-    // ceiling depends on the viewport — a phone-sized one gets a lower one,
-    // because the frame is fill-bound and a 2017 phone cannot hold the budget
-    // at the ratio a desktop can. The whole derivation, with the numbers,
-    // is over renderScale in game/render.ts. Only the CANVAS is affected: the
-    // DOM chrome keeps the device's real ratio, so every letterform on screen
-    // stays as crisp as the panel can draw it.
-    this.dpr = renderScale(window.devicePixelRatio || 1, w, h);
-    this.canvas.width = Math.floor(w * this.dpr);
-    this.canvas.height = Math.floor(h * this.dpr);
+    this.sizeCanvas(w, h);
 
     // Safe-area insets first: the layout solver subtracts them from the usable
     // box, so they have to be current before computeLayout runs. Measured from
@@ -4663,7 +4759,7 @@ class App {
     // ResizeObserver cannot see. One rect read per resize (see syncPlantRoof),
     // after the properties it converts through have been published.
     this.syncPlantRoof();
-  };
+  }
 
   // ---------------- game lifecycle ----------------
   /** "Play"/"Play Again": starts a brand-new 10-bay run. Called synchronously
@@ -7046,6 +7142,14 @@ class App {
     return cached === null ? null : slice(cached);
   }
 
+  /** The player's own row as the Worker filed it on their last post, with
+   *  the rank the Worker gave it — for the modal to draw when the board's
+   *  top-ten slice has no row by that name (onSubmitScore). Gated by
+   *  `submitted` at the reader, which a new run resets, so a previous run's
+   *  row is never drawn onto the next run's card. */
+  private lastSubmit: { board: BoardId; day: BoardDay; rank: number; entry: ScoreEntry } | null
+    = null;
+
   private renderBoardRows(highlight?: string): void {
     const body = this.overlay.querySelector("#lb-body");
     if (!body) return;
@@ -7066,6 +7170,20 @@ class App {
       this.boards.get(board, day),
       (cached) => screen ? S.fullBoard(cached) : S.endBoard(cached, highlight),
     );
+    // THE PLAYER'S OWN ROW, when the slice has none. endBoard finds it by
+    // name in the rows it is given, and the Worker gives ten: a post that
+    // ranked below that drew a card with no trace of the score just sent.
+    // The post's own answer carried the row and its rank (lastSubmit), so the
+    // modal appends it, with the same gap mark endBoard uses for a row that
+    // does not follow #5 directly.
+    if (!screen && this.submitted && rows && highlight && this.lastSubmit
+      && this.lastSubmit.board === board && this.lastSubmit.day === day
+      && !rows.some((r) => r.entry.name === highlight)) {
+      rows.push({
+        entry: this.lastSubmit.entry, rank: this.lastSubmit.rank,
+        gapBefore: this.lastSubmit.rank > S.END_BOARD_TOP + 1,
+      });
+    }
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight, board);
   }
 
@@ -7086,7 +7204,13 @@ class App {
     board: BoardId = this.runBoard(),
     day: BoardDay = this.boardDay(),
   ): Promise<void> {
-    this.boards.set(board, day, await fetchLeaderboard(board, 10, day));
+    // The token this fetch hands back when it lands — BoardCache's epochs.
+    const began = this.boards.begin(board, day);
+    const rows = await fetchLeaderboard(board, 10, day);
+    // Refused when the player's own post wrote this board while the fetch was
+    // out: those rows predate the post, and on a phone's radio this GET can
+    // land after that POST. Neither cached nor drawn — the post's rows stay.
+    if (!this.boards.settle(board, day, rows, began)) return;
     // A fetch that landed after the player moved on must not repaint over a
     // screen showing the other board.
     if (this.state === "leaderboard" && board !== this.lbBoard) return;
@@ -9760,9 +9884,8 @@ class App {
     // until tier boards landed, which is what made the column look like a free
     // partition key to three separate branches at once.
     const bay = (this.run?.levelIndex ?? 0) + 1;
-    const res = await submitScore(
-      name, this.finalScore(g, this.state === "won"), board, bay, lines, day,
-    );
+    const score = this.finalScore(g, this.state === "won");
+    const res = await submitScore(name, score, board, bay, lines, day);
     this.submitting = false;
     if (btn) btn.disabled = false;
     if (res === null) {
@@ -9774,7 +9897,17 @@ class App {
     this.submitted = true;
     row?.classList.add("done");
     if (note) note.hidden = true;
-    this.boards.set(board, day, res.scores);
+    // The Worker's reply is the board's top ten, and a run that ranked 23rd
+    // is not in it — renderBoardRows draws this row when that slice has none
+    // by the player's name. The rank is the Worker's: a place on the board it
+    // just wrote, and the one number the client cannot derive for itself.
+    this.lastSubmit = {
+      board, day, rank: res.rank,
+      entry: { name, score, mark: board, level: bay, lines, created_at: Date.now() },
+    };
+    // Committed, not set: this moves the board's epoch, so the fetch
+    // finishRun started before the card was up cannot land over these rows.
+    this.boards.commit(board, day, res.scores);
     this.renderBoardRows(name);
     void successHaptic();
   }

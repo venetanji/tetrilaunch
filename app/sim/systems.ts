@@ -27901,6 +27901,270 @@ section("A board that could not be fetched says so, and a score that did not pos
 }
 
 // ---------------------------------------------------------------------------
+section("Typing a name under a soft keyboard, and the board that follows the post (main.ts, lib/api.ts, worker/index.ts, screens.ts)");
+// ---------------------------------------------------------------------------
+// An owner on an Android phone in landscape reported the run-end card as
+// "generally a bit quirky to type in" and the board under it "not updating"
+// after a submit — an older 7317 in the player's row while the run had just
+// scored 15525. Two mechanisms, pinned separately.
+//
+// THE KEYBOARD. Android's default soft-input mode is adjustResize (no
+// @capacitor/keyboard plugin, nothing in capacitor.config.ts), so the IME
+// SHRINKS THE WEBVIEW by ~45% of its height and window.innerHeight moves
+// mid-keystroke. main.ts's onResize answered every such change with a full
+// layout solve and publish: --chrome-zoom, data-density, data-layout and the
+// --field-* rect, all rewritten while the finger was on the field. Measured in
+// Playwright at the uifit devices (scratch trace, typing/repro.ts): on a
+// 1600x1000 Pixel Tablet the keyboard's box solves to zoom 1.389 → 1.000,
+// roomy → regular, snug → wide, and the focused input shrinks from 64px to
+// 48px tall and moves under the finger; on a 792x360 OnePlus 12 the zoom holds
+// at 1 but data-layout flips wide → tall and --field-h goes 360 → 130px.
+// Nothing in that publish is for the player's benefit — the field it lays out
+// is under a scrim — so while a text field in the overlay has focus the solve
+// is DEFERRED and runs once on blur.
+//
+// THE BOARD. finishRun kicks off refreshBoard() before the card is up, and
+// onSubmitScore writes the Worker's fresh rows into the same cache when the
+// post lands. On any network where the GET can resolve AFTER the POST — a
+// phone's radio, exactly where the report came from — the older fetch wrote
+// its pre-post rows over the fresh ones and repainted them, which is the
+// reported symptom to the number: the row the player sees is their previous
+// entry. The cache now carries a per-board epoch, so a fetch begun before the
+// post cannot settle over it.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const workerSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "worker", "index.ts"),
+    "utf8",
+  );
+  const strip = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  // Two consecutive UTC days, for the one board whose key has a day in it.
+  const DAY_A = new Date(Date.UTC(2026, 7, 27, 12, 0, 0));
+  const DAY_B = new Date(Date.UTC(2026, 7, 28, 12, 0, 0));
+  /** A class-field arrow's body: from its declaration to the next `\n  };`. */
+  const arrowOf = (decl: string): string => {
+    const at = mainSrc.indexOf(decl);
+    return at < 0 ? "" : strip(mainSrc.slice(at, mainSrc.indexOf("\n  };", at)));
+  };
+  /** A method's body, brace-matched from its declaration. */
+  const methodOf = (decl: string): string => {
+    const at = mainSrc.indexOf(decl);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = mainSrc.indexOf("{", at);
+    const start = i;
+    for (; i < mainSrc.length; i++) {
+      if (mainSrc[i] === "{") depth++;
+      else if (mainSrc[i] === "}" && --depth === 0) return strip(mainSrc.slice(start, i + 1));
+    }
+    return "";
+  };
+
+  // ---- THE FIELD TELLS THE IME WHAT IT IS (screens.ts) ---------------------
+  // A plain <input> gets Android's default keyboard: sentence-case, a Return
+  // key that means "newline" on a field that has no second line, and no hint
+  // that the value is a 12-character handle the game uppercases anyway.
+  // `autocapitalize="characters"` shows the caps keyboard the value will be
+  // rendered in, `enterkeyhint="done"` labels the action key with the one
+  // thing it does here, and `inputmode="text"` says so explicitly rather than
+  // leaving a landscape IME to guess. The three the field already carried stay.
+  {
+    const card = S.endModal({
+      won: false, runComplete: false, score: 1, lines: 1, baysCleared: 0, funds: 0, best: 0,
+      name: "ACE", rows: "", reason: "topout", bayNum: 1, bayName: "Bay", tierCompleted: null,
+      tierSalvage: 0, progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 0,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
+    });
+    const input = /<input[^>]*id="name-input"[^>]*>/.exec(card)?.[0] ?? "";
+    check("the end card's name field exists to be checked", input.length > 0);
+    check("the name field asks for the caps keyboard its value is drawn in",
+      /\bautocapitalize="characters"/.test(input), input);
+    check("...labels the action key Done, since Enter has no line to break",
+      /\benterkeyhint="done"/.test(input), input);
+    check("...and names its input mode rather than leaving the IME to guess",
+      /\binputmode="text"/.test(input), input);
+    check("...while keeping the three it always carried",
+      /\bmaxlength="12"/.test(input) && /\bautocomplete="off"/.test(input)
+        && /\bspellcheck="false"/.test(input), input);
+  }
+
+  // ---- A RESIZE WHILE TYPING PUBLISHES NOTHING (main.ts) -------------------
+  // Source pins, the idiom every main.ts contract in this file uses: the App
+  // cannot be constructed here (no DOM, no canvas), and what has to hold is a
+  // property of the handler's shape — the typing guard comes BEFORE any line
+  // that reaches the stylesheet, and the deferred solve has exactly one
+  // trigger, the field losing focus.
+  {
+    const onResize = arrowOf("private onResize = (): void => {");
+    const solve = methodOf("private solveLayout(");
+    const typing = methodOf("private typingInOverlay(");
+    check("onResize and its solve are two functions, so a blur can solve past the guard",
+      onResize.length > 0 && solve.length > 0);
+    check("a text field with focus inside the overlay is what the guard asks about",
+      typing.length > 0 && /document\.activeElement/.test(typing)
+        && /this\.overlay\.contains\(/.test(typing)
+        && /HTMLTextAreaElement/.test(typing) && /HTMLInputElement/.test(typing),
+      typing.slice(0, 200));
+    // Only TEXT fields defer: a range slider or a checkbox with focus has no
+    // keyboard to wait for, and a window resized with one focused would
+    // otherwise sit on a stale layout until the control blurred.
+    check("...and only a text-shaped one — a slider with focus defers nothing",
+      /"text"/.test(typing) && !/type === "range"/.test(typing) && /type/.test(typing), typing.slice(0, 300));
+    const guardAt = onResize.indexOf("this.typingInOverlay()");
+    check("onResize defers the solve while a text field is being typed into",
+      guardAt > 0 && /this\.solveDeferred = true;\s*return;/.test(onResize.slice(guardAt)),
+      onResize.slice(0, 200));
+    check("...and publishes nothing on that path: no zoom, no density, no field rect, no mode",
+      !/--chrome-zoom|dataset\.density|dataset\.layout|--field-|computeLayout/.test(onResize)
+        && /this\.solveLayout\(\)/.test(onResize),
+      onResize.slice(0, 300));
+    check("the solve itself still publishes all four",
+      /--chrome-zoom/.test(solve) && /dataset\.density = l\.density/.test(solve)
+        && /dataset\.layout = l\.mode/.test(solve) && /--field-h/.test(solve));
+    // The one trigger for the deferred solve: the field losing focus. It
+    // solves DIRECTLY rather than through onResize, because activeElement is
+    // not reliably cleared while focusout is being dispatched, and a solve
+    // that re-asked the guard could defer itself forever.
+    const focusOut = arrowOf("private onOverlayFocusOut = (): void => {");
+    check("the overlay's focusout runs the deferred solve, past the guard",
+      /if \(!this\.solveDeferred\) return;/.test(focusOut)
+        && /this\.solveLayout\(\);/.test(focusOut) && !/this\.onResize\(\)/.test(focusOut),
+      focusOut);
+    check("...and is wired to the overlay",
+      /this\.overlay\.addEventListener\("focusout", this\.onOverlayFocusOut\);/.test(mainSrc));
+    check("the deferred flag is cleared by the solve, so a blur after a solve does nothing twice",
+      /this\.solveDeferred = false;/.test(solve));
+    // The visual viewport's resize is the IME's own signal, and the one place
+    // the field can be kept in view: under adjustResize the scrim (overflow-y:
+    // auto) is what shrinks, so `nearest` scrolls exactly as far as it must and
+    // no further — a `center` would yank a card that already fits.
+    const vvResize = arrowOf("private onViewportResize = (): void => {");
+    check("the visual viewport's resize keeps the focused field in view",
+      /scrollIntoView\(\{[^}]*block: "nearest"/.test(vvResize) && /this\.onResize\(\);/.test(vvResize),
+      vvResize);
+    check("...and is the listener on visualViewport, in place of the bare onResize",
+      /window\.visualViewport\?\.addEventListener\("resize", this\.onViewportResize\);/.test(mainSrc)
+        && !/window\.visualViewport\?\.addEventListener\("resize", this\.onResize\);/.test(mainSrc));
+  }
+
+  // ---- A FETCH BEGUN BEFORE THE POST CANNOT SETTLE OVER IT (lib/api.ts) ----
+  // Driven for real: two "requests" against one cache, the GET resolving
+  // late, in the order a phone's radio produces.
+  {
+    const row = (name: string, score: number): ScoreEntry =>
+      ({ name, score, mark: 2, level: 8, lines: 40, created_at: 0 });
+    const stale = [row("TOP", 20_000), row("PILOT", 7_317)];
+    const fresh = [row("TOP", 20_000), row("PILOT", 15_525), row("PILOT", 7_317)];
+    const cache = new BoardCache();
+    // finishRun's refreshBoard: the fetch begins, and hangs.
+    let land: (rows: ScoreEntry[]) => void = () => {};
+    const slowGet = new Promise<ScoreEntry[]>((r) => { land = r; });
+    const token = cache.begin(2, DAY_NONE);
+    const refresh = slowGet.then((rows) => cache.settle(2, DAY_NONE, rows, token));
+    // onSubmitScore: the POST lands first and writes the Worker's fresh rows.
+    cache.commit(2, DAY_NONE, fresh);
+    check("the post's rows are on the board the moment they land",
+      cache.get(2, DAY_NONE)?.[1]?.score === 15_525);
+    // ...and then the older GET resolves.
+    land(stale);
+    const written = await refresh;
+    check("a fetch begun before the post is refused when it lands late",
+      written === false, String(written));
+    check("...so the board still shows the run that just ended, not the one before it",
+      cache.get(2, DAY_NONE)?.[1]?.score === 15_525 && cache.get(2, DAY_NONE)?.length === 3,
+      JSON.stringify(cache.get(2, DAY_NONE)));
+    // A fetch begun AFTER the post is the truth and lands as it always did.
+    const after = cache.begin(2, DAY_NONE);
+    check("a fetch begun after the post still lands",
+      cache.settle(2, DAY_NONE, fresh, after) === true);
+    // ...and with no post at all the guard is invisible: begin/settle is set.
+    const quiet = new BoardCache();
+    const t = quiet.begin(5, DAY_NONE);
+    check("with no post in between, settle is just set — a failed fetch included",
+      quiet.settle(5, DAY_NONE, null, t) === true && quiet.get(5, DAY_NONE) === null);
+    // The epoch is PER BOARD: a post on Tier 2 must not throw away a fetch of
+    // Tier S that happened to be in flight.
+    const other = cache.begin(BOARD_SANDBOX, DAY_NONE);
+    cache.commit(2, DAY_NONE, fresh);
+    check("a post on one board does not discard another board's in-flight fetch",
+      cache.settle(BOARD_SANDBOX, DAY_NONE, stale, other) === true);
+    // ...and per DAY, for the one board whose key has two parts.
+    const dayT = cache.begin(BOARD_SKYDECK, dailySeed(DAY_A));
+    cache.commit(BOARD_SKYDECK, dailySeed(DAY_B), fresh);
+    check("...nor another day's, on the roof",
+      cache.settle(BOARD_SKYDECK, dailySeed(DAY_A), stale, dayT) === true);
+  }
+
+  // ---- THE BOARD IS NEVER SERVED FROM A CACHE (lib/api.ts, worker/index.ts)
+  // Belt and braces on both ends of the GET. The Worker's JSON carried no
+  // validators, so no heuristic cache should hold it — but "should" is not a
+  // header, and a WebView is the one client whose cache policy the app does
+  // not control.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const inits: (RequestInit | undefined)[] = [];
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "tetrilaunch.com" }, configurable: true, writable: true,
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      value: async (_url: string, init?: RequestInit) => {
+        inits.push(init);
+        return { ok: true, json: async () => ({ scores: [] }) };
+      },
+      configurable: true, writable: true,
+    });
+    try {
+      await fetchLeaderboard(2, 10);
+      await fetchLeaderboard(BOARD_SKYDECK, 10, dailySeed(DAY_A));
+      check("the client asks for the board past every HTTP cache, on both routes",
+        inits.length === 2 && inits.every((i) => i?.cache === "no-store"),
+        JSON.stringify(inits));
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+    const jsonFn = /function json\([\s\S]*?\n\}/.exec(workerSrc)?.[0] ?? "";
+    check("...and the Worker tells every cache on the way not to keep the answer",
+      /"Cache-Control": "no-store"/.test(jsonFn), jsonFn);
+  }
+
+  // ---- THE APP GOES THROUGH THE GUARD, AND THE OWN ROW SURVIVES (main.ts) --
+  {
+    const refresh = methodOf("private async refreshBoard(");
+    const submit = methodOf("private async onSubmitScore(");
+    const rows = methodOf("private renderBoardRows(");
+    check("refreshBoard takes its token before the fetch and settles through it",
+      refresh.indexOf("this.boards.begin(") > 0
+        && refresh.indexOf("this.boards.begin(") < refresh.indexOf("await fetchLeaderboard(")
+        && /this\.boards\.settle\(/.test(refresh) && !/this\.boards\.set\(/.test(refresh),
+      refresh);
+    check("...and a refused settle repaints nothing",
+      /if \(!this\.boards\.settle\([^)]*\)\) return;/.test(refresh), refresh);
+    check("the post's rows are committed, which is what moves the epoch",
+      /this\.boards\.commit\(board, day, res\.scores\);/.test(submit) && !/this\.boards\.set\(/.test(submit));
+    // The Worker's reply is the top ten. A run that ranked 23rd is not in it,
+    // and endBoard's "top five plus your own row" finds the player's row by
+    // name in the rows it is given — so a successful post outside the top ten
+    // drew a board with no trace of the score just sent. The post's own
+    // answer carries the rank; the card keeps it and appends the row.
+    check("the post records the player's own row and its rank",
+      /this\.lastSubmit = \{[\s\S]*?rank: res\.rank[\s\S]*?\};/.test(submit), submit.slice(-600));
+    check("...and the modal's rows append it when the Worker's slice has no row by that name",
+      /this\.lastSubmit/.test(rows) && /this\.submitted/.test(rows)
+        && /rank: this\.lastSubmit\.rank/.test(rows)
+        && /gapBefore: this\.lastSubmit\.rank > S\.END_BOARD_TOP \+ 1/.test(rows)
+        && /!rows\.some\(\(r\) => r\.entry\.name === highlight\)/.test(rows),
+      rows.slice(-700));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Player accounts (social login + RevenueCat identity)");
 // ---------------------------------------------------------------------------
 {
