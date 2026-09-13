@@ -1,6 +1,6 @@
 import { Game } from "./game";
 import { screenToWorld } from "./render";
-import { actionForKey, keyFor } from "./bindings";
+import { actionForKey, isShortcutChord, keyFor } from "./bindings";
 import { MIN_FIRE_RATIO, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 import { WORLD } from "./engine";
 
@@ -112,6 +112,33 @@ import { WORLD } from "./engine";
  *  to an end stop instead of stepping it. */
 const WHEEL_STEP_PX = 100;
 
+/** How long after a notch fires the wheel is DEAF, in ms.
+ *
+ *  WHY DISTANCE ALONE WAS NOT ENOUGH. The accumulator measures a gesture by
+ *  travel rather than by event count, which is what stops a trackpad's thirty
+ *  crumbs from being thirty notches — but a real macOS momentum flick does not
+ *  send 240px, it sends about 1180px: a rising front edge and then a long
+ *  decaying tail, ~16ms apart, all of it from ONE finger movement that has
+ *  already ended. At 100px a notch that is ten notches spent on a dial with
+ *  five steps, i.e. the whole loft range slammed to its end stop and a third
+ *  of the way back, from a flick that meant one step. (The fling case already
+ *  pinned here only covered one BIG delta; the tail is many medium ones.)
+ *
+ *  DEAF, NOT DEFERRED: travel that arrives inside the window is discarded
+ *  rather than banked, because banking it would just move the same ten notches
+ *  onto a 120ms metronome. Momentum is the desk still coasting, not the player
+ *  still asking.
+ *
+ *  120ms ≈ 7 frames at 60Hz. Above it, a 1180px flick spends 2 notches instead
+ *  of 10 (sim/systems.ts drives the trace); below it, the tail starts paying
+ *  again. It is also comfortably under the ~250ms a second deliberate flick of
+ *  the wrist takes, so nothing a player asks for twice is refused. The cost is
+ *  paid by a clicky wheel SPUN hard — its detents can arrive 40ms apart and
+ *  two of every three are then dropped — and that is the right side to lose
+ *  on: the dial is five steps wide, so its whole range is 480ms of scrolling,
+ *  and an overshoot on a spun wheel is a shot aimed at the wrong arc. */
+const WHEEL_NOTCH_MIN_MS = 120;
+
 export type RotateDir = "left" | "right";
 
 /** Loft the wheel adds or removes per notch (Game.aimLoft is 0..1, so five
@@ -126,6 +153,41 @@ const LOFT_STEP = 0.2;
  *  stop without re-gripping, long enough that one px of jitter moves the
  *  dial under 1%. */
 const LOB_DRAG_PX = 150;
+
+/**
+ * How long after a screen hands the bay back a MOUSE press is still read as
+ * the tail of the press that dismissed it, and refused (see `wake`).
+ *
+ * THE BUG: every modal button acts on its click, and the bay underneath is
+ * live canvas the instant that click re-renders the overlay (main.ts's
+ * setState drops the overlay's pointer-events for "playing"). So the second
+ * press of a double-click on Resume — or on the draft's Fly it — landed on
+ * the field, and onDown's mouse branch solves an aim on the PRESS and onUp
+ * fires it. A launch, its price and its cargo, spent on a stutter of the
+ * finger at a target nobody chose. The gamepad has had a guard for this since
+ * the pad-wake window went in (main.ts's PAD_WAKE_MS); the mouse never did.
+ *
+ * TOUCH NEEDS NONE, which is why this is gated on pointerType like every
+ * other line in this file: a double-TAP has no travel, so MIN_FIRE_RATIO
+ * already reads it as an accident and cancels it. This is the mouse's copy of
+ * a gate touch has had all along, not a new idea.
+ *
+ * 500ms BECAUSE THAT IS THE PLATFORM'S OWN NUMBER. A double-click is not a
+ * thing this file gets to define — Windows ships 500ms as the default
+ * double-click time and macOS's default sits at the same place on its slider,
+ * and a pair the OS would call a double-click is exactly the pair that must
+ * not reach the cannon. Borrowing the bound rather than guessing one means
+ * the window covers the whole of what it is named for and nothing beyond it.
+ *
+ * THE ASYMMETRY SETTLES THE REST. Too short and a stray second click costs a
+ * launch that cannot be taken back; too long and a deliberate click is
+ * ignored and the player clicks again, which costs a beat. Those are not the
+ * same price, so the window is sized to cover the accident. It is also not
+ * dead time on screen: the hover aim keeps solving through onMove, so the
+ * barrel still follows the cursor for the whole window — only the launch
+ * waits.
+ */
+export const MOUSE_WAKE_MS = 500;
 
 /** One wheel event's worth of NOTCHES, as a pure function of the accumulator
  *  and the event's raw delta, so it can be tested against real device traces
@@ -145,6 +207,12 @@ const LOB_DRAG_PX = 150;
  *  "how far have you pushed THIS way", and pushing the other way ends that
  *  question.
  *
+ *  AND A NOTCH IS ALSO RATE-LIMITED (WHEEL_NOTCH_MIN_MS), which is the half
+ *  distance alone could not buy: a macOS momentum flick is ~1180px of decaying
+ *  tail arriving 16ms apart from one finger movement that has already ended,
+ *  and by travel alone that is ten notches on a five-step dial. The window is
+ *  deaf rather than deferred — travel inside it is discarded, not banked.
+ *
  *  THE REMAINDER IS DROPPED on a fire rather than carried, so no single event
  *  can ever be worth more than one turn. That is what keeps an inertial fling
  *  honest — one 400px momentum delta, or one deltaMode 2 page, is one turn and
@@ -156,19 +224,30 @@ export function wheelNotch(
   accum: number,
   deltaY: number,
   deltaMode: number,
-): { accum: number; notch: -1 | 0 | 1 } {
+  /** This event's timestamp, in the same clock as `lastNotchAt`. */
+  now: number,
+  /** When this accumulator last FIRED a notch — see WHEEL_NOTCH_MIN_MS. The
+   *  caller keeps it (input.ts's wheelNotchAt) and seeds it at -Infinity, so
+   *  the first notch of a fresh bay is never held back. */
+  lastNotchAt: number,
+): { accum: number; notch: -1 | 0 | 1; notchAt: number } {
   // deltaMode is the unit the device chose to speak in — 0 px, 1 lines,
   // 2 pages — and it is per-EVENT, not per-device: the same wheel can switch
   // modes when a modifier or an OS setting changes. Normalising here rather
   // than at the call site means the threshold above is one number in one unit.
   const px = deltaY * (deltaMode === 1 ? WHEEL_STEP_PX / 3 : deltaMode === 2 ? WHEEL_STEP_PX : 1);
-  if (px === 0) return { accum, notch: 0 };
+  if (px === 0) return { accum, notch: 0, notchAt: lastNotchAt };
+  // THE LOCKOUT IS DEAF, and it is tested before the travel is banked rather
+  // than after: everything arriving inside the window is a momentum tail the
+  // desk is coasting through, and banking it would spend the same travel one
+  // notch later instead of not spending it at all (see WHEEL_NOTCH_MIN_MS).
+  if (now - lastNotchAt < WHEEL_NOTCH_MIN_MS) return { accum: 0, notch: 0, notchAt: lastNotchAt };
   const next = Math.sign(px) === Math.sign(accum) ? accum + px : px;
-  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, notch: 0 };
+  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, notch: 0, notchAt: lastNotchAt };
   // +1 is a wheel-DOWN notch (positive deltaY); the caller owns what a
   // direction means, which is what let this survive the wheel changing jobs
   // (it turned the shipment once; it lofts the arc now).
-  return { accum: 0, notch: px > 0 ? 1 : -1 };
+  return { accum: 0, notch: px > 0 ? 1 : -1, notchAt: now };
 }
 
 /**
@@ -267,6 +346,14 @@ export class InputController {
    *  arrives on a bay that is not being played, so a half-notch banked before
    *  a pause cannot fall out of the machine on the first scroll after it. */
   private wheelAccum = 0;
+  /** When the wheel last SPENT a notch, in the event clock (see
+   *  WHEEL_NOTCH_MIN_MS). -Infinity means "never", so the first notch of a
+   *  fresh bay is answered immediately however long the player took to scroll. */
+  private wheelNotchAt = -Infinity;
+  /** When a screen last handed the bay back (see `wake` / MOUSE_WAKE_MS).
+   *  -Infinity means "not this session", so the very first press of a bay
+   *  reached without a modal in front of it is answered immediately. */
+  private wokeAt = -Infinity;
   private raf = 0;
 
   /** settings.wheelRotates, read live so the Controls toggle applies without
@@ -330,6 +417,13 @@ export class InputController {
    *  a browser pointercancel). The cannon keeps its last aim; the finger
    *  still held down is orphaned, so releasing it afterwards is a no-op. */
   cancelAim(): void {
+    // The lob chord is cleared BEFORE the drag guard, because under the
+    // classic-wheel option it is a gesture in its own right: a bare right
+    // press anchors it with no drag underneath (see onDown), so a teardown
+    // that only ran for drags would leave the dial listening to a button
+    // nobody is holding.
+    this.lobFrom = null;
+    this.lobTarget = null;
     if (!this.dragging) return;
     this.dragging = false;
     this.dragStart = null;
@@ -346,6 +440,18 @@ export class InputController {
     this.aimBefore = null;
     const g = this.game();
     if (g) g.aiming = false;
+  }
+
+  /** A screen just closed onto a live bay — start the window in which a mouse
+   *  press is still the tail of the click that closed it (MOUSE_WAKE_MS).
+   *  main.ts calls this from setState on every entry into "playing", because
+   *  every one of them is a modal or a screen being dismissed onto the field.
+   *
+   *  TAKES THE CLOCK so a test can state the window's far side without
+   *  spending it — the same injection Game.shoot and the pad's dials already
+   *  use. Callers in the app pass nothing. */
+  wake(now = performance.now()): void {
+    this.wokeAt = now;
   }
 
   /** The power ratio the live gesture is currently asking for, or null when no
@@ -452,7 +558,32 @@ export class InputController {
       // the gesture it advertised was unreachable). onMove owns the chord
       // now; the `!dragging` gate below is what keeps a browser that fires
       // both events for a chord from turning the piece twice.
-      if (e.button === 2 && !this.dragging) this.rotate("right");
+      // CLASSIC-WHEEL OPTION FIRST (settings.wheelRotates): the wheel has
+      // taken rotation back, so the right button's job is the arc-height drag
+      // the switch's own description names — and it does not need a held aim
+      // under it. A FRESH right press used to fall through to rotate() here,
+      // which meant the toggle advertised a gesture that only existed as a
+      // chord: press right alone and the shipment turned, doubling the
+      // rotation the wheel was already doing and never dialling anything
+      // (found in review). The chord in onMove stays exactly as it was — a
+      // player mid-aim reaches the same dial the same way.
+      //
+      // Anchored on the LAST target rather than a live one, because there is
+      // no drag to read: the hover has been recording where the cursor is
+      // (pendingTarget) and the last click left lastTarget, and the dial
+      // re-solves whichever of those is in hand. With neither — a keyboard
+      // aimer who right-drags before ever clicking — lobTarget stays null and
+      // onMove leaves the dial alone rather than inventing a point.
+      if (e.button === 2 && !this.dragging && this.wheelRotates()) {
+        const gw = this.game();
+        // The same liveness test `rotate` makes, and for the same reason: this
+        // whole branch runs BEFORE onDown's own status guard, so a right press
+        // on a paused or finished bay must anchor nothing.
+        if (gw && gw.status === "playing" && !gw.paused) {
+          this.lobFrom = { y: e.clientY, loft: gw.aimLoft };
+          this.lobTarget = this.pendingTarget ?? this.lastTarget;
+        }
+      } else if (e.button === 2 && !this.dragging) this.rotate("right");
       // ⟲ on the middle button — the wheel's PRESS, which stayed free when
       // the wheel's scroll changed jobs to the loft dial. The pair reads as
       // one rocker in the hand: right button clockwise, the button to its
@@ -463,6 +594,16 @@ export class InputController {
       else if (e.button === 1 && !this.dragging) this.rotate("left");
       return;
     }
+    // THE CLICK THAT CLOSED THE MODAL DOES NOT ALSO FIRE A SHOT. A press
+    // inside the wake window is the second half of a double-click on the
+    // button that handed the bay back (see MOUSE_WAKE_MS), and this branch
+    // would otherwise solve an aim on it and launch on its release.
+    //
+    // REFUSED AT THE PRESS, the same shape as the rail-band guard below:
+    // nothing starts, so there is no capture to release, no aim to restore
+    // and no misfire cue to explain a gesture the player did not knowingly
+    // make. Silence is the honest answer to a stutter.
+    if (e.pointerType === "mouse" && performance.now() - this.wokeAt < MOUSE_WAKE_MS) return;
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
     // A second finger landing on the canvas mid-aim (reaching for the rail
@@ -680,7 +821,19 @@ export class InputController {
     // Same pointerType gating as onDown, for the same pen reason, and it is
     // also why this can safely come BEFORE the `dragging` test: for a mouse
     // whose gesture never started, both guards return anyway.
-    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) {
+      // A lob drag anchored by a BARE right press ends on that button's own
+      // pointerup — a lone button's release is a real pointerup, not the
+      // pointermove a chord's release arrives as, so onMove's `buttons & 2`
+      // teardown never sees it. Harmless to repeat for the chord (onMove has
+      // already cleared it) and necessary for the gesture that has no drag
+      // underneath it to fall back on.
+      if (e.button === 2) {
+        this.lobFrom = null;
+        this.lobTarget = null;
+      }
+      return;
+    }
     // Only the finger that started the drag fires it — any other pointer's
     // release (a rotate/✕ tap mid-aim) leaves the drag alive.
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;
@@ -782,6 +935,10 @@ export class InputController {
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) {
       this.wheelAccum = 0;
+      // The lockout goes with the banked travel, for the same reason: a bay
+      // that was not accepting scrolls owes the first scroll of the next one
+      // an immediate answer.
+      this.wheelNotchAt = -Infinity;
       return;
     }
     // ctrl/⌘+wheel is the browser's zoom, not a scroll, and it is one of the
@@ -796,8 +953,18 @@ export class InputController {
     // that is meant to be the whole viewport. During play the wheel belongs to
     // the game whether or not this particular event earns a rotation.
     e.preventDefault();
-    const r = wheelNotch(this.wheelAccum, e.deltaY, e.deltaMode);
+    // THE EVENT'S OWN CLOCK, not performance.now(): `timeStamp` is a
+    // DOMHighResTimeStamp on the same time origin, it is the moment the wheel
+    // actually moved rather than the moment the handler got around to it
+    // (coalesced deliveries can queue several), and it is settable by a test
+    // harness, which is what lets a real momentum trace be driven through this
+    // without a browser. The fallback covers an event that carries no time at
+    // all — a synthesized one — where "now" is the honest reading.
+    const r = wheelNotch(
+      this.wheelAccum, e.deltaY, e.deltaMode, e.timeStamp || performance.now(), this.wheelNotchAt,
+    );
     this.wheelAccum = r.accum;
+    this.wheelNotchAt = r.notchAt;
     if (r.notch === 0) return;
     // CLASSIC-WHEEL OPTION (settings.wheelRotates): the wheel keeps its
     // original job — a notch turns the shipment, wheel-down clockwise the
@@ -841,6 +1008,11 @@ export class InputController {
   private onKey = (e: KeyboardEvent): void => {
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
+    // A CHORD IS THE SHELL'S (bindings.ts's isShortcutChord). Before the
+    // `keys` write, not after it: ⌘S's keyup never arrives — the browser's
+    // save dialog takes focus and the window's keyup goes with it — so a
+    // recorded S would hold aim-down for the rest of the bay.
+    if (isShortcutChord(e)) return;
     const k = e.key.toLowerCase();
     this.keys.add(k);
     // Aim/power (tickKeys below) WANT the held state, so the key is recorded
@@ -884,10 +1056,31 @@ export class InputController {
   };
 
   /** A window that loses focus never delivers keyup, so an alt-tab mid-burst
-   *  would leave the trigger held down until the player pressed F again. */
+   *  would leave the trigger held down until the player pressed F again.
+   *
+   *  THE GESTURE GOES WITH THE KEYS (found in review), and for the identical
+   *  reason: a blur is the last event the window gets, so the pointerup that
+   *  would have ended the drag is never delivered either. Alt-tab, an OS
+   *  notification, or a click on the browser's own chrome mid-aim left
+   *  `dragging` latched true — and onDown's "a second finger must not
+   *  re-anchor the drag in progress" guard then refused every press that
+   *  followed, so the bay was unaimable until the player found the aim-state
+   *  ✕ and tapped it. A control scheme that needs a rescue button after an
+   *  alt-tab is a control scheme with a stuck key in it.
+   *
+   *  CANCELLED, NOT FIRED, which is what cancelAim already means: the player
+   *  pulled, looked away, and never released — there is no release to honour,
+   *  so no shot is spent and the cannon keeps the aim it had reached. The ✕
+   *  hands back exactly the same state, so this adds no new one.
+   *
+   *  A REAL pointercancel usually arrives with the blur (the browser sends one
+   *  when it takes the pointer away) and cancelAim is idempotent, so ordering
+   *  between the two does not matter. This covers the blurs that come with no
+   *  pointercancel at all — alt-tab with the button still physically down. */
   private onBlur = (): void => {
     this.keys.clear();
     this.game()?.setAutoHeld(false);
+    this.cancelAim();
   };
 
   // Continuous keyboard aim/power (web fallback), plus the once-a-frame flush

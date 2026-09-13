@@ -128,6 +128,36 @@ export function actionForKey(key: string): BindableAction | null {
   return BINDABLE_ACTIONS.find((a) => keys[a] === k) ?? null;
 }
 
+/**
+ * Is this keypress the SHELL'S, not the bay's?
+ *
+ * Every game key in this file is a bare letter, and every one of them is also
+ * half of a browser or OS shortcut: ⌘/Ctrl+B is the bookmark bar, Ctrl+X is
+ * cut, ⌘S is save, Alt+letter opens a menu. Until this existed the key
+ * handlers read `e.key` alone, so pressing any of those spent what the letter
+ * is bound to — a Bond Breaker charge on ⌘B, an armed demolition on Ctrl+X —
+ * while the browser also did its own job and, for ⌘S, swallowed the keyup,
+ * leaving aim-down held until the player pressed S again. A chord is the one
+ * press a player makes that is provably not aimed at the bay: nobody holds ⌘
+ * to turn a shipment.
+ *
+ * SHIFT IS NOT IN HERE. Shift is a letter's own modifier rather than a
+ * shortcut prefix (the handlers already lower-case the key), so refusing a
+ * shifted letter would refuse a binding a player may have deliberately made.
+ *
+ * Consulted by every door a keypress arrives through — game/input.ts's onKey,
+ * main.ts's onGlobalKey, and the Controls screen's rebind capture, which must
+ * not BIND half a shortcut either — so the three cannot disagree about what
+ * belongs to the shell. Nothing here calls preventDefault: the chord is handed
+ * straight back to the browser, which is what keeps F11 / ⌃⌘F fullscreen and
+ * every other combo the desktop shell owns working exactly as before.
+ */
+export function isShortcutChord(e: {
+  ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean;
+}): boolean {
+  return e.ctrlKey === true || e.metaKey === true || e.altKey === true;
+}
+
 /** Bind `key` to `action`. A key can carry ONE action, so a conflict SWAPS:
  *  the action that held the key before takes this action's old key — every
  *  action stays reachable, which a silent steal would break. */
@@ -333,9 +363,58 @@ export function padChip(button: number, family: PadFamily = padFamily): PadChip 
  * these, per profile, so a hint can never name a control the profile hides.
  * ------------------------------------------------------------------------ */
 export function hintRotate(profile: InputProfile): string {
-  if (profile === "touch") return "tap ⟲ / ⟳ on the right";
+  /* "ON THE RAIL", NOT "ON THE RIGHT" (found in review). The rail has three
+   * positions and the hint had one: Controls → Left-handed rail mirrors it to
+   * the left edge (store.ts's leftHandRail, layout.ts's setRailSide), and the
+   * "tall" layout parks it as a BOTTOM strip on a portrait phone
+   * (app.css's :root[data-layout="tall"] .side-rail). So the sentence was
+   * wrong for every left-handed player and wrong for every portrait one, on
+   * the card whose entire subject is finding two buttons in a rail of seven —
+   * which is exactly the class of bug this table was built to make unwritable,
+   * arriving through a word nobody thought of as a binding.
+   *
+   * NAMED, NOT LOCATED, rather than threading the side and the layout mode in.
+   * Position is not a property of the binding: the mode is re-solved on every
+   * resize, and this string is baked into a coach card at mount time, so a
+   * threaded "on the left" would go stale the moment a tablet turned — a hint
+   * that is right when written and wrong when read is worse than one that
+   * never claimed. The glyphs are printed ON the buttons (components.ts's
+   * railLegendHTML), which is the reference a player actually matches against,
+   * and "the rail" names the object wherever it has been put. */
+  if (profile === "touch") return "tap ⟲ / ⟳ on the rail";
   if (profile === "gamepad") return `press ${padLabel(padFor("rotl"))} / ${padLabel(padFor("rotr"))}`;
   return `press ${keyLabel(keyFor("rotl"))} / ${keyLabel(keyFor("rotr"))}`;
+}
+
+/**
+ * The input family a pointer contact belongs to — the profile the hints must
+ * be rendered in for whoever just touched the glass.
+ *
+ * THE LINE IS `pointerType === "mouse"`, NOT `=== "touch"`, and that is the
+ * whole fix. main.ts used to flip to "keyboard" for every contact that was
+ * not literally "touch", which handed a pen and an unrecognised pointer the
+ * keyboard's sentences: "click where it should land" and "press Q / E". But
+ * game/input.ts draws its own line one word further over — it splits the
+ * click-to-target scheme from the slingshot at `pointerType === "mouse"`, and
+ * says so three times in its header, because pen and unknown pointer types
+ * land on touch hardware. So an Apple Pencil was TAUGHT click-to-target and
+ * GIVEN the slingshot: a tap on the field did nothing at all, and the card
+ * explaining why named a key the tablet does not have.
+ *
+ * The same word is the other half of the bug. A pen contact used to set the
+ * profile to "keyboard", and nothing on a tablet ever set it back — pen is
+ * the pointer a stylus user makes every contact with — so one stylus tap, or
+ * one press on an attached keyboard, left the hints in the wrong family for
+ * the rest of the session. Mapping every non-mouse contact to touch means the
+ * glass always takes the profile back.
+ *
+ * Written here rather than inline in main.ts because this IS the hint table's
+ * question: which of the three vocabularies does this device speak. Exported
+ * so the answer can be stated as behaviour in a test rather than as a regex
+ * over main.ts's listener.
+ */
+export function profileForPointer(pointerType: string): InputProfile {
+  return pointerType === "mouse" ? "keyboard" : "touch";
 }
 
 export function hintAim(profile: InputProfile): string {

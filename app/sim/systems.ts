@@ -190,7 +190,7 @@ import {
 import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
-import { InputController, wheelNotch } from "../src/game/input";
+import { InputController, MOUSE_WAKE_MS, wheelNotch } from "../src/game/input";
 import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 // The one platform predicate this harness can answer without a browser: what
@@ -238,8 +238,8 @@ import {
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintRotate, isPauseKey,
-  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, resetKeyBindings,
-  resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, profileForPointer,
+  resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
@@ -7664,6 +7664,40 @@ section("The dial collapse (screens.ts collapsingDial + app.css)");
     check("reduced motion still names the dial, in danger red, without moving",
       /prefers-reduced-motion[\s\S]*\.dial-collapse \.v \{[\s\S]*animation:\s*none[\s\S]*var\(--danger\)/.test(block),
       block.slice(-240).trim());
+
+    // --- and the bay underneath answers nothing while the hold runs ---------
+    // THE THIRD FILE IN THE SAME FACT. setState drops the overlay's
+    // pointer-events for the length of this hold and says, in a comment, that
+    // taps are refused for the beat — but `.side-rail .icon-btn` opts back IN
+    // (that is what makes the rail clickable through an overlay that is `none`
+    // for the whole of play), so the inline style never reached the one row of
+    // controls still on screen. The ability triggers and ⏸ test the app state
+    // and were dead anyway; the rail's fullscreen toggle tests nothing, so a
+    // tap on it re-solved the entire layout underneath the collapse this hold
+    // exists to let finish. The pad has refused presses here since its own
+    // guard went in, which is the asymmetry that gives this one its shape.
+    //
+    // READ OFF THE SOURCE because main.ts needs a DOM to instantiate. Two
+    // claims: the CSS really does re-enable those buttons (so the inline style
+    // cannot be trusted to cover them), and the click handler carries the
+    // guard the pad handler already had.
+    check("the rail's buttons are clickable through a pointer-events:none overlay",
+      /\.side-rail \.icon-btn \{\s*pointer-events:\s*auto/.test(css));
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const onClick = mainSrc.slice(mainSrc.indexOf("private onClick = "));
+    check("...so the click handler refuses every action while the bay is dead",
+      /^[\s\S]{0,2400}?if \(this\.endScrimTimer !== null\) return;/.test(onClick));
+    // BOTH DOORS. The rail's own presses act on pointerdown, not on click —
+    // that is where the Autoloader's burst, Bond Breaker's hold and ⏸'s
+    // hold-to-restart start — so a guard on onClick alone would still let a
+    // 400ms hold on ⏸ restart the bay underneath the modal about to report it
+    // lost.
+    const onDown = mainSrc.slice(mainSrc.indexOf("private onGamePointerDown = "));
+    check("...and so does the rail's own pointerdown handler",
+      /^[\s\S]{0,1200}?if \(this\.endScrimTimer !== null\) return;/.test(onDown));
   }
 }
 
@@ -7731,6 +7765,48 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       hintRotate("gamepad").includes("LB"));
   check("the keyboard hint never points at the touch rail",
     !hintRotate("keyboard").includes("⟲"));
+  // ...AND THE TOUCH HINT NAMES THE RAIL RATHER THAN A SIDE OF THE SCREEN. It
+  // said "on the right", which is wrong for a left-handed rail (Controls →
+  // leftHandRail) and wrong for the "tall" layout's bottom strip — two states
+  // the player chooses and the device chooses, on the one card whose subject
+  // is finding two buttons among seven. Asserted as "no side word at all",
+  // because the fix is that the sentence stops making a claim that a resize
+  // can falsify, not that it makes a different one.
+  check("the touch rotate hint names the rail, not a side of the screen",
+    hintRotate("touch").includes("rail") && !/\b(right|left|bottom|top)\b/i.test(hintRotate("touch")),
+    hintRotate("touch"));
+  // ...AND THE PROFILE A POINTER CONTACT PICKS (profileForPointer). The hint
+  // table can only be as right as the family it is handed, and main.ts used to
+  // hand it "keyboard" for every contact that was not literally "touch" —
+  // while game/input.ts splits its two aiming schemes at "mouse". One word
+  // apart, and the gap is a whole device: a pen was taught "click where it
+  // should land" and given the pull-back slingshot, so an Apple Pencil tap on
+  // the field did nothing and the card said why in a key the tablet has not
+  // got. Stated per pointer type rather than as a regex over main.ts's
+  // listener, with the listener's use of it pinned separately below.
+  check("a pen contact reads as touch, so the hints match the gesture it gets",
+    profileForPointer("pen") === "touch", profileForPointer("pen"));
+  check("...and so does a pointer type the browser will not name",
+    profileForPointer("") === "touch" && profileForPointer("unknown") === "touch");
+  check("...while a mouse is still the keyboard family, which owns click-to-target",
+    profileForPointer("mouse") === "keyboard" && profileForPointer("touch") === "touch");
+  // THE GLASS TAKES THE PROFILE BACK, which is the half a tablet needs: every
+  // contact a stylus user makes is "pen", so under the old line one keypress
+  // on an attached keyboard (or one pen tap) left the hints in the keyboard's
+  // family for the rest of the session with nothing able to undo it.
+  check("...so a tap after a keypress puts a tablet back in its own family",
+    profileForPointer("pen") !== "keyboard" && profileForPointer("touch") !== "keyboard");
+  // main.ts cannot be instantiated here (no DOM), so its listener is read off
+  // the source — the BEHAVIOUR is pinned above; this only proves the listener
+  // asks the shared question instead of keeping its own copy of the line.
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    check("the pointerdown that sets the profile asks profileForPointer",
+      /"pointerdown",\s*\(e\) => this\.setProfile\(profileForPointer\(e\.pointerType\)\)/.test(mainSrc));
+  }
   const desktopCoach = coachSteps(makeBaseLevel(0), "keyboard");
   check("the desktop coach teaches keys, not hidden buttons",
     !desktopCoach[1].body.includes("⟲") && desktopCoach[1].body.includes("Q"));
@@ -7786,6 +7862,46 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
     /bind-row__label">Fullscreen<\/span>\s*<span class="bind-row__key">⌃⌘F · F11</.test(kbDesk)
       && !kbDesk.includes('data-bind="fullscreen"'));
   setFullscreenKeys([]);
+  // THE MOUSE ROWS DESCRIBE THE MODE THAT IS ON, the same correction the
+  // gamepad tab's aim row already took. "Wheel rotates" SWAPS the wheel's job
+  // with the right button's, so a pane stating the default flatly contradicted
+  // the switch sitting under it: a player who turned it on read "Arc height ·
+  // scroll" one row above a toggle whose own description said scrolling now
+  // rotates. Both directions, because the mirrored version is the same bug.
+  {
+    const swapped = controlsScreen({
+      tab: "keyboard",
+      settings: { ...ctrlSettings, wheelRotates: true },
+      padName: null,
+      rebinding: null,
+    });
+    check("with the wheel on rotation, the arc-height row names the drag",
+      /Arc height<\/span>\s*<span class="bind-row__key">hold right-click and drag/.test(swapped),
+      /Arc height<\/span>\s*<span class="bind-row__key">([^<]*)</.exec(swapped)?.[1] ?? "");
+    check("...and the rotate row names the scroll",
+      /Mouse rotate<\/span>\s*<span class="bind-row__key">scroll ⟳/.test(swapped));
+    check("...while the default pane still teaches the scroll and the right-click",
+      /Arc height<\/span>\s*<span class="bind-row__key">scroll ·/.test(kb)
+        && /Mouse rotate<\/span>\s*<span class="bind-row__key">right-click ⟳/.test(kb));
+    // The switch's own description names the gesture input.ts now provides —
+    // a bare right press, no held aim required (see onDown).
+    check("...and the toggle no longer calls the arc-height drag a mid-aim chord",
+      swapped.includes("holding right-click and dragging")
+        && !swapped.includes("right-click mid-aim"));
+    // Rows that state the live mode are only true if something redraws them,
+    // and the card's two doors are only true if both are handed the setting.
+    // Read off main.ts, which this harness cannot instantiate.
+    const mainCode = fs.readFileSync(
+      path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), "src", "main.ts"),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    check("flipping Wheel rotates redraws the pane that describes it",
+      /key === "stickSling" \|\| key === "wheelRotates"[\s\S]{0,120}renderKeepingScroll\(\)/
+        .test(mainCode));
+    check("both doors onto the pause card hand it the live setting",
+      /pauseKeysHTML\([\s\S]{0,80}?this\.settings\.wheelRotates\)/.test(mainCode)
+        && /runRetryOffered\(\), this\.settings\.wheelRotates\)/.test(mainCode));
+  }
   const padPane = controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null });
   check("an absent gamepad reads as absent, not broken", padPane.includes("No gamepad"));
   check("the touch tab carries the left-hand rail toggle",
@@ -7827,6 +7943,32 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   check("the assist toggle names the mode it actually smooths",
     padPane.includes("Smooth the slingshot stick")
       && slingPane.includes("Smooth the slingshot stick"));
+  // A NON-STANDARD PAD SAYS SO, ON THE SCREEN THAT HOLDS THE REMEDY. Every
+  // button index in game/gamepad.ts is a standard-mapping index, and every
+  // label on this pane is read off that promise — so when the browser reports
+  // a pad it could not fit to the mapping, the rows below are naming the wrong
+  // physical buttons and nothing said it. Pinned in both directions, because a
+  // notice that showed for an ORDINARY pad would be worse than the silence it
+  // replaced: it would teach every player to distrust a table that is right.
+  const oddPane = controlsScreen({
+    tab: "gamepad", settings: ctrlSettings, rebinding: null,
+    padName: "Generic USB Joystick (Vendor: 0079 Product: 0006)",
+    padNonStandard: true,
+  });
+  check("a non-standard pad is called out on the gamepad tab",
+    /standard mapping/i.test(oddPane), oddPane.includes("standard mapping") ? "" : "no notice");
+  check("...and pointed at the rebinding underneath it rather than left as an apology",
+    /rebind/i.test(oddPane.slice(0, oddPane.indexOf("Detected"))));
+  check("...while an ordinary pad's pane says nothing about mappings",
+    !/standard mapping/i.test(controlsScreen({
+      tab: "gamepad", settings: ctrlSettings, rebinding: null,
+      padName: "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)",
+    })));
+  // ...and the HUD is deliberately not a second home for it, which needs no
+  // assertion to stay true: hudHTML is never handed the fact, so it could not
+  // render the notice if it wanted to. A permanent badge over a live bay would
+  // be a penalty for owning an unusual controller, up during the one activity
+  // where nothing can be done about it.
   // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
   // that has no row in the table below, because they have no binding — so the
   // pane states them, or they are documented nowhere at all.
@@ -17831,8 +17973,12 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     const endCallAt = mainSrc.indexOf("S.endModal({");
     const endCall = mainSrc.slice(endCallAt, mainSrc.indexOf("}),", endCallAt));
     check("the loss card is handed the same read the pause card is",
+      // The pause call's own tail is open-ended on purpose — arguments have
+      // been appended after runRetry (wheelRotates) and will be again; what
+      // this pin is about is that both cards read the SAME gate, not where it
+      // happens to sit in the list.
       /runRetry: this\.runRetryOffered\(\),/.test(endCall)
-        && /this\.runRetryOffered\(\)\);/.test(mainSrc.slice(mainSrc.indexOf("S.pauseModal("))));
+        && /this\.runRetryOffered\(\)[,)]/.test(mainSrc.slice(mainSrc.indexOf("S.pauseModal("))));
   }
 
   // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
@@ -19061,11 +19207,14 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   let buttons: number[] = [];
   let padId = "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)";
+  /** `Gamepad.mapping`, mutable because this block now drives a pad the
+   *  browser could NOT fit to the standard mapping as well as one it could. */
+  let padMapping = "standard";
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
       getGamepads: () => [{
-        id: padId, connected: true, mapping: "standard",
+        id: padId, connected: true, mapping: padMapping,
         axes: [0, 0],
         buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
       }],
@@ -19111,6 +19260,22 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   check("...and the labels follow the pad now in the player's hands",
     padLabel(padFor("fire")) === "A", padLabel(padFor("fire")));
 
+  // THE MAPPING, WHICH NOTHING USED TO READ. Every button index in this file
+  // is a standard-mapping index — 0 is the bottom face button, 4/5 the
+  // shoulders, 12-15 the D-pad — and the bindings, the labels and the menu
+  // navigation are all read off that promise. `Gamepad.mapping` is the
+  // browser's own statement about whether the promise holds, and it was
+  // available on every poll and consulted on none, so a generic pad or an
+  // adapter that enumerates its controls in some other order got a Controls
+  // screen full of confident names for the wrong buttons.
+  check("a pad the browser fitted to the standard mapping raises nothing",
+    !pad.nonStandardPad());
+  padMapping = "";
+  padId = "Generic USB Joystick (Vendor: 0079 Product: 0006)";
+  pad.poll(450);
+  check("...and a pad it could not fit says so",
+    pad.nonStandardPad(), `mapping "${padMapping}"`);
+
   // A DISCONNECT is an identity change too — the labels fall back to the
   // standard mapping's lettering rather than staying on a pad that has gone.
   Object.defineProperty(globalThis, "navigator", {
@@ -19119,10 +19284,16 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   });
   pad.poll(500);
   check("a pad going away announces itself once",
-    seen.length === 3 && seen[2] === null, JSON.stringify(seen));
+    seen.length === 4 && seen[3] === null, JSON.stringify(seen));
   pad.poll(516);
   check("...and an absent pad is not re-announced every frame",
-    seen.length === 3, String(seen.length));
+    seen.length === 4, String(seen.length));
+  // NO PAD IS NOT A BAD PAD. The notice is about a device in the player's
+  // hands; with nothing connected the Detected row already says so, and a
+  // warning about a controller that is not there would be noise on the screen
+  // a player opens to find out why nothing is happening.
+  check("...and nothing connected raises no mapping notice either",
+    !pad.nonStandardPad());
 
   setPadFamily(null);
   if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
@@ -19748,6 +19919,26 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     /click to aim/i.test(
       S.pauseModal(true, "keyboard", { bond: false, demo: false, thaw: false, auto: false }),
     ));
+
+  // ...AND IT NAMES THE WHEEL SCHEME THAT IS ON (settings.wheelRotates). The
+  // card taught one scheme unconditionally while the Controls screen offered
+  // the other on a switch directly under the toggle's own description — so a
+  // player who flipped it read, on the game's single home for control
+  // instructions, a card for the game they had just stopped playing. Both
+  // directions are asserted, because a card that named the wheel's alternate
+  // job unconditionally would be the identical bug mirrored.
+  {
+    const none = { bond: false, demo: false, thaw: false, auto: false };
+    const dflt = S.pauseModal(true, "keyboard", none, undefined, undefined, true, false, false);
+    const swapped = S.pauseModal(true, "keyboard", none, undefined, undefined, true, false, true);
+    check("the card's wheel line follows the Wheel rotates switch",
+      /scroll for arc height/i.test(dflt) && !/scroll for arc height/i.test(swapped),
+      swapped.includes("scroll for arc height") ? "still teaching the default" : "");
+    check("...and so does the right button's",
+      /right ⟳/.test(dflt) && !/right ⟳/.test(swapped));
+    check("...with the swapped card teaching the drag and the scrolled rotate",
+      /hold right \+ drag for arc height/i.test(swapped) && /scroll ⟳/.test(swapped));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -19761,48 +19952,111 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
 // them on the loft dial now — which is why the function answers in signed
 // notches and owns no opinion about what a notch buys.)
 {
+  /** One event on a wheel nobody has touched for a while — the rate limit
+   *  (input.ts's WHEEL_NOTCH_MIN_MS) is a property of the SEQUENCE, so the
+   *  single-event cases below state their clock once, here, and say nothing
+   *  about it individually. */
+  const one = (deltaY: number, deltaMode = 0, accum = 0) =>
+    wheelNotch(accum, deltaY, deltaMode, 0, -Infinity);
   check("one Chrome/Edge detent down is one notch, signed with its deltaY",
-    wheelNotch(0, 100, 0).notch === 1, String(wheelNotch(0, 100, 0).notch));
+    one(100).notch === 1, String(one(100).notch));
   check("one detent up is one notch the other way",
-    wheelNotch(0, -100, 0).notch === -1, String(wheelNotch(0, -100, 0).notch));
+    one(-100).notch === -1, String(one(-100).notch));
   // deltaMode is the half of this that is easiest to write and forget: Firefox
   // reports LINES, so an unnormalised threshold of 100 would need thirty-four
   // detents per notch there and the feature would simply not work on it.
   check("one Firefox line-mode detent (deltaMode 1, 3 lines) also lands",
-    wheelNotch(0, 3, 1).notch === 1, String(wheelNotch(0, 3, 1).notch));
+    one(3, 1).notch === 1, String(one(3, 1).notch));
   check("a page-mode detent (deltaMode 2) lands too",
-    wheelNotch(0, 1, 2).notch === 1, String(wheelNotch(0, 1, 2).notch));
+    one(1, 2).notch === 1, String(one(1, 2).notch));
   // THE TRACKPAD CASE, which is the reason the accumulator exists. One flick
   // is one gesture; without accumulation it is thirty notches — the whole loft
   // range slammed to an end stop by a scroll that meant one step.
+  //
+  // ONE notch, not the two this pin used to assert. The events are 16ms apart
+  // — a real trackpad's cadence, which this pin now states rather than leaving
+  // to the reader — so the second notch falls inside the deaf window the
+  // momentum trace below exists to justify. 240px of travel asking for one
+  // step of a five-step dial is the answer that gesture wanted anyway.
   {
     let accum = 0;
+    let notchAt = -Infinity;
     let notches = 0;
     for (let i = 0; i < 30; i++) {
-      const r = wheelNotch(accum, 8, 0);
+      const r = wheelNotch(accum, 8, 0, i * 16, notchAt);
       accum = r.accum;
+      notchAt = r.notchAt;
       notches += Math.abs(r.notch);
     }
-    check("a 30-event, 240px trackpad flick is two notches, not thirty",
+    check("a 30-event, 240px trackpad flick is one notch, not thirty",
+      notches === 1, `${notches} notches`);
+  }
+  // THE MOMENTUM TRACE, which is what distance alone could not answer. A
+  // macOS trackpad flick does not stop when the finger lifts: the OS keeps
+  // sending wheel events ~16ms apart with a rising front and a long decaying
+  // tail, and this one totals 1180px. By travel alone that is eight notches
+  // spent on a dial with five steps — the loft range slammed to its stop and
+  // half way back — from one flick that meant one step.
+  {
+    /** Deltas as macOS emits them for one flick, 16ms apart: a rising front
+     *  edge, a peak while the finger is still moving, then the decaying tail
+     *  the OS sends after it has lifted. 1180px in total. */
+    const trace = [
+      8, 24, 60, 96, 140, 136, 108, 92, 80, 70, 60, 52, 44, 38, 32, 26, 22, 18, 14, 12,
+      10, 8, 6, 6, 4, 4, 4, 2, 2, 2,
+    ];
+    check("the trace is the 1180px the review measured",
+      trace.reduce((a, b) => a + b, 0) === 1180,
+      String(trace.reduce((a, b) => a + b, 0)));
+    // The same events with the clock held still, to state what the
+    // accumulator alone spends rather than asserting it from memory.
+    let bare = 0;
+    let bareAccum = 0;
+    for (const d of trace) {
+      const r = wheelNotch(bareAccum, d, 0, 0, -Infinity);
+      bareAccum = r.accum;
+      bare += Math.abs(r.notch);
+    }
+    let accum = 0;
+    let notchAt = -Infinity;
+    let notches = 0;
+    trace.forEach((d, i) => {
+      const r = wheelNotch(accum, d, 0, i * 16, notchAt);
+      accum = r.accum;
+      notchAt = r.notchAt;
+      notches += Math.abs(r.notch);
+    });
+    check("travel alone spends one momentum flick right across the dial",
+      bare >= 8, `${bare} notches over a 5-step dial`);
+    check("...and the rate limit makes that same flick two notches",
       notches === 2, `${notches} notches`);
   }
   // A reversal has to cost one notch of travel, not two. Banking 90px downward
   // and then pushing back up must not need 190px of up before anything moves.
   {
-    const banked = wheelNotch(0, 90, 0);
+    const banked = one(90);
     check("90px of travel alone is no notch yet", banked.notch === 0);
     check("...and a full notch the OTHER way still lands immediately",
-      wheelNotch(banked.accum, -100, 0).notch === -1,
-      String(wheelNotch(banked.accum, -100, 0).notch));
+      one(-100, 0, banked.accum).notch === -1,
+      String(one(-100, 0, banked.accum).notch));
   }
   // The remainder is DROPPED on a fire, so one event can never be worth more
   // than one notch however hard it was thrown. Carrying 300px of overflow out
   // of an inertial fling would spend it three more times — most of the loft
   // range on a gesture that asked for one step.
   {
-    const fling = wheelNotch(0, 400, 0);
+    const fling = one(400);
     check("a 400px inertial fling is exactly one notch", fling.notch === 1, String(fling.notch));
     check("...and banks nothing toward the next one", fling.accum === 0, String(fling.accum));
+  }
+  // The window is a LOCKOUT, not a latch: a second deliberate flick a beat
+  // later is answered in full. 250ms is about as fast as a wrist re-flicks.
+  {
+    const first = wheelNotch(0, 100, 0, 1000, -Infinity);
+    check("a detent 40ms after one notch is inside the deaf window",
+      wheelNotch(0, 100, 0, 1040, first.notchAt).notch === 0);
+    check("...and one 250ms later is the player asking again, so it lands",
+      wheelNotch(0, 100, 0, 1250, first.notchAt).notch === 1);
   }
 }
 
@@ -19855,7 +20109,7 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   // both schemes — settings.wheelRotates is read live in the app for the same
   // reason.
   let wheelRotates = false;
-  new InputController(canvas, () => g, undefined, () => wheelRotates);
+  const input = new InputController(canvas, () => g, undefined, () => wheelRotates);
 
   const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
     (m.get(t) ?? []).forEach((h) => h(e));
@@ -19864,8 +20118,15 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     button, buttons, pointerId: 1, pointerType, clientX, clientY,
     preventDefault: () => { prevented += 1; },
   });
+  /** Wheel events carry their own clock (input.ts reads `timeStamp`, which is
+   *  what the notch rate limit measures), and every scroll below is a separate
+   *  deliberate one — so the harness advances 200ms per event, which is about
+   *  as fast as a wrist re-flicks. Passing no time would leave the handler on
+   *  performance.now(), where these back-to-back sends are microseconds apart
+   *  and every scroll after the first is a momentum tail. */
+  let wheelClock = 1000;
   const whl = (deltaY: number, deltaMode = 0, ctrlKey = false) => ({
-    deltaY, deltaX: 0, deltaMode, ctrlKey, metaKey: false,
+    deltaY, deltaX: 0, deltaMode, ctrlKey, metaKey: false, timeStamp: (wheelClock += 200),
     preventDefault: () => { prevented += 1; },
   });
   /** Quarter-turns the piece made across a call, signed. */
@@ -20071,6 +20332,52 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     }) === 1);
   }
 
+  // THE BROWSER'S SHORTCUTS ARE NOT GAME ACTIONS (bindings.ts's
+  // isShortcutChord). Every game key is a bare letter and every bare letter is
+  // half of some shell combo, so ⌘/Ctrl+B spent a Bond Breaker charge, Ctrl+X
+  // armed a demolition and ⌘S held aim-down — the browser doing its own job
+  // at the same time, and for ⌘S swallowing the keyup that would have let the
+  // key go. Driven through the real handler rather than string-matched: the
+  // bug is that the handler read `e.key` and nothing else.
+  {
+    const key = (k: string, mods: Record<string, boolean> = {}) =>
+      send(onWindow, "keydown", { key: k, repeat: false, preventDefault: () => {}, ...mods });
+    g.bombCharges = 2;
+    g.bombArmed = false;
+    // Read through a call so the checks below state the live flag rather than
+    // the literal the line above narrowed it to.
+    const armed = (): boolean => g.bombArmed;
+    key(keyFor("demo"), { ctrlKey: true });
+    check("ctrl+X arms no demolition charge", !armed());
+    key(keyFor("demo"), { metaKey: true });
+    check("...nor does ⌘X", !armed());
+    key(keyFor("demo"));
+    check("...while the bare key still arms one", armed());
+    g.armBomb();
+    check("a ⌘-chorded fire key launches nothing",
+      fired(() => key(keyFor("fire"), { metaKey: true })) === 0);
+    // The HELD half — ⌘S leaving aim-down stuck down — needs a frame to run
+    // in, so it is pinned in the hover harness below, which pumps one.
+
+    // THE OTHER TWO DOORS A KEYPRESS COMES THROUGH are in main.ts, which this
+    // harness cannot instantiate, so they are read off the source: the
+    // app-level keydown (pause, the sandbox key) and the Controls screen's
+    // rebind capture, which must not BIND half a shortcut. Asserted as "the
+    // guard is called in both places" rather than by spelling, because the
+    // predicate itself is pinned by behaviour above.
+    {
+      const src = fs.readFileSync(
+        path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), "src", "main.ts"),
+        "utf8",
+      ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+      const globalKey = src.slice(src.indexOf("private onGlobalKey"), src.indexOf("private onKeydown"));
+      check("the app-level keydown refuses a shortcut chord before acting on it",
+        /if \(isShortcutChord\(e\)\) return;[\s\S]*?isPauseKey\(e\.key\)/.test(globalKey));
+      check("...and rebind capture refuses to bind one",
+        /this\.rebinding\) \{\s*if \(isShortcutChord\(e\)\) return;/.test(globalKey));
+    }
+  }
+
   // THE CLASSIC-WHEEL OPTION (settings.wheelRotates, the Controls toggle):
   // the wheel turns the shipment again — wheel-down clockwise, as it
   // originally shipped — and arc height moves onto the right-button chord
@@ -20100,8 +20407,106 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
       const shot = fired(() => send(onWindow, "pointerup", ptr(0, "mouse", 400, 2, 185)));
       check("...and the left release still fires the held aim", shot === 1, `${shot} shots`);
     }
+    // A BARE RIGHT PRESS IS THE SAME DIAL, which is the gesture the toggle's
+    // own description names ("holding right-click and dragging up/down") and
+    // the one it did not have: with no left button held, onDown's rotate
+    // branch turned the shipment — doubling the rotation the wheel had just
+    // taken over, and dialling nothing. The last clicked point is what it
+    // re-solves, since there is no drag to read.
+    {
+      g.aimLoft = 0;
+      let t = 0;
+      const early = fired(() => { t = turned(() => {
+        send(onCanvas, "pointerdown", ptr(2, "mouse", 400, 2));          // right alone
+        send(onCanvas, "pointermove", ptr(-1, "mouse", 400, 2, 185));    // pull up 75px
+      }); });
+      check("a bare right press anchors the arc-height drag instead of rotating",
+        t === 0 && early === 0 && g.aimLoft > 0.4 && g.aimLoft < 0.6,
+        `${t} turns, ${early} shots, loft ${g.aimLoft.toFixed(2)}`);
+      // Its release is a real pointerup (a lone button's is), so the teardown
+      // cannot live only in onMove's chord path — without this the dial would
+      // still be listening on the next move.
+      const shot = fired(() => send(onWindow, "pointerup", ptr(2, "mouse", 400, 0, 185)));
+      const after = g.aimLoft;
+      send(onCanvas, "pointermove", ptr(-1, "mouse", 400, 0, 40));
+      check("...releases on its own pointerup, firing nothing and leaving the dial alone",
+        shot === 0 && g.aimLoft === after, `${shot} shots, loft ${g.aimLoft.toFixed(2)}`);
+    }
     wheelRotates = false;
     g.aimLoft = 0;
+    // ...and with the option OFF a bare right press still turns the shipment,
+    // so this is a mode swap rather than a rotate that went missing.
+    check("with the option off, a bare right press turns the shipment as before",
+      turned(() => {
+        send(onCanvas, "pointerdown", ptr(2, "mouse", 400, 2));
+        send(onWindow, "pointerup", ptr(2, "mouse", 400, 0));
+      }) === 1);
+  }
+
+  // A BLUR MID-AIM LEFT THE GESTURE LATCHED (found in review). onBlur cleared
+  // the held KEYS — a window that loses focus never delivers keyup — and left
+  // the drag exactly as it was, for the identical reason it cleared the keys:
+  // the pointerup never arrives either. `dragging` stayed true, onDown's "a
+  // second finger must not re-anchor the drag in progress" guard then refused
+  // every press that followed, and the bay was unaimable until the player
+  // found the aim-state ✕. Alt-tab, an OS notification, a click on the
+  // browser's own chrome — all of them, and none of them the player's fault.
+  //
+  // THE SECOND GESTURE USES A DIFFERENT POINTER ID, which is what makes this
+  // pin able to fail. Re-pressing on the SAME id would look fixed either way:
+  // the refused press is followed by a pointerup that still matches the
+  // orphaned drag's id, so the stale gesture fires and the shot count reads 1
+  // for entirely the wrong reason. A fresh id is the honest question — can the
+  // next pointer to arrive aim at all.
+  {
+    send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+    const held = { angle: g.cannon.angle, power: g.cannon.power };
+    const onBlurShots = fired(() => send(onWindow, "blur", {}));
+    check("a blur mid-aim fires nothing", onBlurShots === 0, `${onBlurShots} shots`);
+    // Cancelled, not misfired: cancelAim keeps the aim the player built rather
+    // than snapping back to what preceded the gesture, and the ✕ has always
+    // meant exactly that.
+    check("...and leaves the aim the player had reached",
+      g.cannon.angle === held.angle && g.cannon.power === held.power);
+    const next = fired(() => {
+      send(onCanvas, "pointerdown", { ...ptr(0, "mouse", 500), pointerId: 2 });
+      send(onWindow, "pointerup", { ...ptr(0, "mouse", 500), pointerId: 2 });
+    });
+    check("...and the next pointer can aim and fire with no ✕ to find first",
+      next === 1, `${next} shots`);
+  }
+
+  // THE CLICK THAT CLOSED THE MODAL DOES NOT ALSO FIRE A SHOT (found in
+  // review). Every modal button acts on its click and the bay under it is live
+  // canvas the instant that click re-renders the overlay, so the second press
+  // of a double-click on Resume or on the draft's Fly it landed on the field —
+  // and the mouse path solves an aim on the PRESS and launches on the release.
+  // The pad has had a wake window since PAD_WAKE_MS went in; the mouse had
+  // none. main.ts calls wake() from setState on every entry into "playing".
+  {
+    input.wake();
+    const during = fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+      send(onWindow, "pointerup", ptr(0, "mouse", 400));
+    });
+    check("a mouse press in the wake window after a screen closes fires nothing",
+      during === 0, `${during} shots`);
+    // TOUCH IS NOT GATED, because it already has this gate: a double-TAP has
+    // no travel, so MIN_FIRE_RATIO reads it as an accident. Gating it here as
+    // well would take the first deliberate pull of every bay off a phone.
+    check("...while a touch drag in the same window still fires", fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "touch", 700));
+      send(onCanvas, "pointermove", ptr(0, "touch", 120));
+      send(onWindow, "pointerup", ptr(0, "touch", 120));
+    }) === 1);
+    // The far side of the window, stated by handing wake() a stamp that has
+    // already expired rather than by sleeping through half a second of it.
+    input.wake(performance.now() - MOUSE_WAKE_MS - 1);
+    const after = fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+      send(onWindow, "pointerup", ptr(0, "mouse", 400));
+    });
+    check("...and a press past the window fires normally", after === 1, `${after} shots`);
   }
 
   // A wheel on a paused bay must leave the event completely alone — no loft
@@ -20166,7 +20571,12 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   const realShoot = g.shoot.bind(g);
   g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
   new InputController(canvas, () => g, undefined, () => false);
-  const frame = () => { const cb = frameCb; frameCb = null; cb?.(0); };
+  // The timestamp matters only to the HELD keys, whose nudges charge elapsed
+  // TIME rather than frames (input.ts's tickKeys over cannon.ts's
+  // NUDGE_FRAME_MS): a pump that always says 0 charges a dt of zero, which is
+  // a real frame for every target pin here and no trim at all for a key pin.
+  // Default 0 so the hover pins below read exactly as they did.
+  const frame = (ts = 0) => { const cb = frameCb; frameCb = null; cb?.(ts); };
 
   const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
     (m.get(t) ?? []).forEach((h) => h(e));
@@ -20400,6 +20810,28 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     const t = world(600, 300);
     check("...at the point it was clicked on", arcMissTo(t) <= AIM_HIT_TOL,
       `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  // ⌘S DOES NOT HOLD AIM-DOWN (bindings.ts's isShortcutChord). This is the
+  // half of the chord bug with a TAIL: the discrete actions spend themselves
+  // on the press, but the aim keys are held state read by tickKeys every
+  // frame, and ⌘S's keyup never arrives — the browser's save dialog takes
+  // focus and the release goes to it — so one accidental save used to trim the
+  // barrel downward for the rest of the bay. Pumped through real frames
+  // because "held" is a thing only a frame can observe.
+  {
+    const keyDown = (k: string, mods: Record<string, boolean> = {}) =>
+      send(onWindow, "keydown", { key: k, repeat: false, preventDefault: () => {}, ...mods });
+    const held = aim();
+    keyDown(keyFor("aimDown"), { metaKey: true });
+    frame(16);
+    frame(32);
+    check("⌘S neither trims the aim nor sticks to it", same(held));
+    // ...and the bare key is untouched, so this is a chord test rather than a
+    // handler that stopped reading the keyboard.
+    keyDown(keyFor("aimDown"));
+    frame(48);
+    check("...while a bare aim-down key still trims the barrel", !same(held));
   }
 
   delete glob.window;

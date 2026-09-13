@@ -127,8 +127,8 @@ import {
 import { InputController } from "./game/input";
 import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
-  isPauseKey, padFamilyFromId, resetKeyBindings, resetPadBindings, setFullscreenKeys,
-  setKeyBinding, setPadBinding, setPadFamily,
+  isPauseKey, isShortcutChord, padFamilyFromId, profileForPointer, resetKeyBindings,
+  resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
   type BindableAction, type InputProfile, type PadFamily,
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
@@ -1286,12 +1286,19 @@ class App {
     // viewport settles; this is the thing that does not have to guess.
     this.armWatchdog(WATCHDOG_BOOT_MS);
 
-    // Profile detection: the LAST input seen wins. Touch contact flips to
-    // touch; any mouse/pen contact or keypress flips to keyboard; gamepad
-    // activity flips in the poller's onActivity hook.
+    // Profile detection: the LAST input seen wins. A MOUSE contact or a
+    // keypress flips to keyboard; every OTHER pointer — touch, pen, and any
+    // type the browser will not vouch for — flips to touch; gamepad activity
+    // flips in the poller's onActivity hook.
+    //
+    // The mouse/not-mouse line is game/input.ts's own (see profileForPointer
+    // for what it cost to have the two disagree by one word), and it is what
+    // lets the glass take the profile back: a tablet's every contact is touch
+    // or pen, so a keypress on an attached keyboard is undone by the next tap
+    // instead of outliving the session.
     window.addEventListener(
       "pointerdown",
-      (e) => this.setProfile(e.pointerType === "touch" ? "touch" : "keyboard"),
+      (e) => this.setProfile(profileForPointer(e.pointerType)),
       { capture: true },
     );
 
@@ -1404,6 +1411,14 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // THE MIRROR OF IT, for the pointer: a screen is about to be dismissed
+    // ONTO a live bay, and the click that dismissed it can arrive a second
+    // time as a double-click — landing on canvas that became live in between
+    // and spending a launch. Every entry into "playing" is a screen closing
+    // (the pause card's Resume, the draft's Fly it, a fresh bay's start), so
+    // this is the one line that covers them all. The pad's equivalent window
+    // is PAD_WAKE_MS below; see input.ts's MOUSE_WAKE_MS for the mouse's.
+    if (s === "playing" && this.state !== "playing") this.input.wake();
     // Same reasoning for a mid-hold press: the button is about to be replaced,
     // so nothing would ever cancel the countdown, and it would spend the
     // charge into a paused bay a second after the player left it.
@@ -1744,7 +1759,10 @@ class App {
     // The pause modal's reference block re-labels this way — a pad picked
     // up while paused should read pad hints before play resumes.
     const pauseKeys = this.overlay.querySelector("#pause-keys");
-    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned, this.bayRetryOffered());
+    if (pauseKeys) {
+      pauseKeys.outerHTML =
+        S.pauseKeysHTML(p, owned, this.bayRetryOffered(), this.settings.wheelRotates);
+    }
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
@@ -3917,6 +3935,7 @@ class App {
           tab: this.controlsTab,
           settings: this.settings,
           padName: this.pad.detected(),
+          padNonStandard: this.pad.nonStandardPad(),
           rebinding: this.rebinding,
           back: this.controlsBack,
         });
@@ -3973,7 +3992,7 @@ class App {
               thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
             }, this.sealFace(), this.quitFace(), this.bayRetryOffered(),
-            this.runRetryOffered());
+            this.runRetryOffered(), this.settings.wheelRotates);
         }
         break;
       case "bayclear":
@@ -8096,13 +8115,30 @@ class App {
     // cancels rather than binding — a pause key you can't type would strand
     // the player).
     if (this.state === "controls" && this.controlsTab === "keyboard" && this.rebinding) {
+      // ⌘S IS NOT A BINDING (bindings.ts's isShortcutChord). Capture read
+      // `e.key` alone, so holding a modifier bound the letter under it — and
+      // the modifier's OWN keydown ("Meta", "Control") bound the modifier, a
+      // key nothing can ever press on its own afterwards. Left for the shell
+      // with the row still capturing: the player's next unmodified press is
+      // the one they meant, and Escape still cancels.
+      if (isShortcutChord(e)) return;
       e.preventDefault();
       if (e.key !== "Escape") setKeyBinding(this.rebinding, e.key);
       this.rebinding = null;
       this.renderOverlay();
       return;
     }
+    // The profile follows the HARDWARE, so a chord still says "this player is
+    // on a keyboard" — but nothing below may act on it (isShortcutChord). The
+    // pause keys are P and Escape and the sandbox key is ~; none is ever typed
+    // with a modifier, and without this ⌥Escape and ⌘~ (macOS window cycling)
+    // paused the bay from behind whatever window the player switched to. The
+    // shell's OWN combos are untouched by construction: ⌃⌘F reaches this
+    // handler only after the shell has already acted on it, and there is
+    // nothing here that wanted it (bindings.ts's fullscreenKeys are labels,
+    // not a route).
     this.setProfile("keyboard");
+    if (isShortcutChord(e)) return;
     // The pause binding from the rebindable table (P by default), OR the
     // Escape alias — bindings.ts's isPauseKey, which is what the pause card
     // and the Controls screen render from, so the keys that pause and the
@@ -8306,6 +8342,22 @@ class App {
   private onClick = (e: MouseEvent): void => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-game],[data-toggle]");
     if (!el) return;
+    // THE DEAD BAY ANSWERS NOTHING, for the pointer as it already does for the
+    // pad (onPadUiButton's identical guard). setState drops the overlay's
+    // pointer-events for the length of the run-end hold and says so in a
+    // comment — but `.side-rail .icon-btn` opts back IN (app.css), which is
+    // what makes the rail's buttons clickable through a `none` overlay in the
+    // first place, so the inline style never reached them. The ability
+    // triggers and ⏸ were dead anyway (onGameAction and pause both test
+    // state), which left exactly one live control on a bay that had already
+    // ended: the rail's fullscreen toggle, re-solving the whole layout
+    // underneath the dial collapse the hold exists to let finish.
+    //
+    // CONSUMED, NOT DEFERRED, for the pad guard's own reason: the buttons that
+    // should answer a press here have not mounted yet, and queueing one for
+    // replay would land it on the run-end modal's primary action — a loss
+    // screen dismissing itself before the player has read a word of it.
+    if (this.endScrimTimer !== null) return;
 
     const toggle = el.getAttribute("data-toggle");
     if (toggle) { this.onToggle(toggle, el); return; }
@@ -9080,6 +9132,13 @@ class App {
   }
 
   private onGamePointerDown = (e: PointerEvent): void => {
+    // The same refusal onClick makes, at the other door. The rail moved its
+    // presses to pointerdown, so this handler — not onClick — owns the
+    // Autoloader's burst, Bond Breaker's hold and ⏸'s hold-to-restart, and
+    // during the run-end hold every one of them is a gesture on a bay that has
+    // already ended: a 400ms hold on ⏸ would restart the bay out from under
+    // the modal that is about to say it was lost. Both doors, one condition.
+    if (this.endScrimTimer !== null) return;
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
     if (!el) {
       // ⏸ is the one [data-action] press that starts a GESTURE, so it takes its
@@ -9291,15 +9350,25 @@ class App {
     // particular toggle can give.
     if (key === "systemCursor") this.applySystemCursor();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
-    // has to redraw the screen saying it. stickSling is the only one: the
-    // gamepad pane's aim row describes the mode that is on, so leaving the old
-    // row up would have the pane contradict the switch the player just flipped
-    // (see screens.ts). Everything else here is read live by whatever consumes
-    // it and the in-place aria-checked write above is the whole update, which
-    // is why this is one named key rather than a blanket re-render — the
-    // Settings screen's toggles must not rebuild their pane out from under a
-    // pointer that is still on them.
-    if (key === "stickSling" && this.state === "controls") this.renderOverlay();
+    // has to redraw the screen saying it. TWO of them do: the gamepad pane's
+    // aim row and the keyboard pane's Arc height / Mouse rotate pair each
+    // describe the mode that is on, so leaving the old rows up would have the
+    // pane contradict the switch the player just flipped (see screens.ts).
+    // wheelRotates is the newer one and the starker case — it SWAPS the wheel's
+    // job with the right button's rather than flavouring one control, so both
+    // of its rows are wrong at once. Everything else here is read live by
+    // whatever consumes it and the in-place aria-checked write above is the
+    // whole update, which is why this is a named pair rather than a blanket
+    // re-render — the Settings screen's toggles must not rebuild their pane out
+    // from under a pointer that is still on them.
+    //
+    // KEEPING THE SCROLL, because both switches sit in `#controls-grid`, which
+    // is a scroller a player has usually scrolled to reach them: a bare
+    // renderOverlay answers a flip by throwing the pane back to the top with
+    // the switch off screen, and takes a pad player's selection with it.
+    if ((key === "stickSling" || key === "wheelRotates") && this.state === "controls") {
+      this.renderKeepingScroll();
+    }
     void tapHaptic();
     // After syncAudioSettings on purpose: switching Sound OFF clicks into
     // silence (playFx already gates on the new state) and switching it ON
