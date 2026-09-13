@@ -43,8 +43,8 @@ import {
 } from "../game/hazards";
 import type { FinalDef, FinalId } from "../game/finals";
 import {
-  ACTION_LABELS, BINDABLE_ACTIONS, PAUSE_ALIAS, fullscreenKeys, hintAim, hintRotate, keyFor,
-  keyLabel, padFor, padLabel, pauseKeyLabels,
+  ACTION_LABELS, BINDABLE_ACTIONS, PAUSE_ALIAS, fullscreenKeys, hintAim, hintPress, hintRotate,
+  keyFor, keyLabel, padFor, padLabel, pauseKeyLabels,
   type BindableAction, type InputProfile,
 } from "../game/bindings";
 import type { PreviewPart, PreviewRow } from "../game/preview";
@@ -4724,7 +4724,7 @@ export function bayClearScreen(opts: {
    *  Absent on every ladder run, so every caller that predates the mode renders
    *  the card it always did. */
   slot?: { value: string; label: string };
-  /** What the card says instead of "tap to continue".
+  /** What the card says instead of the bare "Continue".
    *
    *  One caller passes it: the GRADUATION FLIGHT (meta.ts's schoolLadder, rung
    *  12), which is a Tier 1 bay 1 and therefore earns this card rather than a
@@ -4759,7 +4759,16 @@ export function bayClearScreen(opts: {
           ? `<div class="stat stat--clause"><b style="color:var(--accent-2)">${slot.value}</b><span>${slot.label}</span></div>`
           : `<div class="stat"><b>${scrapHTML(opts.scrap, 22, true)}</b><span>scrap</span></div>`}
       </div>
-      <p class="muted bayclear__hint">${opts.hint ?? "tap to continue"}</p>
+      <!-- ONE NEUTRAL WORD, not a gesture (D7). This line read "tap to
+           continue" on every device, including the ones with no touchscreen —
+           the copy audit's own example of an instruction naming a control the
+           player does not have. It is the one hint in the app that does NOT go
+           through bindings.ts's verb table, and the reason is the dismissal
+           itself: the whole card is the target (data-action="skip-bayclear"
+           above), it times out on its own after BAY_CLEAR_MS, and every
+           family's press lands the same way — so there is no control here to
+           name. "Continue" is true of all three and shorter than any of them. -->
+      <p class="muted bayclear__hint">${opts.hint ?? "Continue"}</p>
     </div>
   </div>`;
 }
@@ -5025,7 +5034,13 @@ export function refitScreen(opts: {
  * and this pane is one of the three places allowed to scroll; trading the
  * sentence for a scrollbar it already had was the wrong way round.
  */
-export function workshopScreen(meta: MetaState): string {
+export function workshopScreen(
+  meta: MetaState,
+  /** The live input family (D2) — the rack's slots say what to do to them, and
+   *  what that is depends on the device (bindings.ts's hintPress). Defaults to
+   *  touch, which is what every caller said before the verb was a table. */
+  profile: InputProfile = "touch",
+): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a button the purchase path refuses.
@@ -5189,18 +5204,24 @@ export function workshopScreen(meta: MetaState): string {
   const aboard = mountedIds(meta);
   const shed = stowedIds(meta);
   const nextSlot = slotPrice(slots);
-  // ONE CONTROL PER SYSTEM, and it is the same control in both rows: tap to
-  // move it across. The refit yard settled this idiom for the same reason
+  // ONE CONTROL PER SYSTEM, and it is the same control in both rows: one press
+  // moves it across. The refit yard settled this idiom for the same reason
   // (upgrades.ts's clearTrack — "the tap floor leaves room for one"), and here
   // it also means the shed is not a second kind of thing to learn; it is the
   // rack's other half.
+  //
+  // The tooltip names that press in the DEVICE'S own word (D7) rather than
+  // saying "tap" to a mouse: this string is a `title`, so a fine pointer
+  // hovering it is very nearly the only way anyone reads it — which made
+  // "tap to stow" wrong for almost everybody who could see it at all.
+  const press = hintPress(profile);
   const slotBtn = (id: string, on: boolean): string => {
     const def = upgradeById(id)!;
     const tier = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < tier ? "on" : ""}"></i>`).join("");
     return `<button class="rack-slot${on ? "" : " rack-slot--shed"}" data-action="mount" data-mount="${id}"
-      title="${def.name} — tier ${tier}. ${on ? "Aboard; tap to stow." : "In the shed; tap to mount."}"
+      title="${def.name} — tier ${tier}. ${on ? `Aboard; ${press} to stow.` : `In the shed; ${press} to mount.`}"
       aria-label="${def.name}, ${on ? "aboard" : "in the shed"}">
       <span class="rack-slot__g">${icon(id as IconName, 15)}</span>
       <span class="ship-plate__pips">${pips}</span>
@@ -5914,12 +5935,22 @@ export function draftScreen(opts: {
    *  partner card there is capped at one seat (togglePick), so its footer must
    *  say "undo" where an ordinary card's says "double". */
   forced?: boolean;
+  /** The live input family (D2), for the card footers' verb. Optional and
+   *  touch by default, which is what this screen said in every state before
+   *  the verb came off bindings.ts — so a caller that has no profile to hand
+   *  (a fixture, a pin) renders exactly the card it always did. */
+  profile?: InputProfile;
 }): string {
   const banked = totalNotches(opts.ratchets);
   const pending = opts.selected.length;
   const remaining = Math.max(0, opts.picksNeeded - pending);
   const ready = remaining === 0;
   const nextBay = opts.bayNum + 1;
+  // THE FOOTER'S VERB, once for the whole hand (D7, bindings.ts's hintPress).
+  // Capitalised here the way the coach capitalises hintAim, because on this
+  // card the verb starts the line.
+  const press = hintPress(opts.profile ?? "touch");
+  const Press = `${press[0].toUpperCase()}${press.slice(1)}`;
   const cards = opts.offers
     .map((h) => {
       const picks = opts.selected.filter((p) => p === h.id).length;
@@ -5957,18 +5988,21 @@ export function draftScreen(opts: {
       // doubles.
       const canDouble = !ready && !(opts.forced && h.kind !== "content");
       const foot = picks > 0
-        ? canDouble ? "Tap again for 2x" : "Tap to undo"
+        ? canDouble ? `${Press} again for 2x` : `${Press} to undo`
         : ready
-          ? "Tap to swap this in"
-          : "Tap to preview";
+          ? `${Press} to swap this in`
+          : `${Press} to preview`;
       // The level badge and the pick box ride the FOOTER, right-aligned beside
-      // the "tap to…" line — not the title row. In the title row they were
+      // the verb line — not the title row. In the title row they were
       // three flex items competing for one line, and the name is the item that
       // lost: on a 792x360 phone, where the two cards sit side by side, the
       // forced-material hand rendered "Volatile Contract" as "Volatile Contrac"
       // (a player's report). The badge and the box are ~50px of furniture; the
-      // footer already had that width spare, because "Tap to undo" is the
-      // shortest line on the card. So the name now gets the card's whole width
+      // footer already had that width spare, because the verb line is the
+      // shortest one on the card — even in its longest form, which is a pad's
+      // "Press A to swap this in" (measured: that state adds no violation the
+      // touch state does not already carry — see sim/uifit/fixtures.ts's note
+      // above `draft`). So the name now gets the card's whole width
       // and the state cluster gets a column nothing else wants, and — the part
       // that matters for a screen whose cards toggle — the geometry is the same
       // in every state: the box is always present (empty when unpicked), so a
@@ -6135,9 +6169,17 @@ export function finalScreen(opts: {
   /** The final bay's numbers as they stand vs. with `selected` folded in. */
   preview: PreviewRow[];
   scrap: number;
+  /** The live input family (D2), for the card footers' verb. Optional and
+   *  touch by default, which is what this screen said in every state before
+   *  the verb came off bindings.ts — so a caller that has no profile to hand
+   *  (a fixture, a pin) renders exactly the card it always did. */
+  profile?: InputProfile;
 }): string {
   const ready = opts.selected !== null;
   const nextBay = opts.bayNum + 1;
+  // Same verb, same reason, same shell as the ratchet card above (D7).
+  const press = hintPress(opts.profile ?? "touch");
+  const Press = `${press[0].toUpperCase()}${press.slice(1)}`;
   const cards = opts.offers
     .map((f) => {
       const picked = opts.selected === f.id;
@@ -6146,17 +6188,17 @@ export function finalScreen(opts: {
         ? `<span class="mod-card__box mod-card__box--on">${icon("check", 11)}</span>`
         : `<span class="mod-card__box" aria-hidden="true"></span>`;
       const foot = picked
-        ? "Accepted — tap to undo"
+        ? `Accepted — ${press} to undo`
         : ready
-          ? "Tap to take this one instead"
-          : "Tap to preview";
+          ? `${Press} to take this one instead`
+          : `${Press} to preview`;
       // The badge is the SHIP SYSTEM the clause examines (FinalDef.system) —
       // its icon in the corner and its name on the pill, because the
       // inspection is the moment the Tier's whole argument gets settled and a
       // player who never made the connection is told it here, once.
       //
       // Same shell as the ratchet card, footer included: the pick box sits
-      // bottom-right beside the "tap to…" line so the clause name has the
+      // bottom-right beside the verb line so the clause name has the
       // card's whole width. The clause names are shorter than the materials'
       // ("Bled Hydraulics" is the longest in FINALS), but these two cards are
       // ALWAYS side by side (draft__cards--pair) rather than only on a short
@@ -6450,7 +6492,15 @@ export function endModal(opts: {
    *  card it always did. */
   runRetry?: boolean;
 }): string {
-  const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
+  // TWO TITLES, NOT THREE. `won` and `runComplete` are the SAME fact at the one
+  // caller that renders this card — main.ts passes `this.state === "won"` to
+  // both, because a Deep Run is won by clearing its last bay and by nothing
+  // else — so the middle branch named a state the app cannot produce. It said
+  // "Level Cleared!", which is also the wrong noun (the unit is a Bay), over a
+  // card whose stats are a whole run's. Dead copy that is also wrong copy is
+  // not worth a branch, and the bay's own celebration already exists one screen
+  // earlier: bayClearScreen, which says BAY CLEARED.
+  const title = opts.runComplete ? "Run Complete!" : "Game Over";
   // The bay retry, minus bay 1 (see `runRetry`). Resolved once, because the
   // seal line and the button below both read it and must agree.
   const retryBay = opts.runRetry ? undefined : opts.retryBay;
@@ -6494,17 +6544,18 @@ export function endModal(opts: {
   // clause exists to teach that a better row is available, and printing
   // "0 excellent" on the losing screen is a scold rather than a lesson.
   const gradeFoot = gradeBreakdownClause(opts.grades);
+  // ...and the same removal on the eyebrow, which had the same dead middle
+  // branch ("Launch Bay complete"). What is left is one win line and the four
+  // losses, which is exactly the set of endings this card can be handed.
   const eyebrow = opts.runComplete
     ? `All ${RUN_LEVELS} bays cleared`
-    : opts.won
-      ? "Launch Bay complete"
-      : opts.reason === "broke"
-        ? "Out of funds — the bay stays unpaid"
-        : opts.reason === "time"
-          ? "Time's up — the bay went dark"
-          : opts.reason === "launches"
-            ? "Out of launches — the bay is done"
-            : "The compactor won this round";
+    : opts.reason === "broke"
+      ? "Out of funds — the bay stays unpaid"
+      : opts.reason === "time"
+        ? "Time's up — the bay went dark"
+        : opts.reason === "launches"
+          ? "Out of launches — the bay is done"
+          : "The compactor won this round";
   // WHY + WHAT TO TRY — playtest feedback: the themed eyebrow tells the mood
   // but not the mechanic, so a new player couldn't say whether they lost to
   // time or money, or what to change next run. One plain sentence for the

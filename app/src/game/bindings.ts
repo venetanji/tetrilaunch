@@ -359,6 +359,48 @@ export function hintAim(profile: InputProfile): string {
   );
 }
 
+/**
+ * THE VERB FOR A CARD YOU PRESS — "tap", "click" or "press A", per profile.
+ *
+ * The same argument hintAim makes, one level down. The draft's cards, the
+ * inspection's and the build rack's slots all told the player to TAP them, in a
+ * desktop build where the pointer is a mouse and on a pad where nothing is
+ * touched at all. That is the pre-D2 bug in its smallest form — an instruction
+ * naming a gesture the device does not have — and it is the one the copy audit
+ * left open ("tap to continue" on a screen also used with mouse, keyboard and
+ * gamepad; docs/COPY_AUDIT.md, *Platform and general UI wording*).
+ *
+ * IT IS A VERB AND NOT A SENTENCE, which is what separates it from the two
+ * hints above: those answer "how do I aim", a question whose answer is a
+ * different SHAPE per family (a drag, a click, a stick). This answers "what do
+ * I do to this control", where every family does the same one thing to the same
+ * control and only the word for it changes. So callers own the rest of the line
+ * ("… to undo", "Aboard; … to stow") and the table owns the word.
+ *
+ * THE GAMEPAD'S ANSWER NAMES A FIXED BUTTON, not a bound one. Menu activation
+ * is padnav's confirm (ui/padnav.ts's PAD_CONFIRM — `el.click()` on the focused
+ * element), which is deliberately outside the rebindable table: a player who
+ * could rebind confirm could strand themselves in a menu. So this asks padLabel
+ * for that raw index rather than `padFor` for an action, and it names the
+ * button in the connected pad's own lettering — "press A" on an Xbox pad,
+ * "press Cross" on a DualSense.
+ *
+ * LOWER CASE, because most callers use it mid-sentence. The two card footers
+ * that start a line with it capitalise it there, exactly as the coach already
+ * capitalises hintAim.
+ */
+export function hintPress(profile: InputProfile): string {
+  if (profile === "touch") return "tap";
+  if (profile === "gamepad") return `press ${padLabel(PAD_CONFIRM_BUTTON)}`;
+  return "click";
+}
+
+/** ui/padnav.ts's PAD_CONFIRM, restated rather than imported: game/ is the
+ *  layer ui/ depends on, and reaching the other way for one integer would
+ *  invert that for the whole module. sim/systems.ts pins the two equal, so the
+ *  copy cannot drift from the button that actually activates a card. */
+const PAD_CONFIRM_BUTTON = 0;
+
 /* No hintAbility here: the ability buttons and chips carry their own labels
  * (screens.ts renders the key/pad tag on the trigger itself), so no screen
  * ever asked the table for an ability sentence. One was exported anyway and

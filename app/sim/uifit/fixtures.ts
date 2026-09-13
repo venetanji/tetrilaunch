@@ -112,6 +112,16 @@ const SKY_TOWER: S.TowerState = {
 /** The bay-clear ratchet at a given tentative selection. Both sides of the
  *  projection come from levelForRun, exactly as main.ts builds them, so the
  *  harness measures the real number of rows the screen can grow. */
+/** The pad's footer is the LONGEST state of this screen (D7 — "Press A to swap
+ *  this in" against a finger's "Tap to…"), and it is not a row here. It was:
+ *  a `draft-picked-pad` fixture measured clean on all twelve Android rows and
+ *  produced, on the two Web rows that scroll at all, `.draft__body scrolls 16px`
+ *  (1269x663) and `83px` (800x600) — byte-identical to what `draft-picked`
+ *  already records there, i.e. the pane's own known chrome and nothing the verb
+ *  added. A second fixture inheriting an existing fixture's entries is 26 lines
+ *  of baseline for one measurement that has now been made, so the measurement
+ *  is written down here instead. Add the row back the day `.draft__body`'s
+ *  scroll is fixed and the inheritance costs nothing. */
 function draft(selected: HazardId[]): string {
   const run = { ...newRun(20_260_815, [], 400, undefined, 6), levelIndex: 6, carry: 120, scrap: 340 };
   const withPicks: Ratchets = { ...HUD_BASE.ratchets };
@@ -1858,7 +1868,7 @@ export const SCREENS: Record<string, () => string> = {
   // THE FINAL EXAM'S TWO ENDS (meta.ts's schoolLadder, step 10). Both
   // are the DEEP RUN's cards rather than a lesson's — the bay is Tier 1 bay 1 —
   // so neither has ever been measured over a school HUD: the clear carries the
-  // one hint line in the app that is not "tap to continue", and the failure is
+  // one hint line in the app that is not the bare "Continue", and the failure is
   // the bay-1 diagnosis card without the tutorial's NEXT STEP block, which is
   // the shortest that card ever renders and therefore the layout its foot has
   // to survive.
@@ -1866,7 +1876,7 @@ export const SCREENS: Record<string, () => string> = {
     + S.bayClearScreen({
       bayNum: 1, bayName: BAY_1.name, funds: 1_120, target: BAY_1.targetScore,
       lines: 11, scrap: 18,
-      hint: "Licence earned — Tier 1 is open · tap to continue",
+      hint: "Licence earned — Tier 1 is open · Continue",
     }),
   "exam-fail": () => S.hudHTML({ ...HUD_TUTORIAL, contract: null })
     + S.examFailHTML("broke", BAY_1, SCHOOL_STEPS, SCHOOL_STEPS),

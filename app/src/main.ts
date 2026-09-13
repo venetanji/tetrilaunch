@@ -3562,7 +3562,11 @@ class App {
           CLAUSE_COUNT,
         );
         break;
-      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
+      // The profile rides along because the rack's slots say what to DO to
+      // them, and that word is the device's (D7, bindings.ts's hintPress).
+      case "workshop":
+        this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile);
+        break;
       // Tier S. The MODE ships (lib/devmode.ts), so this is no longer gated on
       // the build — it is gated on the door being open, and guarded here as
       // well as at the two entry points for the same reason the tower's
@@ -3725,7 +3729,7 @@ class App {
         const track = this.drillOffer;
         const spec = track ? DRILLS[`sys-${track}`] : undefined;
         if (track && spec) {
-          this.overlay.innerHTML = S.workshopScreen(this.meta)
+          this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile)
             + S.systemDrillOfferModal({
               name: upgradeById(track)?.name ?? track,
               drill: spec.name,
@@ -3800,13 +3804,16 @@ class App {
               lines: g.linesTotal,
               scrap: g.scrapEarned + g.level.scrapPerBay,
               // THE ONE BAY CLEAR THAT OPENS A FLOOR, said on the line the card
-              // otherwise spends on "tap to continue". `lessonIssuedLicence` is
+              // otherwise spends on its bare "Continue". `lessonIssuedLicence` is
               // captured in onGameStatus BEFORE the licence is written, because
               // that write is exactly what would make a live read false — so a
               // re-flown graduation bay gets the ordinary hint rather than
               // announcing a licence the player has held for hours.
               hint: this.lessonIssuedLicence
-                ? "Licence earned — Tier 1 is open · tap to continue"
+                // …and it ends on the card's own neutral word rather than on
+                // "tap to continue", for the reason bayClearScreen states: this
+                // card is dismissed by a press of any kind, on any device.
+                ? "Licence earned — Tier 1 is open · Continue"
                 : undefined,
             });
         }
@@ -6441,6 +6448,10 @@ class App {
       // played; 1 means "clear this one and you dock". Null late in a run when
       // no stop remains.
       baysToRefit: baysUntilRefitFor(run),
+      // What the cards call a press (D7). The draft re-renders on every toggle
+      // (refreshDraft), so a pad picked up mid-draft corrects the footers on
+      // the player's first pick rather than needing a relabel of its own.
+      profile: this.profile,
       // The Skydeck's tally, which takes the scrap cell's slot (screens.ts).
       // Counted off the run's own schedule rather than kept as a second
       // number, so it cannot disagree with what levelForRun is applying.
@@ -6480,6 +6491,7 @@ class App {
         run.ratchets,
       ),
       scrap: run.scrap,
+      profile: this.profile,
     });
   }
 

@@ -231,9 +231,10 @@ import {
   chainLadderHTML, CHAIN_AT_REST,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintRotate, isPauseKey,
-  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, resetKeyBindings,
-  resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintPress, hintRotate,
+  isPauseKey, keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels,
+  resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  type InputProfile,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
@@ -19565,6 +19566,84 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     /click to aim/i.test(
       S.pauseModal(true, "keyboard", { bond: false, demo: false, thaw: false, auto: false }),
     ));
+}
+
+// ---------------------------------------------------------------------------
+section("Every card names the press the device can actually make (D7)");
+// ---------------------------------------------------------------------------
+{
+  // D7. The hint table's rule, applied to the surfaces that had escaped it: the
+  // draft's cards, the Final Inspection's, the build rack's slots and the bay
+  // clear all said "tap" on a desktop build where the pointer is a mouse and on
+  // a pad where nothing is touched. Three profiles, three verbs, one table
+  // (bindings.ts's hintPress) — and the three cards below are one per profile,
+  // because a helper nobody renders is a helper that can be right while every
+  // screen is wrong.
+  //
+  // The family is normalised first: padLabel speaks whichever pad was last
+  // plugged in (setPadFamily), and sections above this one hand it a DualSense.
+  setPadFamily(null);
+  check("the press verb renders per input family",
+    hintPress("touch") === "tap" && hintPress("keyboard") === "click"
+      && hintPress("gamepad") === "press A",
+    [hintPress("touch"), hintPress("keyboard"), hintPress("gamepad")].join(" · "));
+  // The gamepad's word names the button padnav actually activates a card with,
+  // and bindings.ts cannot import that constant (game/ is below ui/), so this
+  // is the joint that holds the two copies of the number together.
+  check("the gamepad verb names padnav's confirm button",
+    hintPress("gamepad") === `press ${padLabel(PAD_CONFIRM)}`,
+    `${hintPress("gamepad")} vs button ${PAD_CONFIRM}`);
+  // ...and it follows the pad in the player's hands, because "press A" on a
+  // DualSense names a button that pad does not have.
+  setPadFamily("playstation");
+  check("the gamepad verb speaks the connected pad's lettering",
+    hintPress("gamepad") === "press Cross", hintPress("gamepad"));
+  setPadFamily(null);
+
+  const run = { ...newRun(25, [], 400, undefined, 10), levelIndex: 7, carry: 120, scrap: 340 };
+  const marks: Ratchets = { volatile: 1, magnetic: 1 };
+  const draftFor = (profile: InputProfile): string => S.draftScreen({
+    bayNum: 8, tier: 10, mark: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 7, 10, 2, marks),
+    ratchets: marks, selected: [], picksNeeded: 2,
+    preview: previewRows(levelForRun(run), levelForRun(run), marks),
+    scrap: 340, baysToRefit: 1, profile,
+  });
+  check("the touch draft card still says Tap",
+    draftFor("touch").includes("Tap to preview"));
+  const inspection = S.finalScreen({
+    bayNum: 9, tier: 10, funds: 1_820, carry: 120,
+    offers: finalsForTier(10), selected: null,
+    preview: previewRows(levelForRun(run), levelForRun(run), marks),
+    scrap: 340, profile: "keyboard",
+  });
+  check("the mouse inspection card says Click", inspection.includes("Click to preview"));
+  // THE RACK IS THE GAMEPAD'S CARD. Two states, one control (screens.ts's
+  // slotBtn), so the pin asks for both words: a rig with more systems than
+  // slots has something aboard AND something in the shed.
+  const rigged = {
+    ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, mark: 3, salvage: 240,
+    loadout: { ...newTiers(), reactor: 2, launcher: 1, magazine: 1, bay: 1, hydraulics: 1 },
+  };
+  const padRack = S.workshopScreen(rigged, "gamepad");
+  check("the gamepad build rack says press A, not tap",
+    padRack.includes("Aboard; press A to stow.")
+      && padRack.includes("In the shed; press A to mount.")
+      && !/tap/i.test(padRack));
+  // The negative half, on the screen a mouse player actually reads: no surface
+  // in this family may still be telling them to tap something.
+  check("no fine-pointer card tells the player to tap",
+    !/tap/i.test(draftFor("keyboard")) && !/tap/i.test(inspection)
+      && !/tap/i.test(S.workshopScreen(rigged, "keyboard")));
+  // THE BAY CLEAR TAKES THE NEUTRAL WORD instead of a verb: its whole hint line
+  // is one word long, it is dismissed by a press ANYWHERE on the card (main.ts
+  // routes skip-bayclear off the scrim), and "Continue" is true of every device
+  // without naming a gesture at all (docs/COPY_AUDIT.md).
+  const bayClear = S.bayClearScreen({
+    bayNum: 3, bayName: "Cryo Vault", funds: 1_200, target: 1_000, lines: 14, scrap: 40,
+  });
+  check("the bay clear says Continue, not a touch verb",
+    bayClear.includes("Continue") && !/tap to continue/i.test(bayClear));
 }
 
 // ---------------------------------------------------------------------------
