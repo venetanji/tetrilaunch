@@ -3023,6 +3023,52 @@ section("Pattern variants (contracts.ts VARIANTS)");
       .includes("contract-card--done"),
   );
 
+  // ---- THE DAY'S ALLOWANCE, SPENT (F10e) ----------------------------------
+  //
+  // A free account that has used its three clears meets a board of disabled
+  // cards. That screen had two defects and they compound: it offered no way to
+  // lift the limit it had just imposed — every other gate in the game answers
+  // a refusal it can sell with the paywall, the tower's locked floors included
+  // — and it said the limit lasts "today", a word that means a different thing
+  // in every timezone on a board keyed to the UTC day.
+  const capped = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: false, remaining: 0, store: true },
+  });
+  check("a spent allowance offers the unlock, the same door every other gate uses",
+    capped.includes('data-action="paywall"'));
+  // …and only where the offer can actually be opened. presentPaywall returns
+  // silently with no SDK behind it, so an ungated door would answer the tap
+  // with nothing — the defect main.ts's pickTier already fixed for the tower's
+  // locked floors, arriving here through the same flag (StoreState.available).
+  check("...unless the store is not there to open",
+    !contractsScreen({
+      contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+      allowance: { fullGame: false, remaining: 0, store: false },
+    }).includes('data-action="paywall"'));
+  check("...and the spent board still says when it comes back, door or no door",
+    contractsScreen({
+      contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+      allowance: { fullGame: false, remaining: 0, store: false },
+    }).includes("00:00 UTC"));
+  check("...and says when the board comes back, in the day the board is keyed to",
+    capped.includes("00:00 UTC"));
+  // The door is the SPENT state's alone. A board with clears left is not
+  // refusing anything, and an offer there would be an ad on a screen the player
+  // came to play rather than the answer to a refusal.
+  const spare = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: false, remaining: 2 },
+  });
+  check("a board with clears left carries no unlock door",
+    !spare.includes('data-action="paywall"') && spare.includes(`2 of ${DAILY_COUNT}`));
+  const owner = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: true, remaining: Infinity },
+  });
+  check("...and an owner is never sold what they already own",
+    !owner.includes('data-action="paywall"') && owner.includes("unlimited Contracts"));
+
   // The end-of-Contract modal is built from the ONE end-screen skeleton
   // (canvas A10): the run-end modal's own parts — stat-row, salvage-row, one
   // end__actions row — with the leaderboard geometry dropped via
@@ -7668,6 +7714,21 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes(">Workshop<") &&
       controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "howto" })
         .includes(">How to Play<"));
+  // THE RESET BUTTON WEARS THE TAB'S NAME, not its id. It interpolated
+  // `opts.tab` — the same lowercase string that rides `data-tab` — so the
+  // button under a tab labelled "Keyboard" read "Reset keyboard", the one place
+  // on the screen where a player-facing control was rendered from an internal
+  // identifier. The tab strip has always had the display label; now they come
+  // from the same table.
+  check("the reset button uses the tab's display label",
+    kb.includes(">Reset Keyboard<") && padPane.includes(">Reset Gamepad<"));
+  check("...and no button renders the tab id",
+    !kb.includes(">Reset keyboard<") && !padPane.includes(">Reset gamepad<"));
+  // Touch has nothing to reset — its scheme is not rebindable — so the button
+  // is absent rather than dead, which is what it always did.
+  check("the touch tab offers no reset at all",
+    !controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-action="controls-reset"'));
   check("both exits lead back through that same door",
     (controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "leaderboard" })
       .match(/data-action="leaderboard"/g) ?? []).length === 2);
@@ -16065,6 +16126,42 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // on its own once every Tier keeps one.
   check("the ladder tab names its Tier",
     S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true }).includes("Tier 7"));
+
+  // ---- PLAY FLIES THE BOARD YOU ARE READING (F10f) ------------------------
+  //
+  // The button fired `play`, which flies whatever floor the tower's car is
+  // parked on — so a player reading Tier 7's board while parked on Tier 2 for a
+  // practice run pressed Play under a list of Tier 7 scores and launched Tier
+  // 2. The board in view is a choice the player has just made; the button
+  // carries it, and main.ts parks the car there before it launches.
+  const lb7 = S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true });
+  check("Play carries the tier of the board on screen",
+    /data-action="play"[^>]*data-tier="7"/.test(lb7)
+      || /data-tier="7"[^>]*data-action="play"/.test(lb7), lb7.slice(lb7.indexOf("btn--primary")));
+  const lbSky = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day: 20_260_827,
+  });
+  check("...the roof's board included — its floor is a floor like any other",
+    lbSky.includes(`data-tier="${S.SKYDECK_TIER}"`));
+  // Tier S keeps its own door (the sandbox SETUP screen, not a run), so it is
+  // the one tab whose button is not a launch and carries no floor.
+  const lbSbx = S.leaderboardScreen("", { board: BOARD_SANDBOX, tier: 1, sandbox: true });
+  check("...and Tier S still opens its bench instead of flying a floor",
+    lbSbx.includes('data-action="sandbox"') && !/data-action="sandbox"[^>]*data-tier=/.test(lbSbx));
+  // main.ts's half: the action reads the attribute and parks the car on it
+  // before the launch, through the same tierOpen gate the tower's own pick uses.
+  {
+    const src = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const playCase = src.slice(src.indexOf('case "play": {'), src.indexOf('case "pick-tier"'));
+    check("the play action reads the board's tier off the button",
+      playCase.includes('getAttribute("data-tier")') && playCase.includes("pickedTier"),
+      playCase.slice(0, 200));
+    check("...and asks tierOpen before parking on it",
+      playCase.includes("tierOpen"));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -16925,6 +17022,35 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
       ...o,
     });
+
+  // ---- THE NAME FIELD (F10d) ----------------------------------------------
+  //
+  // The one text input in the game, and it had neither of the two things a text
+  // input owes its user: a name a screen reader can announce (the placeholder
+  // is not one — it disappears the moment anything is typed, and is not read as
+  // a label), and the Enter key. Typing a name and pressing Enter did nothing
+  // at all, which on a form of one field is the only gesture anybody tries.
+  const submit = end({});
+  check("the name field has an accessible name of its own",
+    /<input[^>]*id="name-input"[^>]*aria-label="[^"]+"/.test(submit)
+      || /<input[^>]*aria-label="[^"]+"[^>]*id="name-input"/.test(submit),
+    submit.slice(submit.indexOf("name-input") - 120, submit.indexOf("name-input") + 200));
+  {
+    const src = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const keydown = src.slice(
+      src.indexOf("private onKeydown = "), src.indexOf("private padBackTarget"),
+    );
+    // ROUTED THROUGH THE BUTTON'S OWN CLICK, not through a second call to the
+    // submit handler: that is padnav's rule for every other activation in the
+    // app (ui/padnav.ts — "activation is el.click()"), and it is what keeps the
+    // feedback sound, the disabled state and the one-shot guard in one place.
+    check("Enter in the name field submits the score",
+      keydown.includes("name-input") && keydown.includes("submit-score"),
+      keydown);
+  }
 
   /* -------------------------------------------------------------------------
    * WHAT VOLATILE TOOK IS PRINTED. A cost the player is never shown reads to
@@ -27972,6 +28098,27 @@ section("Player accounts (social login + RevenueCat identity)");
   check("a guest can choose Google", guest.includes('data-action="account-google"'));
   check("a guest can choose Apple", guest.includes('data-action="account-apple"'));
   check("account sign-in explains purchase recovery", guest.includes("recovered on another device"));
+  // …and explains it for the build the player is standing in (F10b). The web
+  // sentence told an iPhone player to sign in "before buying on the web", which
+  // names a store that build does not use and a route it cannot take. The
+  // branch is StoreState.restorable — the same flag that decides whether a
+  // Restore Purchases button exists at all (main.ts: `isNative`).
+  check("a browser is told what signing in does for a web purchase",
+    guest.includes("before buying on the web"));
+  const nativeGuest = S.accountScreen(
+    { available: true, ready: true, label: null, providers: both }, true,
+  );
+  check("...and an app build is not told to buy on the web",
+    !nativeGuest.includes("on the web") && nativeGuest.includes("recovered on another device"),
+    nativeGuest);
+  // THE SENTENCE IS THE ONLY THING THAT BRANCHES. The first cut of this fix put
+  // the per-build paragraph and the provider buttons in the same ternary arm,
+  // so a native guest got the corrected sentence and no way to sign in — the
+  // screen's entire purpose, removed by a copy edit, on every build that ships
+  // to a store. The two pins above could not see it: both read prose.
+  check("an app build still offers both sign-ins under that sentence",
+    nativeGuest.includes('data-action="account-google"')
+      && nativeGuest.includes('data-action="account-apple"'), nativeGuest);
 
   // Per-provider offerability is the screen's contract with auth.ts: a button
   // for a provider whose client id is missing on this platform would open a
@@ -28063,7 +28210,7 @@ section("Player accounts (social login + RevenueCat identity)");
   // finds. These pin the two properties that make the replacement a guard
   // rather than a speed bump: the safe answer is the one padnav lands on, and
   // the panel says what deletion does NOT take.
-  const del = S.accountDeleteModal();
+  const del = S.accountDeleteModal(true);
   const delButtons = [...del.matchAll(/<button[^>]*data-action="(account-delete-[a-z]+)"/g)]
     .map((m) => m[1]);
   check("the notice offers exactly the two answers, cancel first",
@@ -28090,6 +28237,23 @@ section("Player accounts (social login + RevenueCat identity)");
     del.includes("purchase-recovery identity") && del.includes("RevenueCat"));
   check("...and that the purchase survives it, recoverable by Restore",
     del.includes("Full Game purchase is not deleted") && del.includes("Restore Purchases"));
+  // THE WEB BUILD HAS NO SUCH BUTTON (F10a). `restorable` is false there
+  // (main.ts's storeState), purchaseRowsHTML renders no Restore control, and
+  // the reassurance "Restore Purchases finds it again" pointed at a button that
+  // is not on the screen — while the route a browser actually has is the
+  // sign-in this very panel is about to delete. So the web panel says the
+  // mechanism instead of promising the button.
+  const delWeb = S.accountDeleteModal(false);
+  // NAMES IT NOWHERE, not merely stops promising it: the button does not exist
+  // in this build, so any sentence pointing at it is pointing off-screen.
+  check("the web notice never names a button the build does not render",
+    !delWeb.includes("Restore Purchases"), delWeb);
+  // …and the clause that replaces it is the browser's real route, which the
+  // first paragraph's "signing in again creates a new, empty one" is not — so
+  // the pin asks for the sentence, not for the two words it shares with it.
+  check("...and says what a browser's route back to a purchase really is",
+    delWeb.includes("In a browser") && delWeb.includes("the identity that bought")
+      && delWeb.includes("Full Game purchase is not deleted"), delWeb);
   check("...and that local progress is untouched",
     /progress is untouched/.test(del) && del.includes("saved on this device"));
   // THE SECOND SHEET IS ANNOUNCED. deleteAccount re-runs the provider login

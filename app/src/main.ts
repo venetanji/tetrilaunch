@@ -2377,10 +2377,14 @@ class App {
     return isUnlimited() || isDesktop;
   }
 
-  private contractAllowance(): { fullGame: boolean; remaining: number } {
+  private contractAllowance(): { fullGame: boolean; remaining: number; store: boolean } {
     const fullGame = this.fullGame();
     return {
       fullGame,
+      // Whether the spent state may offer the unlock at all — the same gate
+      // pickTier makes before routing a locked floor to the paywall, and for
+      // the same reason: presentPaywall returns silently with no SDK behind it.
+      store: purchasesReady(),
       remaining: fullGame ? Infinity : Math.max(
         0, FREE_DAILY_CONTRACTS - claimedContractsOnDay(this.meta.claimedContracts),
       ),
@@ -3847,7 +3851,9 @@ class App {
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
         break;
       case "account":
-        this.overlay.innerHTML = S.accountScreen(this.storeState().account!);
+        this.overlay.innerHTML = S.accountScreen(
+          this.storeState().account!, this.storeState().restorable === true,
+        );
         break;
       // Over the account screen it was pressed on, the way the seal notice
       // renders over the paused bay it is priced against — the screen behind
@@ -3855,7 +3861,8 @@ class App {
       // ("Signed in as …") the panel deliberately does not interpolate.
       case "account-delete":
         this.overlay.innerHTML =
-          S.accountScreen(this.storeState().account!) + S.accountDeleteModal();
+          S.accountScreen(this.storeState().account!, this.storeState().restorable === true)
+          + S.accountDeleteModal(this.storeState().restorable === true);
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -7951,6 +7958,18 @@ class App {
       e.preventDefault();
       t.click();
     }
+    // ENTER SUBMITS THE ONE TEXT FIELD IN THE GAME. A single-field form where
+    // the return key does nothing reads as broken, and this one reads that way
+    // at the worst moment — the player has just typed their name onto a board.
+    // Routed through the button's own click rather than through onSubmitScore
+    // directly, which is padnav's rule for every activation in the app
+    // ("activation is el.click()"): the feedback sound, the disabled state and
+    // the one-shot guard all live on that path and none of them have to be
+    // remembered here.
+    if (e.key === "Enter" && t.id === "name-input") {
+      e.preventDefault();
+      this.overlay.querySelector<HTMLElement>('[data-action="submit-score"]')?.click();
+    }
   };
 
   /** Where B (PAD_BACK) lands per screen — each entry is the screen's OWN
@@ -8162,6 +8181,30 @@ class App {
       // because a floor selected before Settings closed the mode must not still
       // open it (screens.ts's tierOpen is the other half of the same gate).
       case "play": {
+        // THE BOARD BEING READ IS THE FLOOR TO FLY (F10f). The leaderboard's
+        // Play carries the tab's own tier; every other caller of this action
+        // carries none and flies the parked floor, exactly as before.
+        //
+        // It PARKS the car rather than launching around it, so the tower agrees
+        // with what just happened the next time the player sees it — and it
+        // asks the same two questions pickTier asks: tierOpen first, and then,
+        // for a floor the ladder has earned but the entitlement has not, the
+        // offer instead of the refusal (gated on the store being configured, or
+        // presentPaywall answers the tap with silence). A floor that is neither
+        // open nor purchasable falls through to the parked one, which is what
+        // this button did for every board before it carried a tier at all.
+        const asked = Number(el.getAttribute("data-tier"));
+        if (Number.isFinite(asked)) {
+          const state = this.towerState();
+          if (S.tierOpen(state, asked)) {
+            this.pickedTier = asked;
+            this.pickedAtMark = this.meta.mark;
+          } else if (asked > FREE_TIER_LIMIT && asked <= MARK_COUNT && !this.fullGame()
+            && S.tierOpen({ ...state, fullGame: true }, asked) && purchasesReady()) {
+            void this.onPaywall();
+            break;
+          }
+        }
         const floor = this.towerState().selected;
         if (floor === S.SANDBOX_TIER) {
           if (this.sandboxOpen()) this.setState("sandbox");

@@ -2394,6 +2394,19 @@ export function settingsScreen(
  */
 export type ControlsTab = "touch" | "keyboard" | "gamepad";
 
+/** What each tab is CALLED, as opposed to what it is keyed by.
+ *
+ *  The strip has always drawn these; the reset button under it interpolated
+ *  `opts.tab` instead — the same lowercase string that rides `data-tab` — so a
+ *  player sitting on the tab labelled "Keyboard" was offered "Reset keyboard",
+ *  an internal identifier rendered as player-facing copy. One table, read by
+ *  both, is the fix that cannot come apart again. */
+const CONTROLS_TAB_LABELS: Record<ControlsTab, string> = {
+  touch: "Touch",
+  keyboard: "Keyboard",
+  gamepad: "Gamepad",
+};
+
 /**
  * Every screen Controls can be opened FROM, named by the `data-action` that
  * returns to it — the string is the door in both directions, so the Back
@@ -2436,8 +2449,8 @@ export function controlsScreen(opts: {
   /** The action currently capturing a rebind, if any. */
   rebinding: BindableAction | null;
 }): string {
-  const tabBtn = (id: ControlsTab, label: string) =>
-    `<button class="workshop__tab${opts.tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="controls-tab" data-tab="${id}" aria-selected="${opts.tab === id}">${label}</button>`;
+  const tabBtn = (id: ControlsTab) =>
+    `<button class="workshop__tab${opts.tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="controls-tab" data-tab="${id}" aria-selected="${opts.tab === id}">${CONTROLS_TAB_LABELS[id]}</button>`;
 
   const bindRow = (a: BindableAction, label: string): string => {
     const capturing = opts.rebinding === a;
@@ -2546,14 +2559,14 @@ export function controlsScreen(opts: {
         <button class="icon-btn" data-action="${back}" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="workshop__tabs" role="tablist">
-        ${tabBtn("touch", "Touch")}
-        ${tabBtn("keyboard", "Keyboard")}
-        ${tabBtn("gamepad", "Gamepad")}
+        ${tabBtn("touch")}
+        ${tabBtn("keyboard")}
+        ${tabBtn("gamepad")}
       </div>
       <div class="controls__pane" id="controls-grid" role="tabpanel" data-scroll>${pane}</div>
       <div class="row" style="justify-content:center">
         <button class="btn btn--primary" data-action="${back}">Done</button>
-        ${opts.tab === "touch" ? "" : `<button class="btn btn--ghost" data-action="controls-reset">Reset ${opts.tab}</button>`}
+        ${opts.tab === "touch" ? "" : `<button class="btn btn--ghost" data-action="controls-reset">Reset ${CONTROLS_TAB_LABELS[opts.tab]}</button>`}
       </div>
     </div>
   </div>`;
@@ -2575,14 +2588,40 @@ function accountText(value: string): string {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-export function accountScreen(account: NonNullable<StoreState["account"]>): string {
+export function accountScreen(
+  account: NonNullable<StoreState["account"]>,
+  /** StoreState.restorable — a build whose store receipts can be restored, i.e.
+   *  a native one (main.ts's `isNative`). It decides one sentence here and one
+   *  in the deletion notice, because it is the same fact both of them turn on:
+   *  whether this build has a Restore Purchases button at all.
+   *
+   *  Defaults to the WEB build, which is what this screen described before the
+   *  branch existed — so a caller that predates it renders exactly what it
+   *  always did. */
+  restorable = false,
+): string {
   const body = account.label
     ? `<p class="muted">Signed in as</p><p class="display account__name">${accountText(account.label)}</p>
        <button class="btn btn--secondary btn--block" data-action="account-signout">Sign Out</button>
        <button class="btn btn--ghost btn--block" data-action="account-delete">Delete Account</button>`
     : !account.available
       ? `<p class="muted">Account sign-in is not configured in this build.</p>`
-      : `<p class="muted">Sign in before buying on the web so Full Game can be recovered on another device.</p>
+      // WHAT SIGNING IN BUYS, per build. On the web the identity is the
+      // purchase's only anchor, so the instruction is about ORDER — sign in
+      // first, then buy, or the purchase lands on an anonymous customer. In the
+      // app stores the receipt is the anchor and Restore Purchases already
+      // covers the store account that paid; what the identity adds there is
+      // recovery ACROSS accounts and platforms. Telling an iPhone player to
+      // sign in "before buying on the web" named a store their build does not
+      // use and a route it cannot take.
+      // The BUTTONS are not part of the branch — only the sentence above them
+      // is. They are what the screen is for in either build, and a guest who
+      // cannot see them cannot sign in at all.
+      : `${
+        restorable
+          ? `<p class="muted">Sign in so Full Game can be recovered on another device — including one signed in to a different store account.</p>`
+          : `<p class="muted">Sign in before buying on the web so Full Game can be recovered on another device.</p>`
+      }
          ${account.providers.google ? `<button class="btn btn--secondary btn--block" data-action="account-google">Continue with Google</button>` : ""}
          ${account.providers.apple ? `<button class="btn btn--secondary btn--block" data-action="account-apple">Continue with Apple</button>` : ""}`;
   return `<div class="screen neon-backdrop center">
@@ -2621,7 +2660,10 @@ export function accountScreen(account: NonNullable<StoreState["account"]>): stri
  * padnav's focusInitial lands a pad on `.btn--primary`, and the button a stray
  * press finds must never be the one that spends something permanent.
  */
-export function accountDeleteModal(): string {
+export function accountDeleteModal(
+  /** StoreState.restorable, exactly as accountScreen takes it — see there. */
+  restorable = false,
+): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal account-note pop">
       <div class="eyebrow" style="color:var(--danger)">Account</div>
@@ -2630,9 +2672,24 @@ export function accountDeleteModal(): string {
       customer record your Google or Apple sign-in names at RevenueCat — and the sign-in stored
       on this device. It cannot be undone, and signing in again creates a new, empty one.
       You'll be asked to sign in again to confirm it's you.</p>
-      <p class="account-note__body"><b>Your Full Game purchase is not deleted.</b> It stays with
+      <p class="account-note__body">${
+        // THE SECOND HALF IS BUILD-SPECIFIC, and it has to be: the web build
+        // renders no Restore Purchases button at all (purchaseRowsHTML, off
+        // StoreState.restorable), so pointing a browser at it was pointing at
+        // something that is not on the screen. Worse, it was the wrong route as
+        // well as an absent one — in a browser a purchase is found by signing
+        // in with the identity that made it (public/support.html says exactly
+        // that), and that identity is the thing this panel deletes. So the web
+        // panel states the mechanism instead of promising the button, and lets
+        // the player draw the conclusion the promise was hiding.
+        restorable
+          ? `<b>Your Full Game purchase is not deleted.</b> It stays with
       the Apple, Google or web store account that bought it, and <b>Restore Purchases</b> finds
-      it again. Your progress is untouched too — salvage, unlocks, seals and best scores are
+      it again.`
+          : `<b>Your Full Game purchase is not deleted.</b> It stays with the store account that
+      paid. In a browser, though, it is found by <b>signing in</b> with the identity that bought
+      it: the one this removes.`
+      } Your progress is untouched — salvage, unlocks, seals and best scores are
       saved on this device and were never part of the account.</p>
       <div class="row">
         <button class="btn btn--primary" data-action="account-delete-back">Keep Account</button>
@@ -2808,7 +2865,22 @@ export function leaderboardScreen(rows: string, opts?: {
       </div>
       ${tabs}
       <div id="lb-body" data-scroll>${rows}</div>
-      <button class="btn btn--primary" data-action="${sandbox ? "sandbox" : "play"}">${
+      <!-- PLAY FLIES THE BOARD YOU ARE READING. It used to fire a bare "play"
+           action, which flies whichever floor the tower's car is parked on — so a
+           player who had dropped down to Tier 2 for a practice run, then opened
+           the leaderboard and read Tier 7's list, pressed Play under those
+           scores and launched Tier 2. The board on screen is a choice the
+           player just made with the tab strip; the button carries it, and
+           main.ts parks the car on it (through the same tierOpen gate the
+           tower's own pick uses) before it launches.
+
+           The roof rides along, because a floor is a floor: the Skydeck's tab
+           hands back the roof's sentinel and Play flies the daily. Tier S is
+           the exception and not a tier at all — its button opens the bench
+           (the sandbox SETUP screen), so it carries no floor to fly. -->
+      <button class="btn btn--primary" data-action="${sandbox ? "sandbox" : "play"}"${
+        sandbox ? "" : ` data-tier="${sky ? SKYDECK_TIER : tier}"`
+      }>${
         sandbox ? `${icon("play")}Open Tier S` : `${icon("play")}Play`
       }</button>
     </div>
@@ -6676,7 +6748,14 @@ export function endModal(opts: {
             : ""
         }</div>
         <div class="submit-row" id="submit-row">
+          <!-- THE PLACEHOLDER IS NOT A LABEL: it is gone the moment anything is
+               typed, and a screen reader announces an unlabelled text box as
+               "edit text". This is the one text input in the game, so the one
+               place that omission could happen — and Enter submits it, wired in
+               main.ts's onKeydown, because a one-field form where Enter does
+               nothing is a form that reads as broken. -->
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
+            aria-label="Your name for the leaderboard"
             value="${opts.name}" autocomplete="off" spellcheck="false" />
           <!-- Secondary, not primary (B2): the screen's one forward move is
                the restart button below — submitting a score is a sideways
@@ -7001,8 +7080,15 @@ export function contractsScreen(opts: {
    *  player no way to tell the roof's board from the tier-10 one. */
   floor?: string;
   /** One allowance across every Tier for this UTC day. Full Game owners have
-   * no cap; already-cleared cards remain replayable after it reaches zero. */
-  allowance?: { fullGame: boolean; remaining: number };
+   * no cap; already-cleared cards remain replayable after it reaches zero.
+   *
+   * `store` is StoreState.available (main.ts's purchasesReady): whether the
+   * offer below can be opened at all. It gates the spent state's unlock door on
+   * the same fact the menu's unlock chip and the tower's paywalled floors are
+   * gated on — presentPaywall returns SILENTLY while the SDK is unconfigured
+   * (no key in this build, configure failed, first launch offline), so a door
+   * rendered without it answers the tap with nothing whatever. */
+  allowance?: { fullGame: boolean; remaining: number; store?: boolean };
 }): string {
   // Whether a first clear still banks anything. A tier pays its milestone share
   // for only the first TIER_CONTRACTS_REQUIRED Contracts (meta.ts), so once the
@@ -7091,10 +7177,33 @@ export function contractsScreen(opts: {
   // account's three (contracts.ts's claimedContractsOnDay). A line counting an
   // allowance this board cannot spend would be a limit invented for the one
   // player who has not yet met the mode.
+  // SPENT IS ITS OWN STATE, not "0 of 3 left". A count of zero is a readout; a
+  // player who has just been refused a card needs the two things the readout
+  // cannot say — when the board comes back, and what lifts the limit.
+  //
+  // "TODAY" IS NOT A TIME. The allowance is counted by the UTC day
+  // (meta.ts's claimedContractsOnDay, off the same daily seed the board is
+  // generated from), so for most of the world "today" ends at some hour of the
+  // afternoon or the following morning. The spent line says which midnight it
+  // means — and only the spent line does, because that is the one state where
+  // a player is waiting for it.
+  const spent = !!opts.allowance && !opts.school
+    && !opts.allowance.fullGame && opts.allowance.remaining <= 0;
   const allowance = opts.allowance && !opts.school
     ? opts.allowance.fullGame
       ? `<b>Full Game · unlimited Contracts</b>`
-      : `<b>${opts.allowance.remaining} of ${DAILY_COUNT} Contract clears left today</b>`
+      : spent
+        ? `<b>No Contract clears left today</b> — the board resets at 00:00 UTC`
+        : `<b>${opts.allowance.remaining} of ${DAILY_COUNT} Contract clears left today</b>`
+    : "";
+  // THE DOOR OUT OF THE REFUSAL. Every other gate in the game answers a locked
+  // thing it can sell with the offer itself — the tower's earned-but-unentitled
+  // floors, the sandbox's tier chips — and this screen answered with disabled
+  // cards and nothing else. It is the spent state's alone: a board with clears
+  // left is refusing nothing, and an offer there would be an advertisement on a
+  // screen the player came to play.
+  const unlockDoor = spent && opts.allowance?.store
+    ? ` <button class="btn btn--ghost" data-action="paywall">${icon("star", 11)}Unlock Full Game</button>`
     : "";
   // THE BOARD SAYS WHAT IT IS FOR, and on the on-ramp what it is for is one
   // purchase rather than a tier's quota. Three clears banking 45 toward a shelf
@@ -7126,7 +7235,7 @@ export function contractsScreen(opts: {
           : " — enough for your first system"
       }, and the Deep Run opens the moment one is installed. Fail free, retry free.${
         allowance ? ` ${allowance}.` : ""
-      }</p>`
+      }${unlockDoor}</p>`
     : opts.progress
     ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ${
         salvageHTML(opts.progress.milestone * opts.progress.needed)
@@ -7134,8 +7243,8 @@ export function contractsScreen(opts: {
         opts.nextInstall
           ? `, so ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)}) is waiting in the Workshop before your next run`
           : " toward the Workshop"
-      }.${allowance ? ` ${allowance}.` : ""}</p>`
-    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.${allowance ? ` ${allowance}.` : ""}</p>`;
+      }.${allowance ? ` ${allowance}.` : ""}${unlockDoor}</p>`
+    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.${allowance ? ` ${allowance}.` : ""}${unlockDoor}</p>`;
   return `<div class="screen neon-backdrop">
     <div class="contracts">
       <div class="contracts__hdr">

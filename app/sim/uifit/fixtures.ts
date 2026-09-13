@@ -1150,6 +1150,21 @@ export const SCREENS: Record<string, () => string> = {
       nextInstall: { name: "Reactor Output", cost: 15 },
       firstSystem: true,
     }),
+  // THE DAY'S ALLOWANCE SPENT — a free account with no clears left. Its own
+  // fixture because it is the only state of this screen that grows a CONTROL
+  // below the board: the foot's allowance sentence becomes the spent one (a
+  // reset time rather than a count) and an Unlock button follows it, on a
+  // screen whose three cards are already the tallest thing the layout holds.
+  // Every card is disabled here, which is also the widest the foot ever is.
+  "contracts-capped": () =>
+    S.contractsScreen({
+      contracts: dailyContracts(3, 20_260_815),
+      tier: 3,
+      cleared: [],
+      progress: PROGRESS,
+      nextInstall: { name: "Press Hydraulics", cost: 30 },
+      allowance: { fullGame: false, remaining: 0, store: true },
+    }),
   // THE SCHOOL'S BOARD — one card, rung 5 of the ground floor (contracts.ts's
   // schoolBoard). Its own fixture because nothing else on this screen survives
   // the narrowing: one card in a grid built for three, no tier chip beside the
