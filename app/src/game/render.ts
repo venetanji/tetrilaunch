@@ -3,7 +3,7 @@ import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine"
 import { CHUTE, chuteMouth, chuteRightEdge, chuteRoofY, INCINERATOR_Y } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { cushionEdgeX, SETTLE_SPEED } from "./lineClear";
-import { computeLayout, skyTop } from "./layout";
+import { computeLayout, skyTop, type Layout } from "./layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
   glyphInk, GRADE_CALLOUT, GRADE_COLOR,
@@ -546,6 +546,94 @@ function drawJointSeams(
  * coarse: congestionRows moves `lit` one row per line's worth of cubes, so the
  * layer re-bakes when the pile crosses a multiple of a line and not otherwise.
  */
+/**
+ * THE WALL GLOW'S HALO IS ALLOWED OUT OF THE FIELD — how far, in WORLD px.
+ *
+ * drawWalls strokes the shaft with shadowBlur WALL_GLOW_BLUR, and a shadowBlur
+ * reaches about 1.5x its value before its alpha hits zero — the same
+ * measurement SPRITE_PAD is built on, taken across blur 10/16/22/26 at bake
+ * scales 1/1.5/2/3. So the halo of an 18px blur is dead 27 world px out from
+ * the stroke it comes from, and every device pixel of it outside the world rect
+ * was being cut: the bake clipped to x 0..WORLD.width, which is two world px
+ * outboard of a wall drawn at x=2, so 25 of those 27 px never reached a screen.
+ *
+ * On a 16:9 viewport nobody could see the cut, because the clip edge and the
+ * glass edge are the same line. On an ultrawide phone (21:9, ~150 CSS px of
+ * gutter a side) the halo ended on a razor-straight vertical seam with a wide
+ * band of flat backdrop beside it — which reads as the neon being masked, not
+ * as a lit shaft standing in the dark.
+ */
+const WALL_GLOW_BLUR = 18;
+export const WALL_GLOW_REACH = Math.ceil(WALL_GLOW_BLUR * 1.5);
+
+/** app.css's `.side-rail { right: max(calc(4px + var(--inset-r)), …) }` floor —
+ *  the closest to the glass the rail column is ever pinned. Restated here
+ *  because the bleed below has to stop short of the rail, and where the rail
+ *  sits is a fact about the stylesheet rather than one the solver returns. */
+const RAIL_EDGE_MIN_CSS = 4;
+
+/** How far past each side wall the background bake may paint, in world px. */
+export interface GlowBleed {
+  left: number;
+  right: number;
+}
+
+const NO_GLOW_BLEED: GlowBleed = { left: 0, right: 0 };
+
+/**
+ * How much of WALL_GLOW_REACH each side actually gets.
+ *
+ * The letterbox band is not free space to spend. The control rail lives in one
+ * of those gutters (layout.ts's "wide" mode) or in a band reserved out of one
+ * ("snug"), and neon bleeding under the buttons is a worse picture than neon
+ * with a straight edge. So the bleed is the REACH capped by the room between
+ * the field's edge and the rail column's inner edge, per side.
+ *
+ * That room is read straight off app.css's rule rather than guessed: the column
+ * is centred in the gutter — `(gutter - railBtn) / 2` of clearance inboard —
+ * unless the gutter is too tight, where it pins `RAIL_EDGE_MIN_CSS + inset`
+ * from the glass and the clearance is what is left after it. The rule is a
+ * `max()` of the two offsets, so the clearance is the MIN of the two answers,
+ * and a negative one (a rail already standing over the field on a pathological
+ * box) clamps to no bleed at all.
+ *
+ * BUDGETED ON BOTH SIDES rather than on the rail's own. layout.ts keeps
+ * `railSide` module-local on purpose and exposes no getter, and the Controls
+ * screen can mirror the column mid-run; a bleed that guessed the side would be
+ * wrong for every player who has touched that switch. Reserving the column's
+ * room in both gutters costs at most a few world px of halo in the gutter that
+ * has no rail, on a viewport where the halo is 27 world px to begin with.
+ *
+ * "tall" is exempt: its rail is a strip in the BOTTOM band, so both side
+ * gutters are genuinely empty. So is a null `chrome`, which means an OFF-FIELD
+ * surface — attract.ts's demo panel fits through fitViewport and mounts no
+ * chrome at all.
+ *
+ * Vertical bleed is deliberately absent. Above the field the sky already runs
+ * to the top of the canvas (skyTop) and the walls follow it up; below it the
+ * field is bottom-anchored onto the glass. The horizontal is the one axis with
+ * a band left to guillotine a halo against, which is exactly the axis skyTop
+ * declines to speak about.
+ */
+export function wallGlowBleed(
+  cssW: number,
+  vp: Viewport,
+  chrome: Layout | null,
+): GlowBleed {
+  const scale = Math.max(0.0001, vp.scale);
+  const clearance = (gutterCss: number, insetCss: number): number => {
+    if (!chrome || chrome.mode === "tall") return gutterCss;
+    const spare = gutterCss - chrome.railSize;
+    return Math.min(spare / 2, spare - RAIL_EDGE_MIN_CSS - insetCss);
+  };
+  const world = (roomCss: number): number =>
+    Math.max(0, Math.min(WALL_GLOW_REACH, roomCss / scale));
+  return {
+    left: world(clearance(vp.ox, chrome?.safe.left ?? 0)),
+    right: world(clearance(cssW - vp.ox - WORLD.width * scale, chrome?.safe.right ?? 0)),
+  };
+}
+
 interface CongestionRows {
   lit: number;
   warnRow: number;
@@ -580,8 +668,19 @@ function congestionRows(scene: Scene): CongestionRows | null {
   };
 }
 
-function drawCongestionRows(ctx: CanvasRenderingContext2D, rows: CongestionRows): void {
+/** `bleed` is the same allowance the bake's clip was widened by (wallGlowBleed).
+ *  The rows run out into it with the glow rather than stopping at the wall: they
+ *  are drawn OVER the halo, so a row that stopped at WORLD.width would put a
+ *  vertical seam down the middle of the very halo the widened clip exists to
+ *  complete — the guillotine moved 25 world px out, not removed. */
+function drawCongestionRows(
+  ctx: CanvasRenderingContext2D,
+  rows: CongestionRows,
+  bleed: GlowBleed,
+): void {
   const { lit, warnRow, dangerRow } = rows;
+  const x0 = -bleed.left;
+  const w = WORLD.width + bleed.left + bleed.right;
 
   ctx.save();
   for (let r = 0; r < lit; r++) {
@@ -598,11 +697,11 @@ function drawCongestionRows(ctx: CanvasRenderingContext2D, rows: CongestionRows)
     g.addColorStop(0, `rgba(${rgb}, 0.30)`);
     g.addColorStop(1, `rgba(${rgb}, 0.09)`);
     ctx.fillStyle = g;
-    ctx.fillRect(0, y, WORLD.width, CELL);
+    ctx.fillRect(x0, y, w, CELL);
     // A brighter rule on the row's own floor line, so the bands read as
     // discrete rows to count rather than one wash that happens to be taller.
     ctx.fillStyle = `rgba(${rgb}, 0.45)`;
-    ctx.fillRect(0, y + CELL - 1.5, WORLD.width, 1.5);
+    ctx.fillRect(x0, y + CELL - 1.5, w, 1.5);
   }
   ctx.restore();
 }
@@ -615,7 +714,15 @@ export function render(
   scene: Scene,
   viewport?: Viewport,
 ): void {
-  const vp = viewport ?? computeViewport(cssW, cssH);
+  // An EXPLICIT viewport means an off-field surface (attract.ts's demo panel,
+  // fitted with fitViewport) — no rail, no safe-area insets, nothing in the
+  // letterbox band for the wall glow to stay out of. Otherwise the solver's
+  // full answer is wanted, not just its three transform numbers: wallGlowBleed
+  // needs the mode and the rail's size as well. Layout is a superset of
+  // Viewport, so the transform is read straight off it and computeLayout still
+  // runs exactly once per frame.
+  const chrome = viewport ? null : computeLayout(cssW, cssH);
+  const vp: Viewport = viewport ?? chrome!;
   const alpha = scene.alpha ?? 1;
   syncSpriteScale(vp.scale * dpr);
 
@@ -624,7 +731,10 @@ export function render(
   // instead of re-painting them (no clearRect needed underneath, the layer
   // covers every device pixel).
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0, 0);
+  ctx.drawImage(
+    getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene),
+      wallGlowBleed(cssW, vp, chrome)),
+    0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   // Clip to the world rect, OPENED UPWARD to the top of the canvas (layout.ts's
@@ -634,6 +744,12 @@ export function render(
   // the piece the player just launched vanished at the field's top edge, waited
   // out its arc in a black band, and reappeared. The sides and floor are not
   // opened with it — those are real walls, and cargo that reaches them stops.
+  //
+  // NOR are the sides widened by wallGlowBleed. That allowance is the static
+  // wall glow's, and it is spent inside the background bake where the glow is
+  // painted; everything clipped HERE is live content the walls bound, and a
+  // cube or a debris square outside the shaft would be the renderer disagreeing
+  // with the physics rather than a halo finishing.
   const sky = skyTop(vp.scale, vp.oy);
   ctx.save();
   ctx.beginPath();
@@ -1132,12 +1248,19 @@ function getBackgroundLayer(
   dpr: number,
   vp: Viewport,
   rows: CongestionRows | null,
+  bleed: GlowBleed = NO_GLOW_BLEED,
 ): HTMLCanvasElement {
   // Same Math.floor sizing as main.ts's onResize gives the live canvas, so
   // the layer maps 1:1 onto it.
   const w = Math.max(1, Math.floor(cssW * dpr));
   const h = Math.max(1, Math.floor(cssH * dpr));
-  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|` +
+  // The bleed IS in the key even though it is a pure function of the same
+  // viewport the key already carries — because it is not: it also depends on
+  // the rail's solved size and on the safe-area insets, both of which can move
+  // without vp.scale/ox/oy moving at all (a drafted ability re-budgets the
+  // column; iOS populates env() a beat after first paint). A bake keyed only on
+  // the transform would hold a halo cropped for a rail that has since resized.
+  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|${bleed.left}:${bleed.right}|` +
     (rows ? `${rows.lit}:${rows.warnRow}:${rows.dangerRow}` : "-");
   if (bgLayer && bgLayerKey === key) return bgLayer;
 
@@ -1166,15 +1289,22 @@ function getBackgroundLayer(
   bctx.fillRect(0, 0, w, h);
   bctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   const sky = skyTop(vp.scale, vp.oy);
+  // WIDENED SIDEWAYS BY THE GLOW'S REACH, not by the world rect. See
+  // wallGlowBleed: the clip is the only thing that was cutting the wall halo,
+  // and it was cutting it at a line the eye can find on any viewport with a
+  // gutter. drawBackground's gradient and grid still stop at the world's own
+  // edges — the shaft is 1280 wide and lying about that would be a different
+  // bug — so what lands in the bleed band is halo over backdrop, which is what
+  // a glow spilling out of a lit shaft looks like.
   bctx.save();
   bctx.beginPath();
-  bctx.rect(0, sky, WORLD.width, WORLD.height - sky);
+  bctx.rect(-bleed.left, sky, WORLD.width + bleed.left + bleed.right, WORLD.height - sky);
   bctx.clip();
   drawBackground(bctx, sky);
   drawWalls(bctx, sky);
   // Over the walls' glow and under everything else, which is exactly where
   // this used to run when it ran live — see the note above drawCongestionRows.
-  if (rows) drawCongestionRows(bctx, rows);
+  if (rows) drawCongestionRows(bctx, rows, bleed);
   bctx.restore();
   bgLayerKey = key;
   return bgLayer;
@@ -1243,7 +1373,11 @@ function drawWalls(ctx: CanvasRenderingContext2D, top: number): void {
   ctx.save();
   ctx.strokeStyle = COLORS.aim;
   ctx.shadowColor = COLORS.wallGlow;
-  ctx.shadowBlur = 18;
+  // The number WALL_GLOW_REACH is derived from. Widening this blur means
+  // re-deriving that reach, the same way widening a sprite's blur means
+  // re-checking SPRITE_PAD — the pad is room the glow grows into, never the
+  // other way round.
+  ctx.shadowBlur = WALL_GLOW_BLUR;
   ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.moveTo(2, y0);

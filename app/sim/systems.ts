@@ -78,8 +78,9 @@ import {
   type Rec,
 } from "./canvasrec";
 import {
-  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark,
+  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, fitViewport, FRAME_PX, frostMark,
   landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale, THAW_REACH, THAW_REACH_MS,
+  WALL_GLOW_REACH, wallGlowBleed,
 } from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, PENALTY_SINK_PX, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -201,6 +202,7 @@ import { DEVICES } from "./uifit/devices";
 import {
   computeLayout,
   getRailSlots,
+  NO_INSETS,
   RAIL_GAP,
   RAIL_MAX,
   RAIL_MIN,
@@ -26351,6 +26353,164 @@ section("The background layer re-bakes in place, it does not reallocate (render.
   glob.document = prevDoc;
   glob.window = prevWin;
   glob.Path2D = prevPath;
+}
+
+// ===========================================================================
+// THE WALL GLOW FINISHES IN THE LETTERBOX BAND (render.ts's wallGlowBleed).
+//
+// Two halves, and they fail in different ways:
+//
+//   1. THE ARITHMETIC. How much room is there beside the field, and how much
+//      of it may the halo have? This is a pure function of the solved layout,
+//      so it is checked against computeLayout's real answers on the real rows
+//      of the device matrix rather than against invented numbers.
+//   2. THE WIRING. Does the BAKE actually clip to the widened rect? The
+//      arithmetic can be perfect and the clip still be the world rect, which
+//      is precisely the state this change found.
+// ===========================================================================
+section("The wall glow finishes outside the field, short of the rail (render.ts)");
+{
+  setSafeAreaInsets(NO_INSETS);
+  setRailSlots(RAIL_SLOTS_BASE);
+
+  // An ultrawide landscape phone: layout.ts's "wide" mode, ~73 CSS px of gutter
+  // a side, and the row the finding was written against — the halo's razor edge
+  // sat in the middle of that band with flat backdrop either side of it.
+  const ultra = computeLayout(812, 375);
+  const ultraVp = { scale: ultra.scale, ox: ultra.ox, oy: ultra.oy };
+  const ultraBleed = wallGlowBleed(812, ultraVp, ultra);
+  check("an ultrawide row gets a bleed at all", ultraBleed.left > 0 && ultraBleed.right > 0,
+    `mode ${ultra.mode}, gutter ${(812 - ultra.fw) / 2}px, bleed ${JSON.stringify(ultraBleed)}`);
+  check("...the same on both sides, because the rail's side is not knowable here",
+    Math.abs(ultraBleed.left - ultraBleed.right) < 1e-9);
+
+  /** Where app.css puts the rail column's INNER edge, as a distance from the
+   *  field's edge in CSS px — the `max()` of the stylesheet's two offsets,
+   *  subtracted from the gutter. The pin's own copy of the rule: deriving it
+   *  from render.ts's helper would let a wrong rule agree with itself. */
+  const railClearanceCss = (gutter: number, railSize: number, inset: number): number =>
+    gutter - railSize - Math.max(4 + inset, (gutter - railSize) / 2);
+
+  const ultraGutter = (812 - ultra.fw) / 2;
+  check("...and it stops short of the rail column rather than painting under it",
+    ultraBleed.right * ultra.scale <= railClearanceCss(ultraGutter, ultra.railSize, 0) + 1e-9,
+    `bleed ${(ultraBleed.right * ultra.scale).toFixed(2)}css vs clearance ` +
+    `${railClearanceCss(ultraGutter, ultra.railSize, 0).toFixed(2)}css`);
+
+  // 16:9 — no NATURAL gutter, so layout.ts reserves an 84px band on the rail's
+  // edge and the field sits flush against the other side. Both halves of the
+  // cap show up on this one row: nothing at all on the flush side, and on the
+  // band side only the 12 CSS px the centred column leaves inboard of itself —
+  // not the 27 world px the halo would like.
+  const flush = computeLayout(1280, 720);
+  const flushBleed = wallGlowBleed(1280, { scale: flush.scale, ox: flush.ox, oy: flush.oy }, flush);
+  const flushGutter = 1280 - flush.ox - flush.fw;
+  check("the flush side of a snug row bleeds nothing at all",
+    flush.mode === "snug" && flush.ox === 0 && flushBleed.left === 0,
+    `mode ${flush.mode}, ox ${flush.ox}, bleed ${JSON.stringify(flushBleed)}`);
+  check("...and the reserved band gives only what it has left inboard of the rail",
+    flushBleed.right > 0
+      && Math.abs(flushBleed.right - railClearanceCss(flushGutter, flush.railSize, 0) / flush.scale)
+        < 1e-9
+      && flushBleed.right < WALL_GLOW_REACH,
+    `bleed ${flushBleed.right.toFixed(2)} world px of ${WALL_GLOW_REACH}`);
+
+  // A 21:9 DESKTOP window, where the gutter is enormous and the rail is nowhere
+  // near it. This is the only shape in the matrix where the REACH is the
+  // binding term, which is what makes it the pin that would catch a cap that
+  // had quietly become unbounded.
+  const desk = computeLayout(2560, 720);
+  const deskBleed = wallGlowBleed(2560, { scale: desk.scale, ox: desk.ox, oy: desk.oy }, desk);
+  check("a huge gutter is capped by the halo's own reach, not by the rail",
+    deskBleed.left === WALL_GLOW_REACH && deskBleed.right === WALL_GLOW_REACH,
+    `gutter ${(2560 - desk.fw) / 2}css, bleed ${JSON.stringify(deskBleed)}`);
+
+  // "tall" mode puts the rail in the BOTTOM band, so a side gutter there is
+  // free whatever the strip's size. Stated against a synthetic layout because
+  // no real row reaches it: a tall row is width-bound by construction, so its
+  // side gutters are whatever the safe-area insets left and nothing more.
+  const tallBleed = wallGlowBleed(700, { scale: 0.5, ox: 30, oy: 0 },
+    { ...ultra, mode: "tall", railSize: 60 });
+  check("a tall row's side gutter is free — its rail is in the bottom band",
+    tallBleed.left === WALL_GLOW_REACH && tallBleed.right === WALL_GLOW_REACH,
+    `bleed ${JSON.stringify(tallBleed)} from a 60-world-px gutter`);
+
+  // An OFF-FIELD surface (attract.ts fits with fitViewport and mounts no rail):
+  // no chrome to stay clear of, so nothing but the reach caps it.
+  const demoVp = fitViewport(600, 200);
+  const demoBleed = wallGlowBleed(600, demoVp, null);
+  check("the attract panel has no rail to dodge and takes the full reach",
+    demoBleed.left === WALL_GLOW_REACH && demoBleed.right === WALL_GLOW_REACH,
+    JSON.stringify(demoBleed));
+
+  // A pathological box where the rail is pinned over the field: the clearance
+  // is negative and the bleed has to clamp, not go inside out.
+  const squeezed = wallGlowBleed(700, { scale: 0.5, ox: 30, oy: 0 },
+    { ...ultra, mode: "wide", railSize: 60 });
+  check("a rail already standing on the field gets no halo painted under it",
+    squeezed.left === 0 && squeezed.right === 0, JSON.stringify(squeezed));
+
+  // ---- THE WIRING. What rect does the bake actually clip to? ----
+  //
+  // The background layer is a MODULE-LEVEL canvas made once per process, so by
+  // the time this section runs it already exists and no createElement stub
+  // installed here will ever see it — which is exactly why the pin above it
+  // (the re-bake pin) has to run before anything else renders. What is still
+  // reachable is the canvas OBJECT itself: the live frame stamps it with
+  // drawImage, so tracing that hands it over, and swapping its getContext for a
+  // recorder of ours makes the next bake's commands readable. The bake calls
+  // getContext fresh every time, so the swap takes effect on the very next
+  // cache miss and nothing has to be re-created.
+  const stubs = installBrowserStubs();
+  const g2 = new Game(makeBaseLevel(0), {}, 31);
+  g2.status = "playing";
+  const liveRec2 = newRec();
+  const liveCanvas2: Record<string, unknown> = { width: 1624, height: 750 };
+  const liveCtx2 = makeRecCtx(liveCanvas2, liveRec2, ["drawImage"]);
+  const paint2 = (dpr: number): void => {
+    resetRec(liveRec2);
+    render(liveCtx2 as unknown as CanvasRenderingContext2D, 812, 375, dpr, {
+      cubes: g2.cubes, constraints: [], compactor: g2.compactor, cannon: g2.cannon,
+      trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g2.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+  };
+
+  paint2(2);
+  // The background blit is the frame's first drawImage, and its source is the
+  // layer canvas.
+  const blit = liveRec2.args.find(([n]) => n === "drawImage");
+  const bgCanvas = blit?.[1][0] as Record<string, unknown> | undefined;
+  check("the frame's first stamp is the background layer",
+    bgCanvas !== undefined && typeof bgCanvas.getContext === "function",
+    blit ? "source is not a canvas" : "no drawImage in the frame");
+
+  if (bgCanvas) {
+    const bakeRec = newRec();
+    const bakeCtx = makeRecCtx(bgCanvas, bakeRec, ["rect"]);
+    bgCanvas.getContext = (): unknown => bakeCtx;
+    // A different dpr is a different backing size, which is a cache miss — so
+    // this frame re-bakes, through our recorder, at the same viewport the
+    // arithmetic above was solved for.
+    paint2(3);
+    // The bake's clip is the one rect() spanning the whole shaft.
+    const clipRect = bakeRec.args
+      .filter(([n]) => n === "rect")
+      .map(([, a]) => a as number[])
+      .find((a) => a.length === 4 && (a[2] as number) >= WORLD.width);
+    check("the background bake really clips wider than the world rect",
+      clipRect !== undefined && clipRect[2] > WORLD.width && clipRect[0] < 0,
+      `bake clip rect ${clipRect ? clipRect.join(",") : "none"}`);
+    check("...by exactly the bleed the solver allowed, no more",
+      clipRect !== undefined
+        && Math.abs(clipRect[0] + ultraBleed.left) < 1e-6
+        && Math.abs(clipRect[2] - (WORLD.width + ultraBleed.left + ultraBleed.right)) < 1e-6,
+      `clip ${clipRect?.join(",")} vs bleed ${JSON.stringify(ultraBleed)}`);
+  }
+
+  g2.destroy();
+  stubs.restore();
 }
 
 // ===========================================================================
