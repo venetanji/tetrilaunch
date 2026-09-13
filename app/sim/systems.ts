@@ -75,10 +75,11 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import {
   callCount, installBrowserStubs, makeRecCtx, newRec, resetRec, setCount, setReducedMotion,
+  setValues,
   type Rec,
 } from "./canvasrec";
 import {
-  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, dprQueries, fitViewport,
+  COMPACT_MAX_RENDER_DPR, crispFontPx, debrisCount, DEBRIS_FRAME_CAP, dprQueries, fitViewport,
   FRAME_PX, frostMark, landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale,
   THAW_REACH, THAW_REACH_MS,
   WALL_GLOW_REACH, wallGlowBleed,
@@ -26466,6 +26467,111 @@ section("The background layer re-bakes in place, it does not reallocate (render.
   glob.document = prevDoc;
   glob.window = prevWin;
   glob.Path2D = prevPath;
+}
+
+// ===========================================================================
+// THE FIELD'S TYPE LANDS ON THE DEVICE'S PIXEL GRID (render.ts's crispFontPx).
+//
+// Eight sites draw text on the canvas, and every one of them is authored in
+// world px and rasterised through the world transform — so what reaches the
+// panel is `size * scale * dpr`, where dpr is renderScale's capped answer and
+// not the display's. On the iPhone X the game locks to landscape on, that
+// factor is 0.781, and all eight of the authored sizes came out fractional:
+// 8.59, 9.38, 10.16, 10.94, 14.06, 20.31, 23.44 device px. Meanwhile the DOM
+// chrome one layer up is laid out at the panel's full 3x.
+//
+// TWO HALVES. The arithmetic is a pure function and pinned as one. The wiring is
+// asked of a real frame through the recording context, because "every site" is
+// the claim and a site that forgot to snap is exactly what a spot check misses.
+// ===========================================================================
+section("Every canvas text site rasterises on whole device pixels (render.ts)");
+{
+  // The iPhone X's real factor, from the real solver, so the numbers in the
+  // comment above are the numbers this pin is actually about.
+  setSafeAreaInsets(NO_INSETS);
+  setRailSlots(RAIL_SLOTS_BASE);
+  const phone = computeLayout(812, 375);
+  const phoneK = phone.scale * renderScale(3, 812, 375);
+  check("the iPhone X really does rasterise the field at 0.78 world px a device px",
+    Math.abs(phoneK - 0.78125) < 1e-9, `${phoneK}`);
+
+  const AUTHORED = [11, 12, 13, 14, 18, 26, 30];
+  const before = AUTHORED.map((s) => s * phoneK);
+  check("...and every authored size lands between device pixels before the snap",
+    before.every((d) => Math.abs(d - Math.round(d)) > 0.05),
+    AUTHORED.map((s, i) => `${s}->${before[i].toFixed(2)}`).join(" "));
+  check("...and on a whole one after it",
+    AUTHORED.every((s) => Number.isInteger(
+      Math.round(crispFontPx(s, phoneK) * phoneK * 1e6) / 1e6)),
+    AUTHORED.map((s) => `${s}->${(crispFontPx(s, phoneK) * phoneK).toFixed(4)}`).join(" "));
+
+  // NEAREST, not up and not down: a size is moved by less than half a device px
+  // in world terms, so the ladder keeps its shape wherever the grid allows one.
+  check("the snap is to the NEAREST whole device px",
+    AUTHORED.every((s) => Math.abs(crispFontPx(s, phoneK) - s) * phoneK <= 0.5 + 1e-9),
+    AUTHORED.map((s) => `${s}->${crispFontPx(s, phoneK).toFixed(2)}`).join(" "));
+
+  // A FLOOR OF ONE WHOLE DEVICE PX. A tiny size on a shrunken viewport rounds to
+  // zero, and a zero-sized font is not small type, it is no text at all — the
+  // failure this shape of arithmetic invites.
+  check("a size that would round away is held at one device px",
+    crispFontPx(11, 0.02) * 0.02 === 1 && crispFontPx(1, 0.001) * 0.001 === 1,
+    `${crispFontPx(11, 0.02) * 0.02} / ${crispFontPx(1, 0.001) * 0.001}`);
+  // A scale that is absent, zero or NaN is a frame drawn before anything has
+  // been measured; the authored size is the only honest answer there.
+  check("an unmeasured frame keeps the authored size rather than dividing by zero",
+    crispFontPx(13, 0) === 13 && crispFontPx(13, Number.NaN) === 13
+      && crispFontPx(13, -1) === 13,
+    `${crispFontPx(13, 0)} / ${crispFontPx(13, Number.NaN)} / ${crispFontPx(13, -1)}`);
+  // A 1:1 frame must come out untouched, which is what says this is a snap and
+  // not a resize: every whole authored size is already on the grid at dpr 1.
+  check("a frame drawn at 1:1 is pixel-identical to what it always was",
+    AUTHORED.every((s) => crispFontPx(s, 1) === s));
+
+  // ---- EVERY SITE, in one frame. ----
+  const stubs = installBrowserStubs();
+  const g = new Game(makeBaseLevel(0), {}, 41);
+  g.status = "playing";
+  // The gauge is inert on a calm bay and the stabiliser tag only draws when the
+  // launcher is cancelling wind, so both are switched on: the frame has to be
+  // able to reach all eight sites or "every site" is not what is being checked.
+  g.level.windMax = 6;
+  g.level.windAssist = 0.3;
+  const rec = newRec();
+  const canvas: Record<string, unknown> = { width: 1268, height: 586 };
+  const ctx = makeRecCtx(canvas, rec);
+  const DPR = renderScale(3, 812, 375);
+  render(ctx as unknown as CanvasRenderingContext2D, 812, 375, DPR, {
+    cubes: g.cubes, constraints: [], compactor: g.compactor, cannon: g.cannon,
+    trajectory: [], now: 5000, aiming: false,
+    effects: [
+      // A payout carrying BOTH riders, so the number, the timing callout and
+      // the congestion tag are all on screen at once.
+      { kind: "payout", x: 600, y: 400, amount: 120, grade: "excellent", congested: true, t0: 4960 },
+      { kind: "salvage", x: 400, y: 380, amount: 40, t0: 4960 },
+      { kind: "penalty", x: 800, y: 360, amount: 25, t0: 4960 },
+    ],
+    level: g.level, nextIsBomb: false, bombs: [], windNow: 4, windAverage: 3,
+    reload: 1, settling: false, strandWarning: false,
+  });
+
+  const fonts = setValues(rec, "font").map(String);
+  check("the frame really reaches all eight canvas text sites",
+    fonts.length === 8, `${fonts.length} font writes: ${fonts.join(" | ")}`);
+  const sizes = fonts.map((f) => Number(/(\d+(?:\.\d+)?)px/.exec(f)?.[1] ?? Number.NaN));
+  const devicePx = sizes.map((s) => s * phoneK);
+  check("...and not one of them sets a size that lands between device pixels",
+    devicePx.every((d) => Number.isFinite(d) && Math.abs(d - Math.round(d)) < 1e-6),
+    devicePx.map((d) => d.toFixed(4)).join(" "));
+  // Weight and family are unchanged by the snap — this is a size fix, and a
+  // font shorthand that lost its family falls back to the UA's default face.
+  check("...and every one of them still names its weight and its family",
+    fonts.every((f) => f.startsWith("700 ")
+      && (f.includes("JetBrains Mono") || f.includes("system-ui"))),
+    fonts.join(" | "));
+
+  g.destroy();
+  stubs.restore();
 }
 
 // ===========================================================================

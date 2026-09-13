@@ -279,6 +279,74 @@ export function dprQueries(ratio: number): string[] {
   ];
 }
 
+/**
+ * THE EIGHT CANVAS TEXT SITES, AND THE GRID THEY LAND ON.
+ *
+ * Everything the field draws is authored in world px and rasterised through the
+ * world transform, so a font set to `Npx` comes out at `N * scale * dpr` DEVICE
+ * px — and `dpr` here is renderScale's answer, not the panel's. On an iPhone X
+ * in the landscape the game locks to (css 812x375, panel ratio 3) the policy
+ * caps the canvas at 1.5 and the solver fits a 666.7px field, so the world→
+ * device factor is 0.781 and the HUD's type ladder rasterises like this:
+ *
+ *     11px ->  8.59    13px -> 10.16    18px -> 14.06    30px -> 23.44
+ *     12px ->  9.38    14px -> 10.94    26px -> 20.31
+ *
+ * Not one whole number among them, while the DOM chrome two layers up is being
+ * laid out at the panel's full 3x. A font size with a fraction in it is a font
+ * the rasteriser has to fit to a grid it does not sit on: the em box rounds one
+ * way, the hinted stems round another, and glyph to glyph the weight wanders —
+ * at nine device px a stem is one pixel or two, and which one it is depends on
+ * where in the em the glyph's outline happened to fall.
+ *
+ * So the size is snapped to the nearest whole device px and divided back into
+ * world space. It cannot be done at authoring time because the factor is a
+ * property of the viewport, not of the drawing, and it is deliberately the SIZE
+ * alone — the baseline positions are where the layout wants them and shifting
+ * those would move the type relative to the pill and the toast it belongs to.
+ *
+ * A floor of one whole device px, because a zero-sized font is not a smaller
+ * font, it is no text at all.
+ */
+export function crispFontPx(worldPx: number, deviceScale: number): number {
+  // A frame drawn before anything has been measured — no scale, zero, NaN — has
+  // no grid to snap to, and inventing one would divide by it. The authored size
+  // is the only honest answer.
+  if (!(deviceScale > 0) || !Number.isFinite(deviceScale)) return worldPx;
+  // NEAREST, not up and not down. Rounding one way biases the whole ladder in
+  // that direction, and half a device px is the largest error a snap can make
+  // by construction.
+  //
+  // The ladder CAN collapse where the grid is coarser than the design: on the
+  // iPhone X the 11px stabiliser tag and the 12px readout both land on 9 device
+  // px and come out the same size. That is the truth of the display rather than
+  // a defect of the snap — there is no size between them to draw — and the two
+  // are already separated by colour, position and the word they carry.
+  return Math.max(1, Math.round(worldPx * deviceScale)) / deviceScale;
+}
+
+/**
+ * The world→device factor the CURRENT frame is being drawn through, published
+ * by render() for the text sites to snap against.
+ *
+ * Module state for the same reason syncSpriteScale's is: the drawers are
+ * reached through a dozen call sites that have no business carrying a number
+ * about the display, and render() sets both from the same `vp.scale * dpr` in
+ * the same breath, so the two cannot disagree about what resolution the frame
+ * is at.
+ */
+let frameDeviceScale = 1;
+
+const HUD_FONT_MONO = "'JetBrains Mono', ui-monospace, monospace";
+const HUD_FONT_UI = "system-ui, sans-serif";
+
+/** A canvas font string whose size lands on a whole device px. Every text site
+ *  on the field is weight 700, so the weight is not a parameter — a lighter one
+ *  would be a design decision, not a call-site detail. */
+function hudFont(worldPx: number, family: string): string {
+  return `700 ${crispFontPx(worldPx, frameDeviceScale)}px ${family}`;
+}
+
 /** Map a client (CSS px) point to world coordinates. */
 export function screenToWorld(
   cssW: number,
@@ -770,7 +838,11 @@ export function render(
   const chrome = viewport ? null : computeLayout(cssW, cssH);
   const vp: Viewport = viewport ?? chrome!;
   const alpha = scene.alpha ?? 1;
-  syncSpriteScale(vp.scale * dpr);
+  // The frame's world→device factor, published to the two things that need it:
+  // the sprite bakes, which re-bake when it drifts far enough, and the text
+  // sites, which snap their size onto its grid every frame (crispFontPx).
+  frameDeviceScale = vp.scale * dpr;
+  syncSpriteScale(frameDeviceScale);
 
   // Backdrop, field gradient, grid, wall glow AND the congestion floor are
   // static between changes of pile height — blit the cached opaque layer
@@ -1460,6 +1532,14 @@ function lerpHex(a: string, b: string, t: number): string {
  * mechanic itself.
  */
 const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
+/** The gauge's three type sizes, in world px — the authored ladder, named so
+ *  the snap (crispFontPx) is visibly applied TO a size rather than replacing
+ *  one. Label over readout over tag: the word "WIND" is the thing to find at a
+ *  glance, the percentage is what is read once found, and the stabiliser tag is
+ *  a footnote on a gauge that is already saying something else. */
+const WIND_LABEL_PX = 13;
+const WIND_READOUT_PX = 12;
+const WIND_STAB_PX = 11;
 const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
 const WIND_HUD_HEAD = 15;
 
@@ -1974,7 +2054,7 @@ function drawWindIndicator(
   ctx.fill();
 
   // "WIND" label.
-  ctx.font = "700 13px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.font = hudFont(WIND_LABEL_PX, HUD_FONT_MONO);
   ctx.fillStyle = COLORS.textDim;
   ctx.globalAlpha = 0.9;
   ctx.fillText("WIND", cx, y - 14);
@@ -2043,7 +2123,7 @@ function drawWindIndicator(
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = COLORS.trajectory;
-    ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.font = hudFont(WIND_STAB_PX, HUD_FONT_MONO);
     ctx.fillText(`STAB −${Math.round(level.windAssist * 100)}%`, cx + padX - 44, y - 14);
   }
 
@@ -2051,7 +2131,7 @@ function drawWindIndicator(
   ctx.shadowBlur = 0;
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = col;
-  ctx.font = "700 12px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.font = hudFont(WIND_READOUT_PX, HUD_FONT_MONO);
   const pct = Math.round(mag * 100);
   const glyph = dir >= 0 ? "▶" : "◀";
   ctx.fillText(mag < 0.02 ? "CALM" : `${glyph} ${pct}%`, cx, y + 22);
@@ -3504,7 +3584,14 @@ const PAYOUT_RISE_PX = 48;
 const PAYOUT_FADE_IN_MS = 80;
 const PAYOUT_FADE_OUT_MS = 350;
 const PAYOUT_CLAMP_MARGIN = 80;
-const PAYOUT_FONT = "700 30px system-ui, sans-serif";
+const PAYOUT_PX = 30;
+/** The salvage refund and the lost-cargo penalty, in world px — the two SIDE
+ *  entries in the money ledger. One constant because they are deliberately one
+ *  size: a refund and a fine are the same kind of event at the same rank, and
+ *  the channel that tells them apart is the colour and the direction of travel,
+ *  not the type size. Under the payout's own 30, because a line selling is the
+ *  headline and these two are what happened around it. */
+const LEDGER_SIDE_PX = 26;
 const PAYOUT_GLOW = 16;
 
 /** The TIMING CALLOUT rides the same toast as the money it explains: same
@@ -3518,7 +3605,7 @@ const PAYOUT_GLOW = 16;
  *  idiom the payout/penalty pair already established. Smaller than the number
  *  and set above it because the money is the headline — the callout is the
  *  reason, and a bay full of shouted adjectives stops being readable. */
-const CALLOUT_FONT = "700 18px system-ui, sans-serif";
+const CALLOUT_PX = 18;
 /** Baseline-to-baseline, so the 18px word clears the 30px number's cap height
  *  with air left over. 22 was drawn first and the shot showed the two rows
  *  touching (sim/uifit/grade-shots.ts) — legible, but reading as one block
@@ -3530,7 +3617,7 @@ const CALLOUT_GAP_PX = 26;
  *  never be mistaken for the band. Smaller again than the callout for the same
  *  reason the callout is smaller than the number: the further from the money,
  *  the quieter. */
-const TAG_FONT = "700 14px system-ui, sans-serif";
+const TAG_PX = 14;
 /** Baseline-to-baseline below the 30px number: enough to clear its descenders
  *  with the same air CALLOUT_GAP_PX leaves above. */
 const TAG_GAP_PX = 20;
@@ -3563,19 +3650,19 @@ function drawPayoutFx(
   ctx.fillStyle = COLORS.trajectory;
   ctx.shadowColor = COLORS.trajectory;
   ctx.shadowBlur = PAYOUT_GLOW;
-  ctx.font = PAYOUT_FONT;
+  ctx.font = hudFont(PAYOUT_PX, HUD_FONT_UI);
   ctx.textAlign = "center";
   ctx.fillText(`+$${e.amount}`, x, y);
   if (e.grade) {
     ctx.fillStyle = GRADE_COLOR[e.grade];
     ctx.shadowColor = GRADE_COLOR[e.grade];
-    ctx.font = CALLOUT_FONT;
+    ctx.font = hudFont(CALLOUT_PX, HUD_FONT_UI);
     ctx.fillText(GRADE_CALLOUT[e.grade], x, y - CALLOUT_GAP_PX);
   }
   if (e.congested) {
     ctx.fillStyle = CONGESTION_TAG_COLOR;
     ctx.shadowColor = CONGESTION_TAG_COLOR;
-    ctx.font = TAG_FONT;
+    ctx.font = hudFont(TAG_PX, HUD_FONT_UI);
     ctx.fillText(CONGESTION_TAG, x, y + TAG_GAP_PX);
   }
   ctx.restore();
@@ -3607,7 +3694,7 @@ function drawSalvageFx(
   ctx.fillStyle = SALVAGE_COLOR;
   ctx.shadowColor = SALVAGE_COLOR;
   ctx.shadowBlur = PAYOUT_GLOW;
-  ctx.font = "700 26px system-ui, sans-serif";
+  ctx.font = hudFont(LEDGER_SIDE_PX, HUD_FONT_UI);
   ctx.textAlign = "center";
   ctx.fillText(`♻ +$${e.amount}`, x, y);
   ctx.restore();
@@ -3648,7 +3735,7 @@ function drawPenaltyFx(
   ctx.fillStyle = COLORS.compactor;
   ctx.shadowColor = COLORS.compactor;
   ctx.shadowBlur = PAYOUT_GLOW;
-  ctx.font = "700 26px system-ui, sans-serif";
+  ctx.font = hudFont(LEDGER_SIDE_PX, HUD_FONT_UI);
   ctx.textAlign = "center";
   ctx.fillText(`−$${e.amount}`, x, y);
   ctx.restore();
