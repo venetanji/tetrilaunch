@@ -233,6 +233,52 @@ export function renderScale(deviceRatio: number, cssW: number, cssH: number): nu
   return Math.min(capped, Math.sqrt(MAX_RENDER_PIXELS / cssPx));
 }
 
+/** How far a `dppx` bracket is opened either side of the ratio it watches, as a
+ *  fraction of that ratio.
+ *
+ *  Half a percent. It has to be wide enough to survive a double going out
+ *  through CSS text and being re-parsed — devicePixelRatio is commonly a ratio
+ *  that does not terminate in decimal (4/3 on a 133% Windows scale factor, 2.625
+ *  on a Pixel 7) — and narrow enough that it cannot swallow a real change. The
+ *  smallest step any platform actually offers is 1 -> 1.25, a 25% jump; the
+ *  bracket is fifty times smaller than that. */
+const DPR_QUERY_TOLERANCE = 0.005;
+
+/**
+ * MEDIA QUERIES THAT ARE TRUE EXACTLY WHILE THE DISPLAY IS STILL AT `ratio` —
+ * in preference order, most robust first.
+ *
+ * The renderer's backing scale is `renderScale(devicePixelRatio, …)` and nothing
+ * re-reads it but onResize. Every event main.ts listens to says the viewport's
+ * SIZE changed; none of them fire when only its DENSITY does, and dragging a
+ * window from a 1x display to a 2x one is precisely that — the same CSS box,
+ * twice the device pixels. The canvas stayed at the old backing store and the
+ * field rasterised at half the resolution the panel could show, with nothing to
+ * tell the app it had happened. A MediaQueryList is the one thing that does.
+ *
+ * TWO FORMS, because one of them is not always understood. The bracketed range
+ * is the honest question — "is the ratio still within a rounding error of R" —
+ * and it is what absorbs the float round-trip above. But `min-resolution` /
+ * `max-resolution` are range features, and an engine that does not know them
+ * treats the whole query as invalid and answers `false` forever, which is a
+ * watch that is silently dead rather than one that is merely coarse. So the
+ * plain equality form follows it, and the caller keeps the first candidate that
+ * MATCHES RIGHT NOW: a query describing the present that is already false is a
+ * query this engine cannot evaluate, whatever the reason.
+ *
+ * Both forms are strings rather than live MediaQueryLists so the choice can be
+ * pinned headlessly — node has no matchMedia, and the arithmetic is the half
+ * that can be wrong.
+ */
+export function dprQueries(ratio: number): string[] {
+  const r = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  const eps = r * DPR_QUERY_TOLERANCE;
+  return [
+    `(min-resolution: ${(r - eps).toFixed(4)}dppx) and (max-resolution: ${(r + eps).toFixed(4)}dppx)`,
+    `(resolution: ${r}dppx)`,
+  ];
+}
+
 /** Map a client (CSS px) point to world coordinates. */
 export function screenToWorld(
   cssW: number,

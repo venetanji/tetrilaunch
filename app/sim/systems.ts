@@ -78,8 +78,9 @@ import {
   type Rec,
 } from "./canvasrec";
 import {
-  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, fitViewport, FRAME_PX, frostMark,
-  landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale, THAW_REACH, THAW_REACH_MS,
+  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, dprQueries, fitViewport,
+  FRAME_PX, frostMark, landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale,
+  THAW_REACH, THAW_REACH_MS,
   WALL_GLOW_REACH, wallGlowBleed,
 } from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, PENALTY_SINK_PX, type FxEvent } from "../src/game/fx";
@@ -26225,6 +26226,118 @@ section("The canvas is sized by policy, and phones get a lower ceiling (render.t
     /renderScale\(window\.devicePixelRatio \|\| 1, window\.innerWidth, window\.innerHeight\)/
       .test(attractSrc)
       && !/Math\.min\(window\.devicePixelRatio \|\| 1, MAX_DPR\)/.test(attractSrc));
+}
+
+// ===========================================================================
+// A CHANGE OF DENSITY IS A CHANGE OF VIEWPORT (render.ts's dprQueries, and
+// main.ts's density watch).
+//
+// Every event main.ts listens to is about the viewport's SIZE. Nothing fires
+// when only its devicePixelRatio moves — drag a window from a 1x display to a
+// 2x one and innerWidth, innerHeight and the safe-area insets are all
+// unchanged, so the frame loop's comparison agrees, the watchdog's comparison
+// agrees, and the canvas keeps a backing store sized for a display it is no
+// longer on. The field then rasterises at half the resolution the panel can
+// show, for as long as the window stays where it is.
+//
+// The query is the half that can be arithmetically wrong, so it is the half
+// pinned as a function. The wire — that the watch re-arms, and that it re-solves
+// through the ceiling rather than around it — is asked of main.ts's source, the
+// same way the renderScale wire above is.
+// ===========================================================================
+section("A device-pixel-ratio change re-solves the layout (render.ts's dprQueries)");
+{
+  /** Does a `(min-resolution: A) and (max-resolution: B)` string bracket `r`? */
+  const brackets = (q: string, r: number): boolean => {
+    const m = q.match(/min-resolution: ([\d.]+)dppx\) and \(max-resolution: ([\d.]+)dppx/);
+    return m !== null && Number(m[1]) <= r && r <= Number(m[2]);
+  };
+
+  for (const r of [1, 1.25, 1.5, 2, 2.625, 3, 4 / 3]) {
+    const [range, exact] = dprQueries(r);
+    check(`the ${r} watch is true at the ratio it was armed at`,
+      brackets(range, r) && exact === `(resolution: ${r}dppx)`,
+      `${range} | ${exact}`);
+  }
+
+  // THE BRACKET MUST NOT SWALLOW A REAL CHANGE. The smallest step any platform
+  // offers is 1 -> 1.25; every neighbour in the matrix has to fall outside.
+  const RATIOS = [1, 1.25, 1.5, 2, 2.625, 3];
+  let swallowed = "";
+  for (const armed of RATIOS) {
+    const [range] = dprQueries(armed);
+    for (const other of RATIOS) {
+      if (other !== armed && brackets(range, other)) swallowed += `${armed}<-${other} `;
+    }
+  }
+  check("...and false at every other ratio a display can be", swallowed === "", swallowed);
+
+  // A non-terminating ratio (a 133% Windows scale factor) has to survive the
+  // round trip through CSS text — which is the whole reason the bracket exists
+  // rather than a bare equality on a stringified double.
+  check("a ratio that does not terminate in decimal still brackets itself",
+    brackets(dprQueries(4 / 3)[0], 4 / 3),
+    dprQueries(4 / 3)[0]);
+
+  // Garbage in, a watchable query out: devicePixelRatio is 0 or absent before
+  // first layout in some shells, and a query built on NaN matches nothing ever.
+  check("a ratio the shell has not reported yet arms at 1x rather than at NaN",
+    brackets(dprQueries(0)[0], 1) && brackets(dprQueries(Number.NaN)[0], 1),
+    `${dprQueries(0)[0]} | ${dprQueries(Number.NaN)[0]}`);
+
+  // THE POLICY SURVIVES THE NEW PATH. A density change routes through onResize,
+  // so a window dragged onto a denser display gets the policy's answer and not
+  // the display's — both halves of it, the ratio ceiling and the pixel budget.
+  // That is the failure a watch wired straight to the canvas would introduce
+  // while looking like a fix: the one gesture this change makes possible is
+  // "the ratio just tripled", which is exactly the gesture the budget exists
+  // to survive.
+  check("a phone-sized window that becomes 3x still rasterises at the ceiling",
+    renderScale(3, 812, 375) === COMPACT_MAX_RENDER_DPR,
+    `${renderScale(3, 812, 375)}`);
+  const afterJump = (w: number, h: number, r: number): number =>
+    Math.round(w * h * renderScale(r, w, h) ** 2);
+  check("...and a desktop one lands inside the pixel budget, whatever it jumped to",
+    [1.25, 1.5, 2, 2.625, 3].every((r) => afterJump(1440, 900, r) <= MAX_RENDER_PIXELS
+      && afterJump(2560, 1600, r) <= MAX_RENDER_PIXELS),
+    [1.25, 1.5, 2, 2.625, 3]
+      .map((r) => `${r}->${(afterJump(2560, 1600, r) / 1e6).toFixed(2)}MP`).join(" "));
+
+  // THE WIRE.
+  const dprMainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // A WHOLE LINE OF ITS OWN, matched anchored — `/…armDprWatch\(\);/` alone is
+  // also satisfied by the call sitting behind a `//`, which is precisely the
+  // shape of the red-first experiment this pin has to be able to fail.
+  const onResizeBody = dprMainSrc.slice(
+    dprMainSrc.indexOf("private onResize = (): void => {"),
+    dprMainSrc.indexOf("const mobile = \"ontouchstart\" in window"),
+  );
+  check("the resize path arms the density watch every time it solves",
+    /^\s*this\.armDprWatch\(\);$/m.test(onResizeBody)
+      && onResizeBody.includes("this.canvas.height = Math.floor(h * this.dpr);"),
+    `onResize body ${onResizeBody.length} chars`);
+  check("...the watch is built from dprQueries, not from a hand-rolled string",
+    /dprQueries\(window\.devicePixelRatio \|\| 1\)/.test(dprMainSrc)
+      && !/matchMedia\(`\(resolution/.test(dprMainSrc));
+  check("...it keeps only a candidate that is true right now",
+    /if \(!mq\.matches\) continue;/.test(dprMainSrc));
+  check("...and a change re-solves rather than resizing the canvas behind the policy",
+    /private onDprChange = \(\): void => \{\n\s*this\.onResize\(\);\n\s*\};/.test(dprMainSrc));
+  // Asked of destroy()'s OWN body rather than of the file: armDprWatch also
+  // removes a listener (that is how it re-arms), so a whole-file search for the
+  // call would be satisfied by the re-arm alone and would never notice the
+  // teardown going missing.
+  const destroyBody = dprMainSrc.slice(
+    dprMainSrc.indexOf("private destroy(): void {"),
+    dprMainSrc.indexOf("// ---------------- state / rendering ----------------"),
+  );
+  check("...with the listener torn down when the app is",
+    destroyBody.includes('this.dprMQ?.removeEventListener?.("change", this.onDprChange)')
+      && destroyBody.includes("this.dprMQ = null;"),
+    `destroy() body ${destroyBody.length} chars`);
 }
 
 // ===========================================================================
