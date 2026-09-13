@@ -191,6 +191,10 @@ import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devm
 import { InputController, wheelNotch } from "../src/game/input";
 import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
+// The one platform predicate this harness can answer without a browser: what
+// Settings asks before drawing the haptics switch (D11's section, at the foot
+// of this file, stubs `window`/`navigator` around it).
+import { hapticsSupported } from "../src/lib/platform";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 // The uifit device matrix, read as DATA by the safe-area/zoom premise check
@@ -239,6 +243,8 @@ import { setRailSide } from "../src/game/layout";
 import {
   armActivate, armRelease, DISARMED,
   FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
+  // F7: the inert seal, driven directly by the section at the foot of this file.
+  sealBehindScrim,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import { captureScroll, centreScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
@@ -28227,6 +28233,584 @@ section("Player accounts (social login + RevenueCat identity)");
       /if \(!ready \|\| !webPurchases\) return unlimited;/.test(purchasesSrc)
         && /if \(!ready\) return unlimited;/.test(purchasesSrc));
   }
+}
+
+// ---------------------------------------------------------------------------
+section("Every button class answers a mouse (D5 — app.css .btn--primary:hover)");
+// ---------------------------------------------------------------------------
+// THE FINDING, from a desktop pass: .btn--secondary, .btn--ghost and .icon-btn
+// all light under the cursor and .btn--primary did not. That left the five
+// loudest buttons in the game — RESUME, LOCK IT IN, INSTALL, RUN TIER N,
+// SUBMIT — in the one state a mouse reads as "disabled": pointed at, and
+// silent. It is a stylesheet-only fact, so it is read back out of the
+// stylesheet; nothing in sim/uifit hovers anything.
+//
+// THE SET IS THE PIN, not the one rule. "The primary has a hover" is a
+// declaration anybody can delete without noticing; "every button class in this
+// file has one" is the property that was actually broken, and it fails the
+// moment a fifth class arrives without one.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const cls of ["btn--primary", "btn--secondary", "btn--ghost", "icon-btn"]) {
+    check(`.${cls} responds to a cursor`,
+      new RegExp(`(^|\\n)\\.${cls}:hover\\s*\\{`).test(css), `no .${cls}:hover rule`);
+  }
+  const primary = css.match(/(^|\n)\.btn--primary:hover\s*\{[^}]*\}/)?.[0] ?? "";
+  // NO NEW COLOUR. tokens.css is the single source of truth and the primary's
+  // own fill already carries the only two stops this hover is allowed to use,
+  // so the hover may reorder them and may add a token glow — it may not name a
+  // third hex.
+  const hexes = new Set((primary.match(/#[0-9a-f]{3,8}/gi) ?? []).map((h) => h.toLowerCase()));
+  check("the primary's hover invents no colour of its own",
+    [...hexes].every((h) => h === "#38d6ff"), [...hexes].join(" "));
+  check("...and lifts with the accent glow token",
+    primary.includes("var(--glow-accent)"), primary);
+  // The hard shadow is what .btn:active translates INTO. A hover that replaced
+  // it rather than layering over it would leave the press with nowhere to go.
+  check("...without spending the hard shadow the press needs",
+    primary.includes("var(--shadow-hard)"), primary);
+  // UNGUARDED, deliberately and uniformly — see the rule's own note. A guard on
+  // one of the four would make the same finger-tap behave differently per
+  // button class, so the pin is that the file has no hover media query at all
+  // rather than that this one rule lacks one.
+  check("no hover rule in the stylesheet is pointer-guarded — one convention, not two",
+    !/@media[^{]*\(hover\s*:/.test(css),
+    css.match(/@media[^{]*\(hover\s*:[^{]*/)?.[0] ?? "");
+}
+
+// ---------------------------------------------------------------------------
+section("The tower answers a cursor, and its plinth is a desktop target (D6)");
+// ---------------------------------------------------------------------------
+// TWO HALVES OF ONE DESKTOP FINDING, both in app.css's tower block.
+//
+//   1. Eleven <button> floors lit NOTHING under the pointer. The building is
+//      the menu's primary navigation and a mouse got no reading of which rung
+//      it was about to press — `.is-selected` says where the car IS, which is
+//      a different question from where this click would send it.
+//   2. `.tower__base--floor` is 22px once the licence is earned, and sim/uifit
+//      records it as an accepted `tap` violation on every menu fixture of
+//      every desktop and tablet row. On a PHONE that was the honest trade the
+//      plate's own note argued, and the compact block below has since bought
+//      the whole ladder out of it by scrolling. On a roomy row it was never a
+//      trade at all: the shaft has 490+px, and handing 22 of them to the
+//      plinth costs each rung 2px it can spare.
+//
+// WHICH IS WHY THE HEIGHT IS DENSITY-SCOPED AND NOTHING ELSE IS. `roomy` is
+// layout.ts's verdict that nothing on screen had to be shrunk (uiScale >=
+// DENSITY_ROOMY), so it is exactly the set of rows that can afford this and
+// exactly the set the phone arithmetic was never about. The compact path —
+// the scroller, the 44px rungs, the 44px plinth, the tokens under all three —
+// is untouched, and the last check here says so by quoting it back.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+
+  const floorHover = css.match(/(^|\n)\.tower__floor[^{\n]*:hover[^{]*\{[^}]*\}/)?.[0] ?? "";
+  check("a floor lights under the cursor", floorHover !== "", "no .tower__floor hover rule");
+  // A HOVER MAY NOT IMPERSONATE A STATE. `.is-selected` is where the car is
+  // parked, `.is-locked` is a floor that refuses, `.is-denied` is one mid-
+  // refusal — all three are (0,2,0) selectors, exactly what a bare
+  // `.tower__floor:hover` would be, so the exclusions are written INTO the
+  // selector rather than left to source order, where the next edit to this
+  // block could silently reverse them.
+  for (const state of ["is-locked", "is-selected", "is-denied"]) {
+    check(`...and never over a floor that is .${state}`,
+      floorHover.includes(`:not(.${state})`), floorHover.slice(0, 140));
+  }
+  // Geometry is the one thing this hover may not touch: the floors are
+  // `flex: 1 1 0` inside a fixed shaft at roomy density, so a hover that moved
+  // padding, a border width or a height would reflow the whole building under
+  // the pointer.
+  check("...and moves no pixel of the building",
+    !/[\s;{](padding|margin|border-width|height|width|font-size|transform)\s*:/
+      .test(floorHover.slice(floorHover.indexOf("{"))),
+    floorHover);
+
+  // --- the plinth's desktop height ------------------------------------------
+  const roomyTower = [...css.matchAll(/(^|\n)\[data-density="roomy"\][^{]*\{[^}]*\}/g)]
+    .map((m) => m[0].trim())
+    .filter((r) => r.includes(".tower"));
+  check("exactly one roomy-density rule reaches into the tower",
+    roomyTower.length === 1, roomyTower.join(" | ") || "none");
+  const plinth = roomyTower[0] ?? "";
+  check("...and it is the ground-floor plate, nothing else in the building",
+    /\[data-density="roomy"\]\s*\.tower__base--floor\s*\{/.test(plinth), plinth);
+  check("...taking the plate to the 44px tap floor",
+    /height:\s*max\(\s*44px\s*,/.test(plinth), plinth);
+  // max(), not a flat 44px. While the licence is OWED the plate is the entrance
+  // and `.tower--lobby` has already given it clamp(44px, 13%, 72px) — up to
+  // 72px on a tall row. A flat 44 here is (0,2,0) against the lobby's (0,1,0),
+  // so it would WIN and shrink the one control in the building that was
+  // already comfortably over the floor.
+  check("...without shrinking the entrance the lobby state grows",
+    plinth.includes("var(--tower-lobby-h)"), plinth);
+
+  // THE PHONE'S ARITHMETIC IS BYTE-IDENTICAL, quoted back declaration by
+  // declaration. If a later pass moves one of these to buy the plinth its
+  // 44px, the 640x360 budget phone loses the ladder's scroller — and that is a
+  // regression no roomy-scoped rule can show.
+  const compact: Array<[string, RegExp]> = [
+    ["the rungs keep their own 44px token",
+      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px;[^}]*\}/],
+    ["the earned plinth keeps its compact 44px",
+      /\[data-density="compact"\] \.tower:not\(\.tower--lobby\) \{ --tower-lobby-h: 44px; \}/],
+    ["the run of floors is still the allowlisted scroller",
+      /\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto;/],
+    ["...and the rungs still stack in it rather than divide it",
+      /\[data-density="compact"\] \.tower__floor \{ flex: none; height: var\(--tower-floor-h\); \}/],
+  ];
+  for (const [name, re] of compact) check(`compact is untouched: ${name}`, re.test(css));
+  const tokens = css.match(/(^|\n)\.tower \{[^}]*\}/)?.[0] ?? "";
+  check("compact is untouched: the shaft's shared tokens are where they were",
+    /--tower-pad:\s*3px;/.test(tokens) && /--tower-gap:\s*2px;/.test(tokens)
+      && /--tower-lobby-h:\s*22px;/.test(tokens) && /--tower-floors:\s*11;/.test(tokens),
+    tokens.replace(/\s+/g, " ").slice(0, 220));
+}
+
+// ---------------------------------------------------------------------------
+section("The haptics switch only exists where something can buzz (D11)");
+// ---------------------------------------------------------------------------
+// `navigator.vibrate` IS NOT THE QUESTION, and on the one platform this app
+// also ships a desktop shell to, it is not even a hint: Chromium defines
+// navigator.vibrate on Windows, macOS and Linux, where it is a no-op. So
+// Settings drew a "Haptics — Vibration feedback on mobile" row, on a desktop,
+// wired to nothing — an option that cannot be exercised, describing a device
+// the player is not holding.
+//
+// THE HONEST TEST IS THE DEVICE, and it has two halves because the app has two
+// kinds of build. A native shell always can (Capacitor Haptics goes to the
+// platform's own engine). On the web the question is whether this is a device
+// with a vibrator, which is what a COARSE PRIMARY pointer means — the same
+// `(pointer: coarse)` autoEnterFullscreenForRun already trusts, and the mirror
+// of `(pointer: fine)`, which is structural in app.css.
+//
+// Stubbed rather than mocked: `hapticsSupported` reads two live globals and
+// this restores both, so the pin exercises the shipped function.
+{
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevWin = Object.getOwnPropertyDescriptor(glob, "window");
+  const prevNav = Object.getOwnPropertyDescriptor(glob, "navigator");
+  // Node defines `navigator` as a getter with no setter, so a plain assignment
+  // throws under ESM's strict mode. defineProperty is the only way in, and the
+  // saved descriptor is the only way back out.
+  const put = (name: string, value: unknown): void => {
+    Object.defineProperty(glob, name, { value, configurable: true, writable: true });
+  };
+  const stub = (vibrate: boolean, pointer: "coarse" | "fine"): void => {
+    put("navigator", vibrate ? { vibrate: () => true } : {});
+    put("window", {
+      matchMedia: (q: string) => ({ matches: q.includes(`pointer: ${pointer}`) }),
+    });
+  };
+  try {
+    stub(true, "fine");
+    check("a desktop browser with a dead navigator.vibrate gets no switch",
+      hapticsSupported() === false, "the toggle still renders on a fine pointer");
+    stub(true, "coarse");
+    check("a phone browser that can vibrate gets one", hapticsSupported() === true);
+    // iOS Safari and the iOS PWA: a coarse pointer and no vibrate at all. The
+    // original reason this predicate exists, and it must survive the new half.
+    stub(false, "coarse");
+    check("a phone browser with no vibrate at all still gets none",
+      hapticsSupported() === false);
+    // The native shells are answered by `isNative` before either global is
+    // consulted, so the web halves above can never take the toggle away from
+    // an Android or iOS build. Pinned from source: Capacitor reports "web"
+    // in this process, so there is no way to make isNative true here.
+    const platformSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "platform.ts"),
+      "utf8",
+    );
+    check("the native shells are answered first, and unconditionally",
+      /export function hapticsSupported\(\): boolean \{\s*\n\s*return isNative \|\|/.test(platformSrc),
+      platformSrc.slice(platformSrc.indexOf("export function hapticsSupported"), 200));
+    check("...and the web half asks the pointer, not just the API",
+      /export function hapticsSupported\(\)[\s\S]{0,200}?isCoarsePointer\(\)/.test(platformSrc));
+  } finally {
+    if (prevWin) Object.defineProperty(glob, "window", prevWin);
+    else delete glob.window;
+    if (prevNav) Object.defineProperty(glob, "navigator", prevNav);
+    else delete glob.navigator;
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("Escape backs out of a screen, not only the pause card (D12)");
+// ---------------------------------------------------------------------------
+// THE ASYMMETRY THIS CLOSES. A pad has had a per-screen back door since
+// padBackTarget existed: B on Settings, Controls, Workshop, Contracts, the
+// guide, the leaderboard, the account screen and both notices clicks that
+// screen's OWN close control, so backing out by pad runs the same handler and
+// the same cleanup the button runs. A keyboard had none of it. Escape paused a
+// run and did nothing anywhere else, so the one key every player on earth
+// presses to leave a screen left them looking for the ✕ with a mouse.
+//
+// ONE DOOR, TWO INPUTS. The fix is not a second table: it is the same
+// padBackTarget, reached through one helper that both the pad's B and the
+// keyboard's Escape call, so the two can never drift into backing out of
+// different things. That is the property pinned first here.
+//
+// AND ESCAPE KEEPS ITS DAY JOB. Inside a run Escape is the pause alias
+// (bindings.ts's isPauseKey — PAUSE_ALIAS, honoured whenever no rebind has
+// claimed the key), and the pause card and the Controls screen both render
+// from that. The back-out branch is barred from `playing` and `paused` for
+// exactly that reason, and on the pause card B's own answer is Resume anyway.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const between = (from: string, to: string): string => {
+    const a = mainSrc.indexOf(from);
+    const b = mainSrc.indexOf(to, a + 1);
+    return a < 0 || b < 0 ? "" : mainSrc.slice(a, b);
+  };
+
+  const backDoor = between("private clickBackTarget(", "private onPadUiButton(");
+  check("there is one back door, and it clicks the screen's own control",
+    /const sel = this\.padBackTarget\(\);/.test(backDoor)
+      && /this\.overlay\.querySelector<HTMLElement>\(sel\)/.test(backDoor)
+      && /el\.click\(\);/.test(backDoor),
+    backDoor.slice(0, 200) || "no clickBackTarget helper");
+  check("...and the pad's B goes through it rather than round it",
+    /if \(button === PAD_BACK\) return this\.clickBackTarget\(\);/.test(mainSrc));
+
+  const globalKey = between("private onGlobalKey = ", "private onKeydown = ");
+  check("the handler exists to be checked", globalKey.length > 0 && globalKey.length < 3000);
+  check("Escape outside a run clicks the same back control the pad's B would",
+    /e\.key === "Escape"[\s\S]{0,200}?this\.clickBackTarget\(\)/.test(globalKey), globalKey);
+  // The bar is on the two states a run occupies, not on a key compare: a
+  // player who rebound some other action onto Escape has made it that action's
+  // key, and the pause branch above is what decides whether Escape still
+  // pauses at all.
+  check("...and never inside one, where Escape is the pause alias",
+    /this\.state !== "playing" && this\.state !== "paused"/.test(globalKey), globalKey);
+  check("the pause alias still owns Escape in a run",
+    /if \(isPauseKey\(e\.key\)\) \{/.test(globalKey));
+  // The alias itself, from the table rather than from a character compare —
+  // pinned here because the branch above is written to yield to it. Reset
+  // first: this file rebinds keys in several sections above, and the default
+  // table is the premise the claim is about.
+  resetKeyBindings();
+  check("...and the alias is Escape whenever nothing else has claimed it",
+    isPauseKey("Escape") && isPauseKey(keyFor("pause")));
+
+  // THE DOOR LIST IS THE PRODUCT DECISION, so it is stated rather than
+  // implied: every screen with a way out has one, and the screens with none
+  // (the drafts, the refit, the end cards) have none on purpose.
+  const doors = between("private padBackTarget(", "private onPadUiButton(");
+  for (const state of [
+    "paused", "seal-break", "controls", "account", "account-delete",
+    "settings", "workshop", "contracts", "howto", "leaderboard", "sandbox",
+  ]) {
+    check(`Escape now leaves ${state}`, doors.includes(`case "${state}":`), doors.slice(0, 200));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("A sign-in or sign-out that did not complete says so (F4)");
+// ---------------------------------------------------------------------------
+// THE DELETION ALREADY DID THIS and the other two account actions did not: a
+// failed signIn() or signOut() was a console.warn and a mute return, which on
+// screen is a button that did nothing. Worse for sign-in than for deletion,
+// because the player is usually there on an errand — the web tier gate sent
+// them to sign in before a purchase — so "nothing happened" strands the
+// purchase as well as the sign-in.
+//
+// THE SAME LINE, IN THE SAME PLACE, worded for the press that failed. One
+// element, `role="alert"` so it announces on insertion; the screen renders it
+// from `accountError` state, which every exit clears.
+//
+// THE CANCEL STAYS SILENT on sign-in, and only there. auth.ts's signIn opens a
+// provider sheet, so isUserCancelled is a real answer; signOut opens nothing
+// (its provider logout is best-effort and swallowed inside auth.ts), so there
+// is no sheet to close and no cancel to keep quiet about — a cancel branch
+// there would be a comment describing a path that cannot happen.
+{
+  const both = { google: true, apple: true };
+  const base = { available: true, ready: true, providers: both } as const;
+
+  const failedIn = S.accountScreen({ ...base, label: null, error: S.ACCOUNT_SIGN_IN_FAILED_TEXT });
+  check("a failed sign-in renders its line on the account screen",
+    /<p class="account__error" role="alert">Sign-in didn&#39;t complete — try again<\/p>/
+      .test(failedIn), failedIn);
+  check("...beside the buttons that failed, not instead of them",
+    failedIn.includes('data-action="account-google"') && failedIn.includes('data-action="account-apple"'));
+
+  const failedOut = S.accountScreen({ ...base, label: "Pilot", error: S.ACCOUNT_SIGN_OUT_FAILED_TEXT });
+  check("a failed sign-out renders its line beside Sign Out",
+    failedOut.includes('class="account__error" role="alert"')
+      && failedOut.includes("Sign-out didn&#39;t complete")
+      && failedOut.includes('data-action="account-signout"'), failedOut);
+
+  // THREE PRESSES, THREE SENTENCES. One shared "Something went wrong" would
+  // leave a player who pressed Sign Out reading a line that could have come
+  // from any of the three controls on the panel.
+  const texts = [S.ACCOUNT_SIGN_IN_FAILED_TEXT, S.ACCOUNT_SIGN_OUT_FAILED_TEXT, S.ACCOUNT_DELETE_FAILED_TEXT];
+  check("the three account failures are three different sentences",
+    new Set(texts).size === 3, texts.join(" | "));
+  check("...and each names the press it belongs to",
+    /^Sign-in/.test(S.ACCOUNT_SIGN_IN_FAILED_TEXT)
+      && /^Sign-out/.test(S.ACCOUNT_SIGN_OUT_FAILED_TEXT)
+      && /^Deletion/.test(S.ACCOUNT_DELETE_FAILED_TEXT), texts.join(" | "));
+  // Sign-in is repeatable and says so; sign-out is not a request that can be
+  // re-sent usefully (the identity is local and auth.ts clears it regardless),
+  // so it states the fact and stops.
+  check("the sign-in line invites the retry the button still offers",
+    S.ACCOUNT_SIGN_IN_FAILED_TEXT.includes("try again"));
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // ONE METHOD, bounded by whatever comes next rather than by a named
+  // neighbour: the account handlers sit in a run of near-identical functions
+  // (same busy flag, same disabled button, same finally), so a slice that
+  // overshot by one would let these checks pass off the wrong one — and naming
+  // the neighbour makes the pin break the day a method is inserted between
+  // them.
+  const method = (sig: string): string => {
+    const a = mainSrc.indexOf(sig);
+    if (a < 0) return "";
+    const ends = [mainSrc.indexOf("\n  /**", a + sig.length), mainSrc.indexOf("\n  private ", a + sig.length)]
+      .filter((n) => n > 0);
+    return mainSrc.slice(a, ends.length ? Math.min(...ends) : undefined);
+  };
+  const signIn = method("private async onAccountSignIn(");
+  const signOut = method("private async onAccountSignOut(");
+  check("the two handlers exist to be checked",
+    signIn.length > 0 && signIn.length < 4000 && signOut.length > 0 && signOut.length < 3000);
+
+  check("a failed sign-in sets the line, and a closed sheet stays silent",
+    /this\.accountError = isUserCancelled\(err\) \? null : S\.ACCOUNT_SIGN_IN_FAILED_TEXT;/.test(signIn),
+    signIn);
+  // The line is STATE the screen renders from, so the screen has to be
+  // re-rendered to show it — nothing else on this path re-renders after a
+  // failure (a success is re-rendered by onAuthChange instead).
+  check("...and re-renders the screen it is standing on",
+    /if \(this\.state === "account"\) this\.renderOverlay\(\);/.test(signIn), signIn);
+  check("a failed sign-out says so on the same line",
+    /this\.accountError = S\.ACCOUNT_SIGN_OUT_FAILED_TEXT;/.test(signOut), signOut);
+  check("...and re-renders to show it",
+    /this\.renderOverlay\(\);/.test(signOut), signOut);
+  // EVERY ATTEMPT STARTS CLEAN. Without this a sign-in that failed, then
+  // succeeded, would be re-rendered by onAuthChange with the previous
+  // failure's line still under the new state.
+  for (const [name, body] of [["sign-in", signIn], ["sign-out", signOut]] as const) {
+    check(`a fresh ${name} clears the previous attempt's line`,
+      /this\.accountError = null;/.test(body), body.slice(0, 400));
+    // The guard the deletion and the sign-in already had, extended to the
+    // third control on the panel: one account action at a time, and the
+    // button that started it is held shut while it runs.
+    check(`a ${name} in flight refuses a second tap`,
+      body.includes("if (this.accountBusy) return;")
+        && body.includes("this.accountBusy = true;")
+        && /finally \{[\s\S]*?this\.accountBusy = false;/.test(body), body.slice(0, 400));
+    check(`...and disables the button it was tapped on`,
+      body.includes("btn.disabled = true;") && /finally \{[\s\S]*?btn\.disabled = false;/.test(body));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("A store that failed is not \"Nothing to restore\" (F5)");
+// ---------------------------------------------------------------------------
+// THE BUG IS A COLLAPSED RETURN TYPE. restorePurchases() answered `boolean` —
+// the entitlement as it stands — and every failure fell through to the same
+// value: the StoreKit/Billing call throwing, the SDK never having configured,
+// a web refresh that could not reach RevenueCat. The button then reported the
+// most damaging possible reading of a network blip: "Nothing to restore", to
+// a player who had in fact paid, on the one control Apple's rules require to
+// be reachable for exactly that situation.
+//
+// null IS THE THIRD ANSWER, and it is a different KIND of answer: `false` is
+// the store replying "no entitlement on this account", `null` is the store not
+// replying at all. Only the first is news about the purchase.
+//
+// THE IN-FLIGHT GUARD IS NOT A FAILURE. A second tap while a restore is
+// already running is answered with the entitlement, as it always was — the
+// first tap is still going to report.
+{
+  check("the three outcomes are three different sentences",
+    S.restoreResultText(true) === "Purchases restored"
+      && S.restoreResultText(false) === "Nothing to restore"
+      && S.restoreResultText(null) === "Restore failed — try again",
+    [S.restoreResultText(true), S.restoreResultText(false), S.restoreResultText(null)].join(" | "));
+  check("...and the failure is worded as a retry, not as a verdict",
+    S.restoreResultText(null).includes("try again"));
+
+  const purchasesSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "purchases.ts"),
+    "utf8",
+  );
+  const restore = purchasesSrc.slice(
+    purchasesSrc.indexOf("export async function restorePurchases("),
+    purchasesSrc.indexOf("async function refresh("),
+  );
+  check("restorePurchases can say it failed at all",
+    /export async function restorePurchases\(\): Promise<boolean \| null>/.test(purchasesSrc),
+    restore.slice(0, 120));
+  check("a throw is null rather than the entitlement",
+    /catch \(err\) \{[\s\S]{0,200}?return null;/.test(restore), restore);
+  check("...and a store that never configured is null too",
+    /if \(!ready\) return null;/.test(restore), restore);
+  check("an already-running restore is still the entitlement, not a failure",
+    /if \(paywallInFlight\) return unlimited;/.test(restore), restore);
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const onRestore = mainSrc.slice(
+    mainSrc.indexOf("private async onRestore("),
+    mainSrc.indexOf("private async onSubmitScore("),
+  );
+  check("the handler exists to be checked", onRestore.length > 0 && onRestore.length < 3000);
+  check("the button reports whichever of the three came back",
+    /btn\.textContent = S\.restoreResultText\(restored\);/.test(onRestore), onRestore);
+  // `if (restored)` is already the right test for null — the point of pinning
+  // it is that a later `restored !== false` would celebrate a failure.
+  check("...and only a real restore celebrates",
+    /if \(restored\) void successHaptic\(\);/.test(onRestore), onRestore);
+}
+
+// ---------------------------------------------------------------------------
+section("\"Not configured\" and \"couldn't start\" are different answers (F6)");
+// ---------------------------------------------------------------------------
+// THE DEAD END. On the web the tier gate routes a signed-out player to the
+// account screen before the paywall, because a purchase has to land on a
+// durable identity. If the sign-in plugin's chunk fails to load, or its
+// initialize throws, initAuth catches it and degrades to available:false —
+// and the account screen then says "Account sign-in is not configured in this
+// build." That sentence is TRUE of a build with no client ids and FALSE of a
+// build whose network dropped, and the player it is shown to is the one who
+// just tried to buy something: it tells them the app cannot do this, when the
+// honest answer is that it could not do it just now.
+//
+// TWO CAUSES, TWO SENTENCES, AND ONLY ONE OF THEM HAS A BUTTON. A build with
+// no ids has nothing to retry; a failed initialise has exactly one thing to
+// retry, and retryAuthInit clears the memoised promise so the second attempt
+// really runs rather than re-awaiting the first failure.
+{
+  const dead = { google: false, apple: false };
+  const notConfigured = S.accountScreen({
+    available: false, ready: true, label: null, providers: dead, unavailable: "not-configured",
+  });
+  check("a build with no client ids still says exactly that",
+    notConfigured.includes("not configured in this build"), notConfigured);
+  check("...and offers no retry, because there is nothing to retry",
+    !notConfigured.includes('data-action="account-retry"'));
+
+  const broken = S.accountScreen({
+    available: false, ready: true, label: null, providers: dead, unavailable: "init-failed",
+  });
+  check("a sign-in that could not start says so instead",
+    broken.includes("Sign-in couldn't start") && broken.includes("check your connection"),
+    broken);
+  check("...and never repeats the untrue 'not configured'",
+    !broken.includes("not configured in this build"), broken);
+  check("...and gives the player the retry the wording promises",
+    broken.includes('data-action="account-retry"'), broken);
+
+  const authSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "auth.ts"),
+    "utf8",
+  );
+  const init = authSrc.slice(
+    authSrc.indexOf("export async function initAuth("),
+    authSrc.indexOf("export async function retryAuthInit("),
+  );
+  check("initAuth separates the two causes at the source",
+    /unavailable = "init-failed"/.test(init) && /"not-configured"/.test(init), init.slice(-600));
+  const retry = authSrc.slice(
+    authSrc.indexOf("export async function retryAuthInit("),
+    authSrc.indexOf("export async function signIn("),
+  );
+  check("only a failed initialise is retryable",
+    /state\.unavailable !== "init-failed"/.test(retry), retry);
+  check("...and the retry clears the memo, or it re-awaits the failure",
+    /initPromise = null;/.test(retry), retry);
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  check("main.ts carries the reason through to the screen",
+    /unavailable: this\.auth\.unavailable,/.test(mainSrc));
+  check("...and the retry button reaches retryAuthInit",
+    /case "account-retry":/.test(mainSrc) && /retryAuthInit\(\)/.test(mainSrc));
+}
+
+// ---------------------------------------------------------------------------
+section("A scrim seals what it covers from Tab (F7 — ui/padnav's sealBehindScrim)");
+// ---------------------------------------------------------------------------
+// POINTER-EVENTS IS NOT A FOCUS TRAP. Both notices render as a SIBLING of the
+// screen they are about — the deletion panel over the account screen, the seal
+// notice over the bay's HUD — so the scrim covers the mouse and leaves the
+// keyboard walking straight through it: Tab reached "Sign Out" behind an open
+// "Delete this player account?", and Enter there signed the player out under a
+// question they had not answered.
+//
+// `inert` IS THE WHOLE FIX, and it is one attribute: the subtree leaves the
+// tab order, stops receiving events, and is hidden from assistive technology,
+// which is exactly the set of things "covered by a modal" is supposed to mean.
+//
+// WHY IT IS A FUNCTION IN padnav.ts AND NOT THREE LINES IN main.ts: this is
+// the same subject padnav owns — which controls a keyboard or a pad may reach
+// — and putting it here is what lets this file exercise it. The parameter is
+// STRUCTURAL (anything with `children` whose items have classList and the two
+// attribute methods) so the check below can hand it a two-element fake and
+// read the result, rather than grepping main.ts for a call and hoping.
+{
+  interface FakeEl {
+    classList: { contains(token: string): boolean };
+    setAttribute(name: string, value: string): void;
+    removeAttribute(name: string): void;
+    inert(): boolean;
+  }
+  const fake = (cls: string): FakeEl => {
+    const attrs = new Set<string>();
+    return {
+      classList: { contains: (t: string) => cls.split(" ").includes(t) },
+      setAttribute: (n: string) => attrs.add(n),
+      removeAttribute: (n: string) => attrs.delete(n),
+      inert: () => attrs.has("inert"),
+    };
+  };
+
+  const screen = fake("screen neon-backdrop center");
+  const scrim = fake("modal-scrim");
+  sealBehindScrim({ children: [screen, scrim] });
+  check("the screen behind an open scrim is inert", screen.inert());
+  check("...and the scrim itself is not", !scrim.inert());
+  // THE OTHER HALF, and the one a "set it on mount" fix forgets: closing the
+  // notice has to give the screen back. Every close here is a re-render that
+  // replaces the children outright, but the function is written not to depend
+  // on that — hand it a root with no scrim and it clears what it set.
+  sealBehindScrim({ children: [screen] });
+  check("...and the inert comes off the moment the scrim goes", !screen.inert());
+  // A HUD is not a `.screen`, and the seal notice's sibling is a HUD: the rule
+  // is "everything that is not the scrim", never a class list.
+  const hud = fake("hud");
+  sealBehindScrim({ children: [hud, scrim] });
+  check("a HUD behind a scrim is sealed on the same rule", hud.inert() && !scrim.inert());
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // Called AFTER the innerHTML write in each case — before it there would be
+  // nothing mounted to seal.
+  check("the deletion notice seals the account screen behind it",
+    /case "account-delete":[\s\S]{0,300}?this\.overlay\.innerHTML =[\s\S]{0,400}?sealBehindScrim\(this\.overlay\);/
+      .test(mainSrc));
+  check("the seal notice seals the HUD behind it",
+    /case "seal-break":\s*\n\s*if \(g && this\.run\) \{[\s\S]{0,2600}?sealBehindScrim\(this\.overlay\);/
+      .test(mainSrc));
 }
 
 console.log(

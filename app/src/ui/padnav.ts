@@ -211,6 +211,56 @@ export function focusOn(el: HTMLElement): void {
   reveal(el);
 }
 
+/** The shape sealBehindScrim needs, and nothing more.
+ *
+ *  Structural rather than `HTMLElement` on purpose: an HTMLElement satisfies
+ *  it exactly, and so does a two-object fake, which is what lets sim/systems.ts
+ *  drive the REAL function headlessly instead of grepping main.ts for a call
+ *  and hoping it does the right thing. */
+export interface ScrimRoot {
+  children: ArrayLike<{
+    classList: { contains(token: string): boolean };
+    setAttribute(name: string, value: string): void;
+    removeAttribute(name: string): void;
+  }>;
+}
+
+/**
+ * F7: WHAT A SCRIM COVERS, IT ALSO SEALS.
+ *
+ * Both of this app's question panels render as a SIBLING of the thing they are
+ * about — the deletion notice over the account screen, the seal notice over
+ * the bay's HUD (main.ts's renderOverlay writes `screen + scrim` in one go) —
+ * and `.modal-scrim` stops a mouse, not a keyboard. Tab walked straight
+ * underneath: three presses from "Delete this player account?" reached "Sign
+ * Out" behind it, and Enter there signed the player out under a question they
+ * had not answered.
+ *
+ * `inert` is the whole fix and it is one attribute: the subtree leaves the tab
+ * order, stops receiving events, and drops out of the accessibility tree,
+ * which is exactly the set of things "covered by a modal" was supposed to
+ * mean. Cheaper and far more honest than a focus trap, which has to guess
+ * where the edges of the dialog are.
+ *
+ * THE RULE IS "EVERYTHING THAT IS NOT THE SCRIM", never a class list: the
+ * sibling is a `.screen` under one notice and a `.hud` under the other, and
+ * the next panel's will be whatever it is.
+ *
+ * AND IT TAKES THE ATTRIBUTE OFF AGAIN when no scrim is mounted. Every close
+ * here happens to be a re-render that replaces the children outright, so the
+ * clearing pass is belt and braces — but a function that only ever ADDS inert
+ * is one in-place patch away from leaving a screen permanently unreachable,
+ * and that is not a failure mode worth saving four lines over.
+ */
+export function sealBehindScrim(root: ScrimRoot): void {
+  const kids = Array.from(root.children);
+  const scrim = kids.find((k) => k.classList.contains("modal-scrim"));
+  for (const kid of kids) {
+    if (scrim && kid !== scrim) kid.setAttribute("inert", "");
+    else kid.removeAttribute("inert");
+  }
+}
+
 /* ---------------------------------------------------------------------------
  * REVEAL — bringing a focused control into a scroller without cropping it.
  *

@@ -137,6 +137,8 @@ import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/co
 import {
   armActivate, armRelease, DISARMED, focusInitial, focusOn, focusTargets, moveFocus,
   PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, type ArmState,
+  // F7: the inert seal both question panels take over their sibling.
+  sealBehindScrim,
 } from "./ui/padnav";
 import { captureScroll, centreScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
@@ -163,6 +165,8 @@ import {
 import {
   accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, isUserCancelled,
   onAuthChange,
+  // F6: the retry the account screen's "Sign-in couldn't start" face offers.
+  retryAuthInit,
   signIn, signOut, type AuthState,
 } from "./lib/auth";
 import {
@@ -2395,6 +2399,10 @@ class App {
         ready: this.auth.ready,
         label: this.auth.user ? accountLabel(this.auth.user) : null,
         providers: this.auth.providers,
+        // F6: which kind of "no sign-in here" this is — a build with no client
+        // ids, or an initialise that threw. The screen words them differently
+        // and offers a retry for only one of them.
+        unavailable: this.auth.unavailable,
         error: this.accountError,
       },
     };
@@ -3849,6 +3857,9 @@ class App {
       case "account-delete":
         this.overlay.innerHTML =
           S.accountScreen(this.storeState().account!) + S.accountDeleteModal();
+        // F7: Tab used to reach Sign Out behind this question, and Enter there
+        // answered a different one. See ui/padnav's sealBehindScrim.
+        sealBehindScrim(this.overlay);
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -4005,6 +4016,10 @@ class App {
               // already burned the watermark by now (see sealBreakExplain).
               explain: this.sealBreakExplain,
             });
+          // F7: the rail behind this notice is a column of live buttons, and
+          // Tab reached every one of them under the scrim. Same seal the
+          // deletion notice takes — ui/padnav's sealBehindScrim.
+          sealBehindScrim(this.overlay);
         }
         break;
       case "won":
@@ -7928,6 +7943,21 @@ class App {
       if (this.state === "playing") this.pause();
       else if (this.state === "paused") this.resume();
     }
+    // D12: OUTSIDE A RUN, ESCAPE IS THE KEYBOARD'S B — it clicks whatever
+    // padBackTarget names for this screen (clickBackTarget), so the pad and
+    // the keyboard leave a screen by the same door.
+    //
+    // BARRED FROM `playing` AND `paused`, which is where Escape already has a
+    // job: it is the pause alias (bindings.ts's isPauseKey), handled directly
+    // above, and on the pause card B's own answer is Resume anyway. The bar is
+    // on the two states a run occupies rather than on a key compare, because a
+    // player who rebound some other action onto Escape has made it that
+    // action's key and the branch above is what decides whether it still
+    // pauses at all.
+    if (e.key === "Escape" && this.state !== "playing" && this.state !== "paused"
+      && this.clickBackTarget()) {
+      e.preventDefault();
+    }
     // Keyboard shortcut into the sandbox from anywhere, for iterating on it
     // under `vite dev` without walking back to the menu each time.
     if (this.sandboxOpen() && e.key === "~") this.setState("sandbox");
@@ -7968,6 +7998,26 @@ class App {
         return '[data-action="menu"]';
       default: return null;
     }
+  }
+
+  /** D12: BACK OUT, THROUGH THE SCREEN'S OWN CONTROL.
+   *
+   *  The pad has had this since padBackTarget existed and the keyboard had
+   *  nothing: Escape paused a run and did nothing anywhere else, so on
+   *  Settings, Controls, the Workshop, Contracts, the guide, the leaderboard,
+   *  the account screen and both notices, the one key every player reaches for
+   *  to leave a screen left them hunting for the ✕ with a mouse.
+   *
+   *  ONE HELPER RATHER THAN A SECOND TABLE, which is the whole point: B and
+   *  Escape now come through the same door, so they cannot drift into backing
+   *  out of different things — and both run the on-screen button's own handler
+   *  (and its cleanup: "menu" clears the contract and the drill) rather than a
+   *  re-implementation of it. Returns whether there was anything to press. */
+  private clickBackTarget(): boolean {
+    const sel = this.padBackTarget();
+    const el = sel ? this.overlay.querySelector<HTMLElement>(sel) : null;
+    if (el) el.click();
+    return el !== null;
   }
 
   /** The pad's UI layer (ui/padnav.ts): D-pad or stick flicks move focus, A
@@ -8078,12 +8128,8 @@ class App {
       // the player sees what the next A will do rather than firing blind.
       return focusInitial(root);
     }
-    if (button === PAD_BACK) {
-      const sel = this.padBackTarget();
-      const el = sel ? this.overlay.querySelector<HTMLElement>(sel) : null;
-      if (el) el.click();
-      return el !== null;
-    }
+    // D12: shared with the keyboard's Escape — see clickBackTarget.
+    if (button === PAD_BACK) return this.clickBackTarget();
     return false;
   }
 
@@ -8356,6 +8402,8 @@ class App {
       case "account-google": void this.onAccountSignIn("google"); break;
       case "account-apple": void this.onAccountSignIn("apple"); break;
       case "account-signout": void this.onAccountSignOut(); break;
+      // F6: the retry the "Sign-in couldn't start" face offers.
+      case "account-retry": void this.onAccountRetry(); break;
       // Three doors now, not one: the account screen's button opens the
       // notice, and the notice's own two buttons answer it (screens.ts's
       // accountDeleteModal). The same split seal-break-go/seal-break-back use.
@@ -9451,11 +9499,26 @@ class App {
     if (this.accountBusy) return;
     const btn = this.overlay.querySelector<HTMLButtonElement>(`[data-action="account-${provider}"]`);
     this.accountBusy = true;
+    // F4: every attempt starts from a clean line. Without this a sign-in that
+    // failed and then succeeded would be re-rendered by onAuthChange with the
+    // previous failure still printed under the new state.
+    this.accountError = null;
     if (btn) btn.disabled = true;
     try {
       await signIn(provider);
     } catch (err) {
       console.warn("[auth] sign-in failed", err);
+      // F4: SAY SO. This used to be the warn and nothing else, which on screen
+      // is a button that did nothing — and the player is usually here on an
+      // errand (the web tier gate sends them to sign in before a purchase), so
+      // the silence strands the purchase as well as the sign-in. The one
+      // failure that stays silent is the player closing the provider's own
+      // sheet: they already know they did that.
+      this.accountError = isUserCancelled(err) ? null : S.ACCOUNT_SIGN_IN_FAILED_TEXT;
+      // The line is STATE the screen renders from, and nothing else on this
+      // path re-renders after a failure — a SUCCESS is re-rendered by
+      // onAuthChange, which never runs when signIn threw.
+      if (this.state === "account") this.renderOverlay();
       this.paywallReturn = null;
       return;
     } finally {
@@ -9478,9 +9541,36 @@ class App {
     void this.onPaywall();
   }
 
+  /** F4: sign-out, with the same failure line the other two presses on this
+   *  panel carry — and the same one-at-a-time guard, which it was the only
+   *  account action without. A sign-out that threw used to be a console.warn
+   *  and a screen that did not change, which reads as the button being dead.
+   *
+   *  NO CANCEL BRANCH, and that is not an omission: auth.ts's signOut opens no
+   *  provider sheet (its logout call is best-effort and swallowed in there),
+   *  so there is nothing for the player to close and isUserCancelled can never
+   *  be true here. A branch for it would be a comment about a path that cannot
+   *  happen. Success needs no render of its own — onAuthChange replaces the
+   *  screen. */
   private async onAccountSignOut(): Promise<void> {
-    try { await signOut(); }
-    catch (err) { console.warn("[auth] sign-out failed", err); }
+    // F4: one account action at a time, and the button held shut while it
+    // runs — the rule the other two presses on this panel already followed.
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>('[data-action="account-signout"]');
+    this.accountBusy = true;
+    this.accountError = null;
+    if (btn) btn.disabled = true;
+    try {
+      await signOut();
+    } catch (err) {
+      console.warn("[auth] sign-out failed", err);
+      if (this.state !== "account") return;
+      this.accountError = S.ACCOUNT_SIGN_OUT_FAILED_TEXT;
+      this.renderOverlay();
+    } finally {
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
+    }
   }
 
   /** Opens the deletion notice (screens.ts's accountDeleteModal) — a state of
@@ -9540,6 +9630,31 @@ class App {
     }
   }
 
+  /** F6: run a failed sign-in initialise again (auth.ts's retryAuthInit).
+   *
+   *  No re-render of its own: retryAuthInit publishes through onAuthChange
+   *  either way, and this app's listener already re-renders the account
+   *  screen — so a retry that succeeds redraws with the provider buttons on
+   *  it, and one that fails redraws the same retryable face. The button is
+   *  held shut for the attempt on the same one-at-a-time rule the rest of this
+   *  panel's controls take, since initialize is a network round trip. */
+  private async onAccountRetry(): Promise<void> {
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>('[data-action="account-retry"]');
+    this.accountBusy = true;
+    if (btn) btn.disabled = true;
+    // initAuth swallows its own failures and republishes either way, so this
+    // catch is for the paths it cannot own — a listener throwing during the
+    // publish — rather than for the initialise itself. `void` at the call site
+    // means an escaped rejection would be an unhandled one.
+    try { this.auth = await retryAuthInit(); }
+    catch (err) { console.warn("[auth] sign-in retry failed", err); }
+    finally {
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
   /** Restore is the one store action with no UI of its own, so it has to say
    *  something itself — a silent no-op reads as a broken button. */
   private async onRestore(): Promise<void> {
@@ -9563,7 +9678,11 @@ class App {
     // detached by then and the write below is a harmless no-op.
     if (btn) {
       btn.disabled = false;
-      btn.textContent = restored ? "Purchases restored" : "Nothing to restore";
+      // F5: three outcomes, three faces — `null` is the store failing to
+      // answer at all, which used to be reported as "Nothing to restore" to
+      // players who had paid. `if (restored)` above is already the right test
+      // for it: null does not celebrate.
+      btn.textContent = S.restoreResultText(restored);
     }
   }
 
