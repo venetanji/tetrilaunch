@@ -20,6 +20,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Tetrilaunch</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- iOS home screen reads neither the manifest icons nor the SVG favicon;
+         this PNG is the only icon it will use for "Add to Home Screen". Without
+         it iOS shows a screenshot of the page, which is what left an installed
+         web app on the old icon after the art was updated. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <!-- Fonts are self-hosted (public/fonts/, refreshed by
          scripts/fetch-fonts.mjs). They used to come from fonts.googleapis.com
          at runtime, which sent the device IP to Google on every launch — a

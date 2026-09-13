@@ -64,7 +64,7 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       disable: NATIVE_MODES.has(mode),
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg"],
+      includeAssets: ["favicon.svg", "icons/apple-touch-icon.png"],
       manifest: {
         name: "Tetrilaunch",
         short_name: "Tetrilaunch",
@@ -75,10 +75,18 @@ export default defineConfig(({ mode }) => ({
         orientation: "landscape",
         start_url: "./",
         scope: "./",
+        // PNG FIRST, SVG as a bonus. iOS Safari ignores SVG manifest icons
+        // entirely, and some Android launchers rasterise them poorly and then
+        // cache the miss — which is how an installed web app kept showing the
+        // OLD icon after the art was updated. Raster PNGs at the install sizes
+        // are the reliable path every platform honours; the scalable SVG stays
+        // last for the browsers that prefer it. The apple-touch-icon in
+        // index.html covers the iOS home screen, which reads neither list.
         icons: [
-          { src: "icons/icon.svg", sizes: "192x192", type: "image/svg+xml", purpose: "any" },
-          { src: "icons/icon.svg", sizes: "512x512", type: "image/svg+xml", purpose: "any" },
-          { src: "icons/icon.svg", sizes: "512x512", type: "image/svg+xml", purpose: "maskable" },
+          { src: "icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "icons/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
         ],
       },
       workbox: {

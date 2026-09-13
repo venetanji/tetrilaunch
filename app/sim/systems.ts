@@ -5168,6 +5168,34 @@ section("HUD bar colours — gold chain, fire goal (app.css + main.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("PWA install icon — PNGs and an apple-touch-icon (vite.config.ts + index.html)");
+// ---------------------------------------------------------------------------
+// The manifest was SVG-only, which iOS Safari ignores and some Android
+// launchers rasterise poorly and then cache — so an installed web app kept
+// showing the OLD icon after the art was updated. The reliable install icon is
+// a raster PNG at each size, plus an apple-touch-icon for the iOS home screen,
+// which reads neither the manifest nor the SVG favicon. This asserts they are
+// declared and the files exist, so nobody drops back to SVG-only unnoticed.
+{
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const vite = fs.readFileSync(path.join(root, "vite.config.ts"), "utf8");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  const pngIcon = (size: string, purpose: string): boolean =>
+    new RegExp(`icon-(maskable-)?${size}\\.png"[^}]*"${purpose}"`).test(vite);
+  check("the manifest declares a 192px PNG install icon", pngIcon("192", "any"));
+  check("...and a 512px PNG install icon", pngIcon("512", "any"));
+  check("...and a 512px MASKABLE PNG so the launcher mask cannot clip the mark",
+    /icon-maskable-512\.png"[^}]*"maskable"/.test(vite));
+  check("index.html carries an apple-touch-icon for the iOS home screen",
+    /rel="apple-touch-icon"\s+href="\/icons\/apple-touch-icon\.png"/.test(html));
+  for (const f of ["icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"]) {
+    const p = path.join(root, "public", "icons", f);
+    check(`public/icons/${f} exists to be served`,
+      fs.existsSync(p) && fs.statSync(p).size > 1000, `${p} missing or empty`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("The full chain (game.ts's fullChain latch)");
 // ---------------------------------------------------------------------------
 // A bay finished with every crush in one unbroken streak, nothing lost and
