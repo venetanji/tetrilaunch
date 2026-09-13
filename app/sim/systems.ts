@@ -24664,7 +24664,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the rig-locked menu disables its primary",
       primary(menuOf(shut)).includes("disabled"));
     check("...and says which door opens it",
-      primary(menuOf(shut)).includes("Install a system in the Workshop"));
+      primary(menuOf(shut)).includes("One system · Workshop"));
     check("...and an opened ladder leaves the primary live",
       !primary(menuOf(open)).includes("disabled"));
     // The Contract board's own subtitle, on the same state: while one clear
@@ -24847,10 +24847,14 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     ] as [string, MetaState][]) {
       check(`the Deep Run is disabled at ${label}`,
         deepRunAt(m).includes("disabled"), label);
+      // The VERB went when the box was finally measured rather than estimated
+      // (screens.ts's menuPlaySub): "Finish Flight School · 4/10" wanted 126px
+      // in a 122px box and the ellipsis took the denominator, which is the half
+      // a player is counting. The count is what this pin is really about.
       check(`...and names what is left, inside the subtitle's box at ${label}`,
-        /Finish Flight School · \d+\/\d+/.test(deepRunAt(m))
-          && (/Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0].length ?? 99) <= 32,
-        /Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
+        /Flight School · \d+\/\d+/.test(deepRunAt(m))
+          && !/Finish Flight School/.test(deepRunAt(m)),
+        /Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
     }
     const grad = graduate({ loadout: { ...newTiers(), reactor: 1 } });
     check("...and it comes alive on the last step",
@@ -24858,10 +24862,10 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // The lobby's own two shut states.
     check("the lobby's primary is shut on the Contract rung",
       primaryOf(menuAt(four, towerAt(four))).includes("disabled")
-        && primaryOf(menuAt(four, towerAt(four))).includes("Clear one Contract to go on"));
+        && primaryOf(menuAt(four, towerAt(four))).includes("A Contract to go on"));
     const paid = onLadder({ claimedContracts: ["x"], salvage: 15 });
     check("...and on the Workshop rung",
-      primaryOf(menuAt(paid, towerAt(paid))).includes("Install the Reactor to go on"));
+      primaryOf(menuAt(paid, towerAt(paid))).includes("The Reactor to go on"));
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
@@ -24873,7 +24877,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     });
     check("...and the last rung says what it actually is",
       primaryOf(menuAt(examOwed, towerAt(examOwed)))
-        .includes(`Step ${SCHOOL_STEPS} of ${SCHOOL_STEPS} · ${FINAL_EXAM}`),
+        .includes(`${FINAL_EXAM} · ${SCHOOL_STEPS} of ${SCHOOL_STEPS}`),
       primaryOf(menuAt(examOwed, towerAt(examOwed))).slice(0, 200));
   }
 
@@ -28383,6 +28387,67 @@ section("The draft bank's notch chip says the one thing its glyph does not (scre
     bankLabel(undefined) === "Notches",
     bankLabel(undefined),
   );
+}
+
+section("The menu's primary subtitle is written to a MEASURED box (screens.ts's menuPlaySub)");
+// ---------------------------------------------------------------------------
+// These lines were budgeted in characters against an estimate ("~165px"), and
+// the estimate was wrong by a third. Measured in the fit harness on the 640x360
+// budget phone — the smallest box in the matrix — `#menu-play-sub` is 108px
+// wide on a lobby row and 122px on a ladder row, and five of the seven
+// subtitles this function can put there were past it:
+//
+//   "Step 10 of 10 · Final Exam"       125px  ->  "Final Exam · 10 of 10"   100
+//   "Clear one Contract to go on"      136px  ->  "A Contract to go on"      97
+//   "Install the Reactor to go on"     136px  ->  "The Reactor to go on"    102
+//   "Licence earned · re-fly any"      125px  ->  "Licence earned · re-fly" 105
+//   "10 steps · nothing to lose"       124px  ->  "10 steps · free to fail" 102
+//   "Install a system in the Workshop" 162px  ->  "One system · Workshop"   113  (122px box)
+//   "Finish Flight School · 4/10"      126px  ->  "Flight School · 4/10"     94  (122px box)
+//
+// WHY A CHARACTER CAP HERE AND NOT A PIXEL ONE: no browser runs in this
+// process, so the pixels live in the comment above and in the harness run that
+// produced them. What this can hold is the shape of the regression — every one
+// of the old lines was a 26-to-32 character SENTENCE, and every one of the new
+// ones is a noun phrase under the cap. A cap set at the widest line that
+// actually fits (23 characters, "Licence earned · re-fly" at 105px) catches a
+// sentence coming back without pretending to be a rasteriser.
+// ---------------------------------------------------------------------------
+{
+  const LOBBY_SUB_MAX = 23;
+  type Rung = "lesson" | "contract" | "workshop" | "exam";
+  const school = (next: Rung | null, done: number, step: number | null): string =>
+    S.menuPlaySub(S.LICENCE_TIER, 0, null, { done, total: SCHOOL_STEPS, next, step });
+  const lines: [string, string][] = [
+    ["the licence held", S.menuPlaySub(S.LICENCE_TIER, 0, null, null)],
+    ["the Contract rung", school("contract", 4, null)],
+    ["the Workshop rung", school("workshop", 4, null)],
+    ["the exam rung", school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS)],
+    ["a fresh save", school("lesson", 0, 1)],
+    ["a resumed ladder", school("lesson", 4, 5)],
+    ["the ladder's licence gate", S.menuPlaySub(3, 0, null, { done: 4, total: SCHOOL_STEPS, next: "lesson", step: 5 })],
+    ["the rig gate", S.menuPlaySub(3, 0, null, null, null, false)],
+  ];
+  for (const [where, line] of lines) {
+    check(`${where} fits the subtitle's box`, line.length <= LOBBY_SUB_MAX, `${line.length}ch "${line}"`);
+  }
+  // PAYLOAD FIRST is the rule that bought the room, so it is pinned rather than
+  // left as a style note: `.btn__sub` ellipsises from the right, so whatever
+  // the line leads with is the part that survives a box smaller than any in
+  // this matrix.
+  check("the exam names the exam before the ordinal",
+    school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS).startsWith(FINAL_EXAM),
+    school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS));
+  check("the two school gates lead with the thing that is owed",
+    /^A Contract\b/.test(school("contract", 4, null))
+    && /^The Reactor\b/.test(school("workshop", 4, null)),
+    `${school("contract", 4, null)} | ${school("workshop", 4, null)}`);
+  // …and the sentences that did not fit are gone rather than merely shortened
+  // somewhere else, which is the way this regresses.
+  const all = lines.map(([, l]) => l).join(" | ");
+  check("no retired sentence survives anywhere in the set",
+    !/Clear one Contract|Install the Reactor|Install a system in|Finish Flight School|nothing to lose/.test(all),
+    all);
 }
 
 console.log(
