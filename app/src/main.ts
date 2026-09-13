@@ -66,7 +66,7 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, clearTrack, newTiers, orderRungs, orderSize, refitTracks, stageTier, upgradeById,
+  MAX_TIER, clearTrack, newTiers, orderRungs, orderSize, refitShelf, stageTier, upgradeById,
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
@@ -6183,10 +6183,12 @@ class App {
    *  than the feedback. */
   private onStageUpgrade(id: string): void {
     if (this.state !== "refit" || !this.run) return;
-    // Only tracks this Mark's refit actually offers (upgrades.ts's
-    // refitTracks) — the screen never renders the others, so this is
-    // belt-and-braces against a stale or hand-edited data-upgrade.
-    if (!refitTracks(this.run.mark).some((u) => u.id === id)) return;
+    // Only tracks this stop actually SHOWS (upgrades.ts's refitShelf: this
+    // Mark's tracks, narrowed to the ones aboard) — the screen never renders
+    // the others, so this is belt-and-braces against a stale or hand-edited
+    // data-upgrade. Asking refitTracks alone would have let a tier-0 track
+    // through this guard and left stageTier as the only thing refusing it.
+    if (!refitShelf(this.run.tiers, this.run.mark).some((u) => u.id === id)) return;
     const next = stageTier(this.run.tiers, this.refitOrder, id as UpgradeId, this.run.scrap);
     if (!next) return;
     this.refitOrder = next;

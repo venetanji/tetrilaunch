@@ -529,9 +529,61 @@ export function newTiers(): UpgradeTiers {
  * refits refuse tier-0 tracks; see run.ts's buyUpgrade). The full menu opens
  * at Mark 2, where the player has both the scrap income and the context to
  * spend it.
+ *
+ * IT SURVIVES `refitShelf`, and it is worth saying which half of it does. Two
+ * arguments were bundled here and the mounted-only shelf below retires one of
+ * them: "a first-run player shown seven systems spreads thin scrap" is no
+ * longer this rule's to make, because a Mark-1 rig cannot own seven systems —
+ * only the three ungated installs are reachable before Mark 1 falls, the
+ * school buys exactly one of them, and the shelf now hides the rest whether or
+ * not this filter runs. What is left is the TUNING argument, which the hiding
+ * does not touch: Tier 1 is balanced on the reactor's three tiers being built
+ * across the run's three stops, and a Mark-1 rig that happens to own the
+ * Launcher as well would otherwise be invited to split the scrap that pays for
+ * them. So the rule stays, now making one claim instead of two.
+ *
+ * WHAT IT COSTS, recorded because the next play pass will meet it: a Mark-1 rig
+ * that maxes the Reactor at its first stop skips the other two even though a
+ * second owned track could still be raised. That is a real dead stop and the
+ * honest argument for dropping this filter — but dropping it is a Tier-1
+ * BALANCE change (it moves where three stops of scrap go), and this repo
+ * measures those. `npx tsx sim/marks.ts --marks 1` against both shelves is the
+ * evidence that would settle it; nobody has run it, so nothing moved.
  */
 export function refitTracks(mark: number): UpgradeDef[] {
   return mark <= 1 ? UPGRADES.filter((u) => u.id === "reactor") : UPGRADES;
+}
+
+/**
+ * Which tracks a refit stop SHOWS this rig — `refitTracks` narrowed to the
+ * systems that are actually aboard.
+ *
+ * The two filters are kept as two functions because they are two different
+ * statements. `refitTracks` is the MARK's rule (a Tier-1 stop is one card,
+ * whoever docks at it); this is the RIG's (a yard raises what the ship carries
+ * and refuses tier 0 — run.ts's buyUpgrade). Folding them into one predicate
+ * would make the Mark-1 rule look like a consequence of the loadout, which it
+ * is not.
+ *
+ * WHAT THIS REPLACES is a shelf that listed every track at Mark 2 and up and
+ * drew the unowned ones as "Not aboard — buy or mount it in the Workshop". That
+ * card was a price you cannot pay, in a shop that cannot sell it, naming a
+ * different shop — on the one screen in the run whose whole argument is that a
+ * refit is a PLAN you can read and revise (refitScreen's header). It is the
+ * same dishonest-shelf argument the Workshop already settled for retired
+ * unlocks and for the school's one card: a shop lists what it sells.
+ *
+ * It also makes the stop-skipping rule legible rather than surprising. A rig
+ * with nothing aboard, and a rig whose aboard tracks are all maxed, now produce
+ * the SAME empty shelf and the same skipped stop (yardHasStock below,
+ * run.ts's refitAfterBay) — where before the first of those two docked at a
+ * screen full of cards it could not buy.
+ *
+ * Tier is read through the same clamp yardHasStock uses, so a hand-edited save
+ * carrying tier 7 of something is still one card and not a crash.
+ */
+export function refitShelf(tiers: UpgradeTiers, mark: number): UpgradeDef[] {
+  return refitTracks(mark).filter((u) => Math.min(MAX_TIER, tiers[u.id] ?? 0) > 0);
 }
 
 /**
@@ -546,15 +598,19 @@ export function refitTracks(mark: number): UpgradeDef[] {
  * late-ladder state, which is why this is DATA and not a flag set at the top
  * of the on-ramp: the run asks the shelf, every stop, and the answer moves.
  *
- * Scoped to `refitTracks(mark)` because that is the shelf the screen draws:
- * asking of the whole roster would keep a Mark-1 stop open for a rig whose one
- * system the stop does not offer.
+ * Scoped to `refitShelf(tiers, mark)` because that is the shelf the screen
+ * draws: asking of the whole roster would keep a Mark-1 stop open for a rig
+ * whose one system the stop does not offer, and asking of tracks the rig does
+ * not carry would keep every stop open forever.
+ *
+ * The tier > 0 half of the old test now lives in the shelf itself, which is the
+ * point of routing through it: "has this yard stock" and "what does this yard
+ * show" must be the same list, or a stop opens onto a screen with nothing on it.
  */
 export function yardHasStock(tiers: UpgradeTiers, mark: number): boolean {
-  return refitTracks(mark).some((u) => {
-    const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
-    return tier > 0 && nextTierCost(tier) !== null;
-  });
+  return refitShelf(tiers, mark).some(
+    (u) => nextTierCost(Math.min(MAX_TIER, tiers[u.id] ?? 0)) !== null,
+  );
 }
 
 export function upgradeById(id: string): UpgradeDef | undefined {

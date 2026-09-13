@@ -1640,9 +1640,16 @@ export const SCREENS: Record<string, () => string> = {
   // And this is the WHOLE yard staged: every rung HUD_BASE's rig can still
   // climb, which comes to 325 of its 340 scrap — i.e. the largest order a
   // player at this stop can actually place. Seventeen projection tiles, ten of
-  // them moved, on a bay that already has four banked axes pinned ACTIVE. The
-  // one track it cannot stage is the Demolition Rack, which is not installed,
-  // so the fixture also holds the shelf's longest foot copy throughout.
+  // them moved, on a bay that already has four banked axes pinned ACTIVE.
+  //
+  // SIX CARDS, NOT TEN, and that is the shelf this rig has rather than a
+  // shortened fixture: the yard lists only the systems ABOARD now
+  // (upgrades.ts's refitShelf), and HUD_BASE carries six. The four it does not
+  // — Demolition Rack, Thaw Lance, Impact Cushion, Incinerator — used to draw
+  // "Not aboard" cards here, which is the copy this fixture was also holding
+  // the width of. That copy no longer exists anywhere, so there is nothing left
+  // to hold; the ten-card shelf is `refit-capstone` below, which is a rig that
+  // actually carries ten systems.
   "refit-staged": () => refit({ bay: 1, launcher: 2, magazine: 1, reactor: 1, bonds: 2 }),
   // THE STATE NO FIXTURE REACHED: a rig sitting at tier 2 on every track, and a
   // belt carrying all six materials.
@@ -1662,6 +1669,10 @@ export const SCREENS: Record<string, () => string> = {
   // belt tile's per-material breakdown is as wide as the run has materials, and
   // HUD_BASE banks two. Mark 10, where all six axes are open, is where a rig
   // this built actually is.
+  //
+  // IT IS ALSO THE TEN-CARD SHELF, now that the yard lists only what is aboard:
+  // a rig at tier 2 on every track is the only fixture that draws every card,
+  // so the shelf's full height is measured here and nowhere else.
   "refit-capstone": () => refit({}, {
     tiers: Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers,
     ratchets: { wind: 2, sweeper: 1, slag: 2, cryo: 1, rebar: 1, volatile: 1, tar: 1, magnetic: 1 },
