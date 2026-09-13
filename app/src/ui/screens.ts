@@ -2138,6 +2138,22 @@ export interface StoreState {
  *  (auth.ts's isUserCancelled): they know. */
 export const ACCOUNT_DELETE_FAILED_TEXT = "Deletion didn't complete — try again";
 
+/** F4: the same line for the other two presses on this panel, which were
+ *  silent — a failed signIn() or signOut() was a console.warn and a mute
+ *  return, which on screen is a button that did nothing.
+ *
+ *  A SENTENCE EACH, not one shared "Something went wrong": the panel carries
+ *  three controls and a player has to be able to tell which of them the line
+ *  is about. Sign-in invites the retry the buttons still offer; sign-out does
+ *  not, because there is nothing useful to re-send — the identity is local and
+ *  auth.ts clears it either way, so the honest line states the fact and stops.
+ *
+ *  Sign-in's line is NOT shown when the player closed the provider's sheet
+ *  themselves (auth.ts's isUserCancelled): they know. Sign-out has no sheet to
+ *  close, so it has no such case. */
+export const ACCOUNT_SIGN_IN_FAILED_TEXT = "Sign-in didn't complete — try again";
+export const ACCOUNT_SIGN_OUT_FAILED_TEXT = "Sign-out didn't complete";
+
 function unlimitedBadgeHTML(): string {
   return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Full Game</div>`;
 }

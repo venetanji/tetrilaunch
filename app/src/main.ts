@@ -9482,11 +9482,26 @@ class App {
     if (this.accountBusy) return;
     const btn = this.overlay.querySelector<HTMLButtonElement>(`[data-action="account-${provider}"]`);
     this.accountBusy = true;
+    // F4: every attempt starts from a clean line. Without this a sign-in that
+    // failed and then succeeded would be re-rendered by onAuthChange with the
+    // previous failure still printed under the new state.
+    this.accountError = null;
     if (btn) btn.disabled = true;
     try {
       await signIn(provider);
     } catch (err) {
       console.warn("[auth] sign-in failed", err);
+      // F4: SAY SO. This used to be the warn and nothing else, which on screen
+      // is a button that did nothing — and the player is usually here on an
+      // errand (the web tier gate sends them to sign in before a purchase), so
+      // the silence strands the purchase as well as the sign-in. The one
+      // failure that stays silent is the player closing the provider's own
+      // sheet: they already know they did that.
+      this.accountError = isUserCancelled(err) ? null : S.ACCOUNT_SIGN_IN_FAILED_TEXT;
+      // The line is STATE the screen renders from, and nothing else on this
+      // path re-renders after a failure — a SUCCESS is re-rendered by
+      // onAuthChange, which never runs when signIn threw.
+      if (this.state === "account") this.renderOverlay();
       this.paywallReturn = null;
       return;
     } finally {
@@ -9509,9 +9524,36 @@ class App {
     void this.onPaywall();
   }
 
+  /** F4: sign-out, with the same failure line the other two presses on this
+   *  panel carry — and the same one-at-a-time guard, which it was the only
+   *  account action without. A sign-out that threw used to be a console.warn
+   *  and a screen that did not change, which reads as the button being dead.
+   *
+   *  NO CANCEL BRANCH, and that is not an omission: auth.ts's signOut opens no
+   *  provider sheet (its logout call is best-effort and swallowed in there),
+   *  so there is nothing for the player to close and isUserCancelled can never
+   *  be true here. A branch for it would be a comment about a path that cannot
+   *  happen. Success needs no render of its own — onAuthChange replaces the
+   *  screen. */
   private async onAccountSignOut(): Promise<void> {
-    try { await signOut(); }
-    catch (err) { console.warn("[auth] sign-out failed", err); }
+    // F4: one account action at a time, and the button held shut while it
+    // runs — the rule the other two presses on this panel already followed.
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>('[data-action="account-signout"]');
+    this.accountBusy = true;
+    this.accountError = null;
+    if (btn) btn.disabled = true;
+    try {
+      await signOut();
+    } catch (err) {
+      console.warn("[auth] sign-out failed", err);
+      if (this.state !== "account") return;
+      this.accountError = S.ACCOUNT_SIGN_OUT_FAILED_TEXT;
+      this.renderOverlay();
+    } finally {
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
+    }
   }
 
   /** Opens the deletion notice (screens.ts's accountDeleteModal) — a state of

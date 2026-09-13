@@ -28510,6 +28510,110 @@ section("Escape backs out of a screen, not only the pause card (D12)");
   }
 }
 
+// ---------------------------------------------------------------------------
+section("A sign-in or sign-out that did not complete says so (F4)");
+// ---------------------------------------------------------------------------
+// THE DELETION ALREADY DID THIS and the other two account actions did not: a
+// failed signIn() or signOut() was a console.warn and a mute return, which on
+// screen is a button that did nothing. Worse for sign-in than for deletion,
+// because the player is usually there on an errand — the web tier gate sent
+// them to sign in before a purchase — so "nothing happened" strands the
+// purchase as well as the sign-in.
+//
+// THE SAME LINE, IN THE SAME PLACE, worded for the press that failed. One
+// element, `role="alert"` so it announces on insertion; the screen renders it
+// from `accountError` state, which every exit clears.
+//
+// THE CANCEL STAYS SILENT on sign-in, and only there. auth.ts's signIn opens a
+// provider sheet, so isUserCancelled is a real answer; signOut opens nothing
+// (its provider logout is best-effort and swallowed inside auth.ts), so there
+// is no sheet to close and no cancel to keep quiet about — a cancel branch
+// there would be a comment describing a path that cannot happen.
+{
+  const both = { google: true, apple: true };
+  const base = { available: true, ready: true, providers: both } as const;
+
+  const failedIn = S.accountScreen({ ...base, label: null, error: S.ACCOUNT_SIGN_IN_FAILED_TEXT });
+  check("a failed sign-in renders its line on the account screen",
+    /<p class="account__error" role="alert">Sign-in didn&#39;t complete — try again<\/p>/
+      .test(failedIn), failedIn);
+  check("...beside the buttons that failed, not instead of them",
+    failedIn.includes('data-action="account-google"') && failedIn.includes('data-action="account-apple"'));
+
+  const failedOut = S.accountScreen({ ...base, label: "Pilot", error: S.ACCOUNT_SIGN_OUT_FAILED_TEXT });
+  check("a failed sign-out renders its line beside Sign Out",
+    failedOut.includes('class="account__error" role="alert"')
+      && failedOut.includes("Sign-out didn&#39;t complete")
+      && failedOut.includes('data-action="account-signout"'), failedOut);
+
+  // THREE PRESSES, THREE SENTENCES. One shared "Something went wrong" would
+  // leave a player who pressed Sign Out reading a line that could have come
+  // from any of the three controls on the panel.
+  const texts = [S.ACCOUNT_SIGN_IN_FAILED_TEXT, S.ACCOUNT_SIGN_OUT_FAILED_TEXT, S.ACCOUNT_DELETE_FAILED_TEXT];
+  check("the three account failures are three different sentences",
+    new Set(texts).size === 3, texts.join(" | "));
+  check("...and each names the press it belongs to",
+    /^Sign-in/.test(S.ACCOUNT_SIGN_IN_FAILED_TEXT)
+      && /^Sign-out/.test(S.ACCOUNT_SIGN_OUT_FAILED_TEXT)
+      && /^Deletion/.test(S.ACCOUNT_DELETE_FAILED_TEXT), texts.join(" | "));
+  // Sign-in is repeatable and says so; sign-out is not a request that can be
+  // re-sent usefully (the identity is local and auth.ts clears it regardless),
+  // so it states the fact and stops.
+  check("the sign-in line invites the retry the button still offers",
+    S.ACCOUNT_SIGN_IN_FAILED_TEXT.includes("try again"));
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // ONE METHOD, bounded by whatever comes next rather than by a named
+  // neighbour: the account handlers sit in a run of near-identical functions
+  // (same busy flag, same disabled button, same finally), so a slice that
+  // overshot by one would let these checks pass off the wrong one — and naming
+  // the neighbour makes the pin break the day a method is inserted between
+  // them.
+  const method = (sig: string): string => {
+    const a = mainSrc.indexOf(sig);
+    if (a < 0) return "";
+    const ends = [mainSrc.indexOf("\n  /**", a + sig.length), mainSrc.indexOf("\n  private ", a + sig.length)]
+      .filter((n) => n > 0);
+    return mainSrc.slice(a, ends.length ? Math.min(...ends) : undefined);
+  };
+  const signIn = method("private async onAccountSignIn(");
+  const signOut = method("private async onAccountSignOut(");
+  check("the two handlers exist to be checked",
+    signIn.length > 0 && signIn.length < 4000 && signOut.length > 0 && signOut.length < 3000);
+
+  check("a failed sign-in sets the line, and a closed sheet stays silent",
+    /this\.accountError = isUserCancelled\(err\) \? null : S\.ACCOUNT_SIGN_IN_FAILED_TEXT;/.test(signIn),
+    signIn);
+  // The line is STATE the screen renders from, so the screen has to be
+  // re-rendered to show it — nothing else on this path re-renders after a
+  // failure (a success is re-rendered by onAuthChange instead).
+  check("...and re-renders the screen it is standing on",
+    /if \(this\.state === "account"\) this\.renderOverlay\(\);/.test(signIn), signIn);
+  check("a failed sign-out says so on the same line",
+    /this\.accountError = S\.ACCOUNT_SIGN_OUT_FAILED_TEXT;/.test(signOut), signOut);
+  check("...and re-renders to show it",
+    /this\.renderOverlay\(\);/.test(signOut), signOut);
+  // EVERY ATTEMPT STARTS CLEAN. Without this a sign-in that failed, then
+  // succeeded, would be re-rendered by onAuthChange with the previous
+  // failure's line still under the new state.
+  for (const [name, body] of [["sign-in", signIn], ["sign-out", signOut]] as const) {
+    check(`a fresh ${name} clears the previous attempt's line`,
+      /this\.accountError = null;/.test(body), body.slice(0, 400));
+    // The guard the deletion and the sign-in already had, extended to the
+    // third control on the panel: one account action at a time, and the
+    // button that started it is held shut while it runs.
+    check(`a ${name} in flight refuses a second tap`,
+      body.includes("if (this.accountBusy) return;")
+        && body.includes("this.accountBusy = true;")
+        && /finally \{[\s\S]*?this\.accountBusy = false;/.test(body), body.slice(0, 400));
+    check(`...and disables the button it was tapped on`,
+      body.includes("btn.disabled = true;") && /finally \{[\s\S]*?btn\.disabled = false;/.test(body));
+  }
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
