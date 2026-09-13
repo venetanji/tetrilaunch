@@ -10376,8 +10376,8 @@ button.panel { color: var(--text); }
 
 /* ============================================================================
    TIER PLATE (canvas A1/A4/C) — ONE component at three sizes: 58x52 in the
-   Deep Run menu button, 26px on the run-end primary, 11px in the bay banner.
-   The ladder gets one face wherever it shows up.
+   Deep Run menu button, a 20px-tall row chip on the run-end card's buttons,
+   11px in the bay banner. The ladder gets one face wherever it shows up.
    ========================================================================== */
 .tier-plate {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
@@ -10452,8 +10452,36 @@ button.panel { color: var(--text); }
   .tier-plate--menu .tier-plate__lbl { font-size: 6px; }
   .tier-plate--menu .tier-plate__n { font-size: 14px; }
 }
-.tier-plate--button { min-width: 30px; height: 26px; padding: 0 4px; }
-.tier-plate--button .tier-plate__lbl { font-size: 5px; }
+/* Button size: a ROW, like the banner, and not the stacked form the other two
+   sizes use. Stacked, this plate put "TIER" over "2" inside a button whose own
+   label already reads "Run Tier 2 →" — two lines of chip beside one line of
+   text, which the owner's device shot shows as the tallest, busiest thing in
+   the action row (2026-09-13). The plate is a chip on a line of type here, not
+   a badge with a face of its own, and a chip reads on the line it sits on.
+
+   The label steps 5px -> 6px in the move. At 5px the stacked form was reading
+   as texture under the number; on one line it is half the chip's width and has
+   to be legible as a word. Both slots keep their fixed `ch` widths (see the
+   note above), so the plate's width is still decided by the SLOTS and not by
+   what lands in them — "TIER"/"SKY" and "1"/"10"/"S"/"★" all measure the same.
+
+   MEASURED on the 640x360 budget row and the iPhone SE, which are the two
+   narrowest cards in the fleet: the plate goes 33.6x26.0 -> 57.9x20.0, the
+   primary around it 185.2x50.0 -> 209.5x44.0, and the action row 56.0 -> 50.0px
+   tall. It BUYS width and SELLS height, and both sides of that are the point —
+   the button drops back onto the 44px tap floor every other control in the row
+   already sits on, so the card gets 6px shorter while the chip gets legible.
+
+   The width is affordable, and that was checked rather than assumed. The
+   widest row a win can now draw is the workshop step's four buttons —
+   128.4 + 209.5 + 138.7 + 65.2 plus three 8px gaps = 565.8px against the
+   576px the 640x360 card has — so the demoted run button carries its wider
+   plate with 10px still in hand (sim/uifit's end-won-workshop fixture). */
+.tier-plate--button {
+  flex-direction: row; gap: 4px;
+  min-width: 0; height: auto; padding: 2px 5px;
+}
+.tier-plate--button .tier-plate__lbl { font-size: 6px; }
 .tier-plate--button .tier-plate__n { font-size: 12px; }
 /* Banner size: a bordered row chip beside "Bay 1/10" — ~46px of width, zero
    extra height (the plant panel's budget is untouched, per the canvas). */

@@ -30,7 +30,7 @@ import { CHAIN_RUNGS_MAX, makeBaseLevel } from "../../src/game/level";
 const BAY_1 = makeBaseLevel(0);
 import {
   newMeta, schoolStepOfFlight, SCHOOL_STEPS, SLOT_BASE, SLOT_CAP,
-  tierProgressFor, type MetaState,
+  tierProgressFor, type MetaState, type NextStepId,
 } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
@@ -1942,6 +1942,20 @@ export const SCREENS: Record<string, () => string> = {
   guard: () => S.rotateGuardHTML().replace('class="rotate-guard"', 'class="rotate-guard show"'),
 
   "end-won": () => endModal(true),
+  // THE COMPLETED RUN'S OTHER TWO ROWS. The card's primary is the loop's next
+  // step now (screens.ts endModal's `stepRoute`), so a bay-10 win draws three
+  // different action rows and only one of them is the row "end-won" measures.
+  //
+  //  - contracts: the WIDEST primary — the clipboard, the word, and the tier's
+  //    remaining count ("Contracts · 3 to go", at PROGRESS's untouched quota),
+  //    with the plate-bearing run button demoted to the secondary beside it.
+  //  - workshop: the most CROWDED row a win can draw — four buttons, because
+  //    the demoted run button lands beside the Contracts exit that a board with
+  //    cards left still offers, plus Menu. (The salvage row's own Workshop
+  //    button stands down on this card, which is the one thing here that makes
+  //    something narrower rather than wider.)
+  "end-won-contracts": () => endModal(true, false, "contracts"),
+  "end-won-workshop": () => endModal(true, false, "workshop"),
   "end-lost": () => endModal(false),
   // Tier S's end. The progress row is replaced wholesale (no tier, no salvage,
   // no Workshop invitation) and the action row carries the bench button in
@@ -2131,7 +2145,7 @@ export const SCREENS: Record<string, () => string> = {
     }),
 };
 
-function endModal(won: boolean, sandbox = false): string {
+function endModal(won: boolean, sandbox = false, step?: NextStepId): string {
   return S.endModal({
     // THE EXITS AT THEIR WIDEST. A lost ladder run is the only shape that draws
     // all four — Retry Run, Retry Bay with its broken-seal glyph, Contracts
@@ -2140,7 +2154,14 @@ function endModal(won: boolean, sandbox = false): string {
     // can wrap. A win draws three (no bay to hand back) and Tier S draws its
     // own three, so both of those states are still measured by the other two
     // fixtures rather than being replaced by this one.
-    contracts: { remaining: 3, next: !won },
+    contracts: { remaining: 3 },
+    // WHICH DOOR THE LOOP IS POINTING AT (screens.ts endModal's `step`). On a
+    // LOST run it only decides whether the Contracts exit wears its badge, and
+    // the badged state is the wider one — so the loss fixture always carries
+    // it. On a COMPLETED run it decides the whole row, which is why the two
+    // completed shapes get fixtures of their own below rather than being
+    // folded in here.
+    step: won ? step : "contracts",
     // …and the seal line at ITS widest, which is now the "held" state — a
     // re-fly of an already-sealed Mark (run.ts's sealStateFor, added for the
     // #135 P2). MEASURED, not guessed, because the last fixture in this file

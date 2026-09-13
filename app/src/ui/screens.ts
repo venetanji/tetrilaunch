@@ -52,9 +52,16 @@ import type { PreviewPart, PreviewRow } from "../game/preview";
 
 /* ---------------------------------------------------------------------------
  * TIER PLATE — one component at three sizes (canvas A1/A4/C · A15's note):
- * 58x52 in the Deep Run menu button, 26px on the run-end primary, 11px in the
- * bay banner. The pixel TIER label with the mono number, always the same two
- * parts, so the ladder has ONE face wherever it shows up.
+ * 58x52 in the Deep Run menu button, a 20px-tall row chip on the run-end card's
+ * buttons, 11px in the bay banner. The pixel TIER label with the mono number,
+ * always the same two parts, so the ladder has ONE face wherever it shows up.
+ *
+ * The "menu" size STACKS its two parts and the other two lay them side by side,
+ * and that is decided in app.css rather than here: the markup is the same two
+ * spans at every size, which is the whole of what makes this one component.
+ * A badge with 52px of its own height can afford two lines; a chip sitting on a
+ * button's line of type cannot, and the button size read as "TIER" over "2"
+ * beside a label that already said "Run Tier 2 →" until it was laid flat.
  * ------------------------------------------------------------------------ */
 export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"): string {
   // The Skydeck wears the SAME plate, not a badge of its own — it is a floor
@@ -6569,13 +6576,28 @@ export function endModal(opts: {
    *  absent on every board that has no day. */
   boardDay?: number;
   /** TODAY'S CONTRACT BOARD, as the end card needs to know it: how many of the
-   *  three are still uncleared, and whether Contracts are the loop's ONE next
-   *  step right now (meta.ts's nextStep — the same call the home screen's
-   *  button asks, so the two surfaces can never point at different doors).
+   *  three are still uncleared.
    *
    *  Absent means "no board to speak of" and the route is not drawn — which is
    *  what every caller that predates it gets, uifit fixtures included. */
-  contracts?: { remaining: number; next: boolean };
+  contracts?: { remaining: number };
+  /** THE LOOP'S ONE NEXT STEP (meta.ts's nextStep), which on a completed run is
+   *  what the MAIN BUTTON does — the owner's rule verbatim: "the main button
+   *  brings to the next logical step". A Tier 2 first win used to put "Run Tier
+   *  2 →" on the primary while the tier still owed three Contracts, i.e. the
+   *  loudest control on the card pointed at the half of the tier that was
+   *  already done.
+   *
+   *  It used to arrive as `contracts.next`, a boolean saying only whether the
+   *  step happened to be Contracts. The step id itself is passed now because
+   *  the card has to route three ways, and because a boolean derived from
+   *  nextStep at the call site is a second copy of the rule that can drift from
+   *  the home screen's badge — the whole reason both surfaces ask meta.ts.
+   *
+   *  Absent leaves the card exactly as it was before the rule: the run's own
+   *  primary, no re-route. Every caller that predates it, fixtures included,
+   *  keeps the card it always drew. */
+  step?: NextStepId;
   /** The bay the run died in can be handed back (main.ts's retryBay). Drawn on
    *  a ladder run only — Tier S has its bench one tap away and the Skydeck is
    *  the day's single attempt, which is the whole of what the mode sells.
@@ -6627,6 +6649,105 @@ export function endModal(opts: {
   // The bay retry, minus bay 1 (see `runRetry`). Resolved once, because the
   // seal line and the button below both read it and must agree.
   const retryBay = opts.runRetry ? undefined : opts.retryBay;
+  /* ------------------------------------------------------------------------
+   * WHAT THE MAIN BUTTON DOES — the owner's rule, applied to the one card that
+   * was breaking it: "the main button brings to the next logical step".
+   *
+   * A completed run is the moment the loop asks its question, and until now the
+   * card answered it with the thing the player had JUST finished. The report is
+   * exact: a first Tier 2 win, all ten bays cleared, +15 salvage banked — and
+   * "RUN TIER 2 →" on the primary, with Contracts a secondary beside it, while
+   * the tier's three Contracts were the entire remaining cost of completing
+   * that tier. The screen's loudest control pointed at the half already paid.
+   *
+   * So the primary IS meta.ts's nextStep, taken off the same rule the home
+   * screen badges and never re-derived here. Three answers reach this card:
+   *
+   *  - contracts -> the board, with what the TIER still owes on the face.
+   *  - workshop  -> the shelf (the salvage row's own Workshop button then
+   *                 stands down; see `showRowWorkshop`).
+   *  - run/seal  -> the run, which is what the card always did. A seal is flown
+   *                 and not bought, so it rides the run button exactly as it
+   *                 rides the menu's primary.
+   *
+   * ONLY ON A COMPLETED LADDER RUN. A LOSS keeps today's primary and that is a
+   * hard rule rather than an omission: padnav's focusInitial lands the pad on
+   * `.btn--primary`, the loss card's other buttons can spend the run's seal,
+   * and the mode's own answer to a loss is another run (the long note on Retry
+   * Bay below argues all three). Tier S has no next rung to offer at all.
+   * --------------------------------------------------------------------- */
+  // What the TIER still owes, which is the count that makes Contracts the step
+  // — not `contracts.remaining`, which is how many of TODAY'S cards are
+  // unclaimed. The tier's quota is what the menu's pips draw and what nextStep
+  // actually reads, and a primary quoting the other number would be the two
+  // surfaces disagreeing about the same debt.
+  const contractsOwed = Math.max(0, opts.progress.needed - opts.progress.contracts);
+  // …but the ROUTE still needs a card behind it. A tier can owe Contracts while
+  // today's board is fully claimed, and a primary that opens a board of three
+  // ticks is a main button that leads nowhere. That card falls through to the
+  // run, which is the other half of the same tier and always flyable.
+  const stepRoute: "contracts" | "workshop" | "run" =
+    !opts.sandbox && opts.runComplete
+      ? opts.step === "contracts" && contractsOwed > 0 && (opts.contracts?.remaining ?? 0) > 0
+        ? "contracts"
+        : opts.step === "workshop"
+          ? "workshop"
+          : "run"
+      : "run";
+  // The salvage row's Workshop button, kept unless the primary has become that
+  // same door. Two Workshop buttons on one card is the card arguing with
+  // itself, and the one that goes is the quieter one.
+  const showRowWorkshop = stepRoute !== "workshop";
+  // "Run Tier N →" — the primary's face when the run IS the step, and a
+  // secondary on the two cards where it is not. It never leaves the card: a
+  // player who has just cleared a tier's run may want to re-fly it for a
+  // better board or a clean seal, and the step is a recommendation rather than
+  // a gate. One string, so the two slots cannot drift apart.
+  const runFace = `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`;
+  // THE PRIMARY, resolved as ONE action/face pair rather than as two ternaries
+  // inside the markup. The button carries a data-action now instead of always
+  // being `restart`, and a face that can disagree with the door it opens is
+  // precisely the bug this change exists to remove.
+  //
+  // The COUNT on the Contracts face is what the TIER still owes, which is the
+  // same figure the menu's Contracts pips draw (menuContractsPips) — the two
+  // doors into the same board must not name two different numbers. It is not
+  // `contracts.remaining`: that is how many of TODAY'S three cards are still
+  // unclaimed, which answers "is there anything behind this door" (the route
+  // guard above) and not "how much of the tier is left to pay".
+  //
+  // No NEXT STEP badge on it. The badge is a directive pointing at a control
+  // that is not the main one (A3 allows exactly one on a screen); a primary
+  // that IS the step is already the loudest thing on the card, and badging it
+  // would be the screen saying the same thing twice.
+  const primary: { action: string; face: string } =
+    stepRoute === "contracts"
+      ? { action: "contracts", face: `${icon("contracts")}Contracts · ${contractsOwed} to go` }
+      : stepRoute === "workshop"
+        ? { action: "workshop", face: `${icon("workshop")}Workshop` }
+        : {
+          action: "restart",
+          // A15: the bay-10 primary carries the tier plate (the button size of
+          // the one component — a row chip, not the menu's stacked badge) and
+          // names the rung it flies next.
+          //
+          // A sandbox run's primary re-flies the SAME configuration, which is
+          // what practice is: main.ts's restart routes on RunState.sandbox, so
+          // this button never has to know which mode it is in.
+          //
+          // "Retry Run" rather than "Play Again" on a loss with the bay retry
+          // beside it: the two are now a PAIR and the pair only reads if both
+          // halves say what they hand back. It stays the primary on a loss, and
+          // that is a decision rather than an inheritance — see the retry button
+          // below, and the step note above for why no loss is ever re-routed.
+          face: opts.sandbox
+            ? "Fly it again"
+            : opts.runComplete
+              ? runFace
+              : opts.retryBay
+                ? "Retry Run"
+                : "Play Again",
+        };
   // Demolition recovery, appended to whichever foot line the branch below
   // renders. Suppressed at zero rather than printed as "$0": a charge is a
   // draft pick most runs never make, so the line would be dead weight on the
@@ -6754,7 +6875,7 @@ export function endModal(opts: {
             tierOpenedClause(opts.tierCompleted)
           }. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
         </div>
-        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+        ${showRowWorkshop ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>` : ""}
       </div>`
           : opts.tierSalvage > 0
             ? `<div class="salvage-row">
@@ -6763,7 +6884,7 @@ export function endModal(opts: {
           <b>Salvage banked</b>
           <span class="muted">First run win at Tier ${opts.progress.tier} — ${opts.salvageTotal} salvage total.</span>
         </div>
-        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+        ${showRowWorkshop ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>` : ""}
       </div>`
             : ""
       }
@@ -6848,26 +6969,18 @@ export function endModal(opts: {
                 : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
             : ""
         }
-        <button class="btn btn--primary" data-action="restart">${
-          // A15: the bay-10 primary carries the tier plate (the 26px size of
-          // the one component) and names the rung it flies next.
-          //
-          // A sandbox run's primary re-flies the SAME configuration, which is
-          // what practice is: main.ts's restart routes on RunState.sandbox, so
-          // this button never has to know which mode it is in.
-          //
-          // "Retry Run" rather than "Play Again" on a loss with the bay retry
-          // beside it: the two are now a PAIR and the pair only reads if both
-          // halves say what they hand back. It stays the primary, and that is a
-          // decision rather than an inheritance — see the retry button below.
-          opts.sandbox
-            ? "Fly it again"
-            : opts.runComplete
-              ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
-              : opts.retryBay
-                ? "Retry Run"
-                : "Play Again"
-        }</button>
+        <button class="btn btn--primary" data-action="${primary.action}">${primary.face}</button>
+        ${
+          // THE RUN, DEMOTED BUT NEVER DROPPED. On the two cards where the step
+          // is a shop rather than a flight, "Run Tier N →" moves down one rank
+          // and stays on the screen: a player who has just cleared the tier's
+          // run may well want it again for a better board or a clean seal, and
+          // the step is a recommendation, not a gate. Same string in both slots
+          // (`runFace`), so the promoted and the demoted face cannot drift.
+          stepRoute !== "run"
+            ? `<button class="btn btn--secondary" data-action="restart">${runFace}</button>`
+            : ""
+        }
         ${
           // RETRY BAY — the forgiving half, and deliberately NOT the primary.
           //
@@ -6938,12 +7051,17 @@ export function endModal(opts: {
           // really is Contracts, which is precisely when the tier still owes
           // them and salvage cannot yet buy anything. When salvage CAN buy
           // something the Workshop is the next step, and it already has a
-          // button on this modal — inside the salvage row that just paid out.
-          // Two badges on one card would be the screen arguing with itself.
-          opts.contracts && opts.contracts.remaining > 0
-            ? `<button class="btn btn--secondary${opts.contracts.next ? " btn--next" : ""}" data-action="contracts">${
+          // button on this modal — the primary itself on a completed run, or
+          // the salvage row that just paid out on every other card. Two badges
+          // on one card would be the screen arguing with itself.
+          //
+          // …and NOT when the primary has already become this door (see
+          // `stepRoute`): two Contracts buttons on one card is the card arguing
+          // with itself about which of them to press.
+          opts.contracts && opts.contracts.remaining > 0 && stepRoute !== "contracts"
+            ? `<button class="btn btn--secondary${opts.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${
                 icon("contracts")
-              }Contracts${opts.contracts.next ? nextBadgeHTML() : ""}</button>`
+              }Contracts${opts.step === "contracts" ? nextBadgeHTML() : ""}</button>`
             : ""
         }
         <button class="btn btn--ghost" data-action="menu">Menu</button>
