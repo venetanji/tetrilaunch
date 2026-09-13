@@ -378,6 +378,13 @@ export class InputController {
    *  a browser pointercancel). The cannon keeps its last aim; the finger
    *  still held down is orphaned, so releasing it afterwards is a no-op. */
   cancelAim(): void {
+    // The lob chord is cleared BEFORE the drag guard, because under the
+    // classic-wheel option it is a gesture in its own right: a bare right
+    // press anchors it with no drag underneath (see onDown), so a teardown
+    // that only ran for drags would leave the dial listening to a button
+    // nobody is holding.
+    this.lobFrom = null;
+    this.lobTarget = null;
     if (!this.dragging) return;
     this.dragging = false;
     this.dragStart = null;
@@ -500,7 +507,32 @@ export class InputController {
       // the gesture it advertised was unreachable). onMove owns the chord
       // now; the `!dragging` gate below is what keeps a browser that fires
       // both events for a chord from turning the piece twice.
-      if (e.button === 2 && !this.dragging) this.rotate("right");
+      // CLASSIC-WHEEL OPTION FIRST (settings.wheelRotates): the wheel has
+      // taken rotation back, so the right button's job is the arc-height drag
+      // the switch's own description names — and it does not need a held aim
+      // under it. A FRESH right press used to fall through to rotate() here,
+      // which meant the toggle advertised a gesture that only existed as a
+      // chord: press right alone and the shipment turned, doubling the
+      // rotation the wheel was already doing and never dialling anything
+      // (found in review). The chord in onMove stays exactly as it was — a
+      // player mid-aim reaches the same dial the same way.
+      //
+      // Anchored on the LAST target rather than a live one, because there is
+      // no drag to read: the hover has been recording where the cursor is
+      // (pendingTarget) and the last click left lastTarget, and the dial
+      // re-solves whichever of those is in hand. With neither — a keyboard
+      // aimer who right-drags before ever clicking — lobTarget stays null and
+      // onMove leaves the dial alone rather than inventing a point.
+      if (e.button === 2 && !this.dragging && this.wheelRotates()) {
+        const gw = this.game();
+        // The same liveness test `rotate` makes, and for the same reason: this
+        // whole branch runs BEFORE onDown's own status guard, so a right press
+        // on a paused or finished bay must anchor nothing.
+        if (gw && gw.status === "playing" && !gw.paused) {
+          this.lobFrom = { y: e.clientY, loft: gw.aimLoft };
+          this.lobTarget = this.pendingTarget ?? this.lastTarget;
+        }
+      } else if (e.button === 2 && !this.dragging) this.rotate("right");
       // ⟲ on the middle button — the wheel's PRESS, which stayed free when
       // the wheel's scroll changed jobs to the loft dial. The pair reads as
       // one rocker in the hand: right button clockwise, the button to its
@@ -728,7 +760,19 @@ export class InputController {
     // Same pointerType gating as onDown, for the same pen reason, and it is
     // also why this can safely come BEFORE the `dragging` test: for a mouse
     // whose gesture never started, both guards return anyway.
-    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) {
+      // A lob drag anchored by a BARE right press ends on that button's own
+      // pointerup — a lone button's release is a real pointerup, not the
+      // pointermove a chord's release arrives as, so onMove's `buttons & 2`
+      // teardown never sees it. Harmless to repeat for the chord (onMove has
+      // already cleared it) and necessary for the gesture that has no drag
+      // underneath it to fall back on.
+      if (e.button === 2) {
+        this.lobFrom = null;
+        this.lobTarget = null;
+      }
+      return;
+    }
     // Only the finger that started the drag fires it — any other pointer's
     // release (a rotate/✕ tap mid-aim) leaves the drag alive.
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;

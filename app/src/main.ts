@@ -1733,7 +1733,10 @@ class App {
     // The pause modal's reference block re-labels this way — a pad picked
     // up while paused should read pad hints before play resumes.
     const pauseKeys = this.overlay.querySelector("#pause-keys");
-    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned, this.bayRetryOffered());
+    if (pauseKeys) {
+      pauseKeys.outerHTML =
+        S.pauseKeysHTML(p, owned, this.bayRetryOffered(), this.settings.wheelRotates);
+    }
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
@@ -3911,7 +3914,7 @@ class App {
               thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
             }, this.sealFace(), this.quitFace(), this.bayRetryOffered(),
-            this.runRetryOffered());
+            this.runRetryOffered(), this.settings.wheelRotates);
         }
         break;
       case "bayclear":
@@ -9090,15 +9093,25 @@ class App {
     // particular toggle can give.
     if (key === "systemCursor") this.applySystemCursor();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
-    // has to redraw the screen saying it. stickSling is the only one: the
-    // gamepad pane's aim row describes the mode that is on, so leaving the old
-    // row up would have the pane contradict the switch the player just flipped
-    // (see screens.ts). Everything else here is read live by whatever consumes
-    // it and the in-place aria-checked write above is the whole update, which
-    // is why this is one named key rather than a blanket re-render — the
-    // Settings screen's toggles must not rebuild their pane out from under a
-    // pointer that is still on them.
-    if (key === "stickSling" && this.state === "controls") this.renderOverlay();
+    // has to redraw the screen saying it. TWO of them do: the gamepad pane's
+    // aim row and the keyboard pane's Arc height / Mouse rotate pair each
+    // describe the mode that is on, so leaving the old rows up would have the
+    // pane contradict the switch the player just flipped (see screens.ts).
+    // wheelRotates is the newer one and the starker case — it SWAPS the wheel's
+    // job with the right button's rather than flavouring one control, so both
+    // of its rows are wrong at once. Everything else here is read live by
+    // whatever consumes it and the in-place aria-checked write above is the
+    // whole update, which is why this is a named pair rather than a blanket
+    // re-render — the Settings screen's toggles must not rebuild their pane out
+    // from under a pointer that is still on them.
+    //
+    // KEEPING THE SCROLL, because both switches sit in `#controls-grid`, which
+    // is a scroller a player has usually scrolled to reach them: a bare
+    // renderOverlay answers a flip by throwing the pane back to the top with
+    // the switch off screen, and takes a pad player's selection with it.
+    if ((key === "stickSling" || key === "wheelRotates") && this.state === "controls") {
+      this.renderKeepingScroll();
+    }
     void tapHaptic();
     // After syncAudioSettings on purpose: switching Sound OFF clicks into
     // silence (playFx already gates on the new state) and switching it ON

@@ -2463,13 +2463,25 @@ export function controlsScreen(opts: {
       ${toggleHTML("leftHandRail", "Left-handed rail", "Mirror the button rail to the left edge", opts.settings.leftHandRail)}`;
   } else if (opts.tab === "keyboard") {
     // The mouse rides this tab — keyboard and mouse are one fine-pointer
-    // family (the strip, the coach and app.css all draw that line). Info
-    // rows state the DEFAULT scheme; the toggle's description carries the
-    // whole alternate so the pane is honest in either state without a
-    // re-render on toggle.
+    // family (the strip, the coach and app.css all draw that line).
+    //
+    // THESE TWO ROWS DESCRIBE THE MODE THAT IS ON, the way the gamepad tab's
+    // aim row already does. They used to state the default and leave the
+    // alternate to the toggle's description, on the argument that nothing
+    // re-rendered the pane when a toggle flipped — and that compromise does
+    // not survive contact with this pair either: "scroll" and "right-click"
+    // are not two flavours of one control, they are the two jobs SWAPPING, so
+    // a pane stating the default flatly contradicted the switch sitting under
+    // it the moment a player used it (found in review). main.ts re-renders
+    // this screen when wheelRotates flips, so the rows can afford to be true
+    // rather than merely default.
     pane = `${infoRow("Mouse aim", "click where it should land")}
-      ${infoRow("Arc height", "scroll · up comes down steeper")}
-      ${infoRow("Mouse rotate", "right-click ⟳ · wheel press ⟲")}
+      ${infoRow("Arc height", opts.settings.wheelRotates
+        ? "hold right-click and drag · up is steeper"
+        : "scroll · up comes down steeper")}
+      ${infoRow("Mouse rotate", opts.settings.wheelRotates
+        ? "scroll ⟳ · wheel press ⟲"
+        : "right-click ⟳ · wheel press ⟲")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
       ${
         // ESCAPE, UNDER THE PAUSE ROW IT IS NOT. Info rows, not bind rows:
@@ -2485,7 +2497,14 @@ export function controlsScreen(opts: {
           : ""
       }
       ${fullscreenKeys().length ? infoRow("Fullscreen", fullscreenKeys().join(" · ")) : ""}
-      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}
+      ${/* The description says what the switch DOES, now that the two rows
+            above say what is currently true. "hold right-click" without
+            "mid-aim": in this mode a fresh right press anchors the arc-height
+            drag on its own (game/input.ts's onDown), because the wheel has
+            taken rotation and there is nothing else for that button to do —
+            the old wording described a chord the player had to build on top of
+            a held aim, which is not the gesture the toggle offers. */""}
+      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click and dragging up/down", opts.settings.wheelRotates)}
       ${
         // THE POINTER, HANDED BACK (store.ts's systemCursor, styles/cursors.css).
         //
@@ -4170,6 +4189,17 @@ function hintParts(
    *  is then teaching a gesture main.ts refuses, and D2's whole rule is that a
    *  hint renders from what the game will actually do. */
   restart = true,
+  /** settings.wheelRotates — the Controls screen's "Wheel rotates" switch.
+   *
+   *  THE CARD USED TO TEACH ONE SCHEME AND THE TOGGLE SAT UNDER IT OFFERING
+   *  THE OTHER (found in review). "scroll for arc height" and "right ⟳" are
+   *  only true with the switch OFF; with it on the wheel turns the shipment
+   *  and arc height moves to the right-button drag, so a player who flipped it
+   *  read a card describing a game they were no longer playing — on the one
+   *  surface this file's own header calls the last place control instructions
+   *  live. Defaults false, the switch's own default, so every caller that
+   *  predates the argument renders exactly what it rendered before. */
+  wheelRotates = false,
 ): string[] {
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
   const parts: string[] = [];
@@ -4256,9 +4286,20 @@ function hintParts(
     part("click to aim");
     /* The rest of the mouse scheme (game/input.ts), plain for the same
        no-keycap reason as "click to aim": the wheel and the mouse buttons are
-       not rebindable keys, and a chip around them would claim they are. */
-    part("scroll for arc height");
-    part("right ⟳ · wheel-press ⟲");
+       not rebindable keys, and a chip around them would claim they are.
+
+       TWO SCHEMES, AND THE CARD STATES THE ONE THAT IS ON. The switch swaps
+       the wheel and the right button's jobs wholesale — it is not a flavour of
+       one control — so both lines change together, which is also why they stay
+       two parts rather than becoming one long sentence: the grid wraps between
+       parts, and the pair has to survive a narrow card in either mode. */
+    if (wheelRotates) {
+      part("scroll ⟳ · wheel-press ⟲");
+      part("hold right + drag for arc height");
+    } else {
+      part("scroll for arc height");
+      part("right ⟳ · wheel-press ⟲");
+    }
     /* HOLD THE PAUSE BUTTON TO RESTART THE BAY (main.ts's startHold on
        [data-action="pause"]). A gesture nobody is told about is a gesture
        nobody uses.
@@ -4326,8 +4367,13 @@ export function pauseKeysHTML(
   owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
   /** run.ts's bayRetryable — see hintParts. */
   restart = true,
+  /** settings.wheelRotates — see hintParts. main.ts passes it from the live
+   *  settings on both doors that mount this block (the pause render and
+   *  relabelHintSurfaces' in-place patch), so flipping the switch and pausing
+   *  cannot show a card for the other scheme. */
+  wheelRotates = false,
 ): string {
-  const parts = hintParts(profile, owned, restart);
+  const parts = hintParts(profile, owned, restart, wheelRotates);
   return `<div class="pause-keys" id="pause-keys">
     <div class="pause-keys__grid">${parts.join("\n      ")}</div>
     <p class="pause-keys__note muted">Rebind these under Settings → Controls.</p>
@@ -5601,6 +5647,10 @@ export function pauseModal(
    *  Defaults false, so every caller that predates the argument draws the
    *  Restart Bay it always did. */
   runRetry = false,
+  /** settings.wheelRotates — see hintParts. Threaded rather than read from a
+   *  module-level settings handle because this file renders from arguments
+   *  only; main.ts owns the settings and passes them at both doors. */
+  wheelRotates = false,
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
@@ -5661,7 +5711,7 @@ export function pauseModal(
         }
       </div>
       ${quit?.armed ? quitArmNoteHTML(quit.bayNum) : ""}
-      ${pauseKeysHTML(profile, owned, restart)}
+      ${pauseKeysHTML(profile, owned, restart, wheelRotates)}
     </div>
   </div>`;
 }

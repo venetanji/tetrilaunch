@@ -7609,6 +7609,46 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
     /bind-row__label">Fullscreen<\/span>\s*<span class="bind-row__key">⌃⌘F · F11</.test(kbDesk)
       && !kbDesk.includes('data-bind="fullscreen"'));
   setFullscreenKeys([]);
+  // THE MOUSE ROWS DESCRIBE THE MODE THAT IS ON, the same correction the
+  // gamepad tab's aim row already took. "Wheel rotates" SWAPS the wheel's job
+  // with the right button's, so a pane stating the default flatly contradicted
+  // the switch sitting under it: a player who turned it on read "Arc height ·
+  // scroll" one row above a toggle whose own description said scrolling now
+  // rotates. Both directions, because the mirrored version is the same bug.
+  {
+    const swapped = controlsScreen({
+      tab: "keyboard",
+      settings: { ...ctrlSettings, wheelRotates: true },
+      padName: null,
+      rebinding: null,
+    });
+    check("with the wheel on rotation, the arc-height row names the drag",
+      /Arc height<\/span>\s*<span class="bind-row__key">hold right-click and drag/.test(swapped),
+      /Arc height<\/span>\s*<span class="bind-row__key">([^<]*)</.exec(swapped)?.[1] ?? "");
+    check("...and the rotate row names the scroll",
+      /Mouse rotate<\/span>\s*<span class="bind-row__key">scroll ⟳/.test(swapped));
+    check("...while the default pane still teaches the scroll and the right-click",
+      /Arc height<\/span>\s*<span class="bind-row__key">scroll ·/.test(kb)
+        && /Mouse rotate<\/span>\s*<span class="bind-row__key">right-click ⟳/.test(kb));
+    // The switch's own description names the gesture input.ts now provides —
+    // a bare right press, no held aim required (see onDown).
+    check("...and the toggle no longer calls the arc-height drag a mid-aim chord",
+      swapped.includes("holding right-click and dragging")
+        && !swapped.includes("right-click mid-aim"));
+    // Rows that state the live mode are only true if something redraws them,
+    // and the card's two doors are only true if both are handed the setting.
+    // Read off main.ts, which this harness cannot instantiate.
+    const mainCode = fs.readFileSync(
+      path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), "src", "main.ts"),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    check("flipping Wheel rotates redraws the pane that describes it",
+      /key === "stickSling" \|\| key === "wheelRotates"[\s\S]{0,120}renderKeepingScroll\(\)/
+        .test(mainCode));
+    check("both doors onto the pause card hand it the live setting",
+      /pauseKeysHTML\([\s\S]{0,80}?this\.settings\.wheelRotates\)/.test(mainCode)
+        && /runRetryOffered\(\), this\.settings\.wheelRotates\)/.test(mainCode));
+  }
   const padPane = controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null });
   check("an absent gamepad reads as absent, not broken", padPane.includes("No gamepad"));
   check("the touch tab carries the left-hand rail toggle",
@@ -17648,8 +17688,12 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     const endCallAt = mainSrc.indexOf("S.endModal({");
     const endCall = mainSrc.slice(endCallAt, mainSrc.indexOf("}),", endCallAt));
     check("the loss card is handed the same read the pause card is",
+      // The pause call's own tail is open-ended on purpose — arguments have
+      // been appended after runRetry (wheelRotates) and will be again; what
+      // this pin is about is that both cards read the SAME gate, not where it
+      // happens to sit in the list.
       /runRetry: this\.runRetryOffered\(\),/.test(endCall)
-        && /this\.runRetryOffered\(\)\);/.test(mainSrc.slice(mainSrc.indexOf("S.pauseModal("))));
+        && /this\.runRetryOffered\(\)[,)]/.test(mainSrc.slice(mainSrc.indexOf("S.pauseModal("))));
   }
 
   // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
@@ -19565,6 +19609,26 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     /click to aim/i.test(
       S.pauseModal(true, "keyboard", { bond: false, demo: false, thaw: false, auto: false }),
     ));
+
+  // ...AND IT NAMES THE WHEEL SCHEME THAT IS ON (settings.wheelRotates). The
+  // card taught one scheme unconditionally while the Controls screen offered
+  // the other on a switch directly under the toggle's own description — so a
+  // player who flipped it read, on the game's single home for control
+  // instructions, a card for the game they had just stopped playing. Both
+  // directions are asserted, because a card that named the wheel's alternate
+  // job unconditionally would be the identical bug mirrored.
+  {
+    const none = { bond: false, demo: false, thaw: false, auto: false };
+    const dflt = S.pauseModal(true, "keyboard", none, undefined, undefined, true, false, false);
+    const swapped = S.pauseModal(true, "keyboard", none, undefined, undefined, true, false, true);
+    check("the card's wheel line follows the Wheel rotates switch",
+      /scroll for arc height/i.test(dflt) && !/scroll for arc height/i.test(swapped),
+      swapped.includes("scroll for arc height") ? "still teaching the default" : "");
+    check("...and so does the right button's",
+      /right ⟳/.test(dflt) && !/right ⟳/.test(swapped));
+    check("...with the swapped card teaching the drag and the scrolled rotate",
+      /hold right \+ drag for arc height/i.test(swapped) && /scroll ⟳/.test(swapped));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -20033,8 +20097,40 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
       const shot = fired(() => send(onWindow, "pointerup", ptr(0, "mouse", 400, 2, 185)));
       check("...and the left release still fires the held aim", shot === 1, `${shot} shots`);
     }
+    // A BARE RIGHT PRESS IS THE SAME DIAL, which is the gesture the toggle's
+    // own description names ("holding right-click and dragging up/down") and
+    // the one it did not have: with no left button held, onDown's rotate
+    // branch turned the shipment — doubling the rotation the wheel had just
+    // taken over, and dialling nothing. The last clicked point is what it
+    // re-solves, since there is no drag to read.
+    {
+      g.aimLoft = 0;
+      let t = 0;
+      const early = fired(() => { t = turned(() => {
+        send(onCanvas, "pointerdown", ptr(2, "mouse", 400, 2));          // right alone
+        send(onCanvas, "pointermove", ptr(-1, "mouse", 400, 2, 185));    // pull up 75px
+      }); });
+      check("a bare right press anchors the arc-height drag instead of rotating",
+        t === 0 && early === 0 && g.aimLoft > 0.4 && g.aimLoft < 0.6,
+        `${t} turns, ${early} shots, loft ${g.aimLoft.toFixed(2)}`);
+      // Its release is a real pointerup (a lone button's is), so the teardown
+      // cannot live only in onMove's chord path — without this the dial would
+      // still be listening on the next move.
+      const shot = fired(() => send(onWindow, "pointerup", ptr(2, "mouse", 400, 0, 185)));
+      const after = g.aimLoft;
+      send(onCanvas, "pointermove", ptr(-1, "mouse", 400, 0, 40));
+      check("...releases on its own pointerup, firing nothing and leaving the dial alone",
+        shot === 0 && g.aimLoft === after, `${shot} shots, loft ${g.aimLoft.toFixed(2)}`);
+    }
     wheelRotates = false;
     g.aimLoft = 0;
+    // ...and with the option OFF a bare right press still turns the shipment,
+    // so this is a mode swap rather than a rotate that went missing.
+    check("with the option off, a bare right press turns the shipment as before",
+      turned(() => {
+        send(onCanvas, "pointerdown", ptr(2, "mouse", 400, 2));
+        send(onWindow, "pointerup", ptr(2, "mouse", 400, 0));
+      }) === 1);
   }
 
   // A wheel on a paused bay must leave the event completely alone — no loft
