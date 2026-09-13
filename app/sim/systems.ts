@@ -7732,6 +7732,32 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   check("the assist toggle names the mode it actually smooths",
     padPane.includes("Smooth the slingshot stick")
       && slingPane.includes("Smooth the slingshot stick"));
+  // A NON-STANDARD PAD SAYS SO, ON THE SCREEN THAT HOLDS THE REMEDY. Every
+  // button index in game/gamepad.ts is a standard-mapping index, and every
+  // label on this pane is read off that promise — so when the browser reports
+  // a pad it could not fit to the mapping, the rows below are naming the wrong
+  // physical buttons and nothing said it. Pinned in both directions, because a
+  // notice that showed for an ORDINARY pad would be worse than the silence it
+  // replaced: it would teach every player to distrust a table that is right.
+  const oddPane = controlsScreen({
+    tab: "gamepad", settings: ctrlSettings, rebinding: null,
+    padName: "Generic USB Joystick (Vendor: 0079 Product: 0006)",
+    padNonStandard: true,
+  });
+  check("a non-standard pad is called out on the gamepad tab",
+    /standard mapping/i.test(oddPane), oddPane.includes("standard mapping") ? "" : "no notice");
+  check("...and pointed at the rebinding underneath it rather than left as an apology",
+    /rebind/i.test(oddPane.slice(0, oddPane.indexOf("Detected"))));
+  check("...while an ordinary pad's pane says nothing about mappings",
+    !/standard mapping/i.test(controlsScreen({
+      tab: "gamepad", settings: ctrlSettings, rebinding: null,
+      padName: "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)",
+    })));
+  // ...and the HUD is deliberately not a second home for it, which needs no
+  // assertion to stay true: hudHTML is never handed the fact, so it could not
+  // render the notice if it wanted to. A permanent badge over a live bay would
+  // be a penalty for owning an unusual controller, up during the one activity
+  // where nothing can be done about it.
   // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
   // that has no row in the table below, because they have no binding — so the
   // pane states them, or they are documented nowhere at all.
@@ -18964,11 +18990,14 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   let buttons: number[] = [];
   let padId = "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)";
+  /** `Gamepad.mapping`, mutable because this block now drives a pad the
+   *  browser could NOT fit to the standard mapping as well as one it could. */
+  let padMapping = "standard";
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
       getGamepads: () => [{
-        id: padId, connected: true, mapping: "standard",
+        id: padId, connected: true, mapping: padMapping,
         axes: [0, 0],
         buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
       }],
@@ -19014,6 +19043,22 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   check("...and the labels follow the pad now in the player's hands",
     padLabel(padFor("fire")) === "A", padLabel(padFor("fire")));
 
+  // THE MAPPING, WHICH NOTHING USED TO READ. Every button index in this file
+  // is a standard-mapping index — 0 is the bottom face button, 4/5 the
+  // shoulders, 12-15 the D-pad — and the bindings, the labels and the menu
+  // navigation are all read off that promise. `Gamepad.mapping` is the
+  // browser's own statement about whether the promise holds, and it was
+  // available on every poll and consulted on none, so a generic pad or an
+  // adapter that enumerates its controls in some other order got a Controls
+  // screen full of confident names for the wrong buttons.
+  check("a pad the browser fitted to the standard mapping raises nothing",
+    !pad.nonStandardPad());
+  padMapping = "";
+  padId = "Generic USB Joystick (Vendor: 0079 Product: 0006)";
+  pad.poll(450);
+  check("...and a pad it could not fit says so",
+    pad.nonStandardPad(), `mapping "${padMapping}"`);
+
   // A DISCONNECT is an identity change too — the labels fall back to the
   // standard mapping's lettering rather than staying on a pad that has gone.
   Object.defineProperty(globalThis, "navigator", {
@@ -19022,10 +19067,17 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   });
   pad.poll(500);
   check("a pad going away announces itself once",
-    seen.length === 3 && seen[2] === null, JSON.stringify(seen));
+    seen.length === 4 && seen[3] === null, JSON.stringify(seen));
   pad.poll(516);
   check("...and an absent pad is not re-announced every frame",
-    seen.length === 3, String(seen.length));
+    seen.length === 4, String(seen.length));
+  // NO PAD IS NOT A BAD PAD. The notice is about a device in the player's
+  // hands; with nothing connected the Detected row already says so, and a
+  // warning about a controller that is not there would be noise on the screen
+  // a player opens to find out why nothing is happening.
+  check("...and nothing connected raises no mapping notice either",
+    !pad.nonStandardPad());
+
 
   setPadFamily(null);
   if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);

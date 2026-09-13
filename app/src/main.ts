@@ -3865,6 +3865,7 @@ class App {
           tab: this.controlsTab,
           settings: this.settings,
           padName: this.pad.detected(),
+          padNonStandard: this.pad.nonStandardPad(),
           rebinding: this.rebinding,
           back: this.controlsBack,
         });

@@ -2433,7 +2433,11 @@ export function controlsScreen(opts: {
   /** Detected gamepad id, or null — browsers hide pads until a button is
    *  pressed, and the pane says so instead of reading as broken. */
   padName: string | null;
-  /** The action currently capturing a rebind, if any. */
+  /** A pad IS connected and the browser could not fit it to the standard
+   *  mapping (gamepad.ts's nonStandardPad). Optional and false by default:
+   *  the overwhelming case is a pad the browser knows, and a screen rendered
+   *  without the fact should say nothing rather than warn on a guess. */
+  padNonStandard?: boolean;  /** The action currently capturing a rebind, if any. */
   rebinding: BindableAction | null;
 }): string {
   const tabBtn = (id: ControlsTab, label: string) =>
@@ -2530,7 +2534,23 @@ export function controlsScreen(opts: {
     // written down nowhere. The second row is the way back to this screen
     // itself, which is what a player who has just made a mess of the table
     // below needs most.
-    pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
+    // THE MAPPING IS A FACT ABOUT THE DEVICE, and it belongs next to its name.
+    // Every button index in game/gamepad.ts is a standard-mapping index and
+    // every label on this screen is read off that promise, so when the browser
+    // reports a non-standard pad the rows below are labelling the wrong
+    // physical buttons — fire may be a shoulder, rotate may be a trigger, and
+    // nothing said so. One line, on the screen that already holds the remedy:
+    // the table underneath is rebindable press-by-press, so this is a pointer
+    // at a fix the player can make rather than an apology.
+    //
+    // NOT IN THE HUD, on purpose. A permanent badge over a live bay is a
+    // penalty for owning an unusual controller, and it would be up during the
+    // one activity where nothing can be done about it. It is shown where a
+    // player goes when the buttons feel wrong, which is this tab.
+    const mappingNote = opts.padNonStandard
+      ? `<p class="muted">This pad isn't a standard mapping, so the buttons named below may not be the ones it has. Rebind any that are wrong.</p>`
+      : "";
+    pane = `${mappingNote}${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
       ${infoRow("Aim & power", opts.settings.stickSling
         // THE ROW DESCRIBES THE MODE THAT IS ON, not the default. The sibling
         // keyboard tab states its default and lets the toggle's description

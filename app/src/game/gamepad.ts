@@ -232,6 +232,11 @@ export class GamepadPoller {
    *  a 60Hz session is bit-identical to the per-poll code it replaced. */
   private lastPoll: number | null = null;
   private connected: string | null = null;
+  /** The connected pad's `Gamepad.mapping`, verbatim — "standard" when the
+   *  browser recognised the device and could put its controls where this file
+   *  expects them, and "" (or a future value) when it could not. Null when
+   *  nothing is connected. See `nonStandardPad`. */
+  private mapping: string | null = null;
 
   constructor(hooks: GamepadHooks) {
     this.hooks = hooks;
@@ -241,6 +246,33 @@ export class GamepadPoller {
    *  has announced itself (browsers hide pads until a button is pressed). */
   detected(): string | null {
     return this.connected;
+  }
+
+  /**
+   * True when a pad IS connected and the browser could not fit it to the
+   * standard mapping (`Gamepad.mapping !== "standard"`).
+   *
+   * EVERY INDEX IN THIS FILE IS A STANDARD-MAPPING INDEX — button 0 is the
+   * bottom face button, 4/5 are the shoulders, 12-15 the D-pad (PAD_NAV), the
+   * axes are stick-left-x/y — and the whole table, the default bindings and
+   * the Xbox/DualSense lettering are all read off that promise. When the
+   * promise does not hold the indices are whatever order the driver enumerated
+   * the device in, so the labels are fiction and the bindings land on the
+   * wrong controls: a generic USB pad or an adapter can put fire on a shoulder
+   * and rotate on a trigger, and nothing in the game said so.
+   *
+   * Read but never acted on here, deliberately: there is no remap this file
+   * could guess that is better than the one the player can make themselves
+   * (every gameplay action is rebindable on the Controls screen's gamepad
+   * tab), so the only honest response is to TELL them, on that screen, where
+   * the fix is. main.ts hands this to screens.ts's controlsScreen.
+   *
+   * FALSE WITH NO PAD, not "unknown": a player with nothing plugged in is not
+   * owed a warning about a device they do not have, and the Detected row above
+   * already says the pad has not announced itself.
+   */
+  nonStandardPad(): boolean {
+    return this.connected !== null && this.mapping !== "standard";
   }
 
   poll(now: number): void {
@@ -264,6 +296,7 @@ export class GamepadPoller {
       // relabels rendered surfaces.
       if (this.connected !== null) {
         this.connected = null;
+        this.mapping = null;
         this.hooks.onPad(null);
       }
       this.prev = [];
@@ -277,6 +310,11 @@ export class GamepadPoller {
     // order is the point rather than an accident.
     if (pad.id !== this.connected) {
       this.connected = pad.id;
+      // Recorded with the id and from the same object, because they are one
+      // fact about one device: the id says what to CALL its buttons and the
+      // mapping says whether the indices those names are attached to mean
+      // anything (see nonStandardPad).
+      this.mapping = pad.mapping;
       this.hooks.onPad(pad.id);
     }
 
