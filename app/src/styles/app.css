@@ -12088,3 +12088,55 @@ button.panel { color: var(--text); }
 .salvage-row__amt--sandbox {
   font-family: var(--font-pixel); font-size: 18px; color: var(--warn);
 }
+
+/* ============================================================================
+   REDUCED MOTION: THE LAST WORD (F9)
+   ============================================================================
+   Twenty-nine reduced-motion blocks sit next to the rules they answer, which
+   is the right place for a guard that has an END STATE to write — the pattern
+   this stylesheet uses everywhere is "the theatre goes, the teaching stays",
+   and what stays is a decision about that specific instrument (the loss dial
+   falls back to a still danger-red readout, the belt to a parked tread).
+
+   This block is for the other kind: guards that lost a SPECIFICITY argument to
+   the rule they were written against, and are therefore not guards at all. It
+   is last in the file on purpose — a tie goes to the later rule, so a selector
+   written at the same weight as the animation's own wins from here and from
+   nowhere else.
+
+   Measured by rendering every fixture under `prefers-reduced-motion: reduce`
+   and reading back each element and pseudo whose computed
+   animation-iteration-count is `infinite`, with the runtime-only state classes
+   (main.ts's syncHud writes them; no fixture carries one) forced on. The list
+   came back at two names once the crest's congestion states were scoped — and
+   what did NOT come back is worth writing down so this block never grows into
+   a blanket: the belt's five loops, the drag hint's arc and dot, the tower's
+   lamps and car, the crest sparkle, the material aura, the bay-clear rays, the
+   loss FX, the danger pulses (pulse-danger, quote-blink), the armed demo
+   trigger, the bond hold, the coach's rotate pulse, the unlock breathe, the
+   Tier S target and the unknown-stat glyph are all stopped at their own rules,
+   each with the end state its instrument needs.
+
+   Nothing ONE-SHOT is touched from here. A card popping in, a tile flashing a
+   changed number, a floor arriving as the car docks: those end by themselves
+   and they are how the screen says something happened. Blanket-stopping them
+   would take away the feedback rather than the motion, which is the opposite
+   of what this preference asks for. */
+@media (prefers-reduced-motion: reduce) {
+  /* The tier plate's live pips. The guard beside them reads
+     `.tier-pips--live .tier-pip` (0,2,0) while the flicker is written on
+     `.tier-pips--live .tier-pip:not(.tier-pip--done)` (0,3,0) — `:not()` takes
+     its argument's specificity — so the guard lost and up to three pips per
+     plate kept blinking: 34 of them across the menu's fixtures on one device.
+     Same selector here, so the weights match and the position decides. No end
+     state needed: the pips' resting look is the rule above the flicker
+     (opacity 0.45, no glow), which is the keyframe's own 0% frame. */
+  .tier-pips--live .tier-pip:not(.tier-pip--done) { animation: none; }
+  /* The splash loader's indeterminate sweep — the one infinite loop that IS
+     the whole element. `animation: none` alone would park the bar at the
+     keyframe's start, `translateX(-100%)`, i.e. off its own track and
+     invisible: a loading screen with no loader on it. Parked at 0 instead it
+     reads as a progress track at the beginning of its travel, which is what a
+     splash is honestly saying. */
+  .loader::after { animation: none; transform: translateX(0); }
+}

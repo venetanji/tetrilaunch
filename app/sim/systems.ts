@@ -28570,6 +28570,54 @@ section("Reduced motion reaches the crest's congestion states and the rotate gua
   );
 }
 
+section("No infinite animation survives Reduce Motion on a specificity technicality (app.css, F9)");
+// ---------------------------------------------------------------------------
+// The guards this file is full of are per-instrument and that is right — each
+// one writes the end state its readout needs. What this pins is the other
+// kind: a guard that was written against a rule it cannot out-specify, and so
+// is not a guard.
+//
+// `.tier-pips--live .tier-pip` (0,2,0) was sitting next to a flicker written on
+// `.tier-pips--live .tier-pip:not(.tier-pip--done)` (0,3,0) — `:not()` carries
+// its argument's specificity — so up to three pips per tier plate kept blinking
+// under Reduce Motion, 34 of them across the menu's fixtures on one device. The
+// splash loader's sweep had no guard at all, and `animation: none` alone would
+// have parked its bar at `translateX(-100%)`: a loading screen with no loader.
+//
+// Both are answered from the END of the stylesheet on purpose — a tie goes to
+// the later rule — which is the thing worth pinning, because a guard moved back
+// up beside its animation would silently stop guarding again.
+// ---------------------------------------------------------------------------
+{
+  const heads = [...APP_CSS.matchAll(/@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g)];
+  const last = heads[heads.length - 1];
+  let i = last.index + last[0].length;
+  let depth = 1;
+  while (depth > 0) {
+    if (APP_CSS[i] === "{") depth += 1;
+    else if (APP_CSS[i] === "}") depth -= 1;
+    i += 1;
+  }
+  const lastBlock = APP_CSS.slice(last.index + last[0].length, i - 1);
+  check(
+    "the pip flicker is stopped at the flicker's own specificity",
+    /\.tier-pips--live \.tier-pip:not\(\.tier-pip--done\)[^{}]*\{[^}]*animation:\s*none/.test(lastBlock),
+    lastBlock.replace(/\s+/g, " ").slice(0, 200),
+  );
+  check(
+    "the splash loader stops with its bar still on its track",
+    /\.loader::after[^{}]*\{[^}]*animation:\s*none[^}]*transform:\s*translateX\(0\)/.test(lastBlock),
+    lastBlock.replace(/\s+/g, " ").slice(0, 200),
+  );
+  // The position IS the mechanism. Anything after this block at the same weight
+  // wins over it, so "last" is the invariant rather than a tidiness preference.
+  check(
+    "...and that block is the stylesheet's last word on reduced motion",
+    APP_CSS.slice(i).trim() === "",
+    `${APP_CSS.slice(i).replace(/\s+/g, " ").slice(0, 120)}`,
+  );
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
