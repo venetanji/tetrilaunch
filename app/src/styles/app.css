@@ -8764,13 +8764,28 @@ button.panel { color: var(--text); }
    card itself has no height to give — it is centred in a fixed viewport with no
    scroller — which is why this is a swapped cell rather than the block it
    started as. */
-.stat--clause { min-width: 0; max-width: 15ch; }
+.stat--clause { min-width: 0; }
 /* `display: block` is load-bearing, not tidiness: `b` is inline by default, and
    overflow/text-overflow do nothing to an inline box — measured, the name ran
    255px out of a 165px cell and took the whole card past the viewport with it
-   (sim/uifit's spill and offscreen assertions, both). */
+   (sim/uifit's spill and offscreen assertions, both).
+   THE `ch` CAP IS ON THE BOLD, and moving it down from the cell is the fix for
+   a truncation that only ever hit the devices with the MOST room. `ch` is the
+   zero's advance in the element's OWN font, and the cell is 16px body text
+   while the name below is mono at this clamp — so "15ch" on the cell meant 15
+   characters of the wrong face at the wrong size. At the clamp's 20px ceiling
+   the name needs 180px and the cell offered 120, so "Bled Hydraulics" — the
+   longest name any standing stop can deal, and the one the `bayclear-clause`
+   fixture is built from — arrived as "Bled Hydr…" on both iPads, the Pixel
+   Tablet and every desktop row, while the phones (where the clamp sits at
+   13px) were correct all along. Read here it says what it always meant: this
+   name gets fifteen characters of the face it is actually set in, which is
+   exactly the 180px it needs at 20px and 117px at 13px.
+   `min()` keeps the old guard rather than replacing it: 100% still stops the
+   name widening a cell the card has already constrained, and the ch term is
+   what stops the cell being constrained too tightly in the first place. */
 .stat--clause b {
-  display: block; max-width: 100%;
+  display: block; max-width: min(100%, 15ch);
   font-size: clamp(13px, 2.6vh, 20px);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

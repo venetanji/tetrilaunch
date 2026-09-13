@@ -28277,6 +28277,59 @@ section("The projection header is one line on EVERY device (app.css .projection_
   );
 }
 
+/** app.css with comments stripped — every pin below reads the same string, and
+ *  stripping matters because this stylesheet's prose quotes the declarations it
+ *  is explaining. */
+const APP_CSS = fs.readFileSync(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+  "utf8",
+).replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** The declaration block of the first rule whose head ends with `sel`. */
+function cssRule(sel: string): string {
+  const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`(?:^|[};])\\s*${esc}\\s*\\{([^}]*)\\}`, "m").exec(APP_CSS);
+  return m ? m[1] : "";
+}
+
+section("The arming clause's name gets FIFTEEN CHARACTERS of its own face (app.css)");
+// ---------------------------------------------------------------------------
+// `ch` is the advance of "0" in the element's OWN font, which is why a cap
+// written one box up is not the cap it looks like. `.stat--clause` is 16px body
+// text; the name inside it is mono at `clamp(13px, 2.6vh, 20px)`. At the 20px
+// ceiling the cell offered 15ch of the wrong face — 120px — against the 180px
+// the name needs, so "Bled Hydraulics" (the longest name any standing stop can
+// deal, and what `bayclear-clause` is built from) arrived as "Bled Hydr…" on
+// both iPads, the Pixel Tablet and every desktop row, while every PHONE was
+// correct because the clamp sits at 13px there.
+//
+// The fit harness cannot fail on this by design — an ellipsis is a deliberate
+// truncation and `textclip` warns rather than fails — so the invariant is
+// pinned here: the character cap belongs on the element whose characters are
+// being counted.
+// ---------------------------------------------------------------------------
+{
+  const bold = cssRule(".stat--clause b");
+  const cell = cssRule(".stat--clause");
+  check(
+    "the clause name is capped in the face it is SET in, not its parent's",
+    /max-width:\s*min\(\s*100%\s*,\s*15ch\s*\)/.test(bold),
+    bold.replace(/\s+/g, " ").slice(0, 160) || "no .stat--clause b rule",
+  );
+  // The 100% term is the other half and has its own history (the name once ran
+  // 255px out of a 165px cell): it stops the name widening a cell the card has
+  // already constrained.
+  check(
+    "...and still cannot widen a cell the card has constrained",
+    /max-width:\s*min\(\s*100%/.test(bold) && /text-overflow:\s*ellipsis/.test(bold),
+  );
+  check(
+    "...and the CELL no longer counts characters it does not set",
+    cell !== "" && !/max-width/.test(cell),
+    cell.replace(/\s+/g, " ").slice(0, 160),
+  );
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
