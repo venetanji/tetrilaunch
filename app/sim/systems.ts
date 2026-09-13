@@ -19578,48 +19578,111 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
 // them on the loft dial now — which is why the function answers in signed
 // notches and owns no opinion about what a notch buys.)
 {
+  /** One event on a wheel nobody has touched for a while — the rate limit
+   *  (input.ts's WHEEL_NOTCH_MIN_MS) is a property of the SEQUENCE, so the
+   *  single-event cases below state their clock once, here, and say nothing
+   *  about it individually. */
+  const one = (deltaY: number, deltaMode = 0, accum = 0) =>
+    wheelNotch(accum, deltaY, deltaMode, 0, -Infinity);
   check("one Chrome/Edge detent down is one notch, signed with its deltaY",
-    wheelNotch(0, 100, 0).notch === 1, String(wheelNotch(0, 100, 0).notch));
+    one(100).notch === 1, String(one(100).notch));
   check("one detent up is one notch the other way",
-    wheelNotch(0, -100, 0).notch === -1, String(wheelNotch(0, -100, 0).notch));
+    one(-100).notch === -1, String(one(-100).notch));
   // deltaMode is the half of this that is easiest to write and forget: Firefox
   // reports LINES, so an unnormalised threshold of 100 would need thirty-four
   // detents per notch there and the feature would simply not work on it.
   check("one Firefox line-mode detent (deltaMode 1, 3 lines) also lands",
-    wheelNotch(0, 3, 1).notch === 1, String(wheelNotch(0, 3, 1).notch));
+    one(3, 1).notch === 1, String(one(3, 1).notch));
   check("a page-mode detent (deltaMode 2) lands too",
-    wheelNotch(0, 1, 2).notch === 1, String(wheelNotch(0, 1, 2).notch));
+    one(1, 2).notch === 1, String(one(1, 2).notch));
   // THE TRACKPAD CASE, which is the reason the accumulator exists. One flick
   // is one gesture; without accumulation it is thirty notches — the whole loft
   // range slammed to an end stop by a scroll that meant one step.
+  //
+  // ONE notch, not the two this pin used to assert. The events are 16ms apart
+  // — a real trackpad's cadence, which this pin now states rather than leaving
+  // to the reader — so the second notch falls inside the deaf window the
+  // momentum trace below exists to justify. 240px of travel asking for one
+  // step of a five-step dial is the answer that gesture wanted anyway.
   {
     let accum = 0;
+    let notchAt = -Infinity;
     let notches = 0;
     for (let i = 0; i < 30; i++) {
-      const r = wheelNotch(accum, 8, 0);
+      const r = wheelNotch(accum, 8, 0, i * 16, notchAt);
       accum = r.accum;
+      notchAt = r.notchAt;
       notches += Math.abs(r.notch);
     }
-    check("a 30-event, 240px trackpad flick is two notches, not thirty",
+    check("a 30-event, 240px trackpad flick is one notch, not thirty",
+      notches === 1, `${notches} notches`);
+  }
+  // THE MOMENTUM TRACE, which is what distance alone could not answer. A
+  // macOS trackpad flick does not stop when the finger lifts: the OS keeps
+  // sending wheel events ~16ms apart with a rising front and a long decaying
+  // tail, and this one totals 1180px. By travel alone that is eight notches
+  // spent on a dial with five steps — the loft range slammed to its stop and
+  // half way back — from one flick that meant one step.
+  {
+    /** Deltas as macOS emits them for one flick, 16ms apart: a rising front
+     *  edge, a peak while the finger is still moving, then the decaying tail
+     *  the OS sends after it has lifted. 1180px in total. */
+    const trace = [
+      8, 24, 60, 96, 140, 136, 108, 92, 80, 70, 60, 52, 44, 38, 32, 26, 22, 18, 14, 12,
+      10, 8, 6, 6, 4, 4, 4, 2, 2, 2,
+    ];
+    check("the trace is the 1180px the review measured",
+      trace.reduce((a, b) => a + b, 0) === 1180,
+      String(trace.reduce((a, b) => a + b, 0)));
+    // The same events with the clock held still, to state what the
+    // accumulator alone spends rather than asserting it from memory.
+    let bare = 0;
+    let bareAccum = 0;
+    for (const d of trace) {
+      const r = wheelNotch(bareAccum, d, 0, 0, -Infinity);
+      bareAccum = r.accum;
+      bare += Math.abs(r.notch);
+    }
+    let accum = 0;
+    let notchAt = -Infinity;
+    let notches = 0;
+    trace.forEach((d, i) => {
+      const r = wheelNotch(accum, d, 0, i * 16, notchAt);
+      accum = r.accum;
+      notchAt = r.notchAt;
+      notches += Math.abs(r.notch);
+    });
+    check("travel alone spends one momentum flick right across the dial",
+      bare >= 8, `${bare} notches over a 5-step dial`);
+    check("...and the rate limit makes that same flick two notches",
       notches === 2, `${notches} notches`);
   }
   // A reversal has to cost one notch of travel, not two. Banking 90px downward
   // and then pushing back up must not need 190px of up before anything moves.
   {
-    const banked = wheelNotch(0, 90, 0);
+    const banked = one(90);
     check("90px of travel alone is no notch yet", banked.notch === 0);
     check("...and a full notch the OTHER way still lands immediately",
-      wheelNotch(banked.accum, -100, 0).notch === -1,
-      String(wheelNotch(banked.accum, -100, 0).notch));
+      one(-100, 0, banked.accum).notch === -1,
+      String(one(-100, 0, banked.accum).notch));
   }
   // The remainder is DROPPED on a fire, so one event can never be worth more
   // than one notch however hard it was thrown. Carrying 300px of overflow out
   // of an inertial fling would spend it three more times — most of the loft
   // range on a gesture that asked for one step.
   {
-    const fling = wheelNotch(0, 400, 0);
+    const fling = one(400);
     check("a 400px inertial fling is exactly one notch", fling.notch === 1, String(fling.notch));
     check("...and banks nothing toward the next one", fling.accum === 0, String(fling.accum));
+  }
+  // The window is a LOCKOUT, not a latch: a second deliberate flick a beat
+  // later is answered in full. 250ms is about as fast as a wrist re-flicks.
+  {
+    const first = wheelNotch(0, 100, 0, 1000, -Infinity);
+    check("a detent 40ms after one notch is inside the deaf window",
+      wheelNotch(0, 100, 0, 1040, first.notchAt).notch === 0);
+    check("...and one 250ms later is the player asking again, so it lands",
+      wheelNotch(0, 100, 0, 1250, first.notchAt).notch === 1);
   }
 }
 
@@ -19681,8 +19744,15 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     button, buttons, pointerId: 1, pointerType, clientX, clientY,
     preventDefault: () => { prevented += 1; },
   });
+  /** Wheel events carry their own clock (input.ts reads `timeStamp`, which is
+   *  what the notch rate limit measures), and every scroll below is a separate
+   *  deliberate one — so the harness advances 200ms per event, which is about
+   *  as fast as a wrist re-flicks. Passing no time would leave the handler on
+   *  performance.now(), where these back-to-back sends are microseconds apart
+   *  and every scroll after the first is a momentum tail. */
+  let wheelClock = 1000;
   const whl = (deltaY: number, deltaMode = 0, ctrlKey = false) => ({
-    deltaY, deltaX: 0, deltaMode, ctrlKey, metaKey: false,
+    deltaY, deltaX: 0, deltaMode, ctrlKey, metaKey: false, timeStamp: (wheelClock += 200),
     preventDefault: () => { prevented += 1; },
   });
   /** Quarter-turns the piece made across a call, signed. */

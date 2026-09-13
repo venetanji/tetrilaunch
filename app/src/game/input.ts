@@ -112,6 +112,33 @@ import { WORLD } from "./engine";
  *  to an end stop instead of stepping it. */
 const WHEEL_STEP_PX = 100;
 
+/** How long after a notch fires the wheel is DEAF, in ms.
+ *
+ *  WHY DISTANCE ALONE WAS NOT ENOUGH. The accumulator measures a gesture by
+ *  travel rather than by event count, which is what stops a trackpad's thirty
+ *  crumbs from being thirty notches — but a real macOS momentum flick does not
+ *  send 240px, it sends about 1180px: a rising front edge and then a long
+ *  decaying tail, ~16ms apart, all of it from ONE finger movement that has
+ *  already ended. At 100px a notch that is ten notches spent on a dial with
+ *  five steps, i.e. the whole loft range slammed to its end stop and a third
+ *  of the way back, from a flick that meant one step. (The fling case already
+ *  pinned here only covered one BIG delta; the tail is many medium ones.)
+ *
+ *  DEAF, NOT DEFERRED: travel that arrives inside the window is discarded
+ *  rather than banked, because banking it would just move the same ten notches
+ *  onto a 120ms metronome. Momentum is the desk still coasting, not the player
+ *  still asking.
+ *
+ *  120ms ≈ 7 frames at 60Hz. Above it, a 1180px flick spends 2 notches instead
+ *  of 10 (sim/systems.ts drives the trace); below it, the tail starts paying
+ *  again. It is also comfortably under the ~250ms a second deliberate flick of
+ *  the wrist takes, so nothing a player asks for twice is refused. The cost is
+ *  paid by a clicky wheel SPUN hard — its detents can arrive 40ms apart and
+ *  two of every three are then dropped — and that is the right side to lose
+ *  on: the dial is five steps wide, so its whole range is 480ms of scrolling,
+ *  and an overshoot on a spun wheel is a shot aimed at the wrong arc. */
+const WHEEL_NOTCH_MIN_MS = 120;
+
 export type RotateDir = "left" | "right";
 
 /** Loft the wheel adds or removes per notch (Game.aimLoft is 0..1, so five
@@ -145,6 +172,12 @@ const LOB_DRAG_PX = 150;
  *  "how far have you pushed THIS way", and pushing the other way ends that
  *  question.
  *
+ *  AND A NOTCH IS ALSO RATE-LIMITED (WHEEL_NOTCH_MIN_MS), which is the half
+ *  distance alone could not buy: a macOS momentum flick is ~1180px of decaying
+ *  tail arriving 16ms apart from one finger movement that has already ended,
+ *  and by travel alone that is ten notches on a five-step dial. The window is
+ *  deaf rather than deferred — travel inside it is discarded, not banked.
+ *
  *  THE REMAINDER IS DROPPED on a fire rather than carried, so no single event
  *  can ever be worth more than one turn. That is what keeps an inertial fling
  *  honest — one 400px momentum delta, or one deltaMode 2 page, is one turn and
@@ -156,19 +189,30 @@ export function wheelNotch(
   accum: number,
   deltaY: number,
   deltaMode: number,
-): { accum: number; notch: -1 | 0 | 1 } {
+  /** This event's timestamp, in the same clock as `lastNotchAt`. */
+  now: number,
+  /** When this accumulator last FIRED a notch — see WHEEL_NOTCH_MIN_MS. The
+   *  caller keeps it (input.ts's wheelNotchAt) and seeds it at -Infinity, so
+   *  the first notch of a fresh bay is never held back. */
+  lastNotchAt: number,
+): { accum: number; notch: -1 | 0 | 1; notchAt: number } {
   // deltaMode is the unit the device chose to speak in — 0 px, 1 lines,
   // 2 pages — and it is per-EVENT, not per-device: the same wheel can switch
   // modes when a modifier or an OS setting changes. Normalising here rather
   // than at the call site means the threshold above is one number in one unit.
   const px = deltaY * (deltaMode === 1 ? WHEEL_STEP_PX / 3 : deltaMode === 2 ? WHEEL_STEP_PX : 1);
-  if (px === 0) return { accum, notch: 0 };
+  if (px === 0) return { accum, notch: 0, notchAt: lastNotchAt };
+  // THE LOCKOUT IS DEAF, and it is tested before the travel is banked rather
+  // than after: everything arriving inside the window is a momentum tail the
+  // desk is coasting through, and banking it would spend the same travel one
+  // notch later instead of not spending it at all (see WHEEL_NOTCH_MIN_MS).
+  if (now - lastNotchAt < WHEEL_NOTCH_MIN_MS) return { accum: 0, notch: 0, notchAt: lastNotchAt };
   const next = Math.sign(px) === Math.sign(accum) ? accum + px : px;
-  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, notch: 0 };
+  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, notch: 0, notchAt: lastNotchAt };
   // +1 is a wheel-DOWN notch (positive deltaY); the caller owns what a
   // direction means, which is what let this survive the wheel changing jobs
   // (it turned the shipment once; it lofts the arc now).
-  return { accum: 0, notch: px > 0 ? 1 : -1 };
+  return { accum: 0, notch: px > 0 ? 1 : -1, notchAt: now };
 }
 
 /**
@@ -267,6 +311,10 @@ export class InputController {
    *  arrives on a bay that is not being played, so a half-notch banked before
    *  a pause cannot fall out of the machine on the first scroll after it. */
   private wheelAccum = 0;
+  /** When the wheel last SPENT a notch, in the event clock (see
+   *  WHEEL_NOTCH_MIN_MS). -Infinity means "never", so the first notch of a
+   *  fresh bay is answered immediately however long the player took to scroll. */
+  private wheelNotchAt = -Infinity;
   private raf = 0;
 
   /** settings.wheelRotates, read live so the Controls toggle applies without
@@ -782,6 +830,10 @@ export class InputController {
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) {
       this.wheelAccum = 0;
+      // The lockout goes with the banked travel, for the same reason: a bay
+      // that was not accepting scrolls owes the first scroll of the next one
+      // an immediate answer.
+      this.wheelNotchAt = -Infinity;
       return;
     }
     // ctrl/⌘+wheel is the browser's zoom, not a scroll, and it is one of the
@@ -796,8 +848,18 @@ export class InputController {
     // that is meant to be the whole viewport. During play the wheel belongs to
     // the game whether or not this particular event earns a rotation.
     e.preventDefault();
-    const r = wheelNotch(this.wheelAccum, e.deltaY, e.deltaMode);
+    // THE EVENT'S OWN CLOCK, not performance.now(): `timeStamp` is a
+    // DOMHighResTimeStamp on the same time origin, it is the moment the wheel
+    // actually moved rather than the moment the handler got around to it
+    // (coalesced deliveries can queue several), and it is settable by a test
+    // harness, which is what lets a real momentum trace be driven through this
+    // without a browser. The fallback covers an event that carries no time at
+    // all — a synthesized one — where "now" is the honest reading.
+    const r = wheelNotch(
+      this.wheelAccum, e.deltaY, e.deltaMode, e.timeStamp || performance.now(), this.wheelNotchAt,
+    );
     this.wheelAccum = r.accum;
+    this.wheelNotchAt = r.notchAt;
     if (r.notch === 0) return;
     // CLASSIC-WHEEL OPTION (settings.wheelRotates): the wheel keeps its
     // original job — a notch turns the shipment, wheel-down clockwise the
