@@ -12284,6 +12284,178 @@ button.panel { color: var(--text); }
   font-family: var(--font-pixel); font-size: 18px; color: var(--warn);
 }
 
+/* ---------------------------------------------------------------------------
+   FULL GAME PREVIEW (ui/screens.ts's previewScreen)
+
+   The sheet that opens where "Unlock Full Game" used to open the store's own.
+   A demo panel and three lines, and the whole layout problem is that it has to
+   hold both on a 640x360 landscape phone without scrolling — the no-scroll
+   product rule applies here like everywhere else, and a sales page that hides
+   its third claim below a fold is a sales page that made two claims.
+
+   THE ARITHMETIC IT IS BUILT TO. On the budget phone the screen's own vertical
+   padding is 12 top and bottom, the header is one 9px eyebrow over a clamped
+   title (~44px all told), and the body takes what is left: 360 - 24 - 44 - 12
+   of gap = 280px. The right-hand column spends that on three list rows, a 44px
+   primary, a 44px secondary and the gaps between them, which is what sized the
+   rows: 3 x 40 + 88 + 3 x 8 = 232, leaving 48px of slack for a face whose rows
+   measure taller than Chromium's (WebKit's do) and for the status line the
+   store's refusal prints. That slack is why nothing here is [data-scroll].
+
+   The demo panel takes no height decision at all: it fills its grid cell and
+   the renderer letterboxes the 16:9 world into whatever rect it gets
+   (render.ts's fitViewport), exactly as the menu's panel does. That is what
+   makes this column safe at every row in the matrix — there is no aspect-ratio
+   here to fight the viewport's own.
+   ------------------------------------------------------------------------ */
+.fullgame {
+  /* Wider than the app's other centred screens (.controls caps at 760) because
+     this one is ARTWORK-LED: the demo is the argument, and at 1000 the panel
+     stopped growing well before a laptop window ran out of room, leaving a
+     230px band of nothing above and below it. 1200 is where a 16:9 panel in the
+     larger track fills a 1280x720 laptop's body height, which is the smallest
+     window this cap can bind on. */
+  max-width: 1200px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding-block: var(--sp-3);
+}
+.fullgame__hd {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  flex: none;
+}
+/* --fs-h2 rather than --fs-h1: the title shares its row with a 52px close
+   button and shares the screen with a demo that should be the largest thing on
+   it. A headline that out-weighs the artwork is a page about its own heading. */
+.fullgame__title { font-size: var(--fs-h2); }
+.fullgame__body {
+  flex: 1; min-height: 0;
+  /* The demo takes the larger share; the list column is floored at the width
+     its longest sentence needs (the six material names) and capped so a desktop
+     window does not stretch one line of prose across 600px. */
+  /* THE LIST TRACK IS A SHARE, CAPPED, FLOORED. A flat minmax(250px, 360px)
+     took 360 of a 640px phone's 584 usable px and left the demo 208 — the
+     pitch smaller than the bullet points selling it. As a share it scales:
+     360px is the cap a desktop window stops at (one line of prose should not
+     run 600px), 38% is what it asks for below that, and 250px is the floor the
+     six material names need before the sentence starts wrapping to five lines.
+     On the budget phone that resolves to 250 and the demo takes 318. */
+  --split-cols: minmax(0, 1.2fr) minmax(250px, min(360px, 38%));
+  --split-gap: var(--sp-4);
+  /* SAFE centre, and the qualifier is the whole rule. Plain centring is right
+     for a desktop window, where both columns are shorter than the row — the
+     panel is 16:9 and the list is three sentences — and stretching them put the
+     demo in a tall near-square box it would then have letterboxed away, with
+     the buttons stranded 350px below the last list row.
+     But centring an item TALLER than its row overflows it equally in both
+     directions, and on the 640x360 phone carrying the store's refusal line the
+     right-hand column is exactly that: its first list row rode up under the ✕
+     in the header while the note hung off the bottom edge. `safe` says
+     "centre until that would push content out of the box, then align to the
+     start" — so the tall case stacks downward from the top of its own row
+     instead of climbing into the header above it. */
+  --split-align: safe center;
+}
+
+/* The demo panel. Two states in one box, the same pair the menu's has and for
+   the same reasons — see the "Menu attract demo" section: `is-live` is added by
+   main.ts only once the demo is really drawing, the paragraph is the canvas's
+   text alternative while it is, and it is the whole of the panel when reduced
+   motion or a missing 2D context means there is no demo at all. */
+.fullgame__demo {
+  position: relative;
+  /* 16:9, LIKE THE MENU'S AND FOR THE SAME REASON. The renderer letterboxes the
+     world into whatever rect it is handed (render.ts's fitViewport), so any box
+     is CORRECT — but a box that is not 16:9 spends the difference on bars, and
+     in a full-height desktop column that difference was most of the panel.
+     Width-led rather than height-led so the ratio is resolved against the track
+     the grid already sized; `max-height` is the guard for the opposite case, a
+     cell wider than it is tall, where the renderer's bars go back to being the
+     right answer. */
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-hard-lg);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.fullgame__demo:not(.is-live) {
+  display: flex; align-items: center;
+  padding: var(--sp-4);
+}
+.fullgame__alt { color: var(--text-dim); font-size: var(--fs-sm); margin: 0; }
+.fullgame__demo.is-live .fullgame__alt {
+  /* Visually hidden, NOT removed: a screen reader still gets the description,
+     which is all a bare canvas would otherwise offer it. */
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+.fullgame__demo-canvas { display: none; }
+.fullgame__demo.is-live .fullgame__demo-canvas {
+  display: block; width: 100%; height: 100%;
+}
+
+.fullgame__side {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  min-height: 0;
+}
+.fullgame__list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  min-height: 0;
+}
+.fullgame__row {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  font-size: var(--fs-sm); line-height: 1.35; color: var(--text);
+}
+/* The glyph sits on the first line's cap height rather than on the flex box's
+   centre, or a two-line row hangs its icon in the gutter between its lines. */
+.fullgame__row svg { flex: none; margin-top: 2px; color: var(--accent); }
+.fullgame__actions { display: flex; flex-direction: column; gap: var(--sp-2); flex: none; }
+.fullgame__note {
+  margin: 0; flex: none;
+  font-size: var(--fs-sm); color: var(--warn); text-align: center;
+}
+
+/* THE LANDSCAPE-PHONE STEP. Keyed on HEIGHT, because height is the axis this
+   screen actually runs out of: the right-hand column is three sentences, two
+   44px buttons and — when the store refuses — a line saying so, and on a
+   640x360 handset that stack was 16px taller than the body it sits in. Measured
+   with the safe-centre rule above in place, which is what surfaced it: plain
+   centring had been splitting the same overflow into 8px above (up under the
+   header's ✕, where nothing measures) and 8px below.
+
+   Three gaps and the panel's own padding come down, which buys 28px — enough
+   for the 16 the budget phone was over plus room for a face whose rows measure
+   taller than Chromium's. Nothing that a finger touches gets smaller: the
+   44px floor on both buttons is untouched, which is why the saving had to come
+   from the air between things.
+
+   460px rather than the 375 the failing rows sit at, so the whole
+   landscape-phone band steps together (the 412dp Pixel 7 included) instead of
+   two handsets of the same shape drawing the list at different densities. */
+@media (max-height: 460px) {
+  .fullgame { padding-block: var(--sp-2); gap: var(--sp-2); }
+  .fullgame__side { gap: var(--sp-2); }
+  .fullgame__list { gap: var(--sp-1); }
+}
+
+/* Stacked, on the one condition that actually means "there is no width for two
+   columns" — see the note at the menu's own stacking query, which this reuses
+   rather than restates. `.split` has already collapsed to one column by the
+   time this runs; what is left is giving the demo panel a height of its own,
+   since it no longer has a full-height grid cell to fill. */
+@media (max-aspect-ratio: 1/1) {
+  /* One column now, so the panel's `max-height: 100%` is measuring a row that
+     holds the list and the buttons as well — and 100% of that is taller than
+     the panel's own share of it. Released, so the 16:9 above decides the height
+     and the stack's total is what the screen has to fit. */
+  .fullgame__demo { max-height: none; }
+  .fullgame__body { --split-align: start; }
+}
+
 /* ============================================================================
    REDUCED MOTION: THE LAST WORD (F9)
    ============================================================================

@@ -801,6 +801,11 @@ const withChain = (chain: S.ChainState): string =>
 const live = (html: string): string =>
   html.replace('class="menu__demo"', 'class="menu__demo is-live"');
 
+/** The same hand-off for the Full Game preview's panel (main.ts's syncAttract
+ *  adds `is-live` to whichever of the two it just mounted). */
+const livePreview = (html: string): string =>
+  html.replace('class="fullgame__demo"', 'class="fullgame__demo is-live"');
+
 /**
  * Screen id -> markup. Ids are stable: run.mjs, the PNG filenames and any
  * allowlist in the assertions all key off them.
@@ -858,6 +863,25 @@ export const SCREENS: Record<string, () => string> = {
   // ratchet). PROGRESS above is a Mark-0 save, so every other menu fixture
   // measures the panel at Tier 1 — where the belt is empty and the bonds read
   // "×1.0" — and would never have caught the top of the ladder overflowing.
+  /* THE FULL GAME PREVIEW (screens.ts's previewScreen) — three fixtures, and
+     they are keyed by STATE rather than by device, because the harness runs
+     every fixture on every one of the 19 rows. "preview-phone" would measure
+     the phone layout on a desktop row and call it a pass.
+
+     The three states are the two that actually differ in height, plus the
+     ordinary one:
+      - `preview` is what a player sees: the demo mounted, no status line.
+      - `preview-note` adds the store's refusal under the buttons, which is the
+        right-hand column at its tallest — three list rows, two 44px buttons and
+        a line of prose under them.
+      - `preview-still` is the reduced-motion / no-2D-context fallback, where the
+        panel is not a canvas at all but the paragraph that describes it. That
+        paragraph is real copy in a padded box, so it is the demo column's own
+        worst case and the only fixture that can catch it being clipped. */
+  preview: () => livePreview(S.previewScreen()),
+  "preview-note": () => livePreview(S.previewScreen({ note: S.STORE_UNAVAILABLE_TEXT })),
+  "preview-still": () => S.previewScreen({ note: S.STORE_UNAVAILABLE_TEXT }),
+
   "menu-tower-top": () =>
     S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP),
   "menu-tower-top-live": () =>

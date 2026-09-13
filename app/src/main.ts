@@ -109,7 +109,7 @@ import { dprQueries, render, renderScale, scanlineMetrics } from "./game/render"
 import { CHUTE_ROOF_BASE_Y, setChuteRoofY } from "./game/chute";
 import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
-import { AttractDemo } from "./game/attract";
+import { AttractDemo, MENU_BAY, PREVIEW_BAY } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
 import {
   computeLayout,
@@ -185,6 +185,13 @@ type AppState =
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
+  // THE FULL GAME PREVIEW (screens.ts's previewScreen) — the sheet that opens
+  // where every "Unlock Full Game" used to open the store's own. A state rather
+  // than a modal over whatever asked for it, because it is reachable from the
+  // menu, from Settings and from a tower floor, it runs a live physics demo of
+  // its own, and it has to hand the player back to whichever of those they came
+  // from (previewReturn).
+  | "preview"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
   // state rather than a flag on "paused" or "lost" because it is reachable
   // from BOTH of those and has to know which one to hand back — and because
@@ -317,7 +324,11 @@ const STORE_NOTE_MS = 2600;
  */
 const COVERS_CANVAS = new Set<AppState>([
   "splash", "menu", "howto", "settings", "controls",
-  "leaderboard", "workshop", "contracts", "sandbox",
+  // The preview sheet is a full-bleed `.screen` like the rest of this list —
+  // and it runs a physics world of its own, so drawing the app's field behind
+  // one that nothing can see through would be two simulations painting for one
+  // viewer.
+  "leaderboard", "workshop", "contracts", "sandbox", "preview",
 ]);
 
 /** How long the misfire guide stays up. One pass of the corrective animation
@@ -653,6 +664,22 @@ class App {
    * Account is a plain sign-in, not a resumed purchase.
    */
   private paywallReturn: AppState | null = null;
+  /** Where "Not now" (and B, and Escape) hand the player back from the Full
+   *  Game preview. Written by offerFullGame from the state the offer was made
+   *  on, for the reason paywallReturn above is an AppState rather than "menu":
+   *  the sheet is offered from the menu chip, the Settings row, a paywalled
+   *  tower floor and the Contracts cap, and the honest answer to "not now" is
+   *  the screen the player was actually reading. */
+  private previewReturn: AppState = "menu";
+  /** The preview sheet's own status line (screens.ts's PreviewOpts.note).
+   *
+   *  ONE LINE, AND ONLY THE STORE'S: presentPaywall returns silently while the
+   *  SDK is unconfigured, so a primary pressed against no store answered with
+   *  nothing at all. The tower already refuses that case in words rather than
+   *  in silence (noteStoreUnavailable); this is the same refusal, printed on
+   *  the button the player actually pressed. Cleared on every entry to the
+   *  sheet, so a previous visit's refusal is never the first thing on it. */
+  private previewNote: string | null = null;
   /** The account screen's failure line (screens.ts's StoreState.account.error).
    *  Set by a deletion that did not complete, cleared on every exit from the
    *  screen — the next visit starts clean, and a retry starts by leaving for
@@ -1343,6 +1370,15 @@ class App {
     // store UI. Entitlement changes (renewal, expiry, a purchase on another
     // device) land on the same path.
     const restoreScreen = (): void => {
+      // A PURCHASE THAT LANDED UNDER THE PREVIEW SHEET CLOSES IT. The sheet's
+      // entire subject is an entitlement the player now holds, so re-rendering
+      // it would leave them reading an offer for something they have just
+      // bought — with a primary that would re-open the store. Handed back to
+      // wherever the offer was made, which is where a "Not now" would have gone.
+      if (this.state === "preview" && this.fullGame()) {
+        this.setState(this.previewReturn);
+        return;
+      }
       if (this.state === "menu" || this.state === "settings") this.renderOverlay();
     };
     void (async () => {
@@ -3015,7 +3051,7 @@ class App {
       if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !this.fullGame()
         && S.tierOpen({ ...state, fullGame: true }, tier)) {
         if (purchasesReady()) {
-          void this.onPaywall();
+          this.offerFullGame();
           return;
         }
         // NO STORE, NO OFFER. presentPaywall returns silently while the SDK is
@@ -3818,6 +3854,9 @@ class App {
             });
         }
         break;
+      case "preview":
+        this.overlay.innerHTML = S.previewScreen({ note: this.previewNote });
+        break;
       case "howto":
         this.overlay.innerHTML = S.guideScreen({
           chapter: this.guideChapter,
@@ -4554,16 +4593,27 @@ class App {
    */
   private syncAttract(): void {
     const covered = this.guard.classList.contains("show");
-    const host = this.state === "menu" && !covered
-      ? this.overlay.querySelector<HTMLElement>(".menu__demo")
-      : null;
-    if (!host) {
+    // TWO HOSTS, ONE DEMO. The menu's panel plays MENU_BAY and the Full Game
+    // preview's plays PREVIEW_BAY, and they are never up at the same time — so
+    // they share this one AttractDemo instance rather than owning one each, and
+    // whichever screen is on mounts it with the bay it wants. A second instance
+    // would be a second physics world stepping for a screen nobody is looking
+    // at, which is exactly what stop() exists to prevent.
+    const panel = covered
+      ? null
+      : this.state === "menu"
+        ? { sel: ".menu__demo", bay: MENU_BAY }
+        : this.state === "preview"
+          ? { sel: ".fullgame__demo", bay: PREVIEW_BAY }
+          : null;
+    const host = panel ? this.overlay.querySelector<HTMLElement>(panel.sel) : null;
+    if (!host || !panel) {
       this.attract.stop();
       return;
     }
     const canvas = host.querySelector("canvas");
     host.classList.add("is-live");
-    if (!canvas || !this.attract.mount(canvas)) host.classList.remove("is-live");
+    if (!canvas || !this.attract.mount(canvas, panel.bay)) host.classList.remove("is-live");
   }
 
   /** Reflects fullscreen STATE onto every fullscreen control currently
@@ -4908,7 +4958,7 @@ class App {
     const selected = this.towerState().selected;
     if (!this.fullGame() && selected !== S.SANDBOX_TIER
       && (selected === S.SKYDECK_TIER || selected > FREE_TIER_LIMIT)) {
-      void this.onPaywall();
+      this.offerFullGame();
       return;
     }
     // THE DOOR, RE-ASKED WHERE THE RUN ACTUALLY STARTS. Two buttons reach here
@@ -8329,6 +8379,10 @@ class App {
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
       case "account": return '[data-action="settings"]';
+      // The preview sheet HAS a back, and it is the reversible half of a pair
+      // rather than a choice between exits: "Not now" changes nothing and the
+      // primary spends money, so B and Escape give the one that spends nothing.
+      case "preview": return '[data-action="preview-back"]';
       // Like the seal notice, and for the identical reason: the deletion panel
       // is one action being priced, not a choice between exits, so B gives the
       // reversible answer rather than dismissing the question.
@@ -8909,7 +8963,14 @@ class App {
         this.coachRetry();
         break;
       case "submit-score": void this.onSubmitScore(); break;
-      case "paywall": void this.onPaywall(); break;
+      // THE NAME STAYS, THE DESTINATION MOVES. Three surfaces render this action
+      // (the menu chip, the Settings row, the Contracts cap's door) and they all
+      // mean "make me the offer" rather than "open the store" — so the action
+      // now opens the preview, and the store is what the preview's own primary
+      // opens.
+      case "paywall": this.offerFullGame(); break;
+      case "preview-buy": this.onPreviewBuy(); break;
+      case "preview-back": this.setState(this.previewReturn); break;
       case "restore": void this.onRestore(); break;
       case "pick-hazard":
         this.onPickHazard(el.getAttribute("data-hazard") ?? "");
@@ -9001,8 +9062,9 @@ class App {
         const asked = Number(el.getAttribute("data-tier") ?? "1");
         // The gated chips render disabled, so this branch is the re-check for
         // routes the DOM cannot police (a stale card, a synthetic event) —
-        // and it answers like the tower does: with the paywall, not silence.
-        if (!tierIncluded(asked, this.fullGame())) { void this.onPaywall(); break; }
+        // and it answers like the tower does: with the OFFER (the Full Game
+        // preview), not silence.
+        if (!tierIncluded(asked, this.fullGame())) { this.offerFullGame(); break; }
         this.sandbox.tier = asked;
         // Selecting a tier below the current variant's rung would leave the
         // panel pointing at something it cannot generate. Fall back to the
@@ -9101,7 +9163,7 @@ class App {
         // asked — same reasoning as the tower's tierOpen before newRun: a
         // state reachable by a route nobody has thought of yet must still
         // refuse to fly a Tier the account does not hold.
-        if (!tierIncluded(this.sandbox.tier, this.fullGame())) { void this.onPaywall(); break; }
+        if (!tierIncluded(this.sandbox.tier, this.fullGame())) { this.offerFullGame(); break; }
         this.launchSandbox();
         return; // startContract/startLevel render for us
       default: {
@@ -9870,6 +9932,57 @@ class App {
       box.remove();
     }, { capture: true });
     document.body.appendChild(box);
+  }
+
+  /**
+   * THE OFFER, WHICH IS NOT THE STORE.
+   *
+   * Every "Unlock Full Game" in the game comes through here now — the menu
+   * chip, the Settings row, a tap on a paywalled tower floor, the Contracts
+   * cap's door — and what it opens is screens.ts's previewScreen, not
+   * RevenueCat's sheet. That sheet is configured in a dashboard and can say
+   * nothing about this game; the four words on the button that opened it were
+   * the whole pitch for seven Tiers, six materials and an unmetered board. The
+   * preview says what the entitlement opens and then offers the store.
+   *
+   * A NO-OP FOR AN OWNER, which is what it was before: the entitled surfaces
+   * render a ★ badge rather than a button, so reaching this at all means a
+   * route the DOM could not police (a stale screen, a pad press landing on a
+   * re-rendered button) — and the honest answer to "sell me a thing I own" is
+   * still nothing. `isDesktop` counts as owning it, same as everywhere else
+   * this asks (fullGame).
+   *
+   * The RETURN is captured here rather than inside the sheet because this is
+   * the only place that knows what was interrupted.
+   */
+  private offerFullGame(): void {
+    if (this.fullGame()) return;
+    this.previewReturn = this.state;
+    this.previewNote = null;
+    this.setState("preview");
+  }
+
+  /**
+   * The preview's primary: the store, gated the way the tower already gates it.
+   *
+   * NO STORE, NO SHEET — presentPaywall returns silently while the SDK is
+   * unconfigured (no key in this build, configure failed, first launch
+   * offline), so calling it blind answers a deliberate press with nothing at
+   * all. pickTier refuses that case in words (noteStoreUnavailable); this is
+   * the same refusal on the button the player actually pressed, which is the
+   * argument that method's own note makes about the tower.
+   *
+   * The web branch is NOT a store failure and must not be caught here: on web
+   * purchasesReady() is true once the SDK configures, and onPaywall's own
+   * accounts-before-purchase detour handles a signed-out player from there.
+   */
+  private onPreviewBuy(): void {
+    if (!purchasesReady()) {
+      this.previewNote = S.STORE_UNAVAILABLE_TEXT;
+      this.renderOverlay();
+      return;
+    }
+    void this.onPaywall();
   }
 
   /** The paywall itself is native UI configured in the RevenueCat dashboard —

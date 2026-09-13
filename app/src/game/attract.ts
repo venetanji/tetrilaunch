@@ -15,6 +15,8 @@ import { Game } from "./game";
 import { makeBaseLevel, type LevelConfig } from "./level";
 import { fitViewport, render, renderScale } from "./render";
 import { createAutopilot, type Autopilot } from "./autopilot";
+import { applyRatchets, type Ratchets } from "./hazards";
+import { applyUpgrades, MAX_TIER, newTiers, type UpgradeTiers } from "./upgrades";
 
 /** Physics step (ms) — engine.ts's fixed 60Hz, same as main.ts's STEP. */
 const STEP = 1000 / 60;
@@ -73,7 +75,108 @@ const FADE_MS = 450;
 const MAX_DPR = 1.5;
 
 /**
- * The bay the demo plays: bay 1's ladder entry with every FAILURE and every
+ * WHICH BAY THE DEMO FLIES.
+ *
+ * The demo was a fixed bay 1 at Tier 1 for as long as it existed, because the
+ * menu was the only place it ran and the menu's job is to show the game a first
+ * player is about to be handed. The Full Game preview sheet (ui/screens.ts's
+ * previewScreen) needs the opposite: the bay a player does NOT have yet. So the
+ * bay is an argument now rather than a literal.
+ *
+ * It is stated as the three things a real run is made of — the rung of the
+ * ladder, the notches the player ratcheted, and the systems they mounted — and
+ * resolved through the SAME functions a Deep Run resolves them through
+ * (hazards.ts's applyRatchets, upgrades.ts's applyUpgrades). A second
+ * hand-written LevelConfig here would be a DRAWING of a Tier 7 bay rather than
+ * one, and it would drift the first time either of those ladders is retuned —
+ * which is the argument this file opens with, applied one level up.
+ */
+export interface AttractBay {
+  /** Bay index on the ten-bay ladder, 0-based — makeBaseLevel's own argument.
+   *  It sets the press speed, the bond ramp, and whether the bay has any
+   *  weather to ratchet at all (nothing below index 3 does). */
+  index: number;
+  /** The Tier flown (LevelConfig.mark). */
+  mark: number;
+  /** Difficulty axes ratcheted, and how far. This is the ONLY way a material
+   *  reaches the belt — makeBaseLevel ships every bay clean (see its
+   *  materialMix note), so a demo that wants cryo on the conveyor has to have
+   *  taken the notch that schedules it, exactly as a run does. */
+  ratchets: Ratchets;
+  /** Ship systems mounted, by track and rung. */
+  tiers: UpgradeTiers;
+}
+
+/** The menu's bay: bay 1 of Tier 1, stock rig, nothing ratcheted. Byte-for-byte
+ *  the bay this module played before it took an argument — makeBaseLevel(0) is
+ *  unchanged, applyRatchets over an empty Ratchets copies the config and writes
+ *  nothing, and applyUpgrades skips every track sitting at 0. */
+export const MENU_BAY: AttractBay = {
+  index: 0, mark: 1, ratchets: {}, tiers: newTiers(),
+};
+
+/**
+ * THE PREVIEW'S BAY — what the paid half of the ladder actually looks like,
+ * flown rather than described.
+ *
+ * Every choice here is one the preview sheet's list also makes in words, so the
+ * canvas and the three lines beside it are describing the same bay:
+ *
+ *  - **Tier 7, bay 8.** Past FREE_TIER_LIMIT, and deep enough into the bay
+ *    ladder that the press is quick and the bay has weather of its own.
+ *  - **Crosswind, two notches.** The one number axis that is legible with no
+ *    HUD over the field: the dotted arc bends, and the autopilot re-aims into
+ *    it every shot.
+ *  - **Slag leading, cryo and volatile behind it.** Slag is the headline for a
+ *    reason the other two cannot supply: a dead cube fills a slot and NEVER
+ *    counts, so it is the one material the autopilot has no way to clear, and
+ *    a bay that is taking slag is a bay whose pile only goes one direction.
+ *    That is what makes the rack below a recurring beat rather than a claim —
+ *    demolition is slag's only clean answer (hazards.ts says so at the axis
+ *    itself), so the sheet shows the problem and the answer in the same frame.
+ *    Cryo and volatile ride behind it at a notch each because they are what a
+ *    PLAYER notices: frost that shatters under the press, and a hard landing
+ *    that takes its neighbours with it.
+ *
+ *    Three notches, one and one: 0.17 + 0.07 + 0.07 = 0.31 of the belt, which
+ *    is under belt.ts's one-in-three ceiling, so hazards.ts's MIX_TOTAL_CAP
+ *    scales nothing back and the rates the axes schedule are the rates that
+ *    arrive. A fourth material, or a thicker cryo, puts the sum over it.
+ *  - **A maxed Demolition Rack.** Six charges a bay AND a resupply line, which
+ *    is what lets the autopilot keep answering the pile for a whole 90-second
+ *    cycle instead of firing six times and going quiet.
+ *
+ * MEASURED, over eight seeds x 90s of this exact bay (the numbers this constant
+ * was chosen on, re-measurable through sim/systems.ts's own flight of it):
+ * every seed spends between four and seven charges, the congestion floor sits
+ * in its amber band a mean 50% of the cycle and in the red 19% of it, and the
+ * pile peaks between 36 and 96 cubes — inside MAX_CUBES, so the recycle stays
+ * the backstop it is on the menu.
+ *
+ * The FIRST charge lands at a median of 17s, and that spread is the honest
+ * caveat on this bay: six of the eight seeds fire inside 17 seconds, one takes
+ * 31 and one takes 77. The pile has to reach the bay's own congestion line
+ * before a charge is worth spending (autopilot.ts's `congested`), and how fast
+ * it gets there depends on the bag. Deepening the slag does not move it —
+ * measured at four, five and six notches, the timings are identical, because
+ * belt.ts's MATERIAL_GAP already caps how often a material can arrive. What
+ * would move it is opening the bay mid-pile (a longer WARMUP_STEPS), and that
+ * is a blocking burst of physics on the frame the sheet opens — the wrong thing
+ * to spend on a tap.
+ *
+ * Not a Final Inspection, not a salvage wall, not a fourth material: the sheet
+ * is ninety seconds of a bay, and a viewer who cannot tell what is happening
+ * has been sold nothing.
+ */
+export const PREVIEW_BAY: AttractBay = {
+  index: 7,
+  mark: 7,
+  ratchets: { wind: 2, slag: 3, cryo: 1, volatile: 1 },
+  tiers: { ...newTiers(), demolition: MAX_TIER },
+};
+
+/**
+ * The bay the demo plays: `bay`'s ladder entry with every FAILURE and every
  * ENDING taken out of it.
  *
  * A demo that can be lost is a demo that spends part of its life showing a
@@ -86,9 +189,20 @@ const MAX_DPR = 1.5;
  * Free launches also remove the only other way this ends — the broke-loss
  * countdown can't start while funds cover a shot, and at zero cost they always
  * do (game.ts's broke branch).
+ *
+ * The three overrides are applied LAST, after the ratchets and the systems, and
+ * that ordering is load-bearing rather than tidy: Fuel Levy writes launchCost
+ * and Shift Cut writes timeLimitSec, so a demo bay that took either notch would
+ * otherwise arrive back at a clock and a price the loop has no way to survive.
+ *
+ * EXPORTED for sim/systems.ts, which flies this exact config through the real
+ * autopilot to pin that a preview bay spends demolition charges and a menu bay
+ * never arms one. A pin that rebuilt the config itself would be measuring its
+ * own arithmetic — the thing this function exists to be the single copy of.
  */
-function demoLevel(): LevelConfig {
-  const base = makeBaseLevel(0);
+export function demoLevel(bay: AttractBay): LevelConfig {
+  const base = applyRatchets(makeBaseLevel(bay.index, bay.mark), bay.ratchets);
+  applyUpgrades(base, bay.tiers);
   return {
     ...base,
     timeLimitSec: 0,
@@ -99,7 +213,7 @@ function demoLevel(): LevelConfig {
     // it there. A billion is ~10 million line clears away and still an
     // ordinary number for everything downstream to do arithmetic on.
     targetScore: 1e9,
-    // Everything else — the 900ms fire cooldown included — is bay 1 exactly.
+    // Everything else — the 900ms fire cooldown included — is the bay exactly.
     // The cooldown in particular was worth trying to shorten and is worth
     // leaving alone: measured over 5 seeds x 90s, dropping it to 700ms took
     // the autopilot from 27 lines and 6% of its cargo wasted to 17 lines and
@@ -139,6 +253,12 @@ export class AttractDemo {
   /** Bumped per recycle and mixed into each bay's seed, so consecutive bays
    *  don't replay one another. */
   private cycleIndex = 0;
+  /** Which bay the live cycle was built from. Compared by IDENTITY on every
+   *  mount: the two callers each hand over one frozen module constant
+   *  (MENU_BAY, PREVIEW_BAY), so a change of bay is a change of object, and a
+   *  deep comparison here would be arithmetic in service of a question a
+   *  reference already answers. */
+  private bay: AttractBay = MENU_BAY;
 
   /**
    * Point the demo at a canvas, starting it if it isn't already running.
@@ -150,8 +270,15 @@ export class AttractDemo {
    * time even though the demo behind it should carry on. Re-pointing at the new
    * element keeps the bay running rather than restarting it every time
    * something unrelated re-renders the menu.
+   *
+   * ONE DEMO, ONE BAY AT A TIME. `bay` is what the caller wants flown, and a
+   * caller asking for a different one than the live cycle is playing gets that
+   * cycle torn down and a fresh one built — which is what keeps the menu's demo
+   * and the Full Game preview's from fighting over this instance. It is not a
+   * second physics world: main.ts owns exactly one AttractDemo, and whichever
+   * screen is up mounts it (see syncAttract).
    */
-  mount(canvas: HTMLCanvasElement): boolean {
+  mount(canvas: HTMLCanvasElement, bay: AttractBay = MENU_BAY): boolean {
     const ctx = this.allowed() ? canvas.getContext("2d") : null;
     if (!ctx) {
       // Also covers the preference being turned ON while the demo is up: the
@@ -173,6 +300,14 @@ export class AttractDemo {
       this.attachObserver();
     }
 
+    if (this.bay !== bay) {
+      // The bay changed under a running demo (the player opened the preview
+      // from the menu, or closed it back onto one). Drop the old world rather
+      // than letting a Tier 1 pile finish its cycle inside a Tier 7 frame.
+      this.cycle?.game.destroy();
+      this.cycle = null;
+      this.bay = bay;
+    }
     if (!this.cycle) this.cycle = this.newCycle();
     if (!this.raf) {
       this.lastFrame = performance.now();
@@ -216,7 +351,7 @@ export class AttractDemo {
     // time the menu is visited is the one thing this must not do.
     this.cycleIndex += 1;
     const seed = (Date.now() ^ (this.cycleIndex * 0x9e3779b9)) >>> 0;
-    const game = new Game(demoLevel(), {}, seed);
+    const game = new Game(demoLevel(this.bay), {}, seed);
     const cycle: Cycle = {
       game,
       pilot: createAutopilot(seed),

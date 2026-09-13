@@ -7,20 +7,29 @@
 // compiled by its own tsconfig and excluded from the app bundle, and its bots
 // are calibration instruments whose numbers must stay pinned to whatever a
 // balance sweep last measured. Pulling one into the bundle would tie the
-// menu's look to that, and any retune of the demo's showmanship (the two
+// menu's look to that, and any retune of the demo's showmanship (the three
 // deliberate differences below) to a balance re-run. What they share is the
 // approach, and the reasoning behind it lives there in full.
 //
-// The two differences, both because a demo is watched rather than scored:
+// The three differences, all because a demo is watched rather than scored:
 //   - NO PATIENCE. The sim bot holds fire when its best candidate still misses
 //     by more than a cell, which is correct play and reads on screen as a
-//     cannon that has stopped working. This one always takes its best shot;
-//     the demo bay is dead calm (attract.ts's demoLevel), so "best" is a
-//     near-perfect landing anyway and the two would rarely disagree.
+//     cannon that has stopped working. This one always takes its best shot. On
+//     the menu's bay, which is dead calm (attract.ts's MENU_BAY), "best" is a
+//     near-perfect landing anyway and the two would rarely disagree; on a
+//     ratcheted preview bay the wind makes them disagree often, and taking the
+//     shot is still the right call — a cannon that waits out a gust is a cannon
+//     the viewer watches do nothing.
 //   - A COARSER SEARCH (5° steps, 3 powers vs. 2° and 4). Same landing
 //     accuracy to well within a cube at this bay's ranges, a third of the
 //     trajectory integrations — and this one runs on a phone that is sitting
 //     on the main menu, not on a sweep machine.
+//   - IT FIRES DEMOLITION CHARGES. The sim bot never has a rack to spend, and
+//     until the Full Game preview (ui/screens.ts's previewScreen) neither did
+//     this one: attract.ts flew a stock Tier 1 bay, where bombCharges is 0 and
+//     every branch below is unreachable. A preview bay mounts a maxed rack, and
+//     a rack nobody fires is a system the sheet claims and does not show. See
+//     `congested` for when it spends one and why the threshold is the bay's own.
 import type Matter from "matter-js";
 import type { Game } from "./game";
 import { CELL, WALL_INNER } from "./engine";
@@ -231,6 +240,59 @@ function makeGapReader() {
   };
 }
 
+/**
+ * WHEN A CHARGE IS WORTH SPENDING: once the pile has passed the bay's OWN FIRST
+ * congestion tier (level.ts's PILE_TIERS, carried on the config as pileTiers /
+ * pileAllowance). That is the line at which the bay starts charging for the
+ * pile — past it a launch costs more, reloads slower and pays less — so it is
+ * the game's own definition of a congested field rather than a number invented
+ * here, and reading it off the config means a rebalance of the tax moves this
+ * with it instead of leaving a second copy behind.
+ *
+ * THE FIRST TIER RATHER THAN THE LAST, and that was measured rather than
+ * assumed. Against the last one (the red band) a preview bay fired no charge at
+ * all on two of five seeds across a full 90-second cycle: the autopilot clears
+ * well enough that the pile hovers in the amber band and simply never reaches
+ * the red, so the rack the sheet is advertising sat full for the whole visit.
+ * Against the first, all eight measured seeds spend four to seven — and the pile
+ * still crosses into the red about a fifth of the cycle, because slag arrives
+ * faster than one charge at a time takes it away.
+ *
+ * Inert on a bay with no tiers (Contracts, lessons) and on any rig with no
+ * charges, which is every bay the menu's demo has ever flown.
+ */
+function congested(g: Game): boolean {
+  const tiers = g.level.pileTiers;
+  const first = tiers[0];
+  return !!first && g.cubes.length > first.cubes + g.level.pileAllowance;
+}
+
+/**
+ * The x of the TALLEST column in the compaction zone — where a charge does the
+ * most visible work. The exact inverse of the gap reader above, and deliberately
+ * a separate walk rather than a flag on it: that one averages over the loaded
+ * piece's width because a piece has one, and a blast is a radius about a point.
+ *
+ * `fallback` is returned when nothing is in the zone at all, which the congested
+ * test makes unreachable in practice but which a charge left armed across a line
+ * clear can still reach.
+ */
+function peakX(g: Game, fallback: number): number {
+  const slots = g.level.compactorMinLineCells;
+  let peakSlot = -1;
+  let peakY = Number.POSITIVE_INFINITY;
+  for (const c of g.cubes) {
+    const slot = Math.round((WALL_INNER - CELL / 2 - c.body.position.x) / CELL);
+    if (slot < 0 || slot >= slots) continue;
+    const y = c.body.position.y;
+    if (y < peakY) {
+      peakY = y;
+      peakSlot = slot;
+    }
+  }
+  return peakSlot < 0 ? fallback : WALL_INNER - CELL / 2 - peakSlot * CELL;
+}
+
 interface AimCandidate {
   deg: number;
   power: number;
@@ -266,7 +328,15 @@ export function createAutopilot(seed: number): Autopilot {
       if (!g.cannon.canShoot(now)) return;
       if (g.score < g.level.launchCost) return;
 
-      const { x: target, slot } = gaps.read(g, now);
+      // THE CHARGE DECISION COMES FIRST, because it changes what the shot is
+      // aiming AT. `g.nextIsBomb` leads the test so a charge armed on an earlier
+      // step that failed to leave the muzzle is fired rather than toggled back
+      // off — armBomb() is a toggle, and calling it blind on an armed rack would
+      // disarm the thing this branch exists to spend.
+      const bombing = g.nextIsBomb
+        || (g.bombCharges > 0 && congested(g) && g.armBomb());
+      const gap = bombing ? null : gaps.read(g, now);
+      const target = gap ? gap.x : peakX(g, (g.compactor.x + g.compactor.width / 2 + WALL_INNER) / 2);
       const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
       const powerScale = g.cannon.speedMax / SPEED_MAX;
       // One bar forecast shared by every candidate — the bar's future doesn't
@@ -308,11 +378,20 @@ export function createAutopilot(seed: number): Autopilot {
         Math.min(g.cannon.speedMax, chosen.power + jitterPower),
       );
 
-      const turns = (MIN_HEIGHT_TURNS[g.cannon.currentType] - g.cannon.quarterTurns + 4) % 4;
-      for (let i = 0; i < turns; i++) g.cannon.rotateRight();
+      // Not while a charge is on the rail: the loaded shipment is not going
+      // anywhere this shot (game.ts's shoot leaves it loaded), so squaring it up
+      // now would spin the crate riding the belt for no reason and leave the
+      // NEXT shot's rotation decided by a pile two launches old.
+      if (!bombing) {
+        const turns = (MIN_HEIGHT_TURNS[g.cannon.currentType] - g.cannon.quarterTurns + 4) % 4;
+        for (let i = 0; i < turns; i++) g.cannon.rotateRight();
+      }
 
       g.updateTrajectory();
-      if (g.shoot(now)) gaps.markFired(slot, now);
+      // Only a SHIPMENT claims a slot. A charge is about to take cubes out of
+      // the one it lands in, so marking it pending would steer the next real
+      // shipment away from the one place that just opened up.
+      if (g.shoot(now) && gap) gaps.markFired(gap.slot, now);
     },
   };
 }
