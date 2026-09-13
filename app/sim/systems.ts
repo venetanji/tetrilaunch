@@ -75,11 +75,15 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import {
   callCount, installBrowserStubs, makeRecCtx, newRec, resetRec, setCount, setReducedMotion,
+  setValues,
   type Rec,
 } from "./canvasrec";
 import {
-  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark,
-  landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale, THAW_REACH, THAW_REACH_MS,
+  COMPACT_MAX_RENDER_DPR, crispFontPx, debrisCount, DEBRIS_FRAME_CAP, dprQueries, fitViewport,
+  FRAME_PX, frostMark, landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale,
+  SCANLINE_LINE_CSS, SCANLINE_PERIOD_CSS, scanlineMetrics,
+  THAW_REACH, THAW_REACH_MS,
+  WALL_GLOW_REACH, wallGlowBleed,
 } from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, PENALTY_SINK_PX, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -165,7 +169,8 @@ import {
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
   SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
-  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET, budgetForTier,
+  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET,
+  SCHOOL_CONTRACT_BRIEF, budgetForTier,
   RACK_CEILING_CUBES, RACK_LIP_COLUMNS, RACK_MAX_DEPTH, RACK_PIECE, RACK_TRENCH_CELLS,
   SETPIECE_MIN_TIER, SETPIECE_SLACK_SHOTS, SETPIECE_SLOT, SETPIECE_SPARE_ROWS,
   isSetpieceSlot, rackDepthFor, rackLipColumns, rackProfile, setpieceConditions, setpieceDay,
@@ -207,6 +212,7 @@ import { DEVICES } from "./uifit/devices";
 import {
   computeLayout,
   getRailSlots,
+  NO_INSETS,
   RAIL_GAP,
   RAIL_MAX,
   RAIL_MIN,
@@ -237,11 +243,17 @@ import {
   chainLadderHTML, CHAIN_AT_REST,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintRotate, isPauseKey,
-  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, profileForPointer,
-  resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintPress, hintRotate,
+  isPauseKey, keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels,
+  profileForPointer, resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding,
+  setPadBinding, setPadFamily,
+  type InputProfile,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
+// The Full Game preview's two demo bays, flown through the real autopilot at
+// the foot of this file.
+import { MENU_BAY, PREVIEW_BAY, demoLevel } from "../src/game/attract";
+import { createAutopilot } from "../src/game/autopilot";
 import {
   armActivate, armRelease, DISARMED,
   FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
@@ -3199,6 +3211,106 @@ section("Pattern variants (contracts.ts VARIANTS)");
       .includes("contract-card--done"),
   );
 
+  // ---- THE DAY'S ALLOWANCE, SPENT (F10e) ----------------------------------
+  //
+  // A free account that has used its three clears meets a board of disabled
+  // cards. Three defects, and they compound.
+  //
+  // THE CARDS DID NOT LOOK SPENT. `disabled` and an aria-label was the whole
+  // state: announced to a screen reader, invisible to everyone else. The cards
+  // kept a live border, lit it on hover, and answered a tap with nothing at all
+  // — the owner's report, at Tier 3, reading "0 of 3 Contract clears left
+  // today" over three cards that still looked pressable.
+  //
+  // THE STRIP BURIED THE REFUSAL. The allowance was a bold TAIL on the salvage
+  // sentence, so the one visit where "why can I not play" is the player's only
+  // question opened with two clauses of reward copy about a clear that cannot
+  // be banked until midnight.
+  //
+  // AND THERE WAS NO WAY OUT. Every other gate in the game answers a refusal it
+  // can sell with the paywall, the tower's locked floors included; this one
+  // answered with grey cards. It also said the limit lasts "today", a word that
+  // means a different thing in every timezone on a board keyed to the UTC day.
+  const capped = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: false, remaining: 0, store: true },
+  });
+  // THE CARD WEARS THE STATE. The class is the hook the stylesheet should take
+  // this over with; the inline declaration is app.css's own disabled recipe
+  // (grayscale + brightness, as the shop, refit and rack buttons all use) and
+  // pins the border back off `.contract-card:hover`, because a hover that still
+  // lights the accent is the defect in miniature.
+  const cardStart = capped.indexOf('<button class="contract-card');
+  const cappedCard = capped.slice(cardStart, capped.indexOf("</button>", cardStart));
+  check("a capped card looks capped, not merely acts capped",
+    cappedCard.includes("contract-card--capped") && cappedCard.includes("grayscale"),
+    cappedCard.slice(0, 200));
+  // …and STAYS disabled, which is what keeps the tap from starting a Contract
+  // the day cannot pay for — and, through padnav's focusTargets, what keeps a
+  // pad or a Tab from landing on one as the selected card.
+  check("...and is still refused, in the one way padnav also reads",
+    cappedCard.includes(" disabled")
+      && cappedCard.includes('aria-label="Daily Contract limit reached"'),
+    cappedCard.slice(0, 200));
+  {
+    const pad = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "padnav.ts"),
+      "utf8",
+    );
+    const targets = pad.slice(pad.indexOf("export function focusTargets"));
+    check("...which padnav really does read before offering a target",
+      /\bdisabled\)\s*return;/.test(targets.slice(0, 600)), targets.slice(0, 400));
+  }
+  // THE TERMS LINE CARRIES THE STAMP. It is the card's one full-width run, and
+  // a capped card's bay conditions describe a flight that cannot be flown.
+  check("...and the terms line says why the card is grey",
+    capped.includes(">Daily limit reached</span>"), cappedCard);
+  // THE STRIP LEADS WITH THE REFUSAL and carries nothing else: no WHY badge, no
+  // milestone arithmetic about a clear that cannot be banked today.
+  const footOf = (html: string): string => {
+    const at = html.indexOf('class="muted contracts__foot"');
+    return at < 0 ? "" : html.slice(at, html.indexOf("</p>", at));
+  };
+  check("the spent board's strip opens with the refusal",
+    /^class="muted contracts__foot"><b>Daily limit reached<\/b> — resets at 00:00 UTC\./
+      .test(footOf(capped)), footOf(capped).slice(0, 200));
+  check("...and drops the reward copy it cannot honour today",
+    !footOf(capped).includes("next-badge") && !footOf(capped).includes("first clears bank"),
+    footOf(capped).slice(0, 240));
+  check("a spent allowance offers the unlock, the same door every other gate uses",
+    capped.includes('data-action="paywall"'));
+  // …and only where the offer can actually be opened. presentPaywall returns
+  // silently with no SDK behind it, so an ungated door would answer the tap
+  // with nothing — the defect main.ts's pickTier already fixed for the tower's
+  // locked floors, arriving here through the same flag (StoreState.available).
+  check("...unless the store is not there to open",
+    !contractsScreen({
+      contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+      allowance: { fullGame: false, remaining: 0, store: false },
+    }).includes('data-action="paywall"'));
+  check("...and the spent board still says when it comes back, door or no door",
+    contractsScreen({
+      contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+      allowance: { fullGame: false, remaining: 0, store: false },
+    }).includes("Daily limit reached</b> — resets at 00:00 UTC."));
+  check("...and says when the board comes back, in the day the board is keyed to",
+    capped.includes("00:00 UTC"));
+  // The door is the SPENT state's alone. A board with clears left is not
+  // refusing anything, and an offer there would be an ad on a screen the player
+  // came to play rather than the answer to a refusal.
+  const spare = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: false, remaining: 2 },
+  });
+  check("a board with clears left carries no unlock door",
+    !spare.includes('data-action="paywall"') && spare.includes(`2 of ${DAILY_COUNT}`));
+  const owner = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: true, remaining: Infinity },
+  });
+  check("...and an owner is never sold what they already own",
+    !owner.includes('data-action="paywall"') && owner.includes("unlimited Contracts"));
+
   // The end-of-Contract modal is built from the ONE end-screen skeleton
   // (canvas A10): the run-end modal's own parts — stat-row, salvage-row, one
   // end__actions row — with the leaderboard geometry dropped via
@@ -4980,6 +5092,79 @@ section("Tier milestones pay the salvage (meta.ts)");
     "beating an old Mark ticks and pays nothing",
     !stale.meta.tierRunDone && stale.salvage === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("HUD bar colours — gold chain, fire goal (app.css + main.ts)");
+// ---------------------------------------------------------------------------
+// The chain ladder and the goal bar above it were the SAME cyan->violet accent
+// gradient, so a glance could not tell a combo streak from progress to the
+// target. Two moves fix it: the chain is gold at every stage (its own family,
+// paying off in the gold full-chain star it already wears), and the goal bar
+// heats through amber and orange to fire as it nears the target. Both are read
+// out of source: a colour is not geometry, so uifit cannot see it, and the one
+// thing that can go wrong — the two bars sharing a colour again — is exactly
+// what these assert against.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const rule = (sel: string): string =>
+    css.match(new RegExp(sel.replace(/[.[\]]/g, "\\$&") + "\\s*\\{[^}]*\\}"))?.[0] ?? "";
+
+  const lit = rule(".pl-chain__rung.is-lit");
+  check("a lit chain rung is gold, not the accent",
+    /--piece-o/.test(lit) && !/--accent\b/.test(lit), lit);
+  const goalBase = rule(".pl-goal i");
+  check("the goal bar's resting fill is still the accent",
+    /--accent/.test(goalBase), goalBase.slice(0, 120));
+  check("...so the chain and the goal bar no longer share a colour",
+    /--piece-o/.test(lit) && /--accent/.test(goalBase) && !/--accent\b/.test(lit));
+
+  // The three heat bands exist and climb warn -> orange -> fire, none of them
+  // reaching back to the accent (which would undo the separation above).
+  const warm = rule('.pl-funds[data-heat="warm"] .pl-goal i');
+  const hot = rule('.pl-funds[data-heat="hot"] .pl-goal i');
+  const fire = rule('.pl-funds[data-heat="fire"] .pl-goal i');
+  check("the goal bar has a warm band on the way up", /--warn/.test(warm));
+  check("...a hotter orange band above it", /--piece-l/.test(hot));
+  check("...and a fire band at the top", /--fire/.test(fire) && !/--accent/.test(fire));
+
+  // The danger axis (low launches) must still win: it is a different fact, and
+  // its rule sits AFTER the heat bands at equal specificity so source order
+  // hands it the fill however hot the funds are.
+  const dangerAt = css.indexOf(".pl-funds.pl-stat--danger .pl-goal i");
+  const fireAt = css.indexOf('.pl-funds[data-heat="fire"] .pl-goal i');
+  check("low-launches danger outranks every heat band by sitting after them",
+    dangerAt > fireAt && fireAt > 0);
+
+  // --fire is a real token, not a stray hex.
+  const tokens = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  check("--fire is a defined token", /--fire:\s*#[0-9a-f]{6}/i.test(tokens));
+
+  // main.ts bands the write, so a fill that holds still costs no DOM touch, and
+  // the band is derived from objectiveProgress at the thresholds the CSS names.
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const goalHeat = mainSrc.slice(
+    mainSrc.indexOf("private goalHeat("),
+    mainSrc.indexOf("private goalHeat(") + 600,
+  );
+  check("goalHeat maps the fill to fire/hot/warm/cool at the CSS thresholds",
+    />= 0\.9 \? "fire"/.test(goalHeat) && />= 0\.75 \? "hot"/.test(goalHeat)
+      && />= 0\.55 \? "warm"/.test(goalHeat));
+  check("...and skips the DOM when the band has not changed",
+    /if \(this\.goalHeatShown === band\) return;/.test(goalHeat));
+  check("...writing the band onto .pl-funds, where the stylesheet reads it",
+    /\.pl-funds/.test(goalHeat) && /dataset\.heat/.test(goalHeat));
+  check("the goal heat is driven from objectiveProgress, the same read the bar fills from",
+    /this\.goalHeat\(Math\.min\(1, g\.objectiveProgress\)\)/.test(mainSrc));
 }
 
 // ---------------------------------------------------------------------------
@@ -7820,7 +8005,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
-    systemCursor: false,
+    systemCursor: false, scanlines: true,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -7986,6 +8171,21 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes(">Workshop<") &&
       controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "howto" })
         .includes(">How to Play<"));
+  // THE RESET BUTTON WEARS THE TAB'S NAME, not its id. It interpolated
+  // `opts.tab` — the same lowercase string that rides `data-tab` — so the
+  // button under a tab labelled "Keyboard" read "Reset keyboard", the one place
+  // on the screen where a player-facing control was rendered from an internal
+  // identifier. The tab strip has always had the display label; now they come
+  // from the same table.
+  check("the reset button uses the tab's display label",
+    kb.includes(">Reset Keyboard<") && padPane.includes(">Reset Gamepad<"));
+  check("...and no button renders the tab id",
+    !kb.includes(">Reset keyboard<") && !padPane.includes(">Reset gamepad<"));
+  // Touch has nothing to reset — its scheme is not rebindable — so the button
+  // is absent rather than dead, which is what it always did.
+  check("the touch tab offers no reset at all",
+    !controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-action="controls-reset"'));
   check("both exits lead back through that same door",
     (controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "leaderboard" })
       .match(/data-action="leaderboard"/g) ?? []).length === 2);
@@ -16252,10 +16452,13 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     // the account no longer reaches before the screen opens on it.
     const mainSrcSbx = fs.readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"), "utf8");
-    check("the tier handler answers a locked ask with the paywall",
-      /case "sbx-tier"[\s\S]{0,400}tierIncluded\(asked, this\.fullGame\(\)\)[\s\S]{0,40}onPaywall/.test(mainSrcSbx));
+    // THE OFFER, not the store: both re-checks answer a locked ask the way every
+    // other gate in the game now does, with the Full Game preview
+    // (offerFullGame) — the store sheet is what that sheet's own primary opens.
+    check("the tier handler answers a locked ask with the offer",
+      /case "sbx-tier"[\s\S]{0,400}tierIncluded\(asked, this\.fullGame\(\)\)[\s\S]{0,40}offerFullGame/.test(mainSrcSbx));
     check("...and so does the launch",
-      /case "sbx-launch"[\s\S]{0,400}tierIncluded\(this\.sandbox\.tier, this\.fullGame\(\)\)[\s\S]{0,40}onPaywall/.test(mainSrcSbx));
+      /case "sbx-launch"[\s\S]{0,400}tierIncluded\(this\.sandbox\.tier, this\.fullGame\(\)\)[\s\S]{0,40}offerFullGame/.test(mainSrcSbx));
     check("...and a stale saved tier is clamped before the screen opens",
       /sandboxOpen\(\)[\s\S]{0,600}this\.sandbox\.tier = FREE_TIER_LIMIT/.test(mainSrcSbx));
   }
@@ -16389,6 +16592,42 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // on its own once every Tier keeps one.
   check("the ladder tab names its Tier",
     S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true }).includes("Tier 7"));
+
+  // ---- PLAY FLIES THE BOARD YOU ARE READING (F10f) ------------------------
+  //
+  // The button fired `play`, which flies whatever floor the tower's car is
+  // parked on — so a player reading Tier 7's board while parked on Tier 2 for a
+  // practice run pressed Play under a list of Tier 7 scores and launched Tier
+  // 2. The board in view is a choice the player has just made; the button
+  // carries it, and main.ts parks the car there before it launches.
+  const lb7 = S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true });
+  check("Play carries the tier of the board on screen",
+    /data-action="play"[^>]*data-tier="7"/.test(lb7)
+      || /data-tier="7"[^>]*data-action="play"/.test(lb7), lb7.slice(lb7.indexOf("btn--primary")));
+  const lbSky = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day: 20_260_827,
+  });
+  check("...the roof's board included — its floor is a floor like any other",
+    lbSky.includes(`data-tier="${S.SKYDECK_TIER}"`));
+  // Tier S keeps its own door (the sandbox SETUP screen, not a run), so it is
+  // the one tab whose button is not a launch and carries no floor.
+  const lbSbx = S.leaderboardScreen("", { board: BOARD_SANDBOX, tier: 1, sandbox: true });
+  check("...and Tier S still opens its bench instead of flying a floor",
+    lbSbx.includes('data-action="sandbox"') && !/data-action="sandbox"[^>]*data-tier=/.test(lbSbx));
+  // main.ts's half: the action reads the attribute and parks the car on it
+  // before the launch, through the same tierOpen gate the tower's own pick uses.
+  {
+    const src = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const playCase = src.slice(src.indexOf('case "play": {'), src.indexOf('case "pick-tier"'));
+    check("the play action reads the board's tier off the button",
+      playCase.includes('getAttribute("data-tier")') && playCase.includes("pickedTier"),
+      playCase.slice(0, 200));
+    check("...and asks tierOpen before parking on it",
+      playCase.includes("tierOpen"));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -17250,6 +17489,35 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       ...o,
     });
 
+  // ---- THE NAME FIELD (F10d) ----------------------------------------------
+  //
+  // The one text input in the game, and it had neither of the two things a text
+  // input owes its user: a name a screen reader can announce (the placeholder
+  // is not one — it disappears the moment anything is typed, and is not read as
+  // a label), and the Enter key. Typing a name and pressing Enter did nothing
+  // at all, which on a form of one field is the only gesture anybody tries.
+  const submit = end({});
+  check("the name field has an accessible name of its own",
+    /<input[^>]*id="name-input"[^>]*aria-label="[^"]+"/.test(submit)
+      || /<input[^>]*aria-label="[^"]+"[^>]*id="name-input"/.test(submit),
+    submit.slice(submit.indexOf("name-input") - 120, submit.indexOf("name-input") + 200));
+  {
+    const src = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const keydown = src.slice(
+      src.indexOf("private onKeydown = "), src.indexOf("private padBackTarget"),
+    );
+    // ROUTED THROUGH THE BUTTON'S OWN CLICK, not through a second call to the
+    // submit handler: that is padnav's rule for every other activation in the
+    // app (ui/padnav.ts — "activation is el.click()"), and it is what keeps the
+    // feedback sound, the disabled state and the one-shot guard in one place.
+    check("Enter in the name field submits the score",
+      keydown.includes("name-input") && keydown.includes("submit-score"),
+      keydown);
+  }
+
   /* -------------------------------------------------------------------------
    * WHAT VOLATILE TOOK IS PRINTED. A cost the player is never shown reads to
    * them exactly the way it read to the sim before it was billed — as free pile
@@ -17290,9 +17558,9 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // it: a board of three ticks is a door onto free practice, which is not what
   // to advertise on the way out of a lost run.
   check("a board with cards left offers the route",
-    end({ contracts: { remaining: 2, next: false } }).includes('data-action="contracts"'));
+    end({ contracts: { remaining: 2 } }).includes('data-action="contracts"'));
   check("...and a fully cleared board does not",
-    !end({ contracts: { remaining: 0, next: true } }).includes('data-action="contracts"'));
+    !end({ contracts: { remaining: 0 }, step: "contracts" }).includes('data-action="contracts"'));
   check("...and a caller that knows nothing about the board draws nothing",
     !end().includes('data-action="contracts"'));
   // THE BADGE IS meta.ts's nextStep AND NOTHING ELSE, which is what keeps "one
@@ -17301,9 +17569,9 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // being sent to the Workshop, and this card has a Workshop button of its own
   // in the salvage row.
   check("the route is badged only when Contracts are the next step",
-    end({ contracts: { remaining: 3, next: true } }).includes("Next step"));
+    end({ contracts: { remaining: 3 }, step: "contracts" }).includes("Next step"));
   check("...and merely being available earns no badge",
-    !end({ contracts: { remaining: 3, next: false } }).includes("Next step"));
+    !end({ contracts: { remaining: 3 }, step: "run" }).includes("Next step"));
   // The card's OTHER badge-bearer, so the two cannot both light: a run that
   // banked salvage draws a Workshop button, and nextStep answers "workshop"
   // exactly when it would not answer "contracts".
@@ -17313,6 +17581,157 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   check("the two doors are the same rule's two branches",
     nextStep({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, salvage: 1_000 }) === "workshop"
       && nextStep({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1 }) === "contracts");
+
+  /* -------------------------------------------------------------------------
+   * ---- THE MAIN BUTTON IS THE NEXT STEP -----------------------------------
+   *
+   * The owner's rule verbatim — "the main button brings to the next logical
+   * step" — pinned against the card that was breaking it. The report: a first
+   * Tier 2 win, ALL 10 BAYS CLEARED, +15 salvage banked, and "RUN TIER 2 →" on
+   * the primary with Contracts a secondary beside it, while the tier's three
+   * Contracts were the entire remaining cost of completing that tier. The
+   * loudest control on the screen pointed at the half already paid.
+   *
+   * Asserted on the primary's data-action rather than on its face wherever a
+   * check can be: the face is copy and will be rewritten, the action is the
+   * promise the button makes and is the thing that was wrong.
+   * ----------------------------------------------------------------------- */
+  {
+    /** A bay-10 win — the only card this rule touches. */
+    const done = (o: Partial<Parameters<typeof S.endModal>[0]> = {}): string =>
+      end({
+        won: true, runComplete: true, bayNum: 10, baysCleared: 10,
+        contracts: { remaining: 3 }, ...o,
+      });
+    /** What the PRIMARY opens. Read off the one button that wears
+     *  `.btn--primary` — padnav's focusInitial lands the pad on exactly that
+     *  element, so this is also what a stray pad A press does. */
+    const primaryAction = (html: string): string =>
+      html.match(/class="btn btn--primary"[^>]*data-action="([a-z-]+)"/)?.[1] ?? "(none)";
+    /** How many buttons in the card open `action` — the check that a promoted
+     *  door did not leave its old secondary behind it. */
+    const doors = (html: string, action: string): number =>
+      html.split(`data-action="${action}"`).length - 1;
+
+    // CONTRACTS. The reported card, and the one the rule was written for.
+    const owed = done({ step: "contracts" });
+    check("a win whose tier still owes Contracts makes the board the main button",
+      primaryAction(owed) === "contracts", primaryAction(owed));
+    // The COUNT is what the TIER owes (progress.needed - progress.contracts),
+    // which is the same figure the menu's Contracts pips draw — the two doors
+    // into the same board must not name two different numbers. It is NOT
+    // `contracts.remaining`, which answers "is there a card behind this door".
+    check("...and the primary quotes what the tier still owes",
+      owed.includes("Contracts · 3 to go"));
+    check("...counting down as the tier's quota fills, not with today's board",
+      done({
+        step: "contracts",
+        progress: { ...tierProgressFor(newMeta()), contracts: 2 },
+        contracts: { remaining: 3 },
+      }).includes("Contracts · 1 to go"));
+    // The run is DEMOTED, never dropped: a player who has just cleared the
+    // tier's run may want it again for a better board or a clean seal, and the
+    // step is a recommendation rather than a gate.
+    check("...with the run demoted to a secondary and still on the card",
+      doors(owed, "restart") === 1 && owed.includes("Run Tier 1 →"));
+    check("...and the board exit drawn once, not beside itself",
+      doors(owed, "contracts") === 1, String(doors(owed, "contracts")));
+
+    // WORKSHOP. The other shop the loop can point at, and the card already had
+    // a button for it inside the salvage row that just paid out.
+    const shop = done({ step: "workshop", tierSalvage: 40 });
+    check("a win whose salvage covers a system makes the shelf the main button",
+      primaryAction(shop) === "workshop", primaryAction(shop));
+    check("...and the salvage row's own Workshop button stands down",
+      doors(shop, "workshop") === 1, String(doors(shop, "workshop")));
+    check("...with the run demoted to a secondary here too",
+      doors(shop, "restart") === 1 && shop.includes("Run Tier 1 →"));
+
+    // RUN and SEAL both fly. A seal is flown and not bought, so it rides the
+    // run button exactly as it rides the menu's primary (menuPlayBadged).
+    for (const step of ["run", "seal"] as const) {
+      check(`a win at the ${step} step keeps the run on the primary`,
+        primaryAction(done({ step })) === "restart");
+    }
+    check("...and so does a caller that names no step at all",
+      primaryAction(done()) === "restart");
+    // A tier can owe Contracts while today's three cards are all claimed, and a
+    // main button that opens a board of three ticks leads nowhere. That card
+    // falls back to the run, which is the other half of the same tier and is
+    // always flyable.
+    check("...and so does an owed tier whose board is already claimed out",
+      primaryAction(done({ step: "contracts", contracts: { remaining: 0 } })) === "restart");
+
+    // THE LOSS CARD IS NOT RE-ROUTED, and that is a hard rule rather than an
+    // omission. padnav's focusInitial lands the pad on `.btn--primary`; the
+    // loss card's neighbours can spend the run's seal, and the Deep Run's own
+    // answer to a loss is another run. Nothing about a loss may move that
+    // button, whatever the loop is pointing at.
+    for (const step of ["contracts", "workshop", "seal"] as const) {
+      const lost = end({ step, contracts: { remaining: 3 } });
+      check(`a LOSS at the ${step} step keeps its own primary`,
+        primaryAction(lost) === "restart", primaryAction(lost));
+    }
+    check("...and the seal-priced retry is still not the primary",
+      primaryAction(end({ step: "contracts", retryBay: { seal: "at-stake", mark: 4 } }))
+        === "restart");
+    // Tier S has no next rung to offer, so its card is untouched by all of it.
+    check("a Tier S run re-flies its own configuration whatever the step says",
+      primaryAction(done({ sandbox: true, step: "contracts" })) === "restart"
+        && done({ sandbox: true, step: "contracts" }).includes("Fly it again"));
+  }
+
+  /* -------------------------------------------------------------------------
+   * ---- THE PLATE ON THAT BUTTON IS ONE LINE -------------------------------
+   *
+   * The other half of the owner's device shot: inside a primary whose own label
+   * already read "Run Tier 2 →", tierPlateHTML's button size stacked "TIER"
+   * over "2" — two lines of chip beside one line of type, and the tallest thing
+   * in the action row. Here the plate is a chip ON a line of type, not a badge
+   * with a face of its own, and a chip reads on the line it sits on.
+   *
+   * The markup is the same two spans at all three sizes (that is the whole
+   * point of the component), so the axis lives in the stylesheet and the pin
+   * has to be read back out of it. The BANNER already draws the row form and is
+   * the thing this size was made to match; the MENU stays stacked, because a
+   * 58x52 plate is a badge and has the height to be one.
+   * ----------------------------------------------------------------------- */
+  {
+    const css = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    );
+    /** The declarations of the FIRST top-level rule for `selector`, brace to
+     *  brace — the base rule, not the compact-viewport override that follows
+     *  it. Written here rather than borrowed from the banner section's `decls`
+     *  because these rules span several lines. */
+    const block = (selector: string): string => {
+      const at = css.indexOf(`\n${selector} {`);
+      if (at < 0) return "";
+      return css.slice(at + selector.length + 3, css.indexOf("}", at));
+    };
+    const axis = (selector: string): string =>
+      block(selector).match(/flex-direction:\s*([a-z]+)/)?.[1]
+        // The component's base is a column and the sizes override it, so a size
+        // that declares nothing is a column.
+        ?? "column";
+    check("the plate on a button lays its label beside its number",
+      axis(".tier-plate--button") === "row", axis(".tier-plate--button"));
+    check("...the same way the bay banner's chip already did",
+      axis(".tier-plate--banner") === "row", axis(".tier-plate--banner"));
+    // ...and the menu's badge is NOT dragged along with them. It is 58x52 with
+    // a 24px number in it; laid out as a row it would be half the width of the
+    // button it sits on.
+    check("...while the menu's badge keeps its two lines",
+      axis(".tier-plate--menu") === "column", axis(".tier-plate--menu"));
+    // The plate is only ever as wide as its SLOTS (app.css's note: a mono 2ch
+    // number and a 4ch pixel label, so "1"/"10"/"S"/"★" and "TIER"/"SKY" all
+    // measure the same) — which is what stops the row form turning a floor
+    // change into a button that visibly grows. A fixed `min-width` on the row
+    // would fight those slots, so the button size states none.
+    check("...and the row's width is its slots, not a hard floor",
+      /min-width:\s*0/.test(block(".tier-plate--button")), block(".tier-plate--button"));
+  }
 
   // ---- THE RUN-END CARD AT SATURATION ------------------------------------
   // The same sentence as the Contract card's, on the other door into the same
@@ -17340,7 +17759,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // They were one button ("Play Again") that only ever meant the fresh start.
   // Two now, because they hand back two different things — and the pair only
   // reads if both halves say which.
-  const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3, next: true } });
+  const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3 }, step: "contracts" });
   check("a lost ladder run offers the bay back", lost.includes('data-action="retry-bay"'));
   check("...and the fresh start beside it, named", lost.includes(">Retry Run<"));
   check("...and never as one button", !lost.includes(">Play Again<"));
@@ -19939,6 +20358,84 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     check("...with the swapped card teaching the drag and the scrolled rotate",
       /hold right \+ drag for arc height/i.test(swapped) && /scroll ⟳/.test(swapped));
   }
+}
+
+// ---------------------------------------------------------------------------
+section("Every card names the press the device can actually make (D7)");
+// ---------------------------------------------------------------------------
+{
+  // D7. The hint table's rule, applied to the surfaces that had escaped it: the
+  // draft's cards, the Final Inspection's, the build rack's slots and the bay
+  // clear all said "tap" on a desktop build where the pointer is a mouse and on
+  // a pad where nothing is touched. Three profiles, three verbs, one table
+  // (bindings.ts's hintPress) — and the three cards below are one per profile,
+  // because a helper nobody renders is a helper that can be right while every
+  // screen is wrong.
+  //
+  // The family is normalised first: padLabel speaks whichever pad was last
+  // plugged in (setPadFamily), and sections above this one hand it a DualSense.
+  setPadFamily(null);
+  check("the press verb renders per input family",
+    hintPress("touch") === "tap" && hintPress("keyboard") === "click"
+      && hintPress("gamepad") === "press A",
+    [hintPress("touch"), hintPress("keyboard"), hintPress("gamepad")].join(" · "));
+  // The gamepad's word names the button padnav actually activates a card with,
+  // and bindings.ts cannot import that constant (game/ is below ui/), so this
+  // is the joint that holds the two copies of the number together.
+  check("the gamepad verb names padnav's confirm button",
+    hintPress("gamepad") === `press ${padLabel(PAD_CONFIRM)}`,
+    `${hintPress("gamepad")} vs button ${PAD_CONFIRM}`);
+  // ...and it follows the pad in the player's hands, because "press A" on a
+  // DualSense names a button that pad does not have.
+  setPadFamily("playstation");
+  check("the gamepad verb speaks the connected pad's lettering",
+    hintPress("gamepad") === "press Cross", hintPress("gamepad"));
+  setPadFamily(null);
+
+  const run = { ...newRun(25, [], 400, undefined, 10), levelIndex: 7, carry: 120, scrap: 340 };
+  const marks: Ratchets = { volatile: 1, magnetic: 1 };
+  const draftFor = (profile: InputProfile): string => S.draftScreen({
+    bayNum: 8, tier: 10, mark: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 7, 10, 2, marks),
+    ratchets: marks, selected: [], picksNeeded: 2,
+    preview: previewRows(levelForRun(run), levelForRun(run), marks),
+    scrap: 340, baysToRefit: 1, profile,
+  });
+  check("the touch draft card still says Tap",
+    draftFor("touch").includes("Tap to preview"));
+  const inspection = S.finalScreen({
+    bayNum: 9, tier: 10, funds: 1_820, carry: 120,
+    offers: finalsForTier(10), selected: null,
+    preview: previewRows(levelForRun(run), levelForRun(run), marks),
+    scrap: 340, profile: "keyboard",
+  });
+  check("the mouse inspection card says Click", inspection.includes("Click to preview"));
+  // THE RACK IS THE GAMEPAD'S CARD. Two states, one control (screens.ts's
+  // slotBtn), so the pin asks for both words: a rig with more systems than
+  // slots has something aboard AND something in the shed.
+  const rigged = {
+    ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, mark: 3, salvage: 240,
+    loadout: { ...newTiers(), reactor: 2, launcher: 1, magazine: 1, bay: 1, hydraulics: 1 },
+  };
+  const padRack = S.workshopScreen(rigged, "gamepad");
+  check("the gamepad build rack says press A, not tap",
+    padRack.includes("Aboard; press A to stow.")
+      && padRack.includes("In the shed; press A to mount.")
+      && !/tap/i.test(padRack));
+  // The negative half, on the screen a mouse player actually reads: no surface
+  // in this family may still be telling them to tap something.
+  check("no fine-pointer card tells the player to tap",
+    !/tap/i.test(draftFor("keyboard")) && !/tap/i.test(inspection)
+      && !/tap/i.test(S.workshopScreen(rigged, "keyboard")));
+  // THE BAY CLEAR TAKES THE NEUTRAL WORD instead of a verb: its whole hint line
+  // is one word long, it is dismissed by a press ANYWHERE on the card (main.ts
+  // routes skip-bayclear off the scrim), and "Continue" is true of every device
+  // without naming a gesture at all (docs/COPY_AUDIT.md).
+  const bayClear = S.bayClearScreen({
+    bayNum: 3, bayName: "Cryo Vault", funds: 1_200, target: 1_000, lines: 14, scrap: 40,
+  });
+  check("the bay clear says Continue, not a touch verb",
+    bayClear.includes("Continue") && !/tap to continue/i.test(bayClear));
 }
 
 // ---------------------------------------------------------------------------
@@ -24853,11 +25350,20 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       check("a gate takes the next rung off the track",
         gated("contract") === LICENCE_LESSON_COUNT && gated("workshop") === LICENCE_LESSON_COUNT,
         `${gated("contract")} / ${gated("workshop")}`);
+      // NAMED OFF THE SHELF (O6). This read "Install the Reactor" while the one
+      // card on the shop it points at is headed "Reactor Output" — two names
+      // for one purchase, met four rungs into a first hour. Both come off
+      // SCHOOL_INSTALL now, so the day the school sells something else they
+      // rename together.
+      const shelfName = upgradeById(SCHOOL_INSTALL)!.name;
       check("...and the note says which door, not how many steps are left",
         strip0(S.baseBayPanelHTML({
           tier: S.LICENCE_TIER, best: 0,
           licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate: "workshop" },
-        })).includes("Install the Reactor"));
+        })).includes(`Install ${shelfName}`));
+      check("...by the name the shelf itself puts on the card",
+        workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, salvage: 15 })
+          .includes(shelfName));
     }
     // EVERY RUNG GOES TO THE THING IT IS, and every rung IS a bay now: the two
     // gates carry no ordinal and no pip (meta.ts's SCHOOL_LADDER).
@@ -25341,6 +25847,41 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       `budget ${budgetForTier(1)}, wind ${card.windMax}`);
     check("...and the tier's own budget really would",
       generateContract(SCHOOL_CONTRACT_SEED, 1, 0).windMax > 0);
+    // ---- AND IT SAYS SO, IN PROSE (O3) ---------------------------------
+    //
+    // The zero budget bought no complications, so linesConditions had nothing
+    // to report and fell through to its guard string: the first Contract
+    // anybody opens briefed itself, in full, as "clean bay", and the plant
+    // panel's Bay row said the same two words for the whole flight. That is
+    // shorthand from inside the generator, and on a card it reads as an
+    // omission rather than as the promise it actually is — the promise being
+    // the entire reason the budget is zero.
+    // `brief` widened to string on purpose: the literal type would make the
+    // "not the guard string" half of this a compile-time tautology, and the
+    // point of the pin is that it is a fact about the CARD.
+    const schoolBrief: string = card.brief;
+    check("the school's card briefs itself in prose, not the generator's guard",
+      schoolBrief === (SCHOOL_CONTRACT_BRIEF as string) && schoolBrief !== "clean bay",
+      schoolBrief);
+    // ONE STRING FOR BOTH, which is the invariant every lines Contract keeps:
+    // the card and the HUD's Bay row make the same statement about the bay.
+    check("...and the card and the HUD's Bay row are the same statement",
+      card.conditions === card.brief, `${card.brief} / ${card.conditions}`);
+    // THE GUARD IS STILL THE GUARD. It is what a generated Contract that bought
+    // nothing would say, and this pin is the other half of the note above
+    // linesConditions: the school is the only caller that lands there, so the
+    // string now reaches no screen.
+    check("...over a guard string that is exactly what a zero budget would say",
+      generateContract(SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, 0).brief === "clean bay");
+    check("...and the bay underneath is still the generator's, untouched",
+      card.goal === generateContract(
+        SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, SCHOOL_CONTRACT_BUDGET,
+      ).goal && card.launches > 0 && card.kind === "lines",
+      `${card.goal} lines / ${card.launches} launches`);
+    // …AND IT REACHES THE ONE BOARD THAT DEALS IT.
+    check("...and the school's board prints it",
+      contractsScreen({ contracts: schoolBoard(), tier: 1, cleared: [], school: true })
+        .includes(SCHOOL_CONTRACT_BRIEF));
     // NO SET PIECE AND NO PATTERN. Both are true by construction (a set piece
     // needs SETPIECE_MIN_TIER, a pattern needs PATTERN_SLOT) and both are
     // pinned, because "by construction" is a property of two constants that a
@@ -25403,7 +25944,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       !shopBought.includes(`data-action="play" disabled`)
         && shopBought.includes("Continue Flight School"));
 
-    // ---- THE TWO DOORS OPEN ON THE FOURTH BASIC, TOGETHER ---------------
+    // ---- THE TWO DOORS OPEN IN THE LADDER'S OWN ORDER -------------------
     const menuAt = (m: MetaState, twr: S.TowerState): string =>
       menuScreen(0, m.salvage, undefined, tierProgressFor(m),
         { step: nextStep(m), install: null, firstLaunch: false }, twr);
@@ -25429,9 +25970,35 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and both say which lesson opens them",
       shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`)
         && (shut.match(new RegExp(`Opens after lesson ${LICENCE_LESSON_COUNT}`, "g")) ?? []).length === 2);
-    check("...and they open TOGETHER on it",
-      !btn(open, "contracts").includes("disabled")
-        && !btn(open, "workshop").includes("disabled"));
+    // …AND THEN IN ORDER, one rung apart (O6). They used to open together on
+    // the fourth basic, which made the menu the laxer of two doors into one
+    // room: the LADDER puts the Contract rung before the Workshop rung and
+    // shuts every rung after the first undone one (meta.ts's schoolLadder), so
+    // a player who had just landed lesson 4 could walk into a shop the ladder
+    // had not reached and meet one card they could not afford — while the
+    // primary two buttons above said "Clear one Contract to go on".
+    check("the Contract board opens on the fourth basic",
+      !btn(open, "contracts").includes("disabled"), btn(open, "contracts"));
+    check("...and the Workshop waits the one rung the ladder makes it wait",
+      btn(open, "workshop").includes("disabled"), btn(open, "workshop"));
+    check("...which is the same rung schoolLadder is holding it at",
+      schoolLadder(four).find((r) => r.kind === "workshop")?.open === false
+        && schoolLadder(four).find((r) => r.kind === "contract")?.open === true);
+    check("...and says which rung, on the button it shut",
+      open.includes("Opens after one Contract"),
+      open.slice(open.indexOf('data-action="workshop"'), open.indexOf('data-action="workshop"') + 260));
+    // …and opens the moment that rung is cleared.
+    const cleared = onLadder({ claimedContracts: ["x"], salvage: 15 });
+    check("...then opens the moment a Contract is banked",
+      !btn(menuAt(cleared, towerAt(cleared)), "workshop").includes("disabled"),
+      btn(menuAt(cleared, towerAt(cleared)), "workshop"));
+    // A SAVE THAT ALREADY OWNS A SYSTEM keeps it open whatever the Contract
+    // rung says — the ladder's own rule that a cleared rung stays open, which
+    // is the half `rigged === false` carries in the menu's gate.
+    const rigged = onLadder({ loadout: { ...newTiers(), reactor: 1 } });
+    check("...and a rigged save is never shut out of the shop it already used",
+      !btn(menuAt(rigged, towerAt(rigged)), "workshop").includes("disabled"),
+      btn(menuAt(rigged, towerAt(rigged)), "workshop"));
 
     // ---- THE PRIMARY, ALL THE WAY UP THE LADDER -------------------------
     // The Deep Run's button is disabled until graduation and never mute about
@@ -25474,7 +26041,18 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         && primaryOf(menuAt(four, towerAt(four))).includes("A Contract to go on"));
     const paid = onLadder({ claimedContracts: ["x"], salvage: 15 });
     check("...and on the Workshop rung",
-      primaryOf(menuAt(paid, towerAt(paid))).includes("The Reactor to go on"));
+      primaryOf(menuAt(paid, towerAt(paid)))
+        .includes(`${upgradeById(SCHOOL_INSTALL)!.name} to go on`));
+    // WRITTEN TO THE BOX. `.btn__sub` ellipsises past ~34 characters on a 780px
+    // phone (the note over menuPlaySub), and this line grew when the name did.
+    check("...inside the subtitle's box",
+      `${upgradeById(SCHOOL_INSTALL)!.name} to go on`.length <= 34,
+      `${upgradeById(SCHOOL_INSTALL)!.name} to go on`);
+    // …and the Workshop's OWN primary, which is the third surface that sends a
+    // player to this purchase. Three sites, one name.
+    check("...and the shop's own button names the same card",
+      workshopScreen(paid).includes(`Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`),
+      workshopScreen(paid).slice(workshopScreen(paid).lastIndexOf("btn--lg"), workshopScreen(paid).lastIndexOf("btn--lg") + 220));
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
@@ -25663,6 +26241,42 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the fine lesson names Tier 1's own price",
       card("lost-cargo", 0).includes(`$${penaltyPerLostPieceFor(0, 1)}`),
       card("lost-cargo", 0));
+
+    /* -----------------------------------------------------------------------
+     * THE HUD LINE SAYS WHAT THE BAY DOES, in the player's words (O6).
+     *
+     * `conditions` is the plant panel's one-line Bay row and the right-hand
+     * half of the lesson's own card — the shortest thing on either surface, and
+     * therefore the one most likely to be written in the authors' shorthand.
+     * Three of the nine were.
+     * -------------------------------------------------------------------- */
+    // LESSON 4 promised "two arcs" for a lesson whose second card teaches the
+    // OPPOSITE of an arc, and counted shots where the bay counts rows.
+    check("lesson 4 states the rows it wants, and does not call the skim an arc",
+      lessonById("lob-or-skim")!.conditions === "Two end gaps · two rows",
+      lessonById("lob-or-skim")!.conditions);
+    check("...and the skim really is the flat shot that would have mislabelled",
+      /flat/i.test(card("lob-or-skim", 1)) && !/arc/i.test(card("lob-or-skim", 1)),
+      card("lob-or-skim", 1));
+    // LESSON 6 said "Bay 1's money", which names a bay this player has never
+    // flown and a construction (`makeBaseLevel(0)`) only the source knows. The
+    // rung before it already puts the figure on screen, so it quotes that —
+    // live, like every other number on the ladder.
+    check("lesson 6 prices a shot instead of naming a bay nobody has flown",
+      lessonById("the-bankroll")!.conditions
+        === `$${makeBaseLevel(0).launchCost} a shot · no clock`,
+      lessonById("the-bankroll")!.conditions);
+    check("...and the lesson before it quotes the same price",
+      card("time-the-row", 0).includes(`$${makeBaseLevel(0).launchCost}`),
+      card("time-the-row", 0));
+    // LESSON 9 borrowed the LADDER's noun for a congestion knee, on the one
+    // screen where the ladder is counting rungs out loud.
+    check("lesson 9 says the threshold in cubes, not in rungs",
+      lessonById("clutter")!.conditions === `Taxed past ${PILE_TIERS[0].cubes} loose cubes`,
+      lessonById("clutter")!.conditions);
+    check("...and no lesson's HUD line says \"rung\" at all",
+      LESSONS.every((l) => !/\brung\b/i.test(l.conditions)),
+      LESSONS.map((l) => l.conditions).join(" | "));
 
     // THE ZONE IS DEFINED BEFORE IT IS SPENT. Four cards lean on the word and
     // a beginner meets it on lesson 1; if the sentence that introduces it is
@@ -26250,6 +26864,35 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the three flags are separate",
       new Set(["seenContractBoard", "seenDraft", "seenRefit"]
         .map((k) => k in fresh)).size === 1);
+
+    // ---- AND THE BOARD'S CARD IS TRUE OF ALL THREE CARDS (O6) ----------
+    //
+    // It said "what limits you is a launch budget" over a board whose third
+    // card has no launch budget at all: a pattern Contract carries
+    // `launches: 0` and an exact `queue` instead, and that inventory is its
+    // whole offer. So the one sentence introducing the mode contradicted the
+    // one card that is most unlike the others, on the screen where a player
+    // meets both for the first time.
+    const board = dailyContracts(1, 20_260_815);
+    check("the board really does deal a card with no launch budget",
+      board.some((c) => c.kind === "pattern" && c.launches === 0 && c.queue.length > 0),
+      board.map((c) => `${c.kind}:${c.launches}`).join(","));
+    const introWith = S.contractsIntroModal({
+      needed: 3, daily: board.length, milestone: 15,
+      pattern: board.some((c) => c.kind === "pattern"),
+    });
+    check("...and the card that introduces the board says so",
+      introWith.includes("launch budget") && /pattern/.test(introWith)
+        && introWith.includes("exact set of shipments"),
+      introWith.slice(introWith.indexOf("No clock"), introWith.indexOf("No clock") + 240));
+    // THE CLAUSE IS ASKED OF THE BOARD, not of PATTERN_SLOT: a board with no
+    // pattern card makes the plain claim, which is then true of all of it.
+    const introWithout = S.contractsIntroModal({
+      needed: 3, daily: 3, milestone: 15, pattern: false,
+    });
+    check("...and a board without one does not invent the exception",
+      !introWithout.includes("pattern") && introWithout.includes("launch budget"),
+      introWithout.slice(introWithout.indexOf("No clock"), introWithout.indexOf("No clock") + 200));
   }
 
   // TWO SCRIMS, AND THE PAD MUST TAKE THE TOP ONE.
@@ -26338,6 +26981,28 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       examBtn.includes("btn--primary") && examBtn.includes("btn--next"));
     check("...with the tower kept as the quiet way out",
       owed.includes(`data-action="lesson-exit"`));
+    // ---- AND IT SAYS THE CLOCK IS RUNNING (O2) --------------------------
+    //
+    // The hand-off card is the last thing a player reads before the one flight
+    // on the ladder that can be failed, and the only warning it gave was "for
+    // real" — which does not tell a player who has flown nine untimed bays that
+    // the tenth is timed. The claim is checked against the BAYS rather than
+    // against a second string: levelForLesson zeroes timeLimitSec on every
+    // lesson ("the clock is not taught until the exam"), and the graduation
+    // flight is built by levelForRun, so this is the first bay on the ground
+    // floor with a clock at all.
+    check("the hand-off into the exam says a clock is running",
+      /<b>clock<\/b>/.test(owed), owed.slice(owed.indexOf("One flight left"), owed.indexOf("One flight left") + 220));
+    check("...and the ladder it is handing off FROM really has no clock",
+      LESSONS.every((l) => levelForLesson(l).timeLimitSec === 0),
+      LESSONS.filter((l) => levelForLesson(l).timeLimitSec !== 0).map((l) => l.id).join(","));
+    check("...while the bay it is handing off TO does",
+      levelForGraduation().timeLimitSec > 0,
+      String(levelForGraduation().timeLimitSec));
+    // A won lesson that is NOT the hand-off says nothing about a clock: the
+    // warning belongs to the one rung it is true of.
+    check("...and no ordinary rung's card mentions one",
+      !/clock/i.test(middle), middle);
   }
 
   // THE WORKSHOP DOES NOT OFFER A PRACTICE BAY MID-SCHOOL. The Reactor is the
@@ -26845,6 +27510,118 @@ section("The canvas is sized by policy, and phones get a lower ceiling (render.t
 }
 
 // ===========================================================================
+// A CHANGE OF DENSITY IS A CHANGE OF VIEWPORT (render.ts's dprQueries, and
+// main.ts's density watch).
+//
+// Every event main.ts listens to is about the viewport's SIZE. Nothing fires
+// when only its devicePixelRatio moves — drag a window from a 1x display to a
+// 2x one and innerWidth, innerHeight and the safe-area insets are all
+// unchanged, so the frame loop's comparison agrees, the watchdog's comparison
+// agrees, and the canvas keeps a backing store sized for a display it is no
+// longer on. The field then rasterises at half the resolution the panel can
+// show, for as long as the window stays where it is.
+//
+// The query is the half that can be arithmetically wrong, so it is the half
+// pinned as a function. The wire — that the watch re-arms, and that it re-solves
+// through the ceiling rather than around it — is asked of main.ts's source, the
+// same way the renderScale wire above is.
+// ===========================================================================
+section("A device-pixel-ratio change re-solves the layout (render.ts's dprQueries)");
+{
+  /** Does a `(min-resolution: A) and (max-resolution: B)` string bracket `r`? */
+  const brackets = (q: string, r: number): boolean => {
+    const m = q.match(/min-resolution: ([\d.]+)dppx\) and \(max-resolution: ([\d.]+)dppx/);
+    return m !== null && Number(m[1]) <= r && r <= Number(m[2]);
+  };
+
+  for (const r of [1, 1.25, 1.5, 2, 2.625, 3, 4 / 3]) {
+    const [range, exact] = dprQueries(r);
+    check(`the ${r} watch is true at the ratio it was armed at`,
+      brackets(range, r) && exact === `(resolution: ${r}dppx)`,
+      `${range} | ${exact}`);
+  }
+
+  // THE BRACKET MUST NOT SWALLOW A REAL CHANGE. The smallest step any platform
+  // offers is 1 -> 1.25; every neighbour in the matrix has to fall outside.
+  const RATIOS = [1, 1.25, 1.5, 2, 2.625, 3];
+  let swallowed = "";
+  for (const armed of RATIOS) {
+    const [range] = dprQueries(armed);
+    for (const other of RATIOS) {
+      if (other !== armed && brackets(range, other)) swallowed += `${armed}<-${other} `;
+    }
+  }
+  check("...and false at every other ratio a display can be", swallowed === "", swallowed);
+
+  // A non-terminating ratio (a 133% Windows scale factor) has to survive the
+  // round trip through CSS text — which is the whole reason the bracket exists
+  // rather than a bare equality on a stringified double.
+  check("a ratio that does not terminate in decimal still brackets itself",
+    brackets(dprQueries(4 / 3)[0], 4 / 3),
+    dprQueries(4 / 3)[0]);
+
+  // Garbage in, a watchable query out: devicePixelRatio is 0 or absent before
+  // first layout in some shells, and a query built on NaN matches nothing ever.
+  check("a ratio the shell has not reported yet arms at 1x rather than at NaN",
+    brackets(dprQueries(0)[0], 1) && brackets(dprQueries(Number.NaN)[0], 1),
+    `${dprQueries(0)[0]} | ${dprQueries(Number.NaN)[0]}`);
+
+  // THE POLICY SURVIVES THE NEW PATH. A density change routes through onResize,
+  // so a window dragged onto a denser display gets the policy's answer and not
+  // the display's — both halves of it, the ratio ceiling and the pixel budget.
+  // That is the failure a watch wired straight to the canvas would introduce
+  // while looking like a fix: the one gesture this change makes possible is
+  // "the ratio just tripled", which is exactly the gesture the budget exists
+  // to survive.
+  check("a phone-sized window that becomes 3x still rasterises at the ceiling",
+    renderScale(3, 812, 375) === COMPACT_MAX_RENDER_DPR,
+    `${renderScale(3, 812, 375)}`);
+  const afterJump = (w: number, h: number, r: number): number =>
+    Math.round(w * h * renderScale(r, w, h) ** 2);
+  check("...and a desktop one lands inside the pixel budget, whatever it jumped to",
+    [1.25, 1.5, 2, 2.625, 3].every((r) => afterJump(1440, 900, r) <= MAX_RENDER_PIXELS
+      && afterJump(2560, 1600, r) <= MAX_RENDER_PIXELS),
+    [1.25, 1.5, 2, 2.625, 3]
+      .map((r) => `${r}->${(afterJump(2560, 1600, r) / 1e6).toFixed(2)}MP`).join(" "));
+
+  // THE WIRE.
+  const dprMainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // A WHOLE LINE OF ITS OWN, matched anchored — `/…armDprWatch\(\);/` alone is
+  // also satisfied by the call sitting behind a `//`, which is precisely the
+  // shape of the red-first experiment this pin has to be able to fail.
+  const onResizeBody = dprMainSrc.slice(
+    dprMainSrc.indexOf("private onResize = (): void => {"),
+    dprMainSrc.indexOf("const mobile = \"ontouchstart\" in window"),
+  );
+  check("the resize path arms the density watch every time it solves",
+    /^\s*this\.armDprWatch\(\);$/m.test(onResizeBody)
+      && onResizeBody.includes("this.canvas.height = Math.floor(h * this.dpr);"),
+    `onResize body ${onResizeBody.length} chars`);
+  check("...the watch is built from dprQueries, not from a hand-rolled string",
+    /dprQueries\(window\.devicePixelRatio \|\| 1\)/.test(dprMainSrc)
+      && !/matchMedia\(`\(resolution/.test(dprMainSrc));
+  check("...it keeps only a candidate that is true right now",
+    /if \(!mq\.matches\) continue;/.test(dprMainSrc));
+  check("...and a change re-solves rather than resizing the canvas behind the policy",
+    /private onDprChange = \(\): void => \{\n\s*this\.onResize\(\);\n\s*\};/.test(dprMainSrc));
+  // Asked of destroy()'s OWN body rather than of the file: armDprWatch also
+  // removes a listener (that is how it re-arms), so a whole-file search for the
+  // call would be satisfied by the re-arm alone and would never notice the
+  // teardown going missing.
+  const destroyBody = dprMainSrc.slice(
+    dprMainSrc.indexOf("private destroy(): void {"),
+    dprMainSrc.indexOf("// ---------------- state / rendering ----------------"),
+  );
+  check("...with the listener torn down when the app is",
+    destroyBody.includes('this.dprMQ?.removeEventListener?.("change", this.onDprChange)')
+      && destroyBody.includes("this.dprMQ = null;"),
+    `destroy() body ${destroyBody.length} chars`);
+}
+
+// ===========================================================================
 // THE BACKGROUND LAYER RE-BAKES WITHOUT REALLOCATING (render.ts's
 // getBackgroundLayer).
 //
@@ -26970,6 +27747,675 @@ section("The background layer re-bakes in place, it does not reallocate (render.
   glob.document = prevDoc;
   glob.window = prevWin;
   glob.Path2D = prevPath;
+}
+
+// ===========================================================================
+// THE FIELD'S TYPE LANDS ON THE DEVICE'S PIXEL GRID (render.ts's crispFontPx).
+//
+// Eight sites draw text on the canvas, and every one of them is authored in
+// world px and rasterised through the world transform — so what reaches the
+// panel is `size * scale * dpr`, where dpr is renderScale's capped answer and
+// not the display's. On the iPhone X the game locks to landscape on, that
+// factor is 0.781, and all eight of the authored sizes came out fractional:
+// 8.59, 9.38, 10.16, 10.94, 14.06, 20.31, 23.44 device px. Meanwhile the DOM
+// chrome one layer up is laid out at the panel's full 3x.
+//
+// TWO HALVES. The arithmetic is a pure function and pinned as one. The wiring is
+// asked of a real frame through the recording context, because "every site" is
+// the claim and a site that forgot to snap is exactly what a spot check misses.
+// ===========================================================================
+section("Every canvas text site rasterises on whole device pixels (render.ts)");
+{
+  // The iPhone X's real factor, from the real solver, so the numbers in the
+  // comment above are the numbers this pin is actually about.
+  setSafeAreaInsets(NO_INSETS);
+  setRailSlots(RAIL_SLOTS_BASE);
+  const phone = computeLayout(812, 375);
+  const phoneK = phone.scale * renderScale(3, 812, 375);
+  check("the iPhone X really does rasterise the field at 0.78 world px a device px",
+    Math.abs(phoneK - 0.78125) < 1e-9, `${phoneK}`);
+
+  const AUTHORED = [11, 12, 13, 14, 18, 26, 30];
+  const before = AUTHORED.map((s) => s * phoneK);
+  check("...and every authored size lands between device pixels before the snap",
+    before.every((d) => Math.abs(d - Math.round(d)) > 0.05),
+    AUTHORED.map((s, i) => `${s}->${before[i].toFixed(2)}`).join(" "));
+  check("...and on a whole one after it",
+    AUTHORED.every((s) => Number.isInteger(
+      Math.round(crispFontPx(s, phoneK) * phoneK * 1e6) / 1e6)),
+    AUTHORED.map((s) => `${s}->${(crispFontPx(s, phoneK) * phoneK).toFixed(4)}`).join(" "));
+
+  // NEAREST, not up and not down: a size is moved by less than half a device px
+  // in world terms, so the ladder keeps its shape wherever the grid allows one.
+  check("the snap is to the NEAREST whole device px",
+    AUTHORED.every((s) => Math.abs(crispFontPx(s, phoneK) - s) * phoneK <= 0.5 + 1e-9),
+    AUTHORED.map((s) => `${s}->${crispFontPx(s, phoneK).toFixed(2)}`).join(" "));
+
+  // A FLOOR OF ONE WHOLE DEVICE PX. A tiny size on a shrunken viewport rounds to
+  // zero, and a zero-sized font is not small type, it is no text at all — the
+  // failure this shape of arithmetic invites.
+  check("a size that would round away is held at one device px",
+    crispFontPx(11, 0.02) * 0.02 === 1 && crispFontPx(1, 0.001) * 0.001 === 1,
+    `${crispFontPx(11, 0.02) * 0.02} / ${crispFontPx(1, 0.001) * 0.001}`);
+  // A scale that is absent, zero or NaN is a frame drawn before anything has
+  // been measured; the authored size is the only honest answer there.
+  check("an unmeasured frame keeps the authored size rather than dividing by zero",
+    crispFontPx(13, 0) === 13 && crispFontPx(13, Number.NaN) === 13
+      && crispFontPx(13, -1) === 13,
+    `${crispFontPx(13, 0)} / ${crispFontPx(13, Number.NaN)} / ${crispFontPx(13, -1)}`);
+  // A 1:1 frame must come out untouched, which is what says this is a snap and
+  // not a resize: every whole authored size is already on the grid at dpr 1.
+  check("a frame drawn at 1:1 is pixel-identical to what it always was",
+    AUTHORED.every((s) => crispFontPx(s, 1) === s));
+
+  // ---- EVERY SITE, in one frame. ----
+  const stubs = installBrowserStubs();
+  const g = new Game(makeBaseLevel(0), {}, 41);
+  g.status = "playing";
+  // The gauge is inert on a calm bay and the stabiliser tag only draws when the
+  // launcher is cancelling wind, so both are switched on: the frame has to be
+  // able to reach all eight sites or "every site" is not what is being checked.
+  g.level.windMax = 6;
+  g.level.windAssist = 0.3;
+  const rec = newRec();
+  const canvas: Record<string, unknown> = { width: 1268, height: 586 };
+  const ctx = makeRecCtx(canvas, rec);
+  const DPR = renderScale(3, 812, 375);
+  render(ctx as unknown as CanvasRenderingContext2D, 812, 375, DPR, {
+    cubes: g.cubes, constraints: [], compactor: g.compactor, cannon: g.cannon,
+    trajectory: [], now: 5000, aiming: false,
+    effects: [
+      // A payout carrying BOTH riders, so the number, the timing callout and
+      // the congestion tag are all on screen at once.
+      { kind: "payout", x: 600, y: 400, amount: 120, grade: "excellent", congested: true, t0: 4960 },
+      { kind: "salvage", x: 400, y: 380, amount: 40, t0: 4960 },
+      { kind: "penalty", x: 800, y: 360, amount: 25, t0: 4960 },
+    ],
+    level: g.level, nextIsBomb: false, bombs: [], windNow: 4, windAverage: 3,
+    reload: 1, settling: false, strandWarning: false,
+  });
+
+  const fonts = setValues(rec, "font").map(String);
+  check("the frame really reaches all eight canvas text sites",
+    fonts.length === 8, `${fonts.length} font writes: ${fonts.join(" | ")}`);
+  const sizes = fonts.map((f) => Number(/(\d+(?:\.\d+)?)px/.exec(f)?.[1] ?? Number.NaN));
+  const devicePx = sizes.map((s) => s * phoneK);
+  check("...and not one of them sets a size that lands between device pixels",
+    devicePx.every((d) => Number.isFinite(d) && Math.abs(d - Math.round(d)) < 1e-6),
+    devicePx.map((d) => d.toFixed(4)).join(" "));
+  // Weight and family are unchanged by the snap — this is a size fix, and a
+  // font shorthand that lost its family falls back to the UA's default face.
+  check("...and every one of them still names its weight and its family",
+    fonts.every((f) => f.startsWith("700 ")
+      && (f.includes("JetBrains Mono") || f.includes("system-ui"))),
+    fonts.join(" | "));
+
+  g.destroy();
+  stubs.restore();
+}
+
+
+
+// ===========================================================================
+// A CLEARED BAY AND A CRUSHED ROW BLOOM IN PLACE UNDER REDUCED MOTION
+// (render.ts's drawBayClearFx and drawRowFlashFx).
+//
+// The blast debris opts out of the preference outright and the thaw cue opts
+// into a static version of itself. These two were doing neither, and one of
+// them is the largest single piece of travel the renderer draws: a band
+// crossing the whole 1280px bay in 1.4 seconds, drawn for a player who had
+// asked the platform, in the one way a platform offers, not to be shown travel.
+//
+// WHICH RULING EACH GETS, AND WHY NEITHER GETS THE DEBRIS'. The debris is
+// REMOVED because every part of it is motion and the shockwave underneath it
+// still says a blast happened. Neither of these has anything underneath it —
+// the sweep is the only thing that celebrates a cleared bay ON the bay, and the
+// flash is the only mark a crushed row leaves — so removing them would tell a
+// player less about their own field, which is not what the preference asks for.
+// Both take the THAW cue's ruling instead: keep the cue, take the travel out,
+// spend opacity where the movement was.
+//
+// ISOLATED BY DELTA, the way the debris pin is: a frame carrying the cue
+// against the same frame without it, at the same setting of the preference.
+// Each setting gets its OWN base, because half a dozen other things in a frame
+// already read the preference and a calm cue measured against a live base would
+// be reporting all of them as the cue.
+//
+// FILTERED FIRST, THEN SLICED, rather than diffed whole. drawEffects is the
+// last thing render() draws and it wraps the lot in one save/restore, so the
+// base frame is NOT a prefix of the frame carrying the cue — its closing
+// restores sit where the cue's commands now are. But every arc, fillRect,
+// fillStyle and globalAlpha the base issues still comes BEFORE every one the
+// cue issues, so taking each kind on its own and dropping as many as the base
+// had leaves the cue's own, exactly.
+// ===========================================================================
+section("A cleared bay and a crushed row bloom in place under reduced motion (render.ts)");
+{
+  const rec = newRec();
+  // fillRect and arc keep their ARGUMENTS: every claim below is about WHERE a
+  // shape lands — how far the ring reached, how much field the wash covers —
+  // and a count alone would pass on a ring that had stopped growing by being
+  // drawn somewhere else entirely.
+  const stubs = installBrowserStubs();
+  const canvas: Record<string, unknown> = { width: 2560, height: 1440 };
+  const ctx = makeRecCtx(canvas, rec, ["fillRect", "arc"]);
+  const g = new Game(makeBaseLevel(0), {}, 12);
+  g.status = "playing";
+
+  const paintFx = (effects: FxEvent[], now: number, calm: boolean): Rec => {
+    setReducedMotion(calm);
+    resetRec(rec);
+    render(ctx as unknown as CanvasRenderingContext2D, 1280, 720, 2, {
+      cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now, aiming: false, effects,
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return {
+      calls: [...rec.calls], sets: [...rec.sets],
+      args: rec.args.map(([k, a]) => [k, [...a]] as [string, unknown[]]),
+    };
+  };
+
+  const T0 = 5000;
+  const CUE: FxEvent[] = [
+    { kind: "bayclear", x: 620, y: 400, t0: T0 },
+    { kind: "rowflash", y: 420, x0: 40, x1: 1240, t0: T0 },
+  ];
+
+  /** What the cue added, one kind of command at a time. `pick` pulls a single
+   *  kind out of a recording in issue order; the cue's are whatever is left
+   *  after dropping as many as the bare frame had. `additive` records that the
+   *  cue only ever ADDED to each kind, which is the assumption the drop rests
+   *  on and is asserted below rather than trusted. */
+  let additive = true;
+  const added = (
+    now: number, calm: boolean,
+    pick: (r: Rec) => string[],
+  ): string[] => {
+    const base = pick(paintFx([], now, calm));
+    const full = pick(paintFx(CUE, now, calm));
+    additive = additive && full.length >= base.length
+      && JSON.stringify(full.slice(0, base.length)) === JSON.stringify(base);
+    return full.slice(base.length);
+  };
+  const gradCount = (now: number, calm: boolean): number =>
+    callCount(paintFx(CUE, now, calm), "createLinearGradient")
+      - callCount(paintFx([], now, calm), "createLinearGradient");
+  const pickArg = (name: string) => (r: Rec): string[] =>
+    r.args.filter(([k]) => k === name).map(([, a]) => a.join(","));
+  const pickSet = (prop: string) => (r: Rec): string[] =>
+    r.sets.filter(([k]) => k === prop).map(([, v]) => String(v));
+
+  // Warm the sprite and background caches: a cold frame pays for every bake,
+  // and the delta would report that bake as the cue.
+  paintFx([], T0, false);
+
+  // 200ms in, both cues are alive (the flash runs 450ms, the sweep 1400); at
+  // 900ms the sweep is alone and well past halfway across; at 1399 it is one
+  // millisecond from the end, which is where its ring finally arrives.
+  const EARLY = T0 + 200;
+  const LATE = T0 + 900;
+  const ENDING = T0 + FX_TTL.bayclear - 1;
+
+  // 1. THE CUE SURVIVES THE PREFERENCE. The half that separates these two from
+  // the debris, and the half a well-meaning "return early like debris does"
+  // would take away.
+  const calmRects = added(EARLY, true, pickArg("fillRect"));
+  const calmArcs = added(EARLY, true, pickArg("arc"));
+  check("both cues still draw under the preference — the field still says what happened",
+    calmRects.length === 2 && calmArcs.length === 1,
+    `${calmRects.length} fills, ${calmArcs.length} rings: ${calmRects.join(" | ")}`);
+  check("...and the cue only ever ADDS to a frame, which is what makes the delta the cue",
+    additive);
+
+  // 2. NO RAMP, NO BAND. Live, each drawer builds a linear gradient — the
+  // sweeping band and the row's directional wipe. Calm, neither does: both are
+  // flat fills, which is what "a static bloom" means written in commands.
+  check("live, the sweep and the wipe are a gradient each",
+    gradCount(EARLY, false) === 2, `${gradCount(EARLY, false)}`);
+  check("...and under the preference neither of them is",
+    gradCount(EARLY, true) === 0 && gradCount(LATE, true) === 0,
+    `${gradCount(EARLY, true)} early / ${gradCount(LATE, true)} late`);
+
+  // 3. THE RING IS AT FULL REACH FROM ITS FIRST FRAME rather than arriving
+  // there. Stated against the live cue's OWN end state instead of against a
+  // copy of the reach constant: the claim is "calm starts where live finishes",
+  // and a pin holding its own duplicate of 440 would go on passing after
+  // somebody widened the ring.
+  const ringR = (now: number, calm: boolean): number =>
+    Number(added(now, calm, pickArg("arc"))[0]?.split(",")[2] ?? Number.NaN);
+  const liveR0 = ringR(EARLY, false);
+  const liveR1 = ringR(LATE, false);
+  const liveEnd = ringR(ENDING, false);
+  const calmR0 = ringR(EARLY, true);
+  const calmR1 = ringR(LATE, true);
+  check("live, the ring is still growing between 200ms and 900ms",
+    liveR0 < liveR1 && liveR1 < liveEnd, `${liveR0} -> ${liveR1} -> ${liveEnd}`);
+  check("...and calm it is already, in every frame, where the sweep only arrives at the end",
+    calmR0 === calmR1 && Math.abs(calmR0 - liveEnd) < 0.01,
+    `calm ${calmR0} / ${calmR1} vs live at 1399ms ${liveEnd}`);
+
+  // 4. THE WASH COVERS THE FIELD THE BAND WOULD HAVE CROSSED, at the band's
+  // MEAN rather than its crest — 0.094 against 0.5, derived in render.ts beside
+  // BAYCLEAR_CALM_ALPHA. A wash at the crest would be five times the light the
+  // sweep ever put on any part of the bay at once, which is a louder cue in the
+  // name of a calmer one.
+  const calmFills = added(EARLY, true, pickSet("fillStyle"));
+  check("the calm wash covers the same field the band crossed",
+    calmRects.includes(`0,0,${WORLD.width},${WORLD.height}`), calmRects.join(" | "));
+  check("...in flat green under a tenth alpha, not at the band's own crest",
+    calmFills.some((f) => /^rgba\(0,255,156,0\.0\d/.test(f)), calmFills.join(" | "));
+
+  // 5. THE ROW BAND IS FLAT, AND ITS FADE IS SPENT EVENLY. (1-t)² puts three
+  // quarters of the cue's light into its first 100ms, which is a strobe over
+  // the pile rather than a bloom; calm spends the same 450ms linearly.
+  check("the calm row band is flat white at half the ramp's edge alpha",
+    calmFills.includes("rgba(255,255,255,0.45)"), calmFills.join(" | "));
+  const rowT = 200 / FX_TTL.rowflash;
+  const calmAlphas = added(EARLY, true, pickSet("globalAlpha")).map(Number);
+  const liveAlphas = added(EARLY, false, pickSet("globalAlpha")).map(Number);
+  check("...and its fade is linear under the preference where it is squared beside it",
+    calmAlphas.some((a) => Math.abs(a - (1 - rowT)) < 1e-9)
+      && liveAlphas.some((a) => Math.abs(a - (1 - rowT) * (1 - rowT)) < 1e-9),
+    `calm ${calmAlphas.join(",")} / live ${liveAlphas.join(",")}`);
+
+  setReducedMotion(false);
+  g.destroy();
+  stubs.restore();
+}
+
+// ===========================================================================
+// THE CRT COMB REPEATS ON THE PIXEL GRID, AND HAS A SWITCH AT LAST
+// (render.ts's scanlineMetrics, store.ts's scanlines, app.css's #app::after).
+//
+// The overlay is a repeating-linear-gradient laid over the whole app: a dark
+// line one CSS px tall every three. It has shipped since the first retro pass
+// with two things wrong with it.
+//
+// ONE, a CSS px is not a pixel. On a Pixel 7, whose devicePixelRatio is 2.625,
+// the authored three-px period is 7.875 DEVICE px and the line is 2.625 of
+// them, so the comb never repeats on the grid it is rasterised onto: the first
+// line covers three device rows, the second two and a fraction, the third
+// lands half a row further off, and the eight-row beat that finally closes the
+// cycle is a moiré banding the whole screen. It is the same arithmetic
+// crispFontPx was written for one section up — this is the DOM's half of it —
+// and the fix is the same shape: snap to whole device px and hand back the CSS
+// length that produces them, published per solve because the ratio is exactly
+// what can change under a window that never moved.
+//
+// TWO, the class that turns the overlay off was wired to nothing. app.css has
+// advertised `crt-off` on <body> since the block was written, with a comment
+// saying so, and no line in the app ever wrote it. It is a Settings switch now
+// whose default is asked of the device rather than declared, because this is a
+// full-screen `mix-blend-mode: multiply` composite of every device pixel every
+// frame — a cost the hardware with the least headroom pays for a texture at or
+// under the resolving limit of a phone panel held at arm's length.
+//
+// WHAT IS PINNED WHERE. The snapping is arithmetic and is pinned as arithmetic.
+// The stylesheet, the publish and the class write are SOURCE pins for the
+// reason the cursor and autosizing pins are: there is no layout engine in this
+// process, the claim is that a refactor cannot quietly unhook one end of the
+// chain, and each end is one line that can be forgotten.
+// ===========================================================================
+section("The CRT comb repeats on whole device pixels, and can be switched off");
+{
+  // ---- THE ARITHMETIC ----
+  // A whole-number display must come out untouched, which is what says this is
+  // a snap and not a redesign: 1x, 2x and 3x panels get the comb they always
+  // got, pixel for pixel.
+  check("a whole-number display gets exactly the overlay it always had",
+    [1, 2, 3].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.period === SCANLINE_PERIOD_CSS && m.line === SCANLINE_LINE_CSS;
+    }),
+    [1, 2, 3].map((d) => `${d}:${JSON.stringify(scanlineMetrics(d))}`).join(" "));
+
+  // The Pixel 7's 2.625 spelled out, because it is the device in the report.
+  const p7 = scanlineMetrics(2.625);
+  check("the Pixel 7's period is a whole 8 device px rather than 7.875",
+    Math.abs(p7.period * 2.625 - 8) < 1e-9, `${p7.period * 2.625}`);
+  check("...and its line a whole 3 rather than 2.625",
+    Math.abs(p7.line * 2.625 - 3) < 1e-9, `${p7.line * 2.625}`);
+
+  // Every ratio a platform actually hands out, including the Windows scale
+  // factors that do not terminate in decimal (4/3 at 133%, 5/3 at 166%).
+  const RATIOS = [1, 1.25, 4 / 3, 1.5, 5 / 3, 1.75, 2, 2.25, 2.5, 2.625, 2.75, 3, 3.5, 4];
+  const whole = (x: number): boolean => Math.abs(x - Math.round(x)) < 1e-6;
+  check("every ratio a platform offers repeats on the grid, line and period alike",
+    RATIOS.every((d) => {
+      const m = scanlineMetrics(d);
+      return whole(m.line * d) && whole(m.period * d);
+    }),
+    RATIOS.map((d) => {
+      const m = scanlineMetrics(d);
+      return `${d.toFixed(3)}:${(m.line * d).toFixed(3)}/${(m.period * d).toFixed(3)}`;
+    }).join(" "));
+
+  // A COMB HAS TO STAY A COMB. A line as tall as its own period is not a
+  // scanline, it is a sheet of black laid over the game at multiply — the one
+  // failure this shape of rounding invites that would be visible from orbit,
+  // and the one a shrunken ratio walks straight into.
+  const SMALL = [0.1, 0.25, 0.5, 0.75, 1];
+  check("the line never reaches its own period, however small the ratio gets",
+    [...RATIOS, ...SMALL].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.line > 0 && m.line < m.period;
+    }),
+    SMALL.map((d) => `${d}:${scanlineMetrics(d).line}/${scanlineMetrics(d).period}`).join(" "));
+
+  check("a ratio that is absent, zero, negative or NaN falls back to the authored comb",
+    [0, -1, Number.NaN, Number.POSITIVE_INFINITY].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.period === SCANLINE_PERIOD_CSS && m.line === SCANLINE_LINE_CSS;
+    }));
+
+  // ---- THE STYLESHEET READS THEM ----
+  const crtCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const appAfter = /#app::after\s*\{[^}]*\}/.exec(crtCss)?.[0] ?? "";
+  // The FALLBACKS are the authored numbers rather than zero: a frame that
+  // somehow paints before the first solve gets the old overlay, not a black
+  // sheet and not nothing.
+  check("the overlay's gradient is written in the published variables, authored values as fallback",
+    appAfter.includes(`var(--scanline-line, ${SCANLINE_LINE_CSS}px)`)
+      && appAfter.includes(`var(--scanline-period, ${SCANLINE_PERIOD_CSS}px)`),
+    appAfter.replace(/\s+/g, " ").slice(0, 260) || "no #app::after rule");
+  check("the off-switch the block always advertised is still the off-switch",
+    /body\.crt-off\s+#app::after\s*\{[^}]*display:\s*none/.test(crtCss));
+
+  // ---- main.ts PUBLISHES THEM, ON THE SOLVE PATH, FROM THE RAW RATIO ----
+  const combSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // Sliced between onResize's first statement and its last, so this is
+  // containment rather than "the string appears somewhere in main.ts" — the
+  // claim is that the comb is re-published by the thing that re-solves, which
+  // is also what the density watch routes through.
+  const rStart = combSrc.indexOf("this.dpr = renderScale(");
+  const rEnd = combSrc.indexOf("this.syncPlantRoof();", rStart);
+  const onResizeSrc = rStart >= 0 && rEnd > rStart ? combSrc.slice(rStart, rEnd) : "";
+  check("the comb is published on the solve path, where the density watch lands",
+    onResizeSrc.includes("scanlineMetrics(window.devicePixelRatio || 1)")
+      && /setProperty\("--scanline-line"/.test(onResizeSrc)
+      && /setProperty\("--scanline-period"/.test(onResizeSrc),
+    `${onResizeSrc.length} chars of onResize`);
+  // From the DISPLAY's ratio, not renderScale's capped one. The cap exists
+  // because the frame is fill-bound and says how much CANVAS the budget can
+  // afford; it has nothing to say about a CSS gradient, which rasterises at
+  // the panel's real density like every other piece of chrome.
+  check("...from the display's real ratio rather than the canvas's capped one",
+    !/scanlineMetrics\(\s*this\.dpr/.test(combSrc));
+
+  check("the Scanlines switch is spent on the class app.css documents",
+    /classList\.toggle\("crt-off", !this\.settings\.scanlines\)/.test(combSrc));
+  // Twice: once at boot beside the other applied settings, once on the flip.
+  // A switch applied only on the flip is a setting that does not survive a
+  // reload, which is the whole point of persisting it.
+  check("...and applied at boot as well as on the flip",
+    /key === "scanlines"\) this\.applyScanlines\(\)/.test(combSrc)
+      && (combSrc.match(/this\.applyScanlines\(\)/g) ?? []).length >= 2,
+    `${(combSrc.match(/this\.applyScanlines\(\)/g) ?? []).length} call sites`);
+
+  // ---- THE ROW ----
+  const paneSettings = {
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false,
+    devMode: false, systemCursor: false, scanlines: true,
+  };
+  const paneOn = S.settingsScreen(paneSettings);
+  const paneOff = S.settingsScreen({ ...paneSettings, scanlines: false });
+  check("Settings carries a Scanlines row", paneOn.includes('data-toggle="scanlines"'));
+  check("...reporting the state it was handed, both ways round",
+    /data-toggle="scanlines" aria-checked="true"/.test(paneOn)
+      && /data-toggle="scanlines" aria-checked="false"/.test(paneOff));
+
+  // ---- THE DEFAULT IS ASKED OF THE DEVICE, AND A SAVE BEATS IT ----
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const prevWin = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const bag = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => bag.get(k) ?? null,
+        setItem: (k: string, v: string) => void bag.set(k, v),
+        removeItem: (k: string) => void bag.delete(k),
+      },
+    });
+    let pointer = "fine";
+    const setPointer = (kind: string): void => {
+      pointer = kind;
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: { matchMedia: (q: string) => ({ matches: q.includes(`pointer: ${pointer}`) }) },
+      });
+    };
+    try {
+      setPointer("coarse");
+      check("a thumb starts with the overlay off", loadSettings().scanlines === false);
+      setPointer("fine");
+      check("...and a mouse starts with it on", loadSettings().scanlines === true);
+      // Phrased as "not coarse" rather than "fine" on purpose: a device with NO
+      // pointer — a TV, a pad-only build — answers false to `(pointer: fine)`,
+      // and those are the large distant screens the comb reads best on.
+      setPointer("none");
+      check("...as does a screen with no pointer at all", loadSettings().scanlines === true);
+
+      // THE SAVE BEATS THE DEVICE, both ways round — a default that could only
+      // be overridden in one direction is a default that sometimes is not one.
+      setPointer("fine");
+      localStorage.setItem("tetrilaunch.settings", JSON.stringify({ scanlines: false }));
+      check("a player who switched it off keeps it off on a mouse",
+        loadSettings().scanlines === false);
+      setPointer("coarse");
+      localStorage.setItem("tetrilaunch.settings", JSON.stringify({ scanlines: true }));
+      check("...and one who switched it on keeps it on under a thumb",
+        loadSettings().scanlines === true);
+
+      // "I could not tell" is not a reason to take the look away.
+      localStorage.removeItem("tetrilaunch.settings");
+      Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+      check("a platform with no matchMedia keeps the intended look",
+        loadSettings().scanlines === true);
+      delete (globalThis as unknown as Record<string, unknown>).window;
+      check("...and so does one with no window at all", loadSettings().scanlines === true);
+    } finally {
+      bag.clear();
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+      if (prevWin) Object.defineProperty(globalThis, "window", prevWin);
+      else delete (globalThis as unknown as Record<string, unknown>).window;
+    }
+  }
+}
+
+// ===========================================================================
+// THE WALL GLOW FINISHES IN THE LETTERBOX BAND (render.ts's wallGlowBleed).
+//
+// Two halves, and they fail in different ways:
+//
+//   1. THE ARITHMETIC. How much room is there beside the field, and how much
+//      of it may the halo have? This is a pure function of the solved layout,
+//      so it is checked against computeLayout's real answers on the real rows
+//      of the device matrix rather than against invented numbers.
+//   2. THE WIRING. Does the BAKE actually clip to the widened rect? The
+//      arithmetic can be perfect and the clip still be the world rect, which
+//      is precisely the state this change found.
+// ===========================================================================
+section("The congestion rows are exactly the bay wide (render.ts's drawCongestionRows)");
+{
+  // OWNER'S READ ON DEVICE: for one release the rows ran out into the halo
+  // band with the wall glow (the clip widened by wallGlowBleed), and floor
+  // light spilling past both walls made the bay read wider than it is, on
+  // the instrument whose whole job is to say how full the bay is. The halo
+  // is the wall's light and may finish outside; the rows are the floor's and
+  // stop at the walls — x 0..WORLD.width, engine.ts's WALL_INNER being
+  // WORLD.width. Source-pinned, because the width is two literals in one
+  // function and a draw-sequence pin would only restate them.
+  const renderSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "game", "render.ts"),
+    "utf8",
+  );
+  const rowsFn = renderSrc.slice(
+    renderSrc.indexOf("function drawCongestionRows("),
+    renderSrc.indexOf("export function render("),
+  );
+  check("drawCongestionRows exists to be checked", rowsFn.length > 0 && rowsFn.length < 4000);
+  check("the rows start at the left wall and run the bay's width, not the halo's",
+    /const x0 = 0;/.test(rowsFn) && /const w = WORLD\.width;/.test(rowsFn)
+      && !/bleed/.test(rowsFn.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")),
+    rowsFn.match(/const x0 = .*|const w = .*/g)?.join(" | "));
+  check("...and the bake hands them no bleed to run into",
+    /drawCongestionRows\(bctx, rows\);/.test(renderSrc));
+}
+
+section("The wall glow finishes outside the field, short of the rail (render.ts)");
+{
+  setSafeAreaInsets(NO_INSETS);
+  setRailSlots(RAIL_SLOTS_BASE);
+
+  // An ultrawide landscape phone: layout.ts's "wide" mode, ~73 CSS px of gutter
+  // a side, and the row the finding was written against — the halo's razor edge
+  // sat in the middle of that band with flat backdrop either side of it.
+  const ultra = computeLayout(812, 375);
+  const ultraVp = { scale: ultra.scale, ox: ultra.ox, oy: ultra.oy };
+  const ultraBleed = wallGlowBleed(812, ultraVp, ultra);
+  check("an ultrawide row gets a bleed at all", ultraBleed.left > 0 && ultraBleed.right > 0,
+    `mode ${ultra.mode}, gutter ${(812 - ultra.fw) / 2}px, bleed ${JSON.stringify(ultraBleed)}`);
+  check("...the same on both sides, because the rail's side is not knowable here",
+    Math.abs(ultraBleed.left - ultraBleed.right) < 1e-9);
+
+  /** Where app.css puts the rail column's INNER edge, as a distance from the
+   *  field's edge in CSS px — the `max()` of the stylesheet's two offsets,
+   *  subtracted from the gutter. The pin's own copy of the rule: deriving it
+   *  from render.ts's helper would let a wrong rule agree with itself. */
+  const railClearanceCss = (gutter: number, railSize: number, inset: number): number =>
+    gutter - railSize - Math.max(4 + inset, (gutter - railSize) / 2);
+
+  const ultraGutter = (812 - ultra.fw) / 2;
+  check("...and it stops short of the rail column rather than painting under it",
+    ultraBleed.right * ultra.scale <= railClearanceCss(ultraGutter, ultra.railSize, 0) + 1e-9,
+    `bleed ${(ultraBleed.right * ultra.scale).toFixed(2)}css vs clearance ` +
+    `${railClearanceCss(ultraGutter, ultra.railSize, 0).toFixed(2)}css`);
+
+  // 16:9 — no NATURAL gutter, so layout.ts reserves an 84px band on the rail's
+  // edge and the field sits flush against the other side. Both halves of the
+  // cap show up on this one row: nothing at all on the flush side, and on the
+  // band side only the 12 CSS px the centred column leaves inboard of itself —
+  // not the 27 world px the halo would like.
+  const flush = computeLayout(1280, 720);
+  const flushBleed = wallGlowBleed(1280, { scale: flush.scale, ox: flush.ox, oy: flush.oy }, flush);
+  const flushGutter = 1280 - flush.ox - flush.fw;
+  check("the flush side of a snug row bleeds nothing at all",
+    flush.mode === "snug" && flush.ox === 0 && flushBleed.left === 0,
+    `mode ${flush.mode}, ox ${flush.ox}, bleed ${JSON.stringify(flushBleed)}`);
+  check("...and the reserved band gives only what it has left inboard of the rail",
+    flushBleed.right > 0
+      && Math.abs(flushBleed.right - railClearanceCss(flushGutter, flush.railSize, 0) / flush.scale)
+        < 1e-9
+      && flushBleed.right < WALL_GLOW_REACH,
+    `bleed ${flushBleed.right.toFixed(2)} world px of ${WALL_GLOW_REACH}`);
+
+  // A 21:9 DESKTOP window, where the gutter is enormous and the rail is nowhere
+  // near it. This is the only shape in the matrix where the REACH is the
+  // binding term, which is what makes it the pin that would catch a cap that
+  // had quietly become unbounded.
+  const desk = computeLayout(2560, 720);
+  const deskBleed = wallGlowBleed(2560, { scale: desk.scale, ox: desk.ox, oy: desk.oy }, desk);
+  check("a huge gutter is capped by the halo's own reach, not by the rail",
+    deskBleed.left === WALL_GLOW_REACH && deskBleed.right === WALL_GLOW_REACH,
+    `gutter ${(2560 - desk.fw) / 2}css, bleed ${JSON.stringify(deskBleed)}`);
+
+  // "tall" mode puts the rail in the BOTTOM band, so a side gutter there is
+  // free whatever the strip's size. Stated against a synthetic layout because
+  // no real row reaches it: a tall row is width-bound by construction, so its
+  // side gutters are whatever the safe-area insets left and nothing more.
+  const tallBleed = wallGlowBleed(700, { scale: 0.5, ox: 30, oy: 0 },
+    { ...ultra, mode: "tall", railSize: 60 });
+  check("a tall row's side gutter is free — its rail is in the bottom band",
+    tallBleed.left === WALL_GLOW_REACH && tallBleed.right === WALL_GLOW_REACH,
+    `bleed ${JSON.stringify(tallBleed)} from a 60-world-px gutter`);
+
+  // An OFF-FIELD surface (attract.ts fits with fitViewport and mounts no rail):
+  // no chrome to stay clear of, so nothing but the reach caps it.
+  const demoVp = fitViewport(600, 200);
+  const demoBleed = wallGlowBleed(600, demoVp, null);
+  check("the attract panel has no rail to dodge and takes the full reach",
+    demoBleed.left === WALL_GLOW_REACH && demoBleed.right === WALL_GLOW_REACH,
+    JSON.stringify(demoBleed));
+
+  // A pathological box where the rail is pinned over the field: the clearance
+  // is negative and the bleed has to clamp, not go inside out.
+  const squeezed = wallGlowBleed(700, { scale: 0.5, ox: 30, oy: 0 },
+    { ...ultra, mode: "wide", railSize: 60 });
+  check("a rail already standing on the field gets no halo painted under it",
+    squeezed.left === 0 && squeezed.right === 0, JSON.stringify(squeezed));
+
+  // ---- THE WIRING. What rect does the bake actually clip to? ----
+  //
+  // The background layer is a MODULE-LEVEL canvas made once per process, so by
+  // the time this section runs it already exists and no createElement stub
+  // installed here will ever see it — which is exactly why the pin above it
+  // (the re-bake pin) has to run before anything else renders. What is still
+  // reachable is the canvas OBJECT itself: the live frame stamps it with
+  // drawImage, so tracing that hands it over, and swapping its getContext for a
+  // recorder of ours makes the next bake's commands readable. The bake calls
+  // getContext fresh every time, so the swap takes effect on the very next
+  // cache miss and nothing has to be re-created.
+  const stubs = installBrowserStubs();
+  const g2 = new Game(makeBaseLevel(0), {}, 31);
+  g2.status = "playing";
+  const liveRec2 = newRec();
+  const liveCanvas2: Record<string, unknown> = { width: 1624, height: 750 };
+  const liveCtx2 = makeRecCtx(liveCanvas2, liveRec2, ["drawImage"]);
+  const paint2 = (dpr: number): void => {
+    resetRec(liveRec2);
+    render(liveCtx2 as unknown as CanvasRenderingContext2D, 812, 375, dpr, {
+      cubes: g2.cubes, constraints: [], compactor: g2.compactor, cannon: g2.cannon,
+      trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g2.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+  };
+
+  paint2(2);
+  // The background blit is the frame's first drawImage, and its source is the
+  // layer canvas.
+  const blit = liveRec2.args.find(([n]) => n === "drawImage");
+  const bgCanvas = blit?.[1][0] as Record<string, unknown> | undefined;
+  check("the frame's first stamp is the background layer",
+    bgCanvas !== undefined && typeof bgCanvas.getContext === "function",
+    blit ? "source is not a canvas" : "no drawImage in the frame");
+
+  if (bgCanvas) {
+    const bakeRec = newRec();
+    const bakeCtx = makeRecCtx(bgCanvas, bakeRec, ["rect"]);
+    bgCanvas.getContext = (): unknown => bakeCtx;
+    // A different dpr is a different backing size, which is a cache miss — so
+    // this frame re-bakes, through our recorder, at the same viewport the
+    // arithmetic above was solved for.
+    paint2(3);
+    // The bake's clip is the one rect() spanning the whole shaft.
+    const clipRect = bakeRec.args
+      .filter(([n]) => n === "rect")
+      .map(([, a]) => a as number[])
+      .find((a) => a.length === 4 && (a[2] as number) >= WORLD.width);
+    check("the background bake really clips wider than the world rect",
+      clipRect !== undefined && clipRect[2] > WORLD.width && clipRect[0] < 0,
+      `bake clip rect ${clipRect ? clipRect.join(",") : "none"}`);
+    check("...by exactly the bleed the solver allowed, no more",
+      clipRect !== undefined
+        && Math.abs(clipRect[0] + ultraBleed.left) < 1e-6
+        && Math.abs(clipRect[2] - (WORLD.width + ultraBleed.left + ultraBleed.right)) < 1e-6,
+      `clip ${clipRect?.join(",")} vs bleed ${JSON.stringify(ultraBleed)}`);
+  }
+
+  g2.destroy();
+  stubs.restore();
 }
 
 // ===========================================================================
@@ -28776,6 +30222,27 @@ section("Player accounts (social login + RevenueCat identity)");
   check("a guest can choose Google", guest.includes('data-action="account-google"'));
   check("a guest can choose Apple", guest.includes('data-action="account-apple"'));
   check("account sign-in explains purchase recovery", guest.includes("recovered on another device"));
+  // …and explains it for the build the player is standing in (F10b). The web
+  // sentence told an iPhone player to sign in "before buying on the web", which
+  // names a store that build does not use and a route it cannot take. The
+  // branch is StoreState.restorable — the same flag that decides whether a
+  // Restore Purchases button exists at all (main.ts: `isNative`).
+  check("a browser is told what signing in does for a web purchase",
+    guest.includes("before buying on the web"));
+  const nativeGuest = S.accountScreen(
+    { available: true, ready: true, label: null, providers: both }, true,
+  );
+  check("...and an app build is not told to buy on the web",
+    !nativeGuest.includes("on the web") && nativeGuest.includes("recovered on another device"),
+    nativeGuest);
+  // THE SENTENCE IS THE ONLY THING THAT BRANCHES. The first cut of this fix put
+  // the per-build paragraph and the provider buttons in the same ternary arm,
+  // so a native guest got the corrected sentence and no way to sign in — the
+  // screen's entire purpose, removed by a copy edit, on every build that ships
+  // to a store. The two pins above could not see it: both read prose.
+  check("an app build still offers both sign-ins under that sentence",
+    nativeGuest.includes('data-action="account-google"')
+      && nativeGuest.includes('data-action="account-apple"'), nativeGuest);
 
   // Per-provider offerability is the screen's contract with auth.ts: a button
   // for a provider whose client id is missing on this platform would open a
@@ -28867,7 +30334,7 @@ section("Player accounts (social login + RevenueCat identity)");
   // finds. These pin the two properties that make the replacement a guard
   // rather than a speed bump: the safe answer is the one padnav lands on, and
   // the panel says what deletion does NOT take.
-  const del = S.accountDeleteModal();
+  const del = S.accountDeleteModal(true);
   const delButtons = [...del.matchAll(/<button[^>]*data-action="(account-delete-[a-z]+)"/g)]
     .map((m) => m[1]);
   check("the notice offers exactly the two answers, cancel first",
@@ -28894,6 +30361,23 @@ section("Player accounts (social login + RevenueCat identity)");
     del.includes("purchase-recovery identity") && del.includes("RevenueCat"));
   check("...and that the purchase survives it, recoverable by Restore",
     del.includes("Full Game purchase is not deleted") && del.includes("Restore Purchases"));
+  // THE WEB BUILD HAS NO SUCH BUTTON (F10a). `restorable` is false there
+  // (main.ts's storeState), purchaseRowsHTML renders no Restore control, and
+  // the reassurance "Restore Purchases finds it again" pointed at a button that
+  // is not on the screen — while the route a browser actually has is the
+  // sign-in this very panel is about to delete. So the web panel says the
+  // mechanism instead of promising the button.
+  const delWeb = S.accountDeleteModal(false);
+  // NAMES IT NOWHERE, not merely stops promising it: the button does not exist
+  // in this build, so any sentence pointing at it is pointing off-screen.
+  check("the web notice never names a button the build does not render",
+    !delWeb.includes("Restore Purchases"), delWeb);
+  // …and the clause that replaces it is the browser's real route, which the
+  // first paragraph's "signing in again creates a new, empty one" is not — so
+  // the pin asks for the sentence, not for the two words it shares with it.
+  check("...and says what a browser's route back to a purchase really is",
+    delWeb.includes("In a browser") && delWeb.includes("the identity that bought")
+      && delWeb.includes("Full Game purchase is not deleted"), delWeb);
   check("...and that local progress is untouched",
     /progress is untouched/.test(del) && del.includes("saved on this device"));
   // THE SECOND SHEET IS ANNOUNCED. deleteAccount re-runs the provider login
@@ -29086,17 +30570,23 @@ section("Player accounts (social login + RevenueCat identity)");
    * answered a tap with nothing: no sheet, no shake, no words (audit F1). The
    * tap now asks the store first, and a tap with no store takes the same
    * refusal every other locked floor takes, with the reason on the primary's
-   * subtitle rather than in a toast over the tower. */
+   * subtitle rather than in a toast over the tower.
+   *
+   * WHAT THE TAP OPENS HAS MOVED and the gate has not: it is the Full Game
+   * preview now (main.ts's offerFullGame), which is a screen rather than a
+   * purchase — but it is still gated on the store, deliberately, because "NO
+   * STORE, NO OFFER" is this method's stance and a sheet whose only action
+   * cannot be taken is a longer way of saying nothing. */
   {
     const pickAt = mainSrc.indexOf("private pickTier(");
     const pickBody = mainSrc.slice(pickAt, mainSrc.indexOf("\n  private ", pickAt + 1));
-    check("the paywalled floor's tap asks the store before offering the paywall",
-      /if \(purchasesReady\(\)\) \{\s*\n\s*void this\.onPaywall\(\);\s*\n\s*return;/.test(pickBody));
-    // The shape that was the bug: the paywall route with nothing in front of
-    // it. Its absence is the pin, because the gate above could be added beside
-    // it without removing it.
+    check("the paywalled floor's tap asks the store before making the offer",
+      /if \(purchasesReady\(\)\) \{\s*\n\s*this\.offerFullGame\(\);\s*\n\s*return;/.test(pickBody));
+    // The shape that was the bug: the offer route with nothing in front of it.
+    // Its absence is the pin, because the gate above could be added beside it
+    // without removing it.
     check("...and no ungated route to it survives",
-      !/fullGame: true \}, tier\)\) \{\s*\n\s*void this\.onPaywall\(\);/.test(pickBody));
+      !/fullGame: true \}, tier\)\) \{\s*\n\s*(void this\.onPaywall|this\.offerFullGame)\(\);/.test(pickBody));
     check("...and a tap with no store falls through to the shake, not to silence",
       pickBody.indexOf("this.noteStoreUnavailable()") > 0
         && pickBody.indexOf("this.noteStoreUnavailable()")
@@ -29358,7 +30848,7 @@ section("Escape backs out of a screen, not only the pause card (D12)");
     /if \(button === PAD_BACK\) return this\.clickBackTarget\(\);/.test(mainSrc));
 
   const globalKey = between("private onGlobalKey = ", "private onKeydown = ");
-  check("the handler exists to be checked", globalKey.length > 0 && globalKey.length < 3000);
+  check("the handler exists to be checked", globalKey.length > 0 && globalKey.length < 4500);
   check("Escape outside a run clicks the same back control the pad's B would",
     /e\.key === "Escape"[\s\S]{0,200}?this\.clickBackTarget\(\)/.test(globalKey), globalKey);
   // The bar is on the two states a run occupies, not on a key compare: a
@@ -29891,7 +31381,10 @@ section("The menu's primary subtitle is written to a MEASURED box (screens.ts's 
     school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS));
   check("the two school gates lead with the thing that is owed",
     /^A Contract\b/.test(school("contract", 4, null))
-    && /^The Reactor\b/.test(school("workshop", 4, null)),
+    // The Workshop line leads with the shelf's own name for the card (O6 —
+    // the same name the panel and the shop's button use), 23 characters at
+    // today's name, which is exactly the lobby box.
+    && school("workshop", 4, null).startsWith(upgradeById(SCHOOL_INSTALL)!.name),
     `${school("contract", 4, null)} | ${school("workshop", 4, null)}`);
   // …and the sentences that did not fit are gone rather than merely shortened
   // somewhere else, which is the way this regresses.
@@ -30159,6 +31652,200 @@ section("--text-faint is decorative; text uses --text-faint-ink (tokens.css, app
   check(
     "...and app.css still writes no raw hex for either step",
     !APP_CSS.includes("#55557a") && !APP_CSS.includes(ink),
+  );
+}
+
+section("The Full Game preview says what the entitlement opens, and shows it (screens.ts's previewScreen, game/attract.ts, main.ts)");
+{
+  const sheet = S.previewScreen();
+  const lines = S.previewLines().map((l) => l.text);
+
+  // ---- 1. THREE LINES, EACH READ OFF ITS OWN CONSTANT --------------------
+  //
+  // This is the screen that takes the money, so every quantity on it has to be
+  // the quantity the game will actually hand over. A hand-typed "7 more Tiers"
+  // survives a change to FREE_TIER_LIMIT in silence and becomes a false promise
+  // on the one surface in the app where a false promise is a refund.
+  check("the sheet carries exactly three claims", lines.length === 3, String(lines.length));
+
+  check(
+    "the ladder line names the first paid Tier and the last, off meta.ts",
+    lines[0].includes(`Tiers ${FREE_TIER_LIMIT + 1}\u2013${MARK_COUNT}`),
+    lines[0],
+  );
+  // The roof is part of what is bought and is not a numbered Tier, so it cannot
+  // come out of the range above — it has to be named (docs/COPY_AUDIT.md's
+  // Skydeck exception).
+  check("...and the Skydeck, which the range cannot cover", lines[0].includes("Skydeck"));
+
+  // The materials are the HAZARDS rows whose Mark opens past the free ladder,
+  // named from theme.ts. Asked here the same way previewMaterials asks it, so a
+  // material moved a rung up or down moves in the sentence with it.
+  const paidMaterials = HAZARDS
+    .filter((h) => h.mark > FREE_TIER_LIMIT && h.material !== undefined)
+    .map((h) => MATERIAL_SPEC[h.material as keyof typeof MATERIAL_SPEC].name);
+  check(
+    "the belt line names every material the paid Tiers open, and no other",
+    paidMaterials.length > 0
+      && paidMaterials.every((n) => lines[1].includes(n))
+      && MATERIALS.filter((m) => !paidMaterials.includes(MATERIAL_SPEC[m].name))
+        .every((m) => !lines[1].includes(MATERIAL_SPEC[m].name)),
+    `${paidMaterials.join("/")} vs ${lines[1]}`,
+  );
+  check(
+    "...and counts the bays whose draft is materials and nothing else",
+    lines[1].includes(`${MATERIAL_DRAFT_BAYS.length} bays`),
+    lines[1],
+  );
+  // A line that quotes the free allowance has to quote the number the free
+  // build actually meters at, not the board's own width — they are equal today
+  // (FREE_DAILY_CONTRACTS is DAILY_COUNT) and are two different questions.
+  check(
+    "the board line quotes the free allowance, off contracts.ts",
+    lines[2].includes(`instead of ${FREE_DAILY_CONTRACTS}`),
+    lines[2],
+  );
+  // ...and the title counts the floors the same way, rather than saying seven.
+  check(
+    "the title counts the paid floors rather than naming a number",
+    sheet.includes(`>${MARK_COUNT - FREE_TIER_LIMIT} more floors<`),
+  );
+  for (const line of lines) {
+    check(`...and "${line.slice(0, 34)}…" is on the sheet`, sheet.includes(line));
+  }
+
+  // ---- 2. THE SHEET'S TWO DOORS -----------------------------------------
+  //
+  // The primary goes to the store and the two reversible controls go back. The
+  // sheet must NOT carry data-action="paywall" itself: that is the action every
+  // OTHER surface uses to reach this sheet (main.ts's offerFullGame), so a copy
+  // of it on the primary would re-open the preview from inside the preview.
+  check("the primary reaches the store", sheet.includes('data-action="preview-buy"'));
+  check("...and says what it buys", sheet.includes("Unlock Full Game"));
+  check(
+    "both reversible controls back out — the \u2715 and \"Not now\"",
+    (sheet.match(/data-action="preview-back"/g) ?? []).length === 2,
+  );
+  check(
+    "...and the sheet does not carry the action that opens the sheet",
+    !sheet.includes('data-action="paywall"'),
+  );
+  check("the demo panel is in the markup for main.ts to mount", sheet.includes("fullgame__demo"));
+  // The canvas has no accessible name of its own, so the paragraph beside it is
+  // the whole of what a screen reader gets while the demo is live (app.css
+  // hides it visually and only then).
+  check("...with the text alternative the canvas cannot supply",
+    sheet.includes("fullgame__alt"));
+
+  // ---- 3. EVERY OFFER GOES THROUGH THE PREVIEW ---------------------------
+  //
+  // Read off main.ts's source, because the App class is a DOM object this
+  // harness cannot build — the same wire sim/systems.ts already reads attract.ts
+  // as text for. What it pins is the routing rule the whole change rests on:
+  // presentPaywall is reached from exactly TWO places, and neither of them is a
+  // button a player presses cold.
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  check(
+    "the paywall action opens the preview, not the store",
+    mainSrc.includes('case "paywall": this.offerFullGame(); break;'),
+  );
+  check(
+    "the store is reached from two places only: the preview's primary, and a sign-in resuming the purchase it interrupted",
+    (mainSrc.match(/this\.onPaywall\(\)/g) ?? []).length === 2,
+    String((mainSrc.match(/this\.onPaywall\(\)/g) ?? []).length),
+  );
+  // The tier gates are offers too — the tower floor, the Play guard, both
+  // sandbox re-checks, and the leaderboard's Play on a board whose tier is
+  // earned but not entitled (F10f) — and every one of them now makes the
+  // offer rather than opening a store sheet with no pitch on it.
+  check(
+    "every tier gate makes the offer instead",
+    (mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length === 6,
+    String((mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length),
+  );
+  check(
+    "an owner is still offered nothing",
+    /offerFullGame\(\): void \{\n    if \(this\.fullGame\(\)\) return;/.test(mainSrc),
+  );
+  // ONE DEMO, TWO HOSTS. syncAttract stops the demo for every state that is not
+  // one of the two panels, which is what closes the preview's bay when the
+  // sheet does — and the preview mounts PREVIEW_BAY rather than the menu's.
+  check(
+    "the preview mounts the demo with its own bay",
+    mainSrc.includes('{ sel: ".fullgame__demo", bay: PREVIEW_BAY }')
+      && mainSrc.includes('{ sel: ".menu__demo", bay: MENU_BAY }'),
+  );
+  check(
+    "...and any other screen stops it",
+    /if \(!host \|\| !panel\) \{\n      this\.attract\.stop\(\);/.test(mainSrc),
+  );
+
+  // ---- 4. THE BAY THE DEMO ACTUALLY FLIES --------------------------------
+  //
+  // The sheet's canvas is the other half of its claim, and an unratcheted Tier 1
+  // bay behind a list promising six materials would be the screen contradicting
+  // itself. Asked of the resolved LevelConfig rather than of the constant, so a
+  // ratchet that stopped applying is caught here and not in a screenshot.
+  const previewCfg = demoLevel(PREVIEW_BAY);
+  const menuCfg = demoLevel(MENU_BAY);
+  check("the preview flies a Tier the free build cannot",
+    previewCfg.mark > FREE_TIER_LIMIT, `Tier ${previewCfg.mark}`);
+  check("...with material on the belt",
+    Object.values(previewCfg.materialMix).some((r) => r > 0));
+  check("...and weather to aim into", previewCfg.windMax > 0);
+  check("...and a rack to answer the pile with", previewCfg.bombCharges > 0);
+  // The menu's bay is untouched by any of it — this change must not have
+  // retuned the home screen on its way past.
+  check("the menu's bay is still stock",
+    menuCfg.mark === 1 && menuCfg.windMax === 0 && menuCfg.bombCharges === 0
+      && Object.values(menuCfg.materialMix).every((r) => r === 0));
+  // Both overrides survive the ratchets, which are applied first and would
+  // otherwise put a clock and a launch price back on a bay that cannot pay one.
+  check("neither bay can end on a clock or a price",
+    previewCfg.timeLimitSec === 0 && previewCfg.launchCost === 0
+      && menuCfg.timeLimitSec === 0 && menuCfg.launchCost === 0);
+
+  // ---- 5. THE RACK IS FIRED, NOT JUST MOUNTED ----------------------------
+  //
+  // The whole reason the preview bay carries slag: the autopilot cannot clear a
+  // dead cube, so the pile climbs and the charge is the answer. Flown for real
+  // — the shipped autopilot against the shipped config — because "the rack is
+  // in the loadout" is exactly the claim that used to be true while nothing on
+  // screen ever fired one.
+  const fly = (bay: Parameters<typeof demoLevel>[0], seed: number, steps: number): number => {
+    const g = new Game(demoLevel(bay), {}, seed);
+    const pilot = createAutopilot(seed);
+    let clock = 0;
+    let spent = 0;
+    let charges = g.bombCharges;
+    for (let i = 0; i < steps; i++) {
+      clock += 1000 / 60;
+      pilot.act(g, clock);
+      g.update(clock);
+      if (g.bombCharges < charges) spent += 1;
+      charges = g.bombCharges;
+      if (g.status !== "playing") break;
+    }
+    return spent;
+  };
+  // A FULL 90-SECOND CYCLE, on the two SLOWEST of the eight seeds measured while
+  // the bay was being chosen — the ones that take 77s and 31s to reach the bay's
+  // congestion line, against a median of 17s. Pinning the slow pair rather than
+  // a lucky one is the difference between "this bay can fire a charge" and "this
+  // bay fires a charge even when the bag is kind to it"; a cycle is what the
+  // demo actually gets before attract.ts recycles it (CYCLE_MS).
+  const previewShots = [1, 2].map((seed) => fly(PREVIEW_BAY, seed, 5400));
+  check(
+    "the preview's autopilot spends demolition charges on the pile",
+    previewShots.every((n) => n > 0),
+    previewShots.join("/"),
+  );
+  check(
+    "...and the menu's, with no rack, never arms one",
+    fly(MENU_BAY, 1, 5400) === 0,
   );
 }
 

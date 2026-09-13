@@ -510,7 +510,13 @@ export const LESSONS: Lesson[] = [
     id: "lob-or-skim",
     name: "Lob or Skim",
     brief: "A gap at each end. Take both.",
-    conditions: "Two gaps · two arcs",
+    // WHAT THE BAY ASKS, in the shape every other lesson's line uses: what it
+    // gives you, then what it wants. "Two gaps · two arcs" got the second half
+    // wrong twice — the bay counts ROWS and not shots, and only one of the two
+    // shots it teaches is an arc at all. The deck's own second card is "The
+    // skim": *fire flat across the top*, which is the opposite of arcing, and
+    // the whole choice the lesson exists to offer.
+    conditions: "Two end gaps · two rows",
     reveal: REVEAL.placement,
     lines: 2,
     launches: 0,
@@ -582,7 +588,13 @@ export const LESSONS: Lesson[] = [
     id: "the-bankroll",
     name: "The Bankroll",
     brief: "Spend few shots per row. Reach the target.",
-    conditions: "Bay 1's money · no clock",
+    // IN THE TERMS THE RUNG BEFORE THIS ONE TAUGHT. "Bay 1's money" is how the
+    // ladder's authors say "Tier 1 bay 1's launch price and line payout"; to a
+    // player six rungs in it names a bay they have never flown, and asks them
+    // to know that a lesson bay is built from `makeBaseLevel(0)`. Lesson 5
+    // already put the real figure on screen ("Shots cost $N"), so this says the
+    // same number the same way — and derives it, like lessons 5 and 8 do.
+    conditions: `$${LESSON_LAUNCH_HINT} a shot · no clock`,
     reveal: REVEAL.bay,
     lines: 0,
     launches: 0,
@@ -680,7 +692,13 @@ export const LESSONS: Lesson[] = [
     id: "clutter",
     name: "Clutter",
     brief: `Past ${PILE_TIERS[0].cubes} loose cubes every shot is taxed. Clear two rows.`,
-    conditions: "Opens past the first rung",
+    // THE WORD "RUNG" BELONGS TO THE LADDER. This bay's own line borrowed it
+    // for a congestion KNEE (level.ts's PILE_TIERS[0]) on the screen where the
+    // ladder is counting rungs out loud — so the one lesson whose subject is a
+    // threshold described it with the ladder's noun for a step. The brief above
+    // and the bay's first card both say the threshold in cubes; so does this,
+    // off the same constant, so a re-sized congestion profile moves all three.
+    conditions: `Taxed past ${PILE_TIERS[0].cubes} loose cubes`,
     reveal: REVEAL.all,
     lines: 2,
     launches: 0,

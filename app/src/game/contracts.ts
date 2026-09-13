@@ -482,15 +482,27 @@ export function budgetForTier(tier: number): number {
 /** Cost of each complication, in difficulty-budget points. */
 const COST = { wind: 2, micro: 2, material: 2, tightLaunches: 2 } as const;
 
-/** A lines Contract's complications. "clean bay" rather than an empty string
- *  is a guard, not a live case: budgetForTier never returns below 2, wind and
+/** A lines Contract's complications, or "clean bay" when the roll bought none.
+ *
+ *  THE MEASUREMENT IS ABOUT THE TIER'S OWN BUDGET, which is the qualifier the
+ *  old note dropped and the reason it read as false: 0 "clean bay" results
+ *  across 72,000 generated lines Contracts (tiers 1-12, 3000 seeds each, both
+ *  daily lines slots), because budgetForTier never returns below 2, wind and
  *  tightLaunches cost 2 each and carry no option-specific `continue` gate
- *  (material and micro do), and maxComplications is always at least 1 — so
- *  one of the two ungated options is always both affordable and roomed for.
- *  Measured at 0 "clean bay" results across 72,000 generated lines Contracts
- *  (tiers 1-12, 3000 seeds each, both daily lines slots). Kept so the plant
- *  panel's conditions row can never collapse to nothing if a future budget or
- *  gating change opens a path to zero complications. */
+ *  (material and micro do), and maxComplications is always at least 1 — so one
+ *  of the two ungated options is always both affordable and roomed for.
+ *
+ *  A CALLER MAY STATE A BUDGET OF ITS OWN, though, and one does. schoolContract
+ *  passes 0, which buys nothing, which lands here — every time, on the one card
+ *  the school deals. So the sweep's "not a live case" was true of the daily
+ *  boards and wrong about the first Contract anybody opens, whose entire brief
+ *  and whose HUD Bay row were these two words of generator shorthand.
+ *
+ *  That card authors its own line now (SCHOOL_CONTRACT_BRIEF), so this string
+ *  is back to being what it always claimed to be: the answer for a generated
+ *  Contract that somehow bought nothing, kept so the plant panel's conditions
+ *  row can never collapse to nothing if a future budget or gating change opens
+ *  a path to zero complications. It reaches no screen today. */
 function linesConditions(notes: readonly string[], cargo?: string): string {
   // `cargo` leads, because it is not a complication the budget bought — it is
   // what the floor ships, so it is true of the bay before any roll happens.
@@ -1865,13 +1877,43 @@ export const SCHOOL_CONTRACT_SEED = 0x5c502;
  *  anything else on the card. */
 export const SCHOOL_CONTRACT_BUDGET = 0;
 
+/** THE SCHOOL CARD'S OWN PROSE — the one thing on it the generator does not
+ *  decide, and the only thing it could not.
+ *
+ *  A zero budget buys no complications, so linesConditions has nothing to
+ *  report and falls through to its guard string. The result was that the first
+ *  Contract a player ever opens briefed itself, in full, as "clean bay" — two
+ *  words of shorthand from inside the generator — and the plant panel's Bay row
+ *  repeated them for the whole flight. Read as prose that is an omission, not a
+ *  promise: it sounds like the line that failed to load.
+ *
+ *  And the promise is the point. This card is calm ON PURPOSE: every ordinary
+ *  tier-1 card spends its whole budget on crosswind (see the pin in
+ *  sim/systems.ts), and a first Contract that quietly did the same would be
+ *  teaching the mode and a hazard in the same bay. Saying what is NOT in the
+ *  bay is what makes the zero budget legible instead of invisible.
+ *
+ *  ONE STRING FOR BOTH FIELDS, which is the invariant every lines Contract
+ *  keeps (`brief: conditions`): the card and the HUD make the same statement
+ *  about the same bay. It says nothing about the goal or the launch budget
+ *  because the card already prints both as columns beside it, and it is kept to
+ *  HUD length — the Bay notch is one line and does not wrap. */
+export const SCHOOL_CONTRACT_BRIEF = "No weather, no surprises";
+
 /** The card the school's board deals. Pure, memo-free (it costs one mulberry32
  *  walk — no wall probing, because slot 0 at tier 1 is a lines Contract by
  *  construction) and identical on every device. */
 export function schoolContract(): Contract {
-  return generateContract(
+  const card = generateContract(
     SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_TIER, 0, undefined, false, SCHOOL_CONTRACT_BUDGET,
   );
+  // THE PROSE IS AUTHORED OVER THE GENERATOR'S ANSWER, not passed into it. A
+  // brief parameter would be a second way to write the one line every card in
+  // the game shares, threaded through the path they all take, to serve a single
+  // caller — where this is one object spread, at the only site that wants it,
+  // leaving the bay itself entirely the generator's. Everything the player
+  // plays is still the same Contract every other card is.
+  return { ...card, brief: SCHOOL_CONTRACT_BRIEF, conditions: SCHOOL_CONTRACT_BRIEF };
 }
 
 /** The school's whole board. A one-element array rather than a Contract,

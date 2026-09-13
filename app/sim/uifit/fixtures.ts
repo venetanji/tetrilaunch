@@ -30,7 +30,7 @@ import { CHAIN_RUNGS_MAX, makeBaseLevel } from "../../src/game/level";
 const BAY_1 = makeBaseLevel(0);
 import {
   newMeta, schoolStepOfFlight, SCHOOL_STEPS, SLOT_BASE, SLOT_CAP,
-  tierProgressFor, type MetaState,
+  tierProgressFor, type MetaState, type NextStepId,
 } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
@@ -68,7 +68,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 const SETTINGS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
   leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
-  systemCursor: false,
+  systemCursor: false, scanlines: true,
 };
 
 const STORE = { available: true, unlimited: false };
@@ -112,6 +112,16 @@ const SKY_TOWER: S.TowerState = {
 /** The bay-clear ratchet at a given tentative selection. Both sides of the
  *  projection come from levelForRun, exactly as main.ts builds them, so the
  *  harness measures the real number of rows the screen can grow. */
+/** The pad's footer is the LONGEST state of this screen (D7 — "Press A to swap
+ *  this in" against a finger's "Tap to…"), and it is not a row here. It was:
+ *  a `draft-picked-pad` fixture measured clean on all twelve Android rows and
+ *  produced, on the two Web rows that scroll at all, `.draft__body scrolls 16px`
+ *  (1269x663) and `83px` (800x600) — byte-identical to what `draft-picked`
+ *  already records there, i.e. the pane's own known chrome and nothing the verb
+ *  added. A second fixture inheriting an existing fixture's entries is 26 lines
+ *  of baseline for one measurement that has now been made, so the measurement
+ *  is written down here instead. Add the row back the day `.draft__body`'s
+ *  scroll is fixed and the inheritance costs nothing. */
 function draft(selected: HazardId[]): string {
   const run = { ...newRun(20_260_815, [], 400, undefined, 6), levelIndex: 6, carry: 120, scrap: 340 };
   const withPicks: Ratchets = { ...HUD_BASE.ratchets };
@@ -791,6 +801,11 @@ const withChain = (chain: S.ChainState): string =>
 const live = (html: string): string =>
   html.replace('class="menu__demo"', 'class="menu__demo is-live"');
 
+/** The same hand-off for the Full Game preview's panel (main.ts's syncAttract
+ *  adds `is-live` to whichever of the two it just mounted). */
+const livePreview = (html: string): string =>
+  html.replace('class="fullgame__demo"', 'class="fullgame__demo is-live"');
+
 /**
  * Screen id -> markup. Ids are stable: run.mjs, the PNG filenames and any
  * allowlist in the assertions all key off them.
@@ -848,6 +863,25 @@ export const SCREENS: Record<string, () => string> = {
   // ratchet). PROGRESS above is a Mark-0 save, so every other menu fixture
   // measures the panel at Tier 1 — where the belt is empty and the bonds read
   // "×1.0" — and would never have caught the top of the ladder overflowing.
+  /* THE FULL GAME PREVIEW (screens.ts's previewScreen) — three fixtures, and
+     they are keyed by STATE rather than by device, because the harness runs
+     every fixture on every one of the 19 rows. "preview-phone" would measure
+     the phone layout on a desktop row and call it a pass.
+
+     The three states are the two that actually differ in height, plus the
+     ordinary one:
+      - `preview` is what a player sees: the demo mounted, no status line.
+      - `preview-note` adds the store's refusal under the buttons, which is the
+        right-hand column at its tallest — three list rows, two 44px buttons and
+        a line of prose under them.
+      - `preview-still` is the reduced-motion / no-2D-context fallback, where the
+        panel is not a canvas at all but the paragraph that describes it. That
+        paragraph is real copy in a padded box, so it is the demo column's own
+        worst case and the only fixture that can catch it being clipped. */
+  preview: () => livePreview(S.previewScreen()),
+  "preview-note": () => livePreview(S.previewScreen({ note: S.STORE_UNAVAILABLE_TEXT })),
+  "preview-still": () => S.previewScreen({ note: S.STORE_UNAVAILABLE_TEXT }),
+
   "menu-tower-top": () =>
     S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP),
   "menu-tower-top-live": () =>
@@ -1160,6 +1194,22 @@ export const SCREENS: Record<string, () => string> = {
       progress: tierProgressFor(newMeta()),
       nextInstall: { name: "Reactor Output", cost: 15 },
       firstSystem: true,
+    }),
+  // THE DAY'S ALLOWANCE SPENT — a free account with no clears left. Its own
+  // fixture because it is the only state of this screen that grows a CONTROL
+  // below the board: the WHY strip is replaced wholesale by the refusal
+  // ("Daily limit reached — resets at 00:00 UTC") with an Unlock button inside
+  // it, on a screen whose three cards are already the tallest thing the layout
+  // holds. Every card is dimmed and stamped here, and the strip's one line is
+  // the widest that strip is ever asked to be with a button in it.
+  "contracts-capped": () =>
+    S.contractsScreen({
+      contracts: dailyContracts(3, 20_260_815),
+      tier: 3,
+      cleared: [],
+      progress: PROGRESS,
+      nextInstall: { name: "Press Hydraulics", cost: 30 },
+      allowance: { fullGame: false, remaining: 0, store: true },
     }),
   // THE SCHOOL'S BOARD — one card, rung 5 of the ground floor (contracts.ts's
   // schoolBoard). Its own fixture because nothing else on this screen survives
@@ -1890,7 +1940,7 @@ export const SCREENS: Record<string, () => string> = {
   // THE FINAL EXAM'S TWO ENDS (meta.ts's schoolLadder, step 10). Both
   // are the DEEP RUN's cards rather than a lesson's — the bay is Tier 1 bay 1 —
   // so neither has ever been measured over a school HUD: the clear carries the
-  // one hint line in the app that is not "tap to continue", and the failure is
+  // one hint line in the app that is not the bare "Continue", and the failure is
   // the bay-1 diagnosis card without the tutorial's NEXT STEP block, which is
   // the shortest that card ever renders and therefore the layout its foot has
   // to survive.
@@ -1898,7 +1948,7 @@ export const SCREENS: Record<string, () => string> = {
     + S.bayClearScreen({
       bayNum: 1, bayName: BAY_1.name, funds: 1_120, target: BAY_1.targetScore,
       lines: 11, scrap: 18,
-      hint: "Licence earned — Tier 1 is open · tap to continue",
+      hint: "Licence earned — Tier 1 is open · Continue",
     }),
   "exam-fail": () => S.hudHTML({ ...HUD_TUTORIAL, contract: null })
     + S.examFailHTML("broke", BAY_1, SCHOOL_STEPS, SCHOOL_STEPS),
@@ -1919,7 +1969,13 @@ export const SCREENS: Record<string, () => string> = {
       cleared: [],
       progress: PROGRESS,
       nextInstall: { name: "Press Hydraulics", cost: 30 },
-    }) + S.contractsIntroModal({ needed: PROGRESS.needed, daily: 3, milestone: PROGRESS.milestone }),
+    // WITH THE PATTERN CLAUSE ON, which is the worst case and also the true
+    // one: every tier board deals exactly one pattern card (PATTERN_SLOT), so
+    // the longer of the modal's two sentences is the one a player actually
+    // meets, and it is the one the two-paragraph height is measured against.
+    }) + S.contractsIntroModal({
+      needed: PROGRESS.needed, daily: 3, milestone: PROGRESS.milestone, pattern: true,
+    }),
 
   // The purchase that explains itself (screens.ts's systemDrillOfferModal),
   // over the Workshop it was bought from. The Incinerator's is the worst case
@@ -1942,6 +1998,20 @@ export const SCREENS: Record<string, () => string> = {
   guard: () => S.rotateGuardHTML().replace('class="rotate-guard"', 'class="rotate-guard show"'),
 
   "end-won": () => endModal(true),
+  // THE COMPLETED RUN'S OTHER TWO ROWS. The card's primary is the loop's next
+  // step now (screens.ts endModal's `stepRoute`), so a bay-10 win draws three
+  // different action rows and only one of them is the row "end-won" measures.
+  //
+  //  - contracts: the WIDEST primary — the clipboard, the word, and the tier's
+  //    remaining count ("Contracts · 3 to go", at PROGRESS's untouched quota),
+  //    with the plate-bearing run button demoted to the secondary beside it.
+  //  - workshop: the most CROWDED row a win can draw — four buttons, because
+  //    the demoted run button lands beside the Contracts exit that a board with
+  //    cards left still offers, plus Menu. (The salvage row's own Workshop
+  //    button stands down on this card, which is the one thing here that makes
+  //    something narrower rather than wider.)
+  "end-won-contracts": () => endModal(true, false, "contracts"),
+  "end-won-workshop": () => endModal(true, false, "workshop"),
   "end-lost": () => endModal(false),
   // Tier S's end. The progress row is replaced wholesale (no tier, no salvage,
   // no Workshop invitation) and the action row carries the bench button in
@@ -2131,7 +2201,7 @@ export const SCREENS: Record<string, () => string> = {
     }),
 };
 
-function endModal(won: boolean, sandbox = false): string {
+function endModal(won: boolean, sandbox = false, step?: NextStepId): string {
   return S.endModal({
     // THE EXITS AT THEIR WIDEST. A lost ladder run is the only shape that draws
     // all four — Retry Run, Retry Bay with its broken-seal glyph, Contracts
@@ -2140,7 +2210,14 @@ function endModal(won: boolean, sandbox = false): string {
     // can wrap. A win draws three (no bay to hand back) and Tier S draws its
     // own three, so both of those states are still measured by the other two
     // fixtures rather than being replaced by this one.
-    contracts: { remaining: 3, next: !won },
+    contracts: { remaining: 3 },
+    // WHICH DOOR THE LOOP IS POINTING AT (screens.ts endModal's `step`). On a
+    // LOST run it only decides whether the Contracts exit wears its badge, and
+    // the badged state is the wider one — so the loss fixture always carries
+    // it. On a COMPLETED run it decides the whole row, which is why the two
+    // completed shapes get fixtures of their own below rather than being
+    // folded in here.
+    step: won ? step : "contracts",
     // …and the seal line at ITS widest, which is now the "held" state — a
     // re-fly of an already-sealed Mark (run.ts's sealStateFor, added for the
     // #135 P2). MEASURED, not guessed, because the last fixture in this file

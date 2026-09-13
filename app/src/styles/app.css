@@ -68,8 +68,23 @@ body {
    DOM overlay alike) — subtle, static (no animation, so it already
    "respects prefers-reduced-motion" by construction rather than needing a
    media-query escape hatch), and pointer-events:none so it never intercepts
-   input. Toggle off from anywhere by adding `crt-off` to <body> if it ever
-   hurts readability (not currently wired to a settings switch). */
+   input.
+
+   THE PERIOD IS A VARIABLE BECAUSE A CSS PX IS NOT A PIXEL. Written as the
+   authored `1px in 3px` this comb only repeats cleanly where the display's
+   ratio is a whole number; on a Pixel 7 (2.625) the period is 7.875 device px
+   and the pattern beats against the grid instead of landing on it. main.ts
+   publishes --scanline-line / --scanline-period on every solve from render.ts's
+   scanlineMetrics, which snaps both to whole device px. The var() fallbacks are
+   the authored values, so a page that somehow paints before the first solve
+   gets the old overlay rather than none.
+
+   AND IT HAS A SWITCH NOW. `crt-off` on <body> is written by main.ts from the
+   Scanlines setting (store.ts), whose default is asked of the device: this is a
+   full-screen `multiply` composite of every device pixel every frame, which is
+   real money on the hardware with the least of it to spare, and the texture it
+   buys is at or under the resolving limit of a phone panel held at arm's
+   length. */
 #app::after {
   content: "";
   position: fixed;
@@ -79,9 +94,9 @@ body {
   background: repeating-linear-gradient(
     0deg,
     rgba(0, 0, 0, 0.22) 0px,
-    rgba(0, 0, 0, 0.22) 1px,
-    transparent 1px,
-    transparent 3px
+    rgba(0, 0, 0, 0.22) var(--scanline-line, 1px),
+    transparent var(--scanline-line, 1px),
+    transparent var(--scanline-period, 3px)
   );
   mix-blend-mode: multiply;
   opacity: 0.3;
@@ -5063,7 +5078,20 @@ body.crt-off #app::after { display: none; }
    PROMOTION is scoped rather than blanket (see below): a permanently promoted
    layer is memory a phone does not have spare, so each fill is promoted only
    while it is the thing that is moving. */
-.pl-goal i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: transform var(--dur) var(--ease); }
+.pl-goal i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: transform var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+/* THE GOAL BAR HEATS AS IT NEARS THE TARGET (main.ts's goalHeat writes
+   data-heat on .pl-funds from objectiveProgress). Cool while there is a way to
+   go, warming through amber and orange to a hot red-orange in the last stretch,
+   so the bar itself says "almost there". BANDED, not a live ramp: the fill is a
+   scaleX on one gradient and a stretched gradient does not change hue, and a
+   band repaints only when it crosses a threshold, which is what keeps it off
+   the per-frame budget (barFill's note). The low-launches danger state is a
+   DIFFERENT axis (.pl-funds.pl-stat--danger below) and outranks every band by
+   sitting later in the file at equal specificity, so a bar can be fire-hot with
+   funds and still flip to the danger red when launches run out. */
+.pl-funds[data-heat="warm"] .pl-goal i { background: linear-gradient(90deg, #39d6ff, var(--warn)); box-shadow: 0 0 9px rgba(255, 176, 32, 0.45); }
+.pl-funds[data-heat="hot"] .pl-goal i { background: linear-gradient(90deg, var(--warn), var(--piece-l)); box-shadow: 0 0 11px rgba(255, 138, 0, 0.55); }
+.pl-funds[data-heat="fire"] .pl-goal i { background: linear-gradient(90deg, var(--piece-l), var(--fire)); box-shadow: 0 0 16px rgba(255, 77, 26, 0.7); }
 
 /* Tier-2 stat columns — launches (or, on a pattern Contract, shipments)
    always, paired with a second column that depends on the mode: time on a
@@ -5390,16 +5418,23 @@ body.crt-off #app::after { display: none; }
   background: var(--surface-3);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
+/* EMBER GOLD, not the accent. The chain used to be the same cyan->violet
+   gradient as the goal bar directly above it, so a glance could not tell a
+   combo streak from progress toward the target. Gold is the chain's own
+   colour at every stage now: a lit rung is amber climbing to the gold the
+   FULL chain and its star already wear (.pl-chain--full below), so the ladder
+   reads as one warm story that pays off in the star, and cyan is left to mean
+   funds alone. */
 .pl-chain__rung.is-lit {
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: linear-gradient(90deg, #d99a1a, var(--piece-o));
   border-color: transparent;
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 6px rgba(255, 215, 60, 0.5);
 }
 /* THE PROMISE. One outlined rung, and only one: it is the crush the price
    beside it is quoting, so a second outlined rung would be quoting a number
    that is not on screen. Outline rather than a dim fill, because the rung is
    not half-earned — it is empty, and the ring is where it will land. */
-.pl-chain__rung.is-next { border-color: var(--accent); }
+.pl-chain__rung.is-next { border-color: var(--warn); }
 /* THE GATE. Congestion does not stall the chain, it CAPS it (level.ts's
    PileTier.payMult), and a ladder that merely went dark would read as "stalled,
    keep going". The line is the lid: everything to the right of it is out of
@@ -7458,13 +7493,22 @@ body.crt-off #app::after { display: none; }
    leaves under the modal's header, and overflowed on TEN of the nineteen rows:
    68px on the 640x360 budget phone, 60px on the iPhone 13 mini, 55px on the SE
    3, down to 5px on a Pixel 7.
-   NOT A SCROLLER, and the arithmetic is the reason rather than taste. The
-   allowlist in sim/uifit/run.ts is for panes with more STOCK than screen — a
-   leaderboard, a shop with seven 44px BUY buttons in a 200px shelf — and four
-   switches is not that: at the tap floor they are 4x44 plus three gaps, i.e.
-   200px, in 322. The column was not too long, its ROWS were too tall: 14px of
-   padding either side of a 16px label over a 14px sentence that wrapped, which
-   is a `roomy` row's proportions rendered on a phone.
+   NOT A SCROLLER AT FOUR ROWS, and the arithmetic is the reason rather than
+   taste. The allowlist in sim/uifit/run.ts is for panes with more STOCK than
+   screen — a leaderboard, a shop with seven 44px BUY buttons in a 200px shelf
+   — and four switches is not that: at the tap floor they are 4x44 plus three
+   gaps, i.e. 200px, in 322. The column was not too long, its ROWS were too
+   tall: 14px of padding either side of a 16px label over a 14px sentence that
+   wrapped, which is a `roomy` row's proportions rendered on a phone.
+   ...AND A SCROLLER AT FIVE. The Scanlines switch (R7) is the fifth row, and
+   two of the five sentences wrap on a 304px column even at 11px, so the
+   column asks for ~364px in the same 322 with every row already on its tap
+   floor. That IS more stock than screen — the rows cannot come down further
+   and the sentences are the one thing a settings row is for — so the column
+   becomes the scroller, bounded by the modal's own cap, rather than the
+   modal (which the `scrollers` assertion refuses: a scrolling modal moves its
+   header and its close button, a scrolling column moves only the switches).
+   Two-up packing where there is width still fits every row without it.
    So the rows come down to their tap floor and the column packs two-up where
    there is width for it. `auto-fit` rather than a hard two columns because the
    compact tier spans a 304px column (640x360) to a 422px one (OnePlus 12) and
@@ -7474,10 +7518,16 @@ body.crt-off #app::after { display: none; }
    where the overflow actually was. Dressed as cards (the same treatment
    `.controls__pane .setting` already gives a `.setting` inside a grid), since
    a bottom rule reads as a separator only in a single column. */
+[data-density="compact"] .settings__cols { min-height: 0; grid-template-rows: minmax(0, 1fr); }
 [data-density="compact"] .settings__toggles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   align-content: start;
+  /* The bounded scroller the block above argues for: `min-height: 0` lets the
+     grid row hand the column the modal's cap instead of its content height. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 [data-density="compact"] .settings__toggles .setting {
   gap: var(--sp-2);
@@ -10376,8 +10426,8 @@ button.panel { color: var(--text); }
 
 /* ============================================================================
    TIER PLATE (canvas A1/A4/C) — ONE component at three sizes: 58x52 in the
-   Deep Run menu button, 26px on the run-end primary, 11px in the bay banner.
-   The ladder gets one face wherever it shows up.
+   Deep Run menu button, a 20px-tall row chip on the run-end card's buttons,
+   11px in the bay banner. The ladder gets one face wherever it shows up.
    ========================================================================== */
 .tier-plate {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
@@ -10452,8 +10502,36 @@ button.panel { color: var(--text); }
   .tier-plate--menu .tier-plate__lbl { font-size: 6px; }
   .tier-plate--menu .tier-plate__n { font-size: 14px; }
 }
-.tier-plate--button { min-width: 30px; height: 26px; padding: 0 4px; }
-.tier-plate--button .tier-plate__lbl { font-size: 5px; }
+/* Button size: a ROW, like the banner, and not the stacked form the other two
+   sizes use. Stacked, this plate put "TIER" over "2" inside a button whose own
+   label already reads "Run Tier 2 →" — two lines of chip beside one line of
+   text, which the owner's device shot shows as the tallest, busiest thing in
+   the action row (2026-09-13). The plate is a chip on a line of type here, not
+   a badge with a face of its own, and a chip reads on the line it sits on.
+
+   The label steps 5px -> 6px in the move. At 5px the stacked form was reading
+   as texture under the number; on one line it is half the chip's width and has
+   to be legible as a word. Both slots keep their fixed `ch` widths (see the
+   note above), so the plate's width is still decided by the SLOTS and not by
+   what lands in them — "TIER"/"SKY" and "1"/"10"/"S"/"★" all measure the same.
+
+   MEASURED on the 640x360 budget row and the iPhone SE, which are the two
+   narrowest cards in the fleet: the plate goes 33.6x26.0 -> 57.9x20.0, the
+   primary around it 185.2x50.0 -> 209.5x44.0, and the action row 56.0 -> 50.0px
+   tall. It BUYS width and SELLS height, and both sides of that are the point —
+   the button drops back onto the 44px tap floor every other control in the row
+   already sits on, so the card gets 6px shorter while the chip gets legible.
+
+   The width is affordable, and that was checked rather than assumed. The
+   widest row a win can now draw is the workshop step's four buttons —
+   128.4 + 209.5 + 138.7 + 65.2 plus three 8px gaps = 565.8px against the
+   576px the 640x360 card has — so the demoted run button carries its wider
+   plate with 10px still in hand (sim/uifit's end-won-workshop fixture). */
+.tier-plate--button {
+  flex-direction: row; gap: 4px;
+  min-width: 0; height: auto; padding: 2px 5px;
+}
+.tier-plate--button .tier-plate__lbl { font-size: 6px; }
 .tier-plate--button .tier-plate__n { font-size: 12px; }
 /* Banner size: a bordered row chip beside "Bay 1/10" — ~46px of width, zero
    extra height (the plant panel's budget is untouched, per the canvas). */
@@ -12224,6 +12302,178 @@ button.panel { color: var(--text); }
 }
 .salvage-row__amt--sandbox {
   font-family: var(--font-pixel); font-size: 18px; color: var(--warn);
+}
+
+/* ---------------------------------------------------------------------------
+   FULL GAME PREVIEW (ui/screens.ts's previewScreen)
+
+   The sheet that opens where "Unlock Full Game" used to open the store's own.
+   A demo panel and three lines, and the whole layout problem is that it has to
+   hold both on a 640x360 landscape phone without scrolling — the no-scroll
+   product rule applies here like everywhere else, and a sales page that hides
+   its third claim below a fold is a sales page that made two claims.
+
+   THE ARITHMETIC IT IS BUILT TO. On the budget phone the screen's own vertical
+   padding is 12 top and bottom, the header is one 9px eyebrow over a clamped
+   title (~44px all told), and the body takes what is left: 360 - 24 - 44 - 12
+   of gap = 280px. The right-hand column spends that on three list rows, a 44px
+   primary, a 44px secondary and the gaps between them, which is what sized the
+   rows: 3 x 40 + 88 + 3 x 8 = 232, leaving 48px of slack for a face whose rows
+   measure taller than Chromium's (WebKit's do) and for the status line the
+   store's refusal prints. That slack is why nothing here is [data-scroll].
+
+   The demo panel takes no height decision at all: it fills its grid cell and
+   the renderer letterboxes the 16:9 world into whatever rect it gets
+   (render.ts's fitViewport), exactly as the menu's panel does. That is what
+   makes this column safe at every row in the matrix — there is no aspect-ratio
+   here to fight the viewport's own.
+   ------------------------------------------------------------------------ */
+.fullgame {
+  /* Wider than the app's other centred screens (.controls caps at 760) because
+     this one is ARTWORK-LED: the demo is the argument, and at 1000 the panel
+     stopped growing well before a laptop window ran out of room, leaving a
+     230px band of nothing above and below it. 1200 is where a 16:9 panel in the
+     larger track fills a 1280x720 laptop's body height, which is the smallest
+     window this cap can bind on. */
+  max-width: 1200px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding-block: var(--sp-3);
+}
+.fullgame__hd {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  flex: none;
+}
+/* --fs-h2 rather than --fs-h1: the title shares its row with a 52px close
+   button and shares the screen with a demo that should be the largest thing on
+   it. A headline that out-weighs the artwork is a page about its own heading. */
+.fullgame__title { font-size: var(--fs-h2); }
+.fullgame__body {
+  flex: 1; min-height: 0;
+  /* The demo takes the larger share; the list column is floored at the width
+     its longest sentence needs (the six material names) and capped so a desktop
+     window does not stretch one line of prose across 600px. */
+  /* THE LIST TRACK IS A SHARE, CAPPED, FLOORED. A flat minmax(250px, 360px)
+     took 360 of a 640px phone's 584 usable px and left the demo 208 — the
+     pitch smaller than the bullet points selling it. As a share it scales:
+     360px is the cap a desktop window stops at (one line of prose should not
+     run 600px), 38% is what it asks for below that, and 250px is the floor the
+     six material names need before the sentence starts wrapping to five lines.
+     On the budget phone that resolves to 250 and the demo takes 318. */
+  --split-cols: minmax(0, 1.2fr) minmax(250px, min(360px, 38%));
+  --split-gap: var(--sp-4);
+  /* SAFE centre, and the qualifier is the whole rule. Plain centring is right
+     for a desktop window, where both columns are shorter than the row — the
+     panel is 16:9 and the list is three sentences — and stretching them put the
+     demo in a tall near-square box it would then have letterboxed away, with
+     the buttons stranded 350px below the last list row.
+     But centring an item TALLER than its row overflows it equally in both
+     directions, and on the 640x360 phone carrying the store's refusal line the
+     right-hand column is exactly that: its first list row rode up under the ✕
+     in the header while the note hung off the bottom edge. `safe` says
+     "centre until that would push content out of the box, then align to the
+     start" — so the tall case stacks downward from the top of its own row
+     instead of climbing into the header above it. */
+  --split-align: safe center;
+}
+
+/* The demo panel. Two states in one box, the same pair the menu's has and for
+   the same reasons — see the "Menu attract demo" section: `is-live` is added by
+   main.ts only once the demo is really drawing, the paragraph is the canvas's
+   text alternative while it is, and it is the whole of the panel when reduced
+   motion or a missing 2D context means there is no demo at all. */
+.fullgame__demo {
+  position: relative;
+  /* 16:9, LIKE THE MENU'S AND FOR THE SAME REASON. The renderer letterboxes the
+     world into whatever rect it is handed (render.ts's fitViewport), so any box
+     is CORRECT — but a box that is not 16:9 spends the difference on bars, and
+     in a full-height desktop column that difference was most of the panel.
+     Width-led rather than height-led so the ratio is resolved against the track
+     the grid already sized; `max-height` is the guard for the opposite case, a
+     cell wider than it is tall, where the renderer's bars go back to being the
+     right answer. */
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-hard-lg);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.fullgame__demo:not(.is-live) {
+  display: flex; align-items: center;
+  padding: var(--sp-4);
+}
+.fullgame__alt { color: var(--text-dim); font-size: var(--fs-sm); margin: 0; }
+.fullgame__demo.is-live .fullgame__alt {
+  /* Visually hidden, NOT removed: a screen reader still gets the description,
+     which is all a bare canvas would otherwise offer it. */
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+.fullgame__demo-canvas { display: none; }
+.fullgame__demo.is-live .fullgame__demo-canvas {
+  display: block; width: 100%; height: 100%;
+}
+
+.fullgame__side {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  min-height: 0;
+}
+.fullgame__list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  min-height: 0;
+}
+.fullgame__row {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  font-size: var(--fs-sm); line-height: 1.35; color: var(--text);
+}
+/* The glyph sits on the first line's cap height rather than on the flex box's
+   centre, or a two-line row hangs its icon in the gutter between its lines. */
+.fullgame__row svg { flex: none; margin-top: 2px; color: var(--accent); }
+.fullgame__actions { display: flex; flex-direction: column; gap: var(--sp-2); flex: none; }
+.fullgame__note {
+  margin: 0; flex: none;
+  font-size: var(--fs-sm); color: var(--warn); text-align: center;
+}
+
+/* THE LANDSCAPE-PHONE STEP. Keyed on HEIGHT, because height is the axis this
+   screen actually runs out of: the right-hand column is three sentences, two
+   44px buttons and — when the store refuses — a line saying so, and on a
+   640x360 handset that stack was 16px taller than the body it sits in. Measured
+   with the safe-centre rule above in place, which is what surfaced it: plain
+   centring had been splitting the same overflow into 8px above (up under the
+   header's ✕, where nothing measures) and 8px below.
+
+   Three gaps and the panel's own padding come down, which buys 28px — enough
+   for the 16 the budget phone was over plus room for a face whose rows measure
+   taller than Chromium's. Nothing that a finger touches gets smaller: the
+   44px floor on both buttons is untouched, which is why the saving had to come
+   from the air between things.
+
+   460px rather than the 375 the failing rows sit at, so the whole
+   landscape-phone band steps together (the 412dp Pixel 7 included) instead of
+   two handsets of the same shape drawing the list at different densities. */
+@media (max-height: 460px) {
+  .fullgame { padding-block: var(--sp-2); gap: var(--sp-2); }
+  .fullgame__side { gap: var(--sp-2); }
+  .fullgame__list { gap: var(--sp-1); }
+}
+
+/* Stacked, on the one condition that actually means "there is no width for two
+   columns" — see the note at the menu's own stacking query, which this reuses
+   rather than restates. `.split` has already collapsed to one column by the
+   time this runs; what is left is giving the demo panel a height of its own,
+   since it no longer has a full-height grid cell to fill. */
+@media (max-aspect-ratio: 1/1) {
+  /* One column now, so the panel's `max-height: 100%` is measuring a row that
+     holds the list and the buttons as well — and 100% of that is taller than
+     the panel's own share of it. Released, so the 16:9 above decides the height
+     and the stack's total is what the screen has to fit. */
+  .fullgame__demo { max-height: none; }
+  .fullgame__body { --split-align: start; }
 }
 
 /* ============================================================================

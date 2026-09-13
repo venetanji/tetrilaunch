@@ -105,11 +105,11 @@ import {
   type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
 import { sandboxContract, sandboxScreen } from "./ui/sandbox-screen";
-import { render, renderScale } from "./game/render";
+import { dprQueries, render, renderScale, scanlineMetrics } from "./game/render";
 import { CHUTE_ROOF_BASE_Y, setChuteRoofY } from "./game/chute";
 import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
-import { AttractDemo } from "./game/attract";
+import { AttractDemo, MENU_BAY, PREVIEW_BAY } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
 import {
   computeLayout,
@@ -185,6 +185,13 @@ type AppState =
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
+  // THE FULL GAME PREVIEW (screens.ts's previewScreen) — the sheet that opens
+  // where every "Unlock Full Game" used to open the store's own. A state rather
+  // than a modal over whatever asked for it, because it is reachable from the
+  // menu, from Settings and from a tower floor, it runs a live physics demo of
+  // its own, and it has to hand the player back to whichever of those they came
+  // from (previewReturn).
+  | "preview"
   // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
   // state rather than a flag on "paused" or "lost" because it is reachable
   // from BOTH of those and has to know which one to hand back — and because
@@ -317,7 +324,11 @@ const STORE_NOTE_MS = 2600;
  */
 const COVERS_CANVAS = new Set<AppState>([
   "splash", "menu", "howto", "settings", "controls",
-  "leaderboard", "workshop", "contracts", "sandbox",
+  // The preview sheet is a full-bleed `.screen` like the rest of this list —
+  // and it runs a physics world of its own, so drawing the app's field behind
+  // one that nothing can see through would be two simulations painting for one
+  // viewer.
+  "leaderboard", "workshop", "contracts", "sandbox", "preview",
 ]);
 
 /** How long the misfire guide stays up. One pass of the corrective animation
@@ -653,6 +664,22 @@ class App {
    * Account is a plain sign-in, not a resumed purchase.
    */
   private paywallReturn: AppState | null = null;
+  /** Where "Not now" (and B, and Escape) hand the player back from the Full
+   *  Game preview. Written by offerFullGame from the state the offer was made
+   *  on, for the reason paywallReturn above is an AppState rather than "menu":
+   *  the sheet is offered from the menu chip, the Settings row, a paywalled
+   *  tower floor and the Contracts cap, and the honest answer to "not now" is
+   *  the screen the player was actually reading. */
+  private previewReturn: AppState = "menu";
+  /** The preview sheet's own status line (screens.ts's PreviewOpts.note).
+   *
+   *  ONE LINE, AND ONLY THE STORE'S: presentPaywall returns silently while the
+   *  SDK is unconfigured, so a primary pressed against no store answered with
+   *  nothing at all. The tower already refuses that case in words rather than
+   *  in silence (noteStoreUnavailable); this is the same refusal, printed on
+   *  the button the player actually pressed. Cleared on every entry to the
+   *  sheet, so a previous visit's refusal is never the first thing on it. */
+  private previewNote: string | null = null;
   /** The account screen's failure line (screens.ts's StoreState.account.error).
    *  Set by a deletion that did not complete, cleared on every exit from the
    *  screen — the next visit starts clean, and a retry starts by leaving for
@@ -861,6 +888,12 @@ class App {
    *  CHAIN LADDER). Empty string is the remount sentinel — a real key is always
    *  a JSON object, so the first frame after a render always writes. */
   private chainShown = "";
+  /** The goal bar's last-written heat band (app.css's .pl-funds[data-heat],
+   *  fed by goalHeat from objectiveProgress). `null` is the remount sentinel so
+   *  the first frame always writes; a real value is "" (cool) / warm / hot /
+   *  fire. Banded so this only touches the DOM when the fill crosses a
+   *  threshold, not every frame — see barFill. */
+  private goalHeatShown: string | null = null;
   /** Each ability's `charges:armed` as last pushed to its pair of triggers
    *  (see syncAbility). The triggers are found by querySelectorAll rather than
    *  by id — there are two of them per ability and either can be absent — so
@@ -926,6 +959,11 @@ class App {
    *  written by onResize, read by the watchdog. Null until the first solve,
    *  which viewportChanged treats as "disagrees with everything". */
   private lastSolve: ViewportReading | null = null;
+  /** The density watch: a MediaQueryList that is true exactly while the display
+   *  is still at the ratio the published layout was solved at. Null before the
+   *  first solve, and on any engine that could not evaluate either candidate
+   *  query (see render.ts's dprQueries). */
+  private dprMQ: MediaQueryList | null = null;
   /** Live handle for the watchdog interval; non-null exactly while a burst is
    *  armed. */
   private watchdogTimer: number | null = null;
@@ -1278,6 +1316,7 @@ class App {
     // here — the whole point of baking the bitmaps as data URIs is that they
     // arrive with no load, and that cuts both ways.
     this.applySystemCursor();
+    this.applyScanlines();
     // The starting input family: fine pointer means keyboard+mouse until an
     // input says otherwise (D2 — the profile follows the last input seen).
     this.setProfile(this.finePointer() ? "keyboard" : "touch");
@@ -1337,6 +1376,15 @@ class App {
     // store UI. Entitlement changes (renewal, expiry, a purchase on another
     // device) land on the same path.
     const restoreScreen = (): void => {
+      // A PURCHASE THAT LANDED UNDER THE PREVIEW SHEET CLOSES IT. The sheet's
+      // entire subject is an entitlement the player now holds, so re-rendering
+      // it would leave them reading an offer for something they have just
+      // bought — with a primary that would re-open the store. Handed back to
+      // wherever the offer was made, which is where a "Not now" would have gone.
+      if (this.state === "preview" && this.fullGame()) {
+        this.setState(this.previewReturn);
+        return;
+      }
       if (this.state === "menu" || this.state === "settings") this.renderOverlay();
     };
     void (async () => {
@@ -1396,6 +1444,8 @@ class App {
     this.game?.destroy();
     this.attract.stop();
     this.disarmWatchdog();
+    this.dprMQ?.removeEventListener?.("change", this.onDprChange);
+    this.dprMQ = null;
     this.clearHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
@@ -1833,6 +1883,18 @@ class App {
    *  that is still resting on them (see onToggle). */
   private applySystemCursor(): void {
     document.documentElement.dataset.systemCursor = this.settings.systemCursor ? "on" : "off";
+  }
+
+  /** The Scanlines switch, spent on the class app.css has always had and
+   *  nothing ever wrote (`crt-off` on <body>, see the CRT block there).
+   *
+   *  On BODY rather than on the root, because that is the selector the
+   *  stylesheet already documents and re-homing it would change the overlay's
+   *  contract for no gain. A presence toggle rather than a named
+   *  `data-scanlines="on|off"` for the same reason: unlike the cursor's hook
+   *  this one existed first, and the setting is what finally reaches it. */
+  private applyScanlines(): void {
+    document.body.classList.toggle("crt-off", !this.settings.scanlines);
   }
 
   /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
@@ -2450,10 +2512,14 @@ class App {
     return isUnlimited() || isDesktop;
   }
 
-  private contractAllowance(): { fullGame: boolean; remaining: number } {
+  private contractAllowance(): { fullGame: boolean; remaining: number; store: boolean } {
     const fullGame = this.fullGame();
     return {
       fullGame,
+      // Whether the spent state may offer the unlock at all — the same gate
+      // pickTier makes before routing a locked floor to the paywall, and for
+      // the same reason: presentPaywall returns silently with no SDK behind it.
+      store: purchasesReady(),
       remaining: fullGame ? Infinity : Math.max(
         0, FREE_DAILY_CONTRACTS - claimedContractsOnDay(this.meta.claimedContracts),
       ),
@@ -2991,7 +3057,7 @@ class App {
       if (tier > FREE_TIER_LIMIT && tier <= MARK_COUNT && !this.fullGame()
         && S.tierOpen({ ...state, fullGame: true }, tier)) {
         if (purchasesReady()) {
-          void this.onPaywall();
+          this.offerFullGame();
           return;
         }
         // NO STORE, NO OFFER. presentPaywall returns silently while the SDK is
@@ -3639,7 +3705,11 @@ class App {
           CLAUSE_COUNT,
         );
         break;
-      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
+      // The profile rides along because the rack's slots say what to DO to
+      // them, and that word is the device's (D7, bindings.ts's hintPress).
+      case "workshop":
+        this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile);
+        break;
       // Tier S. The MODE ships (lib/devmode.ts), so this is no longer gated on
       // the build — it is gated on the door being open, and guarded here as
       // well as at the two entry points for the same reason the tower's
@@ -3713,9 +3783,15 @@ class App {
         // first time "three cards, a quota and a milestone" is true.
         if (!sky && !school && !this.meta.seenContractBoard) {
           const progress = tierProgressFor(this.meta);
+          const board = this.todaysContracts();
           this.overlay.innerHTML += S.contractsIntroModal({
             needed: progress.needed,
-            daily: this.todaysContracts().length,
+            daily: board.length,
+            // ASKED OF THE BOARD, not of PATTERN_SLOT. The card's sentence
+            // about what limits a Contract is only true of the launch-budget
+            // ones, and the board itself is the thing that knows whether the
+            // exception is on screen behind the modal.
+            pattern: board.some((c) => c.kind === "pattern"),
             milestone: progress.milestone,
           });
         }
@@ -3784,6 +3860,9 @@ class App {
             });
         }
         break;
+      case "preview":
+        this.overlay.innerHTML = S.previewScreen({ note: this.previewNote });
+        break;
       case "howto":
         this.overlay.innerHTML = S.guideScreen({
           chapter: this.guideChapter,
@@ -3802,7 +3881,7 @@ class App {
         const track = this.drillOffer;
         const spec = track ? DRILLS[`sys-${track}`] : undefined;
         if (track && spec) {
-          this.overlay.innerHTML = S.workshopScreen(this.meta)
+          this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile)
             + S.systemDrillOfferModal({
               name: upgradeById(track)?.name ?? track,
               drill: spec.name,
@@ -3877,13 +3956,16 @@ class App {
               lines: g.linesTotal,
               scrap: g.scrapEarned + g.level.scrapPerBay,
               // THE ONE BAY CLEAR THAT OPENS A FLOOR, said on the line the card
-              // otherwise spends on "tap to continue". `lessonIssuedLicence` is
+              // otherwise spends on its bare "Continue". `lessonIssuedLicence` is
               // captured in onGameStatus BEFORE the licence is written, because
               // that write is exactly what would make a live read false — so a
               // re-flown graduation bay gets the ordinary hint rather than
               // announcing a licence the player has held for hours.
               hint: this.lessonIssuedLicence
-                ? "Licence earned — Tier 1 is open · tap to continue"
+                // …and it ends on the card's own neutral word rather than on
+                // "tap to continue", for the reason bayClearScreen states: this
+                // card is dismissed by a press of any kind, on any device.
+                ? "Licence earned — Tier 1 is open · Continue"
                 : undefined,
             });
         }
@@ -3917,7 +3999,9 @@ class App {
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
         break;
       case "account":
-        this.overlay.innerHTML = S.accountScreen(this.storeState().account!);
+        this.overlay.innerHTML = S.accountScreen(
+          this.storeState().account!, this.storeState().restorable === true,
+        );
         break;
       // Over the account screen it was pressed on, the way the seal notice
       // renders over the paused bay it is priced against — the screen behind
@@ -3925,7 +4009,8 @@ class App {
       // ("Signed in as …") the panel deliberately does not interpolate.
       case "account-delete":
         this.overlay.innerHTML =
-          S.accountScreen(this.storeState().account!) + S.accountDeleteModal();
+          S.accountScreen(this.storeState().account!, this.storeState().restorable === true)
+          + S.accountDeleteModal(this.storeState().restorable === true);
         // F7: Tab used to reach Sign Out behind this question, and Enter there
         // answered a different one. See ui/padnav's sealBehindScrim.
         sealBehindScrim(this.overlay);
@@ -4149,15 +4234,22 @@ class App {
               // it borrowed would say the score is on the ladder.
               boardTier: this.runBoard(),
               boardDay: this.boardDay(),
-              // THE CONTRACTS ROUTE. Both halves come from the same places the
-              // home screen asks — today's board and meta.ts's nextStep — so
-              // the two surfaces cannot disagree about whether there is
-              // anything to do or about which door is the next step.
+              // THE CONTRACTS ROUTE — is there a card left on today's board at
+              // all. Asked of the same board the home screen asks, so the two
+              // surfaces cannot disagree about whether there is anything there
+              // to do.
               contracts: {
                 remaining: this.todaysContracts()
                   .filter((c) => !contractClaimed(this.meta, c.id)).length,
-                next: nextStep(this.meta) === "contracts",
               },
+              // …and WHICH DOOR THE LOOP IS POINTING AT, handed over whole
+              // rather than as a boolean about one of its five answers. The
+              // card's main button is this step on a completed run (screens.ts
+              // endModal's `stepRoute`), which is the owner's rule — "the main
+              // button brings to the next logical step" — and it is the SAME
+              // call the menu badges, so the end card and the home screen can
+              // never send the player to two different doors.
+              step: nextStep(this.meta),
               // THE BAY, OFFERED BACK — on a lost ladder run only. Tier S has
               // its bench one tap away and re-flies the same configuration
               // from the primary; the Skydeck is the day's single attempt, and
@@ -4507,16 +4599,27 @@ class App {
    */
   private syncAttract(): void {
     const covered = this.guard.classList.contains("show");
-    const host = this.state === "menu" && !covered
-      ? this.overlay.querySelector<HTMLElement>(".menu__demo")
-      : null;
-    if (!host) {
+    // TWO HOSTS, ONE DEMO. The menu's panel plays MENU_BAY and the Full Game
+    // preview's plays PREVIEW_BAY, and they are never up at the same time — so
+    // they share this one AttractDemo instance rather than owning one each, and
+    // whichever screen is on mounts it with the bay it wants. A second instance
+    // would be a second physics world stepping for a screen nobody is looking
+    // at, which is exactly what stop() exists to prevent.
+    const panel = covered
+      ? null
+      : this.state === "menu"
+        ? { sel: ".menu__demo", bay: MENU_BAY }
+        : this.state === "preview"
+          ? { sel: ".fullgame__demo", bay: PREVIEW_BAY }
+          : null;
+    const host = panel ? this.overlay.querySelector<HTMLElement>(panel.sel) : null;
+    if (!host || !panel) {
       this.attract.stop();
       return;
     }
     const canvas = host.querySelector("canvas");
     host.classList.add("is-live");
-    if (!canvas || !this.attract.mount(canvas)) host.classList.remove("is-live");
+    if (!canvas || !this.attract.mount(canvas, panel.bay)) host.classList.remove("is-live");
   }
 
   /** Reflects fullscreen STATE onto every fullscreen control currently
@@ -4567,6 +4670,57 @@ class App {
     if (this.watchdogTimer !== null) window.clearInterval(this.watchdogTimer);
     this.watchdogTimer = null;
   }
+
+  /**
+   * THE DENSITY WATCH — the other axis a viewport can change on.
+   *
+   * Everything above this watches the viewport's SIZE, because every event a
+   * page is given is about size: resize, orientationchange, visualViewport,
+   * the watchdog's own comparison of innerWidth/innerHeight. None of them fire
+   * when the display's DEVICE-PIXEL RATIO changes underneath a box that did
+   * not move — drag a window from a 1x monitor to a 2x one, or plug in an
+   * external display and have the OS move the window to it, and the CSS
+   * viewport is identical in every number this file reads. The canvas kept its
+   * old backing store and the field went on rasterising at half the resolution
+   * the panel could show, permanently, until something else happened to
+   * trigger a resize.
+   *
+   * A MediaQueryList is the event the platform does give for it, and this
+   * RE-ARMS on every solve because such a list asks a fixed question: the one
+   * that was watching "is the ratio still 1x" has nothing left to say once the
+   * answer is 2x, so each change installs the next watch as its last act.
+   *
+   * It deliberately routes through onResize rather than resizing the canvas
+   * itself. onResize is where renderScale's ceiling lives (MAX_RENDER_DPR, and
+   * the lower COMPACT_MAX_RENDER_DPR on a phone-sized box), and a path that
+   * sized the backing store from the raw devicePixelRatio would be a way to
+   * spend three times the fill rate the frame budget was measured at by
+   * plugging in a monitor. Re-solving is also what re-publishes --field-* for
+   * the DOM chrome, which is free here and wrong to skip.
+   */
+  private armDprWatch(): void {
+    const mm = window.matchMedia;
+    if (!mm) return;
+    this.dprMQ?.removeEventListener?.("change", this.onDprChange);
+    this.dprMQ = null;
+    for (const q of dprQueries(window.devicePixelRatio || 1)) {
+      const mq = mm.call(window, q);
+      // A query describing the ratio RIGHT NOW that does not match right now is
+      // a query this engine cannot evaluate — an older WebKit meeting the range
+      // form, say — and registering on it would be registering on a watch that
+      // can never fire. Fall through to the next candidate instead.
+      if (!mq.matches) continue;
+      mq.addEventListener?.("change", this.onDprChange);
+      this.dprMQ = mq;
+      return;
+    }
+  }
+
+  /** The ratio moved off the one the layout was solved at. Re-solve, which also
+   *  re-arms this watch at the new ratio (see armDprWatch). */
+  private onDprChange = (): void => {
+    this.onResize();
+  };
 
   private watchdogTick = (): void => {
     // Disarm on EXPIRY, not on a clean tick: the whole point is that the
@@ -4702,6 +4856,11 @@ class App {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.sizeCanvas(w, h);
+    // ...and re-aim the density watch at the ratio this solve was made at. It
+    // has to be re-armed rather than registered once: a MediaQueryList asks a
+    // FIXED question, so the list that was watching "still 1x" has nothing to
+    // say once the answer is 2x. See armDprWatch.
+    this.armDprWatch();
 
     // Safe-area insets first: the layout solver subtracts them from the usable
     // box, so they have to be current before computeLayout runs. Measured from
@@ -4743,6 +4902,20 @@ class App {
     // The gap the solver budgeted the column with — the CSS reads it back so
     // the rendered stack matches the fit prediction exactly.
     rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
+    // The CRT comb's line and period, as CSS lengths that land on whole DEVICE
+    // px (render.ts's scanlineMetrics). A stylesheet can only write CSS px and
+    // a CSS px is not a pixel, so the authored `1px in 3px` only repeats
+    // cleanly on a whole-number ratio. Published from HERE because the ratio is
+    // precisely what can change under a window that never moved, and this path
+    // is where armDprWatch lands when it does.
+    //
+    // From the RAW devicePixelRatio, not renderScale's capped answer: the cap
+    // exists because the frame is fill-bound and says how much CANVAS the
+    // budget can afford. It has nothing to say about a CSS gradient, which
+    // rasterises at the panel's real density like the rest of the chrome.
+    const comb = scanlineMetrics(window.devicePixelRatio || 1);
+    rs.setProperty("--scanline-line", `${comb.line}px`);
+    rs.setProperty("--scanline-period", `${comb.period}px`);
     // How far the chrome is magnified above its authored box (game/layout.ts's
     // chromeZoom). app.css's screen-anchored scaffolds put this straight into
     // `zoom`, so a browser window bigger than the reference renders the
@@ -4791,7 +4964,7 @@ class App {
     const selected = this.towerState().selected;
     if (!this.fullGame() && selected !== S.SANDBOX_TIER
       && (selected === S.SKYDECK_TIER || selected > FREE_TIER_LIMIT)) {
-      void this.onPaywall();
+      this.offerFullGame();
       return;
     }
     // THE DOOR, RE-ASKED WHERE THE RUN ACTUALLY STARTS. Two buttons reach here
@@ -6617,6 +6790,10 @@ class App {
       // played; 1 means "clear this one and you dock". Null late in a run when
       // no stop remains.
       baysToRefit: baysUntilRefitFor(run),
+      // What the cards call a press (D7). The draft re-renders on every toggle
+      // (refreshDraft), so a pad picked up mid-draft corrects the footers on
+      // the player's first pick rather than needing a relabel of its own.
+      profile: this.profile,
       // The Skydeck's tally, which takes the scrap cell's slot (screens.ts).
       // Counted off the run's own schedule rather than kept as a second
       // number, so it cannot disagree with what levelForRun is applying.
@@ -6656,6 +6833,7 @@ class App {
         run.ratchets,
       ),
       scrap: run.scrap,
+      profile: this.profile,
     });
   }
 
@@ -7358,6 +7536,7 @@ class App {
   private forgetHudCache(): void {
     this.hudNodes.clear();
     this.hudShown.clear();
+    this.goalHeatShown = null;
     this.abilityShown.clear();
     this.crestHeatShown = -1;
     this.crestStepShown = -1;
@@ -7414,6 +7593,29 @@ class App {
     if (!el) return;
     el.style.transform = v;
     this.hudShown.set(sel, v);
+  }
+
+  /**
+   * Heat the goal bar as the run nears its target (app.css's
+   * .pl-funds[data-heat]). The fill is a scaleX on one gradient, so the colour
+   * cannot come from the fill itself — a stretched gradient keeps its hue — and
+   * a per-frame background write would undo the paint split. So this is a BAND:
+   * a `data-heat` word on .pl-funds, written only when the ratio crosses a
+   * threshold, and the stylesheet colours the fill from it.
+   *
+   * The bands leave the low end alone (cool cyan, no attribute) and stop short
+   * of naming the danger axis: launches running low is a different fact and
+   * app.css lets its .pl-stat--danger rule outrank every band, so this never
+   * has to know about it.
+   */
+  private goalHeat(ratio: number): void {
+    const band = ratio >= 0.9 ? "fire" : ratio >= 0.75 ? "hot" : ratio >= 0.55 ? "warm" : "";
+    if (this.goalHeatShown === band) return;
+    this.goalHeatShown = band;
+    const el = this.hudEl<HTMLElement>(".pl-funds");
+    if (!el) return;
+    if (band) el.dataset.heat = band;
+    else delete el.dataset.heat;
   }
 
   /**
@@ -7809,6 +8011,7 @@ class App {
     // the bar works for a Contract's line goal and a Deep Run's funds target
     // without the HUD needing to know which mode it's in.
     this.barFill("#hud-goal", Math.min(1, g.objectiveProgress));
+    this.goalHeat(Math.min(1, g.objectiveProgress));
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
@@ -8175,6 +8378,18 @@ class App {
       e.preventDefault();
       t.click();
     }
+    // ENTER SUBMITS THE ONE TEXT FIELD IN THE GAME. A single-field form where
+    // the return key does nothing reads as broken, and this one reads that way
+    // at the worst moment — the player has just typed their name onto a board.
+    // Routed through the button's own click rather than through onSubmitScore
+    // directly, which is padnav's rule for every activation in the app
+    // ("activation is el.click()"): the feedback sound, the disabled state and
+    // the one-shot guard all live on that path and none of them have to be
+    // remembered here.
+    if (e.key === "Enter" && t.id === "name-input") {
+      e.preventDefault();
+      this.overlay.querySelector<HTMLElement>('[data-action="submit-score"]')?.click();
+    }
   };
 
   /** Where B (PAD_BACK) lands per screen — each entry is the screen's OWN
@@ -8195,6 +8410,10 @@ class App {
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
       case "account": return '[data-action="settings"]';
+      // The preview sheet HAS a back, and it is the reversible half of a pair
+      // rather than a choice between exits: "Not now" changes nothing and the
+      // primary spends money, so B and Escape give the one that spends nothing.
+      case "preview": return '[data-action="preview-back"]';
       // Like the seal notice, and for the identical reason: the deletion panel
       // is one action being priced, not a choice between exits, so B gives the
       // reversible answer rather than dismissing the question.
@@ -8418,6 +8637,32 @@ class App {
       // because a floor selected before Settings closed the mode must not still
       // open it (screens.ts's tierOpen is the other half of the same gate).
       case "play": {
+        // THE BOARD BEING READ IS THE FLOOR TO FLY (F10f). The leaderboard's
+        // Play carries the tab's own tier; every other caller of this action
+        // carries none and flies the parked floor, exactly as before.
+        //
+        // It PARKS the car rather than launching around it, so the tower agrees
+        // with what just happened the next time the player sees it — and it
+        // asks the same two questions pickTier asks: tierOpen first, and then,
+        // for a floor the ladder has earned but the entitlement has not, the
+        // offer instead of the refusal (gated on the store being configured, or
+        // presentPaywall answers the tap with silence). A floor that is neither
+        // open nor purchasable falls through to the parked one, which is what
+        // this button did for every board before it carried a tier at all.
+        const asked = Number(el.getAttribute("data-tier"));
+        if (Number.isFinite(asked)) {
+          const state = this.towerState();
+          if (S.tierOpen(state, asked)) {
+            this.pickedTier = asked;
+            this.pickedAtMark = this.meta.mark;
+          } else if (asked > FREE_TIER_LIMIT && asked <= MARK_COUNT && !this.fullGame()
+            && S.tierOpen({ ...state, fullGame: true }, asked) && purchasesReady()) {
+            // The same offer the tower floor makes (offerFullGame): the sheet
+            // says what the entitlement opens before the store says a price.
+            this.offerFullGame();
+            break;
+          }
+        }
         const floor = this.towerState().selected;
         if (floor === S.SANDBOX_TIER) {
           if (this.sandboxOpen()) this.setState("sandbox");
@@ -8751,7 +8996,14 @@ class App {
         this.coachRetry();
         break;
       case "submit-score": void this.onSubmitScore(); break;
-      case "paywall": void this.onPaywall(); break;
+      // THE NAME STAYS, THE DESTINATION MOVES. Three surfaces render this action
+      // (the menu chip, the Settings row, the Contracts cap's door) and they all
+      // mean "make me the offer" rather than "open the store" — so the action
+      // now opens the preview, and the store is what the preview's own primary
+      // opens.
+      case "paywall": this.offerFullGame(); break;
+      case "preview-buy": this.onPreviewBuy(); break;
+      case "preview-back": this.setState(this.previewReturn); break;
       case "restore": void this.onRestore(); break;
       case "pick-hazard":
         this.onPickHazard(el.getAttribute("data-hazard") ?? "");
@@ -8843,8 +9095,9 @@ class App {
         const asked = Number(el.getAttribute("data-tier") ?? "1");
         // The gated chips render disabled, so this branch is the re-check for
         // routes the DOM cannot police (a stale card, a synthetic event) —
-        // and it answers like the tower does: with the paywall, not silence.
-        if (!tierIncluded(asked, this.fullGame())) { void this.onPaywall(); break; }
+        // and it answers like the tower does: with the OFFER (the Full Game
+        // preview), not silence.
+        if (!tierIncluded(asked, this.fullGame())) { this.offerFullGame(); break; }
         this.sandbox.tier = asked;
         // Selecting a tier below the current variant's rung would leave the
         // panel pointing at something it cannot generate. Fall back to the
@@ -8943,7 +9196,7 @@ class App {
         // asked — same reasoning as the tower's tierOpen before newRun: a
         // state reachable by a route nobody has thought of yet must still
         // refuse to fly a Tier the account does not hold.
-        if (!tierIncluded(this.sandbox.tier, this.fullGame())) { void this.onPaywall(); break; }
+        if (!tierIncluded(this.sandbox.tier, this.fullGame())) { this.offerFullGame(); break; }
         this.launchSandbox();
         return; // startContract/startLevel render for us
       default: {
@@ -9349,6 +9602,10 @@ class App {
     // same frame they let go of the switch — which is the only feedback this
     // particular toggle can give.
     if (key === "systemCursor") this.applySystemCursor();
+    // Same shape and the same reason: one class write, no re-render, and the
+    // overlay over the player's own hand changes on the frame they let go of
+    // the switch — which is the only feedback this toggle can give.
+    if (key === "scanlines") this.applyScanlines();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
     // has to redraw the screen saying it. TWO of them do: the gamepad pane's
     // aim row and the keyboard pane's Arc height / Mouse rotate pair each
@@ -9708,6 +9965,57 @@ class App {
       box.remove();
     }, { capture: true });
     document.body.appendChild(box);
+  }
+
+  /**
+   * THE OFFER, WHICH IS NOT THE STORE.
+   *
+   * Every "Unlock Full Game" in the game comes through here now — the menu
+   * chip, the Settings row, a tap on a paywalled tower floor, the Contracts
+   * cap's door — and what it opens is screens.ts's previewScreen, not
+   * RevenueCat's sheet. That sheet is configured in a dashboard and can say
+   * nothing about this game; the four words on the button that opened it were
+   * the whole pitch for seven Tiers, six materials and an unmetered board. The
+   * preview says what the entitlement opens and then offers the store.
+   *
+   * A NO-OP FOR AN OWNER, which is what it was before: the entitled surfaces
+   * render a ★ badge rather than a button, so reaching this at all means a
+   * route the DOM could not police (a stale screen, a pad press landing on a
+   * re-rendered button) — and the honest answer to "sell me a thing I own" is
+   * still nothing. `isDesktop` counts as owning it, same as everywhere else
+   * this asks (fullGame).
+   *
+   * The RETURN is captured here rather than inside the sheet because this is
+   * the only place that knows what was interrupted.
+   */
+  private offerFullGame(): void {
+    if (this.fullGame()) return;
+    this.previewReturn = this.state;
+    this.previewNote = null;
+    this.setState("preview");
+  }
+
+  /**
+   * The preview's primary: the store, gated the way the tower already gates it.
+   *
+   * NO STORE, NO SHEET — presentPaywall returns silently while the SDK is
+   * unconfigured (no key in this build, configure failed, first launch
+   * offline), so calling it blind answers a deliberate press with nothing at
+   * all. pickTier refuses that case in words (noteStoreUnavailable); this is
+   * the same refusal on the button the player actually pressed, which is the
+   * argument that method's own note makes about the tower.
+   *
+   * The web branch is NOT a store failure and must not be caught here: on web
+   * purchasesReady() is true once the SDK configures, and onPaywall's own
+   * accounts-before-purchase detour handles a signed-out player from there.
+   */
+  private onPreviewBuy(): void {
+    if (!purchasesReady()) {
+      this.previewNote = S.STORE_UNAVAILABLE_TEXT;
+      this.renderOverlay();
+      return;
+    }
+    void this.onPaywall();
   }
 
   /** The paywall itself is native UI configured in the RevenueCat dashboard —

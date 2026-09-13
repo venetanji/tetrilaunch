@@ -159,6 +159,13 @@ const ALLOWED_SCROLLERS = [
   // that scrolled would clip the beacon — and the Tier S gesture with it —
   // off the top of the building. The frame stays; the floors move inside it.
   ".tower__floors",
+  // The Settings toggle column at phone density, and only there (app.css's
+  // `[data-density="compact"] .settings__toggles`). Four switches fit a
+  // 360dp phone at the tap floor; the fifth (Scanlines, R7) does not, with
+  // every row already at 44px and two of the five sentences wrapping — so
+  // the column scrolls inside the modal's cap rather than the modal itself,
+  // which would carry its header and close button off the top with it.
+  ".settings__toggles",
 ];
 
 /**

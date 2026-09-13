@@ -3,7 +3,7 @@ import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine"
 import { CHUTE, chuteMouth, chuteRightEdge, chuteRoofY, INCINERATOR_Y } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { cushionEdgeX, SETTLE_SPEED } from "./lineClear";
-import { computeLayout, skyTop } from "./layout";
+import { computeLayout, skyTop, type Layout } from "./layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, CONGESTION_TAG, CONGESTION_TAG_COLOR,
   glyphInk, GRADE_CALLOUT, GRADE_COLOR,
@@ -231,6 +231,161 @@ export function renderScale(deviceRatio: number, cssW: number, cssH: number): nu
   // COMPACT_MAX_RENDER_DPR's 1.5 goes on being the binding cap and no phone's
   // resolution moves by a pixel.
   return Math.min(capped, Math.sqrt(MAX_RENDER_PIXELS / cssPx));
+}
+
+/** How far a `dppx` bracket is opened either side of the ratio it watches, as a
+ *  fraction of that ratio.
+ *
+ *  Half a percent. It has to be wide enough to survive a double going out
+ *  through CSS text and being re-parsed — devicePixelRatio is commonly a ratio
+ *  that does not terminate in decimal (4/3 on a 133% Windows scale factor, 2.625
+ *  on a Pixel 7) — and narrow enough that it cannot swallow a real change. The
+ *  smallest step any platform actually offers is 1 -> 1.25, a 25% jump; the
+ *  bracket is fifty times smaller than that. */
+const DPR_QUERY_TOLERANCE = 0.005;
+
+/**
+ * MEDIA QUERIES THAT ARE TRUE EXACTLY WHILE THE DISPLAY IS STILL AT `ratio` —
+ * in preference order, most robust first.
+ *
+ * The renderer's backing scale is `renderScale(devicePixelRatio, …)` and nothing
+ * re-reads it but onResize. Every event main.ts listens to says the viewport's
+ * SIZE changed; none of them fire when only its DENSITY does, and dragging a
+ * window from a 1x display to a 2x one is precisely that — the same CSS box,
+ * twice the device pixels. The canvas stayed at the old backing store and the
+ * field rasterised at half the resolution the panel could show, with nothing to
+ * tell the app it had happened. A MediaQueryList is the one thing that does.
+ *
+ * TWO FORMS, because one of them is not always understood. The bracketed range
+ * is the honest question — "is the ratio still within a rounding error of R" —
+ * and it is what absorbs the float round-trip above. But `min-resolution` /
+ * `max-resolution` are range features, and an engine that does not know them
+ * treats the whole query as invalid and answers `false` forever, which is a
+ * watch that is silently dead rather than one that is merely coarse. So the
+ * plain equality form follows it, and the caller keeps the first candidate that
+ * MATCHES RIGHT NOW: a query describing the present that is already false is a
+ * query this engine cannot evaluate, whatever the reason.
+ *
+ * Both forms are strings rather than live MediaQueryLists so the choice can be
+ * pinned headlessly — node has no matchMedia, and the arithmetic is the half
+ * that can be wrong.
+ */
+export function dprQueries(ratio: number): string[] {
+  const r = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  const eps = r * DPR_QUERY_TOLERANCE;
+  return [
+    `(min-resolution: ${(r - eps).toFixed(4)}dppx) and (max-resolution: ${(r + eps).toFixed(4)}dppx)`,
+    `(resolution: ${r}dppx)`,
+  ];
+}
+
+/**
+ * THE CRT OVERLAY'S PERIOD, PUT ON THE SAME PIXEL GRID crispFontPx USES.
+ *
+ * app.css lays a repeating-linear-gradient over the whole app — a dark line one
+ * CSS px tall every three — and a CSS px is not a pixel. On a Pixel 7, whose
+ * devicePixelRatio is 2.625, that three-px period is 7.875 DEVICE px and the
+ * line is 2.625 of them, so the comb never repeats on the grid it is rasterised
+ * onto: the first line covers three device rows, the second two and a fraction,
+ * the third lands half a row further off, and the eight-row beat that finally
+ * closes the cycle is a moiré banding the whole screen. The authored texture is
+ * a one-in-three comb; what the panel shows is a one-in-three comb plus a
+ * ripple nobody drew.
+ *
+ * So the period and the line are snapped to whole DEVICE px and handed back as
+ * the CSS lengths that produce them, for main.ts to publish on each solve
+ * (--scanline-line / --scanline-period). On a 2.625 panel the period becomes 8
+ * device px (3.048 CSS px) and the line 3 (1.143 CSS px), both exact, and every
+ * repeat down the screen is identical to the one above it. On 1x, 2x and 3x
+ * panels the arithmetic is the identity and the overlay is pixel for pixel what
+ * it always was.
+ *
+ * TWO FLOORS, each the difference between a texture and a defect:
+ *   - the period is at least two device px, because a one-px period leaves no
+ *     room for the gap that makes this a comb rather than a fill;
+ *   - the line is at most one device px short of the period, because a line as
+ *     tall as its own period is not a scanline — it is a sheet of black laid
+ *     over the game at `multiply`.
+ *
+ * Returned as numbers rather than as CSS text for dprQueries' reason: node has
+ * no layout and no matchMedia, and the division is the half that can be wrong.
+ */
+export const SCANLINE_PERIOD_CSS = 3;
+export const SCANLINE_LINE_CSS = 1;
+
+export function scanlineMetrics(dpr: number): { period: number; line: number } {
+  const d = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  const period = Math.max(2, Math.round(SCANLINE_PERIOD_CSS * d));
+  const line = Math.min(period - 1, Math.max(1, Math.round(SCANLINE_LINE_CSS * d)));
+  return { period: period / d, line: line / d };
+}
+
+/**
+ * THE EIGHT CANVAS TEXT SITES, AND THE GRID THEY LAND ON.
+ *
+ * Everything the field draws is authored in world px and rasterised through the
+ * world transform, so a font set to `Npx` comes out at `N * scale * dpr` DEVICE
+ * px — and `dpr` here is renderScale's answer, not the panel's. On an iPhone X
+ * in the landscape the game locks to (css 812x375, panel ratio 3) the policy
+ * caps the canvas at 1.5 and the solver fits a 666.7px field, so the world→
+ * device factor is 0.781 and the HUD's type ladder rasterises like this:
+ *
+ *     11px ->  8.59    13px -> 10.16    18px -> 14.06    30px -> 23.44
+ *     12px ->  9.38    14px -> 10.94    26px -> 20.31
+ *
+ * Not one whole number among them, while the DOM chrome two layers up is being
+ * laid out at the panel's full 3x. A font size with a fraction in it is a font
+ * the rasteriser has to fit to a grid it does not sit on: the em box rounds one
+ * way, the hinted stems round another, and glyph to glyph the weight wanders —
+ * at nine device px a stem is one pixel or two, and which one it is depends on
+ * where in the em the glyph's outline happened to fall.
+ *
+ * So the size is snapped to the nearest whole device px and divided back into
+ * world space. It cannot be done at authoring time because the factor is a
+ * property of the viewport, not of the drawing, and it is deliberately the SIZE
+ * alone — the baseline positions are where the layout wants them and shifting
+ * those would move the type relative to the pill and the toast it belongs to.
+ *
+ * A floor of one whole device px, because a zero-sized font is not a smaller
+ * font, it is no text at all.
+ */
+export function crispFontPx(worldPx: number, deviceScale: number): number {
+  // A frame drawn before anything has been measured — no scale, zero, NaN — has
+  // no grid to snap to, and inventing one would divide by it. The authored size
+  // is the only honest answer.
+  if (!(deviceScale > 0) || !Number.isFinite(deviceScale)) return worldPx;
+  // NEAREST, not up and not down. Rounding one way biases the whole ladder in
+  // that direction, and half a device px is the largest error a snap can make
+  // by construction.
+  //
+  // The ladder CAN collapse where the grid is coarser than the design: on the
+  // iPhone X the 11px stabiliser tag and the 12px readout both land on 9 device
+  // px and come out the same size. That is the truth of the display rather than
+  // a defect of the snap — there is no size between them to draw — and the two
+  // are already separated by colour, position and the word they carry.
+  return Math.max(1, Math.round(worldPx * deviceScale)) / deviceScale;
+}
+
+/**
+ * The world→device factor the CURRENT frame is being drawn through, published
+ * by render() for the text sites to snap against.
+ *
+ * Module state for the same reason syncSpriteScale's is: the drawers are
+ * reached through a dozen call sites that have no business carrying a number
+ * about the display, and render() sets both from the same `vp.scale * dpr` in
+ * the same breath, so the two cannot disagree about what resolution the frame
+ * is at.
+ */
+let frameDeviceScale = 1;
+
+const HUD_FONT_MONO = "'JetBrains Mono', ui-monospace, monospace";
+const HUD_FONT_UI = "system-ui, sans-serif";
+
+/** A canvas font string whose size lands on a whole device px. Every text site
+ *  on the field is weight 700, so the weight is not a parameter — a lighter one
+ *  would be a design decision, not a call-site detail. */
+function hudFont(worldPx: number, family: string): string {
+  return `700 ${crispFontPx(worldPx, frameDeviceScale)}px ${family}`;
 }
 
 /** Map a client (CSS px) point to world coordinates. */
@@ -546,6 +701,94 @@ function drawJointSeams(
  * coarse: congestionRows moves `lit` one row per line's worth of cubes, so the
  * layer re-bakes when the pile crosses a multiple of a line and not otherwise.
  */
+/**
+ * THE WALL GLOW'S HALO IS ALLOWED OUT OF THE FIELD — how far, in WORLD px.
+ *
+ * drawWalls strokes the shaft with shadowBlur WALL_GLOW_BLUR, and a shadowBlur
+ * reaches about 1.5x its value before its alpha hits zero — the same
+ * measurement SPRITE_PAD is built on, taken across blur 10/16/22/26 at bake
+ * scales 1/1.5/2/3. So the halo of an 18px blur is dead 27 world px out from
+ * the stroke it comes from, and every device pixel of it outside the world rect
+ * was being cut: the bake clipped to x 0..WORLD.width, which is two world px
+ * outboard of a wall drawn at x=2, so 25 of those 27 px never reached a screen.
+ *
+ * On a 16:9 viewport nobody could see the cut, because the clip edge and the
+ * glass edge are the same line. On an ultrawide phone (21:9, ~150 CSS px of
+ * gutter a side) the halo ended on a razor-straight vertical seam with a wide
+ * band of flat backdrop beside it — which reads as the neon being masked, not
+ * as a lit shaft standing in the dark.
+ */
+const WALL_GLOW_BLUR = 18;
+export const WALL_GLOW_REACH = Math.ceil(WALL_GLOW_BLUR * 1.5);
+
+/** app.css's `.side-rail { right: max(calc(4px + var(--inset-r)), …) }` floor —
+ *  the closest to the glass the rail column is ever pinned. Restated here
+ *  because the bleed below has to stop short of the rail, and where the rail
+ *  sits is a fact about the stylesheet rather than one the solver returns. */
+const RAIL_EDGE_MIN_CSS = 4;
+
+/** How far past each side wall the background bake may paint, in world px. */
+export interface GlowBleed {
+  left: number;
+  right: number;
+}
+
+const NO_GLOW_BLEED: GlowBleed = { left: 0, right: 0 };
+
+/**
+ * How much of WALL_GLOW_REACH each side actually gets.
+ *
+ * The letterbox band is not free space to spend. The control rail lives in one
+ * of those gutters (layout.ts's "wide" mode) or in a band reserved out of one
+ * ("snug"), and neon bleeding under the buttons is a worse picture than neon
+ * with a straight edge. So the bleed is the REACH capped by the room between
+ * the field's edge and the rail column's inner edge, per side.
+ *
+ * That room is read straight off app.css's rule rather than guessed: the column
+ * is centred in the gutter — `(gutter - railBtn) / 2` of clearance inboard —
+ * unless the gutter is too tight, where it pins `RAIL_EDGE_MIN_CSS + inset`
+ * from the glass and the clearance is what is left after it. The rule is a
+ * `max()` of the two offsets, so the clearance is the MIN of the two answers,
+ * and a negative one (a rail already standing over the field on a pathological
+ * box) clamps to no bleed at all.
+ *
+ * BUDGETED ON BOTH SIDES rather than on the rail's own. layout.ts keeps
+ * `railSide` module-local on purpose and exposes no getter, and the Controls
+ * screen can mirror the column mid-run; a bleed that guessed the side would be
+ * wrong for every player who has touched that switch. Reserving the column's
+ * room in both gutters costs at most a few world px of halo in the gutter that
+ * has no rail, on a viewport where the halo is 27 world px to begin with.
+ *
+ * "tall" is exempt: its rail is a strip in the BOTTOM band, so both side
+ * gutters are genuinely empty. So is a null `chrome`, which means an OFF-FIELD
+ * surface — attract.ts's demo panel fits through fitViewport and mounts no
+ * chrome at all.
+ *
+ * Vertical bleed is deliberately absent. Above the field the sky already runs
+ * to the top of the canvas (skyTop) and the walls follow it up; below it the
+ * field is bottom-anchored onto the glass. The horizontal is the one axis with
+ * a band left to guillotine a halo against, which is exactly the axis skyTop
+ * declines to speak about.
+ */
+export function wallGlowBleed(
+  cssW: number,
+  vp: Viewport,
+  chrome: Layout | null,
+): GlowBleed {
+  const scale = Math.max(0.0001, vp.scale);
+  const clearance = (gutterCss: number, insetCss: number): number => {
+    if (!chrome || chrome.mode === "tall") return gutterCss;
+    const spare = gutterCss - chrome.railSize;
+    return Math.min(spare / 2, spare - RAIL_EDGE_MIN_CSS - insetCss);
+  };
+  const world = (roomCss: number): number =>
+    Math.max(0, Math.min(WALL_GLOW_REACH, roomCss / scale));
+  return {
+    left: world(clearance(vp.ox, chrome?.safe.left ?? 0)),
+    right: world(clearance(cssW - vp.ox - WORLD.width * scale, chrome?.safe.right ?? 0)),
+  };
+}
+
 interface CongestionRows {
   lit: number;
   warnRow: number;
@@ -580,8 +823,22 @@ function congestionRows(scene: Scene): CongestionRows | null {
   };
 }
 
-function drawCongestionRows(ctx: CanvasRenderingContext2D, rows: CongestionRows): void {
+/** EXACTLY THE BAY WIDE, wall to wall — x 0..WORLD.width, the interior the
+ *  walls stand at the edges of (engine.ts's WALL_INNER is WORLD.width) — and
+ *  NOT out into the halo band the bake's clip was widened by (wallGlowBleed).
+ *  For one release the rows ran out with the glow, on the argument that a row
+ *  stopping at the wall put a seam down the halo. The owner's read of it on
+ *  device was the opposite: floor light spilling past both walls read as the
+ *  bay being wider than it is, on the very instrument that says how full the
+ *  bay is. The halo is the WALL's light and may finish outside; the rows are
+ *  the FLOOR's and stop where the floor does. */
+function drawCongestionRows(
+  ctx: CanvasRenderingContext2D,
+  rows: CongestionRows,
+): void {
   const { lit, warnRow, dangerRow } = rows;
+  const x0 = 0;
+  const w = WORLD.width;
 
   ctx.save();
   for (let r = 0; r < lit; r++) {
@@ -598,11 +855,11 @@ function drawCongestionRows(ctx: CanvasRenderingContext2D, rows: CongestionRows)
     g.addColorStop(0, `rgba(${rgb}, 0.30)`);
     g.addColorStop(1, `rgba(${rgb}, 0.09)`);
     ctx.fillStyle = g;
-    ctx.fillRect(0, y, WORLD.width, CELL);
+    ctx.fillRect(x0, y, w, CELL);
     // A brighter rule on the row's own floor line, so the bands read as
     // discrete rows to count rather than one wash that happens to be taller.
     ctx.fillStyle = `rgba(${rgb}, 0.45)`;
-    ctx.fillRect(0, y + CELL - 1.5, WORLD.width, 1.5);
+    ctx.fillRect(x0, y + CELL - 1.5, w, 1.5);
   }
   ctx.restore();
 }
@@ -615,16 +872,31 @@ export function render(
   scene: Scene,
   viewport?: Viewport,
 ): void {
-  const vp = viewport ?? computeViewport(cssW, cssH);
+  // An EXPLICIT viewport means an off-field surface (attract.ts's demo panel,
+  // fitted with fitViewport) — no rail, no safe-area insets, nothing in the
+  // letterbox band for the wall glow to stay out of. Otherwise the solver's
+  // full answer is wanted, not just its three transform numbers: wallGlowBleed
+  // needs the mode and the rail's size as well. Layout is a superset of
+  // Viewport, so the transform is read straight off it and computeLayout still
+  // runs exactly once per frame.
+  const chrome = viewport ? null : computeLayout(cssW, cssH);
+  const vp: Viewport = viewport ?? chrome!;
   const alpha = scene.alpha ?? 1;
-  syncSpriteScale(vp.scale * dpr);
+  // The frame's world→device factor, published to the two things that need it:
+  // the sprite bakes, which re-bake when it drifts far enough, and the text
+  // sites, which snap their size onto its grid every frame (crispFontPx).
+  frameDeviceScale = vp.scale * dpr;
+  syncSpriteScale(frameDeviceScale);
 
   // Backdrop, field gradient, grid, wall glow AND the congestion floor are
   // static between changes of pile height — blit the cached opaque layer
   // instead of re-painting them (no clearRect needed underneath, the layer
   // covers every device pixel).
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0, 0);
+  ctx.drawImage(
+    getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene),
+      wallGlowBleed(cssW, vp, chrome)),
+    0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   // Clip to the world rect, OPENED UPWARD to the top of the canvas (layout.ts's
@@ -634,6 +906,12 @@ export function render(
   // the piece the player just launched vanished at the field's top edge, waited
   // out its arc in a black band, and reappeared. The sides and floor are not
   // opened with it — those are real walls, and cargo that reaches them stops.
+  //
+  // NOR are the sides widened by wallGlowBleed. That allowance is the static
+  // wall glow's, and it is spent inside the background bake where the glow is
+  // painted; everything clipped HERE is live content the walls bound, and a
+  // cube or a debris square outside the shaft would be the renderer disagreeing
+  // with the physics rather than a halo finishing.
   const sky = skyTop(vp.scale, vp.oy);
   ctx.save();
   ctx.beginPath();
@@ -1132,12 +1410,19 @@ function getBackgroundLayer(
   dpr: number,
   vp: Viewport,
   rows: CongestionRows | null,
+  bleed: GlowBleed = NO_GLOW_BLEED,
 ): HTMLCanvasElement {
   // Same Math.floor sizing as main.ts's onResize gives the live canvas, so
   // the layer maps 1:1 onto it.
   const w = Math.max(1, Math.floor(cssW * dpr));
   const h = Math.max(1, Math.floor(cssH * dpr));
-  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|` +
+  // The bleed IS in the key even though it is a pure function of the same
+  // viewport the key already carries — because it is not: it also depends on
+  // the rail's solved size and on the safe-area insets, both of which can move
+  // without vp.scale/ox/oy moving at all (a drafted ability re-budgets the
+  // column; iOS populates env() a beat after first paint). A bake keyed only on
+  // the transform would hold a halo cropped for a rail that has since resized.
+  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|${bleed.left}:${bleed.right}|` +
     (rows ? `${rows.lit}:${rows.warnRow}:${rows.dangerRow}` : "-");
   if (bgLayer && bgLayerKey === key) return bgLayer;
 
@@ -1166,9 +1451,16 @@ function getBackgroundLayer(
   bctx.fillRect(0, 0, w, h);
   bctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   const sky = skyTop(vp.scale, vp.oy);
+  // WIDENED SIDEWAYS BY THE GLOW'S REACH, not by the world rect. See
+  // wallGlowBleed: the clip is the only thing that was cutting the wall halo,
+  // and it was cutting it at a line the eye can find on any viewport with a
+  // gutter. drawBackground's gradient and grid still stop at the world's own
+  // edges — the shaft is 1280 wide and lying about that would be a different
+  // bug — so what lands in the bleed band is halo over backdrop, which is what
+  // a glow spilling out of a lit shaft looks like.
   bctx.save();
   bctx.beginPath();
-  bctx.rect(0, sky, WORLD.width, WORLD.height - sky);
+  bctx.rect(-bleed.left, sky, WORLD.width + bleed.left + bleed.right, WORLD.height - sky);
   bctx.clip();
   drawBackground(bctx, sky);
   drawWalls(bctx, sky);
@@ -1243,7 +1535,11 @@ function drawWalls(ctx: CanvasRenderingContext2D, top: number): void {
   ctx.save();
   ctx.strokeStyle = COLORS.aim;
   ctx.shadowColor = COLORS.wallGlow;
-  ctx.shadowBlur = 18;
+  // The number WALL_GLOW_REACH is derived from. Widening this blur means
+  // re-deriving that reach, the same way widening a sprite's blur means
+  // re-checking SPRITE_PAD — the pad is room the glow grows into, never the
+  // other way round.
+  ctx.shadowBlur = WALL_GLOW_BLUR;
   ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.moveTo(2, y0);
@@ -1280,6 +1576,14 @@ function lerpHex(a: string, b: string, t: number): string {
  * mechanic itself.
  */
 const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
+/** The gauge's three type sizes, in world px — the authored ladder, named so
+ *  the snap (crispFontPx) is visibly applied TO a size rather than replacing
+ *  one. Label over readout over tag: the word "WIND" is the thing to find at a
+ *  glance, the percentage is what is read once found, and the stabiliser tag is
+ *  a footnote on a gauge that is already saying something else. */
+const WIND_LABEL_PX = 13;
+const WIND_READOUT_PX = 12;
+const WIND_STAB_PX = 11;
 const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
 const WIND_HUD_HEAD = 15;
 
@@ -1794,7 +2098,7 @@ function drawWindIndicator(
   ctx.fill();
 
   // "WIND" label.
-  ctx.font = "700 13px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.font = hudFont(WIND_LABEL_PX, HUD_FONT_MONO);
   ctx.fillStyle = COLORS.textDim;
   ctx.globalAlpha = 0.9;
   ctx.fillText("WIND", cx, y - 14);
@@ -1863,7 +2167,7 @@ function drawWindIndicator(
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = COLORS.trajectory;
-    ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.font = hudFont(WIND_STAB_PX, HUD_FONT_MONO);
     ctx.fillText(`STAB −${Math.round(level.windAssist * 100)}%`, cx + padX - 44, y - 14);
   }
 
@@ -1871,7 +2175,7 @@ function drawWindIndicator(
   ctx.shadowBlur = 0;
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = col;
-  ctx.font = "700 12px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.font = hudFont(WIND_READOUT_PX, HUD_FONT_MONO);
   const pct = Math.round(mag * 100);
   const glyph = dir >= 0 ? "▶" : "◀";
   ctx.fillText(mag < 0.02 ? "CALM" : `${glyph} ${pct}%`, cx, y + 22);
@@ -3324,7 +3628,14 @@ const PAYOUT_RISE_PX = 48;
 const PAYOUT_FADE_IN_MS = 80;
 const PAYOUT_FADE_OUT_MS = 350;
 const PAYOUT_CLAMP_MARGIN = 80;
-const PAYOUT_FONT = "700 30px system-ui, sans-serif";
+const PAYOUT_PX = 30;
+/** The salvage refund and the lost-cargo penalty, in world px — the two SIDE
+ *  entries in the money ledger. One constant because they are deliberately one
+ *  size: a refund and a fine are the same kind of event at the same rank, and
+ *  the channel that tells them apart is the colour and the direction of travel,
+ *  not the type size. Under the payout's own 30, because a line selling is the
+ *  headline and these two are what happened around it. */
+const LEDGER_SIDE_PX = 26;
 const PAYOUT_GLOW = 16;
 
 /** The TIMING CALLOUT rides the same toast as the money it explains: same
@@ -3338,7 +3649,7 @@ const PAYOUT_GLOW = 16;
  *  idiom the payout/penalty pair already established. Smaller than the number
  *  and set above it because the money is the headline — the callout is the
  *  reason, and a bay full of shouted adjectives stops being readable. */
-const CALLOUT_FONT = "700 18px system-ui, sans-serif";
+const CALLOUT_PX = 18;
 /** Baseline-to-baseline, so the 18px word clears the 30px number's cap height
  *  with air left over. 22 was drawn first and the shot showed the two rows
  *  touching (sim/uifit/grade-shots.ts) — legible, but reading as one block
@@ -3350,7 +3661,7 @@ const CALLOUT_GAP_PX = 26;
  *  never be mistaken for the band. Smaller again than the callout for the same
  *  reason the callout is smaller than the number: the further from the money,
  *  the quieter. */
-const TAG_FONT = "700 14px system-ui, sans-serif";
+const TAG_PX = 14;
 /** Baseline-to-baseline below the 30px number: enough to clear its descenders
  *  with the same air CALLOUT_GAP_PX leaves above. */
 const TAG_GAP_PX = 20;
@@ -3383,19 +3694,19 @@ function drawPayoutFx(
   ctx.fillStyle = COLORS.trajectory;
   ctx.shadowColor = COLORS.trajectory;
   ctx.shadowBlur = PAYOUT_GLOW;
-  ctx.font = PAYOUT_FONT;
+  ctx.font = hudFont(PAYOUT_PX, HUD_FONT_UI);
   ctx.textAlign = "center";
   ctx.fillText(`+$${e.amount}`, x, y);
   if (e.grade) {
     ctx.fillStyle = GRADE_COLOR[e.grade];
     ctx.shadowColor = GRADE_COLOR[e.grade];
-    ctx.font = CALLOUT_FONT;
+    ctx.font = hudFont(CALLOUT_PX, HUD_FONT_UI);
     ctx.fillText(GRADE_CALLOUT[e.grade], x, y - CALLOUT_GAP_PX);
   }
   if (e.congested) {
     ctx.fillStyle = CONGESTION_TAG_COLOR;
     ctx.shadowColor = CONGESTION_TAG_COLOR;
-    ctx.font = TAG_FONT;
+    ctx.font = hudFont(TAG_PX, HUD_FONT_UI);
     ctx.fillText(CONGESTION_TAG, x, y + TAG_GAP_PX);
   }
   ctx.restore();
@@ -3427,7 +3738,7 @@ function drawSalvageFx(
   ctx.fillStyle = SALVAGE_COLOR;
   ctx.shadowColor = SALVAGE_COLOR;
   ctx.shadowBlur = PAYOUT_GLOW;
-  ctx.font = "700 26px system-ui, sans-serif";
+  ctx.font = hudFont(LEDGER_SIDE_PX, HUD_FONT_UI);
   ctx.textAlign = "center";
   ctx.fillText(`♻ +$${e.amount}`, x, y);
   ctx.restore();
@@ -3468,7 +3779,7 @@ function drawPenaltyFx(
   ctx.fillStyle = COLORS.compactor;
   ctx.shadowColor = COLORS.compactor;
   ctx.shadowBlur = PAYOUT_GLOW;
-  ctx.font = "700 26px system-ui, sans-serif";
+  ctx.font = hudFont(LEDGER_SIDE_PX, HUD_FONT_UI);
   ctx.textAlign = "center";
   ctx.fillText(`−$${e.amount}`, x, y);
   ctx.restore();
@@ -3481,6 +3792,36 @@ function drawPenaltyFx(
  *  should wash over the pile itself before the ui/screens.ts banner and the
  *  draft modal take the screen. Additive, inside its own save/restore. */
 const BAYCLEAR_BAND_W = 240;
+/** The band's alpha at its own centre, at t=0. It falls to nothing at
+ *  ±BAYCLEAR_BAND_W, so the profile the sweep lays across the field is a
+ *  triangle of this height and 2·BAND_W base. */
+const BAYCLEAR_BAND_ALPHA = 0.5;
+/**
+ * REDUCED MOTION: THE SWEEP'S OWN LIGHT, POURED EVENLY OVER THE FIELD IT WOULD
+ * HAVE CROSSED.
+ *
+ * A band travelling the whole width of the bay in 1.4 seconds is nothing but
+ * travel, and the blast debris' ruling does not apply to it — this cue is the
+ * only thing that celebrates a cleared bay ON the bay, and removing it would
+ * leave the moment to a DOM banner that arrives after it. The thaw cue's
+ * ruling is the one that fits: keep the cue, take the travel out, and let
+ * opacity carry what the movement was carrying.
+ *
+ * So under the preference the field gets ONE even wash instead of a crossing.
+ * Its alpha is derived rather than chosen: the triangle above integrates to
+ * BAYCLEAR_BAND_ALPHA · BAYCLEAR_BAND_W across the field's width, so a flat
+ * fill of that mean puts exactly as much green on the bay at any instant as
+ * the moving band did — 0.094 at t=0, against the 0.5 of the band's own crest.
+ * Washing the whole field at the CREST would be five times the light the sweep
+ * ever put anywhere, which is a brighter cue in the name of a calmer one.
+ */
+const BAYCLEAR_CALM_ALPHA = BAYCLEAR_BAND_ALPHA * (BAYCLEAR_BAND_W / WORLD.width);
+/** The ring's reach, and the stroke that thins as it goes — named because the
+ *  calm path has to HOLD each of them at a value rather than re-derive one. */
+const BAYCLEAR_RING_R0 = 60;
+const BAYCLEAR_RING_REACH = 380;
+const BAYCLEAR_RING_W_MIN = 2;
+const BAYCLEAR_RING_W_SWING = 8;
 
 function drawBayClearFx(
   ctx: CanvasRenderingContext2D,
@@ -3489,18 +3830,28 @@ function drawBayClearFx(
 ): void {
   const t = clamp01((now - e.t0) / FX_TTL.bayclear);
   if (t >= 1) return;
-  const eased = easeOutCubic(t);
+  const calm = prefersReducedMotion();
+  // Held at 1 under the preference: the ring is AT full reach from its first
+  // frame and the stroke at the weight it wears there, which is the picture
+  // the cue was travelling towards all along (see drawThawFx, same ruling).
+  const grow = calm ? 1 : easeOutCubic(t);
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
 
-  // Sweeping band.
-  const cxBand = -BAYCLEAR_BAND_W + eased * (WORLD.width + BAYCLEAR_BAND_W * 2);
-  const grad = ctx.createLinearGradient(cxBand - BAYCLEAR_BAND_W, 0, cxBand + BAYCLEAR_BAND_W, 0);
-  grad.addColorStop(0, "rgba(0,255,156,0)");
-  grad.addColorStop(0.5, `rgba(0,255,156,${0.5 * (1 - t)})`);
-  grad.addColorStop(1, "rgba(0,255,156,0)");
-  ctx.fillStyle = grad;
+  if (calm) {
+    // A STATIC BLOOM: no band, no crossing, one even wash going out on the
+    // cue's own clock. See BAYCLEAR_CALM_ALPHA for where the number comes from.
+    ctx.fillStyle = `rgba(0,255,156,${BAYCLEAR_CALM_ALPHA * (1 - t)})`;
+  } else {
+    // Sweeping band.
+    const cxBand = -BAYCLEAR_BAND_W + grow * (WORLD.width + BAYCLEAR_BAND_W * 2);
+    const grad = ctx.createLinearGradient(cxBand - BAYCLEAR_BAND_W, 0, cxBand + BAYCLEAR_BAND_W, 0);
+    grad.addColorStop(0, "rgba(0,255,156,0)");
+    grad.addColorStop(0.5, `rgba(0,255,156,${BAYCLEAR_BAND_ALPHA * (1 - t)})`);
+    grad.addColorStop(1, "rgba(0,255,156,0)");
+    ctx.fillStyle = grad;
+  }
   ctx.fillRect(0, 0, WORLD.width, WORLD.height);
 
   // Expanding ring at the event point.
@@ -3508,9 +3859,9 @@ function drawBayClearFx(
   ctx.strokeStyle = COLORS.trajectory;
   ctx.shadowColor = COLORS.trajectory;
   ctx.shadowBlur = 24;
-  ctx.lineWidth = 8 * (1 - t) + 2;
+  ctx.lineWidth = BAYCLEAR_RING_W_MIN + BAYCLEAR_RING_W_SWING * (calm ? 1 : 1 - t);
   ctx.beginPath();
-  ctx.arc(e.x, e.y, 60 + eased * 380, 0, Math.PI * 2);
+  ctx.arc(e.x, e.y, BAYCLEAR_RING_R0 + grow * BAYCLEAR_RING_REACH, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
@@ -3520,6 +3871,27 @@ function drawBayClearFx(
  *  paints a flat white bar; that GCO is scoped to this function's own
  *  save/restore, never leaking into siblings drawn after it. */
 const ROWFLASH_EDGE_ALPHA = 0.9;
+/**
+ * REDUCED MOTION: A FLAT BLOOM, ON A FADE THAT IS SPENT EVENLY.
+ *
+ * Nothing in this cue translates, so unlike the bay-clear sweep there is no
+ * band to stop moving — which makes it worth writing down what the preference
+ * actually takes out of it, twice.
+ *
+ * THE RAMP. Dark at the row's far end and ROWFLASH_EDGE_ALPHA at the wall is a
+ * WIPE: it is drawn once and it still says "this row went that way", because a
+ * directional gradient is the idiom a sweep leaves behind. Under the preference
+ * it is laid flat, at the ramp's own mean — a linear ramp from 0 to A carries
+ * A/2 averaged across the band, so the same light lands on the row with the
+ * direction taken out of it, rather than a brighter cue in the name of a
+ * calmer one.
+ *
+ * THE CURVE. (1-t)² spends three quarters of the cue's brightness in its first
+ * 100ms, which is a strobe over the pile rather than a bloom. Calm spends the
+ * same 450ms linearly: the row lights and goes out, and the eye is never asked
+ * to track an edge that was gone before it arrived.
+ */
+const ROWFLASH_CALM_ALPHA = ROWFLASH_EDGE_ALPHA / 2;
 
 function drawRowFlashFx(
   ctx: CanvasRenderingContext2D,
@@ -3532,15 +3904,19 @@ function drawRowFlashFx(
   const left = Math.min(e.x0, e.x1);
   const width = Math.abs(e.x1 - e.x0);
   if (width <= 0) return;
-
-  const grad = ctx.createLinearGradient(e.x0, 0, e.x1, 0);
-  grad.addColorStop(0, "rgba(255,255,255,0)");
-  grad.addColorStop(1, `rgba(255,255,255,${ROWFLASH_EDGE_ALPHA})`);
+  const calm = prefersReducedMotion();
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  ctx.globalAlpha = (1 - t) * (1 - t);
-  ctx.fillStyle = grad;
+  ctx.globalAlpha = calm ? 1 - t : (1 - t) * (1 - t);
+  if (calm) {
+    ctx.fillStyle = `rgba(255,255,255,${ROWFLASH_CALM_ALPHA})`;
+  } else {
+    const grad = ctx.createLinearGradient(e.x0, 0, e.x1, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(1, `rgba(255,255,255,${ROWFLASH_EDGE_ALPHA})`);
+    ctx.fillStyle = grad;
+  }
   ctx.fillRect(left, e.y - CELL / 2, width, CELL);
   ctx.restore();
 }
