@@ -7928,6 +7928,21 @@ class App {
       if (this.state === "playing") this.pause();
       else if (this.state === "paused") this.resume();
     }
+    // D12: OUTSIDE A RUN, ESCAPE IS THE KEYBOARD'S B — it clicks whatever
+    // padBackTarget names for this screen (clickBackTarget), so the pad and
+    // the keyboard leave a screen by the same door.
+    //
+    // BARRED FROM `playing` AND `paused`, which is where Escape already has a
+    // job: it is the pause alias (bindings.ts's isPauseKey), handled directly
+    // above, and on the pause card B's own answer is Resume anyway. The bar is
+    // on the two states a run occupies rather than on a key compare, because a
+    // player who rebound some other action onto Escape has made it that
+    // action's key and the branch above is what decides whether it still
+    // pauses at all.
+    if (e.key === "Escape" && this.state !== "playing" && this.state !== "paused"
+      && this.clickBackTarget()) {
+      e.preventDefault();
+    }
     // Keyboard shortcut into the sandbox from anywhere, for iterating on it
     // under `vite dev` without walking back to the menu each time.
     if (this.sandboxOpen() && e.key === "~") this.setState("sandbox");
@@ -7968,6 +7983,26 @@ class App {
         return '[data-action="menu"]';
       default: return null;
     }
+  }
+
+  /** D12: BACK OUT, THROUGH THE SCREEN'S OWN CONTROL.
+   *
+   *  The pad has had this since padBackTarget existed and the keyboard had
+   *  nothing: Escape paused a run and did nothing anywhere else, so on
+   *  Settings, Controls, the Workshop, Contracts, the guide, the leaderboard,
+   *  the account screen and both notices, the one key every player reaches for
+   *  to leave a screen left them hunting for the ✕ with a mouse.
+   *
+   *  ONE HELPER RATHER THAN A SECOND TABLE, which is the whole point: B and
+   *  Escape now come through the same door, so they cannot drift into backing
+   *  out of different things — and both run the on-screen button's own handler
+   *  (and its cleanup: "menu" clears the contract and the drill) rather than a
+   *  re-implementation of it. Returns whether there was anything to press. */
+  private clickBackTarget(): boolean {
+    const sel = this.padBackTarget();
+    const el = sel ? this.overlay.querySelector<HTMLElement>(sel) : null;
+    if (el) el.click();
+    return el !== null;
   }
 
   /** The pad's UI layer (ui/padnav.ts): D-pad or stick flicks move focus, A
@@ -8078,12 +8113,8 @@ class App {
       // the player sees what the next A will do rather than firing blind.
       return focusInitial(root);
     }
-    if (button === PAD_BACK) {
-      const sel = this.padBackTarget();
-      const el = sel ? this.overlay.querySelector<HTMLElement>(sel) : null;
-      if (el) el.click();
-      return el !== null;
-    }
+    // D12: shared with the keyboard's Escape — see clickBackTarget.
+    if (button === PAD_BACK) return this.clickBackTarget();
     return false;
   }
 

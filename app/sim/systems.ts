@@ -28437,6 +28437,79 @@ section("The haptics switch only exists where something can buzz (D11)");
   }
 }
 
+// ---------------------------------------------------------------------------
+section("Escape backs out of a screen, not only the pause card (D12)");
+// ---------------------------------------------------------------------------
+// THE ASYMMETRY THIS CLOSES. A pad has had a per-screen back door since
+// padBackTarget existed: B on Settings, Controls, Workshop, Contracts, the
+// guide, the leaderboard, the account screen and both notices clicks that
+// screen's OWN close control, so backing out by pad runs the same handler and
+// the same cleanup the button runs. A keyboard had none of it. Escape paused a
+// run and did nothing anywhere else, so the one key every player on earth
+// presses to leave a screen left them looking for the ✕ with a mouse.
+//
+// ONE DOOR, TWO INPUTS. The fix is not a second table: it is the same
+// padBackTarget, reached through one helper that both the pad's B and the
+// keyboard's Escape call, so the two can never drift into backing out of
+// different things. That is the property pinned first here.
+//
+// AND ESCAPE KEEPS ITS DAY JOB. Inside a run Escape is the pause alias
+// (bindings.ts's isPauseKey — PAUSE_ALIAS, honoured whenever no rebind has
+// claimed the key), and the pause card and the Controls screen both render
+// from that. The back-out branch is barred from `playing` and `paused` for
+// exactly that reason, and on the pause card B's own answer is Resume anyway.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const between = (from: string, to: string): string => {
+    const a = mainSrc.indexOf(from);
+    const b = mainSrc.indexOf(to, a + 1);
+    return a < 0 || b < 0 ? "" : mainSrc.slice(a, b);
+  };
+
+  const backDoor = between("private clickBackTarget(", "private onPadUiButton(");
+  check("there is one back door, and it clicks the screen's own control",
+    /const sel = this\.padBackTarget\(\);/.test(backDoor)
+      && /this\.overlay\.querySelector<HTMLElement>\(sel\)/.test(backDoor)
+      && /el\.click\(\);/.test(backDoor),
+    backDoor.slice(0, 200) || "no clickBackTarget helper");
+  check("...and the pad's B goes through it rather than round it",
+    /if \(button === PAD_BACK\) return this\.clickBackTarget\(\);/.test(mainSrc));
+
+  const globalKey = between("private onGlobalKey = ", "private onKeydown = ");
+  check("the handler exists to be checked", globalKey.length > 0 && globalKey.length < 3000);
+  check("Escape outside a run clicks the same back control the pad's B would",
+    /e\.key === "Escape"[\s\S]{0,200}?this\.clickBackTarget\(\)/.test(globalKey), globalKey);
+  // The bar is on the two states a run occupies, not on a key compare: a
+  // player who rebound some other action onto Escape has made it that action's
+  // key, and the pause branch above is what decides whether Escape still
+  // pauses at all.
+  check("...and never inside one, where Escape is the pause alias",
+    /this\.state !== "playing" && this\.state !== "paused"/.test(globalKey), globalKey);
+  check("the pause alias still owns Escape in a run",
+    /if \(isPauseKey\(e\.key\)\) \{/.test(globalKey));
+  // The alias itself, from the table rather than from a character compare —
+  // pinned here because the branch above is written to yield to it. Reset
+  // first: this file rebinds keys in several sections above, and the default
+  // table is the premise the claim is about.
+  resetKeyBindings();
+  check("...and the alias is Escape whenever nothing else has claimed it",
+    isPauseKey("Escape") && isPauseKey(keyFor("pause")));
+
+  // THE DOOR LIST IS THE PRODUCT DECISION, so it is stated rather than
+  // implied: every screen with a way out has one, and the screens with none
+  // (the drafts, the refit, the end cards) have none on purpose.
+  const doors = between("private padBackTarget(", "private onPadUiButton(");
+  for (const state of [
+    "paused", "seal-break", "controls", "account", "account-delete",
+    "settings", "workshop", "contracts", "howto", "leaderboard", "sandbox",
+  ]) {
+    check(`Escape now leaves ${state}`, doors.includes(`case "${state}":`), doors.slice(0, 200));
+  }
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
