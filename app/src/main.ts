@@ -8626,7 +8626,9 @@ class App {
             this.pickedAtMark = this.meta.mark;
           } else if (asked > FREE_TIER_LIMIT && asked <= MARK_COUNT && !this.fullGame()
             && S.tierOpen({ ...state, fullGame: true }, asked) && purchasesReady()) {
-            void this.onPaywall();
+            // The same offer the tower floor makes (offerFullGame): the sheet
+            // says what the entitlement opens before the store says a price.
+            this.offerFullGame();
             break;
           }
         }

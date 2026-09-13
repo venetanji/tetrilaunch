@@ -31658,11 +31658,12 @@ section("The Full Game preview says what the entitlement opens, and shows it (sc
     String((mainSrc.match(/this\.onPaywall\(\)/g) ?? []).length),
   );
   // The tier gates are offers too — the tower floor, the Play guard, both
-  // sandbox re-checks — and every one of them now makes the offer rather than
-  // opening a store sheet with no pitch on it.
+  // sandbox re-checks, and the leaderboard's Play on a board whose tier is
+  // earned but not entitled (F10f) — and every one of them now makes the
+  // offer rather than opening a store sheet with no pitch on it.
   check(
     "every tier gate makes the offer instead",
-    (mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length === 5,
+    (mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length === 6,
     String((mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length),
   );
   check(
