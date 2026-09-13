@@ -165,7 +165,8 @@ import {
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
   SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
-  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET, budgetForTier,
+  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET,
+  SCHOOL_CONTRACT_BRIEF, budgetForTier,
   RACK_CEILING_CUBES, RACK_LIP_COLUMNS, RACK_MAX_DEPTH, RACK_PIECE, RACK_TRENCH_CELLS,
   SETPIECE_MIN_TIER, SETPIECE_SLACK_SHOTS, SETPIECE_SLOT, SETPIECE_SPARE_ROWS,
   isSetpieceSlot, rackDepthFor, rackLipColumns, rackProfile, setpieceConditions, setpieceDay,
@@ -237,9 +238,11 @@ import {
   chainLadderHTML, CHAIN_AT_REST,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintRotate, isPauseKey,
-  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, profileForPointer,
-  resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintPress, hintRotate,
+  isPauseKey, keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels,
+  profileForPointer, resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding,
+  setPadBinding, setPadFamily,
+  type InputProfile,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
@@ -3198,6 +3201,106 @@ section("Pattern variants (contracts.ts VARIANTS)");
     !contractsScreen({ contracts: board, tier: 1, cleared: yesterday })
       .includes("contract-card--done"),
   );
+
+  // ---- THE DAY'S ALLOWANCE, SPENT (F10e) ----------------------------------
+  //
+  // A free account that has used its three clears meets a board of disabled
+  // cards. Three defects, and they compound.
+  //
+  // THE CARDS DID NOT LOOK SPENT. `disabled` and an aria-label was the whole
+  // state: announced to a screen reader, invisible to everyone else. The cards
+  // kept a live border, lit it on hover, and answered a tap with nothing at all
+  // — the owner's report, at Tier 3, reading "0 of 3 Contract clears left
+  // today" over three cards that still looked pressable.
+  //
+  // THE STRIP BURIED THE REFUSAL. The allowance was a bold TAIL on the salvage
+  // sentence, so the one visit where "why can I not play" is the player's only
+  // question opened with two clauses of reward copy about a clear that cannot
+  // be banked until midnight.
+  //
+  // AND THERE WAS NO WAY OUT. Every other gate in the game answers a refusal it
+  // can sell with the paywall, the tower's locked floors included; this one
+  // answered with grey cards. It also said the limit lasts "today", a word that
+  // means a different thing in every timezone on a board keyed to the UTC day.
+  const capped = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: false, remaining: 0, store: true },
+  });
+  // THE CARD WEARS THE STATE. The class is the hook the stylesheet should take
+  // this over with; the inline declaration is app.css's own disabled recipe
+  // (grayscale + brightness, as the shop, refit and rack buttons all use) and
+  // pins the border back off `.contract-card:hover`, because a hover that still
+  // lights the accent is the defect in miniature.
+  const cardStart = capped.indexOf('<button class="contract-card');
+  const cappedCard = capped.slice(cardStart, capped.indexOf("</button>", cardStart));
+  check("a capped card looks capped, not merely acts capped",
+    cappedCard.includes("contract-card--capped") && cappedCard.includes("grayscale"),
+    cappedCard.slice(0, 200));
+  // …and STAYS disabled, which is what keeps the tap from starting a Contract
+  // the day cannot pay for — and, through padnav's focusTargets, what keeps a
+  // pad or a Tab from landing on one as the selected card.
+  check("...and is still refused, in the one way padnav also reads",
+    cappedCard.includes(" disabled")
+      && cappedCard.includes('aria-label="Daily Contract limit reached"'),
+    cappedCard.slice(0, 200));
+  {
+    const pad = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "padnav.ts"),
+      "utf8",
+    );
+    const targets = pad.slice(pad.indexOf("export function focusTargets"));
+    check("...which padnav really does read before offering a target",
+      /\bdisabled\)\s*return;/.test(targets.slice(0, 600)), targets.slice(0, 400));
+  }
+  // THE TERMS LINE CARRIES THE STAMP. It is the card's one full-width run, and
+  // a capped card's bay conditions describe a flight that cannot be flown.
+  check("...and the terms line says why the card is grey",
+    capped.includes(">Daily limit reached</span>"), cappedCard);
+  // THE STRIP LEADS WITH THE REFUSAL and carries nothing else: no WHY badge, no
+  // milestone arithmetic about a clear that cannot be banked today.
+  const footOf = (html: string): string => {
+    const at = html.indexOf('class="muted contracts__foot"');
+    return at < 0 ? "" : html.slice(at, html.indexOf("</p>", at));
+  };
+  check("the spent board's strip opens with the refusal",
+    /^class="muted contracts__foot"><b>Daily limit reached<\/b> — resets at 00:00 UTC\./
+      .test(footOf(capped)), footOf(capped).slice(0, 200));
+  check("...and drops the reward copy it cannot honour today",
+    !footOf(capped).includes("next-badge") && !footOf(capped).includes("first clears bank"),
+    footOf(capped).slice(0, 240));
+  check("a spent allowance offers the unlock, the same door every other gate uses",
+    capped.includes('data-action="paywall"'));
+  // …and only where the offer can actually be opened. presentPaywall returns
+  // silently with no SDK behind it, so an ungated door would answer the tap
+  // with nothing — the defect main.ts's pickTier already fixed for the tower's
+  // locked floors, arriving here through the same flag (StoreState.available).
+  check("...unless the store is not there to open",
+    !contractsScreen({
+      contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+      allowance: { fullGame: false, remaining: 0, store: false },
+    }).includes('data-action="paywall"'));
+  check("...and the spent board still says when it comes back, door or no door",
+    contractsScreen({
+      contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+      allowance: { fullGame: false, remaining: 0, store: false },
+    }).includes("Daily limit reached</b> — resets at 00:00 UTC."));
+  check("...and says when the board comes back, in the day the board is keyed to",
+    capped.includes("00:00 UTC"));
+  // The door is the SPENT state's alone. A board with clears left is not
+  // refusing anything, and an offer there would be an ad on a screen the player
+  // came to play rather than the answer to a refusal.
+  const spare = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: false, remaining: 2 },
+  });
+  check("a board with clears left carries no unlock door",
+    !spare.includes('data-action="paywall"') && spare.includes(`2 of ${DAILY_COUNT}`));
+  const owner = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+    allowance: { fullGame: true, remaining: Infinity },
+  });
+  check("...and an owner is never sold what they already own",
+    !owner.includes('data-action="paywall"') && owner.includes("unlimited Contracts"));
 
   // The end-of-Contract modal is built from the ONE end-screen skeleton
   // (canvas A10): the run-end modal's own parts — stat-row, salvage-row, one
@@ -7986,6 +8089,21 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes(">Workshop<") &&
       controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "howto" })
         .includes(">How to Play<"));
+  // THE RESET BUTTON WEARS THE TAB'S NAME, not its id. It interpolated
+  // `opts.tab` — the same lowercase string that rides `data-tab` — so the
+  // button under a tab labelled "Keyboard" read "Reset keyboard", the one place
+  // on the screen where a player-facing control was rendered from an internal
+  // identifier. The tab strip has always had the display label; now they come
+  // from the same table.
+  check("the reset button uses the tab's display label",
+    kb.includes(">Reset Keyboard<") && padPane.includes(">Reset Gamepad<"));
+  check("...and no button renders the tab id",
+    !kb.includes(">Reset keyboard<") && !padPane.includes(">Reset gamepad<"));
+  // Touch has nothing to reset — its scheme is not rebindable — so the button
+  // is absent rather than dead, which is what it always did.
+  check("the touch tab offers no reset at all",
+    !controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-action="controls-reset"'));
   check("both exits lead back through that same door",
     (controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "leaderboard" })
       .match(/data-action="leaderboard"/g) ?? []).length === 2);
@@ -16389,6 +16507,42 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // on its own once every Tier keeps one.
   check("the ladder tab names its Tier",
     S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true }).includes("Tier 7"));
+
+  // ---- PLAY FLIES THE BOARD YOU ARE READING (F10f) ------------------------
+  //
+  // The button fired `play`, which flies whatever floor the tower's car is
+  // parked on — so a player reading Tier 7's board while parked on Tier 2 for a
+  // practice run pressed Play under a list of Tier 7 scores and launched Tier
+  // 2. The board in view is a choice the player has just made; the button
+  // carries it, and main.ts parks the car there before it launches.
+  const lb7 = S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true });
+  check("Play carries the tier of the board on screen",
+    /data-action="play"[^>]*data-tier="7"/.test(lb7)
+      || /data-tier="7"[^>]*data-action="play"/.test(lb7), lb7.slice(lb7.indexOf("btn--primary")));
+  const lbSky = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day: 20_260_827,
+  });
+  check("...the roof's board included — its floor is a floor like any other",
+    lbSky.includes(`data-tier="${S.SKYDECK_TIER}"`));
+  // Tier S keeps its own door (the sandbox SETUP screen, not a run), so it is
+  // the one tab whose button is not a launch and carries no floor.
+  const lbSbx = S.leaderboardScreen("", { board: BOARD_SANDBOX, tier: 1, sandbox: true });
+  check("...and Tier S still opens its bench instead of flying a floor",
+    lbSbx.includes('data-action="sandbox"') && !/data-action="sandbox"[^>]*data-tier=/.test(lbSbx));
+  // main.ts's half: the action reads the attribute and parks the car on it
+  // before the launch, through the same tierOpen gate the tower's own pick uses.
+  {
+    const src = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const playCase = src.slice(src.indexOf('case "play": {'), src.indexOf('case "pick-tier"'));
+    check("the play action reads the board's tier off the button",
+      playCase.includes('getAttribute("data-tier")') && playCase.includes("pickedTier"),
+      playCase.slice(0, 200));
+    check("...and asks tierOpen before parking on it",
+      playCase.includes("tierOpen"));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -17249,6 +17403,35 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
       ...o,
     });
+
+  // ---- THE NAME FIELD (F10d) ----------------------------------------------
+  //
+  // The one text input in the game, and it had neither of the two things a text
+  // input owes its user: a name a screen reader can announce (the placeholder
+  // is not one — it disappears the moment anything is typed, and is not read as
+  // a label), and the Enter key. Typing a name and pressing Enter did nothing
+  // at all, which on a form of one field is the only gesture anybody tries.
+  const submit = end({});
+  check("the name field has an accessible name of its own",
+    /<input[^>]*id="name-input"[^>]*aria-label="[^"]+"/.test(submit)
+      || /<input[^>]*aria-label="[^"]+"[^>]*id="name-input"/.test(submit),
+    submit.slice(submit.indexOf("name-input") - 120, submit.indexOf("name-input") + 200));
+  {
+    const src = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const keydown = src.slice(
+      src.indexOf("private onKeydown = "), src.indexOf("private padBackTarget"),
+    );
+    // ROUTED THROUGH THE BUTTON'S OWN CLICK, not through a second call to the
+    // submit handler: that is padnav's rule for every other activation in the
+    // app (ui/padnav.ts — "activation is el.click()"), and it is what keeps the
+    // feedback sound, the disabled state and the one-shot guard in one place.
+    check("Enter in the name field submits the score",
+      keydown.includes("name-input") && keydown.includes("submit-score"),
+      keydown);
+  }
 
   /* -------------------------------------------------------------------------
    * WHAT VOLATILE TOOK IS PRINTED. A cost the player is never shown reads to
@@ -20090,6 +20273,84 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     check("...with the swapped card teaching the drag and the scrolled rotate",
       /hold right \+ drag for arc height/i.test(swapped) && /scroll ⟳/.test(swapped));
   }
+}
+
+// ---------------------------------------------------------------------------
+section("Every card names the press the device can actually make (D7)");
+// ---------------------------------------------------------------------------
+{
+  // D7. The hint table's rule, applied to the surfaces that had escaped it: the
+  // draft's cards, the Final Inspection's, the build rack's slots and the bay
+  // clear all said "tap" on a desktop build where the pointer is a mouse and on
+  // a pad where nothing is touched. Three profiles, three verbs, one table
+  // (bindings.ts's hintPress) — and the three cards below are one per profile,
+  // because a helper nobody renders is a helper that can be right while every
+  // screen is wrong.
+  //
+  // The family is normalised first: padLabel speaks whichever pad was last
+  // plugged in (setPadFamily), and sections above this one hand it a DualSense.
+  setPadFamily(null);
+  check("the press verb renders per input family",
+    hintPress("touch") === "tap" && hintPress("keyboard") === "click"
+      && hintPress("gamepad") === "press A",
+    [hintPress("touch"), hintPress("keyboard"), hintPress("gamepad")].join(" · "));
+  // The gamepad's word names the button padnav actually activates a card with,
+  // and bindings.ts cannot import that constant (game/ is below ui/), so this
+  // is the joint that holds the two copies of the number together.
+  check("the gamepad verb names padnav's confirm button",
+    hintPress("gamepad") === `press ${padLabel(PAD_CONFIRM)}`,
+    `${hintPress("gamepad")} vs button ${PAD_CONFIRM}`);
+  // ...and it follows the pad in the player's hands, because "press A" on a
+  // DualSense names a button that pad does not have.
+  setPadFamily("playstation");
+  check("the gamepad verb speaks the connected pad's lettering",
+    hintPress("gamepad") === "press Cross", hintPress("gamepad"));
+  setPadFamily(null);
+
+  const run = { ...newRun(25, [], 400, undefined, 10), levelIndex: 7, carry: 120, scrap: 340 };
+  const marks: Ratchets = { volatile: 1, magnetic: 1 };
+  const draftFor = (profile: InputProfile): string => S.draftScreen({
+    bayNum: 8, tier: 10, mark: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 7, 10, 2, marks),
+    ratchets: marks, selected: [], picksNeeded: 2,
+    preview: previewRows(levelForRun(run), levelForRun(run), marks),
+    scrap: 340, baysToRefit: 1, profile,
+  });
+  check("the touch draft card still says Tap",
+    draftFor("touch").includes("Tap to preview"));
+  const inspection = S.finalScreen({
+    bayNum: 9, tier: 10, funds: 1_820, carry: 120,
+    offers: finalsForTier(10), selected: null,
+    preview: previewRows(levelForRun(run), levelForRun(run), marks),
+    scrap: 340, profile: "keyboard",
+  });
+  check("the mouse inspection card says Click", inspection.includes("Click to preview"));
+  // THE RACK IS THE GAMEPAD'S CARD. Two states, one control (screens.ts's
+  // slotBtn), so the pin asks for both words: a rig with more systems than
+  // slots has something aboard AND something in the shed.
+  const rigged = {
+    ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, mark: 3, salvage: 240,
+    loadout: { ...newTiers(), reactor: 2, launcher: 1, magazine: 1, bay: 1, hydraulics: 1 },
+  };
+  const padRack = S.workshopScreen(rigged, "gamepad");
+  check("the gamepad build rack says press A, not tap",
+    padRack.includes("Aboard; press A to stow.")
+      && padRack.includes("In the shed; press A to mount.")
+      && !/tap/i.test(padRack));
+  // The negative half, on the screen a mouse player actually reads: no surface
+  // in this family may still be telling them to tap something.
+  check("no fine-pointer card tells the player to tap",
+    !/tap/i.test(draftFor("keyboard")) && !/tap/i.test(inspection)
+      && !/tap/i.test(S.workshopScreen(rigged, "keyboard")));
+  // THE BAY CLEAR TAKES THE NEUTRAL WORD instead of a verb: its whole hint line
+  // is one word long, it is dismissed by a press ANYWHERE on the card (main.ts
+  // routes skip-bayclear off the scrim), and "Continue" is true of every device
+  // without naming a gesture at all (docs/COPY_AUDIT.md).
+  const bayClear = S.bayClearScreen({
+    bayNum: 3, bayName: "Cryo Vault", funds: 1_200, target: 1_000, lines: 14, scrap: 40,
+  });
+  check("the bay clear says Continue, not a touch verb",
+    bayClear.includes("Continue") && !/tap to continue/i.test(bayClear));
 }
 
 // ---------------------------------------------------------------------------
@@ -25004,11 +25265,20 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       check("a gate takes the next rung off the track",
         gated("contract") === LICENCE_LESSON_COUNT && gated("workshop") === LICENCE_LESSON_COUNT,
         `${gated("contract")} / ${gated("workshop")}`);
+      // NAMED OFF THE SHELF (O6). This read "Install the Reactor" while the one
+      // card on the shop it points at is headed "Reactor Output" — two names
+      // for one purchase, met four rungs into a first hour. Both come off
+      // SCHOOL_INSTALL now, so the day the school sells something else they
+      // rename together.
+      const shelfName = upgradeById(SCHOOL_INSTALL)!.name;
       check("...and the note says which door, not how many steps are left",
         strip0(S.baseBayPanelHTML({
           tier: S.LICENCE_TIER, best: 0,
           licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate: "workshop" },
-        })).includes("Install the Reactor"));
+        })).includes(`Install ${shelfName}`));
+      check("...by the name the shelf itself puts on the card",
+        workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, salvage: 15 })
+          .includes(shelfName));
     }
     // EVERY RUNG GOES TO THE THING IT IS, and every rung IS a bay now: the two
     // gates carry no ordinal and no pip (meta.ts's SCHOOL_LADDER).
@@ -25492,6 +25762,41 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       `budget ${budgetForTier(1)}, wind ${card.windMax}`);
     check("...and the tier's own budget really would",
       generateContract(SCHOOL_CONTRACT_SEED, 1, 0).windMax > 0);
+    // ---- AND IT SAYS SO, IN PROSE (O3) ---------------------------------
+    //
+    // The zero budget bought no complications, so linesConditions had nothing
+    // to report and fell through to its guard string: the first Contract
+    // anybody opens briefed itself, in full, as "clean bay", and the plant
+    // panel's Bay row said the same two words for the whole flight. That is
+    // shorthand from inside the generator, and on a card it reads as an
+    // omission rather than as the promise it actually is — the promise being
+    // the entire reason the budget is zero.
+    // `brief` widened to string on purpose: the literal type would make the
+    // "not the guard string" half of this a compile-time tautology, and the
+    // point of the pin is that it is a fact about the CARD.
+    const schoolBrief: string = card.brief;
+    check("the school's card briefs itself in prose, not the generator's guard",
+      schoolBrief === (SCHOOL_CONTRACT_BRIEF as string) && schoolBrief !== "clean bay",
+      schoolBrief);
+    // ONE STRING FOR BOTH, which is the invariant every lines Contract keeps:
+    // the card and the HUD's Bay row make the same statement about the bay.
+    check("...and the card and the HUD's Bay row are the same statement",
+      card.conditions === card.brief, `${card.brief} / ${card.conditions}`);
+    // THE GUARD IS STILL THE GUARD. It is what a generated Contract that bought
+    // nothing would say, and this pin is the other half of the note above
+    // linesConditions: the school is the only caller that lands there, so the
+    // string now reaches no screen.
+    check("...over a guard string that is exactly what a zero budget would say",
+      generateContract(SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, 0).brief === "clean bay");
+    check("...and the bay underneath is still the generator's, untouched",
+      card.goal === generateContract(
+        SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, SCHOOL_CONTRACT_BUDGET,
+      ).goal && card.launches > 0 && card.kind === "lines",
+      `${card.goal} lines / ${card.launches} launches`);
+    // …AND IT REACHES THE ONE BOARD THAT DEALS IT.
+    check("...and the school's board prints it",
+      contractsScreen({ contracts: schoolBoard(), tier: 1, cleared: [], school: true })
+        .includes(SCHOOL_CONTRACT_BRIEF));
     // NO SET PIECE AND NO PATTERN. Both are true by construction (a set piece
     // needs SETPIECE_MIN_TIER, a pattern needs PATTERN_SLOT) and both are
     // pinned, because "by construction" is a property of two constants that a
@@ -25554,7 +25859,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       !shopBought.includes(`data-action="play" disabled`)
         && shopBought.includes("Continue Flight School"));
 
-    // ---- THE TWO DOORS OPEN ON THE FOURTH BASIC, TOGETHER ---------------
+    // ---- THE TWO DOORS OPEN IN THE LADDER'S OWN ORDER -------------------
     const menuAt = (m: MetaState, twr: S.TowerState): string =>
       menuScreen(0, m.salvage, undefined, tierProgressFor(m),
         { step: nextStep(m), install: null, firstLaunch: false }, twr);
@@ -25580,9 +25885,35 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and both say which lesson opens them",
       shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`)
         && (shut.match(new RegExp(`Opens after lesson ${LICENCE_LESSON_COUNT}`, "g")) ?? []).length === 2);
-    check("...and they open TOGETHER on it",
-      !btn(open, "contracts").includes("disabled")
-        && !btn(open, "workshop").includes("disabled"));
+    // …AND THEN IN ORDER, one rung apart (O6). They used to open together on
+    // the fourth basic, which made the menu the laxer of two doors into one
+    // room: the LADDER puts the Contract rung before the Workshop rung and
+    // shuts every rung after the first undone one (meta.ts's schoolLadder), so
+    // a player who had just landed lesson 4 could walk into a shop the ladder
+    // had not reached and meet one card they could not afford — while the
+    // primary two buttons above said "Clear one Contract to go on".
+    check("the Contract board opens on the fourth basic",
+      !btn(open, "contracts").includes("disabled"), btn(open, "contracts"));
+    check("...and the Workshop waits the one rung the ladder makes it wait",
+      btn(open, "workshop").includes("disabled"), btn(open, "workshop"));
+    check("...which is the same rung schoolLadder is holding it at",
+      schoolLadder(four).find((r) => r.kind === "workshop")?.open === false
+        && schoolLadder(four).find((r) => r.kind === "contract")?.open === true);
+    check("...and says which rung, on the button it shut",
+      open.includes("Opens after one Contract"),
+      open.slice(open.indexOf('data-action="workshop"'), open.indexOf('data-action="workshop"') + 260));
+    // …and opens the moment that rung is cleared.
+    const cleared = onLadder({ claimedContracts: ["x"], salvage: 15 });
+    check("...then opens the moment a Contract is banked",
+      !btn(menuAt(cleared, towerAt(cleared)), "workshop").includes("disabled"),
+      btn(menuAt(cleared, towerAt(cleared)), "workshop"));
+    // A SAVE THAT ALREADY OWNS A SYSTEM keeps it open whatever the Contract
+    // rung says — the ladder's own rule that a cleared rung stays open, which
+    // is the half `rigged === false` carries in the menu's gate.
+    const rigged = onLadder({ loadout: { ...newTiers(), reactor: 1 } });
+    check("...and a rigged save is never shut out of the shop it already used",
+      !btn(menuAt(rigged, towerAt(rigged)), "workshop").includes("disabled"),
+      btn(menuAt(rigged, towerAt(rigged)), "workshop"));
 
     // ---- THE PRIMARY, ALL THE WAY UP THE LADDER -------------------------
     // The Deep Run's button is disabled until graduation and never mute about
@@ -25625,7 +25956,18 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         && primaryOf(menuAt(four, towerAt(four))).includes("A Contract to go on"));
     const paid = onLadder({ claimedContracts: ["x"], salvage: 15 });
     check("...and on the Workshop rung",
-      primaryOf(menuAt(paid, towerAt(paid))).includes("The Reactor to go on"));
+      primaryOf(menuAt(paid, towerAt(paid)))
+        .includes(`${upgradeById(SCHOOL_INSTALL)!.name} to go on`));
+    // WRITTEN TO THE BOX. `.btn__sub` ellipsises past ~34 characters on a 780px
+    // phone (the note over menuPlaySub), and this line grew when the name did.
+    check("...inside the subtitle's box",
+      `${upgradeById(SCHOOL_INSTALL)!.name} to go on`.length <= 34,
+      `${upgradeById(SCHOOL_INSTALL)!.name} to go on`);
+    // …and the Workshop's OWN primary, which is the third surface that sends a
+    // player to this purchase. Three sites, one name.
+    check("...and the shop's own button names the same card",
+      workshopScreen(paid).includes(`Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`),
+      workshopScreen(paid).slice(workshopScreen(paid).lastIndexOf("btn--lg"), workshopScreen(paid).lastIndexOf("btn--lg") + 220));
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
@@ -25814,6 +26156,42 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the fine lesson names Tier 1's own price",
       card("lost-cargo", 0).includes(`$${penaltyPerLostPieceFor(0, 1)}`),
       card("lost-cargo", 0));
+
+    /* -----------------------------------------------------------------------
+     * THE HUD LINE SAYS WHAT THE BAY DOES, in the player's words (O6).
+     *
+     * `conditions` is the plant panel's one-line Bay row and the right-hand
+     * half of the lesson's own card — the shortest thing on either surface, and
+     * therefore the one most likely to be written in the authors' shorthand.
+     * Three of the nine were.
+     * -------------------------------------------------------------------- */
+    // LESSON 4 promised "two arcs" for a lesson whose second card teaches the
+    // OPPOSITE of an arc, and counted shots where the bay counts rows.
+    check("lesson 4 states the rows it wants, and does not call the skim an arc",
+      lessonById("lob-or-skim")!.conditions === "Two end gaps · two rows",
+      lessonById("lob-or-skim")!.conditions);
+    check("...and the skim really is the flat shot that would have mislabelled",
+      /flat/i.test(card("lob-or-skim", 1)) && !/arc/i.test(card("lob-or-skim", 1)),
+      card("lob-or-skim", 1));
+    // LESSON 6 said "Bay 1's money", which names a bay this player has never
+    // flown and a construction (`makeBaseLevel(0)`) only the source knows. The
+    // rung before it already puts the figure on screen, so it quotes that —
+    // live, like every other number on the ladder.
+    check("lesson 6 prices a shot instead of naming a bay nobody has flown",
+      lessonById("the-bankroll")!.conditions
+        === `$${makeBaseLevel(0).launchCost} a shot · no clock`,
+      lessonById("the-bankroll")!.conditions);
+    check("...and the lesson before it quotes the same price",
+      card("time-the-row", 0).includes(`$${makeBaseLevel(0).launchCost}`),
+      card("time-the-row", 0));
+    // LESSON 9 borrowed the LADDER's noun for a congestion knee, on the one
+    // screen where the ladder is counting rungs out loud.
+    check("lesson 9 says the threshold in cubes, not in rungs",
+      lessonById("clutter")!.conditions === `Taxed past ${PILE_TIERS[0].cubes} loose cubes`,
+      lessonById("clutter")!.conditions);
+    check("...and no lesson's HUD line says \"rung\" at all",
+      LESSONS.every((l) => !/\brung\b/i.test(l.conditions)),
+      LESSONS.map((l) => l.conditions).join(" | "));
 
     // THE ZONE IS DEFINED BEFORE IT IS SPENT. Four cards lean on the word and
     // a beginner meets it on lesson 1; if the sentence that introduces it is
@@ -26401,6 +26779,35 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the three flags are separate",
       new Set(["seenContractBoard", "seenDraft", "seenRefit"]
         .map((k) => k in fresh)).size === 1);
+
+    // ---- AND THE BOARD'S CARD IS TRUE OF ALL THREE CARDS (O6) ----------
+    //
+    // It said "what limits you is a launch budget" over a board whose third
+    // card has no launch budget at all: a pattern Contract carries
+    // `launches: 0` and an exact `queue` instead, and that inventory is its
+    // whole offer. So the one sentence introducing the mode contradicted the
+    // one card that is most unlike the others, on the screen where a player
+    // meets both for the first time.
+    const board = dailyContracts(1, 20_260_815);
+    check("the board really does deal a card with no launch budget",
+      board.some((c) => c.kind === "pattern" && c.launches === 0 && c.queue.length > 0),
+      board.map((c) => `${c.kind}:${c.launches}`).join(","));
+    const introWith = S.contractsIntroModal({
+      needed: 3, daily: board.length, milestone: 15,
+      pattern: board.some((c) => c.kind === "pattern"),
+    });
+    check("...and the card that introduces the board says so",
+      introWith.includes("launch budget") && /pattern/.test(introWith)
+        && introWith.includes("exact set of shipments"),
+      introWith.slice(introWith.indexOf("No clock"), introWith.indexOf("No clock") + 240));
+    // THE CLAUSE IS ASKED OF THE BOARD, not of PATTERN_SLOT: a board with no
+    // pattern card makes the plain claim, which is then true of all of it.
+    const introWithout = S.contractsIntroModal({
+      needed: 3, daily: 3, milestone: 15, pattern: false,
+    });
+    check("...and a board without one does not invent the exception",
+      !introWithout.includes("pattern") && introWithout.includes("launch budget"),
+      introWithout.slice(introWithout.indexOf("No clock"), introWithout.indexOf("No clock") + 200));
   }
 
   // TWO SCRIMS, AND THE PAD MUST TAKE THE TOP ONE.
@@ -26489,6 +26896,28 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       examBtn.includes("btn--primary") && examBtn.includes("btn--next"));
     check("...with the tower kept as the quiet way out",
       owed.includes(`data-action="lesson-exit"`));
+    // ---- AND IT SAYS THE CLOCK IS RUNNING (O2) --------------------------
+    //
+    // The hand-off card is the last thing a player reads before the one flight
+    // on the ladder that can be failed, and the only warning it gave was "for
+    // real" — which does not tell a player who has flown nine untimed bays that
+    // the tenth is timed. The claim is checked against the BAYS rather than
+    // against a second string: levelForLesson zeroes timeLimitSec on every
+    // lesson ("the clock is not taught until the exam"), and the graduation
+    // flight is built by levelForRun, so this is the first bay on the ground
+    // floor with a clock at all.
+    check("the hand-off into the exam says a clock is running",
+      /<b>clock<\/b>/.test(owed), owed.slice(owed.indexOf("One flight left"), owed.indexOf("One flight left") + 220));
+    check("...and the ladder it is handing off FROM really has no clock",
+      LESSONS.every((l) => levelForLesson(l).timeLimitSec === 0),
+      LESSONS.filter((l) => levelForLesson(l).timeLimitSec !== 0).map((l) => l.id).join(","));
+    check("...while the bay it is handing off TO does",
+      levelForGraduation().timeLimitSec > 0,
+      String(levelForGraduation().timeLimitSec));
+    // A won lesson that is NOT the hand-off says nothing about a clock: the
+    // warning belongs to the one rung it is true of.
+    check("...and no ordinary rung's card mentions one",
+      !/clock/i.test(middle), middle);
   }
 
   // THE WORKSHOP DOES NOT OFFER A PRACTICE BAY MID-SCHOOL. The Reactor is the
@@ -28927,6 +29356,27 @@ section("Player accounts (social login + RevenueCat identity)");
   check("a guest can choose Google", guest.includes('data-action="account-google"'));
   check("a guest can choose Apple", guest.includes('data-action="account-apple"'));
   check("account sign-in explains purchase recovery", guest.includes("recovered on another device"));
+  // …and explains it for the build the player is standing in (F10b). The web
+  // sentence told an iPhone player to sign in "before buying on the web", which
+  // names a store that build does not use and a route it cannot take. The
+  // branch is StoreState.restorable — the same flag that decides whether a
+  // Restore Purchases button exists at all (main.ts: `isNative`).
+  check("a browser is told what signing in does for a web purchase",
+    guest.includes("before buying on the web"));
+  const nativeGuest = S.accountScreen(
+    { available: true, ready: true, label: null, providers: both }, true,
+  );
+  check("...and an app build is not told to buy on the web",
+    !nativeGuest.includes("on the web") && nativeGuest.includes("recovered on another device"),
+    nativeGuest);
+  // THE SENTENCE IS THE ONLY THING THAT BRANCHES. The first cut of this fix put
+  // the per-build paragraph and the provider buttons in the same ternary arm,
+  // so a native guest got the corrected sentence and no way to sign in — the
+  // screen's entire purpose, removed by a copy edit, on every build that ships
+  // to a store. The two pins above could not see it: both read prose.
+  check("an app build still offers both sign-ins under that sentence",
+    nativeGuest.includes('data-action="account-google"')
+      && nativeGuest.includes('data-action="account-apple"'), nativeGuest);
 
   // Per-provider offerability is the screen's contract with auth.ts: a button
   // for a provider whose client id is missing on this platform would open a
@@ -29018,7 +29468,7 @@ section("Player accounts (social login + RevenueCat identity)");
   // finds. These pin the two properties that make the replacement a guard
   // rather than a speed bump: the safe answer is the one padnav lands on, and
   // the panel says what deletion does NOT take.
-  const del = S.accountDeleteModal();
+  const del = S.accountDeleteModal(true);
   const delButtons = [...del.matchAll(/<button[^>]*data-action="(account-delete-[a-z]+)"/g)]
     .map((m) => m[1]);
   check("the notice offers exactly the two answers, cancel first",
@@ -29045,6 +29495,23 @@ section("Player accounts (social login + RevenueCat identity)");
     del.includes("purchase-recovery identity") && del.includes("RevenueCat"));
   check("...and that the purchase survives it, recoverable by Restore",
     del.includes("Full Game purchase is not deleted") && del.includes("Restore Purchases"));
+  // THE WEB BUILD HAS NO SUCH BUTTON (F10a). `restorable` is false there
+  // (main.ts's storeState), purchaseRowsHTML renders no Restore control, and
+  // the reassurance "Restore Purchases finds it again" pointed at a button that
+  // is not on the screen — while the route a browser actually has is the
+  // sign-in this very panel is about to delete. So the web panel says the
+  // mechanism instead of promising the button.
+  const delWeb = S.accountDeleteModal(false);
+  // NAMES IT NOWHERE, not merely stops promising it: the button does not exist
+  // in this build, so any sentence pointing at it is pointing off-screen.
+  check("the web notice never names a button the build does not render",
+    !delWeb.includes("Restore Purchases"), delWeb);
+  // …and the clause that replaces it is the browser's real route, which the
+  // first paragraph's "signing in again creates a new, empty one" is not — so
+  // the pin asks for the sentence, not for the two words it shares with it.
+  check("...and says what a browser's route back to a purchase really is",
+    delWeb.includes("In a browser") && delWeb.includes("the identity that bought")
+      && delWeb.includes("Full Game purchase is not deleted"), delWeb);
   check("...and that local progress is untouched",
     /progress is untouched/.test(del) && del.includes("saved on this device"));
   // THE SECOND SHEET IS ANNOUNCED. deleteAccount re-runs the provider login
@@ -30042,7 +30509,10 @@ section("The menu's primary subtitle is written to a MEASURED box (screens.ts's 
     school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS));
   check("the two school gates lead with the thing that is owed",
     /^A Contract\b/.test(school("contract", 4, null))
-    && /^The Reactor\b/.test(school("workshop", 4, null)),
+    // The Workshop line leads with the shelf's own name for the card (O6 —
+    // the same name the panel and the shop's button use), 23 characters at
+    // today's name, which is exactly the lobby box.
+    && school("workshop", 4, null).startsWith(upgradeById(SCHOOL_INSTALL)!.name),
     `${school("contract", 4, null)} | ${school("workshop", 4, null)}`);
   // …and the sentences that did not fit are gone rather than merely shortened
   // somewhere else, which is the way this regresses.
