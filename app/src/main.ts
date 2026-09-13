@@ -1400,6 +1400,14 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // THE MIRROR OF IT, for the pointer: a screen is about to be dismissed
+    // ONTO a live bay, and the click that dismissed it can arrive a second
+    // time as a double-click — landing on canvas that became live in between
+    // and spending a launch. Every entry into "playing" is a screen closing
+    // (the pause card's Resume, the draft's Fly it, a fresh bay's start), so
+    // this is the one line that covers them all. The pad's equivalent window
+    // is PAD_WAKE_MS below; see input.ts's MOUSE_WAKE_MS for the mouse's.
+    if (s === "playing" && this.state !== "playing") this.input.wake();
     // Same reasoning for a mid-hold press: the button is about to be replaced,
     // so nothing would ever cancel the countdown, and it would spend the
     // charge into a paused bay a second after the player left it.

@@ -154,6 +154,41 @@ const LOFT_STEP = 0.2;
  *  dial under 1%. */
 const LOB_DRAG_PX = 150;
 
+/**
+ * How long after a screen hands the bay back a MOUSE press is still read as
+ * the tail of the press that dismissed it, and refused (see `wake`).
+ *
+ * THE BUG: every modal button acts on its click, and the bay underneath is
+ * live canvas the instant that click re-renders the overlay (main.ts's
+ * setState drops the overlay's pointer-events for "playing"). So the second
+ * press of a double-click on Resume — or on the draft's Fly it — landed on
+ * the field, and onDown's mouse branch solves an aim on the PRESS and onUp
+ * fires it. A launch, its price and its cargo, spent on a stutter of the
+ * finger at a target nobody chose. The gamepad has had a guard for this since
+ * the pad-wake window went in (main.ts's PAD_WAKE_MS); the mouse never did.
+ *
+ * TOUCH NEEDS NONE, which is why this is gated on pointerType like every
+ * other line in this file: a double-TAP has no travel, so MIN_FIRE_RATIO
+ * already reads it as an accident and cancels it. This is the mouse's copy of
+ * a gate touch has had all along, not a new idea.
+ *
+ * 500ms BECAUSE THAT IS THE PLATFORM'S OWN NUMBER. A double-click is not a
+ * thing this file gets to define — Windows ships 500ms as the default
+ * double-click time and macOS's default sits at the same place on its slider,
+ * and a pair the OS would call a double-click is exactly the pair that must
+ * not reach the cannon. Borrowing the bound rather than guessing one means
+ * the window covers the whole of what it is named for and nothing beyond it.
+ *
+ * THE ASYMMETRY SETTLES THE REST. Too short and a stray second click costs a
+ * launch that cannot be taken back; too long and a deliberate click is
+ * ignored and the player clicks again, which costs a beat. Those are not the
+ * same price, so the window is sized to cover the accident. It is also not
+ * dead time on screen: the hover aim keeps solving through onMove, so the
+ * barrel still follows the cursor for the whole window — only the launch
+ * waits.
+ */
+export const MOUSE_WAKE_MS = 500;
+
 /** One wheel event's worth of NOTCHES, as a pure function of the accumulator
  *  and the event's raw delta, so it can be tested against real device traces
  *  without a browser (sim/systems.ts drives both a detent mouse and a trackpad
@@ -315,6 +350,10 @@ export class InputController {
    *  WHEEL_NOTCH_MIN_MS). -Infinity means "never", so the first notch of a
    *  fresh bay is answered immediately however long the player took to scroll. */
   private wheelNotchAt = -Infinity;
+  /** When a screen last handed the bay back (see `wake` / MOUSE_WAKE_MS).
+   *  -Infinity means "not this session", so the very first press of a bay
+   *  reached without a modal in front of it is answered immediately. */
+  private wokeAt = -Infinity;
   private raf = 0;
 
   /** settings.wheelRotates, read live so the Controls toggle applies without
@@ -401,6 +440,18 @@ export class InputController {
     this.aimBefore = null;
     const g = this.game();
     if (g) g.aiming = false;
+  }
+
+  /** A screen just closed onto a live bay — start the window in which a mouse
+   *  press is still the tail of the click that closed it (MOUSE_WAKE_MS).
+   *  main.ts calls this from setState on every entry into "playing", because
+   *  every one of them is a modal or a screen being dismissed onto the field.
+   *
+   *  TAKES THE CLOCK so a test can state the window's far side without
+   *  spending it — the same injection Game.shoot and the pad's dials already
+   *  use. Callers in the app pass nothing. */
+  wake(now = performance.now()): void {
+    this.wokeAt = now;
   }
 
   /** The power ratio the live gesture is currently asking for, or null when no
@@ -543,6 +594,16 @@ export class InputController {
       else if (e.button === 1 && !this.dragging) this.rotate("left");
       return;
     }
+    // THE CLICK THAT CLOSED THE MODAL DOES NOT ALSO FIRE A SHOT. A press
+    // inside the wake window is the second half of a double-click on the
+    // button that handed the bay back (see MOUSE_WAKE_MS), and this branch
+    // would otherwise solve an aim on it and launch on its release.
+    //
+    // REFUSED AT THE PRESS, the same shape as the rail-band guard below:
+    // nothing starts, so there is no capture to release, no aim to restore
+    // and no misfire cue to explain a gesture the player did not knowingly
+    // make. Silence is the honest answer to a stutter.
+    if (e.pointerType === "mouse" && performance.now() - this.wokeAt < MOUSE_WAKE_MS) return;
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
     // A second finger landing on the canvas mid-aim (reaching for the rail

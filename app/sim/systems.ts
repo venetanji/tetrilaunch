@@ -188,7 +188,7 @@ import {
 import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
-import { InputController, wheelNotch } from "../src/game/input";
+import { InputController, MOUSE_WAKE_MS, wheelNotch } from "../src/game/input";
 import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
@@ -19893,7 +19893,7 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   // both schemes — settings.wheelRotates is read live in the app for the same
   // reason.
   let wheelRotates = false;
-  new InputController(canvas, () => g, undefined, () => wheelRotates);
+  const input = new InputController(canvas, () => g, undefined, () => wheelRotates);
 
   const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
     (m.get(t) ?? []).forEach((h) => h(e));
@@ -20258,6 +20258,39 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     });
     check("...and the next pointer can aim and fire with no ✕ to find first",
       next === 1, `${next} shots`);
+  }
+
+  // THE CLICK THAT CLOSED THE MODAL DOES NOT ALSO FIRE A SHOT (found in
+  // review). Every modal button acts on its click and the bay under it is live
+  // canvas the instant that click re-renders the overlay, so the second press
+  // of a double-click on Resume or on the draft's Fly it landed on the field —
+  // and the mouse path solves an aim on the PRESS and launches on the release.
+  // The pad has had a wake window since PAD_WAKE_MS went in; the mouse had
+  // none. main.ts calls wake() from setState on every entry into "playing".
+  {
+    input.wake();
+    const during = fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+      send(onWindow, "pointerup", ptr(0, "mouse", 400));
+    });
+    check("a mouse press in the wake window after a screen closes fires nothing",
+      during === 0, `${during} shots`);
+    // TOUCH IS NOT GATED, because it already has this gate: a double-TAP has
+    // no travel, so MIN_FIRE_RATIO reads it as an accident. Gating it here as
+    // well would take the first deliberate pull of every bay off a phone.
+    check("...while a touch drag in the same window still fires", fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "touch", 700));
+      send(onCanvas, "pointermove", ptr(0, "touch", 120));
+      send(onWindow, "pointerup", ptr(0, "touch", 120));
+    }) === 1);
+    // The far side of the window, stated by handing wake() a stamp that has
+    // already expired rather than by sleeping through half a second of it.
+    input.wake(performance.now() - MOUSE_WAKE_MS - 1);
+    const after = fired(() => {
+      send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+      send(onWindow, "pointerup", ptr(0, "mouse", 400));
+    });
+    check("...and a press past the window fires normally", after === 1, `${after} shots`);
   }
 
   // A wheel on a paused bay must leave the event completely alone — no loft
