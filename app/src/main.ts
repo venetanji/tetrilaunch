@@ -2031,16 +2031,52 @@ class App {
   }
 
   private hudOpts(g: Game): Parameters<typeof S.hudHTML>[0] {
+    // THE RUN'S RIG, NOT THIS BAY'S HAND. The budget used to be read off the
+    // live Game — `bondCharges > 0` and the three level grants — which is the
+    // right question for "is the button on screen" and the wrong one for "how
+    // big is a button". A run that opens at three slots and reaches six as its
+    // triggers come up re-prices the column twice on a landscape phone: the
+    // solver hands back 60px, then 52.3px, then 48.8px, and because the rail
+    // is top-anchored the rotate pair — the two controls a thumb lives on —
+    // walks up the glass, on the OnePlus 12 from a 140px top edge to 118px,
+    // mid-bay. That is the same complaint the `justify-content: flex-start` in
+    // app.css's `.side-rail` was written against ("the rotation buttons change
+    // position and it's annoying"); anchoring fixed the halving, and this
+    // fixes the resize.
+    //
+    // The rig is the honest constant because the yard cannot widen it: a refit
+    // RAISES a track the ship already carries and refuses tier 0
+    // (upgrades.ts's yardHasStock), so the set of ability triggers a run can
+    // ever mount is settled the moment it launches. Asking the tiers rather
+    // than the charges therefore prices the whole run at bay 1 and never
+    // again.
+    //
+    // OR'd with the live grant rather than replacing it, because a bay can be
+    // handed charges by something that is not the rig at all — a Contract's
+    // config, a lesson, the sandbox — and those modes carry no `run` to ask.
+    // There the expression degrades to exactly what it used to be, which is
+    // correct for them: a single bay is already "once per run".
+    //
+    // WHY NOT RAIL_SLOTS_MAX, the other way to make the size constant:
+    // measured on the iPhone 13 mini (780x360, 50px cutout insets), pricing
+    // every run at eight slots puts the solver in "tall" — field scale 0.3764
+    // against 0.4656, a 596x335 field down to 482x271 — for buttons most runs
+    // never mount. That is the worst-case budget layout.ts's RAIL_SLOTS_MAX
+    // note already records as the thing the loadout reform removed, and taking
+    // it back to steady one button size would be paying a fifth of the play
+    // area for it.
+    const tiers = this.run?.tiers;
     const slots = railSlotsFor({
-      bond: g.bondCharges > 0,
-      demo: g.level.bombCharges > 0,
+      bond: (tiers?.bonds ?? 0) > 0 || g.bondCharges > 0,
+      demo: (tiers?.demolition ?? 0) > 0 || g.level.bombCharges > 0,
       // The BAY'S grant, not what is left in hand — the demo idiom, and here it
       // carries the Skydeck rule for free. levelForRun writes level.thawCharges
       // from the run's stock at bay start, so a ladder bay that spends its rack
       // still shows a "x0" trigger it knows will refill, while a Skydeck run
       // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
-      // for the rest of the run.
-      thaw: g.level.thawCharges > 0,
+      // for the rest of the run. The rig term above is what keeps the BUDGET
+      // steady across that disappearance.
+      thaw: (tiers?.thaw ?? 0) > 0 || g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
       fullscreen: fullscreenSupported(),
     });
@@ -2049,6 +2085,14 @@ class App {
       this.railKey = key;
       this.railSlotsLatch = slots;
     } else {
+      // A BACKSTOP THAT MUST NEVER FIRE, kept rather than deleted. With the
+      // rig terms above the first call of a run already counts every trigger
+      // the run can mount, so this max is the answer to "what if some future
+      // bay grants an ability from a source the seed cannot see" — and it
+      // answers it by growing the budget, which costs a resize, rather than by
+      // overflowing the column off the glass (app.css's `.side-rail .icon-btn`
+      // is `flex: none` precisely so an under-budget column overflows visibly
+      // instead of shrinking its buttons under the 44px floor).
       this.railSlotsLatch = Math.max(this.railSlotsLatch, slots);
     }
     if (this.railSlotsLatch !== getRailSlots()) {

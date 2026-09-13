@@ -28450,6 +28450,69 @@ section("The menu's primary subtitle is written to a MEASURED box (screens.ts's 
     all);
 }
 
+section("The rail is priced once per RUN, off the rig (main.ts, layout.ts)");
+// ---------------------------------------------------------------------------
+// The budget was read off the live Game — `bondCharges > 0` and the level's
+// three grants — which answers "is the button on screen" and not "how big is a
+// button". A run whose triggers arrive as it goes re-prices the whole column
+// mid-bay: 60px at three slots, 52.3px at six, and because the rail is
+// top-anchored (app.css's `.side-rail`) the rotate pair walks UP the glass by
+// ~22px while a thumb is resting on it.
+//
+// The rig is the constant that fixes it, and it is a constant because a refit
+// RAISES a track the ship already carries and refuses tier 0 (upgrades.ts's
+// yardHasStock): the set of ability triggers a run can ever mount is settled
+// the moment it launches.
+// ---------------------------------------------------------------------------
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const call = (/const tiers = this\.run\?\.tiers;[\s\S]{0,900}?\}\);/.exec(mainSrc) ?? [""])[0];
+  check(
+    "the HUD's rail budget asks the RUN's rig, not this bay's hand",
+    /bond:\s*\(tiers\?\.bonds \?\? 0\) > 0/.test(call)
+    && /demo:\s*\(tiers\?\.demolition \?\? 0\) > 0/.test(call)
+    && /thaw:\s*\(tiers\?\.thaw \?\? 0\) > 0/.test(call),
+    call.replace(/\s+/g, " ").slice(0, 220) || "no rig-derived rail call",
+  );
+  // OR'd, not replaced: a Contract, a lesson and the sandbox carry no `run` to
+  // ask, and there the expression has to degrade to what it always was.
+  check(
+    "...and still falls back to the live grant where there is no run",
+    /\|\| g\.bondCharges > 0/.test(call)
+    && /\|\| g\.level\.bombCharges > 0/.test(call)
+    && /\|\| g\.level\.thawCharges > 0/.test(call),
+  );
+
+  // THE MEASUREMENT THAT CHOSE THE POLICY, kept as arithmetic rather than as a
+  // sentence in a commit. The other way to make the size constant is to price
+  // every run at RAIL_SLOTS_MAX; on the iPhone 13 mini that is not a rounding
+  // difference, it is a layout MODE change and a fifth of the play area.
+  const MINI = { w: 780, h: 360, insets: { left: 50, right: 50, top: 0, bottom: 21 } };
+  setSafeAreaInsets(MINI.insets);
+  // A well-rigged native run: pause + the rotate pair + two ability triggers,
+  // no fullscreen toggle (the shells mount none).
+  setRailSlots(railSlotsFor({ bond: true, demo: true, thaw: false, auto: false, fullscreen: false }));
+  const granted = computeLayout(MINI.w, MINI.h);
+  setRailSlots(RAIL_SLOTS_MAX);
+  const worst = computeLayout(MINI.w, MINI.h);
+  check(
+    "pricing the 13 mini at its granted abilities keeps the vertical rail",
+    granted.mode === "snug" && granted.railSize >= 44,
+    `${granted.mode} rail=${granted.railSize.toFixed(1)} scale=${granted.scale.toFixed(4)}`,
+  );
+  check(
+    "...and pricing it at the worst case costs a fifth of the field",
+    worst.mode === "tall" && worst.scale < granted.scale * 0.82,
+    `granted ${granted.scale.toFixed(4)} (${granted.fw.toFixed(0)}x${granted.fh.toFixed(0)}) vs `
+      + `max ${worst.scale.toFixed(4)} (${worst.fw.toFixed(0)}x${worst.fh.toFixed(0)})`,
+  );
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
