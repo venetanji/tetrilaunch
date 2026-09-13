@@ -21,10 +21,27 @@ export interface AuthUser {
   label: string;
 }
 
+/**
+ * F6: WHY there is no sign-in on offer, when there is none — because the two
+ * causes need different sentences and only one of them is the player's to fix.
+ *
+ *  - "not-configured": this build ships no provider client ids. Permanent,
+ *    nothing to retry, and the honest thing to say.
+ *  - "init-failed": ids exist and the plugin's chunk or its initialize threw.
+ *    A dropped connection is the common cause, and it was being reported as
+ *    "not configured in this build" — a sentence that tells a player the app
+ *    cannot do this, when the truth is that it could not do it just now.
+ *
+ * `null` while sign-in IS available.
+ */
+export type AuthUnavailable = "not-configured" | "init-failed" | null;
+
 export interface AuthState {
   /** At least one provider can actually complete a login on this platform. */
   available: boolean;
   ready: boolean;
+  /** Why not, when `available` is false — see AuthUnavailable. */
+  unavailable: AuthUnavailable;
   /** Per-provider offerability, so the account screen renders only buttons
    *  that can work here rather than one that fails on tap. */
   providers: Record<AuthProvider, boolean>;
@@ -58,6 +75,10 @@ function offerable(): Record<AuthProvider, boolean> {
 let state: AuthState = {
   available: false,
   ready: false,
+  // F6: the honest answer before initAuth has run — no provider has been shown
+  // to work yet, and nothing has failed either. initAuth replaces it with one
+  // of the two real causes.
+  unavailable: "not-configured",
   providers: { google: false, apple: false },
   user: null,
 };
@@ -212,14 +233,38 @@ export async function initAuth(): Promise<AuthState> {
     });
   })();
   let available = providers.google || providers.apple;
+  // F6: a build with no client ids at all, said before anything is attempted.
+  let unavailable: AuthUnavailable = available ? null : "not-configured";
   try { await initPromise; }
   catch (err) {
     console.warn("[auth] initialize failed", err);
     available = false;
     providers.google = providers.apple = false;
+    // …and this one is NOT permanent: the chunk did not load, or initialize
+    // threw. The account screen words it as retryable and offers the retry,
+    // which is what retryAuthInit below is for.
+    unavailable = "init-failed";
   }
-  publish({ available, providers, ready: true, user: restore() });
+  publish({ available, providers, unavailable, ready: true, user: restore() });
   return state;
+}
+
+/**
+ * F6: run a FAILED initialise again.
+ *
+ * initAuth memoises its work in `initPromise` — deliberately, so the dozen
+ * callers that await auth share one plugin initialize — and that memo is
+ * exactly what makes a first failure permanent for the session: every later
+ * await re-awaits the same rejected promise. Clearing it is the whole retry.
+ *
+ * Only "init-failed" is retryable. A build with no client ids has nothing to
+ * try again, and re-running the plugin on a successful init would re-enter it
+ * for nothing, so both are answered with the state as it stands.
+ */
+export async function retryAuthInit(): Promise<AuthState> {
+  if (state.unavailable !== "init-failed") return state;
+  initPromise = null;
+  return initAuth();
 }
 
 export async function signIn(provider: AuthProvider): Promise<void> {

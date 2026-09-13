@@ -163,6 +163,8 @@ import {
 import {
   accountLabel, appUserId, appUserIdFor, authState, deleteAccount, initAuth, isUserCancelled,
   onAuthChange,
+  // F6: the retry the account screen's "Sign-in couldn't start" face offers.
+  retryAuthInit,
   signIn, signOut, type AuthState,
 } from "./lib/auth";
 import {
@@ -2395,6 +2397,10 @@ class App {
         ready: this.auth.ready,
         label: this.auth.user ? accountLabel(this.auth.user) : null,
         providers: this.auth.providers,
+        // F6: which kind of "no sign-in here" this is — a build with no client
+        // ids, or an initialise that threw. The screen words them differently
+        // and offers a retry for only one of them.
+        unavailable: this.auth.unavailable,
         error: this.accountError,
       },
     };
@@ -8387,6 +8393,8 @@ class App {
       case "account-google": void this.onAccountSignIn("google"); break;
       case "account-apple": void this.onAccountSignIn("apple"); break;
       case "account-signout": void this.onAccountSignOut(); break;
+      // F6: the retry the "Sign-in couldn't start" face offers.
+      case "account-retry": void this.onAccountRetry(); break;
       // Three doors now, not one: the account screen's button opens the
       // notice, and the notice's own two buttons answer it (screens.ts's
       // accountDeleteModal). The same split seal-break-go/seal-break-back use.
@@ -9608,6 +9616,31 @@ class App {
       this.accountError = isUserCancelled(err) ? null : S.ACCOUNT_DELETE_FAILED_TEXT;
       this.setState("account");
     } finally {
+      this.accountBusy = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  /** F6: run a failed sign-in initialise again (auth.ts's retryAuthInit).
+   *
+   *  No re-render of its own: retryAuthInit publishes through onAuthChange
+   *  either way, and this app's listener already re-renders the account
+   *  screen — so a retry that succeeds redraws with the provider buttons on
+   *  it, and one that fails redraws the same retryable face. The button is
+   *  held shut for the attempt on the same one-at-a-time rule the rest of this
+   *  panel's controls take, since initialize is a network round trip. */
+  private async onAccountRetry(): Promise<void> {
+    if (this.accountBusy) return;
+    const btn = this.overlay.querySelector<HTMLButtonElement>('[data-action="account-retry"]');
+    this.accountBusy = true;
+    if (btn) btn.disabled = true;
+    // initAuth swallows its own failures and republishes either way, so this
+    // catch is for the paths it cannot own — a listener throwing during the
+    // publish — rather than for the initialise itself. `void` at the call site
+    // means an escaped rejection would be an unhandled one.
+    try { this.auth = await retryAuthInit(); }
+    catch (err) { console.warn("[auth] sign-in retry failed", err); }
+    finally {
       this.accountBusy = false;
       if (btn) btn.disabled = false;
     }

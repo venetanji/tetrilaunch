@@ -2143,6 +2143,10 @@ export interface StoreState {
      *  accountError) — drawn as a line on the screen, so a deletion that did
      *  not complete is never a silent return to the signed-in face. */
     error?: string | null;
+    /** F6: WHY there is no sign-in on offer (lib/auth.ts's AuthUnavailable).
+     *  "a build with no client ids" and "the sign-in chunk did not load" are
+     *  different facts and only one of them is worth a retry button. */
+    unavailable?: "not-configured" | "init-failed" | null;
   };
 }
 
@@ -2611,7 +2615,20 @@ export function accountScreen(account: NonNullable<StoreState["account"]>): stri
        <button class="btn btn--secondary btn--block" data-action="account-signout">Sign Out</button>
        <button class="btn btn--ghost btn--block" data-action="account-delete">Delete Account</button>`
     : !account.available
-      ? `<p class="muted">Account sign-in is not configured in this build.</p>`
+      // F6: TWO CAUSES, TWO SENTENCES, AND ONLY ONE OF THEM DEAD-ENDS.
+      //
+      // "not configured in this build" was the whole of this branch, and on
+      // the web it is where the tier gate sends a signed-out player who just
+      // pressed Unlock Full Game. When the sign-in chunk fails to load — a
+      // dropped connection, most often — that sentence tells them the app
+      // cannot do this at all, which is false, and leaves them on a screen
+      // with nothing on it to press. A build genuinely shipped without client
+      // ids keeps the original line, because for that player it IS permanent
+      // and a retry button would be a lie in the other direction.
+      ? account.unavailable === "init-failed"
+        ? `<p class="muted">Sign-in couldn't start — check your connection and try again.</p>
+           <button class="btn btn--secondary btn--block" data-action="account-retry">Try Again</button>`
+        : `<p class="muted">Account sign-in is not configured in this build.</p>`
       : `<p class="muted">Sign in before buying on the web so Full Game can be recovered on another device.</p>
          ${account.providers.google ? `<button class="btn btn--secondary btn--block" data-action="account-google">Continue with Google</button>` : ""}
          ${account.providers.apple ? `<button class="btn btn--secondary btn--block" data-action="account-apple">Continue with Apple</button>` : ""}`;

@@ -28676,6 +28676,73 @@ section("A store that failed is not \"Nothing to restore\" (F5)");
     /if \(restored\) void successHaptic\(\);/.test(onRestore), onRestore);
 }
 
+// ---------------------------------------------------------------------------
+section("\"Not configured\" and \"couldn't start\" are different answers (F6)");
+// ---------------------------------------------------------------------------
+// THE DEAD END. On the web the tier gate routes a signed-out player to the
+// account screen before the paywall, because a purchase has to land on a
+// durable identity. If the sign-in plugin's chunk fails to load, or its
+// initialize throws, initAuth catches it and degrades to available:false —
+// and the account screen then says "Account sign-in is not configured in this
+// build." That sentence is TRUE of a build with no client ids and FALSE of a
+// build whose network dropped, and the player it is shown to is the one who
+// just tried to buy something: it tells them the app cannot do this, when the
+// honest answer is that it could not do it just now.
+//
+// TWO CAUSES, TWO SENTENCES, AND ONLY ONE OF THEM HAS A BUTTON. A build with
+// no ids has nothing to retry; a failed initialise has exactly one thing to
+// retry, and retryAuthInit clears the memoised promise so the second attempt
+// really runs rather than re-awaiting the first failure.
+{
+  const dead = { google: false, apple: false };
+  const notConfigured = S.accountScreen({
+    available: false, ready: true, label: null, providers: dead, unavailable: "not-configured",
+  });
+  check("a build with no client ids still says exactly that",
+    notConfigured.includes("not configured in this build"), notConfigured);
+  check("...and offers no retry, because there is nothing to retry",
+    !notConfigured.includes('data-action="account-retry"'));
+
+  const broken = S.accountScreen({
+    available: false, ready: true, label: null, providers: dead, unavailable: "init-failed",
+  });
+  check("a sign-in that could not start says so instead",
+    broken.includes("Sign-in couldn't start") && broken.includes("check your connection"),
+    broken);
+  check("...and never repeats the untrue 'not configured'",
+    !broken.includes("not configured in this build"), broken);
+  check("...and gives the player the retry the wording promises",
+    broken.includes('data-action="account-retry"'), broken);
+
+  const authSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "auth.ts"),
+    "utf8",
+  );
+  const init = authSrc.slice(
+    authSrc.indexOf("export async function initAuth("),
+    authSrc.indexOf("export async function retryAuthInit("),
+  );
+  check("initAuth separates the two causes at the source",
+    /unavailable = "init-failed"/.test(init) && /"not-configured"/.test(init), init.slice(-600));
+  const retry = authSrc.slice(
+    authSrc.indexOf("export async function retryAuthInit("),
+    authSrc.indexOf("export async function signIn("),
+  );
+  check("only a failed initialise is retryable",
+    /state\.unavailable !== "init-failed"/.test(retry), retry);
+  check("...and the retry clears the memo, or it re-awaits the failure",
+    /initPromise = null;/.test(retry), retry);
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  check("main.ts carries the reason through to the screen",
+    /unavailable: this\.auth\.unavailable,/.test(mainSrc));
+  check("...and the retry button reaches retryAuthInit",
+    /case "account-retry":/.test(mainSrc) && /retryAuthInit\(\)/.test(mainSrc));
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
