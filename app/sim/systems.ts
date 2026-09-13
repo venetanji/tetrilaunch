@@ -5095,6 +5095,79 @@ section("Tier milestones pay the salvage (meta.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("HUD bar colours — gold chain, fire goal (app.css + main.ts)");
+// ---------------------------------------------------------------------------
+// The chain ladder and the goal bar above it were the SAME cyan->violet accent
+// gradient, so a glance could not tell a combo streak from progress to the
+// target. Two moves fix it: the chain is gold at every stage (its own family,
+// paying off in the gold full-chain star it already wears), and the goal bar
+// heats through amber and orange to fire as it nears the target. Both are read
+// out of source: a colour is not geometry, so uifit cannot see it, and the one
+// thing that can go wrong — the two bars sharing a colour again — is exactly
+// what these assert against.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const rule = (sel: string): string =>
+    css.match(new RegExp(sel.replace(/[.[\]]/g, "\\$&") + "\\s*\\{[^}]*\\}"))?.[0] ?? "";
+
+  const lit = rule(".pl-chain__rung.is-lit");
+  check("a lit chain rung is gold, not the accent",
+    /--piece-o/.test(lit) && !/--accent\b/.test(lit), lit);
+  const goalBase = rule(".pl-goal i");
+  check("the goal bar's resting fill is still the accent",
+    /--accent/.test(goalBase), goalBase.slice(0, 120));
+  check("...so the chain and the goal bar no longer share a colour",
+    /--piece-o/.test(lit) && /--accent/.test(goalBase) && !/--accent\b/.test(lit));
+
+  // The three heat bands exist and climb warn -> orange -> fire, none of them
+  // reaching back to the accent (which would undo the separation above).
+  const warm = rule('.pl-funds[data-heat="warm"] .pl-goal i');
+  const hot = rule('.pl-funds[data-heat="hot"] .pl-goal i');
+  const fire = rule('.pl-funds[data-heat="fire"] .pl-goal i');
+  check("the goal bar has a warm band on the way up", /--warn/.test(warm));
+  check("...a hotter orange band above it", /--piece-l/.test(hot));
+  check("...and a fire band at the top", /--fire/.test(fire) && !/--accent/.test(fire));
+
+  // The danger axis (low launches) must still win: it is a different fact, and
+  // its rule sits AFTER the heat bands at equal specificity so source order
+  // hands it the fill however hot the funds are.
+  const dangerAt = css.indexOf(".pl-funds.pl-stat--danger .pl-goal i");
+  const fireAt = css.indexOf('.pl-funds[data-heat="fire"] .pl-goal i');
+  check("low-launches danger outranks every heat band by sitting after them",
+    dangerAt > fireAt && fireAt > 0);
+
+  // --fire is a real token, not a stray hex.
+  const tokens = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  check("--fire is a defined token", /--fire:\s*#[0-9a-f]{6}/i.test(tokens));
+
+  // main.ts bands the write, so a fill that holds still costs no DOM touch, and
+  // the band is derived from objectiveProgress at the thresholds the CSS names.
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const goalHeat = mainSrc.slice(
+    mainSrc.indexOf("private goalHeat("),
+    mainSrc.indexOf("private goalHeat(") + 600,
+  );
+  check("goalHeat maps the fill to fire/hot/warm/cool at the CSS thresholds",
+    />= 0\.9 \? "fire"/.test(goalHeat) && />= 0\.75 \? "hot"/.test(goalHeat)
+      && />= 0\.55 \? "warm"/.test(goalHeat));
+  check("...and skips the DOM when the band has not changed",
+    /if \(this\.goalHeatShown === band\) return;/.test(goalHeat));
+  check("...writing the band onto .pl-funds, where the stylesheet reads it",
+    /\.pl-funds/.test(goalHeat) && /dataset\.heat/.test(goalHeat));
+  check("the goal heat is driven from objectiveProgress, the same read the bar fills from",
+    /this\.goalHeat\(Math\.min\(1, g\.objectiveProgress\)\)/.test(mainSrc));
+}
+
+// ---------------------------------------------------------------------------
 section("The full chain (game.ts's fullChain latch)");
 // ---------------------------------------------------------------------------
 // A bay finished with every crush in one unbroken streak, nothing lost and

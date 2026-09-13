@@ -44,6 +44,7 @@
   --danger: #ff2d55;
   --warn: #ffb020;
   --success: #00ff9c;
+  --fire: #ff4d1a; /* the goal bar's hottest band, past orange (app.css .pl-funds[data-heat="fire"]) */
 
   /* --- Tetromino neon hues (ported & neon-ized from main.py) --- */
   --piece-i: #00f0ff; /* cyan   */

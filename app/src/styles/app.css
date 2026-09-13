@@ -5078,7 +5078,20 @@ body.crt-off #app::after { display: none; }
    PROMOTION is scoped rather than blanket (see below): a permanently promoted
    layer is memory a phone does not have spare, so each fill is promoted only
    while it is the thing that is moving. */
-.pl-goal i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: transform var(--dur) var(--ease); }
+.pl-goal i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: transform var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+/* THE GOAL BAR HEATS AS IT NEARS THE TARGET (main.ts's goalHeat writes
+   data-heat on .pl-funds from objectiveProgress). Cool while there is a way to
+   go, warming through amber and orange to a hot red-orange in the last stretch,
+   so the bar itself says "almost there". BANDED, not a live ramp: the fill is a
+   scaleX on one gradient and a stretched gradient does not change hue, and a
+   band repaints only when it crosses a threshold, which is what keeps it off
+   the per-frame budget (barFill's note). The low-launches danger state is a
+   DIFFERENT axis (.pl-funds.pl-stat--danger below) and outranks every band by
+   sitting later in the file at equal specificity, so a bar can be fire-hot with
+   funds and still flip to the danger red when launches run out. */
+.pl-funds[data-heat="warm"] .pl-goal i { background: linear-gradient(90deg, #39d6ff, var(--warn)); box-shadow: 0 0 9px rgba(255, 176, 32, 0.45); }
+.pl-funds[data-heat="hot"] .pl-goal i { background: linear-gradient(90deg, var(--warn), var(--piece-l)); box-shadow: 0 0 11px rgba(255, 138, 0, 0.55); }
+.pl-funds[data-heat="fire"] .pl-goal i { background: linear-gradient(90deg, var(--piece-l), var(--fire)); box-shadow: 0 0 16px rgba(255, 77, 26, 0.7); }
 
 /* Tier-2 stat columns — launches (or, on a pattern Contract, shipments)
    always, paired with a second column that depends on the mode: time on a
@@ -5405,16 +5418,23 @@ body.crt-off #app::after { display: none; }
   background: var(--surface-3);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
+/* EMBER GOLD, not the accent. The chain used to be the same cyan->violet
+   gradient as the goal bar directly above it, so a glance could not tell a
+   combo streak from progress toward the target. Gold is the chain's own
+   colour at every stage now: a lit rung is amber climbing to the gold the
+   FULL chain and its star already wear (.pl-chain--full below), so the ladder
+   reads as one warm story that pays off in the star, and cyan is left to mean
+   funds alone. */
 .pl-chain__rung.is-lit {
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: linear-gradient(90deg, #d99a1a, var(--piece-o));
   border-color: transparent;
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 6px rgba(255, 215, 60, 0.5);
 }
 /* THE PROMISE. One outlined rung, and only one: it is the crush the price
    beside it is quoting, so a second outlined rung would be quoting a number
    that is not on screen. Outline rather than a dim fill, because the rung is
    not half-earned — it is empty, and the ring is where it will land. */
-.pl-chain__rung.is-next { border-color: var(--accent); }
+.pl-chain__rung.is-next { border-color: var(--warn); }
 /* THE GATE. Congestion does not stall the chain, it CAPS it (level.ts's
    PileTier.payMult), and a ladder that merely went dark would read as "stalled,
    keep going". The line is the lid: everything to the right of it is out of

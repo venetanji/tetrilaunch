@@ -888,6 +888,12 @@ class App {
    *  CHAIN LADDER). Empty string is the remount sentinel — a real key is always
    *  a JSON object, so the first frame after a render always writes. */
   private chainShown = "";
+  /** The goal bar's last-written heat band (app.css's .pl-funds[data-heat],
+   *  fed by goalHeat from objectiveProgress). `null` is the remount sentinel so
+   *  the first frame always writes; a real value is "" (cool) / warm / hot /
+   *  fire. Banded so this only touches the DOM when the fill crosses a
+   *  threshold, not every frame — see barFill. */
+  private goalHeatShown: string | null = null;
   /** Each ability's `charges:armed` as last pushed to its pair of triggers
    *  (see syncAbility). The triggers are found by querySelectorAll rather than
    *  by id — there are two of them per ability and either can be absent — so
@@ -7530,6 +7536,7 @@ class App {
   private forgetHudCache(): void {
     this.hudNodes.clear();
     this.hudShown.clear();
+    this.goalHeatShown = null;
     this.abilityShown.clear();
     this.crestHeatShown = -1;
     this.crestStepShown = -1;
@@ -7586,6 +7593,29 @@ class App {
     if (!el) return;
     el.style.transform = v;
     this.hudShown.set(sel, v);
+  }
+
+  /**
+   * Heat the goal bar as the run nears its target (app.css's
+   * .pl-funds[data-heat]). The fill is a scaleX on one gradient, so the colour
+   * cannot come from the fill itself — a stretched gradient keeps its hue — and
+   * a per-frame background write would undo the paint split. So this is a BAND:
+   * a `data-heat` word on .pl-funds, written only when the ratio crosses a
+   * threshold, and the stylesheet colours the fill from it.
+   *
+   * The bands leave the low end alone (cool cyan, no attribute) and stop short
+   * of naming the danger axis: launches running low is a different fact and
+   * app.css lets its .pl-stat--danger rule outrank every band, so this never
+   * has to know about it.
+   */
+  private goalHeat(ratio: number): void {
+    const band = ratio >= 0.9 ? "fire" : ratio >= 0.75 ? "hot" : ratio >= 0.55 ? "warm" : "";
+    if (this.goalHeatShown === band) return;
+    this.goalHeatShown = band;
+    const el = this.hudEl<HTMLElement>(".pl-funds");
+    if (!el) return;
+    if (band) el.dataset.heat = band;
+    else delete el.dataset.heat;
   }
 
   /**
@@ -7981,6 +8011,7 @@ class App {
     // the bar works for a Contract's line goal and a Deep Run's funds target
     // without the HUD needing to know which mode it's in.
     this.barFill("#hud-goal", Math.min(1, g.objectiveProgress));
+    this.goalHeat(Math.min(1, g.objectiveProgress));
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
