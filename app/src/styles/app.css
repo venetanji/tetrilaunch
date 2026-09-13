@@ -4771,6 +4771,26 @@ body.crt-off #app::after { display: none; }
    information survives, the animation does not. */
 @media (prefers-reduced-motion: reduce) {
   .plant__crest, .plant__crest::before { animation: none; }
+  /* THE SAME CALL, WRITTEN AT THE CONGESTION STATES' OWN WEIGHT — and the
+     second line is the whole fix, not decoration. Every rule that puts motion
+     on this crest is `.plant--congest-* .plant__crest--<strip>`, two classes
+     deep; the line above is one, so it was out-specified by all sixteen of
+     them and the guard simply lost. Measured with the state classes forced on
+     (main.ts's syncHud writes them, which is why no fixture carries one and
+     nothing in the fit harness could see this): under Reduce Motion the
+     congested crest was still running crest-jiggle or crest-rattle on all
+     eight strips, crest-spark on the glint layer, and all seven cube-* churns
+     — the panel jiggling for exactly as long as the bay stays congested.
+     `.plant--congest-* .plant__crest` matches those strips at the same
+     specificity and later in the file, so the tie goes to the guard, and
+     because `animation` is one property it takes the churn down with the
+     shudder — which is the right trade: the CHURN is a texture loop, not a
+     reading, and what actually says "congested" is the recoloured metal three
+     rules up (`--cell-*`, `--crest-cold`), which is untouched here. */
+  .plant--congest-warn .plant__crest,
+  .plant--congest-danger .plant__crest,
+  .plant--congest-warn .plant__crest::before,
+  .plant--congest-danger .plant__crest::before { animation: none; }
 }
 
 .plant__body {
@@ -8439,6 +8459,19 @@ button.panel { color: var(--text); }
 .rotate-guard.show { display: flex; }
 .rotate-guard .phone { width: 70px; height: 120px; border: 3px solid var(--accent); border-radius: 12px; animation: rot 1.6s var(--ease) infinite; box-shadow: var(--glow-accent); }
 @keyframes rot { 0%,40% { transform: rotate(0);} 60%,100% { transform: rotate(-90deg);} }
+/* THE END STATE, HELD. This is the one screen in the app whose entire content
+   is an animation: a portrait outline that tips to landscape, forever, on a
+   panel that appears precisely because the player is holding the phone the
+   wrong way. Under Reduce Motion it was the loop nobody had guarded, and an
+   unguarded infinite loop on a full-screen takeover is the worst place in the
+   build to have one — there is nothing else on the panel to look at.
+   `rotate(-90deg)` and not `rotate(0)` because the keyframe's END is the
+   teaching: the phone LANDSCAPE is the instruction, the tipping was only how
+   it was being said. Same call the rest of this stylesheet makes — the theatre
+   goes, the teaching stays — and the copy beside it says the rest. */
+@media (prefers-reduced-motion: reduce) {
+  .rotate-guard .phone { animation: none; transform: rotate(-90deg); }
+}
 
 /* ---------- Leaderboard ---------- */
 /* #lb-body is the flexible, scrollable region inside `.modal`'s flex column —

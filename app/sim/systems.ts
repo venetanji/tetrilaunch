@@ -28513,6 +28513,63 @@ section("The rail is priced once per RUN, off the rig (main.ts, layout.ts)");
   setRailSlots(RAIL_SLOTS_MAX);
 }
 
+section("Reduced motion reaches the crest's congestion states and the rotate guard (app.css)");
+// ---------------------------------------------------------------------------
+// TWO GUARDS THAT LOST, and neither is visible to the fit harness: the crest's
+// congestion classes are written by main.ts's syncHud, so no fixture carries
+// one, and the rotate guard is the portrait screen.
+//
+// The crest's guard read `.plant__crest, .plant__crest::before` — one class —
+// against sixteen rules of the form `.plant--congest-* .plant__crest--<strip>`
+// at two. Measured with the state classes forced on, a congested panel under
+// Reduce Motion was still running crest-jiggle or crest-rattle on all eight
+// strips, crest-spark on the glint layer and all seven cube-* churns.
+//
+// The rotate guard had no guard at all, on the one screen whose entire content
+// IS an animation. The end state is the teaching there — a phone held
+// landscape — so it is held rather than dropped.
+// ---------------------------------------------------------------------------
+{
+  const reduce = [...APP_CSS.matchAll(/@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g)]
+    .map((m) => {
+      let i = m.index + m[0].length;
+      let depth = 1;
+      while (depth > 0) {
+        if (APP_CSS[i] === "{") depth += 1;
+        else if (APP_CSS[i] === "}") depth -= 1;
+        i += 1;
+      }
+      return APP_CSS.slice(m.index + m[0].length, i - 1);
+    });
+  const stops = (sel: string): boolean =>
+    reduce.some((b) => {
+      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const r = new RegExp(`${esc}[^{}]*\\{[^}]*animation:\\s*none`).exec(b);
+      return !!r;
+    });
+  check(
+    "the crest's reduce guard reaches the congestion states it was losing to",
+    stops(".plant--congest-warn .plant__crest")
+    && stops(".plant--congest-danger .plant__crest"),
+  );
+  check(
+    "...including the glint layer both states animate",
+    stops(".plant--congest-warn .plant__crest::before")
+    && stops(".plant--congest-danger .plant__crest::before"),
+  );
+  check(
+    "the rotate guard's phone stops spinning under Reduce Motion",
+    stops(".rotate-guard .phone"),
+  );
+  // …AND HOLDS THE FRAME THAT TEACHES. `animation: none` alone would leave the
+  // outline upright, i.e. the panel would be telling a player holding the phone
+  // in portrait to hold it in portrait.
+  check(
+    "...and is held at the landscape frame the loop was travelling to",
+    reduce.some((b) => /\.rotate-guard \.phone[^{}]*\{[^}]*transform:\s*rotate\(-90deg\)/.test(b)),
+  );
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
