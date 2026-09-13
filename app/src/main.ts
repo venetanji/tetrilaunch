@@ -127,8 +127,8 @@ import {
 import { InputController } from "./game/input";
 import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
-  isPauseKey, isShortcutChord, padFamilyFromId, resetKeyBindings, resetPadBindings,
-  setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  isPauseKey, isShortcutChord, padFamilyFromId, profileForPointer, resetKeyBindings,
+  resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
   type BindableAction, type InputProfile, type PadFamily,
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
@@ -1275,12 +1275,19 @@ class App {
     // viewport settles; this is the thing that does not have to guess.
     this.armWatchdog(WATCHDOG_BOOT_MS);
 
-    // Profile detection: the LAST input seen wins. Touch contact flips to
-    // touch; any mouse/pen contact or keypress flips to keyboard; gamepad
-    // activity flips in the poller's onActivity hook.
+    // Profile detection: the LAST input seen wins. A MOUSE contact or a
+    // keypress flips to keyboard; every OTHER pointer — touch, pen, and any
+    // type the browser will not vouch for — flips to touch; gamepad activity
+    // flips in the poller's onActivity hook.
+    //
+    // The mouse/not-mouse line is game/input.ts's own (see profileForPointer
+    // for what it cost to have the two disagree by one word), and it is what
+    // lets the glass take the profile back: a tablet's every contact is touch
+    // or pen, so a keypress on an attached keyboard is undone by the next tap
+    // instead of outliving the session.
     window.addEventListener(
       "pointerdown",
-      (e) => this.setProfile(e.pointerType === "touch" ? "touch" : "keyboard"),
+      (e) => this.setProfile(profileForPointer(e.pointerType)),
       { capture: true },
     );
 

@@ -386,6 +386,37 @@ export function hintRotate(profile: InputProfile): string {
   return `press ${keyLabel(keyFor("rotl"))} / ${keyLabel(keyFor("rotr"))}`;
 }
 
+/**
+ * The input family a pointer contact belongs to — the profile the hints must
+ * be rendered in for whoever just touched the glass.
+ *
+ * THE LINE IS `pointerType === "mouse"`, NOT `=== "touch"`, and that is the
+ * whole fix. main.ts used to flip to "keyboard" for every contact that was
+ * not literally "touch", which handed a pen and an unrecognised pointer the
+ * keyboard's sentences: "click where it should land" and "press Q / E". But
+ * game/input.ts draws its own line one word further over — it splits the
+ * click-to-target scheme from the slingshot at `pointerType === "mouse"`, and
+ * says so three times in its header, because pen and unknown pointer types
+ * land on touch hardware. So an Apple Pencil was TAUGHT click-to-target and
+ * GIVEN the slingshot: a tap on the field did nothing at all, and the card
+ * explaining why named a key the tablet does not have.
+ *
+ * The same word is the other half of the bug. A pen contact used to set the
+ * profile to "keyboard", and nothing on a tablet ever set it back — pen is
+ * the pointer a stylus user makes every contact with — so one stylus tap, or
+ * one press on an attached keyboard, left the hints in the wrong family for
+ * the rest of the session. Mapping every non-mouse contact to touch means the
+ * glass always takes the profile back.
+ *
+ * Written here rather than inline in main.ts because this IS the hint table's
+ * question: which of the three vocabularies does this device speak. Exported
+ * so the answer can be stated as behaviour in a test rather than as a regex
+ * over main.ts's listener.
+ */
+export function profileForPointer(pointerType: string): InputProfile {
+  return pointerType === "mouse" ? "keyboard" : "touch";
+}
+
 export function hintAim(profile: InputProfile): string {
   if (profile === "touch") {
     return "touch the field and pull back — farther is more power — then release to fire";

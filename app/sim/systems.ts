@@ -232,8 +232,8 @@ import {
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, PAUSE_ALIAS, actionForKey, fullscreenKeys, hintAim, hintRotate, isPauseKey,
-  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, resetKeyBindings,
-  resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
+  keyFor, keyLabel, padFor, padLabel, padChip, padFamilyFromId, pauseKeyLabels, profileForPointer,
+  resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
@@ -7564,6 +7564,38 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   check("the touch rotate hint names the rail, not a side of the screen",
     hintRotate("touch").includes("rail") && !/\b(right|left|bottom|top)\b/i.test(hintRotate("touch")),
     hintRotate("touch"));
+  // ...AND THE PROFILE A POINTER CONTACT PICKS (profileForPointer). The hint
+  // table can only be as right as the family it is handed, and main.ts used to
+  // hand it "keyboard" for every contact that was not literally "touch" —
+  // while game/input.ts splits its two aiming schemes at "mouse". One word
+  // apart, and the gap is a whole device: a pen was taught "click where it
+  // should land" and given the pull-back slingshot, so an Apple Pencil tap on
+  // the field did nothing and the card said why in a key the tablet has not
+  // got. Stated per pointer type rather than as a regex over main.ts's
+  // listener, with the listener's use of it pinned separately below.
+  check("a pen contact reads as touch, so the hints match the gesture it gets",
+    profileForPointer("pen") === "touch", profileForPointer("pen"));
+  check("...and so does a pointer type the browser will not name",
+    profileForPointer("") === "touch" && profileForPointer("unknown") === "touch");
+  check("...while a mouse is still the keyboard family, which owns click-to-target",
+    profileForPointer("mouse") === "keyboard" && profileForPointer("touch") === "touch");
+  // THE GLASS TAKES THE PROFILE BACK, which is the half a tablet needs: every
+  // contact a stylus user makes is "pen", so under the old line one keypress
+  // on an attached keyboard (or one pen tap) left the hints in the keyboard's
+  // family for the rest of the session with nothing able to undo it.
+  check("...so a tap after a keypress puts a tablet back in its own family",
+    profileForPointer("pen") !== "keyboard" && profileForPointer("touch") !== "keyboard");
+  // main.ts cannot be instantiated here (no DOM), so its listener is read off
+  // the source — the BEHAVIOUR is pinned above; this only proves the listener
+  // asks the shared question instead of keeping its own copy of the line.
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    check("the pointerdown that sets the profile asks profileForPointer",
+      /"pointerdown",\s*\(e\) => this\.setProfile\(profileForPointer\(e\.pointerType\)\)/.test(mainSrc));
+  }
   const desktopCoach = coachSteps(makeBaseLevel(0), "keyboard");
   check("the desktop coach teaches keys, not hidden buttons",
     !desktopCoach[1].body.includes("⟲") && desktopCoach[1].body.includes("Q"));
