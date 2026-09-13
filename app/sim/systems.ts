@@ -28229,6 +28229,52 @@ section("Player accounts (social login + RevenueCat identity)");
   }
 }
 
+// ---------------------------------------------------------------------------
+section("Every button class answers a mouse (D5 — app.css .btn--primary:hover)");
+// ---------------------------------------------------------------------------
+// THE FINDING, from a desktop pass: .btn--secondary, .btn--ghost and .icon-btn
+// all light under the cursor and .btn--primary did not. That left the five
+// loudest buttons in the game — RESUME, LOCK IT IN, INSTALL, RUN TIER N,
+// SUBMIT — in the one state a mouse reads as "disabled": pointed at, and
+// silent. It is a stylesheet-only fact, so it is read back out of the
+// stylesheet; nothing in sim/uifit hovers anything.
+//
+// THE SET IS THE PIN, not the one rule. "The primary has a hover" is a
+// declaration anybody can delete without noticing; "every button class in this
+// file has one" is the property that was actually broken, and it fails the
+// moment a fifth class arrives without one.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const cls of ["btn--primary", "btn--secondary", "btn--ghost", "icon-btn"]) {
+    check(`.${cls} responds to a cursor`,
+      new RegExp(`(^|\\n)\\.${cls}:hover\\s*\\{`).test(css), `no .${cls}:hover rule`);
+  }
+  const primary = css.match(/(^|\n)\.btn--primary:hover\s*\{[^}]*\}/)?.[0] ?? "";
+  // NO NEW COLOUR. tokens.css is the single source of truth and the primary's
+  // own fill already carries the only two stops this hover is allowed to use,
+  // so the hover may reorder them and may add a token glow — it may not name a
+  // third hex.
+  const hexes = new Set((primary.match(/#[0-9a-f]{3,8}/gi) ?? []).map((h) => h.toLowerCase()));
+  check("the primary's hover invents no colour of its own",
+    [...hexes].every((h) => h === "#38d6ff"), [...hexes].join(" "));
+  check("...and lifts with the accent glow token",
+    primary.includes("var(--glow-accent)"), primary);
+  // The hard shadow is what .btn:active translates INTO. A hover that replaced
+  // it rather than layering over it would leave the press with nowhere to go.
+  check("...without spending the hard shadow the press needs",
+    primary.includes("var(--shadow-hard)"), primary);
+  // UNGUARDED, deliberately and uniformly — see the rule's own note. A guard on
+  // one of the four would make the same finger-tap behave differently per
+  // button class, so the pin is that the file has no hover media query at all
+  // rather than that this one rule lacks one.
+  check("no hover rule in the stylesheet is pointer-guarded — one convention, not two",
+    !/@media[^{]*\(hover\s*:/.test(css),
+    css.match(/@media[^{]*\(hover\s*:[^{]*/)?.[0] ?? "");
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."

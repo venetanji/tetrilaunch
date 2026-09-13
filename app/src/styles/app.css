@@ -163,6 +163,34 @@ body.crt-off #app::after { display: none; }
   color: var(--text);
 }
 .btn--secondary:hover { border-color: var(--accent); color: var(--accent); }
+/* D5: THE PRIMARY ANSWERS A MOUSE TOO.
+   .btn--secondary (above), .btn--ghost (below) and .icon-btn have always lit
+   under the cursor; the primary never did — so RESUME, LOCK IT IN, INSTALL,
+   RUN TIER N and SUBMIT, the five loudest buttons in the game, were the only
+   ones a desktop player could point at and get no acknowledgement from. On a
+   card where the primary is the ONE button that matters, "nothing happens"
+   reads as "disabled", which is the opposite of what it is.
+
+   NO COLOUR IS INVENTED. The fill keeps the two stops it already had and runs
+   them the other way, so the button's left edge — where the eye starts — goes
+   from --accent to the lighter stop, and the lift is the existing
+   --glow-accent token laid OVER the hard shadow rather than replacing it (the
+   press still needs a shadow to translate into: .btn:active zeroes it). Both
+   properties are already in .btn's `transition` list, which is why the hover
+   fades in instead of snapping.
+
+   NOT WRAPPED IN @media (hover: hover), and that was checked rather than
+   assumed: NO hover rule in this stylesheet is guarded — not .btn--secondary,
+   not .btn--ghost, not .icon-btn, not .lic-pip--pick. One guarded rule among
+   four unguarded ones would make the same finger-tap behave differently per
+   button class, which is a worse inconsistency than the sticky hover it
+   avoids. And the sticky hover barely exists here: every .btn--primary in the
+   game commits to something, and the screen re-renders out from under the
+   latched state. */
+.btn--primary:hover {
+  background: linear-gradient(100deg, #38d6ff, var(--accent));
+  box-shadow: var(--shadow-hard), var(--glow-accent);
+}
 .btn--ghost { background: transparent; color: var(--text-dim); border-color: var(--line); box-shadow: none; }
 .btn--ghost:active { transform: none; }
 .btn--ghost:hover { color: var(--text); border-color: var(--accent); }
