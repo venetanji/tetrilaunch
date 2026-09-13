@@ -3027,15 +3027,69 @@ section("Pattern variants (contracts.ts VARIANTS)");
   // ---- THE DAY'S ALLOWANCE, SPENT (F10e) ----------------------------------
   //
   // A free account that has used its three clears meets a board of disabled
-  // cards. That screen had two defects and they compound: it offered no way to
-  // lift the limit it had just imposed — every other gate in the game answers
-  // a refusal it can sell with the paywall, the tower's locked floors included
-  // — and it said the limit lasts "today", a word that means a different thing
-  // in every timezone on a board keyed to the UTC day.
+  // cards. Three defects, and they compound.
+  //
+  // THE CARDS DID NOT LOOK SPENT. `disabled` and an aria-label was the whole
+  // state: announced to a screen reader, invisible to everyone else. The cards
+  // kept a live border, lit it on hover, and answered a tap with nothing at all
+  // — the owner's report, at Tier 3, reading "0 of 3 Contract clears left
+  // today" over three cards that still looked pressable.
+  //
+  // THE STRIP BURIED THE REFUSAL. The allowance was a bold TAIL on the salvage
+  // sentence, so the one visit where "why can I not play" is the player's only
+  // question opened with two clauses of reward copy about a clear that cannot
+  // be banked until midnight.
+  //
+  // AND THERE WAS NO WAY OUT. Every other gate in the game answers a refusal it
+  // can sell with the paywall, the tower's locked floors included; this one
+  // answered with grey cards. It also said the limit lasts "today", a word that
+  // means a different thing in every timezone on a board keyed to the UTC day.
   const capped = contractsScreen({
     contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
     allowance: { fullGame: false, remaining: 0, store: true },
   });
+  // THE CARD WEARS THE STATE. The class is the hook the stylesheet should take
+  // this over with; the inline declaration is app.css's own disabled recipe
+  // (grayscale + brightness, as the shop, refit and rack buttons all use) and
+  // pins the border back off `.contract-card:hover`, because a hover that still
+  // lights the accent is the defect in miniature.
+  const cardStart = capped.indexOf('<button class="contract-card');
+  const cappedCard = capped.slice(cardStart, capped.indexOf("</button>", cardStart));
+  check("a capped card looks capped, not merely acts capped",
+    cappedCard.includes("contract-card--capped") && cappedCard.includes("grayscale"),
+    cappedCard.slice(0, 200));
+  // …and STAYS disabled, which is what keeps the tap from starting a Contract
+  // the day cannot pay for — and, through padnav's focusTargets, what keeps a
+  // pad or a Tab from landing on one as the selected card.
+  check("...and is still refused, in the one way padnav also reads",
+    cappedCard.includes(" disabled")
+      && cappedCard.includes('aria-label="Daily Contract limit reached"'),
+    cappedCard.slice(0, 200));
+  {
+    const pad = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "padnav.ts"),
+      "utf8",
+    );
+    const targets = pad.slice(pad.indexOf("export function focusTargets"));
+    check("...which padnav really does read before offering a target",
+      /\bdisabled\)\s*return;/.test(targets.slice(0, 600)), targets.slice(0, 400));
+  }
+  // THE TERMS LINE CARRIES THE STAMP. It is the card's one full-width run, and
+  // a capped card's bay conditions describe a flight that cannot be flown.
+  check("...and the terms line says why the card is grey",
+    capped.includes(">Daily limit reached</span>"), cappedCard);
+  // THE STRIP LEADS WITH THE REFUSAL and carries nothing else: no WHY badge, no
+  // milestone arithmetic about a clear that cannot be banked today.
+  const footOf = (html: string): string => {
+    const at = html.indexOf('class="muted contracts__foot"');
+    return at < 0 ? "" : html.slice(at, html.indexOf("</p>", at));
+  };
+  check("the spent board's strip opens with the refusal",
+    /^class="muted contracts__foot"><b>Daily limit reached<\/b> — resets at 00:00 UTC\./
+      .test(footOf(capped)), footOf(capped).slice(0, 200));
+  check("...and drops the reward copy it cannot honour today",
+    !footOf(capped).includes("next-badge") && !footOf(capped).includes("first clears bank"),
+    footOf(capped).slice(0, 240));
   check("a spent allowance offers the unlock, the same door every other gate uses",
     capped.includes('data-action="paywall"'));
   // …and only where the offer can actually be opened. presentPaywall returns
@@ -3051,7 +3105,7 @@ section("Pattern variants (contracts.ts VARIANTS)");
     contractsScreen({
       contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
       allowance: { fullGame: false, remaining: 0, store: false },
-    }).includes("00:00 UTC"));
+    }).includes("Daily limit reached</b> — resets at 00:00 UTC."));
   check("...and says when the board comes back, in the day the board is keyed to",
     capped.includes("00:00 UTC"));
   // The door is the SPENT state's alone. A board with clears left is not

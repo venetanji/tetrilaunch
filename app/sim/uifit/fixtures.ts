@@ -1152,10 +1152,11 @@ export const SCREENS: Record<string, () => string> = {
     }),
   // THE DAY'S ALLOWANCE SPENT — a free account with no clears left. Its own
   // fixture because it is the only state of this screen that grows a CONTROL
-  // below the board: the foot's allowance sentence becomes the spent one (a
-  // reset time rather than a count) and an Unlock button follows it, on a
-  // screen whose three cards are already the tallest thing the layout holds.
-  // Every card is disabled here, which is also the widest the foot ever is.
+  // below the board: the WHY strip is replaced wholesale by the refusal
+  // ("Daily limit reached — resets at 00:00 UTC") with an Unlock button inside
+  // it, on a screen whose three cards are already the tallest thing the layout
+  // holds. Every card is dimmed and stamped here, and the strip's one line is
+  // the widest that strip is ever asked to be with a button in it.
   "contracts-capped": () =>
     S.contractsScreen({
       contracts: dailyContracts(3, 20_260_815),

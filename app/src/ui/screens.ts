@@ -7157,7 +7157,26 @@ export function contractsScreen(opts: {
           : paying
             ? `<span class="contract-card__state contract-card__state--pays">${salvageHTML(`+${opts.progress.milestone}`)}</span>`
             : `<span class="contract-card__state">Practice</span>`;
-      return `<button class="contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}"${capped ? ' disabled aria-label="Daily Contract limit reached"' : ""}>
+      // A CAPPED CARD LOOKS CAPPED (owner report). It carried `disabled` and an
+      // aria-label and nothing else: the whole state announced to a screen
+      // reader and none of it to anyone else. The cards kept their live border,
+      // still lit it on hover, and answered a tap with silence — which is the
+      // one thing a control must never do. `disabled` is right and stays (a tap
+      // must not start a Contract the day's allowance cannot pay for); what was
+      // missing is that the eye can see it.
+      //
+      // THE DIM IS INLINE because this stylesheet's Contracts section belongs to
+      // another change this round, and it is app.css's OWN disabled recipe
+      // rather than a new look — the same `grayscale(0.7) brightness(0.6)` the
+      // shop card's buy button, the refit card's and the rack header's all use
+      // (app.css). The border is pinned back to `--line-strong` in the same
+      // declaration, because `.contract-card:hover` lights it to `--accent` and
+      // a hover that still says "press me" is the defect in miniature. The
+      // `--capped` class is the hook the stylesheet should take this over with.
+      const cappedFace = capped
+        ? ` contract-card--capped" style="filter:grayscale(0.7) brightness(0.6);cursor:default;border-color:var(--line-strong)`
+        : "";
+      return `<button class="contract-card${done ? " contract-card--done" : ""}${cappedFace}" data-action="contract" data-slot="${i}"${capped ? ' disabled aria-label="Daily Contract limit reached"' : ""}>
         <span class="contract-card__top">
           <span class="contract-card__kind">${
             c.kind === "pattern" ? "Pattern" : c.kind === "setpiece" ? "Set Piece" : "Lines"
@@ -7181,7 +7200,11 @@ export function contractsScreen(opts: {
           <span class="contract-card__supply-lbl">${c.kind === "pattern" ? "Supply" : "Budget"}</span>
           <span class="contract-card__supply-val">${supply}</span>
         </span>
-        <span class="contract-card__brief">${c.brief}</span>
+        <!-- THE STAMP TAKES THE TERMS LINE. A capped card's bay conditions are
+             a description of a flight that cannot be flown today, and this is
+             the card's one full-width run — the only slot on it with room for
+             the sentence that explains why the card is grey. -->
+        <span class="contract-card__brief">${capped ? "Daily limit reached" : c.brief}</span>
       </button>`;
     })
     .join("");
@@ -7231,9 +7254,7 @@ export function contractsScreen(opts: {
   const allowance = opts.allowance && !opts.school
     ? opts.allowance.fullGame
       ? `<b>Full Game · unlimited Contracts</b>`
-      : spent
-        ? `<b>No Contract clears left today</b> — the board resets at 00:00 UTC`
-        : `<b>${opts.allowance.remaining} of ${DAILY_COUNT} Contract clears left today</b>`
+      : `<b>${opts.allowance.remaining} of ${DAILY_COUNT} Contract clears left today</b>`
     : "";
   // THE DOOR OUT OF THE REFUSAL. Every other gate in the game answers a locked
   // thing it can sell with the offer itself — the tower's earned-but-unentitled
@@ -7242,8 +7263,29 @@ export function contractsScreen(opts: {
   // left is refusing nothing, and an offer there would be an advertisement on a
   // screen the player came to play.
   const unlockDoor = spent && opts.allowance?.store
-    ? ` <button class="btn btn--ghost" data-action="paywall">${icon("star", 11)}Unlock Full Game</button>`
+    ? `<button class="btn btn--ghost" data-action="paywall">${icon("star", 11)}Unlock Full Game</button>`
     : "";
+  // …AND IT LEADS (owner report). It was a bold TAIL on the salvage sentence —
+  // the strip answering "what is this board for" first and "why can it not be
+  // played" fourth, on the one visit where the second question is the only one
+  // the player has. A refusal that arrives after two clauses of reward copy is
+  // a refusal the player finds by reading to the end of a line they have no
+  // reason to read.
+  //
+  // So the spent board's strip is this sentence and nothing else. The WHY copy
+  // it replaces is advice about a clear that cannot be banked until midnight,
+  // and it is not dropped for length but because it is not true today; the
+  // count it replaces ("0 of 3 left") is a readout where the player needs the
+  // two facts a readout cannot carry — when the board comes back, and what
+  // lifts the limit.
+  //
+  // A FULL STOP RATHER THAN THE STRIP'S USUAL "·": the door is a 44px button
+  // sitting in the run of text (the tap-target floor — never the thing to
+  // shrink), and a mid-sentence separator lands hard against its border.
+  // Measured on the 640x360 budget phone, where the strip is tightest.
+  const spentFoot = `<p class="muted contracts__foot"><b>Daily limit reached</b> — resets at 00:00 UTC.${
+    unlockDoor ? ` ${unlockDoor} for unlimited Contracts` : ""
+  }</p>`;
   // THE BOARD SAYS WHAT IT IS FOR, and on the on-ramp what it is for is one
   // purchase rather than a tier's quota. Three clears banking 45 toward a shelf
   // is the right answer for a player with a rig; the player who has none is
@@ -7257,7 +7299,9 @@ export function contractsScreen(opts: {
   // budget are on the card; the milestone and the price are the same two
   // figures the on-ramp strip quotes), so nothing here can promise a payout the
   // ladder does not make.
-  const foot = opts.school && opts.progress
+  const foot = spent
+    ? spentFoot
+    : opts.school && opts.progress
     ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} A <b>Contract</b> is a bay with
         <b>no clock and no launch cost</b> — fail it as often as you like, nothing is spent.
         Clear this one and it banks ${salvageHTML(opts.progress.milestone)}${
@@ -7274,7 +7318,7 @@ export function contractsScreen(opts: {
           : " — enough for your first system"
       }, and the Deep Run opens the moment one is installed. Fail free, retry free.${
         allowance ? ` ${allowance}.` : ""
-      }${unlockDoor}</p>`
+      }</p>`
     : opts.progress
     ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ${
         salvageHTML(opts.progress.milestone * opts.progress.needed)
@@ -7282,8 +7326,8 @@ export function contractsScreen(opts: {
         opts.nextInstall
           ? `, so ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)}) is waiting in the Workshop before your next run`
           : " toward the Workshop"
-      }.${allowance ? ` ${allowance}.` : ""}${unlockDoor}</p>`
-    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.${allowance ? ` ${allowance}.` : ""}${unlockDoor}</p>`;
+      }.${allowance ? ` ${allowance}.` : ""}</p>`
+    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.${allowance ? ` ${allowance}.` : ""}</p>`;
   return `<div class="screen neon-backdrop">
     <div class="contracts">
       <div class="contracts__hdr">
