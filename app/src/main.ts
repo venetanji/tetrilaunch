@@ -127,8 +127,8 @@ import {
 import { InputController } from "./game/input";
 import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
-  isPauseKey, padFamilyFromId, resetKeyBindings, resetPadBindings, setFullscreenKeys,
-  setKeyBinding, setPadBinding, setPadFamily,
+  isPauseKey, isShortcutChord, padFamilyFromId, resetKeyBindings, resetPadBindings,
+  setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
   type BindableAction, type InputProfile, type PadFamily,
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
@@ -7911,13 +7911,30 @@ class App {
     // cancels rather than binding — a pause key you can't type would strand
     // the player).
     if (this.state === "controls" && this.controlsTab === "keyboard" && this.rebinding) {
+      // ⌘S IS NOT A BINDING (bindings.ts's isShortcutChord). Capture read
+      // `e.key` alone, so holding a modifier bound the letter under it — and
+      // the modifier's OWN keydown ("Meta", "Control") bound the modifier, a
+      // key nothing can ever press on its own afterwards. Left for the shell
+      // with the row still capturing: the player's next unmodified press is
+      // the one they meant, and Escape still cancels.
+      if (isShortcutChord(e)) return;
       e.preventDefault();
       if (e.key !== "Escape") setKeyBinding(this.rebinding, e.key);
       this.rebinding = null;
       this.renderOverlay();
       return;
     }
+    // The profile follows the HARDWARE, so a chord still says "this player is
+    // on a keyboard" — but nothing below may act on it (isShortcutChord). The
+    // pause keys are P and Escape and the sandbox key is ~; none is ever typed
+    // with a modifier, and without this ⌥Escape and ⌘~ (macOS window cycling)
+    // paused the bay from behind whatever window the player switched to. The
+    // shell's OWN combos are untouched by construction: ⌃⌘F reaches this
+    // handler only after the shell has already acted on it, and there is
+    // nothing here that wanted it (bindings.ts's fullscreenKeys are labels,
+    // not a route).
     this.setProfile("keyboard");
+    if (isShortcutChord(e)) return;
     // The pause binding from the rebindable table (P by default), OR the
     // Escape alias — bindings.ts's isPauseKey, which is what the pause card
     // and the Controls screen render from, so the keys that pause and the

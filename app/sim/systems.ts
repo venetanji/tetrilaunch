@@ -19888,6 +19888,52 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     }) === 1);
   }
 
+  // THE BROWSER'S SHORTCUTS ARE NOT GAME ACTIONS (bindings.ts's
+  // isShortcutChord). Every game key is a bare letter and every bare letter is
+  // half of some shell combo, so ⌘/Ctrl+B spent a Bond Breaker charge, Ctrl+X
+  // armed a demolition and ⌘S held aim-down — the browser doing its own job
+  // at the same time, and for ⌘S swallowing the keyup that would have let the
+  // key go. Driven through the real handler rather than string-matched: the
+  // bug is that the handler read `e.key` and nothing else.
+  {
+    const key = (k: string, mods: Record<string, boolean> = {}) =>
+      send(onWindow, "keydown", { key: k, repeat: false, preventDefault: () => {}, ...mods });
+    g.bombCharges = 2;
+    g.bombArmed = false;
+    // Read through a call so the checks below state the live flag rather than
+    // the literal the line above narrowed it to.
+    const armed = (): boolean => g.bombArmed;
+    key(keyFor("demo"), { ctrlKey: true });
+    check("ctrl+X arms no demolition charge", !armed());
+    key(keyFor("demo"), { metaKey: true });
+    check("...nor does ⌘X", !armed());
+    key(keyFor("demo"));
+    check("...while the bare key still arms one", armed());
+    g.armBomb();
+    check("a ⌘-chorded fire key launches nothing",
+      fired(() => key(keyFor("fire"), { metaKey: true })) === 0);
+    // The HELD half — ⌘S leaving aim-down stuck down — needs a frame to run
+    // in, so it is pinned in the hover harness below, which pumps one.
+
+    // THE OTHER TWO DOORS A KEYPRESS COMES THROUGH are in main.ts, which this
+    // harness cannot instantiate, so they are read off the source: the
+    // app-level keydown (pause, the sandbox key) and the Controls screen's
+    // rebind capture, which must not BIND half a shortcut. Asserted as "the
+    // guard is called in both places" rather than by spelling, because the
+    // predicate itself is pinned by behaviour above.
+    {
+      const src = fs.readFileSync(
+        path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), "src", "main.ts"),
+        "utf8",
+      ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+      const globalKey = src.slice(src.indexOf("private onGlobalKey"), src.indexOf("private onKeydown"));
+      check("the app-level keydown refuses a shortcut chord before acting on it",
+        /if \(isShortcutChord\(e\)\) return;[\s\S]*?isPauseKey\(e\.key\)/.test(globalKey));
+      check("...and rebind capture refuses to bind one",
+        /this\.rebinding\) \{\s*if \(isShortcutChord\(e\)\) return;/.test(globalKey));
+    }
+  }
+
   // THE CLASSIC-WHEEL OPTION (settings.wheelRotates, the Controls toggle):
   // the wheel turns the shipment again — wheel-down clockwise, as it
   // originally shipped — and arc height moves onto the right-button chord
@@ -19983,7 +20029,12 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   const realShoot = g.shoot.bind(g);
   g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
   new InputController(canvas, () => g, undefined, () => false);
-  const frame = () => { const cb = frameCb; frameCb = null; cb?.(0); };
+  // The timestamp matters only to the HELD keys, whose nudges charge elapsed
+  // TIME rather than frames (input.ts's tickKeys over cannon.ts's
+  // NUDGE_FRAME_MS): a pump that always says 0 charges a dt of zero, which is
+  // a real frame for every target pin here and no trim at all for a key pin.
+  // Default 0 so the hover pins below read exactly as they did.
+  const frame = (ts = 0) => { const cb = frameCb; frameCb = null; cb?.(ts); };
 
   const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
     (m.get(t) ?? []).forEach((h) => h(e));
@@ -20217,6 +20268,28 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     const t = world(600, 300);
     check("...at the point it was clicked on", arcMissTo(t) <= AIM_HIT_TOL,
       `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  // ⌘S DOES NOT HOLD AIM-DOWN (bindings.ts's isShortcutChord). This is the
+  // half of the chord bug with a TAIL: the discrete actions spend themselves
+  // on the press, but the aim keys are held state read by tickKeys every
+  // frame, and ⌘S's keyup never arrives — the browser's save dialog takes
+  // focus and the release goes to it — so one accidental save used to trim the
+  // barrel downward for the rest of the bay. Pumped through real frames
+  // because "held" is a thing only a frame can observe.
+  {
+    const keyDown = (k: string, mods: Record<string, boolean> = {}) =>
+      send(onWindow, "keydown", { key: k, repeat: false, preventDefault: () => {}, ...mods });
+    const held = aim();
+    keyDown(keyFor("aimDown"), { metaKey: true });
+    frame(16);
+    frame(32);
+    check("⌘S neither trims the aim nor sticks to it", same(held));
+    // ...and the bare key is untouched, so this is a chord test rather than a
+    // handler that stopped reading the keyboard.
+    keyDown(keyFor("aimDown"));
+    frame(48);
+    check("...while a bare aim-down key still trims the barrel", !same(held));
   }
 
   delete glob.window;

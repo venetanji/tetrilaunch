@@ -128,6 +128,36 @@ export function actionForKey(key: string): BindableAction | null {
   return BINDABLE_ACTIONS.find((a) => keys[a] === k) ?? null;
 }
 
+/**
+ * Is this keypress the SHELL'S, not the bay's?
+ *
+ * Every game key in this file is a bare letter, and every one of them is also
+ * half of a browser or OS shortcut: ⌘/Ctrl+B is the bookmark bar, Ctrl+X is
+ * cut, ⌘S is save, Alt+letter opens a menu. Until this existed the key
+ * handlers read `e.key` alone, so pressing any of those spent what the letter
+ * is bound to — a Bond Breaker charge on ⌘B, an armed demolition on Ctrl+X —
+ * while the browser also did its own job and, for ⌘S, swallowed the keyup,
+ * leaving aim-down held until the player pressed S again. A chord is the one
+ * press a player makes that is provably not aimed at the bay: nobody holds ⌘
+ * to turn a shipment.
+ *
+ * SHIFT IS NOT IN HERE. Shift is a letter's own modifier rather than a
+ * shortcut prefix (the handlers already lower-case the key), so refusing a
+ * shifted letter would refuse a binding a player may have deliberately made.
+ *
+ * Consulted by every door a keypress arrives through — game/input.ts's onKey,
+ * main.ts's onGlobalKey, and the Controls screen's rebind capture, which must
+ * not BIND half a shortcut either — so the three cannot disagree about what
+ * belongs to the shell. Nothing here calls preventDefault: the chord is handed
+ * straight back to the browser, which is what keeps F11 / ⌃⌘F fullscreen and
+ * every other combo the desktop shell owns working exactly as before.
+ */
+export function isShortcutChord(e: {
+  ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean;
+}): boolean {
+  return e.ctrlKey === true || e.metaKey === true || e.altKey === true;
+}
+
 /** Bind `key` to `action`. A key can carry ONE action, so a conflict SWAPS:
  *  the action that held the key before takes this action's old key — every
  *  action stays reachable, which a silent steal would break. */

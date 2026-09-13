@@ -1,6 +1,6 @@
 import { Game } from "./game";
 import { screenToWorld } from "./render";
-import { actionForKey, keyFor } from "./bindings";
+import { actionForKey, isShortcutChord, keyFor } from "./bindings";
 import { MIN_FIRE_RATIO, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 import { WORLD } from "./engine";
 
@@ -841,6 +841,11 @@ export class InputController {
   private onKey = (e: KeyboardEvent): void => {
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
+    // A CHORD IS THE SHELL'S (bindings.ts's isShortcutChord). Before the
+    // `keys` write, not after it: ⌘S's keyup never arrives — the browser's
+    // save dialog takes focus and the window's keyup goes with it — so a
+    // recorded S would hold aim-down for the rest of the bay.
+    if (isShortcutChord(e)) return;
     const k = e.key.toLowerCase();
     this.keys.add(k);
     // Aim/power (tickKeys below) WANT the held state, so the key is recorded
