@@ -111,6 +111,41 @@ export interface PromoEvent {
   tier?: number;
   tiers?: number;
   action?: string;
+  /**
+   * PROMO-ONLY ENRICHMENT of a "clear" event: which shipment's cubes closed
+   * it, that shipment's piece type, and where its cubes sat in lineClear.ts's
+   * own wall/floor-anchored row/slot grid (row 0 = the floor, slot 0 = flush
+   * against the wall — see events.ts's rowOf/slotOf). Stamped by
+   * events.ts's stampClosingPiece, which is the only place that still has the
+   * cubes: lineClear.ts removes them from the field before Game fires
+   * anything, so the stock onLineClear payload (a line count and a grade)
+   * carries neither. Undefined for every event a plain g.update(t) produced
+   * without going through stampClosingPiece (e.g. a kind other than "clear").
+   */
+  closingType?: string;
+  closingShipment?: number;
+  closingRows?: number[];
+  closingSlots?: number[];
+  /** Did the closing shipment's cubes sit within the bottom-right corner
+   *  (rows 0-1, slots 0-2 — events.ts's CORNER_MAX_ROW/CORNER_MAX_SLOT)? */
+  bottomRight?: boolean;
+}
+
+/** The precision beat's decisive moment, precisely: a two-row clear the LAST
+ *  shipment closed with a T or S piece (the two shapes whose own footprint is
+ *  exactly two rows tall — theme.ts's PIECE_SHAPES), sitting in the
+ *  bottom-right corner when it went (rows 0-1, slots 0-2 — see events.ts's
+ *  stampClosingPiece). Does NOT require the piece's own footprint to span
+ *  both cleared rows: a joint can break on landing (pieces.ts's breakable
+ *  joints) and scatter a shipment's four cubes across a row on their own, and
+ *  a piece closing ONE row of a double the press's own grind completed on the
+ *  same step (lineClear.ts's settleZoneCubes) is still, honestly, a T or S
+ *  piece that closed a double in the corner — measured (scratch seed sweep):
+ *  requiring the full footprint made an already-rare event nearly
+ *  unreachable inside a beat's own seed search. */
+export function isCornerDouble(e: PromoEvent): boolean {
+  return e.kind === "clear" && e.lines === 2 && !!e.bottomRight
+    && (e.closingType === "T" || e.closingType === "S");
 }
 
 /**
@@ -282,21 +317,38 @@ export const BEATS: Record<string, BeatDef> = {
   },
   precision: {
     id: "precision",
-    seedSearch: { from: 20260117, count: 24, criterion: "done" },
+    // 20260117 is the seed the beat was ORIGINALLY tuned on (an excellent
+    // single). The owner's spec is stricter — a T or S double, closed in the
+    // bottom-right corner (isCornerDouble) — and it is RARE with this
+    // bot/config, and node's own guess at a seed does not carry over: a
+    // node-side sweep (scratchpad, not committed) walked ~1200 seeds from
+    // 20260117 and found a handful of T/S doubles in the corner, but NONE of
+    // them reproduced in Chromium — node and the browser WILL diverge by the
+    // ~2000th step a corner double this late in a bay needs (run.ts's
+    // header: "after a few hundred steps of a chaotic pile"). The seed below
+    // (20260899) is the one an in-BROWSER sweep found instead — the 783rd
+    // seed tried from 20260117, `npx tsx sim/promo/run.ts --beat=precision
+    // --seeds=1500` — verified: a T piece closes the double at 37.68s, row 1
+    // slot 0 (flush against the wall). Set as `from` so it is tried first,
+    // per every other beat's own convention, with enough count that a
+    // Chromium version this seed does NOT reproduce on still has somewhere
+    // to walk to; `--seeds=N` raises it further for a one-off search.
+    seedSearch: { from: 20260899, count: 60, criterion: "done" },
     card: "IT TAKES SKILL.",
     phases: [{
       kind: "bay",
-      config: { tier: 3, seed: 20260117, tiers: { bonds: 1 }, funds: 900 },
+      config: { tier: 3, seed: 20260899, tiers: { bonds: 1 }, funds: 900 },
       // The `excellent` policy holds each shot for the press's 100ms window
-      // (grades.ts). On this seed its stamp lands at ~33.5s. A two-row clear
-      // was in the brief as well; the sim's pilots almost never produce one
-      // alongside an excellent stamp inside a beat, so the stamp alone ends it
-      // and a two-row clear is a bonus when it happens.
+      // (grades.ts) — still the most accurate pilot in sim/, and the one an
+      // "IT TAKES SKILL" card should be flown by. It was never aimed at a
+      // corner or a shape; isCornerDouble is a property of the seed (the
+      // piece sequence and the pile it builds), which is what the search
+      // below walks for.
       bot: { preset: "aim", strategy: "excellent", seed: 14 },
       maxSec: 45,
-      tailSec: 1.4,
+      tailSec: 1.6,
       leadSec: 8,
-      done: (_st, ev) => ev.some((e) => e.kind === "stamp" && e.grade === "excellent"),
+      done: (_st, ev) => ev.some(isCornerDouble),
     }],
   },
   slip: {

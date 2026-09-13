@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { readdirSync, existsSync } from "node:fs";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import {
-  BEATS, BEAT_ORDER, PROMO_DT, SCENES, STORE_META, STORE_SIZES,
+  BEATS, BEAT_ORDER, isCornerDouble, PROMO_DT, SCENES, STORE_META, STORE_SIZES,
   type BayConfig, type BayPhase, type BeatDef, type BotSpec, type DomPhase,
   type PromoEvent, type PromoStatus, type SceneDef, type StoreSize,
 } from "./beats";
@@ -383,13 +383,25 @@ async function openDriver(
     tick: (frames) => time(timing, "skip", () => page.evaluate(([n, dt]) => window.__tick(n, dt), [frames, CLOCK_DT] as const)),
     shot: () => time(timing, "png", async () => {
       trace2("shot");
-      const capture = cdp.send("Page.captureScreenshot", { format: "png", optimizeForSpeed: true });
-      const r = await Promise.race([capture, sleep(20_000).then(() => null)]);
-      if (r === null) {
-        // A capture that has not returned in 20s is a stalled compositor,
-        // not a slow one. Ask the page what it is waiting on, then nudge the
-        // stylesheet's clock by a hair: a frame parked behind an animation
-        // start that is scheduled on virtual time needs time to move.
+      // A capture that has not returned in 20s is a STALLED COMPOSITOR, not a
+      // slow one — measured on the `climb` beat's paused-bay-plus-modal DOM
+      // phase (a truly static frame: no canvas draw loop, no CSS animation,
+      // nothing for Chromium to schedule a recomposite over), where a single
+      // nudge-and-re-await of the SAME in-flight command left the run hung
+      // indefinitely rather than recovering — the original CDP command can be
+      // wedged for good, so retrying has to mean a FRESH `captureScreenshot`
+      // call, not a second wait on the one that already isn't answering.
+      // Nudging virtual time before each retry is what has a chance of
+      // waking the compositor up at all; several small nudges recover cases a
+      // single one does not.
+      for (let attempt = 0; ; attempt++) {
+        const capture = cdp.send("Page.captureScreenshot", { format: "png", optimizeForSpeed: true });
+        const r = await Promise.race([capture, sleep(20_000).then(() => null)]);
+        if (r !== null) {
+          if (attempt > 0) console.log(`  · capture completed on retry ${attempt}`);
+          trace2("shot done");
+          return Buffer.from(r.data, "base64");
+        }
         const state = await Promise.race([
           page.evaluate(() => ({
             fonts: document.fonts.status,
@@ -399,17 +411,37 @@ async function openDriver(
           })),
           sleep(5_000).then(() => "silent" as const),
         ]);
-        console.log(`  ⚠ screenshot has taken 20s; page: ${JSON.stringify(state)}`);
+        console.log(`  ⚠ screenshot has taken 20s (attempt ${attempt + 1}/5); page: ${JSON.stringify(state)}`);
+        if (attempt >= 4) {
+          console.log("  ✗ capture still stalled after 5 attempts — giving up on this frame");
+          throw new Error("screenshot capture stalled: compositor produced no frame after 5 nudged retries");
+        }
+        // A page with nothing animating (no CSS transition, no canvas draw
+        // loop under the shimmed rAF) can leave Chromium's compositor with no
+        // dirty region to recomposite, ever — a plain virtual-time nudge is
+        // for a frame parked behind a scheduled animation start, which this
+        // is not. HeadlessExperimental.beginFrame asks the compositor to
+        // produce exactly one frame regardless of whether anything is
+        // "dirty"; harmless to try and ignored if this Chromium build has no
+        // such domain (old-headless only).
+        await cdp.send("HeadlessExperimental.beginFrame" as never, {} as never).catch(() => {});
         await advance(0.1);
-        const r2 = await Promise.race([capture, sleep(10_000).then(() => null)]);
-        console.log(r2 ? "  · capture completed after the nudge" : "  ✗ capture still stalled after the nudge");
-        return Buffer.from((r2 ?? await capture).data, "base64");
       }
-      trace2("shot done");
+    }),
+    // The JPEG twin is best-effort — only the per-beat PREVIEW webm wants it
+    // (muxWebm's image2pipe fallback for an ffmpeg that cannot decode PNG),
+    // never the frames assemble.ts cuts the real trailer from — so unlike
+    // shot() this does not retry a stall, it just gives up after 15s: a page
+    // whose PNG capture is fine but whose JPEG one hangs (observed on the
+    // same static DOM phases shot() itself needs nudged retries for) must
+    // not be allowed to wedge the whole run over a frame nothing downstream
+    // but a preview actually needs.
+    jpeg: () => time(timing, "jpeg", async () => {
+      const capture = cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 92 });
+      const r = await Promise.race([capture, sleep(15_000).then(() => null)]);
+      if (r === null) throw new Error("jpeg screenshot stalled (15s)");
       return Buffer.from(r.data, "base64");
     }),
-    jpeg: () => time(timing, "jpeg", async () =>
-      Buffer.from((await cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 92 })).data, "base64")),
     snapshot: () => time(timing, "poll", async () => {
       const r = await page.evaluate((c) => window.__promo.snapshot(c), cursor);
       cursor = r.cursor;
@@ -452,6 +484,11 @@ interface BeatJson {
     index: number; kind: string; startFrame: number; endFrame: number;
     config?: BayConfig; bot?: BotSpec | null; captureFromMs?: number; doneAtMs?: number | null;
     show?: DomPhase["show"];
+    /** Set when this dom phase's compositor stalled partway through its hold
+     *  (see runDomPhase) — the frame index from which every frame is a
+     *  repeat of the last one `push` actually captured, rather than a fresh
+     *  screenshot. Undefined for a phase that captured cleanly throughout. */
+    frozeAtFrame?: number;
   }>;
   events: StampedEvent[];
   notable: Record<string, number[]>;
@@ -474,18 +511,66 @@ const NOTABLE: Record<string, (e: PromoEvent) => boolean> = {
   bayClear: (e) => e.kind === "bayclear",
   loss: (e) => e.kind === "loss",
   buzzer: (e) => e.kind === "buzzer",
+  cornerDouble: isCornerDouble,
 };
 
 class FrameSink {
   private pending: Promise<void>[] = [];
+  private lastPng: Buffer | null = null;
+  private lastJpeg: Buffer | null = null;
   count = 0;
   constructor(private dir: string, private jpegDir: string | null) {}
-  /** One frame to disk: the PNG, and its JPEG twin when the mux needs one. */
+  /** Forget the last captured frame — call once per DOM phase, before its
+   *  hold loop, so a phase whose OWN first frame stalls can never fall back
+   *  to `repeat()`-ing a DIFFERENT phase's last screenshot (see
+   *  runDomPhase): that would silently show the wrong screen for a whole
+   *  hold rather than the honest "this phase captured nothing" its caller
+   *  can act on. */
+  resetRepeat(): void { this.lastPng = null; this.lastJpeg = null; }
+  /** One frame to disk: the PNG, and its JPEG twin when the mux needs one.
+   *
+   *  `count` is committed only once `d.shot()` has actually returned a PNG —
+   *  not claimed up front — so a shot that throws (the stalled-compositor
+   *  failure `runDomPhase` catches) leaves no numbered gap in the sequence on
+   *  disk: the next attempt, whether a retry or `repeat()`'s fallback, reuses
+   *  the SAME index rather than skipping one ffmpeg's `%06d.png` pattern
+   *  would then never find. */
   async push(d: Driver): Promise<number> {
+    const idx = this.count;
+    const name = String(idx).padStart(6, "0");
+    const png = await d.shot();
+    this.lastPng = png;
+    this.count = idx + 1;
+    this.pending.push(writeFile(resolve(this.dir, `${name}.png`), png));
+    if (this.jpegDir) {
+      // Best-effort: a stalled jpeg (see Driver.jpeg) costs this one frame
+      // in the PREVIEW webm only — never the PNG the real trailer is cut
+      // from, already queued above — so it is skipped, not fatal.
+      try {
+        const jpeg = await d.jpeg();
+        this.lastJpeg = jpeg;
+        this.pending.push(writeFile(resolve(this.jpegDir, `${name}.jpg`), jpeg));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.log(`  ⚠ jpeg twin for frame ${idx} skipped: ${msg}`);
+      }
+    }
+    if (this.pending.length >= 16) { await Promise.all(this.pending); this.pending = []; }
+    return idx;
+  }
+  /** Write the LAST successfully captured frame again, without asking
+   *  Chromium for a new one — the fallback for a DOM hold whose compositor
+   *  stalls partway through (see runDomPhase): a screen `push` has already
+   *  shown not to be changing is honestly represented by repeating the frame
+   *  it already produced, and every consumer downstream (the webm mux, the
+   *  contact sheet, assemble.ts) only ever wants a contiguous PNG sequence of
+   *  the count the beat promised, not an early, silently short one. */
+  async repeat(): Promise<number> {
+    if (!this.lastPng) throw new Error("FrameSink.repeat() called before any frame was captured");
     const idx = this.count++;
     const name = String(idx).padStart(6, "0");
-    this.pending.push(writeFile(resolve(this.dir, `${name}.png`), await d.shot()));
-    if (this.jpegDir) this.pending.push(writeFile(resolve(this.jpegDir, `${name}.jpg`), await d.jpeg()));
+    this.pending.push(writeFile(resolve(this.dir, `${name}.png`), this.lastPng));
+    if (this.jpegDir && this.lastJpeg) this.pending.push(writeFile(resolve(this.jpegDir, `${name}.jpg`), this.lastJpeg));
     if (this.pending.length >= 16) { await Promise.all(this.pending); this.pending = []; }
     return idx;
   }
@@ -585,6 +670,7 @@ async function runBayPhase(
 
 async function runDomPhase(d: Driver, phase: DomPhase, index: number, sink: FrameSink, json: BeatJson): Promise<void> {
   const startFrame = sink.count;
+  sink.resetRepeat();
   const show = phase.show;
   trace(`dom phase ${index}: ${JSON.stringify(show).slice(0, 80)}`);
   if ("fixture" in show) {
@@ -622,14 +708,32 @@ async function runDomPhase(d: Driver, phase: DomPhase, index: number, sink: Fram
   }
   const frames = Math.round(phase.holdSec * FPS);
   trace(`holding ${frames} frames`);
+  // A screen with nothing animating on it (no canvas draw loop, no CSS
+  // transition — a DOM fixture or a frozen bay under one) can leave
+  // Chromium's compositor with no dirty region to ever recomposite again,
+  // here, after the first couple of captures (measured on `climb`'s
+  // paused-bay-plus-modal and workshop-state phases; shot()'s own nudged
+  // retries do not recover it). Once that happens the screen has already
+  // PROVEN it is not changing, so the honest and much cheaper way to fill
+  // the rest of the hold is to repeat the last frame `push` did manage
+  // rather than keep asking a compositor that has stopped answering.
+  let frozen = false;
   for (let f = 0; f < frames; f++) {
+    if (frozen) { await sink.repeat(); continue; }
     if (f < 3) trace(`frame ${f}: css advance`);
     await d.frame(f >= 3 || undefined);
     if (f < 3) trace(`frame ${f}: ticked`);
-    await sink.push(d);
+    try {
+      await sink.push(d);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log(`  ⚠ dom phase ${index} stalled at frame ${f}/${frames}; repeating its last frame for the rest: ${msg}`);
+      frozen = true;
+      await sink.repeat();
+    }
     if (f < 3) trace(`frame ${f}: filmed`);
   }
-  json.phases.push({ index, kind: "dom", startFrame, endFrame: sink.count - 1, show });
+  json.phases.push({ index, kind: "dom", startFrame, endFrame: sink.count - 1, show, frozeAtFrame: frozen ? sink.count : undefined });
 }
 
 /** Every 30th frame, tiled — a glance at the whole beat. Built as a page of
@@ -765,7 +869,23 @@ async function runBeat(browser: Browser, base: string, beat: BeatDef): Promise<v
         json.preroll = { ...(json.preroll ?? {}), phases: [...prior, { phase: i, prerollDoneMs: lead.doneMs, browserDoneMs: browserDone, match }] };
         if (!match) console.log(`  ⚠ browser bay diverged from the preroll (preroll ${lead.doneMs}ms, browser ${browserDone}ms)`);
       } else {
-        await runDomPhase(d, p, i, sink, json);
+        // A DOM phase can hit the stalled-compositor failure mode shot()
+        // gives up on after 5 nudged retries (measured on `climb`'s paused-
+        // bay-plus-modal phase: a genuinely static frame Chromium never
+        // recomposites, in this environment, no matter how it is reached —
+        // frozen via menu state or paused for real, both tried). One phase
+        // failing to capture is not a reason to lose every phase around it —
+        // OTHER beats, and this beat's OTHER phases, still have a story to
+        // tell — so it is logged and skipped rather than thrown, and
+        // `json.phases` records the gap for assemble.ts and the report to see.
+        const beforeCount = sink.count;
+        try {
+          await runDomPhase(d, p, i, sink, json);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.log(`  ✗ dom phase ${i} failed to capture (kept ${sink.count - beforeCount} of its frames), skipping the rest: ${msg}`);
+          json.phases.push({ index: i, kind: "dom", startFrame: beforeCount, endFrame: sink.count - 1, show: p.show });
+        }
       }
     }
   } finally {

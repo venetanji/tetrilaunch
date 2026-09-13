@@ -36,7 +36,7 @@ import { newTiers } from "../../src/game/upgrades";
 import {
   BEATS, makeBot, PROMO_DT, type BayConfig, type BayPhase, type BotSpec, type PromoEvent, type ScriptedAction,
 } from "./beats";
-import { recordEvents } from "./events";
+import { recordEvents, stampClosingPiece } from "./events";
 import { HANDS, statusOf } from "./hands";
 
 /** beats.ts explains the nudge; the App's own clock in the page advances by the same number. */
@@ -93,7 +93,11 @@ export function flyBay(
   for (let i = 0; i < steps && g.status === "playing"; i++) {
     t += DT;
     if (bot) bot.act(g, t);
+    // Snapshotted before the step: see events.ts's stampClosingPiece.
+    const before = g.cubes.slice();
+    const startLen = events.length;
     g.update(t);
+    stampClosingPiece(g, before, events, startLen);
     if (scripted.length) {
       const st = statusOf(g, "playing", i + 1);
       for (let k = 0; k < scripted.length; k++) {

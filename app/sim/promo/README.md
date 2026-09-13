@@ -82,7 +82,7 @@ preroll running in the page.
 | id | bay | pilot | ends on |
 |---|---|---|---|
 | plan | Tier 1, stock | `patient` | 2nd line clear |
-| precision | Tier 3, Bond Emitter | `aim` + `excellent` policy | an "excellent" stamp |
+| precision | Tier 3, Bond Emitter | `aim` + `excellent` policy | a T or S piece closing a double in the bottom-right corner (`isCornerDouble`, beats.ts) |
 | slip | Tier 5, Crosswind ×2, slag ×1 | `impatient` + slip handicap | first congestion rung ("warn") |
 | improvise | Tier 7, Demolition Rack T2 + Thaw Lance, cryo ×2 + volatile ×2 | `demo` + `lance` policy, scripted bomb & thaw | a clear after the blast |
 | luck | Tier 6, clock ×3 | `aim`; seed searched for a lucky last clear at the buzzer | the buzzer |

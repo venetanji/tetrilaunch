@@ -37,7 +37,7 @@ import type { SandboxState } from "../../src/game/sandbox";
 import { newTiers } from "../../src/game/upgrades";
 import type { MetaState } from "../../src/game/meta";
 import { BEATS, makeBot, type BayConfig, type BayPhase, type BotSpec, type PromoEvent, type PromoStatus } from "./beats";
-import { recordEvents } from "./events";
+import { recordEvents, stampClosingPiece } from "./events";
 import { HANDS, statusOf } from "./hands";
 import { buildBay, doneAtMs, findDoneSeed, findLuckySeed, flyBay, type FlightLog, type LuckResult } from "./preroll";
 
@@ -88,7 +88,12 @@ function hook(g: Game): void {
   (g as { update: Game["update"] }).update = (t: number) => {
     steps += 1;
     if (pilot && g.status === "playing") pilot.act(g, t);
+    // Snapshotted BEFORE the real update: see events.ts's stampClosingPiece
+    // on why the cubes a clear removes have to be caught on the way out.
+    const before = g.cubes.slice();
+    const startLen = events.length;
     update(t);
+    stampClosingPiece(g, before, events, startLen);
   };
 }
 
