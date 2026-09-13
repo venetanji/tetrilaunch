@@ -198,13 +198,31 @@ export async function autoEnterFullscreenForRun(): Promise<void> {
   await requestFullscreen();
 }
 
-/** Whether haptics can DO anything here: the native shells always can
- *  (Capacitor Haptics), the web only where navigator.vibrate exists — which
- *  iOS Safari and the iOS PWA do not have. The Settings screen hides the
- *  toggle when this is false, because a switch that can never do anything is
- *  a broken promise, not an option. */
+/**
+ * Whether haptics can DO anything here. The Settings screen hides the toggle
+ * when this is false, because a switch that can never do anything is a broken
+ * promise, not an option.
+ *
+ * THE NATIVE SHELLS ALWAYS CAN — Capacitor Haptics goes straight to the
+ * platform's own engine — so they are answered first and unconditionally.
+ *
+ * D11: ON THE WEB, `navigator.vibrate` IS NOT THE QUESTION. It was the whole
+ * test here, and on the one platform this app also ships a desktop build to it
+ * is not even a hint: Chromium DEFINES navigator.vibrate on Windows, macOS and
+ * Linux, where it is a no-op. So the desktop shell drew a "Haptics —
+ * Vibration feedback on mobile" row, on a machine with no vibrator, wired to
+ * nothing — an option that cannot be exercised, describing a device the player
+ * is not holding.
+ *
+ * The honest web test is the DEVICE, and a coarse primary pointer is what
+ * "a phone or tablet" means in CSS — the same `(pointer: coarse)` question
+ * autoEnterFullscreenForRun already trusts, and the mirror of the
+ * `(pointer: fine)` switch app.css treats as structural. Both halves are
+ * required: iOS Safari and the iOS PWA are coarse and have no vibrate at all,
+ * which is the case this predicate was originally written for.
+ */
 export function hapticsSupported(): boolean {
-  return isNative || typeof navigator.vibrate === "function";
+  return isNative || (typeof navigator.vibrate === "function" && isCoarsePointer());
 }
 
 export async function tapHaptic(): Promise<void> {

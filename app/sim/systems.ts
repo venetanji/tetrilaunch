@@ -191,6 +191,10 @@ import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devm
 import { InputController, wheelNotch } from "../src/game/input";
 import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
+// The one platform predicate this harness can answer without a browser: what
+// Settings asks before drawing the haptics switch (D11's section, at the foot
+// of this file, stubs `window`/`navigator` around it).
+import { hapticsSupported } from "../src/lib/platform";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 // The uifit device matrix, read as DATA by the safe-area/zoom premise check
@@ -28364,6 +28368,73 @@ section("The tower answers a cursor, and its plinth is a desktop target (D6)");
     /--tower-pad:\s*3px;/.test(tokens) && /--tower-gap:\s*2px;/.test(tokens)
       && /--tower-lobby-h:\s*22px;/.test(tokens) && /--tower-floors:\s*11;/.test(tokens),
     tokens.replace(/\s+/g, " ").slice(0, 220));
+}
+
+// ---------------------------------------------------------------------------
+section("The haptics switch only exists where something can buzz (D11)");
+// ---------------------------------------------------------------------------
+// `navigator.vibrate` IS NOT THE QUESTION, and on the one platform this app
+// also ships a desktop shell to, it is not even a hint: Chromium defines
+// navigator.vibrate on Windows, macOS and Linux, where it is a no-op. So
+// Settings drew a "Haptics — Vibration feedback on mobile" row, on a desktop,
+// wired to nothing — an option that cannot be exercised, describing a device
+// the player is not holding.
+//
+// THE HONEST TEST IS THE DEVICE, and it has two halves because the app has two
+// kinds of build. A native shell always can (Capacitor Haptics goes to the
+// platform's own engine). On the web the question is whether this is a device
+// with a vibrator, which is what a COARSE PRIMARY pointer means — the same
+// `(pointer: coarse)` autoEnterFullscreenForRun already trusts, and the mirror
+// of `(pointer: fine)`, which is structural in app.css.
+//
+// Stubbed rather than mocked: `hapticsSupported` reads two live globals and
+// this restores both, so the pin exercises the shipped function.
+{
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevWin = Object.getOwnPropertyDescriptor(glob, "window");
+  const prevNav = Object.getOwnPropertyDescriptor(glob, "navigator");
+  // Node defines `navigator` as a getter with no setter, so a plain assignment
+  // throws under ESM's strict mode. defineProperty is the only way in, and the
+  // saved descriptor is the only way back out.
+  const put = (name: string, value: unknown): void => {
+    Object.defineProperty(glob, name, { value, configurable: true, writable: true });
+  };
+  const stub = (vibrate: boolean, pointer: "coarse" | "fine"): void => {
+    put("navigator", vibrate ? { vibrate: () => true } : {});
+    put("window", {
+      matchMedia: (q: string) => ({ matches: q.includes(`pointer: ${pointer}`) }),
+    });
+  };
+  try {
+    stub(true, "fine");
+    check("a desktop browser with a dead navigator.vibrate gets no switch",
+      hapticsSupported() === false, "the toggle still renders on a fine pointer");
+    stub(true, "coarse");
+    check("a phone browser that can vibrate gets one", hapticsSupported() === true);
+    // iOS Safari and the iOS PWA: a coarse pointer and no vibrate at all. The
+    // original reason this predicate exists, and it must survive the new half.
+    stub(false, "coarse");
+    check("a phone browser with no vibrate at all still gets none",
+      hapticsSupported() === false);
+    // The native shells are answered by `isNative` before either global is
+    // consulted, so the web halves above can never take the toggle away from
+    // an Android or iOS build. Pinned from source: Capacitor reports "web"
+    // in this process, so there is no way to make isNative true here.
+    const platformSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "platform.ts"),
+      "utf8",
+    );
+    check("the native shells are answered first, and unconditionally",
+      /export function hapticsSupported\(\): boolean \{\s*\n\s*return isNative \|\|/.test(platformSrc),
+      platformSrc.slice(platformSrc.indexOf("export function hapticsSupported"), 200));
+    check("...and the web half asks the pointer, not just the API",
+      /export function hapticsSupported\(\)[\s\S]{0,200}?isCoarsePointer\(\)/.test(platformSrc));
+  } finally {
+    if (prevWin) Object.defineProperty(glob, "window", prevWin);
+    else delete glob.window;
+    if (prevNav) Object.defineProperty(glob, "navigator", prevNav);
+    else delete glob.navigator;
+  }
 }
 
 console.log(
