@@ -1019,6 +1019,27 @@ export const SCREENS: Record<string, () => string> = {
       brief: DRILLS["mat-cryo"].brief,
     }),
   settings: () => S.settingsScreen(SETTINGS, STORE),
+  // THE FOURTH TOGGLE ROW, which the fixture above can never draw.
+  //
+  // Tier S is behind a nine-tap door, so `devMode` is false in SETTINGS and in
+  // every other settings literal in the repo — which means the one state that
+  // makes this screen taller was measured on no device. It is not a rare
+  // state: the door is one-way in the sense that matters here, because the
+  // only way back OUT of the mode is this row (screens.ts's note), so every
+  // player who has ever found it sees four toggles on every visit.
+  //
+  // Arithmetic, not preference: a `.setting` row is at least --tap-min (44px)
+  // plus 14px of padding either side and a 1px rule, and the toggles column
+  // carries `gap: var(--sp-2)` between them. Four of those is 393px against
+  // the ~322px a 360px-tall landscape phone leaves under the modal's header —
+  // and `.settings__toggles` is not on run.ts's ALLOWED_SCROLLERS and has no
+  // `overflow-y` of its own, so the overflow had nowhere to go.
+  //
+  // Haptics on, because the fourth row only exists on top of the third: this
+  // screen hides Haptics where navigator.vibrate is missing (iOS Safari, the
+  // iOS PWA), so the tall face is a four-row one and that is what the harness
+  // has to fit.
+  "settings-dev": () => S.settingsScreen({ ...SETTINGS, devMode: true }, STORE),
   // The account screen's signed-in face, and the deletion notice over it — the
   // pair main.ts renders for the "account-delete" state. Measured because the
   // notice is a NEW modal and every new modal has to fit the whole device

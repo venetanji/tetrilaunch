@@ -7358,6 +7358,53 @@ body.crt-off #app::after { display: none; }
   display: flex; flex-direction: column; gap: var(--sp-2);
   justify-content: flex-end;
 }
+/* THE FOURTH TOGGLE, and why this tier exists at all.
+   Tier S's row is only rendered once the nine-tap door has been found
+   (screens.ts's settingsScreen), and because it is the only way back OUT of
+   the mode it is then on screen every single visit. Nothing in the harness had
+   ever drawn it — every Settings literal in the repo pins `devMode: false` —
+   so the state was measured nowhere until `settings-dev` (sim/uifit/fixtures).
+   With it, this column asked for 393px in the ~322px a 360dp landscape phone
+   leaves under the modal's header, and overflowed on TEN of the nineteen rows:
+   68px on the 640x360 budget phone, 60px on the iPhone 13 mini, 55px on the SE
+   3, down to 5px on a Pixel 7.
+   NOT A SCROLLER, and the arithmetic is the reason rather than taste. The
+   allowlist in sim/uifit/run.ts is for panes with more STOCK than screen — a
+   leaderboard, a shop with seven 44px BUY buttons in a 200px shelf — and four
+   switches is not that: at the tap floor they are 4x44 plus three gaps, i.e.
+   200px, in 322. The column was not too long, its ROWS were too tall: 14px of
+   padding either side of a 16px label over a 14px sentence that wrapped, which
+   is a `roomy` row's proportions rendered on a phone.
+   So the rows come down to their tap floor and the column packs two-up where
+   there is width for it. `auto-fit` rather than a hard two columns because the
+   compact tier spans a 304px column (640x360) to a 422px one (OnePlus 12) and
+   a forced second column on the narrow end would leave each label ~64px, i.e.
+   a five-line sentence beside a switch. At the 190px floor the three narrowest
+   phones stay one column and get their fit from the row height alone, which is
+   where the overflow actually was. Dressed as cards (the same treatment
+   `.controls__pane .setting` already gives a `.setting` inside a grid), since
+   a bottom rule reads as a separator only in a single column. */
+[data-density="compact"] .settings__toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-content: start;
+}
+[data-density="compact"] .settings__toggles .setting {
+  gap: var(--sp-2);
+  padding: 5px 10px;
+  border-bottom: none;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.03);
+}
+/* The label keeps both lines — what a switch does is the one thing a settings
+   row is for, and the workshop's shelf already records what cutting the
+   sentence costs. It is the SIZE that gives, down to the same 14/11 pair the
+   compact tier uses everywhere else. */
+[data-density="compact"] .settings__toggles .setting__label b { font-size: 14px; }
+[data-density="compact"] .settings__toggles .setting__label span {
+  font-size: 11px; line-height: 1.25;
+}
 
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
