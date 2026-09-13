@@ -2437,7 +2437,8 @@ export function controlsScreen(opts: {
    *  mapping (gamepad.ts's nonStandardPad). Optional and false by default:
    *  the overwhelming case is a pad the browser knows, and a screen rendered
    *  without the fact should say nothing rather than warn on a guess. */
-  padNonStandard?: boolean;  /** The action currently capturing a rebind, if any. */
+  padNonStandard?: boolean;
+  /** The action currently capturing a rebind, if any. */
   rebinding: BindableAction | null;
 }): string {
   const tabBtn = (id: ControlsTab, label: string) =>

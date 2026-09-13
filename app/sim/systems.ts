@@ -7487,6 +7487,40 @@ section("The dial collapse (screens.ts collapsingDial + app.css)");
     check("reduced motion still names the dial, in danger red, without moving",
       /prefers-reduced-motion[\s\S]*\.dial-collapse \.v \{[\s\S]*animation:\s*none[\s\S]*var\(--danger\)/.test(block),
       block.slice(-240).trim());
+
+    // --- and the bay underneath answers nothing while the hold runs ---------
+    // THE THIRD FILE IN THE SAME FACT. setState drops the overlay's
+    // pointer-events for the length of this hold and says, in a comment, that
+    // taps are refused for the beat — but `.side-rail .icon-btn` opts back IN
+    // (that is what makes the rail clickable through an overlay that is `none`
+    // for the whole of play), so the inline style never reached the one row of
+    // controls still on screen. The ability triggers and ⏸ test the app state
+    // and were dead anyway; the rail's fullscreen toggle tests nothing, so a
+    // tap on it re-solved the entire layout underneath the collapse this hold
+    // exists to let finish. The pad has refused presses here since its own
+    // guard went in, which is the asymmetry that gives this one its shape.
+    //
+    // READ OFF THE SOURCE because main.ts needs a DOM to instantiate. Two
+    // claims: the CSS really does re-enable those buttons (so the inline style
+    // cannot be trusted to cover them), and the click handler carries the
+    // guard the pad handler already had.
+    check("the rail's buttons are clickable through a pointer-events:none overlay",
+      /\.side-rail \.icon-btn \{\s*pointer-events:\s*auto/.test(css));
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const onClick = mainSrc.slice(mainSrc.indexOf("private onClick = "));
+    check("...so the click handler refuses every action while the bay is dead",
+      /^[\s\S]{0,2400}?if \(this\.endScrimTimer !== null\) return;/.test(onClick));
+    // BOTH DOORS. The rail's own presses act on pointerdown, not on click —
+    // that is where the Autoloader's burst, Bond Breaker's hold and ⏸'s
+    // hold-to-restart start — so a guard on onClick alone would still let a
+    // 400ms hold on ⏸ restart the bay underneath the modal about to report it
+    // lost.
+    const onDown = mainSrc.slice(mainSrc.indexOf("private onGamePointerDown = "));
+    check("...and so does the rail's own pointerdown handler",
+      /^[\s\S]{0,1200}?if \(this\.endScrimTimer !== null\) return;/.test(onDown));
   }
 }
 
@@ -19077,7 +19111,6 @@ section("A pad names itself before anything renders its labels (gamepad.ts)");
   // a player opens to find out why nothing is happening.
   check("...and nothing connected raises no mapping notice either",
     !pad.nonStandardPad());
-
 
   setPadFamily(null);
   if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);

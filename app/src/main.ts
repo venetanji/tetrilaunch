@@ -8126,6 +8126,22 @@ class App {
   private onClick = (e: MouseEvent): void => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-game],[data-toggle]");
     if (!el) return;
+    // THE DEAD BAY ANSWERS NOTHING, for the pointer as it already does for the
+    // pad (onPadUiButton's identical guard). setState drops the overlay's
+    // pointer-events for the length of the run-end hold and says so in a
+    // comment — but `.side-rail .icon-btn` opts back IN (app.css), which is
+    // what makes the rail's buttons clickable through a `none` overlay in the
+    // first place, so the inline style never reached them. The ability
+    // triggers and ⏸ were dead anyway (onGameAction and pause both test
+    // state), which left exactly one live control on a bay that had already
+    // ended: the rail's fullscreen toggle, re-solving the whole layout
+    // underneath the dial collapse the hold exists to let finish.
+    //
+    // CONSUMED, NOT DEFERRED, for the pad guard's own reason: the buttons that
+    // should answer a press here have not mounted yet, and queueing one for
+    // replay would land it on the run-end modal's primary action — a loss
+    // screen dismissing itself before the player has read a word of it.
+    if (this.endScrimTimer !== null) return;
 
     const toggle = el.getAttribute("data-toggle");
     if (toggle) { this.onToggle(toggle, el); return; }
@@ -8898,6 +8914,13 @@ class App {
   }
 
   private onGamePointerDown = (e: PointerEvent): void => {
+    // The same refusal onClick makes, at the other door. The rail moved its
+    // presses to pointerdown, so this handler — not onClick — owns the
+    // Autoloader's burst, Bond Breaker's hold and ⏸'s hold-to-restart, and
+    // during the run-end hold every one of them is a gesture on a bay that has
+    // already ended: a 400ms hold on ⏸ would restart the bay out from under
+    // the modal that is about to say it was lost. Both doors, one condition.
+    if (this.endScrimTimer !== null) return;
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
     if (!el) {
       // ⏸ is the one [data-action] press that starts a GESTURE, so it takes its
