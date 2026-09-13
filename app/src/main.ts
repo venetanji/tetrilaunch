@@ -9636,7 +9636,11 @@ class App {
     // detached by then and the write below is a harmless no-op.
     if (btn) {
       btn.disabled = false;
-      btn.textContent = restored ? "Purchases restored" : "Nothing to restore";
+      // F5: three outcomes, three faces — `null` is the store failing to
+      // answer at all, which used to be reported as "Nothing to restore" to
+      // players who had paid. `if (restored)` above is already the right test
+      // for it: null does not celebrate.
+      btn.textContent = S.restoreResultText(restored);
     }
   }
 

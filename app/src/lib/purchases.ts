@@ -314,9 +314,27 @@ async function presentPaywallOnce(): Promise<boolean> {
   return unlimited;
 }
 
-/** Restore on a reinstall or a new device. Apple requires this to be reachable
- *  without a purchase, hence its own button in Settings. */
-export async function restorePurchases(): Promise<boolean> {
+/**
+ * Restore on a reinstall or a new device. Apple requires this to be reachable
+ * without a purchase, hence its own button in Settings.
+ *
+ * F5: THREE ANSWERS, NOT TWO. This returned a plain `boolean` — the
+ * entitlement as it stands — and every failure fell through to it: the
+ * StoreKit/Billing call throwing, the SDK never having configured, a web
+ * refresh that could not reach RevenueCat. The button then reported the most
+ * damaging possible reading of a dropped connection, "Nothing to restore", to
+ * a player who had in fact paid — on the one control the store rules require
+ * to exist for exactly that situation.
+ *
+ * So `null` is the third answer, and it is a different KIND of answer:
+ * `false` is the store replying "no entitlement on this account", `null` is
+ * the store not replying at all. Only the first is news about the purchase.
+ *
+ * The in-flight guard is NOT one of the failures: a second tap while a restore
+ * is already running gets the entitlement, as it always did, because the first
+ * tap is still going to report.
+ */
+export async function restorePurchases(): Promise<boolean | null> {
   // Shares the purchase flow's guard: a restore launched while a payment
   // sheet is pending (or vice versa) hands StoreKit two overlapping
   // transactions, and repeated taps on a slow connection queue restores the
@@ -327,20 +345,26 @@ export async function restorePurchases(): Promise<boolean> {
     if (!isNative) {
       // Web purchases are tied to the persisted RevenueCat app-user id. There
       // is no browser store receipt to restore; re-fetching is the web
-      // equivalent.
+      // equivalent — and a refresh that throws lands in the catch below,
+      // which is the whole point of the null.
       await refresh();
       return unlimited;
     }
     const { Purchases } = await sdk();
-    if (!ready) return unlimited;
+    // F5: a store that never configured is "no store", not "no purchase".
+    // presentPaywall answers the same state with the entitlement because it
+    // is a silent no-op there — nothing was promised. Restore promised a
+    // report, so it has to say it could not make one.
+    if (!ready) return null;
     const { customerInfo } = await Purchases.restorePurchases();
     setUnlimited(readUnlimited(customerInfo));
+    return unlimited;
   } catch (err) {
     console.warn("[purchases] restore failed", err);
+    return null;
   } finally {
     paywallInFlight = false;
   }
-  return unlimited;
 }
 
 async function refresh(): Promise<void> {

@@ -1656,6 +1656,20 @@ export interface SchoolPrompt {
  *  is reading when they tap it. */
 export const STORE_UNAVAILABLE_TEXT = "Store unavailable — try again later";
 
+/** F5: what the Restore button says when the call comes back (main.ts's
+ *  onRestore). Restore is the one store action with no UI of its own, so the
+ *  button's own face is the entire report — and it had two faces for three
+ *  outcomes, which meant a store that failed to answer was reported as a store
+ *  that answered "nothing".
+ *
+ *  `null` is purchases.ts's "the store did not answer": the call threw, or the
+ *  SDK never configured. Worded as a retry rather than as a verdict, because
+ *  it is the only one of the three that is not news about the purchase. */
+export function restoreResultText(result: boolean | null): string {
+  if (result === null) return "Restore failed — try again";
+  return result ? "Purchases restored" : "Nothing to restore";
+}
+
 export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
   /** Flight School's progress, while the ground floor still owes a rung. Null

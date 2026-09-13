@@ -28614,6 +28614,68 @@ section("A sign-in or sign-out that did not complete says so (F4)");
   }
 }
 
+// ---------------------------------------------------------------------------
+section("A store that failed is not \"Nothing to restore\" (F5)");
+// ---------------------------------------------------------------------------
+// THE BUG IS A COLLAPSED RETURN TYPE. restorePurchases() answered `boolean` —
+// the entitlement as it stands — and every failure fell through to the same
+// value: the StoreKit/Billing call throwing, the SDK never having configured,
+// a web refresh that could not reach RevenueCat. The button then reported the
+// most damaging possible reading of a network blip: "Nothing to restore", to
+// a player who had in fact paid, on the one control Apple's rules require to
+// be reachable for exactly that situation.
+//
+// null IS THE THIRD ANSWER, and it is a different KIND of answer: `false` is
+// the store replying "no entitlement on this account", `null` is the store not
+// replying at all. Only the first is news about the purchase.
+//
+// THE IN-FLIGHT GUARD IS NOT A FAILURE. A second tap while a restore is
+// already running is answered with the entitlement, as it always was — the
+// first tap is still going to report.
+{
+  check("the three outcomes are three different sentences",
+    S.restoreResultText(true) === "Purchases restored"
+      && S.restoreResultText(false) === "Nothing to restore"
+      && S.restoreResultText(null) === "Restore failed — try again",
+    [S.restoreResultText(true), S.restoreResultText(false), S.restoreResultText(null)].join(" | "));
+  check("...and the failure is worded as a retry, not as a verdict",
+    S.restoreResultText(null).includes("try again"));
+
+  const purchasesSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "purchases.ts"),
+    "utf8",
+  );
+  const restore = purchasesSrc.slice(
+    purchasesSrc.indexOf("export async function restorePurchases("),
+    purchasesSrc.indexOf("async function refresh("),
+  );
+  check("restorePurchases can say it failed at all",
+    /export async function restorePurchases\(\): Promise<boolean \| null>/.test(purchasesSrc),
+    restore.slice(0, 120));
+  check("a throw is null rather than the entitlement",
+    /catch \(err\) \{[\s\S]{0,200}?return null;/.test(restore), restore);
+  check("...and a store that never configured is null too",
+    /if \(!ready\) return null;/.test(restore), restore);
+  check("an already-running restore is still the entitlement, not a failure",
+    /if \(paywallInFlight\) return unlimited;/.test(restore), restore);
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const onRestore = mainSrc.slice(
+    mainSrc.indexOf("private async onRestore("),
+    mainSrc.indexOf("private async onSubmitScore("),
+  );
+  check("the handler exists to be checked", onRestore.length > 0 && onRestore.length < 3000);
+  check("the button reports whichever of the three came back",
+    /btn\.textContent = S\.restoreResultText\(restored\);/.test(onRestore), onRestore);
+  // `if (restored)` is already the right test for null — the point of pinning
+  // it is that a later `restored !== false` would celebrate a failure.
+  check("...and only a real restore celebrates",
+    /if \(restored\) void successHaptic\(\);/.test(onRestore), onRestore);
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
