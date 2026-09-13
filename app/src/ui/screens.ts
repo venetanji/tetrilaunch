@@ -7682,7 +7682,19 @@ export function lessonEndModal(opts: {
       : opts.next === "workshop"
         ? `<b>Salvage banked.</b> Spend it in the Workshop on your first system — it opens the rest of the school.`
       : opts.next === "exam"
-        ? `${opts.name} cleared — every lesson is behind you. <b>One flight left: the ${FINAL_EXAM}</b> — Tier 1, bay 1, for real.`
+        // …AND THE CLOCK IS WHAT "FOR REAL" WAS HIDING. Every lesson bay is
+        // built with `timeLimitSec = 0` on both branches of levelForLesson —
+        // "one pressure at a time is the premise of the whole ladder, and the
+        // clock is not taught until the exam" — while the graduation flight
+        // goes through levelForRun (run.ts's levelForGraduation) and therefore
+        // opens on Tier 1's own timeLimitFor(1). A player who has just flown
+        // nine untimed bays has no reason to read "for real" as "and now there
+        // is a clock", and meeting it for the first time under the one flight
+        // on the ladder that can be failed is the worst place to learn it.
+        //
+        // THE SENTENCE IS CATCHING UP WITH THE BAYS, not changing them: no
+        // lesson's timer moves, and the exam's is the run's own.
+        ? `${opts.name} cleared — every lesson is behind you. <b>One flight left: the ${FINAL_EXAM}</b> — Tier 1, bay 1, for real, and the first bay with a <b>clock</b> running on it.`
       : opts.lastLesson
         // The top rung, re-flown. Not a graduation, and not silent about why
         // the button says "To the tower" instead of "Next lesson".

@@ -25924,6 +25924,28 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       examBtn.includes("btn--primary") && examBtn.includes("btn--next"));
     check("...with the tower kept as the quiet way out",
       owed.includes(`data-action="lesson-exit"`));
+    // ---- AND IT SAYS THE CLOCK IS RUNNING (O2) --------------------------
+    //
+    // The hand-off card is the last thing a player reads before the one flight
+    // on the ladder that can be failed, and the only warning it gave was "for
+    // real" — which does not tell a player who has flown nine untimed bays that
+    // the tenth is timed. The claim is checked against the BAYS rather than
+    // against a second string: levelForLesson zeroes timeLimitSec on every
+    // lesson ("the clock is not taught until the exam"), and the graduation
+    // flight is built by levelForRun, so this is the first bay on the ground
+    // floor with a clock at all.
+    check("the hand-off into the exam says a clock is running",
+      /<b>clock<\/b>/.test(owed), owed.slice(owed.indexOf("One flight left"), owed.indexOf("One flight left") + 220));
+    check("...and the ladder it is handing off FROM really has no clock",
+      LESSONS.every((l) => levelForLesson(l).timeLimitSec === 0),
+      LESSONS.filter((l) => levelForLesson(l).timeLimitSec !== 0).map((l) => l.id).join(","));
+    check("...while the bay it is handing off TO does",
+      levelForGraduation().timeLimitSec > 0,
+      String(levelForGraduation().timeLimitSec));
+    // A won lesson that is NOT the hand-off says nothing about a clock: the
+    // warning belongs to the one rung it is true of.
+    check("...and no ordinary rung's card mentions one",
+      !/clock/i.test(middle), middle);
   }
 
   // THE WORKSHOP DOES NOT OFFER A PRACTICE BAY MID-SCHOOL. The Reactor is the
