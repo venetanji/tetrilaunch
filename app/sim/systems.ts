@@ -26576,6 +26576,176 @@ section("Every canvas text site rasterises on whole device pixels (render.ts)");
 }
 
 
+
+// ===========================================================================
+// A CLEARED BAY AND A CRUSHED ROW BLOOM IN PLACE UNDER REDUCED MOTION
+// (render.ts's drawBayClearFx and drawRowFlashFx).
+//
+// The blast debris opts out of the preference outright and the thaw cue opts
+// into a static version of itself. These two were doing neither, and one of
+// them is the largest single piece of travel the renderer draws: a band
+// crossing the whole 1280px bay in 1.4 seconds, drawn for a player who had
+// asked the platform, in the one way a platform offers, not to be shown travel.
+//
+// WHICH RULING EACH GETS, AND WHY NEITHER GETS THE DEBRIS'. The debris is
+// REMOVED because every part of it is motion and the shockwave underneath it
+// still says a blast happened. Neither of these has anything underneath it —
+// the sweep is the only thing that celebrates a cleared bay ON the bay, and the
+// flash is the only mark a crushed row leaves — so removing them would tell a
+// player less about their own field, which is not what the preference asks for.
+// Both take the THAW cue's ruling instead: keep the cue, take the travel out,
+// spend opacity where the movement was.
+//
+// ISOLATED BY DELTA, the way the debris pin is: a frame carrying the cue
+// against the same frame without it, at the same setting of the preference.
+// Each setting gets its OWN base, because half a dozen other things in a frame
+// already read the preference and a calm cue measured against a live base would
+// be reporting all of them as the cue.
+//
+// FILTERED FIRST, THEN SLICED, rather than diffed whole. drawEffects is the
+// last thing render() draws and it wraps the lot in one save/restore, so the
+// base frame is NOT a prefix of the frame carrying the cue — its closing
+// restores sit where the cue's commands now are. But every arc, fillRect,
+// fillStyle and globalAlpha the base issues still comes BEFORE every one the
+// cue issues, so taking each kind on its own and dropping as many as the base
+// had leaves the cue's own, exactly.
+// ===========================================================================
+section("A cleared bay and a crushed row bloom in place under reduced motion (render.ts)");
+{
+  const rec = newRec();
+  // fillRect and arc keep their ARGUMENTS: every claim below is about WHERE a
+  // shape lands — how far the ring reached, how much field the wash covers —
+  // and a count alone would pass on a ring that had stopped growing by being
+  // drawn somewhere else entirely.
+  const stubs = installBrowserStubs();
+  const canvas: Record<string, unknown> = { width: 2560, height: 1440 };
+  const ctx = makeRecCtx(canvas, rec, ["fillRect", "arc"]);
+  const g = new Game(makeBaseLevel(0), {}, 12);
+  g.status = "playing";
+
+  const paintFx = (effects: FxEvent[], now: number, calm: boolean): Rec => {
+    setReducedMotion(calm);
+    resetRec(rec);
+    render(ctx as unknown as CanvasRenderingContext2D, 1280, 720, 2, {
+      cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now, aiming: false, effects,
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return {
+      calls: [...rec.calls], sets: [...rec.sets],
+      args: rec.args.map(([k, a]) => [k, [...a]] as [string, unknown[]]),
+    };
+  };
+
+  const T0 = 5000;
+  const CUE: FxEvent[] = [
+    { kind: "bayclear", x: 620, y: 400, t0: T0 },
+    { kind: "rowflash", y: 420, x0: 40, x1: 1240, t0: T0 },
+  ];
+
+  /** What the cue added, one kind of command at a time. `pick` pulls a single
+   *  kind out of a recording in issue order; the cue's are whatever is left
+   *  after dropping as many as the bare frame had. `additive` records that the
+   *  cue only ever ADDED to each kind, which is the assumption the drop rests
+   *  on and is asserted below rather than trusted. */
+  let additive = true;
+  const added = (
+    now: number, calm: boolean,
+    pick: (r: Rec) => string[],
+  ): string[] => {
+    const base = pick(paintFx([], now, calm));
+    const full = pick(paintFx(CUE, now, calm));
+    additive = additive && full.length >= base.length
+      && JSON.stringify(full.slice(0, base.length)) === JSON.stringify(base);
+    return full.slice(base.length);
+  };
+  const gradCount = (now: number, calm: boolean): number =>
+    callCount(paintFx(CUE, now, calm), "createLinearGradient")
+      - callCount(paintFx([], now, calm), "createLinearGradient");
+  const pickArg = (name: string) => (r: Rec): string[] =>
+    r.args.filter(([k]) => k === name).map(([, a]) => a.join(","));
+  const pickSet = (prop: string) => (r: Rec): string[] =>
+    r.sets.filter(([k]) => k === prop).map(([, v]) => String(v));
+
+  // Warm the sprite and background caches: a cold frame pays for every bake,
+  // and the delta would report that bake as the cue.
+  paintFx([], T0, false);
+
+  // 200ms in, both cues are alive (the flash runs 450ms, the sweep 1400); at
+  // 900ms the sweep is alone and well past halfway across; at 1399 it is one
+  // millisecond from the end, which is where its ring finally arrives.
+  const EARLY = T0 + 200;
+  const LATE = T0 + 900;
+  const ENDING = T0 + FX_TTL.bayclear - 1;
+
+  // 1. THE CUE SURVIVES THE PREFERENCE. The half that separates these two from
+  // the debris, and the half a well-meaning "return early like debris does"
+  // would take away.
+  const calmRects = added(EARLY, true, pickArg("fillRect"));
+  const calmArcs = added(EARLY, true, pickArg("arc"));
+  check("both cues still draw under the preference — the field still says what happened",
+    calmRects.length === 2 && calmArcs.length === 1,
+    `${calmRects.length} fills, ${calmArcs.length} rings: ${calmRects.join(" | ")}`);
+  check("...and the cue only ever ADDS to a frame, which is what makes the delta the cue",
+    additive);
+
+  // 2. NO RAMP, NO BAND. Live, each drawer builds a linear gradient — the
+  // sweeping band and the row's directional wipe. Calm, neither does: both are
+  // flat fills, which is what "a static bloom" means written in commands.
+  check("live, the sweep and the wipe are a gradient each",
+    gradCount(EARLY, false) === 2, `${gradCount(EARLY, false)}`);
+  check("...and under the preference neither of them is",
+    gradCount(EARLY, true) === 0 && gradCount(LATE, true) === 0,
+    `${gradCount(EARLY, true)} early / ${gradCount(LATE, true)} late`);
+
+  // 3. THE RING IS AT FULL REACH FROM ITS FIRST FRAME rather than arriving
+  // there. Stated against the live cue's OWN end state instead of against a
+  // copy of the reach constant: the claim is "calm starts where live finishes",
+  // and a pin holding its own duplicate of 440 would go on passing after
+  // somebody widened the ring.
+  const ringR = (now: number, calm: boolean): number =>
+    Number(added(now, calm, pickArg("arc"))[0]?.split(",")[2] ?? Number.NaN);
+  const liveR0 = ringR(EARLY, false);
+  const liveR1 = ringR(LATE, false);
+  const liveEnd = ringR(ENDING, false);
+  const calmR0 = ringR(EARLY, true);
+  const calmR1 = ringR(LATE, true);
+  check("live, the ring is still growing between 200ms and 900ms",
+    liveR0 < liveR1 && liveR1 < liveEnd, `${liveR0} -> ${liveR1} -> ${liveEnd}`);
+  check("...and calm it is already, in every frame, where the sweep only arrives at the end",
+    calmR0 === calmR1 && Math.abs(calmR0 - liveEnd) < 0.01,
+    `calm ${calmR0} / ${calmR1} vs live at 1399ms ${liveEnd}`);
+
+  // 4. THE WASH COVERS THE FIELD THE BAND WOULD HAVE CROSSED, at the band's
+  // MEAN rather than its crest — 0.094 against 0.5, derived in render.ts beside
+  // BAYCLEAR_CALM_ALPHA. A wash at the crest would be five times the light the
+  // sweep ever put on any part of the bay at once, which is a louder cue in the
+  // name of a calmer one.
+  const calmFills = added(EARLY, true, pickSet("fillStyle"));
+  check("the calm wash covers the same field the band crossed",
+    calmRects.includes(`0,0,${WORLD.width},${WORLD.height}`), calmRects.join(" | "));
+  check("...in flat green under a tenth alpha, not at the band's own crest",
+    calmFills.some((f) => /^rgba\(0,255,156,0\.0\d/.test(f)), calmFills.join(" | "));
+
+  // 5. THE ROW BAND IS FLAT, AND ITS FADE IS SPENT EVENLY. (1-t)² puts three
+  // quarters of the cue's light into its first 100ms, which is a strobe over
+  // the pile rather than a bloom; calm spends the same 450ms linearly.
+  check("the calm row band is flat white at half the ramp's edge alpha",
+    calmFills.includes("rgba(255,255,255,0.45)"), calmFills.join(" | "));
+  const rowT = 200 / FX_TTL.rowflash;
+  const calmAlphas = added(EARLY, true, pickSet("globalAlpha")).map(Number);
+  const liveAlphas = added(EARLY, false, pickSet("globalAlpha")).map(Number);
+  check("...and its fade is linear under the preference where it is squared beside it",
+    calmAlphas.some((a) => Math.abs(a - (1 - rowT)) < 1e-9)
+      && liveAlphas.some((a) => Math.abs(a - (1 - rowT) * (1 - rowT)) < 1e-9),
+    `calm ${calmAlphas.join(",")} / live ${liveAlphas.join(",")}`);
+
+  setReducedMotion(false);
+  g.destroy();
+  stubs.restore();
+}
+
 // ===========================================================================
 // THE CRT COMB REPEATS ON THE PIXEL GRID, AND HAS A SWITCH AT LAST
 // (render.ts's scanlineMetrics, store.ts's scanlines, app.css's #app::after).

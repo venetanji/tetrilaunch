@@ -3789,6 +3789,36 @@ function drawPenaltyFx(
  *  should wash over the pile itself before the ui/screens.ts banner and the
  *  draft modal take the screen. Additive, inside its own save/restore. */
 const BAYCLEAR_BAND_W = 240;
+/** The band's alpha at its own centre, at t=0. It falls to nothing at
+ *  ±BAYCLEAR_BAND_W, so the profile the sweep lays across the field is a
+ *  triangle of this height and 2·BAND_W base. */
+const BAYCLEAR_BAND_ALPHA = 0.5;
+/**
+ * REDUCED MOTION: THE SWEEP'S OWN LIGHT, POURED EVENLY OVER THE FIELD IT WOULD
+ * HAVE CROSSED.
+ *
+ * A band travelling the whole width of the bay in 1.4 seconds is nothing but
+ * travel, and the blast debris' ruling does not apply to it — this cue is the
+ * only thing that celebrates a cleared bay ON the bay, and removing it would
+ * leave the moment to a DOM banner that arrives after it. The thaw cue's
+ * ruling is the one that fits: keep the cue, take the travel out, and let
+ * opacity carry what the movement was carrying.
+ *
+ * So under the preference the field gets ONE even wash instead of a crossing.
+ * Its alpha is derived rather than chosen: the triangle above integrates to
+ * BAYCLEAR_BAND_ALPHA · BAYCLEAR_BAND_W across the field's width, so a flat
+ * fill of that mean puts exactly as much green on the bay at any instant as
+ * the moving band did — 0.094 at t=0, against the 0.5 of the band's own crest.
+ * Washing the whole field at the CREST would be five times the light the sweep
+ * ever put anywhere, which is a brighter cue in the name of a calmer one.
+ */
+const BAYCLEAR_CALM_ALPHA = BAYCLEAR_BAND_ALPHA * (BAYCLEAR_BAND_W / WORLD.width);
+/** The ring's reach, and the stroke that thins as it goes — named because the
+ *  calm path has to HOLD each of them at a value rather than re-derive one. */
+const BAYCLEAR_RING_R0 = 60;
+const BAYCLEAR_RING_REACH = 380;
+const BAYCLEAR_RING_W_MIN = 2;
+const BAYCLEAR_RING_W_SWING = 8;
 
 function drawBayClearFx(
   ctx: CanvasRenderingContext2D,
@@ -3797,18 +3827,28 @@ function drawBayClearFx(
 ): void {
   const t = clamp01((now - e.t0) / FX_TTL.bayclear);
   if (t >= 1) return;
-  const eased = easeOutCubic(t);
+  const calm = prefersReducedMotion();
+  // Held at 1 under the preference: the ring is AT full reach from its first
+  // frame and the stroke at the weight it wears there, which is the picture
+  // the cue was travelling towards all along (see drawThawFx, same ruling).
+  const grow = calm ? 1 : easeOutCubic(t);
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
 
-  // Sweeping band.
-  const cxBand = -BAYCLEAR_BAND_W + eased * (WORLD.width + BAYCLEAR_BAND_W * 2);
-  const grad = ctx.createLinearGradient(cxBand - BAYCLEAR_BAND_W, 0, cxBand + BAYCLEAR_BAND_W, 0);
-  grad.addColorStop(0, "rgba(0,255,156,0)");
-  grad.addColorStop(0.5, `rgba(0,255,156,${0.5 * (1 - t)})`);
-  grad.addColorStop(1, "rgba(0,255,156,0)");
-  ctx.fillStyle = grad;
+  if (calm) {
+    // A STATIC BLOOM: no band, no crossing, one even wash going out on the
+    // cue's own clock. See BAYCLEAR_CALM_ALPHA for where the number comes from.
+    ctx.fillStyle = `rgba(0,255,156,${BAYCLEAR_CALM_ALPHA * (1 - t)})`;
+  } else {
+    // Sweeping band.
+    const cxBand = -BAYCLEAR_BAND_W + grow * (WORLD.width + BAYCLEAR_BAND_W * 2);
+    const grad = ctx.createLinearGradient(cxBand - BAYCLEAR_BAND_W, 0, cxBand + BAYCLEAR_BAND_W, 0);
+    grad.addColorStop(0, "rgba(0,255,156,0)");
+    grad.addColorStop(0.5, `rgba(0,255,156,${BAYCLEAR_BAND_ALPHA * (1 - t)})`);
+    grad.addColorStop(1, "rgba(0,255,156,0)");
+    ctx.fillStyle = grad;
+  }
   ctx.fillRect(0, 0, WORLD.width, WORLD.height);
 
   // Expanding ring at the event point.
@@ -3816,9 +3856,9 @@ function drawBayClearFx(
   ctx.strokeStyle = COLORS.trajectory;
   ctx.shadowColor = COLORS.trajectory;
   ctx.shadowBlur = 24;
-  ctx.lineWidth = 8 * (1 - t) + 2;
+  ctx.lineWidth = BAYCLEAR_RING_W_MIN + BAYCLEAR_RING_W_SWING * (calm ? 1 : 1 - t);
   ctx.beginPath();
-  ctx.arc(e.x, e.y, 60 + eased * 380, 0, Math.PI * 2);
+  ctx.arc(e.x, e.y, BAYCLEAR_RING_R0 + grow * BAYCLEAR_RING_REACH, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
@@ -3828,6 +3868,27 @@ function drawBayClearFx(
  *  paints a flat white bar; that GCO is scoped to this function's own
  *  save/restore, never leaking into siblings drawn after it. */
 const ROWFLASH_EDGE_ALPHA = 0.9;
+/**
+ * REDUCED MOTION: A FLAT BLOOM, ON A FADE THAT IS SPENT EVENLY.
+ *
+ * Nothing in this cue translates, so unlike the bay-clear sweep there is no
+ * band to stop moving — which makes it worth writing down what the preference
+ * actually takes out of it, twice.
+ *
+ * THE RAMP. Dark at the row's far end and ROWFLASH_EDGE_ALPHA at the wall is a
+ * WIPE: it is drawn once and it still says "this row went that way", because a
+ * directional gradient is the idiom a sweep leaves behind. Under the preference
+ * it is laid flat, at the ramp's own mean — a linear ramp from 0 to A carries
+ * A/2 averaged across the band, so the same light lands on the row with the
+ * direction taken out of it, rather than a brighter cue in the name of a
+ * calmer one.
+ *
+ * THE CURVE. (1-t)² spends three quarters of the cue's brightness in its first
+ * 100ms, which is a strobe over the pile rather than a bloom. Calm spends the
+ * same 450ms linearly: the row lights and goes out, and the eye is never asked
+ * to track an edge that was gone before it arrived.
+ */
+const ROWFLASH_CALM_ALPHA = ROWFLASH_EDGE_ALPHA / 2;
 
 function drawRowFlashFx(
   ctx: CanvasRenderingContext2D,
@@ -3840,15 +3901,19 @@ function drawRowFlashFx(
   const left = Math.min(e.x0, e.x1);
   const width = Math.abs(e.x1 - e.x0);
   if (width <= 0) return;
-
-  const grad = ctx.createLinearGradient(e.x0, 0, e.x1, 0);
-  grad.addColorStop(0, "rgba(255,255,255,0)");
-  grad.addColorStop(1, `rgba(255,255,255,${ROWFLASH_EDGE_ALPHA})`);
+  const calm = prefersReducedMotion();
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  ctx.globalAlpha = (1 - t) * (1 - t);
-  ctx.fillStyle = grad;
+  ctx.globalAlpha = calm ? 1 - t : (1 - t) * (1 - t);
+  if (calm) {
+    ctx.fillStyle = `rgba(255,255,255,${ROWFLASH_CALM_ALPHA})`;
+  } else {
+    const grad = ctx.createLinearGradient(e.x0, 0, e.x1, 0);
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(1, `rgba(255,255,255,${ROWFLASH_EDGE_ALPHA})`);
+    ctx.fillStyle = grad;
+  }
   ctx.fillRect(left, e.y - CELL / 2, width, CELL);
   ctx.restore();
 }
