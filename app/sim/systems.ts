@@ -20175,6 +20175,39 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
       }) === 1);
   }
 
+  // A BLUR MID-AIM LEFT THE GESTURE LATCHED (found in review). onBlur cleared
+  // the held KEYS — a window that loses focus never delivers keyup — and left
+  // the drag exactly as it was, for the identical reason it cleared the keys:
+  // the pointerup never arrives either. `dragging` stayed true, onDown's "a
+  // second finger must not re-anchor the drag in progress" guard then refused
+  // every press that followed, and the bay was unaimable until the player
+  // found the aim-state ✕. Alt-tab, an OS notification, a click on the
+  // browser's own chrome — all of them, and none of them the player's fault.
+  //
+  // THE SECOND GESTURE USES A DIFFERENT POINTER ID, which is what makes this
+  // pin able to fail. Re-pressing on the SAME id would look fixed either way:
+  // the refused press is followed by a pointerup that still matches the
+  // orphaned drag's id, so the stale gesture fires and the shot count reads 1
+  // for entirely the wrong reason. A fresh id is the honest question — can the
+  // next pointer to arrive aim at all.
+  {
+    send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+    const held = { angle: g.cannon.angle, power: g.cannon.power };
+    const onBlurShots = fired(() => send(onWindow, "blur", {}));
+    check("a blur mid-aim fires nothing", onBlurShots === 0, `${onBlurShots} shots`);
+    // Cancelled, not misfired: cancelAim keeps the aim the player built rather
+    // than snapping back to what preceded the gesture, and the ✕ has always
+    // meant exactly that.
+    check("...and leaves the aim the player had reached",
+      g.cannon.angle === held.angle && g.cannon.power === held.power);
+    const next = fired(() => {
+      send(onCanvas, "pointerdown", { ...ptr(0, "mouse", 500), pointerId: 2 });
+      send(onWindow, "pointerup", { ...ptr(0, "mouse", 500), pointerId: 2 });
+    });
+    check("...and the next pointer can aim and fire with no ✕ to find first",
+      next === 1, `${next} shots`);
+  }
+
   // A wheel on a paused bay must leave the event completely alone — no loft
   // AND no preventDefault, because an overlay the player is reading may want
   // to scroll.

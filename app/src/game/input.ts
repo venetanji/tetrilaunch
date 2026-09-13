@@ -995,10 +995,31 @@ export class InputController {
   };
 
   /** A window that loses focus never delivers keyup, so an alt-tab mid-burst
-   *  would leave the trigger held down until the player pressed F again. */
+   *  would leave the trigger held down until the player pressed F again.
+   *
+   *  THE GESTURE GOES WITH THE KEYS (found in review), and for the identical
+   *  reason: a blur is the last event the window gets, so the pointerup that
+   *  would have ended the drag is never delivered either. Alt-tab, an OS
+   *  notification, or a click on the browser's own chrome mid-aim left
+   *  `dragging` latched true — and onDown's "a second finger must not
+   *  re-anchor the drag in progress" guard then refused every press that
+   *  followed, so the bay was unaimable until the player found the aim-state
+   *  ✕ and tapped it. A control scheme that needs a rescue button after an
+   *  alt-tab is a control scheme with a stuck key in it.
+   *
+   *  CANCELLED, NOT FIRED, which is what cancelAim already means: the player
+   *  pulled, looked away, and never released — there is no release to honour,
+   *  so no shot is spent and the cannon keeps the aim it had reached. The ✕
+   *  hands back exactly the same state, so this adds no new one.
+   *
+   *  A REAL pointercancel usually arrives with the blur (the browser sends one
+   *  when it takes the pointer away) and cancelAim is idempotent, so ordering
+   *  between the two does not matter. This covers the blurs that come with no
+   *  pointercancel at all — alt-tab with the button still physically down. */
   private onBlur = (): void => {
     this.keys.clear();
     this.game()?.setAutoHeld(false);
+    this.cancelAim();
   };
 
   // Continuous keyboard aim/power (web fallback), plus the once-a-frame flush
