@@ -68,8 +68,23 @@ body {
    DOM overlay alike) — subtle, static (no animation, so it already
    "respects prefers-reduced-motion" by construction rather than needing a
    media-query escape hatch), and pointer-events:none so it never intercepts
-   input. Toggle off from anywhere by adding `crt-off` to <body> if it ever
-   hurts readability (not currently wired to a settings switch). */
+   input.
+
+   THE PERIOD IS A VARIABLE BECAUSE A CSS PX IS NOT A PIXEL. Written as the
+   authored `1px in 3px` this comb only repeats cleanly where the display's
+   ratio is a whole number; on a Pixel 7 (2.625) the period is 7.875 device px
+   and the pattern beats against the grid instead of landing on it. main.ts
+   publishes --scanline-line / --scanline-period on every solve from render.ts's
+   scanlineMetrics, which snaps both to whole device px. The var() fallbacks are
+   the authored values, so a page that somehow paints before the first solve
+   gets the old overlay rather than none.
+
+   AND IT HAS A SWITCH NOW. `crt-off` on <body> is written by main.ts from the
+   Scanlines setting (store.ts), whose default is asked of the device: this is a
+   full-screen `multiply` composite of every device pixel every frame, which is
+   real money on the hardware with the least of it to spare, and the texture it
+   buys is at or under the resolving limit of a phone panel held at arm's
+   length. */
 #app::after {
   content: "";
   position: fixed;
@@ -79,9 +94,9 @@ body {
   background: repeating-linear-gradient(
     0deg,
     rgba(0, 0, 0, 0.22) 0px,
-    rgba(0, 0, 0, 0.22) 1px,
-    transparent 1px,
-    transparent 3px
+    rgba(0, 0, 0, 0.22) var(--scanline-line, 1px),
+    transparent var(--scanline-line, 1px),
+    transparent var(--scanline-period, 3px)
   );
   mix-blend-mode: multiply;
   opacity: 0.3;

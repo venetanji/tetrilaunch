@@ -280,6 +280,47 @@ export function dprQueries(ratio: number): string[] {
 }
 
 /**
+ * THE CRT OVERLAY'S PERIOD, PUT ON THE SAME PIXEL GRID crispFontPx USES.
+ *
+ * app.css lays a repeating-linear-gradient over the whole app — a dark line one
+ * CSS px tall every three — and a CSS px is not a pixel. On a Pixel 7, whose
+ * devicePixelRatio is 2.625, that three-px period is 7.875 DEVICE px and the
+ * line is 2.625 of them, so the comb never repeats on the grid it is rasterised
+ * onto: the first line covers three device rows, the second two and a fraction,
+ * the third lands half a row further off, and the eight-row beat that finally
+ * closes the cycle is a moiré banding the whole screen. The authored texture is
+ * a one-in-three comb; what the panel shows is a one-in-three comb plus a
+ * ripple nobody drew.
+ *
+ * So the period and the line are snapped to whole DEVICE px and handed back as
+ * the CSS lengths that produce them, for main.ts to publish on each solve
+ * (--scanline-line / --scanline-period). On a 2.625 panel the period becomes 8
+ * device px (3.048 CSS px) and the line 3 (1.143 CSS px), both exact, and every
+ * repeat down the screen is identical to the one above it. On 1x, 2x and 3x
+ * panels the arithmetic is the identity and the overlay is pixel for pixel what
+ * it always was.
+ *
+ * TWO FLOORS, each the difference between a texture and a defect:
+ *   - the period is at least two device px, because a one-px period leaves no
+ *     room for the gap that makes this a comb rather than a fill;
+ *   - the line is at most one device px short of the period, because a line as
+ *     tall as its own period is not a scanline — it is a sheet of black laid
+ *     over the game at `multiply`.
+ *
+ * Returned as numbers rather than as CSS text for dprQueries' reason: node has
+ * no layout and no matchMedia, and the division is the half that can be wrong.
+ */
+export const SCANLINE_PERIOD_CSS = 3;
+export const SCANLINE_LINE_CSS = 1;
+
+export function scanlineMetrics(dpr: number): { period: number; line: number } {
+  const d = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+  const period = Math.max(2, Math.round(SCANLINE_PERIOD_CSS * d));
+  const line = Math.min(period - 1, Math.max(1, Math.round(SCANLINE_LINE_CSS * d)));
+  return { period: period / d, line: line / d };
+}
+
+/**
  * THE EIGHT CANVAS TEXT SITES, AND THE GRID THEY LAND ON.
  *
  * Everything the field draws is authored in world px and rasterised through the

@@ -2356,6 +2356,7 @@ export function settingsScreen(
           ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
           ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
           ${hapticsAvailable ? toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics) : ""}
+          ${toggleHTML("scanlines", "Scanlines", "CRT comb over the whole screen · starts off on touch", s.scanlines)}
           ${
             // Only once the door has been found. Rendering it off would put the
             // secret on the one screen everybody opens, and rendering nothing

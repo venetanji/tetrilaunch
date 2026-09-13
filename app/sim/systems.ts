@@ -81,6 +81,7 @@ import {
 import {
   COMPACT_MAX_RENDER_DPR, crispFontPx, debrisCount, DEBRIS_FRAME_CAP, dprQueries, fitViewport,
   FRAME_PX, frostMark, landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale,
+  SCANLINE_LINE_CSS, SCANLINE_PERIOD_CSS, scanlineMetrics,
   THAW_REACH, THAW_REACH_MS,
   WALL_GLOW_REACH, wallGlowBleed,
 } from "../src/game/render";
@@ -7571,7 +7572,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
-    systemCursor: false,
+    systemCursor: false, scanlines: true,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -26572,6 +26573,215 @@ section("Every canvas text site rasterises on whole device pixels (render.ts)");
 
   g.destroy();
   stubs.restore();
+}
+
+
+// ===========================================================================
+// THE CRT COMB REPEATS ON THE PIXEL GRID, AND HAS A SWITCH AT LAST
+// (render.ts's scanlineMetrics, store.ts's scanlines, app.css's #app::after).
+//
+// The overlay is a repeating-linear-gradient laid over the whole app: a dark
+// line one CSS px tall every three. It has shipped since the first retro pass
+// with two things wrong with it.
+//
+// ONE, a CSS px is not a pixel. On a Pixel 7, whose devicePixelRatio is 2.625,
+// the authored three-px period is 7.875 DEVICE px and the line is 2.625 of
+// them, so the comb never repeats on the grid it is rasterised onto: the first
+// line covers three device rows, the second two and a fraction, the third
+// lands half a row further off, and the eight-row beat that finally closes the
+// cycle is a moiré banding the whole screen. It is the same arithmetic
+// crispFontPx was written for one section up — this is the DOM's half of it —
+// and the fix is the same shape: snap to whole device px and hand back the CSS
+// length that produces them, published per solve because the ratio is exactly
+// what can change under a window that never moved.
+//
+// TWO, the class that turns the overlay off was wired to nothing. app.css has
+// advertised `crt-off` on <body> since the block was written, with a comment
+// saying so, and no line in the app ever wrote it. It is a Settings switch now
+// whose default is asked of the device rather than declared, because this is a
+// full-screen `mix-blend-mode: multiply` composite of every device pixel every
+// frame — a cost the hardware with the least headroom pays for a texture at or
+// under the resolving limit of a phone panel held at arm's length.
+//
+// WHAT IS PINNED WHERE. The snapping is arithmetic and is pinned as arithmetic.
+// The stylesheet, the publish and the class write are SOURCE pins for the
+// reason the cursor and autosizing pins are: there is no layout engine in this
+// process, the claim is that a refactor cannot quietly unhook one end of the
+// chain, and each end is one line that can be forgotten.
+// ===========================================================================
+section("The CRT comb repeats on whole device pixels, and can be switched off");
+{
+  // ---- THE ARITHMETIC ----
+  // A whole-number display must come out untouched, which is what says this is
+  // a snap and not a redesign: 1x, 2x and 3x panels get the comb they always
+  // got, pixel for pixel.
+  check("a whole-number display gets exactly the overlay it always had",
+    [1, 2, 3].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.period === SCANLINE_PERIOD_CSS && m.line === SCANLINE_LINE_CSS;
+    }),
+    [1, 2, 3].map((d) => `${d}:${JSON.stringify(scanlineMetrics(d))}`).join(" "));
+
+  // The Pixel 7's 2.625 spelled out, because it is the device in the report.
+  const p7 = scanlineMetrics(2.625);
+  check("the Pixel 7's period is a whole 8 device px rather than 7.875",
+    Math.abs(p7.period * 2.625 - 8) < 1e-9, `${p7.period * 2.625}`);
+  check("...and its line a whole 3 rather than 2.625",
+    Math.abs(p7.line * 2.625 - 3) < 1e-9, `${p7.line * 2.625}`);
+
+  // Every ratio a platform actually hands out, including the Windows scale
+  // factors that do not terminate in decimal (4/3 at 133%, 5/3 at 166%).
+  const RATIOS = [1, 1.25, 4 / 3, 1.5, 5 / 3, 1.75, 2, 2.25, 2.5, 2.625, 2.75, 3, 3.5, 4];
+  const whole = (x: number): boolean => Math.abs(x - Math.round(x)) < 1e-6;
+  check("every ratio a platform offers repeats on the grid, line and period alike",
+    RATIOS.every((d) => {
+      const m = scanlineMetrics(d);
+      return whole(m.line * d) && whole(m.period * d);
+    }),
+    RATIOS.map((d) => {
+      const m = scanlineMetrics(d);
+      return `${d.toFixed(3)}:${(m.line * d).toFixed(3)}/${(m.period * d).toFixed(3)}`;
+    }).join(" "));
+
+  // A COMB HAS TO STAY A COMB. A line as tall as its own period is not a
+  // scanline, it is a sheet of black laid over the game at multiply — the one
+  // failure this shape of rounding invites that would be visible from orbit,
+  // and the one a shrunken ratio walks straight into.
+  const SMALL = [0.1, 0.25, 0.5, 0.75, 1];
+  check("the line never reaches its own period, however small the ratio gets",
+    [...RATIOS, ...SMALL].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.line > 0 && m.line < m.period;
+    }),
+    SMALL.map((d) => `${d}:${scanlineMetrics(d).line}/${scanlineMetrics(d).period}`).join(" "));
+
+  check("a ratio that is absent, zero, negative or NaN falls back to the authored comb",
+    [0, -1, Number.NaN, Number.POSITIVE_INFINITY].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.period === SCANLINE_PERIOD_CSS && m.line === SCANLINE_LINE_CSS;
+    }));
+
+  // ---- THE STYLESHEET READS THEM ----
+  const crtCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const appAfter = /#app::after\s*\{[^}]*\}/.exec(crtCss)?.[0] ?? "";
+  // The FALLBACKS are the authored numbers rather than zero: a frame that
+  // somehow paints before the first solve gets the old overlay, not a black
+  // sheet and not nothing.
+  check("the overlay's gradient is written in the published variables, authored values as fallback",
+    appAfter.includes(`var(--scanline-line, ${SCANLINE_LINE_CSS}px)`)
+      && appAfter.includes(`var(--scanline-period, ${SCANLINE_PERIOD_CSS}px)`),
+    appAfter.replace(/\s+/g, " ").slice(0, 260) || "no #app::after rule");
+  check("the off-switch the block always advertised is still the off-switch",
+    /body\.crt-off\s+#app::after\s*\{[^}]*display:\s*none/.test(crtCss));
+
+  // ---- main.ts PUBLISHES THEM, ON THE SOLVE PATH, FROM THE RAW RATIO ----
+  const combSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // Sliced between onResize's first statement and its last, so this is
+  // containment rather than "the string appears somewhere in main.ts" — the
+  // claim is that the comb is re-published by the thing that re-solves, which
+  // is also what the density watch routes through.
+  const rStart = combSrc.indexOf("this.dpr = renderScale(");
+  const rEnd = combSrc.indexOf("this.syncPlantRoof();", rStart);
+  const onResizeSrc = rStart >= 0 && rEnd > rStart ? combSrc.slice(rStart, rEnd) : "";
+  check("the comb is published on the solve path, where the density watch lands",
+    onResizeSrc.includes("scanlineMetrics(window.devicePixelRatio || 1)")
+      && /setProperty\("--scanline-line"/.test(onResizeSrc)
+      && /setProperty\("--scanline-period"/.test(onResizeSrc),
+    `${onResizeSrc.length} chars of onResize`);
+  // From the DISPLAY's ratio, not renderScale's capped one. The cap exists
+  // because the frame is fill-bound and says how much CANVAS the budget can
+  // afford; it has nothing to say about a CSS gradient, which rasterises at
+  // the panel's real density like every other piece of chrome.
+  check("...from the display's real ratio rather than the canvas's capped one",
+    !/scanlineMetrics\(\s*this\.dpr/.test(combSrc));
+
+  check("the Scanlines switch is spent on the class app.css documents",
+    /classList\.toggle\("crt-off", !this\.settings\.scanlines\)/.test(combSrc));
+  // Twice: once at boot beside the other applied settings, once on the flip.
+  // A switch applied only on the flip is a setting that does not survive a
+  // reload, which is the whole point of persisting it.
+  check("...and applied at boot as well as on the flip",
+    /key === "scanlines"\) this\.applyScanlines\(\)/.test(combSrc)
+      && (combSrc.match(/this\.applyScanlines\(\)/g) ?? []).length >= 2,
+    `${(combSrc.match(/this\.applyScanlines\(\)/g) ?? []).length} call sites`);
+
+  // ---- THE ROW ----
+  const paneSettings = {
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false,
+    devMode: false, systemCursor: false, scanlines: true,
+  };
+  const paneOn = S.settingsScreen(paneSettings);
+  const paneOff = S.settingsScreen({ ...paneSettings, scanlines: false });
+  check("Settings carries a Scanlines row", paneOn.includes('data-toggle="scanlines"'));
+  check("...reporting the state it was handed, both ways round",
+    /data-toggle="scanlines" aria-checked="true"/.test(paneOn)
+      && /data-toggle="scanlines" aria-checked="false"/.test(paneOff));
+
+  // ---- THE DEFAULT IS ASKED OF THE DEVICE, AND A SAVE BEATS IT ----
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const prevWin = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const bag = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => bag.get(k) ?? null,
+        setItem: (k: string, v: string) => void bag.set(k, v),
+        removeItem: (k: string) => void bag.delete(k),
+      },
+    });
+    let pointer = "fine";
+    const setPointer = (kind: string): void => {
+      pointer = kind;
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: { matchMedia: (q: string) => ({ matches: q.includes(`pointer: ${pointer}`) }) },
+      });
+    };
+    try {
+      setPointer("coarse");
+      check("a thumb starts with the overlay off", loadSettings().scanlines === false);
+      setPointer("fine");
+      check("...and a mouse starts with it on", loadSettings().scanlines === true);
+      // Phrased as "not coarse" rather than "fine" on purpose: a device with NO
+      // pointer — a TV, a pad-only build — answers false to `(pointer: fine)`,
+      // and those are the large distant screens the comb reads best on.
+      setPointer("none");
+      check("...as does a screen with no pointer at all", loadSettings().scanlines === true);
+
+      // THE SAVE BEATS THE DEVICE, both ways round — a default that could only
+      // be overridden in one direction is a default that sometimes is not one.
+      setPointer("fine");
+      localStorage.setItem("tetrilaunch.settings", JSON.stringify({ scanlines: false }));
+      check("a player who switched it off keeps it off on a mouse",
+        loadSettings().scanlines === false);
+      setPointer("coarse");
+      localStorage.setItem("tetrilaunch.settings", JSON.stringify({ scanlines: true }));
+      check("...and one who switched it on keeps it on under a thumb",
+        loadSettings().scanlines === true);
+
+      // "I could not tell" is not a reason to take the look away.
+      localStorage.removeItem("tetrilaunch.settings");
+      Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+      check("a platform with no matchMedia keeps the intended look",
+        loadSettings().scanlines === true);
+      delete (globalThis as unknown as Record<string, unknown>).window;
+      check("...and so does one with no window at all", loadSettings().scanlines === true);
+    } finally {
+      bag.clear();
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+      if (prevWin) Object.defineProperty(globalThis, "window", prevWin);
+      else delete (globalThis as unknown as Record<string, unknown>).window;
+    }
+  }
 }
 
 // ===========================================================================

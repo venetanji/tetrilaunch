@@ -105,7 +105,7 @@ import {
   type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
 import { sandboxContract, sandboxScreen } from "./ui/sandbox-screen";
-import { dprQueries, render, renderScale } from "./game/render";
+import { dprQueries, render, renderScale, scanlineMetrics } from "./game/render";
 import { CHUTE_ROOF_BASE_Y, setChuteRoofY } from "./game/chute";
 import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
@@ -1272,6 +1272,7 @@ class App {
     // here — the whole point of baking the bitmaps as data URIs is that they
     // arrive with no load, and that cuts both ways.
     this.applySystemCursor();
+    this.applyScanlines();
     // The starting input family: fine pointer means keyboard+mouse until an
     // input says otherwise (D2 — the profile follows the last input seen).
     this.setProfile(this.finePointer() ? "keyboard" : "touch");
@@ -1811,6 +1812,18 @@ class App {
    *  that is still resting on them (see onToggle). */
   private applySystemCursor(): void {
     document.documentElement.dataset.systemCursor = this.settings.systemCursor ? "on" : "off";
+  }
+
+  /** The Scanlines switch, spent on the class app.css has always had and
+   *  nothing ever wrote (`crt-off` on <body>, see the CRT block there).
+   *
+   *  On BODY rather than on the root, because that is the selector the
+   *  stylesheet already documents and re-homing it would change the overlay's
+   *  contract for no gain. A presence toggle rather than a named
+   *  `data-scanlines="on|off"` for the same reason: unlike the cursor's hook
+   *  this one existed first, and the setting is what finally reaches it. */
+  private applyScanlines(): void {
+    document.body.classList.toggle("crt-off", !this.settings.scanlines);
   }
 
   /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
@@ -4632,6 +4645,20 @@ class App {
     // The gap the solver budgeted the column with — the CSS reads it back so
     // the rendered stack matches the fit prediction exactly.
     rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
+    // The CRT comb's line and period, as CSS lengths that land on whole DEVICE
+    // px (render.ts's scanlineMetrics). A stylesheet can only write CSS px and
+    // a CSS px is not a pixel, so the authored `1px in 3px` only repeats
+    // cleanly on a whole-number ratio. Published from HERE because the ratio is
+    // precisely what can change under a window that never moved, and this path
+    // is where armDprWatch lands when it does.
+    //
+    // From the RAW devicePixelRatio, not renderScale's capped answer: the cap
+    // exists because the frame is fill-bound and says how much CANVAS the
+    // budget can afford. It has nothing to say about a CSS gradient, which
+    // rasterises at the panel's real density like the rest of the chrome.
+    const comb = scanlineMetrics(window.devicePixelRatio || 1);
+    rs.setProperty("--scanline-line", `${comb.line}px`);
+    rs.setProperty("--scanline-period", `${comb.period}px`);
     // How far the chrome is magnified above its authored box (game/layout.ts's
     // chromeZoom). app.css's screen-anchored scaffolds put this straight into
     // `zoom`, so a browser window bigger than the reference renders the
@@ -9135,6 +9162,10 @@ class App {
     // same frame they let go of the switch — which is the only feedback this
     // particular toggle can give.
     if (key === "systemCursor") this.applySystemCursor();
+    // Same shape and the same reason: one class write, no re-render, and the
+    // overlay over the player's own hand changes on the frame they let go of
+    // the switch — which is the only feedback this toggle can give.
+    if (key === "scanlines") this.applyScanlines();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
     // has to redraw the screen saying it. stickSling is the only one: the
     // gamepad pane's aim row describes the mode that is on, so leaving the old
