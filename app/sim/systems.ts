@@ -163,7 +163,8 @@ import {
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
   SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
-  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET, budgetForTier,
+  schoolBoard, schoolContract, SCHOOL_CONTRACT_SEED, SCHOOL_CONTRACT_BUDGET,
+  SCHOOL_CONTRACT_BRIEF, budgetForTier,
   RACK_CEILING_CUBES, RACK_LIP_COLUMNS, RACK_MAX_DEPTH, RACK_PIECE, RACK_TRENCH_CELLS,
   SETPIECE_MIN_TIER, SETPIECE_SLACK_SHOTS, SETPIECE_SLOT, SETPIECE_SPARE_ROWS,
   isSetpieceSlot, rackDepthFor, rackLipColumns, rackProfile, setpieceConditions, setpieceDay,
@@ -24931,6 +24932,41 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       `budget ${budgetForTier(1)}, wind ${card.windMax}`);
     check("...and the tier's own budget really would",
       generateContract(SCHOOL_CONTRACT_SEED, 1, 0).windMax > 0);
+    // ---- AND IT SAYS SO, IN PROSE (O3) ---------------------------------
+    //
+    // The zero budget bought no complications, so linesConditions had nothing
+    // to report and fell through to its guard string: the first Contract
+    // anybody opens briefed itself, in full, as "clean bay", and the plant
+    // panel's Bay row said the same two words for the whole flight. That is
+    // shorthand from inside the generator, and on a card it reads as an
+    // omission rather than as the promise it actually is — the promise being
+    // the entire reason the budget is zero.
+    // `brief` widened to string on purpose: the literal type would make the
+    // "not the guard string" half of this a compile-time tautology, and the
+    // point of the pin is that it is a fact about the CARD.
+    const schoolBrief: string = card.brief;
+    check("the school's card briefs itself in prose, not the generator's guard",
+      schoolBrief === (SCHOOL_CONTRACT_BRIEF as string) && schoolBrief !== "clean bay",
+      schoolBrief);
+    // ONE STRING FOR BOTH, which is the invariant every lines Contract keeps:
+    // the card and the HUD's Bay row make the same statement about the bay.
+    check("...and the card and the HUD's Bay row are the same statement",
+      card.conditions === card.brief, `${card.brief} / ${card.conditions}`);
+    // THE GUARD IS STILL THE GUARD. It is what a generated Contract that bought
+    // nothing would say, and this pin is the other half of the note above
+    // linesConditions: the school is the only caller that lands there, so the
+    // string now reaches no screen.
+    check("...over a guard string that is exactly what a zero budget would say",
+      generateContract(SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, 0).brief === "clean bay");
+    check("...and the bay underneath is still the generator's, untouched",
+      card.goal === generateContract(
+        SCHOOL_CONTRACT_SEED, 1, 0, undefined, false, SCHOOL_CONTRACT_BUDGET,
+      ).goal && card.launches > 0 && card.kind === "lines",
+      `${card.goal} lines / ${card.launches} launches`);
+    // …AND IT REACHES THE ONE BOARD THAT DEALS IT.
+    check("...and the school's board prints it",
+      contractsScreen({ contracts: schoolBoard(), tier: 1, cleared: [], school: true })
+        .includes(SCHOOL_CONTRACT_BRIEF));
     // NO SET PIECE AND NO PATTERN. Both are true by construction (a set piece
     // needs SETPIECE_MIN_TIER, a pattern needs PATTERN_SLOT) and both are
     // pinned, because "by construction" is a property of two constants that a
