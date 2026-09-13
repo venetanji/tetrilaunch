@@ -137,6 +137,8 @@ import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/co
 import {
   armActivate, armRelease, DISARMED, focusInitial, focusOn, focusTargets, moveFocus,
   PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, type ArmState,
+  // F7: the inert seal both question panels take over their sibling.
+  sealBehindScrim,
 } from "./ui/padnav";
 import { captureScroll, centreScroll, restoreScroll } from "./ui/scrollkeep";
 import * as S from "./ui/screens";
@@ -3855,6 +3857,9 @@ class App {
       case "account-delete":
         this.overlay.innerHTML =
           S.accountScreen(this.storeState().account!) + S.accountDeleteModal();
+        // F7: Tab used to reach Sign Out behind this question, and Enter there
+        // answered a different one. See ui/padnav's sealBehindScrim.
+        sealBehindScrim(this.overlay);
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -4011,6 +4016,10 @@ class App {
               // already burned the watermark by now (see sealBreakExplain).
               explain: this.sealBreakExplain,
             });
+          // F7: the rail behind this notice is a column of live buttons, and
+          // Tab reached every one of them under the scrim. Same seal the
+          // deletion notice takes — ui/padnav's sealBehindScrim.
+          sealBehindScrim(this.overlay);
         }
         break;
       case "won":

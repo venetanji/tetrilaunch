@@ -243,6 +243,8 @@ import { setRailSide } from "../src/game/layout";
 import {
   armActivate, armRelease, DISARMED,
   FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
+  // F7: the inert seal, driven directly by the section at the foot of this file.
+  sealBehindScrim,
   type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import { captureScroll, centreScroll, restoreScroll, scrollKey } from "../src/ui/scrollkeep";
@@ -28741,6 +28743,74 @@ section("\"Not configured\" and \"couldn't start\" are different answers (F6)");
     /unavailable: this\.auth\.unavailable,/.test(mainSrc));
   check("...and the retry button reaches retryAuthInit",
     /case "account-retry":/.test(mainSrc) && /retryAuthInit\(\)/.test(mainSrc));
+}
+
+// ---------------------------------------------------------------------------
+section("A scrim seals what it covers from Tab (F7 — ui/padnav's sealBehindScrim)");
+// ---------------------------------------------------------------------------
+// POINTER-EVENTS IS NOT A FOCUS TRAP. Both notices render as a SIBLING of the
+// screen they are about — the deletion panel over the account screen, the seal
+// notice over the bay's HUD — so the scrim covers the mouse and leaves the
+// keyboard walking straight through it: Tab reached "Sign Out" behind an open
+// "Delete this player account?", and Enter there signed the player out under a
+// question they had not answered.
+//
+// `inert` IS THE WHOLE FIX, and it is one attribute: the subtree leaves the
+// tab order, stops receiving events, and is hidden from assistive technology,
+// which is exactly the set of things "covered by a modal" is supposed to mean.
+//
+// WHY IT IS A FUNCTION IN padnav.ts AND NOT THREE LINES IN main.ts: this is
+// the same subject padnav owns — which controls a keyboard or a pad may reach
+// — and putting it here is what lets this file exercise it. The parameter is
+// STRUCTURAL (anything with `children` whose items have classList and the two
+// attribute methods) so the check below can hand it a two-element fake and
+// read the result, rather than grepping main.ts for a call and hoping.
+{
+  interface FakeEl {
+    classList: { contains(token: string): boolean };
+    setAttribute(name: string, value: string): void;
+    removeAttribute(name: string): void;
+    inert(): boolean;
+  }
+  const fake = (cls: string): FakeEl => {
+    const attrs = new Set<string>();
+    return {
+      classList: { contains: (t: string) => cls.split(" ").includes(t) },
+      setAttribute: (n: string) => attrs.add(n),
+      removeAttribute: (n: string) => attrs.delete(n),
+      inert: () => attrs.has("inert"),
+    };
+  };
+
+  const screen = fake("screen neon-backdrop center");
+  const scrim = fake("modal-scrim");
+  sealBehindScrim({ children: [screen, scrim] });
+  check("the screen behind an open scrim is inert", screen.inert());
+  check("...and the scrim itself is not", !scrim.inert());
+  // THE OTHER HALF, and the one a "set it on mount" fix forgets: closing the
+  // notice has to give the screen back. Every close here is a re-render that
+  // replaces the children outright, but the function is written not to depend
+  // on that — hand it a root with no scrim and it clears what it set.
+  sealBehindScrim({ children: [screen] });
+  check("...and the inert comes off the moment the scrim goes", !screen.inert());
+  // A HUD is not a `.screen`, and the seal notice's sibling is a HUD: the rule
+  // is "everything that is not the scrim", never a class list.
+  const hud = fake("hud");
+  sealBehindScrim({ children: [hud, scrim] });
+  check("a HUD behind a scrim is sealed on the same rule", hud.inert() && !scrim.inert());
+
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // Called AFTER the innerHTML write in each case — before it there would be
+  // nothing mounted to seal.
+  check("the deletion notice seals the account screen behind it",
+    /case "account-delete":[\s\S]{0,300}?this\.overlay\.innerHTML =[\s\S]{0,400}?sealBehindScrim\(this\.overlay\);/
+      .test(mainSrc));
+  check("the seal notice seals the HUD behind it",
+    /case "seal-break":\s*\n\s*if \(g && this\.run\) \{[\s\S]{0,2600}?sealBehindScrim\(this\.overlay\);/
+      .test(mainSrc));
 }
 
 console.log(
