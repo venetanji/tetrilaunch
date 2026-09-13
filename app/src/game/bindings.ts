@@ -363,7 +363,25 @@ export function padChip(button: number, family: PadFamily = padFamily): PadChip 
  * these, per profile, so a hint can never name a control the profile hides.
  * ------------------------------------------------------------------------ */
 export function hintRotate(profile: InputProfile): string {
-  if (profile === "touch") return "tap ⟲ / ⟳ on the right";
+  /* "ON THE RAIL", NOT "ON THE RIGHT" (found in review). The rail has three
+   * positions and the hint had one: Controls → Left-handed rail mirrors it to
+   * the left edge (store.ts's leftHandRail, layout.ts's setRailSide), and the
+   * "tall" layout parks it as a BOTTOM strip on a portrait phone
+   * (app.css's :root[data-layout="tall"] .side-rail). So the sentence was
+   * wrong for every left-handed player and wrong for every portrait one, on
+   * the card whose entire subject is finding two buttons in a rail of seven —
+   * which is exactly the class of bug this table was built to make unwritable,
+   * arriving through a word nobody thought of as a binding.
+   *
+   * NAMED, NOT LOCATED, rather than threading the side and the layout mode in.
+   * Position is not a property of the binding: the mode is re-solved on every
+   * resize, and this string is baked into a coach card at mount time, so a
+   * threaded "on the left" would go stale the moment a tablet turned — a hint
+   * that is right when written and wrong when read is worse than one that
+   * never claimed. The glyphs are printed ON the buttons (components.ts's
+   * railLegendHTML), which is the reference a player actually matches against,
+   * and "the rail" names the object wherever it has been put. */
+  if (profile === "touch") return "tap ⟲ / ⟳ on the rail";
   if (profile === "gamepad") return `press ${padLabel(padFor("rotl"))} / ${padLabel(padFor("rotr"))}`;
   return `press ${keyLabel(keyFor("rotl"))} / ${keyLabel(keyFor("rotr"))}`;
 }

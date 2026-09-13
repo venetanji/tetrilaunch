@@ -7554,6 +7554,16 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       hintRotate("gamepad").includes("LB"));
   check("the keyboard hint never points at the touch rail",
     !hintRotate("keyboard").includes("⟲"));
+  // ...AND THE TOUCH HINT NAMES THE RAIL RATHER THAN A SIDE OF THE SCREEN. It
+  // said "on the right", which is wrong for a left-handed rail (Controls →
+  // leftHandRail) and wrong for the "tall" layout's bottom strip — two states
+  // the player chooses and the device chooses, on the one card whose subject
+  // is finding two buttons among seven. Asserted as "no side word at all",
+  // because the fix is that the sentence stops making a claim that a resize
+  // can falsify, not that it makes a different one.
+  check("the touch rotate hint names the rail, not a side of the screen",
+    hintRotate("touch").includes("rail") && !/\b(right|left|bottom|top)\b/i.test(hintRotate("touch")),
+    hintRotate("touch"));
   const desktopCoach = coachSteps(makeBaseLevel(0), "keyboard");
   check("the desktop coach teaches keys, not hidden buttons",
     !desktopCoach[1].body.includes("⟲") && desktopCoach[1].body.includes("Q"));
