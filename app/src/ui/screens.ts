@@ -20,6 +20,7 @@ import {
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
   tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded, rigStarted,
+  FREE_TIER_LIMIT,
   SCHOOL_INSTALL, SCHOOL_LADDER, SCHOOL_STEPS, FINAL_EXAM, licenceDone, schoolProgress,
   type InstallDef, type MetaState, type NextStepId, type SchoolStepKind, type TierProgress,
 } from "../game/meta";
@@ -28,7 +29,7 @@ import { lessonPictogramHTML } from "./lessonart";
 
 /** Lessons past the licence — the practice bays that stay open once Tier 1
  *  does. Derived, so the copy quoting it cannot drift from the ladder. */
-import { DAILY_COUNT } from "../game/contracts";
+import { DAILY_COUNT, FREE_DAILY_CONTRACTS } from "../game/contracts";
 import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
 } from "../game/guide";
@@ -40,7 +41,8 @@ import {
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
-  HAZARDS, picksPerBay, totalNotches, type HazardDef, type HazardId, type Ratchets,
+  HAZARDS, MATERIAL_DRAFT_BAYS, picksPerBay, totalNotches,
+  type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
 import type { FinalDef, FinalId } from "../game/finals";
 import {
@@ -2213,6 +2215,154 @@ function unlockChipHTML(): string {
 /* #89 re-added a sandboxChipHTML here; #90 had deleted it. #90 wins: Tier S
  * has a door of its own under the tower now, and a second entry to one screen
  * on one screen is how a menu stops feeling owned. */
+
+/* ---------------------------------------------------------------------------
+ * THE FULL GAME PREVIEW — what the entitlement opens, before the store is asked
+ * for money.
+ *
+ * Every "Unlock Full Game" in the game used to go straight to RevenueCat's own
+ * sheet: the menu chip, the Settings row, the tap on a paywalled tower floor.
+ * That sheet is configured in a dashboard and knows nothing about this game — it
+ * can print a price and a title and no more — so the entire pitch for seven
+ * Tiers, six materials and an unmetered Contract board was the four words on
+ * the button that opened it. A player who had never seen past Tier 3 was being
+ * asked to buy a thing nobody had shown them.
+ *
+ * So this sits in front of it, and it makes exactly two claims:
+ *
+ *  1. THE DEMO IS THE PITCH. The left half is game/attract.ts running
+ *     PREVIEW_BAY — a real Tier 7 bay with slag on the belt and a demolition
+ *     rack answering it — through the same Game, the same physics and the same
+ *     renderer the bay itself uses. It is the menu's demo pointed at a floor
+ *     the player does not own yet, and it can no more misrepresent the game
+ *     than the game can. See attract.ts's PREVIEW_BAY for every choice in it.
+ *
+ *  2. THE LIST IS ARITHMETIC, NOT COPYWRITING. Each of the three lines is read
+ *     off the constant that decides it — meta.ts's FREE_TIER_LIMIT and
+ *     MARK_COUNT, the hazards.ts rows whose Mark opens past the free ladder,
+ *     contracts.ts's FREE_DAILY_CONTRACTS. A hand-typed "7 more Tiers" is a
+ *     promise that goes quietly wrong the day the free trial is lengthened, and
+ *     a wrong promise on the screen that takes the money is the worst place in
+ *     the app to have one. sim/systems.ts pins all three against their sources.
+ *
+ * NO MARKETING ADJECTIVES, deliberately, and that is the house voice rather
+ * than restraint: this game's surfaces state quantities (docs/COPY_AUDIT.md's
+ * terminology contract, and every draft card in hazards.ts). "Seven more floors
+ * of increasingly intense action" would be the one screen in the build that
+ * sounds like someone else wrote it.
+ * ------------------------------------------------------------------------ */
+
+/** Joins a list the way a sentence does — commas between, "and" before the
+ *  last, no serial comma. The list this serves is the six material names, and
+ *  the clause it sits in ends "…join the draft": a comma before that final
+ *  "and" reads as a second clause starting rather than a list finishing. */
+function andList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The materials the paid half of the ladder puts on the belt, in ladder order.
+ *
+ * Read off HAZARDS by the Mark each axis OPENS at rather than from a list typed
+ * here, because that is the same table the draft deals from: an axis moved a
+ * rung up or down the ladder moves in this sentence with it, and a seventh
+ * material added at Mark 10 appears here the day it is added.
+ *
+ * Named from theme.ts's MATERIAL_SPEC rather than from the hazard's own card
+ * title, which is "Cryo Contract" — the card names a DEAL being struck, and
+ * this line is naming the substance that arrives.
+ */
+export function previewMaterials(): string[] {
+  return HAZARDS
+    .filter((h) => h.mark > FREE_TIER_LIMIT && h.material !== undefined)
+    .map((h) => MATERIAL_SPEC[h.material as keyof typeof MATERIAL_SPEC].name);
+}
+
+/** The sheet's three lines, each as its icon and its sentence. Exported so the
+ *  pins can read the sentences without parsing them back out of the markup. */
+export function previewLines(): { icon: IconName; text: string }[] {
+  return [
+    {
+      // The ladder itself: how much of the tower is behind the entitlement.
+      icon: "up",
+      text: `Tiers ${FREE_TIER_LIMIT + 1}–${MARK_COUNT} and the Skydeck above them.`,
+    },
+    {
+      // What those Tiers put on the belt. The material-only draft bays are
+      // named because they are the difference between "a material may turn up"
+      // and "three bays a run deal nothing else".
+      icon: "notch",
+      // The COUNT of material-only bays rather than which ones: "bays 2, 5 and
+      // 8" spends a third of the sentence on numbers a player cannot act on
+      // before they own the thing, and the claim being made is how OFTEN the
+      // draft is nothing but materials.
+      text: `${andList(previewMaterials())} join the draft, and `
+        + `${MATERIAL_DRAFT_BAYS.length} bays a run deal nothing else.`,
+    },
+    {
+      // The board. The one line here that is about a LIMIT being removed rather
+      // than content being added, which is why it names the number it replaces.
+      icon: "contracts",
+      text: `Unlimited Contracts a day, instead of ${FREE_DAILY_CONTRACTS}.`,
+    },
+  ];
+}
+
+export interface PreviewOpts {
+  /** A status line printed under the buttons. Today the store's own "not
+   *  available" answer, written by main.ts when the primary is pressed against
+   *  an unconfigured SDK — the same refusal the tower's own floor tap gives,
+   *  moved to the button the player actually pressed. Null prints nothing, and
+   *  nothing is the ordinary state. */
+  note?: string | null;
+}
+
+/**
+ * The sheet. Two columns on a landscape device, stacked in portrait — the same
+ * `.split` primitive and the same `max-aspect-ratio: 1/1` rule the menu uses,
+ * because "is there width for two columns" is one question this app should only
+ * answer once (app.css's note at the menu's own stacking query).
+ *
+ * The demo panel keeps its paragraph in the DOM whether or not the demo is
+ * running, for the reason menuScreen keeps its own: main.ts adds `is-live` only
+ * once the canvas is actually being drawn into, so on reduced motion or without
+ * a 2D context the paragraph is what is shown, and while the demo IS live the
+ * paragraph is the canvas's text alternative. A bare canvas has no accessible
+ * name at all.
+ */
+export function previewScreen(opts: PreviewOpts = {}): string {
+  const rows = previewLines()
+    .map((r) => `<li class="fullgame__row">${icon(r.icon, 16)}<span>${r.text}</span></li>`)
+    .join("");
+  return `<div class="screen neon-backdrop">
+    <div class="fullgame">
+      <div class="fullgame__hd">
+        <div>
+          <div class="eyebrow">Full Game</div>
+          <h2 class="display fullgame__title">${MARK_COUNT - FREE_TIER_LIMIT} more floors</h2>
+        </div>
+        <button class="icon-btn" data-action="preview-back" aria-label="Back">${icon("close", 18)}</button>
+      </div>
+      <div class="split fullgame__body">
+        <div class="fullgame__demo">
+          <canvas class="fullgame__demo-canvas" aria-hidden="true"></canvas>
+          <p class="fullgame__alt">A bay from deep in the ladder, playing itself — the same
+          cannon, the same press and the same physics, with the cargo and the systems these
+          floors open.</p>
+        </div>
+        <div class="fullgame__side">
+          <ul class="fullgame__list">${rows}</ul>
+          <div class="fullgame__actions">
+            <button class="btn btn--primary btn--block" data-action="preview-buy">${icon("star", 13)}Unlock Full Game</button>
+            <button class="btn btn--ghost btn--block" data-action="preview-back">Not now</button>
+          </div>
+          ${opts.note ? `<p class="fullgame__note" role="status">${opts.note}</p>` : ""}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
 
 /* ---------------------------------------------------------------------------
  * HOW TO PLAY — the guide (game/guide.ts) as a master/detail screen.

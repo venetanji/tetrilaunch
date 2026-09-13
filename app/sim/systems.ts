@@ -242,6 +242,10 @@ import {
   resetKeyBindings, resetPadBindings, setFullscreenKeys, setKeyBinding, setPadBinding, setPadFamily,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
+// The Full Game preview's two demo bays, flown through the real autopilot at
+// the foot of this file.
+import { MENU_BAY, PREVIEW_BAY, demoLevel } from "../src/game/attract";
+import { createAutopilot } from "../src/game/autopilot";
 import {
   armActivate, armRelease, DISARMED,
   FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
@@ -16252,10 +16256,13 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     // the account no longer reaches before the screen opens on it.
     const mainSrcSbx = fs.readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"), "utf8");
-    check("the tier handler answers a locked ask with the paywall",
-      /case "sbx-tier"[\s\S]{0,400}tierIncluded\(asked, this\.fullGame\(\)\)[\s\S]{0,40}onPaywall/.test(mainSrcSbx));
+    // THE OFFER, not the store: both re-checks answer a locked ask the way every
+    // other gate in the game now does, with the Full Game preview
+    // (offerFullGame) — the store sheet is what that sheet's own primary opens.
+    check("the tier handler answers a locked ask with the offer",
+      /case "sbx-tier"[\s\S]{0,400}tierIncluded\(asked, this\.fullGame\(\)\)[\s\S]{0,40}offerFullGame/.test(mainSrcSbx));
     check("...and so does the launch",
-      /case "sbx-launch"[\s\S]{0,400}tierIncluded\(this\.sandbox\.tier, this\.fullGame\(\)\)[\s\S]{0,40}onPaywall/.test(mainSrcSbx));
+      /case "sbx-launch"[\s\S]{0,400}tierIncluded\(this\.sandbox\.tier, this\.fullGame\(\)\)[\s\S]{0,40}offerFullGame/.test(mainSrcSbx));
     check("...and a stale saved tier is clamped before the screen opens",
       /sandboxOpen\(\)[\s\S]{0,600}this\.sandbox\.tier = FREE_TIER_LIMIT/.test(mainSrcSbx));
   }
@@ -29086,17 +29093,23 @@ section("Player accounts (social login + RevenueCat identity)");
    * answered a tap with nothing: no sheet, no shake, no words (audit F1). The
    * tap now asks the store first, and a tap with no store takes the same
    * refusal every other locked floor takes, with the reason on the primary's
-   * subtitle rather than in a toast over the tower. */
+   * subtitle rather than in a toast over the tower.
+   *
+   * WHAT THE TAP OPENS HAS MOVED and the gate has not: it is the Full Game
+   * preview now (main.ts's offerFullGame), which is a screen rather than a
+   * purchase — but it is still gated on the store, deliberately, because "NO
+   * STORE, NO OFFER" is this method's stance and a sheet whose only action
+   * cannot be taken is a longer way of saying nothing. */
   {
     const pickAt = mainSrc.indexOf("private pickTier(");
     const pickBody = mainSrc.slice(pickAt, mainSrc.indexOf("\n  private ", pickAt + 1));
-    check("the paywalled floor's tap asks the store before offering the paywall",
-      /if \(purchasesReady\(\)\) \{\s*\n\s*void this\.onPaywall\(\);\s*\n\s*return;/.test(pickBody));
-    // The shape that was the bug: the paywall route with nothing in front of
-    // it. Its absence is the pin, because the gate above could be added beside
-    // it without removing it.
+    check("the paywalled floor's tap asks the store before making the offer",
+      /if \(purchasesReady\(\)\) \{\s*\n\s*this\.offerFullGame\(\);\s*\n\s*return;/.test(pickBody));
+    // The shape that was the bug: the offer route with nothing in front of it.
+    // Its absence is the pin, because the gate above could be added beside it
+    // without removing it.
     check("...and no ungated route to it survives",
-      !/fullGame: true \}, tier\)\) \{\s*\n\s*void this\.onPaywall\(\);/.test(pickBody));
+      !/fullGame: true \}, tier\)\) \{\s*\n\s*(void this\.onPaywall|this\.offerFullGame)\(\);/.test(pickBody));
     check("...and a tap with no store falls through to the shake, not to silence",
       pickBody.indexOf("this.noteStoreUnavailable()") > 0
         && pickBody.indexOf("this.noteStoreUnavailable()")
@@ -30159,6 +30172,199 @@ section("--text-faint is decorative; text uses --text-faint-ink (tokens.css, app
   check(
     "...and app.css still writes no raw hex for either step",
     !APP_CSS.includes("#55557a") && !APP_CSS.includes(ink),
+  );
+}
+
+section("The Full Game preview says what the entitlement opens, and shows it (screens.ts's previewScreen, game/attract.ts, main.ts)");
+{
+  const sheet = S.previewScreen();
+  const lines = S.previewLines().map((l) => l.text);
+
+  // ---- 1. THREE LINES, EACH READ OFF ITS OWN CONSTANT --------------------
+  //
+  // This is the screen that takes the money, so every quantity on it has to be
+  // the quantity the game will actually hand over. A hand-typed "7 more Tiers"
+  // survives a change to FREE_TIER_LIMIT in silence and becomes a false promise
+  // on the one surface in the app where a false promise is a refund.
+  check("the sheet carries exactly three claims", lines.length === 3, String(lines.length));
+
+  check(
+    "the ladder line names the first paid Tier and the last, off meta.ts",
+    lines[0].includes(`Tiers ${FREE_TIER_LIMIT + 1}\u2013${MARK_COUNT}`),
+    lines[0],
+  );
+  // The roof is part of what is bought and is not a numbered Tier, so it cannot
+  // come out of the range above — it has to be named (docs/COPY_AUDIT.md's
+  // Skydeck exception).
+  check("...and the Skydeck, which the range cannot cover", lines[0].includes("Skydeck"));
+
+  // The materials are the HAZARDS rows whose Mark opens past the free ladder,
+  // named from theme.ts. Asked here the same way previewMaterials asks it, so a
+  // material moved a rung up or down moves in the sentence with it.
+  const paidMaterials = HAZARDS
+    .filter((h) => h.mark > FREE_TIER_LIMIT && h.material !== undefined)
+    .map((h) => MATERIAL_SPEC[h.material as keyof typeof MATERIAL_SPEC].name);
+  check(
+    "the belt line names every material the paid Tiers open, and no other",
+    paidMaterials.length > 0
+      && paidMaterials.every((n) => lines[1].includes(n))
+      && MATERIALS.filter((m) => !paidMaterials.includes(MATERIAL_SPEC[m].name))
+        .every((m) => !lines[1].includes(MATERIAL_SPEC[m].name)),
+    `${paidMaterials.join("/")} vs ${lines[1]}`,
+  );
+  check(
+    "...and counts the bays whose draft is materials and nothing else",
+    lines[1].includes(`${MATERIAL_DRAFT_BAYS.length} bays`),
+    lines[1],
+  );
+  // A line that quotes the free allowance has to quote the number the free
+  // build actually meters at, not the board's own width — they are equal today
+  // (FREE_DAILY_CONTRACTS is DAILY_COUNT) and are two different questions.
+  check(
+    "the board line quotes the free allowance, off contracts.ts",
+    lines[2].includes(`instead of ${FREE_DAILY_CONTRACTS}`),
+    lines[2],
+  );
+  // ...and the title counts the floors the same way, rather than saying seven.
+  check(
+    "the title counts the paid floors rather than naming a number",
+    sheet.includes(`>${MARK_COUNT - FREE_TIER_LIMIT} more floors<`),
+  );
+  for (const line of lines) {
+    check(`...and "${line.slice(0, 34)}…" is on the sheet`, sheet.includes(line));
+  }
+
+  // ---- 2. THE SHEET'S TWO DOORS -----------------------------------------
+  //
+  // The primary goes to the store and the two reversible controls go back. The
+  // sheet must NOT carry data-action="paywall" itself: that is the action every
+  // OTHER surface uses to reach this sheet (main.ts's offerFullGame), so a copy
+  // of it on the primary would re-open the preview from inside the preview.
+  check("the primary reaches the store", sheet.includes('data-action="preview-buy"'));
+  check("...and says what it buys", sheet.includes("Unlock Full Game"));
+  check(
+    "both reversible controls back out — the \u2715 and \"Not now\"",
+    (sheet.match(/data-action="preview-back"/g) ?? []).length === 2,
+  );
+  check(
+    "...and the sheet does not carry the action that opens the sheet",
+    !sheet.includes('data-action="paywall"'),
+  );
+  check("the demo panel is in the markup for main.ts to mount", sheet.includes("fullgame__demo"));
+  // The canvas has no accessible name of its own, so the paragraph beside it is
+  // the whole of what a screen reader gets while the demo is live (app.css
+  // hides it visually and only then).
+  check("...with the text alternative the canvas cannot supply",
+    sheet.includes("fullgame__alt"));
+
+  // ---- 3. EVERY OFFER GOES THROUGH THE PREVIEW ---------------------------
+  //
+  // Read off main.ts's source, because the App class is a DOM object this
+  // harness cannot build — the same wire sim/systems.ts already reads attract.ts
+  // as text for. What it pins is the routing rule the whole change rests on:
+  // presentPaywall is reached from exactly TWO places, and neither of them is a
+  // button a player presses cold.
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  check(
+    "the paywall action opens the preview, not the store",
+    mainSrc.includes('case "paywall": this.offerFullGame(); break;'),
+  );
+  check(
+    "the store is reached from two places only: the preview's primary, and a sign-in resuming the purchase it interrupted",
+    (mainSrc.match(/this\.onPaywall\(\)/g) ?? []).length === 2,
+    String((mainSrc.match(/this\.onPaywall\(\)/g) ?? []).length),
+  );
+  // The tier gates are offers too — the tower floor, the Play guard, both
+  // sandbox re-checks — and every one of them now makes the offer rather than
+  // opening a store sheet with no pitch on it.
+  check(
+    "every tier gate makes the offer instead",
+    (mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length === 5,
+    String((mainSrc.match(/this\.offerFullGame\(\)/g) ?? []).length),
+  );
+  check(
+    "an owner is still offered nothing",
+    /offerFullGame\(\): void \{\n    if \(this\.fullGame\(\)\) return;/.test(mainSrc),
+  );
+  // ONE DEMO, TWO HOSTS. syncAttract stops the demo for every state that is not
+  // one of the two panels, which is what closes the preview's bay when the
+  // sheet does — and the preview mounts PREVIEW_BAY rather than the menu's.
+  check(
+    "the preview mounts the demo with its own bay",
+    mainSrc.includes('{ sel: ".fullgame__demo", bay: PREVIEW_BAY }')
+      && mainSrc.includes('{ sel: ".menu__demo", bay: MENU_BAY }'),
+  );
+  check(
+    "...and any other screen stops it",
+    /if \(!host \|\| !panel\) \{\n      this\.attract\.stop\(\);/.test(mainSrc),
+  );
+
+  // ---- 4. THE BAY THE DEMO ACTUALLY FLIES --------------------------------
+  //
+  // The sheet's canvas is the other half of its claim, and an unratcheted Tier 1
+  // bay behind a list promising six materials would be the screen contradicting
+  // itself. Asked of the resolved LevelConfig rather than of the constant, so a
+  // ratchet that stopped applying is caught here and not in a screenshot.
+  const previewCfg = demoLevel(PREVIEW_BAY);
+  const menuCfg = demoLevel(MENU_BAY);
+  check("the preview flies a Tier the free build cannot",
+    previewCfg.mark > FREE_TIER_LIMIT, `Tier ${previewCfg.mark}`);
+  check("...with material on the belt",
+    Object.values(previewCfg.materialMix).some((r) => r > 0));
+  check("...and weather to aim into", previewCfg.windMax > 0);
+  check("...and a rack to answer the pile with", previewCfg.bombCharges > 0);
+  // The menu's bay is untouched by any of it — this change must not have
+  // retuned the home screen on its way past.
+  check("the menu's bay is still stock",
+    menuCfg.mark === 1 && menuCfg.windMax === 0 && menuCfg.bombCharges === 0
+      && Object.values(menuCfg.materialMix).every((r) => r === 0));
+  // Both overrides survive the ratchets, which are applied first and would
+  // otherwise put a clock and a launch price back on a bay that cannot pay one.
+  check("neither bay can end on a clock or a price",
+    previewCfg.timeLimitSec === 0 && previewCfg.launchCost === 0
+      && menuCfg.timeLimitSec === 0 && menuCfg.launchCost === 0);
+
+  // ---- 5. THE RACK IS FIRED, NOT JUST MOUNTED ----------------------------
+  //
+  // The whole reason the preview bay carries slag: the autopilot cannot clear a
+  // dead cube, so the pile climbs and the charge is the answer. Flown for real
+  // — the shipped autopilot against the shipped config — because "the rack is
+  // in the loadout" is exactly the claim that used to be true while nothing on
+  // screen ever fired one.
+  const fly = (bay: Parameters<typeof demoLevel>[0], seed: number, steps: number): number => {
+    const g = new Game(demoLevel(bay), {}, seed);
+    const pilot = createAutopilot(seed);
+    let clock = 0;
+    let spent = 0;
+    let charges = g.bombCharges;
+    for (let i = 0; i < steps; i++) {
+      clock += 1000 / 60;
+      pilot.act(g, clock);
+      g.update(clock);
+      if (g.bombCharges < charges) spent += 1;
+      charges = g.bombCharges;
+      if (g.status !== "playing") break;
+    }
+    return spent;
+  };
+  // A FULL 90-SECOND CYCLE, on the two SLOWEST of the eight seeds measured while
+  // the bay was being chosen — the ones that take 77s and 31s to reach the bay's
+  // congestion line, against a median of 17s. Pinning the slow pair rather than
+  // a lucky one is the difference between "this bay can fire a charge" and "this
+  // bay fires a charge even when the bag is kind to it"; a cycle is what the
+  // demo actually gets before attract.ts recycles it (CYCLE_MS).
+  const previewShots = [1, 2].map((seed) => fly(PREVIEW_BAY, seed, 5400));
+  check(
+    "the preview's autopilot spends demolition charges on the pile",
+    previewShots.every((n) => n > 0),
+    previewShots.join("/"),
+  );
+  check(
+    "...and the menu's, with no rack, never arms one",
+    fly(MENU_BAY, 1, 5400) === 0,
   );
 }
 
