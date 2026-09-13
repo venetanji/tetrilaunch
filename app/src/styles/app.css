@@ -7823,13 +7823,33 @@ body.crt-off #app::after { display: none; }
   background: rgba(8,8,18,0.55);
   min-width: 0;
 }
+/* ONE LINE AT EVERY WIDTH, and the nowrap is on the BASE rule because that is
+   the only place a rule about this row can be true.
+   It lived in the `max-height: 520px` tier below — i.e. on every landscape
+   phone and no tablet — which made the three tablets in the matrix the rows
+   nobody had written a rule for. Measured on the `refit-staged` fixture, the
+   state whose note carries the "N moved" count and so squeezes the title
+   hardest: the row laid out 16px tall on the Pixel Tablet, the iPad mini and
+   the iPad Pro, with "CRYO VAULT — PROJECTED" broken across two lines that an
+   8px pixel face at 0.06em then set on top of each other. Every phone row was
+   already correct, which is exactly why no assertion in the fit harness had an
+   opinion: a header that wraps does not overflow, scroll, clip or leave the
+   viewport, it just doubles.
+   The height argument the compact tier gave ("wrapped, the projection's own
+   header cost as much height as a row of stat tiles") is a phone argument. The
+   reason it belongs here is a different one and holds everywhere: the note
+   beside the title is already built to ellipsise, so a wrap is never the
+   graceful degradation — it is the row failing to use the escape hatch it has.
+   min-width:0 rides along because a nowrap flex ROW takes its own minimum from
+   its items, and this row is itself an item of `.projection`'s column. */
 .projection__hd {
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  white-space: nowrap; min-width: 0;
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-dim);
 }
-/* min-width:0 because the compact tier pins this row to `white-space: nowrap`
-   (see the .projection__hd rule at compact density below), and a nowrap flex item takes
+/* min-width:0 because this row is pinned to `white-space: nowrap` (see the
+   base rule above), and a nowrap flex item takes
    its minimum from the whole unbroken string — so without a floor the note
    cannot shrink and pushes itself straight out of the header instead of
    ellipsizing inside it. The Final Inspection's note is the longest copy this
@@ -8035,9 +8055,11 @@ body.crt-off #app::after { display: none; }
   .modal--draft .mod-card__box { width: 16px; height: 16px; font-size: 7px; }
   .modal--draft .mod-card__top { gap: 5px; }
   .modal--draft .mod-card__lvl { font-size: 7px; }
-  /* Kept on one line: wrapped, the projection's own header cost as much height
-     as a row of stat tiles. */
-  .projection__hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
+  /* The nowrap that used to live here is on the base rule now — it was never a
+     compact-tier fact (see the note by `.projection__hd`). What is left is the
+     one thing this tier actually buys: a smaller face, so the row costs 7px of
+     the phone's height instead of 8. */
+  .projection__hd { font-size: 7px; }
   .modal--draft .draft__cards { gap: 7px; }
   /* The projection is the reason the modal is worth opening, so it shrinks
      rather than scrolling away: tighter tiles, smaller labels, and a grid that

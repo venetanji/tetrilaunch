@@ -28229,6 +28229,54 @@ section("Player accounts (social login + RevenueCat identity)");
   }
 }
 
+section("The projection header is one line on EVERY device (app.css .projection__hd)");
+// ---------------------------------------------------------------------------
+// A TABLET REPORT, and the thing that makes it worth a source pin: the header
+// held one line on all seven phone rows and wrapped into itself on all three
+// tablets. The nowrap that keeps it honest lived only in the `max-height:
+// 520px` tier — every landscape phone, no tablet — so the iPads and the Pixel
+// Tablet were the rows the rule had never been written for. Measured on the
+// `refit-staged` fixture (the state that grows the "N moved" count and so
+// gives the note its widest copy): `.projection__hd` laid out 16 CSS px tall
+// with "Cryo Vault — projected" broken across two lines that its 8px pixel
+// face then set on top of each other.
+//
+// WHY A SOURCE PIN RATHER THAN THE FIT HARNESS ALONE: a wrapped header is the
+// bug class uifit's `oneline` list exists for, but this row is not on it, and
+// putting it there would assert the SYMPTOM on the nineteen devices that
+// happen to be in the matrix. The rule is the invariant — this header is one
+// line at every width — and it belongs on the base rule where a fourth tablet
+// cannot miss it. The measurement is in the commit; this is what keeps it.
+// ---------------------------------------------------------------------------
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = [...css.matchAll(/\.projection__hd\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  // The base rule is the one that BUILDS the row (`display: flex`); every
+  // other `.projection__hd` block in the file is a density override.
+  const base = blocks.find((b) => /display:\s*flex/.test(b)) ?? "";
+  check(
+    "the projection header's base rule refuses to wrap",
+    /white-space:\s*nowrap/.test(base),
+    base.replace(/\s+/g, " ").slice(0, 160) || "no base .projection__hd rule",
+  );
+  // The floor its ellipsising note needs, on the row rather than only on the
+  // note: a nowrap flex ROW takes its own minimum from its items, and the row
+  // is itself an item of `.projection`'s column.
+  check(
+    "...and carries the min-width floor a nowrap row needs",
+    /min-width:\s*0/.test(base),
+    base.replace(/\s+/g, " ").slice(0, 160),
+  );
+  check(
+    "...and no density tier hands the wrap back",
+    blocks.every((b) => !/white-space:\s*normal/.test(b) && !/flex-wrap:\s*wrap/.test(b)),
+    blocks.filter((b) => /white-space:\s*normal|flex-wrap:\s*wrap/.test(b)).join(" | ").slice(0, 160),
+  );
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
