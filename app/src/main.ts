@@ -4123,15 +4123,22 @@ class App {
               // it borrowed would say the score is on the ladder.
               boardTier: this.runBoard(),
               boardDay: this.boardDay(),
-              // THE CONTRACTS ROUTE. Both halves come from the same places the
-              // home screen asks — today's board and meta.ts's nextStep — so
-              // the two surfaces cannot disagree about whether there is
-              // anything to do or about which door is the next step.
+              // THE CONTRACTS ROUTE — is there a card left on today's board at
+              // all. Asked of the same board the home screen asks, so the two
+              // surfaces cannot disagree about whether there is anything there
+              // to do.
               contracts: {
                 remaining: this.todaysContracts()
                   .filter((c) => !contractClaimed(this.meta, c.id)).length,
-                next: nextStep(this.meta) === "contracts",
               },
+              // …and WHICH DOOR THE LOOP IS POINTING AT, handed over whole
+              // rather than as a boolean about one of its five answers. The
+              // card's main button is this step on a completed run (screens.ts
+              // endModal's `stepRoute`), which is the owner's rule — "the main
+              // button brings to the next logical step" — and it is the SAME
+              // call the menu badges, so the end card and the home screen can
+              // never send the player to two different doors.
+              step: nextStep(this.meta),
               // THE BAY, OFFERED BACK — on a lost ladder run only. Tier S has
               // its bench one tap away and re-flies the same configuration
               // from the primary; the Skydeck is the day's single attempt, and

@@ -16977,9 +16977,9 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // it: a board of three ticks is a door onto free practice, which is not what
   // to advertise on the way out of a lost run.
   check("a board with cards left offers the route",
-    end({ contracts: { remaining: 2, next: false } }).includes('data-action="contracts"'));
+    end({ contracts: { remaining: 2 } }).includes('data-action="contracts"'));
   check("...and a fully cleared board does not",
-    !end({ contracts: { remaining: 0, next: true } }).includes('data-action="contracts"'));
+    !end({ contracts: { remaining: 0 }, step: "contracts" }).includes('data-action="contracts"'));
   check("...and a caller that knows nothing about the board draws nothing",
     !end().includes('data-action="contracts"'));
   // THE BADGE IS meta.ts's nextStep AND NOTHING ELSE, which is what keeps "one
@@ -16988,9 +16988,9 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // being sent to the Workshop, and this card has a Workshop button of its own
   // in the salvage row.
   check("the route is badged only when Contracts are the next step",
-    end({ contracts: { remaining: 3, next: true } }).includes("Next step"));
+    end({ contracts: { remaining: 3 }, step: "contracts" }).includes("Next step"));
   check("...and merely being available earns no badge",
-    !end({ contracts: { remaining: 3, next: false } }).includes("Next step"));
+    !end({ contracts: { remaining: 3 }, step: "run" }).includes("Next step"));
   // The card's OTHER badge-bearer, so the two cannot both light: a run that
   // banked salvage draws a Workshop button, and nextStep answers "workshop"
   // exactly when it would not answer "contracts".
@@ -17000,6 +17000,157 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   check("the two doors are the same rule's two branches",
     nextStep({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, salvage: 1_000 }) === "workshop"
       && nextStep({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1 }) === "contracts");
+
+  /* -------------------------------------------------------------------------
+   * ---- THE MAIN BUTTON IS THE NEXT STEP -----------------------------------
+   *
+   * The owner's rule verbatim — "the main button brings to the next logical
+   * step" — pinned against the card that was breaking it. The report: a first
+   * Tier 2 win, ALL 10 BAYS CLEARED, +15 salvage banked, and "RUN TIER 2 →" on
+   * the primary with Contracts a secondary beside it, while the tier's three
+   * Contracts were the entire remaining cost of completing that tier. The
+   * loudest control on the screen pointed at the half already paid.
+   *
+   * Asserted on the primary's data-action rather than on its face wherever a
+   * check can be: the face is copy and will be rewritten, the action is the
+   * promise the button makes and is the thing that was wrong.
+   * ----------------------------------------------------------------------- */
+  {
+    /** A bay-10 win — the only card this rule touches. */
+    const done = (o: Partial<Parameters<typeof S.endModal>[0]> = {}): string =>
+      end({
+        won: true, runComplete: true, bayNum: 10, baysCleared: 10,
+        contracts: { remaining: 3 }, ...o,
+      });
+    /** What the PRIMARY opens. Read off the one button that wears
+     *  `.btn--primary` — padnav's focusInitial lands the pad on exactly that
+     *  element, so this is also what a stray pad A press does. */
+    const primaryAction = (html: string): string =>
+      html.match(/class="btn btn--primary"[^>]*data-action="([a-z-]+)"/)?.[1] ?? "(none)";
+    /** How many buttons in the card open `action` — the check that a promoted
+     *  door did not leave its old secondary behind it. */
+    const doors = (html: string, action: string): number =>
+      html.split(`data-action="${action}"`).length - 1;
+
+    // CONTRACTS. The reported card, and the one the rule was written for.
+    const owed = done({ step: "contracts" });
+    check("a win whose tier still owes Contracts makes the board the main button",
+      primaryAction(owed) === "contracts", primaryAction(owed));
+    // The COUNT is what the TIER owes (progress.needed - progress.contracts),
+    // which is the same figure the menu's Contracts pips draw — the two doors
+    // into the same board must not name two different numbers. It is NOT
+    // `contracts.remaining`, which answers "is there a card behind this door".
+    check("...and the primary quotes what the tier still owes",
+      owed.includes("Contracts · 3 to go"));
+    check("...counting down as the tier's quota fills, not with today's board",
+      done({
+        step: "contracts",
+        progress: { ...tierProgressFor(newMeta()), contracts: 2 },
+        contracts: { remaining: 3 },
+      }).includes("Contracts · 1 to go"));
+    // The run is DEMOTED, never dropped: a player who has just cleared the
+    // tier's run may want it again for a better board or a clean seal, and the
+    // step is a recommendation rather than a gate.
+    check("...with the run demoted to a secondary and still on the card",
+      doors(owed, "restart") === 1 && owed.includes("Run Tier 1 →"));
+    check("...and the board exit drawn once, not beside itself",
+      doors(owed, "contracts") === 1, String(doors(owed, "contracts")));
+
+    // WORKSHOP. The other shop the loop can point at, and the card already had
+    // a button for it inside the salvage row that just paid out.
+    const shop = done({ step: "workshop", tierSalvage: 40 });
+    check("a win whose salvage covers a system makes the shelf the main button",
+      primaryAction(shop) === "workshop", primaryAction(shop));
+    check("...and the salvage row's own Workshop button stands down",
+      doors(shop, "workshop") === 1, String(doors(shop, "workshop")));
+    check("...with the run demoted to a secondary here too",
+      doors(shop, "restart") === 1 && shop.includes("Run Tier 1 →"));
+
+    // RUN and SEAL both fly. A seal is flown and not bought, so it rides the
+    // run button exactly as it rides the menu's primary (menuPlayBadged).
+    for (const step of ["run", "seal"] as const) {
+      check(`a win at the ${step} step keeps the run on the primary`,
+        primaryAction(done({ step })) === "restart");
+    }
+    check("...and so does a caller that names no step at all",
+      primaryAction(done()) === "restart");
+    // A tier can owe Contracts while today's three cards are all claimed, and a
+    // main button that opens a board of three ticks leads nowhere. That card
+    // falls back to the run, which is the other half of the same tier and is
+    // always flyable.
+    check("...and so does an owed tier whose board is already claimed out",
+      primaryAction(done({ step: "contracts", contracts: { remaining: 0 } })) === "restart");
+
+    // THE LOSS CARD IS NOT RE-ROUTED, and that is a hard rule rather than an
+    // omission. padnav's focusInitial lands the pad on `.btn--primary`; the
+    // loss card's neighbours can spend the run's seal, and the Deep Run's own
+    // answer to a loss is another run. Nothing about a loss may move that
+    // button, whatever the loop is pointing at.
+    for (const step of ["contracts", "workshop", "seal"] as const) {
+      const lost = end({ step, contracts: { remaining: 3 } });
+      check(`a LOSS at the ${step} step keeps its own primary`,
+        primaryAction(lost) === "restart", primaryAction(lost));
+    }
+    check("...and the seal-priced retry is still not the primary",
+      primaryAction(end({ step: "contracts", retryBay: { seal: "at-stake", mark: 4 } }))
+        === "restart");
+    // Tier S has no next rung to offer, so its card is untouched by all of it.
+    check("a Tier S run re-flies its own configuration whatever the step says",
+      primaryAction(done({ sandbox: true, step: "contracts" })) === "restart"
+        && done({ sandbox: true, step: "contracts" }).includes("Fly it again"));
+  }
+
+  /* -------------------------------------------------------------------------
+   * ---- THE PLATE ON THAT BUTTON IS ONE LINE -------------------------------
+   *
+   * The other half of the owner's device shot: inside a primary whose own label
+   * already read "Run Tier 2 →", tierPlateHTML's button size stacked "TIER"
+   * over "2" — two lines of chip beside one line of type, and the tallest thing
+   * in the action row. Here the plate is a chip ON a line of type, not a badge
+   * with a face of its own, and a chip reads on the line it sits on.
+   *
+   * The markup is the same two spans at all three sizes (that is the whole
+   * point of the component), so the axis lives in the stylesheet and the pin
+   * has to be read back out of it. The BANNER already draws the row form and is
+   * the thing this size was made to match; the MENU stays stacked, because a
+   * 58x52 plate is a badge and has the height to be one.
+   * ----------------------------------------------------------------------- */
+  {
+    const css = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    );
+    /** The declarations of the FIRST top-level rule for `selector`, brace to
+     *  brace — the base rule, not the compact-viewport override that follows
+     *  it. Written here rather than borrowed from the banner section's `decls`
+     *  because these rules span several lines. */
+    const block = (selector: string): string => {
+      const at = css.indexOf(`\n${selector} {`);
+      if (at < 0) return "";
+      return css.slice(at + selector.length + 3, css.indexOf("}", at));
+    };
+    const axis = (selector: string): string =>
+      block(selector).match(/flex-direction:\s*([a-z]+)/)?.[1]
+        // The component's base is a column and the sizes override it, so a size
+        // that declares nothing is a column.
+        ?? "column";
+    check("the plate on a button lays its label beside its number",
+      axis(".tier-plate--button") === "row", axis(".tier-plate--button"));
+    check("...the same way the bay banner's chip already did",
+      axis(".tier-plate--banner") === "row", axis(".tier-plate--banner"));
+    // ...and the menu's badge is NOT dragged along with them. It is 58x52 with
+    // a 24px number in it; laid out as a row it would be half the width of the
+    // button it sits on.
+    check("...while the menu's badge keeps its two lines",
+      axis(".tier-plate--menu") === "column", axis(".tier-plate--menu"));
+    // The plate is only ever as wide as its SLOTS (app.css's note: a mono 2ch
+    // number and a 4ch pixel label, so "1"/"10"/"S"/"★" and "TIER"/"SKY" all
+    // measure the same) — which is what stops the row form turning a floor
+    // change into a button that visibly grows. A fixed `min-width` on the row
+    // would fight those slots, so the button size states none.
+    check("...and the row's width is its slots, not a hard floor",
+      /min-width:\s*0/.test(block(".tier-plate--button")), block(".tier-plate--button"));
+  }
 
   // ---- THE RUN-END CARD AT SATURATION ------------------------------------
   // The same sentence as the Contract card's, on the other door into the same
@@ -17027,7 +17178,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // They were one button ("Play Again") that only ever meant the fresh start.
   // Two now, because they hand back two different things — and the pair only
   // reads if both halves say which.
-  const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3, next: true } });
+  const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3 }, step: "contracts" });
   check("a lost ladder run offers the bay back", lost.includes('data-action="retry-bay"'));
   check("...and the fresh start beside it, named", lost.includes(">Retry Run<"));
   check("...and never as one button", !lost.includes(">Play Again<"));
