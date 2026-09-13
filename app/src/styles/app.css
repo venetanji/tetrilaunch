@@ -7473,13 +7473,22 @@ body.crt-off #app::after { display: none; }
    leaves under the modal's header, and overflowed on TEN of the nineteen rows:
    68px on the 640x360 budget phone, 60px on the iPhone 13 mini, 55px on the SE
    3, down to 5px on a Pixel 7.
-   NOT A SCROLLER, and the arithmetic is the reason rather than taste. The
-   allowlist in sim/uifit/run.ts is for panes with more STOCK than screen — a
-   leaderboard, a shop with seven 44px BUY buttons in a 200px shelf — and four
-   switches is not that: at the tap floor they are 4x44 plus three gaps, i.e.
-   200px, in 322. The column was not too long, its ROWS were too tall: 14px of
-   padding either side of a 16px label over a 14px sentence that wrapped, which
-   is a `roomy` row's proportions rendered on a phone.
+   NOT A SCROLLER AT FOUR ROWS, and the arithmetic is the reason rather than
+   taste. The allowlist in sim/uifit/run.ts is for panes with more STOCK than
+   screen — a leaderboard, a shop with seven 44px BUY buttons in a 200px shelf
+   — and four switches is not that: at the tap floor they are 4x44 plus three
+   gaps, i.e. 200px, in 322. The column was not too long, its ROWS were too
+   tall: 14px of padding either side of a 16px label over a 14px sentence that
+   wrapped, which is a `roomy` row's proportions rendered on a phone.
+   ...AND A SCROLLER AT FIVE. The Scanlines switch (R7) is the fifth row, and
+   two of the five sentences wrap on a 304px column even at 11px, so the
+   column asks for ~364px in the same 322 with every row already on its tap
+   floor. That IS more stock than screen — the rows cannot come down further
+   and the sentences are the one thing a settings row is for — so the column
+   becomes the scroller, bounded by the modal's own cap, rather than the
+   modal (which the `scrollers` assertion refuses: a scrolling modal moves its
+   header and its close button, a scrolling column moves only the switches).
+   Two-up packing where there is width still fits every row without it.
    So the rows come down to their tap floor and the column packs two-up where
    there is width for it. `auto-fit` rather than a hard two columns because the
    compact tier spans a 304px column (640x360) to a 422px one (OnePlus 12) and
@@ -7489,10 +7498,16 @@ body.crt-off #app::after { display: none; }
    where the overflow actually was. Dressed as cards (the same treatment
    `.controls__pane .setting` already gives a `.setting` inside a grid), since
    a bottom rule reads as a separator only in a single column. */
+[data-density="compact"] .settings__cols { min-height: 0; grid-template-rows: minmax(0, 1fr); }
 [data-density="compact"] .settings__toggles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   align-content: start;
+  /* The bounded scroller the block above argues for: `min-height: 0` lets the
+     grid row hand the column the modal's cap instead of its content height. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 [data-density="compact"] .settings__toggles .setting {
   gap: var(--sp-2);
