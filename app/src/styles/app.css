@@ -1087,9 +1087,19 @@ body.crt-off #app::after { display: none; }
    coloured NUMBERS would read as four different states instead. */
 .bay-stat .ico { color: var(--stat-tint, var(--text-dim)); }
 .bay-stat__txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* NOWRAP, because at the compact tier this label sits BESIDE its value rather
+   than over it (see the `.modal--draft .draft__bank` rules at compact density)
+   and a wrapped label there is not a taller label — it is a label that has
+   taken the value's width to wrap INTO. Measured on `draft-skydeck-picked`,
+   the 640x360 budget phone: the notch chip's label broke across two 6px lines
+   and the value beside it was cut from the 63px "6+1 · 2/3" needs to 47px,
+   i.e. the clause standing was ellipsised away by a label growing sideways.
+   Both halves are the same defect and this is the half that CSS owns; the
+   other half is the copy, which got shorter at the same time (screens.ts). */
 .bay-stat__lbl {
   font-family: var(--font-pixel); font-size: 6px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-muted);
+  white-space: nowrap;
 }
 .bay-stat__val {
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;

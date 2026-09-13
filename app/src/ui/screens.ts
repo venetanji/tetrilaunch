@@ -6011,12 +6011,28 @@ export function draftScreen(opts: {
              figure the plant panel's tally now leads with, so the bill a player
              signs here and the bill they read mid-bay are one reading. -->
         <div class="bay-stat">${icon("notch", 14)}<span class="bay-stat__txt">
-          <span class="bay-stat__lbl">Notches${
+          <span class="bay-stat__lbl">${
+            // THE WORD THE GLYPH IS NOT ALREADY SAYING. This label used to read
+            // "Notches · clause Bay 10" — 23 characters of 6px pixel face, and
+            // at the compact tier (where the label sits beside the value, not
+            // over it) the chip has about 91px for it against the ~146px that
+            // string wants. So it wrapped to two lines and took the width out
+            // of the value, which arrived as "6+1 · 2" with the clause
+            // standing ellipsised off the end. The label was eating the figure
+            // it labels.
+            //
+            // What comes off is "Notches", and it comes off because the cell
+            // already leads with the NOTCH MARK (icon("notch") above) — the
+            // same mark the plant panel's tally leads with mid-bay. The word
+            // was the glyph again in letters. The bay number goes with it for
+            // the same reason: this modal's projection header, four rows down,
+            // is titled "Bay N — projected". What is left is the one fact
+            // nothing else on the screen carries, and the singular/plural is
+            // load-bearing — "Clause" is the next stop's one standing clause,
+            // "Clauses" is a run with no next stop left to arm.
             opts.standing
-              ? opts.standing.nextBay === null
-                ? " · clauses"
-                : ` · clause Bay ${opts.standing.nextBay}`
-              : ""
+              ? opts.standing.nextBay === null ? "Clauses" : "Clause"
+              : "Notches"
           }</span>
           <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}${
             opts.standing ? ` · ${opts.standing.active}/${opts.standing.total}` : ""

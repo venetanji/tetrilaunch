@@ -13497,8 +13497,14 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 62, baysToRefit: 2,
       standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
     });
+    // The TALLY is what this pin is about, and it is untouched. The cell's
+    // label lost "Notches · " and the bay number when the chip was measured at
+    // the compact tier (screens.ts's draft bank): 23 characters of 6px pixel
+    // face wrapped into the value beside it and ellipsised the very count
+    // asserted on the next line. "Clause" is what is left, and the bay the
+    // clause arms on is on this modal's own projection header four rows down.
     check("the Skydeck draft counts clauses beside the notches",
-      draft.includes(`1/${CLAUSE_STOPS.length}`) && draft.includes("clause Bay 7"));
+      draft.includes(`1/${CLAUSE_STOPS.length}`) && /bay-stat__lbl">Clause</.test(draft));
     check("...and counts its scrap in the cell the tally used to take",
       /Scrap/.test(draft) && draft.includes("62") && draft.includes("refit in 2"));
     check("...in three cells, the same row the ladder draws",
@@ -28327,6 +28333,55 @@ section("The arming clause's name gets FIFTEEN CHARACTERS of its own face (app.c
     "...and the CELL no longer counts characters it does not set",
     cell !== "" && !/max-width/.test(cell),
     cell.replace(/\s+/g, " ").slice(0, 160),
+  );
+}
+
+section("The draft bank's notch chip says the one thing its glyph does not (screens.ts, app.css)");
+// ---------------------------------------------------------------------------
+// Two halves of one defect, measured on `draft-skydeck-picked` at 640x360: the
+// label "NOTCHES · CLAUSE BAY 10" is ~146px of 6px pixel face and the chip has
+// about 91px for it at the compact tier (where the label sits BESIDE the value
+// rather than over it), so it wrapped to two lines and took the width out of
+// the value — which came back ellipsised at 47px against the 63px "6+1 · 2/3"
+// needs. A label eating the figure it labels.
+//
+// CSS half: the label may not wrap. Copy half: it no longer needs to. What came
+// off is the word the cell's own NOTCH MARK is already saying and a bay number
+// the projection header four rows down is already printing; what is left is
+// the clause, which nothing else on the screen carries.
+// ---------------------------------------------------------------------------
+{
+  check(
+    "a bank chip's label never wraps into its value",
+    /white-space:\s*nowrap/.test(cssRule(".bay-stat__lbl")),
+    cssRule(".bay-stat__lbl").replace(/\s+/g, " ").slice(0, 160),
+  );
+  const bankLabel = (standing: { active: number; total: number; nextBay: number | null } | undefined): string => {
+    const html = S.draftScreen({
+      bayNum: 6, tier: 10, mark: 10, funds: 1_820, carry: 120,
+      offers: hazardOffers(25, 6, 10, 1, {}), ratchets: {}, selected: [], picksNeeded: 1,
+      preview: [], scrap: 104, baysToRefit: 3, standing,
+    });
+    return (/<span class="bay-stat__lbl">([^<]*)<\/span>[\s\S]{0,200}?id="draft-notches"/.exec(html) ?? ["", "?"])[1];
+  };
+  check(
+    "a clause-loaded bay's notch chip is labelled for the clause",
+    bankLabel({ active: 2, total: 3, nextBay: 10 }) === "Clause",
+    bankLabel({ active: 2, total: 3, nextBay: 10 }),
+  );
+  // The plural is the run with no stop left to arm — the one distinction the
+  // shortened label still has to make.
+  check(
+    "...plural once no stop is left to arm",
+    bankLabel({ active: 3, total: 3, nextBay: null }) === "Clauses",
+    bankLabel({ active: 3, total: 3, nextBay: null }),
+  );
+  // A ladder bay has no clause at all, so the word that IS the figure comes
+  // back: there is nothing else for the label to say.
+  check(
+    "...and a ladder bay still names the notches",
+    bankLabel(undefined) === "Notches",
+    bankLabel(undefined),
   );
 }
 
