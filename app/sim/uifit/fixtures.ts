@@ -1912,7 +1912,13 @@ export const SCREENS: Record<string, () => string> = {
       cleared: [],
       progress: PROGRESS,
       nextInstall: { name: "Press Hydraulics", cost: 30 },
-    }) + S.contractsIntroModal({ needed: PROGRESS.needed, daily: 3, milestone: PROGRESS.milestone }),
+    // WITH THE PATTERN CLAUSE ON, which is the worst case and also the true
+    // one: every tier board deals exactly one pattern card (PATTERN_SLOT), so
+    // the longer of the modal's two sentences is the one a player actually
+    // meets, and it is the one the two-paragraph height is measured against.
+    }) + S.contractsIntroModal({
+      needed: PROGRESS.needed, daily: 3, milestone: PROGRESS.milestone, pattern: true,
+    }),
 
   // The purchase that explains itself (screens.ts's systemDrillOfferModal),
   // over the Workshop it was bought from. The Incinerator's is the worst case

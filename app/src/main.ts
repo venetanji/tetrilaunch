@@ -3644,9 +3644,15 @@ class App {
         // first time "three cards, a quota and a milestone" is true.
         if (!sky && !school && !this.meta.seenContractBoard) {
           const progress = tierProgressFor(this.meta);
+          const board = this.todaysContracts();
           this.overlay.innerHTML += S.contractsIntroModal({
             needed: progress.needed,
-            daily: this.todaysContracts().length,
+            daily: board.length,
+            // ASKED OF THE BOARD, not of PATTERN_SLOT. The card's sentence
+            // about what limits a Contract is only true of the launch-budget
+            // ones, and the board itself is the thing that knows whether the
+            // exception is on screen behind the modal.
+            pattern: board.some((c) => c.kind === "pattern"),
             milestone: progress.milestone,
           });
         }

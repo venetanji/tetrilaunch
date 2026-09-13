@@ -1309,7 +1309,16 @@ function licencePanelHTML(
       ladder.gate === "contract"
         ? `<b>Clear one Contract</b> to go on — it pays for your first system.`
       : ladder.gate === "workshop"
-        ? `<b>Install the Reactor</b> in the Workshop to go on. Lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} open with it.`
+        // THE INSTRUCTION AND THE MERCHANDISE ARE ONE STRING. This said "the
+        // Reactor" while the shelf it points at shows a card headed "Reactor
+        // Output" (upgrades.ts) — near enough for a reader who already knows
+        // the game, and two names for one purchase to the player meeting both
+        // for the first time, four rungs into their first hour. The shop's
+        // blurb already derives it (workshopScreen's `upgradeById(
+        // SCHOOL_INSTALL)!.name`); so do the three lines that send people
+        // there. SCHOOL_INSTALL is the rung's own constant, so the day the
+        // school sells something else, every one of them renames itself.
+        ? `<b>Install ${upgradeById(SCHOOL_INSTALL)!.name}</b> in the Workshop to go on. Lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} open with it.`
       : owed
         ? `<b>${total} flights open Tier 1</b>: ${LESSON_COUNT} lessons and the ${FINAL_EXAM}.`
           + ` ${left} to go, and nothing here can be lost.`
@@ -1696,7 +1705,9 @@ export function menuPlaySub(
     // subtitle under a button the player just pressed is the one place in the
     // game where an instruction is what they came for.
     if (licence.next === "contract") return "Clear one Contract to go on";
-    if (licence.next === "workshop") return "Install the Reactor to go on";
+    // Named off the shelf, like the panel's own line — see baseBayPanelHTML.
+    // 31 characters at today's name, inside the ~34 this box ellipsises at.
+    if (licence.next === "workshop") return `Install ${upgradeById(SCHOOL_INSTALL)!.name} to go on`;
     // The graduation flight is a bay like the others to this button, and
     // nothing like them to the player: it is Tier 1's own first bay, with the
     // money, the clock and the fine live. The line says which, because it is
@@ -1863,6 +1874,28 @@ export function menuScreen(
   // which is what keeps every caller that predates the two gates
   // rendering the menu it always did.
   const learningBasics = twr.basics === false;
+  // …AND THE WORKSHOP WAITS ONE RUNG LONGER THAN THE BOARD DOES. The two shops
+  // are the ladder's two GATES and they are in an order: the Contract rung
+  // comes first, and its single clear is what pays for the one card on the
+  // school's shelf (meta.ts's SCHOOL_LADDER; recordContractClear banks exactly
+  // the shelf's price). schoolLadder enforces that order with a running
+  // `reached` flag — the first rung that is not done shuts every rung after it
+  // — so the ladder's Workshop rung is shut until the Contract is cleared.
+  //
+  // This button was not. Both doors opened together on the fourth basic, so a
+  // player who had just landed lesson 4 could walk into a shop the ladder had
+  // not reached, and meet one card they could not afford — while the primary
+  // two buttons above them said "Clear one Contract to go on". One ladder, two
+  // answers, and the menu's was the laxer.
+  //
+  // `gate === "contract"` is exactly "the ladder is stopped at the Contract
+  // rung" (TowerState.gate — passed rather than derived, because the gates take
+  // no ordinal and the count cannot imply which one is owed), and the
+  // `rigged === false` half is the ladder's own escape hatch, stated the same
+  // way it states it: a rung that is DONE stays open whatever happened before
+  // it, and a save that already owns a system has cleared this one.
+  const workshopShut = learningBasics
+    || (twr.gate === "contract" && twr.rigged === false);
   // …AND THE TWO RUNGS THAT ARE NOT BAYS DISABLE THE PRIMARY, on the same
   // argument the rig lock makes for the Deep Run's: the primary is not a
   // chooser, it is THE action, and an enabled action that does nothing is the
@@ -2068,9 +2101,15 @@ export function menuScreen(
             : menuContractsSub(sel, progress, twr.rigged === false,
                 twr.licensed === false && twr.rigged !== false)
         }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
+        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${workshopShut ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           learningBasics
             ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
+            // NAMES THE RUNG IN THE WAY OUT, like the line above it and like
+            // the lobby's own primary ("Clear one Contract to go on"). A
+            // disabled button whose subtitle still quoted a salvage balance
+            // would be answering a question the player cannot act on.
+            : workshopShut
+            ? `Opens after one Contract`
             : guide
             ? guide.install
               ? salvage >= guide.install.cost
@@ -5503,7 +5542,7 @@ export function workshopScreen(
           // could launch a run the tower refuses would be the laxer of two
           // doors into one room.
           schoolGo ? "Continue Flight School →"
-            : !licenceDone(meta) ? "Buy the Reactor to go on"
+            : !licenceDone(meta) ? `Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`
             : rigStarted(meta) ? "Start Run" : "Install a system to fly"
         }</button>
       </div>
@@ -7522,6 +7561,19 @@ export function contractsIntroModal(opts: {
   daily: number;
   /** Salvage a first clear pays. */
   milestone: number;
+  /** Whether the board below holds a PATTERN card — passed rather than assumed,
+   *  even though a tier board always deals exactly one (contracts.ts's
+   *  PATTERN_SLOT converts a fixed slot rather than adding a fourth). The card
+   *  makes a claim about the three Contracts behind it and the honest source
+   *  for that claim is the three Contracts, not a constant this file re-reads.
+   *
+   *  It exists because the sentence it branches was false about one of the
+   *  three: a pattern Contract carries `launches: 0` and an exact `queue`
+   *  instead, so "what limits you is a launch budget" described two of the
+   *  cards on the board and contradicted the third — the one whose whole offer
+   *  is the inventory. The guide's own Contracts topic already says both
+   *  halves; this card is where a player meets them. */
+  pattern: boolean;
 }): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal end end--contract pop">
@@ -7530,8 +7582,11 @@ export function contractsIntroModal(opts: {
         <h2 class="display">Free to fail</h2>
         <p class="muted end__lede">
           <b>${opts.daily} a day</b>, from a shared seed — everyone gets the same three.
-          <b>No clock and no bankroll</b>: what limits you is a launch budget, so a lost
-          attempt costs nothing and you can retry as often as you like.
+          <b>No clock and no bankroll</b>: what limits you is a launch budget${
+            opts.pattern
+              ? ` — except the <b>pattern</b> card, which hands you an exact set of shipments instead`
+              : ""
+          }. A lost attempt costs nothing and you can retry as often as you like.
         </p>
         <p class="muted">
           A <b>first clear</b> pays ${salvageHTML(opts.milestone, 11)} and ticks the tier.

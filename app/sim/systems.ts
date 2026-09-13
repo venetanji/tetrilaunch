@@ -24444,11 +24444,20 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       check("a gate takes the next rung off the track",
         gated("contract") === LICENCE_LESSON_COUNT && gated("workshop") === LICENCE_LESSON_COUNT,
         `${gated("contract")} / ${gated("workshop")}`);
+      // NAMED OFF THE SHELF (O6). This read "Install the Reactor" while the one
+      // card on the shop it points at is headed "Reactor Output" — two names
+      // for one purchase, met four rungs into a first hour. Both come off
+      // SCHOOL_INSTALL now, so the day the school sells something else they
+      // rename together.
+      const shelfName = upgradeById(SCHOOL_INSTALL)!.name;
       check("...and the note says which door, not how many steps are left",
         strip0(S.baseBayPanelHTML({
           tier: S.LICENCE_TIER, best: 0,
           licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate: "workshop" },
-        })).includes("Install the Reactor"));
+        })).includes(`Install ${shelfName}`));
+      check("...by the name the shelf itself puts on the card",
+        workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, salvage: 15 })
+          .includes(shelfName));
     }
     // EVERY RUNG GOES TO THE THING IT IS, and every rung IS a bay now: the two
     // gates carry no ordinal and no pip (meta.ts's SCHOOL_LADDER).
@@ -25029,7 +25038,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       !shopBought.includes(`data-action="play" disabled`)
         && shopBought.includes("Continue Flight School"));
 
-    // ---- THE TWO DOORS OPEN ON THE FOURTH BASIC, TOGETHER ---------------
+    // ---- THE TWO DOORS OPEN IN THE LADDER'S OWN ORDER -------------------
     const menuAt = (m: MetaState, twr: S.TowerState): string =>
       menuScreen(0, m.salvage, undefined, tierProgressFor(m),
         { step: nextStep(m), install: null, firstLaunch: false }, twr);
@@ -25055,9 +25064,35 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and both say which lesson opens them",
       shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`)
         && (shut.match(new RegExp(`Opens after lesson ${LICENCE_LESSON_COUNT}`, "g")) ?? []).length === 2);
-    check("...and they open TOGETHER on it",
-      !btn(open, "contracts").includes("disabled")
-        && !btn(open, "workshop").includes("disabled"));
+    // …AND THEN IN ORDER, one rung apart (O6). They used to open together on
+    // the fourth basic, which made the menu the laxer of two doors into one
+    // room: the LADDER puts the Contract rung before the Workshop rung and
+    // shuts every rung after the first undone one (meta.ts's schoolLadder), so
+    // a player who had just landed lesson 4 could walk into a shop the ladder
+    // had not reached and meet one card they could not afford — while the
+    // primary two buttons above said "Clear one Contract to go on".
+    check("the Contract board opens on the fourth basic",
+      !btn(open, "contracts").includes("disabled"), btn(open, "contracts"));
+    check("...and the Workshop waits the one rung the ladder makes it wait",
+      btn(open, "workshop").includes("disabled"), btn(open, "workshop"));
+    check("...which is the same rung schoolLadder is holding it at",
+      schoolLadder(four).find((r) => r.kind === "workshop")?.open === false
+        && schoolLadder(four).find((r) => r.kind === "contract")?.open === true);
+    check("...and says which rung, on the button it shut",
+      open.includes("Opens after one Contract"),
+      open.slice(open.indexOf('data-action="workshop"'), open.indexOf('data-action="workshop"') + 260));
+    // …and opens the moment that rung is cleared.
+    const cleared = onLadder({ claimedContracts: ["x"], salvage: 15 });
+    check("...then opens the moment a Contract is banked",
+      !btn(menuAt(cleared, towerAt(cleared)), "workshop").includes("disabled"),
+      btn(menuAt(cleared, towerAt(cleared)), "workshop"));
+    // A SAVE THAT ALREADY OWNS A SYSTEM keeps it open whatever the Contract
+    // rung says — the ladder's own rule that a cleared rung stays open, which
+    // is the half `rigged === false` carries in the menu's gate.
+    const rigged = onLadder({ loadout: { ...newTiers(), reactor: 1 } });
+    check("...and a rigged save is never shut out of the shop it already used",
+      !btn(menuAt(rigged, towerAt(rigged)), "workshop").includes("disabled"),
+      btn(menuAt(rigged, towerAt(rigged)), "workshop"));
 
     // ---- THE PRIMARY, ALL THE WAY UP THE LADDER -------------------------
     // The Deep Run's button is disabled until graduation and never mute about
@@ -25096,7 +25131,18 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         && primaryOf(menuAt(four, towerAt(four))).includes("Clear one Contract to go on"));
     const paid = onLadder({ claimedContracts: ["x"], salvage: 15 });
     check("...and on the Workshop rung",
-      primaryOf(menuAt(paid, towerAt(paid))).includes("Install the Reactor to go on"));
+      primaryOf(menuAt(paid, towerAt(paid)))
+        .includes(`Install ${upgradeById(SCHOOL_INSTALL)!.name} to go on`));
+    // WRITTEN TO THE BOX. `.btn__sub` ellipsises past ~34 characters on a 780px
+    // phone (the note over menuPlaySub), and this line grew when the name did.
+    check("...inside the subtitle's box",
+      `Install ${upgradeById(SCHOOL_INSTALL)!.name} to go on`.length <= 34,
+      `Install ${upgradeById(SCHOOL_INSTALL)!.name} to go on`);
+    // …and the Workshop's OWN primary, which is the third surface that sends a
+    // player to this purchase. Three sites, one name.
+    check("...and the shop's own button names the same card",
+      workshopScreen(paid).includes(`Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`),
+      workshopScreen(paid).slice(workshopScreen(paid).lastIndexOf("btn--lg"), workshopScreen(paid).lastIndexOf("btn--lg") + 220));
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
@@ -25285,6 +25331,42 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the fine lesson names Tier 1's own price",
       card("lost-cargo", 0).includes(`$${penaltyPerLostPieceFor(0, 1)}`),
       card("lost-cargo", 0));
+
+    /* -----------------------------------------------------------------------
+     * THE HUD LINE SAYS WHAT THE BAY DOES, in the player's words (O6).
+     *
+     * `conditions` is the plant panel's one-line Bay row and the right-hand
+     * half of the lesson's own card — the shortest thing on either surface, and
+     * therefore the one most likely to be written in the authors' shorthand.
+     * Three of the nine were.
+     * -------------------------------------------------------------------- */
+    // LESSON 4 promised "two arcs" for a lesson whose second card teaches the
+    // OPPOSITE of an arc, and counted shots where the bay counts rows.
+    check("lesson 4 states the rows it wants, and does not call the skim an arc",
+      lessonById("lob-or-skim")!.conditions === "Two end gaps · two rows",
+      lessonById("lob-or-skim")!.conditions);
+    check("...and the skim really is the flat shot that would have mislabelled",
+      /flat/i.test(card("lob-or-skim", 1)) && !/arc/i.test(card("lob-or-skim", 1)),
+      card("lob-or-skim", 1));
+    // LESSON 6 said "Bay 1's money", which names a bay this player has never
+    // flown and a construction (`makeBaseLevel(0)`) only the source knows. The
+    // rung before it already puts the figure on screen, so it quotes that —
+    // live, like every other number on the ladder.
+    check("lesson 6 prices a shot instead of naming a bay nobody has flown",
+      lessonById("the-bankroll")!.conditions
+        === `$${makeBaseLevel(0).launchCost} a shot · no clock`,
+      lessonById("the-bankroll")!.conditions);
+    check("...and the lesson before it quotes the same price",
+      card("time-the-row", 0).includes(`$${makeBaseLevel(0).launchCost}`),
+      card("time-the-row", 0));
+    // LESSON 9 borrowed the LADDER's noun for a congestion knee, on the one
+    // screen where the ladder is counting rungs out loud.
+    check("lesson 9 says the threshold in cubes, not in rungs",
+      lessonById("clutter")!.conditions === `Taxed past ${PILE_TIERS[0].cubes} loose cubes`,
+      lessonById("clutter")!.conditions);
+    check("...and no lesson's HUD line says \"rung\" at all",
+      LESSONS.every((l) => !/\brung\b/i.test(l.conditions)),
+      LESSONS.map((l) => l.conditions).join(" | "));
 
     // THE ZONE IS DEFINED BEFORE IT IS SPENT. Four cards lean on the word and
     // a beginner meets it on lesson 1; if the sentence that introduces it is
@@ -25872,6 +25954,35 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the three flags are separate",
       new Set(["seenContractBoard", "seenDraft", "seenRefit"]
         .map((k) => k in fresh)).size === 1);
+
+    // ---- AND THE BOARD'S CARD IS TRUE OF ALL THREE CARDS (O6) ----------
+    //
+    // It said "what limits you is a launch budget" over a board whose third
+    // card has no launch budget at all: a pattern Contract carries
+    // `launches: 0` and an exact `queue` instead, and that inventory is its
+    // whole offer. So the one sentence introducing the mode contradicted the
+    // one card that is most unlike the others, on the screen where a player
+    // meets both for the first time.
+    const board = dailyContracts(1, 20_260_815);
+    check("the board really does deal a card with no launch budget",
+      board.some((c) => c.kind === "pattern" && c.launches === 0 && c.queue.length > 0),
+      board.map((c) => `${c.kind}:${c.launches}`).join(","));
+    const introWith = S.contractsIntroModal({
+      needed: 3, daily: board.length, milestone: 15,
+      pattern: board.some((c) => c.kind === "pattern"),
+    });
+    check("...and the card that introduces the board says so",
+      introWith.includes("launch budget") && /pattern/.test(introWith)
+        && introWith.includes("exact set of shipments"),
+      introWith.slice(introWith.indexOf("No clock"), introWith.indexOf("No clock") + 240));
+    // THE CLAUSE IS ASKED OF THE BOARD, not of PATTERN_SLOT: a board with no
+    // pattern card makes the plain claim, which is then true of all of it.
+    const introWithout = S.contractsIntroModal({
+      needed: 3, daily: 3, milestone: 15, pattern: false,
+    });
+    check("...and a board without one does not invent the exception",
+      !introWithout.includes("pattern") && introWithout.includes("launch budget"),
+      introWithout.slice(introWithout.indexOf("No clock"), introWithout.indexOf("No clock") + 200));
   }
 
   // TWO SCRIMS, AND THE PAD MUST TAKE THE TOP ONE.
