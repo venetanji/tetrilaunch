@@ -220,6 +220,27 @@ export interface SubmitResult {
  */
 export class BoardCache {
   private rows: Record<string, ScoreEntry[] | null> = {};
+  /**
+   * HOW MANY TIMES THE PLAYER'S OWN POST HAS WRITTEN each board — the
+   * sequence guard between a fetch and a submit.
+   *
+   * The run-end card starts a fetch of the board (main.ts's finishRun →
+   * refreshBoard) before it is even on screen, and the player's post writes
+   * the Worker's fresh rows into this same cache when it lands. Those are two
+   * requests to one server with no ordering between them, and on a phone's
+   * radio the GET can resolve AFTER the POST — at which point it wrote rows
+   * that predate the post over the rows that answered it, and repainted them.
+   * What the player saw was their PREVIOUS run's score in the highlighted row,
+   * over a board that had just been told a better one (owner report, Android,
+   * landscape: "score submission not updating").
+   *
+   * So a fetch takes a token when it BEGINS (`begin`) and hands it back when
+   * it lands (`settle`); a post writes through `commit`, which moves the
+   * epoch, and a settle whose token predates the last commit is refused. Per
+   * key rather than global: a post on Tier 2 has nothing to say about a fetch
+   * of Tier S that happened to be in flight.
+   */
+  private epochs: Record<string, number> = {};
 
   /** One entry per (board, day) actually visited. Bounded by the session: one
    *  key per board, plus one more per board per midnight crossed. */
@@ -238,6 +259,28 @@ export class BoardCache {
 
   set(board: BoardId, day: BoardDay, rows: ScoreEntry[] | null): void {
     this.rows[this.key(board, day)] = rows;
+  }
+
+  /** The token a fetch of this board takes before it starts — see `epochs`. */
+  begin(board: BoardId, day: BoardDay): number {
+    return this.epochs[this.key(board, day)] ?? 0;
+  }
+
+  /** Write a fetch's answer, unless a post has written this board since the
+   *  fetch began. Returns whether the rows were written, so the caller can
+   *  skip the repaint that would otherwise draw the refused rows. */
+  settle(board: BoardId, day: BoardDay, rows: ScoreEntry[] | null, token: number): boolean {
+    if (token !== this.begin(board, day)) return false;
+    this.set(board, day, rows);
+    return true;
+  }
+
+  /** Write the rows the Worker answered the player's own post with — the
+   *  truest thing known about the board — and retire every fetch of it that
+   *  began before now. */
+  commit(board: BoardId, day: BoardDay, rows: ScoreEntry[]): void {
+    this.epochs[this.key(board, day)] = this.begin(board, day) + 1;
+    this.set(board, day, rows);
   }
 }
 
@@ -279,7 +322,12 @@ export async function fetchLeaderboard(
 ): Promise<ScoreEntry[] | null> {
   try {
     const q = `mark=${board}&limit=${limit}${day === DAY_NONE ? "" : `&day=${day}`}`;
-    const res = await fetch(`${apiBase()}${boardPath(day)}?${q}`);
+    // Past every HTTP cache, always. A board is asked for precisely when it
+    // may have changed — the run just ended, a score was just posted — and
+    // the client this matters most for is a WebView, whose cache policy the
+    // app does not otherwise control. The Worker says the same from its side
+    // (Cache-Control: no-store); two ends, one rule.
+    const res = await fetch(`${apiBase()}${boardPath(day)}?${q}`, { cache: "no-store" });
     if (!res.ok) return null;
     const data = (await res.json()) as { scores: ScoreEntry[] };
     return data.scores ?? [];

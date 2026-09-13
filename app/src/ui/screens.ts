@@ -6712,7 +6712,8 @@ export function endModal(opts: {
         }</div>
         <div class="submit-row" id="submit-row">
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
-            value="${opts.name}" autocomplete="off" spellcheck="false" />
+            value="${opts.name}" autocomplete="off" spellcheck="false"
+            enterkeyhint="done" autocapitalize="characters" inputmode="text" />
           <!-- Secondary, not primary (B2): the screen's one forward move is
                the restart button below — submitting a score is a sideways
                action, and two primaries made the exit compete with it. -->

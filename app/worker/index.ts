@@ -83,7 +83,12 @@ const CORS: Record<string, string> = {
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS },
+    // Nothing this API answers may be served from a cache: a board is asked
+    // for precisely when it may have changed, and a reply carrying no
+    // validators is only "uncacheable" by heuristic until some WebView or
+    // proxy decides otherwise. Said on every response rather than on the two
+    // board GETs alone, so no future route has to remember to say it.
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS },
   });
 }
 
