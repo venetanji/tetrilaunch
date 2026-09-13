@@ -11,11 +11,12 @@ import {
 import { icon, type IconName } from "./icons";
 import {
   MARK_COUNT, MAX_TIER, UPGRADES, budgetForMark, nextTierCost, orderCost, orderSize, orderedTier,
-  refitTracks, tiersCost, upgradeById,
+  refitShelf, tiersCost, upgradeById,
   type RefitOrder, type UpgradeTiers,
 } from "../game/upgrades";
 import {
-  UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
+  UNLOCKS, unlockAvailable, unlockGates, UPRATE_MAX_TIER, installAvailable,
+  installShelf, recommendedPurchase,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
   tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded, rigStarted,
@@ -4882,7 +4883,10 @@ export function refitScreen(opts: {
    *  preview.ts. Rendered live, so this is what makes staging worth having. */
   preview: PreviewRow[];
 }): string {
-  const tracks = refitTracks(opts.mark);
+  // MOUNTED SYSTEMS ONLY (upgrades.ts's refitShelf). A yard raises what the
+  // ship carries; a card for a track that is not aboard was a price this shop
+  // cannot take, pointing at a different shop.
+  const tracks = refitShelf(opts.tiers, opts.mark);
   const staged = orderSize(opts.tiers, opts.order);
   const spend = orderCost(opts.tiers, opts.order);
   /** What is left to stage AGAINST, not what the run still owns: the order has
@@ -4913,60 +4917,58 @@ export function refitScreen(opts: {
     // a staged track is an order the player cannot undo.
     const canStage = cost !== null && left >= cost;
     const undo = queued > 0 && !canStage;
+    // NO TIER-0 CARD. There used to be one — "Not aboard — buy or mount it in
+    // the Workshop", covering both an unbought track and a stowed one — and the
+    // shelf is filtered above so that neither reaches this map any more. The
+    // sentence was true and it was still the wrong card: a refit stop that
+    // spends three cards of its shelf naming a shop the player cannot reach
+    // from here is a shop advertising somewhere else. Both fixes still exist,
+    // they are just not the yard's to offer.
     const buy =
-      owned === 0
-        // "Not installed" was true of the only way a track could be at tier 0,
-        // until system slots gave it a second one. A STOWED system is installed
-        // — bought, uprated, paid for — and simply not aboard this run
-        // (meta.ts's safeLoadout masks it to 0, which is what this card is
-        // reading). The yard cannot tell the two apart and does not need to:
-        // "not aboard" is true of both, the Workshop is where both are fixed,
-        // and the two verbs name the two fixes.
-        ? `<span class="shop-card__locked">Not aboard — buy or mount it in the <b>Workshop</b></span>`
-        : undo
-          // The one button on the shelf that keeps a word, and the price rule
-          // below is what sanctions it: "Undo" names the STATE this control is
-          // in, it does not describe what a rung does. The figure beside it is a
-          // REFUND, and a bare "+90" on a shelf of prices reads as a cost.
-          ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}"
-              aria-label="${
-                // Same rule as the stage button, one word different: this
-                // figure is a refund, so the name says so where the button
-                // only has room for a plus sign.
-                priceAria(
-                  u.name,
-                  `Undo${queued > 1 ? ` ×${queued}` : ""},`,
-                  `refunds +${orderCost(opts.tiers, { [u.id]: queued })}`,
-                  "scrap",
-                )
-              }">
-              <span class="refit-card__arrow">${icon("close", 10)}</span>
-              <span class="refit-card__delta">Undo${queued > 1 ? ` ×${queued}` : ""}</span>
-              <span class="refit-card__price">+${icon("scrap", 11)}${orderCost(opts.tiers, { [u.id]: queued })}</span>
-            </button>`
-          : cost === null
-            ? `<span class="refit-card__max">MAX</span>`
-            // THE PRICE, AND NOTHING ELSE. This button used to carry a
-            // direction arrow and the rung's effect prose beside the price, and
-            // the prose is unbounded copy on a bounded rail: the Demolition
-            // Rack's capstone says "+2 charges, resupply, a wider blast and a
-            // better rate", the Impact Cushion's "a deeper liner, and no launch
-            // sets one off inside it". Ellipsised at every width the app ships
-            // — so it taught nothing — and it still took the price track with
-            // it, which is what collapsed the card's description column to one
-            // word per line (app.css's .refit-card note has the widths).
-            //
-            // What the rung DOES is the projection's job, in the bay's own
-            // numbers rather than in a phrase: staging is free and reversible,
-            // so a tap is how you read the effect, and it reads it in the units
-            // the purchase will actually be flown in. The button states the one
-            // fact the panel beside it cannot — the tier it buys and what that
-            // costs — in the Workshop's price grammar exactly ("T2 · <cur> 15",
-            // one glyph apart).
-            : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"
-                aria-label="${priceAria(u.name, "stage", `T${tier + 1} · ${cost}`, "scrap")}"${canStage ? "" : " disabled"}>
-                <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
-              </button>`;
+      undo
+        // The one button on the shelf that keeps a word, and the price rule
+        // below is what sanctions it: "Undo" names the STATE this control is
+        // in, it does not describe what a rung does. The figure beside it is a
+        // REFUND, and a bare "+90" on a shelf of prices reads as a cost.
+        ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}"
+            aria-label="${
+              // Same rule as the stage button, one word different: this
+              // figure is a refund, so the name says so where the button
+              // only has room for a plus sign.
+              priceAria(
+                u.name,
+                `Undo${queued > 1 ? ` ×${queued}` : ""},`,
+                `refunds +${orderCost(opts.tiers, { [u.id]: queued })}`,
+                "scrap",
+              )
+            }">
+            <span class="refit-card__arrow">${icon("close", 10)}</span>
+            <span class="refit-card__delta">Undo${queued > 1 ? ` ×${queued}` : ""}</span>
+            <span class="refit-card__price">+${icon("scrap", 11)}${orderCost(opts.tiers, { [u.id]: queued })}</span>
+          </button>`
+        : cost === null
+          ? `<span class="refit-card__max">MAX</span>`
+          // THE PRICE, AND NOTHING ELSE. This button used to carry a
+          // direction arrow and the rung's effect prose beside the price, and
+          // the prose is unbounded copy on a bounded rail: the Demolition
+          // Rack's capstone says "+2 charges, resupply, a wider blast and a
+          // better rate", the Impact Cushion's "a deeper liner, and no launch
+          // sets one off inside it". Ellipsised at every width the app ships
+          // — so it taught nothing — and it still took the price track with
+          // it, which is what collapsed the card's description column to one
+          // word per line (app.css's .refit-card note has the widths).
+          //
+          // What the rung DOES is the projection's job, in the bay's own
+          // numbers rather than in a phrase: staging is free and reversible,
+          // so a tap is how you read the effect, and it reads it in the units
+          // the purchase will actually be flown in. The button states the one
+          // fact the panel beside it cannot — the tier it buys and what that
+          // costs — in the Workshop's price grammar exactly ("T2 · <cur> 15",
+          // one glyph apart).
+          : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"
+              aria-label="${priceAria(u.name, "stage", `T${tier + 1} · ${cost}`, "scrap")}"${canStage ? "" : " disabled"}>
+              <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
+            </button>`;
     // The track's OWN before/after — absolute on both sides, because a delta is
     // only legible next to the number it moves. It is now the ONE place a
     // single track's change is stated in that track's own units: the button
@@ -5199,10 +5201,22 @@ export function workshopScreen(meta: MetaState): string {
   // is going straight into the shed. This sentence is the whole difference
   // between a purchase and a surprise.
   const rackFull = mountedIds(meta).length >= slotsFor(meta);
-  const nextId = INSTALLS.filter(onShelf)
-    .filter((i) => installAvailable(meta, i) && meta.salvage >= uprateCost(i))
-    .sort((a, b) => uprateCost(a) - uprateCost(b))[0]?.id;
-  const installCards = INSTALLS.filter(onShelf)
+  // THE BADGE IS NOT THIS SCREEN'S OPINION ANY MORE. It used to be the cheapest
+  // affordable card, decided here, while the menu decided independently whether
+  // to badge the Workshop at all — two rules that agreed only by coincidence,
+  // and disagreed the moment "cheapest" stopped being "best". Both now read
+  // meta.ts's recommendedPurchase, which ranks (a new system over a second
+  // uprate while a slot is free, then installShelf's order).
+  //
+  // A `slot` recommendation highlights NO card, and that is correct rather than
+  // a gap: the answer is the rack's own +1 button, which is a primary button
+  // sitting directly above this shelf. Glowing a card the recommendation did
+  // not name would be the drift this change removes, in the other direction.
+  const rec = recommendedPurchase(meta);
+  const nextId = rec && rec.kind !== "slot" ? rec.id : undefined;
+  // installShelf, not INSTALLS: the array is the PRICE ladder (meta.ts's essay
+  // walks it in price order), and the shop is sorted by what to buy first.
+  const installCards = installShelf().filter(onShelf)
     .map((i) => {
       const def = upgradeById(i.id)!;
       const owned = meta.loadout[i.id] ?? 0;
@@ -5312,7 +5326,9 @@ export function workshopScreen(meta: MetaState): string {
       }</p>
     </section>`;
 
-  const installedStrip = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) > 0)
+  // Shelf order here too: one screen, one order. A reference strip sorted by
+  // price under a shelf sorted by rank is the same drift in miniature.
+  const installedStrip = installShelf().filter((i) => (meta.loadout[i.id] ?? 0) > 0)
     .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
     .join("");
 

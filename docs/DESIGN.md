@@ -462,7 +462,12 @@ nothing to upgrade"). The first fix made the purchase a *badged suggestion*
 before the run; this one makes it step 6 of the ladder, so it cannot be walked
 past. A refit stop with nothing to sell is still **skipped entirely** rather than
 dressed (`run.ts`'s `refitAfterBay` asks `upgrades.ts`'s `yardHasStock`), which
-covers the late-ladder rig that has maxed every track its Mark offers.
+covers the late-ladder rig that has maxed every track its Mark offers — and the
+stop now *shows* only the systems that are aboard (`refitShelf`), so the shelf
+that would be drawn and the question that decides whether it opens are the same
+list. The card reading "Not aboard — buy or mount it in the Workshop" is gone: a
+shop advertising a different shop was the empty-shelf problem in another costume.
+See [`ECONOMY.md`](ECONOMY.md), "The shelf is the rig, not the roster".
 
 The Deep Run's door is still gated on **any system installed** (`meta.ts`'s
 `rigStarted`, `screens.ts`'s `tierOpen`) rather than on the Reactor by name, and

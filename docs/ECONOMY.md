@@ -257,6 +257,28 @@ what is *left* after it, and the projection beside the shelf redraws the next
 bay's numbers with the whole order installed (drawn from `levelForRun`, so it is
 the bay that will actually be flown).
 
+**The shelf is the rig, not the roster.** A stop lists only the systems that are
+**aboard** (`upgrades.ts`'s `refitShelf`), each with its next rung's price or
+MAX. It used to list all ten from Mark 2 up and draw the unowned ones as "Not
+aboard — buy or mount it in the Workshop": true copy, wrong card. A refit stop
+cannot sell a tier-0 track (`run.ts`'s `buyUpgrade` refuses one), so up to nine
+of ten rows were prices this shop cannot take, naming a shop the player cannot
+reach from here — on the one screen whose whole argument is that a refit is a
+*plan you can read*. The same filter now answers "has this yard stock"
+(`yardHasStock`), so the shelf a stop would draw and the question that decides
+whether the stop opens at all are one list: a rig with nothing aboard and a rig
+that has maxed everything both produce an empty shelf and a **skipped stop**.
+
+Tier 1 still sells the **Reactor alone** (`refitTracks`) on top of that, and the
+narrowing costs that rule half its old argument: "a first-run player shown seven
+systems spreads thin scrap" is no longer possible — only three installs are
+reachable before Mark 1 falls and the school buys one of them. What survives is
+the *tuning* claim, that Tier 1 is balanced on the reactor's three tiers being
+built across the run's three stops. The price is a Mark-1 rig that maxes the
+Reactor early and skips its remaining stops with a second owned track still
+raisable; dropping the rule would fix that and is a Tier-1 balance change, so it
+waits on `sim/marks.ts --marks 1` rather than on an opinion.
+
 **Income sizing.** A won bay clears ~12 lines → ~35 scrap (measured with
 `sim/sweep.ts --bays 1,4,7,10 --seeds 4 --bots aim --mark 1`: won bays of 6–23
 lines, mean 12.4). Stops arrive at roughly 105 / 210 / 315 cumulative scrap. A
@@ -533,6 +555,48 @@ way — a Launcher-only rig — working.) The residue is handled downstream rath
 Mark 1 the yard sells only the Reactor track (`refitTracks`), so a Launcher-only
 rig's stops have nothing on the shelves — and a stop with nothing to sell is
 **skipped**, not opened (`run.ts`'s `refitAfterBay`).
+
+### The order of the shelf, and the one card that glows
+
+The Workshop's cards are sorted by an explicit **rank** on each `InstallDef`
+(`meta.ts`), which is deliberately *not* the price:
+
+| | system | why it sits there |
+|---|---|---|
+| 1 | Reactor Output | the economy track — the float that buys the bay's eight launches, and what the tier ladder is tuned assuming |
+| 2 | Launcher Coils | reach and the lateral stabiliser: the back of the bay and every crosswind bay |
+| 3 | **Demolition Rack** | the only system that makes a pile *go away*, on dead cargo of any kind, **every bay** rather than once a run |
+| 4 | Loader Magazine | reload rate — what makes the Rack's exit affordable in *time* |
+| 5 | Press Hydraulics | the per-bay congestion answer that is not a charge |
+| 6 | Bay Extension | more room to land in; does nothing for a pile already wedged |
+| 7 | Bond Emitter | decisive, and once a run — a capstone on a build, not a way to one |
+| 8 | Thaw Lance | one axis with a measured ceiling; cryo opens at Mark 4 |
+| 9 | Impact Cushion | two axes, but volatile does not open until Mark 7 |
+| 10 | Incinerator | a discount on a bill, worth zero to a pilot who never dumps |
+
+The Rack at 70 above the Magazine at 30 is the owner's call — *"bombs help a lot
+to clear the congestions, so higher strategical value"* — and it is recorded as a
+call, not as a measurement: **no sim measures it.** `sweep.ts`'s bots never fire
+demolition charges (only the `demo` bot does, and `marks.ts` calibrates on
+`aim`), so the harness is pessimistic about exactly the system this rank
+promotes. A sweep giving `demo` a Rack and comparing bay-loss reasons against
+`middle` is the evidence this row is owed. **No price moved**; rank and price are
+separate fields precisely so a re-rank cannot read as a discount.
+
+**One rule decides both the home badge and the shelf's highlight**
+(`meta.ts`'s `recommendedPurchase`, which `nextStep` now asks). A **new system
+outranks a second uprate while a rack slot is free** — the owner's "before
+upgrading a second time, a new system is better than an upgrade early on", with
+the rack as its boundary, because breadth is only worth more than depth while the
+run can carry it. Once the rack is full the rule flips to uprates; once the
+aboard systems are all at the Workshop's cap it recommends a **slot**. These were
+two rules before — the menu asked "is anything affordable" while the shop glowed
+the *cheapest* affordable card — and they were free to name different things.
+
+It recommends only what the player can pay for today, so it never says "save up";
+the shelf *order* is what carries the priority for a wallet that is short. A
+player holding 30 with the Rack at 70 is pointed at the Magazine and sees the
+Rack sitting above it.
 
 ### And what it buys once the shelf is finished: rack slots
 

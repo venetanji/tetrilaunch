@@ -271,6 +271,29 @@ export interface InstallDef {
    *  and tier 2 (the uprate) at this same number — see uprateCost — while
    *  tier 3 stays the refit stop's scrap. */
   cost: number;
+  /** SHELF POSITION — what to buy next, lowest first. A total order (every
+   *  install has its own number, and `installShelf` sorts by it), not a band:
+   *  the two systems this order exists to separate are the Demolition Rack and
+   *  the Loader Magazine, and any band wide enough to hold both would have to
+   *  break the tie on something, which is exactly the something this field
+   *  replaces.
+   *
+   *  EXPLICITLY NOT THE PRICE, and the Rack is the proof: it is 70 against the
+   *  Magazine's 30 and it outranks it anyway. The shelf used to be INSTALLS'
+   *  own array order, which is the PRICE ladder (the essay below walks it
+   *  15, 15, 30, 50 … and calls the entries "the eighth", "the ninth", "the
+   *  tenth"), so the shop was sorted by what a system costs rather than by what
+   *  it is worth having first. Those are different questions and the Rack is
+   *  where they disagree most: the owner's call is that "bombs help a lot to
+   *  clear the congestions, so higher strategical value", i.e. the one system
+   *  that makes a bad pile GO AWAY belongs above the ones that make a good pile
+   *  better, whatever it costs.
+   *
+   *  The array below stays in price order for the essay's sake; rank is the
+   *  order the player sees. Nothing derives one from the other — a re-price
+   *  must not silently re-sort the shop, and a re-rank must not look like a
+   *  discount. */
+  rank: number;
   /** Marks that must already have been BEATEN — the spec ladder's Mark minus
    *  one, since `meta.mark` counts clears rather than the Mark being flown.
    *  Same invariant as UnlockDef's field: a Mark is the one thing no amount of
@@ -293,6 +316,68 @@ export interface InstallDef {
  *  rig from before this ladder). */
 export const SCHOOL_INSTALL: UpgradeId = "reactor";
 
+/* ---------------------------------------------------------------------------
+ * THE SHELF ORDER — `rank`, one line of argument per system.
+ *
+ * Read it as "which system answers the thing that is actually killing runs,
+ * soonest". The bands are the shape; the numbers inside them are a total order
+ * so the sort never has to fall back on price.
+ *
+ *   1 reactor      the economy track. The float that buys the bay's eight
+ *                  launches and the rate per line — it is the prerequisite for
+ *                  affording anything else in the bay, and level.ts's ladder is
+ *                  tuned on the assumption its tiers get built.
+ *   2 launcher     muzzle energy and the lateral stabiliser. Without it the
+ *                  back of the bay and every crosswind bay are partly out of
+ *                  reach, so it is the other half of "can I put cargo where the
+ *                  line needs it". Same 15 as the Reactor, and the two of them
+ *                  are the on-ramp.
+ *   3 demolition   THE OWNER'S CALL, and the one rank that costs the shelf its
+ *                  price ordering. Everything else here makes a pile better;
+ *                  the Rack is the only thing that makes a pile GO AWAY, it
+ *                  works on dead cargo of any kind (slag, tar, a wedged stack
+ *                  nothing fits), and it recurs every bay rather than once a
+ *                  run. Congestion is what ends bays the bots lose, so the
+ *                  recurring exit from congestion outranks a second helping of
+ *                  anything.
+ *   4 magazine     reload rate — more shots inside the same clock. It is what
+ *                  makes the Rack's exit affordable in TIME: a player who has
+ *                  to spend a shot fixing the pile only has that shot spare if
+ *                  the loader gave it to them.
+ *   5 hydraulics   a harder, faster press: the per-bay congestion answer that
+ *                  is not a charge. Squares a messy pile into sellable rows
+ *                  instead of leaving it wedged — the Rack's job done slowly
+ *                  and for free.
+ *   6 bay          more room to land in, longer lines to sell. Raises the
+ *                  ceiling on every bay and does nothing for a pile that is
+ *                  already wedged, which is why it sits under the two systems
+ *                  that unwedge one.
+ *   7 bonds        one Bond Breaker charge for the WHOLE RUN. Decisive where it
+ *                  lands and it lands once, so it is the capstone on a build
+ *                  rather than the thing that gets a player to one.
+ *   8 thaw         one axis, with a measured ceiling (upgrades.ts's
+ *                  THAW_CHARGES_PER_TIER): cryo, which hazards.ts opens at Mark
+ *                  4. First of the counters because its axis arrives first.
+ *   9 cushion      two axes for one purchase — volatile, and the crosswind bay
+ *                  where a blown shipment lands hard — but volatile does not
+ *                  open until Mark 7, so it is a later problem than cryo.
+ *  10 incinerator  last, and its own price note says why: a discount on a BILL,
+ *                  met only by a player already losing cargo, worth literally
+ *                  zero to a pilot who never throws into the hood. The weakest
+ *                  guarantee on the shelf is the last thing to buy. (It shares
+ *                  the Magazine's 30 and sits six ranks below it, which is the
+ *                  second place this order and the price ladder part company.)
+ *
+ * NO SIM MEASURES THE RACK. Worth stating plainly, because this file's house
+ * style is to cite one: sweep.ts's bots do not fire demolition charges at all
+ * (only the `demo` bot does, and marks.ts calibrates on `aim`), so there is no
+ * win-rate table behind rank 3 and this comment is not pretending there is.
+ * What there IS is the instrument bias itself — the harness is pessimistic
+ * about exactly the system this rank promotes — plus the owner's play report.
+ * A sweep that gave the `demo` bot a Rack and compared bay-loss reasons against
+ * `middle` is the measurement this rank is owed; until someone runs it, rank 3
+ * is an owner's call recorded as one.
+ * ------------------------------------------------------------------------- */
 export const INSTALLS: InstallDef[] = [
   // PRICES, re-derived. The old comment here justified them against "three
   // tier-1 Contracts pay 18" — which has not been true for some time: a tier's
@@ -325,19 +410,19 @@ export const INSTALLS: InstallDef[] = [
   // A counter with a measured ceiling is worth a tier of Contracts, not a tier
   // plus its run win — so 50, beside Bay Extension and Press Hydraulics, and
   // the shelf keeps 105 salvage of slack instead of 15.
-  { id: "reactor", cost: 15 },
-  { id: "launcher", cost: 15 },
-  { id: "magazine", cost: 30 },
-  { id: "bay", cost: 50, requiresMark: 1 },
-  { id: "hydraulics", cost: 50, requiresMark: 1 },
-  { id: "bonds", cost: 70, requiresMark: 2 },
+  { id: "reactor", rank: 1, cost: 15 },
+  { id: "launcher", rank: 2, cost: 15 },
+  { id: "magazine", rank: 4, cost: 30 },
+  { id: "bay", rank: 6, cost: 50, requiresMark: 1 },
+  { id: "hydraulics", rank: 5, cost: 50, requiresMark: 1 },
+  { id: "bonds", rank: 7, cost: 70, requiresMark: 2 },
   // The spec's ladder puts Demolition at Mark 4 — but that pairing only works
   // once materials MOVE to the hazard draft in phase 3. Phase 1 leaves
   // MATERIAL_SCHEDULE alone, where slag already appears from Mark 2 (i.e. one
   // Mark beaten). Gating its only clean answer at 3 would ship a counter two
   // Marks behind its hazard, which is strictly worse than today. Raise this to
   // 3 in the same change that moves materials off the schedule.
-  { id: "demolition", cost: 70, requiresMark: 1 },
+  { id: "demolition", rank: 3, cost: 70, requiresMark: 1 },
   // GATED AT THE MARK CRYO ARRIVES, not one behind it. hazards.ts opens the
   // cryo axis at Mark 4, and `requiresMark` counts Marks BEATEN — so 3 means
   // the lance is on the shelf for exactly the player who is flying the first
@@ -349,7 +434,7 @@ export const INSTALLS: InstallDef[] = [
   // before the bay that makes it mandatory, which is the pattern
   // MATERIAL_DRAFT_BAYS itself is built on ("meet the problem, play a bay
   // against it, walk into the shop that answers it").
-  { id: "thaw", cost: 50, requiresMark: 3 },
+  { id: "thaw", rank: 8, cost: 50, requiresMark: 3 },
   // THE NINTH, and it is priced a band ABOVE the eighth for a measured reason
   // rather than because it arrived later. The band is what the system is: 70 is
   // "answers every build" (Bond Emitter, Demolition Rack) and 50 is "answers
@@ -376,7 +461,7 @@ export const INSTALLS: InstallDef[] = [
   // concludes still stands at the true number — 55 of slack on 600 is tight —
   // and it is left in place rather than quietly restated, because the paragraph
   // below is the answer it demanded.
-  { id: "cushion", cost: 50, requiresMark: 6 },
+  { id: "cushion", rank: 9, cost: 50, requiresMark: 6 },
   // THE TENTH, and the note directly above is the bar it had to clear: a tenth
   // system needs "either a re-priced shelf or a second income". It gets
   // neither. What it gets is the BAND BELOW the ones every argument on this
@@ -410,11 +495,19 @@ export const INSTALLS: InstallDef[] = [
   // shelf for exactly the player flying the first tier that can hand them cargo
   // they have no choice but to write off. Buyable at 5, and the axis that makes
   // it necessary is unavoidable at 5.
-  { id: "incinerator", cost: 30, requiresMark: 4 },
+  { id: "incinerator", rank: 10, cost: 30, requiresMark: 4 },
 ];
 
 export function installById(id: string): InstallDef | undefined {
   return INSTALLS.find((i) => i.id === id);
+}
+
+/** The shop's own order — INSTALLS by `rank`, cheapest-first only where two
+ *  ranks tie, which they never do (sim/systems.ts pins that). A copy, so a
+ *  caller that sorts or splices cannot reorder the price ladder the array
+ *  above is. */
+export function installShelf(): InstallDef[] {
+  return [...INSTALLS].sort((a, b) => a.rank - b.rank || a.cost - b.cost);
 }
 
 /**
@@ -1716,11 +1809,90 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * ---------------------------------------------------------------------- */
 export type NextStepId = "licence" | "workshop" | "contracts" | "run" | "seal";
 
-/** The cheapest system the player could install right now, or null. */
+/** The cheapest system the player could install right now, or null.
+ *
+ *  A DIFFERENT QUESTION FROM `recommendedPurchase` below, and both are wanted.
+ *  This one answers "what is the salvage walking toward" — the price a payout
+ *  is closing on, which is the cheapest reachable thing whether or not it is
+ *  the thing worth buying (main.ts's nextInstall prints it on the Contract-end
+ *  salvage row). The recommendation answers "spend this, now", and it ranks.
+ *  Only the second one drives a badge. */
 export function cheapestInstall(meta: MetaState): InstallDef | null {
   return (
     INSTALLS.filter((i) => installAvailable(meta, i)).sort((a, b) => a.cost - b.cost)[0] ?? null
   );
+}
+
+/** A purchase the Workshop could make right now. `id` is the track, and null
+ *  only for `slot` — a rack slot is merchandise but not a system. */
+export interface Purchase {
+  kind: "install" | "uprate" | "slot";
+  id: UpgradeId | null;
+  cost: number;
+}
+
+/**
+ * THE ONE THING TO BUY NEXT — the single rule behind both the home badge and
+ * the warm border on the Workshop's shelf.
+ *
+ * Those were two rules until now and they were allowed to disagree: `nextStep`
+ * asked "is anything affordable" and screens.ts's shelf highlighted the
+ * CHEAPEST affordable card, so the menu could send a player to the Workshop for
+ * one reason and the Workshop point at a different card when they arrived. One
+ * function, two callers, no drift.
+ *
+ * A NEW SYSTEM BEATS A SECOND HELPING OF AN OLD ONE, while there is a slot to
+ * fly it in. That is the owner's rule verbatim — "before upgrading a second
+ * time, a new system is better than an upgrade early on" — and the boundary is
+ * the RACK rather than a Mark or a salvage figure, because the rack is what
+ * makes the sentence true: a system in a free slot is breadth the run will
+ * actually carry, while a fifth system with nowhere to sit is a tier-1 track in
+ * the shed (buyInstall's note). So the moment the rack fills, the ranking flips
+ * to uprates and the recommendation starts deepening what is already aboard.
+ *
+ * AFFORDABLE ONLY. The badge never says "save up": every candidate here is one
+ * the player can pay for today, which is what keeps it the same predicate
+ * `nextStep` has always used (the branch below is a straight substitution, not
+ * a new gate). The consequence is honest and worth naming — holding 30 salvage
+ * with the Rack at 70 gets the Magazine recommended, one rank down — and the
+ * answer to it is the SHELF ORDER rather than the badge: `installShelf` puts
+ * the Rack third, above the Magazine, so a player who is reading the shop
+ * rather than following the glow sees what they are being outbid by.
+ *
+ * A SLOT IS A PURCHASE TOO, and it is asked in the middle rather than last: a
+ * rig whose rack is full and whose aboard systems are all at the Workshop's cap
+ * has nothing left to deepen, and telling it to buy an eleventh system that
+ * goes straight to the shed would be worse advice than widening the rack so the
+ * tenth can fly. Only when the rack is at SLOT_CAP does a shed purchase win.
+ *
+ * SCOPED TO THE SHELF THE SCREEN ACTUALLY DRAWS, which during Flight School is
+ * one card (workshopScreen's note). A recommendation that named merchandise the
+ * shop has hidden would be the same drift this function exists to remove.
+ */
+export function recommendedPurchase(meta: MetaState): Purchase | null {
+  const school = !licenceDone(meta);
+  const shelf = installShelf().filter(
+    (i) =>
+      (!school || i.id === SCHOOL_INSTALL) &&
+      installAvailable(meta, i) &&
+      meta.salvage >= uprateCost(i),
+  );
+  const buy = (i: InstallDef): Purchase => ({
+    kind: (meta.loadout[i.id] ?? 0) === 0 ? "install" : "uprate",
+    id: i.id,
+    cost: uprateCost(i),
+  });
+  const fresh = shelf.filter((i) => (meta.loadout[i.id] ?? 0) === 0);
+  const deeper = shelf.filter((i) => (meta.loadout[i.id] ?? 0) > 0);
+  if (mountedIds(meta).length < slotsFor(meta) && fresh.length) return buy(fresh[0]);
+  if (deeper.length) return buy(deeper[0]);
+  // The rack is full and nothing aboard can be raised. Widen it before buying
+  // another system into the shed — and during school there is no rack on
+  // screen at all, so there is nothing here to recommend.
+  const slot = school ? null : slotPrice(slotsFor(meta));
+  if (slot !== null && meta.salvage >= slot) return { kind: "slot", id: null, cost: slot };
+  if (fresh.length) return buy(fresh[0]);
+  return null;
 }
 
 /**
@@ -1778,17 +1950,25 @@ export function nextStep(meta: MetaState): NextStepId {
   // grandfathers those; they fall through to the general rule below, which is
   // exactly where they landed before the school grew its shops.
   if (meta.runs === 0 && rigStarted(meta)) return "run";
-  const next = cheapestInstall(meta);
-  if (next && meta.salvage >= next.cost) return "workshop";
-  // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame
-  // faucet a door. The rule's first line is "salvage covers something you can
-  // spend it on -> spend it", and until slots existed that could only ever mean
-  // an install — so a player who owned the whole shelf and kept earning 60 a
-  // cycle (advanceTier at MARK_COUNT) was never pointed at the Workshop again,
-  // however much they banked. Asked AFTER the install so the on-ramp still
-  // wins: a first system beats a wider rack with nothing to put in it.
-  const slot = slotPrice(slotsFor(meta));
-  if (slot !== null && meta.salvage >= slot) return "workshop";
+  // ONE QUESTION, ASKED OF THE THING THAT ANSWERS IT. This branch used to be
+  // two — "the cheapest available install is affordable" and then "a rack slot
+  // is affordable" — and between them they were the whole of the Workshop's
+  // claim on the badge while screens.ts decided independently which card to
+  // glow. `recommendedPurchase` is that decision, so the badge now fires on
+  // exactly the states in which the shelf has something to point at, and it is
+  // pointing at the same thing.
+  //
+  // The PREDICATE is unchanged by the substitution: the recommendation is
+  // non-null in exactly the union the two lines covered (an affordable
+  // available install or uprate, or an affordable slot). What moved is WHICH of
+  // them gets named, which no branch here ever asked.
+  //
+  // The rack-slot half of that union is still what gives the endgame faucet a
+  // door: a player who owns the whole shelf and keeps earning 60 a cycle
+  // (advanceTier at MARK_COUNT) was never pointed at the Workshop again,
+  // however much they banked. It is asked after the systems, inside the
+  // recommendation, for the reason stated there.
+  if (recommendedPurchase(meta)) return "workshop";
   // Asked BEFORE the Contracts branch, because at MARK_COUNT that branch is
   // answering a question the ladder has stopped asking — see the header. A
   // finished ladder with every Mark sealed falls through to the run, which is

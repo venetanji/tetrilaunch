@@ -110,7 +110,8 @@ import {
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
 import {
-  applyUpgrades, newTiers, nextTierCost, refitTracks, tiersCost, upgradeById,
+  applyUpgrades, newTiers, nextTierCost, refitShelf, refitTracks, tiersCost, upgradeById,
+  yardHasStock,
   clearTrack, orderCost, orderRungs, orderSize, orderedTier, orderedTiers, stageTier,
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
@@ -125,6 +126,7 @@ import {
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
+  installShelf, recommendedPurchase,
   recordLesson, rigStarted, licenceDone, basicsDone,
   schoolLadder, schoolProgress, schoolStepOfFlight, schoolNextStep, nextFlightAfter,
   SCHOOL_FLIGHTS, SCHOOL_STEPS, SCHOOL_LADDER, SCHOOL_INSTALL, GRADUATION_FLIGHT, FINAL_EXAM,
@@ -1423,6 +1425,119 @@ section("Installs — what salvage buys (meta.ts)");
   check("a track at the Workshop's cap leaves the shelf for the strip",
     maxedShop.includes("✓ Installed") && !maxedShop.includes(`data-install="reactor"`));
 
+  /* ---- THE SHELF ORDER, AND THE ONE CARD THAT GLOWS ----------------------
+   * Two rules, pinned as rules rather than as a layout:
+   *
+   *   1. the shop is sorted by RANK, which is not the price
+   *   2. one function decides both the home badge and the shelf's highlight
+   *
+   * The second is the one that had gone wrong: `nextStep` asked "is anything
+   * affordable" and screens.ts independently glowed the CHEAPEST affordable
+   * card, so the two could name different doors and different cards. They read
+   * meta.ts's recommendedPurchase now, and these check they cannot drift apart
+   * again rather than checking today's answers.
+   * -------------------------------------------------------------------- */
+  /** The id on the card wearing `shop-card--next`, or null. Read off the CARD
+   *  rather than off a character window, because a card's own body div shares
+   *  the class prefix and its description is longer than any fixed slice. */
+  const glowingCard = (html: string): string | null => {
+    for (const m of html.matchAll(/<div class="(shop-card[^"]*)"[\s\S]*?data-install="([a-z]+)"/g)) {
+      if (m[1].includes("shop-card--next")) return m[2];
+    }
+    return null;
+  };
+  const shelfIds = installShelf().map((i) => i.id);
+  check("every install carries its own rank",
+    new Set(INSTALLS.map((i) => i.rank)).size === INSTALLS.length &&
+      INSTALLS.every((i) => Number.isFinite(i.rank)),
+    INSTALLS.map((i) => `${i.id}:${i.rank}`).join(" "));
+  check("the shop's order is the shipped one",
+    shelfIds.join(",") ===
+      "reactor,launcher,demolition,magazine,hydraulics,bay,bonds,thaw,cushion,incinerator",
+    shelfIds.join(","));
+  // THE RANK IS NOT THE PRICE, and the Rack is the proof: 70 against the
+  // Magazine's 30, and above it anyway. Asserted as the PROPERTY (some pair is
+  // ordered against its prices) rather than as those two ids, so re-pricing
+  // either one cannot quietly turn this shelf back into a price list.
+  check("the shelf is ranked, not priced",
+    shelfIds.some((id, n) =>
+      shelfIds.slice(n + 1).some((later) =>
+        (installById(id)?.cost ?? 0) > (installById(later)?.cost ?? 0))),
+    shelfIds.map((id) => `${id}:${installById(id)?.cost}`).join(" "));
+  // The owner's call, stated as the band it is: the Rack sits in the first band
+  // after the two 15-salvage entry systems, because it is the only system that
+  // makes a pile GO AWAY and it recurs every bay.
+  check("the Demolition Rack is in the first band after the on-ramp",
+    shelfIds.indexOf("demolition") === 2 &&
+      shelfIds.slice(0, 2).join(",") === "reactor,launcher",
+    shelfIds.slice(0, 3).join(","));
+  check("...and the shop draws the cards in that order",
+    (() => {
+      const open = workshopScreen(freshMeta({ salvage: 400, mark: MARK_COUNT }));
+      const drawn = [...open.matchAll(/data-install="([a-z]+)"/g)].map((m) => m[1]);
+      return drawn.join(",") === shelfIds.join(",");
+    })());
+
+  // ---- A NEW SYSTEM BEATS A SECOND UPRATE, WHILE A SLOT IS FREE ----------
+  // The owner's rule, and its boundary is the RACK: breadth is only worth more
+  // than depth while the run can actually carry it.
+  const twoSystems = { ...newTiers(), reactor: 1, launcher: 1 };
+  const roomy = freshMeta({ salvage: 400, mark: MARK_COUNT, loadout: twoSystems, slots: SLOT_CAP });
+  const recRoomy = recommendedPurchase(roomy);
+  check("with a slot free the shop recommends a NEW system",
+    recRoomy?.kind === "install", `${recRoomy?.kind} ${recRoomy?.id}`);
+  // …and among new systems it is the RANK that picks, not the price: the Rack
+  // at 70 over the Magazine at 30.
+  check("...and rank picks which one, over a cheaper card",
+    recRoomy?.id === "demolition", String(recRoomy?.id));
+  // Same wallet, same shelf, rack FULL: SLOT_BASE systems aboard on a stock
+  // rack, so there is nowhere to put another and depth is what is left.
+  // (SLOT_BASE of them, not two — slotsFor clamps a saved count UP to the base,
+  // so a narrow rack is not a thing a fixture can ask for.)
+  const rackFullLoadout = Object.fromEntries(
+    UPGRADES.slice(0, SLOT_BASE).map((u) => [u.id, 1])) as UpgradeTiers;
+  const packed = freshMeta({ salvage: 400, mark: MARK_COUNT, loadout: rackFullLoadout });
+  const recPacked = recommendedPurchase(packed);
+  check("a full rack flips the rule to uprates",
+    recPacked?.kind === "uprate", `${recPacked?.kind} ${recPacked?.id}`);
+  check("...and ranks those too",
+    recPacked?.id === installShelf().find((i) => (packed.loadout[i.id] ?? 0) > 0)?.id,
+    String(recPacked?.id));
+  // THE RACK IS MERCHANDISE. Full rack, nothing aboard left to raise: widen it
+  // rather than sell an eleventh system into the shed.
+  const capped = freshMeta({
+    salvage: 400, mark: MARK_COUNT,
+    loadout: Object.fromEntries(
+      UPGRADES.slice(0, SLOT_BASE).map((u) => [u.id, UPRATE_MAX_TIER])) as UpgradeTiers,
+  });
+  check("a full rack of maxed systems recommends a slot",
+    recommendedPurchase(capped)?.kind === "slot", String(recommendedPurchase(capped)?.kind));
+  check("...and then no card on the shelf glows",
+    glowingCard(workshopScreen(capped)) === null,
+    String(glowingCard(workshopScreen(capped))));
+
+  // ---- THE BADGE AND THE HIGHLIGHT ARE ONE DECISION ----------------------
+  // `nextStep` names the Workshop exactly when there is something to recommend,
+  // and the shelf glows exactly the card the recommendation names. Swept over
+  // the states that used to answer differently rather than asserted once.
+  for (const m of [
+    freshMeta({ salvage: 0 }),
+    freshMeta({ salvage: 15 }),
+    freshMeta({ salvage: 400, mark: MARK_COUNT }),
+    roomy, packed, capped, allIn,
+    freshMeta({ salvage: 99999, mark: MARK_COUNT, slots: SLOT_CAP, loadout: allIn.loadout }),
+  ]) {
+    const rec = recommendedPurchase(m);
+    check(`nextStep and the recommendation agree (${m.salvage} salvage, mark ${m.mark})`,
+      (nextStep(m) === "workshop") === (rec !== null),
+      `${nextStep(m)} vs ${rec?.kind ?? "nothing"}`);
+    if (rec && rec.kind !== "slot") {
+      check(`the glowing card is the recommended one (${rec.id})`,
+        glowingCard(workshopScreen(m)) === rec.id,
+        `${glowingCard(workshopScreen(m))} vs ${rec.id}`);
+    }
+  }
+
   // The yard renders on the WORKSHOP'S CARD now, description and all — the
   // whole reason the screen moved (screens.ts's refitScreen). A refit row that
   // states only a name and a number is the shop the Workshop already refused
@@ -1432,28 +1547,84 @@ section("Installs — what salvage buys (meta.ts)");
     mark: 2, order: {}, preview: [], ...over,
   });
   const buyButtons = (html: string): string[] => html.match(/<button[^>]*refit-card__buy[^>]*>/g) ?? [];
+  const refitCards = (html: string): number =>
+    (html.match(/class="shop-card refit-card/g) ?? []).length;
   const oneUp = yard();
+  // A RIG CARRYING EVERYTHING is what draws the whole menu now — the shelf is
+  // the systems ABOARD (upgrades.ts's refitShelf), so "every track" is a
+  // statement about a full rack and not about the screen's default.
+  const allAboard = Object.fromEntries(UPGRADES.map((u) => [u.id, 1])) as UpgradeTiers;
+  const fullYard = yard({ tiers: allAboard });
   check("the yard sells from the Workshop's card",
-    (oneUp.match(/class="shop-card refit-card/g) ?? []).length === UPGRADES.length,
-    String((oneUp.match(/class="shop-card refit-card/g) ?? []).length));
+    refitCards(fullYard) === UPGRADES.length, String(refitCards(fullYard)));
   check("every track's own sentence reaches the player",
-    UPGRADES.every((u) => oneUp.includes(u.blurb)),
-    UPGRADES.filter((u) => !oneUp.includes(u.blurb)).map((u) => u.id).join(","));
+    UPGRADES.every((u) => fullYard.includes(u.blurb)),
+    UPGRADES.filter((u) => !fullYard.includes(u.blurb)).map((u) => u.id).join(","));
 
   // Refit prices tiers 2-3 only. Tier 0 used to render a live 20-scrap button
   // that tapped to nothing once run.ts stopped letting scrap install.
   // Mark 2 here so the full seven-card menu renders — Mark 1's focused stop is
   // pinned separately below.
   //
-  // The copy says "Not aboard" rather than "Not installed" since system slots
-  // gave tier 0 a SECOND meaning: a stowed system is installed and paid for and
-  // simply not in the rack this run (meta.ts's safeLoadout masks it to 0, which
-  // is exactly what this card reads). The yard cannot tell the two apart from
-  // the tiers alone, so the sentence has to be true of both.
+  // A SHOP LISTS WHAT IT SELLS. Tier 0 used to draw a card reading "Not aboard
+  // — buy or mount it in the Workshop": true of both ways a track can be at 0
+  // (never bought, or stowed — meta.ts's safeLoadout masks a shed system to 0
+  // and the yard cannot tell the two apart), and still the wrong card. It was a
+  // price this shop cannot take, naming a shop the player cannot reach from a
+  // refit stop, on up to nine of the ten rows of the one screen whose argument
+  // is that a refit is a plan you can read. The card is gone; so is the copy.
   const stockRefit = yard({ tiers: newTiers() });
-  check("a track that is not aboard shows no refit button",
-    stockRefit.includes("Not aboard") && !stockRefit.includes(`data-upgrade="reactor"`));
+  check("a track that is not aboard gets no card at all",
+    refitCards(stockRefit) === 0 && !stockRefit.includes("Not aboard"),
+    String(refitCards(stockRefit)));
   check("an installed track shows its next tier", oneUp.includes(`data-upgrade="reactor"`));
+  // THE SHELF IS THE RIG, not the roster: one system aboard is one card, and
+  // the other nine are absent rather than greyed.
+  check("the shelf is exactly the systems aboard",
+    refitCards(oneUp) === 1 && oneUp.includes(`data-upgrade="reactor"`) &&
+      UPGRADES.filter((u) => u.id !== "reactor")
+        .every((u) => !oneUp.includes(`data-upgrade="${u.id}"`)),
+    String(refitCards(oneUp)));
+  const twoUp = yard({ tiers: { ...newTiers(), reactor: 1, bay: 2 } });
+  check("...and it grows one card per system installed", refitCards(twoUp) === 2,
+    String(refitCards(twoUp)));
+  // refitShelf is refitTracks NARROWED — never widened. The Mark's rule and the
+  // rig's rule are two statements and the second may only ever subtract.
+  check("the shelf never offers a track the Mark does not",
+    [0, 1, 2, MARK_COUNT].every((m) =>
+      [newTiers(), allAboard, { ...newTiers(), launcher: 1 }].every((t) =>
+        refitShelf(t as UpgradeTiers, m)
+          .every((u) => refitTracks(m).some((v) => v.id === u.id)))));
+  // THE MARK-1 RULE SURVIVES the narrowing, and this is the case that proves it
+  // is still doing work: a Mark-1 rig carrying two systems is still shown one.
+  // (upgrades.ts's refitTracks note argues which half of its old rationale is
+  // left, and what a play pass should measure before dropping it.)
+  check("a Tier-1 stop still sells the Reactor alone to a two-system rig",
+    refitShelf({ ...newTiers(), reactor: 1, launcher: 1 }, 1)
+      .map((u) => u.id).join(",") === "reactor");
+  // THE SHELF AND THE STOCK ARE ONE LIST. run.ts skips a stop with nothing to
+  // sell, and the question it asks must be the question the screen answers —
+  // otherwise a stop opens onto an empty shop, which is the owner's original
+  // report.
+  const maxed = Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as UpgradeTiers;
+  for (const t of [newTiers(), allAboard, maxed, { ...newTiers(), reactor: MAX_TIER, bay: 1 }]) {
+    for (const m of [1, 2, MARK_COUNT]) {
+      check(`stock and shelf agree (mark ${m}, ${tiersCost(t as UpgradeTiers)} pts)`,
+        yardHasStock(t as UpgradeTiers, m) ===
+          refitShelf(t as UpgradeTiers, m)
+            .some((u) => nextTierCost(Math.min(MAX_TIER, (t as UpgradeTiers)[u.id] ?? 0)) !== null));
+    }
+  }
+  // A MAXED RIG SKIPS THE STOP, and it is the STOCK question that skips it —
+  // the shelf still LISTS those systems (they are aboard), it just has no rung
+  // left to sell, so the screen is never reached.
+  const maxedYard = yard({ tiers: maxed, mark: MARK_COUNT });
+  check("a rig with everything maxed still skips the stop", !yardHasStock(maxed, MARK_COUNT));
+  check("...because the shelf it would draw has nothing to stage",
+    refitCards(maxedYard) === UPGRADES.length &&
+      !maxedYard.includes(`data-action="stage-upgrade"`),
+    String(refitCards(maxedYard)));
+  check("...and so does a rig with nothing aboard", !yardHasStock(newTiers(), MARK_COUNT));
 
   // STAGING, not buying. Every button on this shelf queues a tier into an
   // order that Undock commits (run.ts's buyUpgrades); a button that spent on
