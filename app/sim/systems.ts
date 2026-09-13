@@ -13503,8 +13503,14 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 62, baysToRefit: 2,
       standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
     });
+    // The TALLY is what this pin is about, and it is untouched. The cell's
+    // label lost "Notches · " and the bay number when the chip was measured at
+    // the compact tier (screens.ts's draft bank): 23 characters of 6px pixel
+    // face wrapped into the value beside it and ellipsised the very count
+    // asserted on the next line. "Clause" is what is left, and the bay the
+    // clause arms on is on this modal's own projection header four rows down.
     check("the Skydeck draft counts clauses beside the notches",
-      draft.includes(`1/${CLAUSE_STOPS.length}`) && draft.includes("clause Bay 7"));
+      draft.includes(`1/${CLAUSE_STOPS.length}`) && /bay-stat__lbl">Clause</.test(draft));
     check("...and counts its scrap in the cell the tally used to take",
       /Scrap/.test(draft) && draft.includes("62") && draft.includes("refit in 2"));
     check("...in three cells, the same row the ladder draws",
@@ -24664,7 +24670,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("the rig-locked menu disables its primary",
       primary(menuOf(shut)).includes("disabled"));
     check("...and says which door opens it",
-      primary(menuOf(shut)).includes("Install a system in the Workshop"));
+      primary(menuOf(shut)).includes("One system · Workshop"));
     check("...and an opened ladder leaves the primary live",
       !primary(menuOf(open)).includes("disabled"));
     // The Contract board's own subtitle, on the same state: while one clear
@@ -24847,10 +24853,14 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     ] as [string, MetaState][]) {
       check(`the Deep Run is disabled at ${label}`,
         deepRunAt(m).includes("disabled"), label);
+      // The VERB went when the box was finally measured rather than estimated
+      // (screens.ts's menuPlaySub): "Finish Flight School · 4/10" wanted 126px
+      // in a 122px box and the ellipsis took the denominator, which is the half
+      // a player is counting. The count is what this pin is really about.
       check(`...and names what is left, inside the subtitle's box at ${label}`,
-        /Finish Flight School · \d+\/\d+/.test(deepRunAt(m))
-          && (/Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0].length ?? 99) <= 32,
-        /Finish Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
+        /Flight School · \d+\/\d+/.test(deepRunAt(m))
+          && !/Finish Flight School/.test(deepRunAt(m)),
+        /Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
     }
     const grad = graduate({ loadout: { ...newTiers(), reactor: 1 } });
     check("...and it comes alive on the last step",
@@ -24858,10 +24868,10 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // The lobby's own two shut states.
     check("the lobby's primary is shut on the Contract rung",
       primaryOf(menuAt(four, towerAt(four))).includes("disabled")
-        && primaryOf(menuAt(four, towerAt(four))).includes("Clear one Contract to go on"));
+        && primaryOf(menuAt(four, towerAt(four))).includes("A Contract to go on"));
     const paid = onLadder({ claimedContracts: ["x"], salvage: 15 });
     check("...and on the Workshop rung",
-      primaryOf(menuAt(paid, towerAt(paid))).includes("Install the Reactor to go on"));
+      primaryOf(menuAt(paid, towerAt(paid))).includes("The Reactor to go on"));
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
@@ -24873,7 +24883,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     });
     check("...and the last rung says what it actually is",
       primaryOf(menuAt(examOwed, towerAt(examOwed)))
-        .includes(`Step ${SCHOOL_STEPS} of ${SCHOOL_STEPS} · ${FINAL_EXAM}`),
+        .includes(`${FINAL_EXAM} · ${SCHOOL_STEPS} of ${SCHOOL_STEPS}`),
       primaryOf(menuAt(examOwed, towerAt(examOwed))).slice(0, 200));
   }
 
@@ -28811,6 +28821,478 @@ section("A scrim seals what it covers from Tab (F7 — ui/padnav's sealBehindScr
   check("the seal notice seals the HUD behind it",
     /case "seal-break":\s*\n\s*if \(g && this\.run\) \{[\s\S]{0,2600}?sealBehindScrim\(this\.overlay\);/
       .test(mainSrc));
+}
+
+section("The projection header is one line on EVERY device (app.css .projection__hd)");
+// ---------------------------------------------------------------------------
+// A TABLET REPORT, and the thing that makes it worth a source pin: the header
+// held one line on all seven phone rows and wrapped into itself on all three
+// tablets. The nowrap that keeps it honest lived only in the `max-height:
+// 520px` tier — every landscape phone, no tablet — so the iPads and the Pixel
+// Tablet were the rows the rule had never been written for. Measured on the
+// `refit-staged` fixture (the state that grows the "N moved" count and so
+// gives the note its widest copy): `.projection__hd` laid out 16 CSS px tall
+// with "Cryo Vault — projected" broken across two lines that its 8px pixel
+// face then set on top of each other.
+//
+// WHY A SOURCE PIN RATHER THAN THE FIT HARNESS ALONE: a wrapped header is the
+// bug class uifit's `oneline` list exists for, but this row is not on it, and
+// putting it there would assert the SYMPTOM on the nineteen devices that
+// happen to be in the matrix. The rule is the invariant — this header is one
+// line at every width — and it belongs on the base rule where a fourth tablet
+// cannot miss it. The measurement is in the commit; this is what keeps it.
+// ---------------------------------------------------------------------------
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = [...css.matchAll(/\.projection__hd\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  // The base rule is the one that BUILDS the row (`display: flex`); every
+  // other `.projection__hd` block in the file is a density override.
+  const base = blocks.find((b) => /display:\s*flex/.test(b)) ?? "";
+  check(
+    "the projection header's base rule refuses to wrap",
+    /white-space:\s*nowrap/.test(base),
+    base.replace(/\s+/g, " ").slice(0, 160) || "no base .projection__hd rule",
+  );
+  // The floor its ellipsising note needs, on the row rather than only on the
+  // note: a nowrap flex ROW takes its own minimum from its items, and the row
+  // is itself an item of `.projection`'s column.
+  check(
+    "...and carries the min-width floor a nowrap row needs",
+    /min-width:\s*0/.test(base),
+    base.replace(/\s+/g, " ").slice(0, 160),
+  );
+  check(
+    "...and no density tier hands the wrap back",
+    blocks.every((b) => !/white-space:\s*normal/.test(b) && !/flex-wrap:\s*wrap/.test(b)),
+    blocks.filter((b) => /white-space:\s*normal|flex-wrap:\s*wrap/.test(b)).join(" | ").slice(0, 160),
+  );
+}
+
+/** app.css with comments stripped — every pin below reads the same string, and
+ *  stripping matters because this stylesheet's prose quotes the declarations it
+ *  is explaining. */
+const APP_CSS = fs.readFileSync(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+  "utf8",
+).replace(/\/\*[\s\S]*?\*\//g, "");
+
+/** The declaration block of the first rule whose head ends with `sel`. */
+function cssRule(sel: string): string {
+  const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`(?:^|[};])\\s*${esc}\\s*\\{([^}]*)\\}`, "m").exec(APP_CSS);
+  return m ? m[1] : "";
+}
+
+section("The arming clause's name gets FIFTEEN CHARACTERS of its own face (app.css)");
+// ---------------------------------------------------------------------------
+// `ch` is the advance of "0" in the element's OWN font, which is why a cap
+// written one box up is not the cap it looks like. `.stat--clause` is 16px body
+// text; the name inside it is mono at `clamp(13px, 2.6vh, 20px)`. At the 20px
+// ceiling the cell offered 15ch of the wrong face — 120px — against the 180px
+// the name needs, so "Bled Hydraulics" (the longest name any standing stop can
+// deal, and what `bayclear-clause` is built from) arrived as "Bled Hydr…" on
+// both iPads, the Pixel Tablet and every desktop row, while every PHONE was
+// correct because the clamp sits at 13px there.
+//
+// The fit harness cannot fail on this by design — an ellipsis is a deliberate
+// truncation and `textclip` warns rather than fails — so the invariant is
+// pinned here: the character cap belongs on the element whose characters are
+// being counted.
+// ---------------------------------------------------------------------------
+{
+  const bold = cssRule(".stat--clause b");
+  const cell = cssRule(".stat--clause");
+  check(
+    "the clause name is capped in the face it is SET in, not its parent's",
+    /max-width:\s*min\(\s*100%\s*,\s*15ch\s*\)/.test(bold),
+    bold.replace(/\s+/g, " ").slice(0, 160) || "no .stat--clause b rule",
+  );
+  // The 100% term is the other half and has its own history (the name once ran
+  // 255px out of a 165px cell): it stops the name widening a cell the card has
+  // already constrained.
+  check(
+    "...and still cannot widen a cell the card has constrained",
+    /max-width:\s*min\(\s*100%/.test(bold) && /text-overflow:\s*ellipsis/.test(bold),
+  );
+  check(
+    "...and the CELL no longer counts characters it does not set",
+    cell !== "" && !/max-width/.test(cell),
+    cell.replace(/\s+/g, " ").slice(0, 160),
+  );
+}
+
+section("The draft bank's notch chip says the one thing its glyph does not (screens.ts, app.css)");
+// ---------------------------------------------------------------------------
+// Two halves of one defect, measured on `draft-skydeck-picked` at 640x360: the
+// label "NOTCHES · CLAUSE BAY 10" is ~146px of 6px pixel face and the chip has
+// about 91px for it at the compact tier (where the label sits BESIDE the value
+// rather than over it), so it wrapped to two lines and took the width out of
+// the value — which came back ellipsised at 47px against the 63px "6+1 · 2/3"
+// needs. A label eating the figure it labels.
+//
+// CSS half: the label may not wrap. Copy half: it no longer needs to. What came
+// off is the word the cell's own NOTCH MARK is already saying and a bay number
+// the projection header four rows down is already printing; what is left is
+// the clause, which nothing else on the screen carries.
+// ---------------------------------------------------------------------------
+{
+  check(
+    "a bank chip's label never wraps into its value",
+    /white-space:\s*nowrap/.test(cssRule(".bay-stat__lbl")),
+    cssRule(".bay-stat__lbl").replace(/\s+/g, " ").slice(0, 160),
+  );
+  const bankLabel = (standing: { active: number; total: number; nextBay: number | null } | undefined): string => {
+    const html = S.draftScreen({
+      bayNum: 6, tier: 10, mark: 10, funds: 1_820, carry: 120,
+      offers: hazardOffers(25, 6, 10, 1, {}), ratchets: {}, selected: [], picksNeeded: 1,
+      preview: [], scrap: 104, baysToRefit: 3, standing,
+    });
+    return (/<span class="bay-stat__lbl">([^<]*)<\/span>[\s\S]{0,200}?id="draft-notches"/.exec(html) ?? ["", "?"])[1];
+  };
+  check(
+    "a clause-loaded bay's notch chip is labelled for the clause",
+    bankLabel({ active: 2, total: 3, nextBay: 10 }) === "Clause",
+    bankLabel({ active: 2, total: 3, nextBay: 10 }),
+  );
+  // The plural is the run with no stop left to arm — the one distinction the
+  // shortened label still has to make.
+  check(
+    "...plural once no stop is left to arm",
+    bankLabel({ active: 3, total: 3, nextBay: null }) === "Clauses",
+    bankLabel({ active: 3, total: 3, nextBay: null }),
+  );
+  // A ladder bay has no clause at all, so the word that IS the figure comes
+  // back: there is nothing else for the label to say.
+  check(
+    "...and a ladder bay still names the notches",
+    bankLabel(undefined) === "Notches",
+    bankLabel(undefined),
+  );
+}
+
+section("The menu's primary subtitle is written to a MEASURED box (screens.ts's menuPlaySub)");
+// ---------------------------------------------------------------------------
+// These lines were budgeted in characters against an estimate ("~165px"), and
+// the estimate was wrong by a third. Measured in the fit harness on the 640x360
+// budget phone — the smallest box in the matrix — `#menu-play-sub` is 108px
+// wide on a lobby row and 122px on a ladder row, and five of the seven
+// subtitles this function can put there were past it:
+//
+//   "Step 10 of 10 · Final Exam"       125px  ->  "Final Exam · 10 of 10"   100
+//   "Clear one Contract to go on"      136px  ->  "A Contract to go on"      97
+//   "Install the Reactor to go on"     136px  ->  "The Reactor to go on"    102
+//   "Licence earned · re-fly any"      125px  ->  "Licence earned · re-fly" 105
+//   "10 steps · nothing to lose"       124px  ->  "10 steps · free to fail" 102
+//   "Install a system in the Workshop" 162px  ->  "One system · Workshop"   113  (122px box)
+//   "Finish Flight School · 4/10"      126px  ->  "Flight School · 4/10"     94  (122px box)
+//
+// WHY A CHARACTER CAP HERE AND NOT A PIXEL ONE: no browser runs in this
+// process, so the pixels live in the comment above and in the harness run that
+// produced them. What this can hold is the shape of the regression — every one
+// of the old lines was a 26-to-32 character SENTENCE, and every one of the new
+// ones is a noun phrase under the cap. A cap set at the widest line that
+// actually fits (23 characters, "Licence earned · re-fly" at 105px) catches a
+// sentence coming back without pretending to be a rasteriser.
+// ---------------------------------------------------------------------------
+{
+  const LOBBY_SUB_MAX = 23;
+  type Rung = "lesson" | "contract" | "workshop" | "exam";
+  const school = (next: Rung | null, done: number, step: number | null): string =>
+    S.menuPlaySub(S.LICENCE_TIER, 0, null, { done, total: SCHOOL_STEPS, next, step });
+  const lines: [string, string][] = [
+    ["the licence held", S.menuPlaySub(S.LICENCE_TIER, 0, null, null)],
+    ["the Contract rung", school("contract", 4, null)],
+    ["the Workshop rung", school("workshop", 4, null)],
+    ["the exam rung", school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS)],
+    ["a fresh save", school("lesson", 0, 1)],
+    ["a resumed ladder", school("lesson", 4, 5)],
+    ["the ladder's licence gate", S.menuPlaySub(3, 0, null, { done: 4, total: SCHOOL_STEPS, next: "lesson", step: 5 })],
+    ["the rig gate", S.menuPlaySub(3, 0, null, null, null, false)],
+  ];
+  for (const [where, line] of lines) {
+    check(`${where} fits the subtitle's box`, line.length <= LOBBY_SUB_MAX, `${line.length}ch "${line}"`);
+  }
+  // PAYLOAD FIRST is the rule that bought the room, so it is pinned rather than
+  // left as a style note: `.btn__sub` ellipsises from the right, so whatever
+  // the line leads with is the part that survives a box smaller than any in
+  // this matrix.
+  check("the exam names the exam before the ordinal",
+    school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS).startsWith(FINAL_EXAM),
+    school("exam", SCHOOL_STEPS - 1, SCHOOL_STEPS));
+  check("the two school gates lead with the thing that is owed",
+    /^A Contract\b/.test(school("contract", 4, null))
+    && /^The Reactor\b/.test(school("workshop", 4, null)),
+    `${school("contract", 4, null)} | ${school("workshop", 4, null)}`);
+  // …and the sentences that did not fit are gone rather than merely shortened
+  // somewhere else, which is the way this regresses.
+  const all = lines.map(([, l]) => l).join(" | ");
+  check("no retired sentence survives anywhere in the set",
+    !/Clear one Contract|Install the Reactor|Install a system in|Finish Flight School|nothing to lose/.test(all),
+    all);
+}
+
+section("The rail is priced once per RUN, off the rig (main.ts, layout.ts)");
+// ---------------------------------------------------------------------------
+// The budget was read off the live Game — `bondCharges > 0` and the level's
+// three grants — which answers "is the button on screen" and not "how big is a
+// button". A run whose triggers arrive as it goes re-prices the whole column
+// mid-bay: 60px at three slots, 52.3px at six, and because the rail is
+// top-anchored (app.css's `.side-rail`) the rotate pair walks UP the glass by
+// ~22px while a thumb is resting on it.
+//
+// The rig is the constant that fixes it, and it is a constant because a refit
+// RAISES a track the ship already carries and refuses tier 0 (upgrades.ts's
+// yardHasStock): the set of ability triggers a run can ever mount is settled
+// the moment it launches.
+// ---------------------------------------------------------------------------
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const call = (/const tiers = this\.run\?\.tiers;[\s\S]{0,900}?\}\);/.exec(mainSrc) ?? [""])[0];
+  check(
+    "the HUD's rail budget asks the RUN's rig, not this bay's hand",
+    /bond:\s*\(tiers\?\.bonds \?\? 0\) > 0/.test(call)
+    && /demo:\s*\(tiers\?\.demolition \?\? 0\) > 0/.test(call)
+    && /thaw:\s*\(tiers\?\.thaw \?\? 0\) > 0/.test(call),
+    call.replace(/\s+/g, " ").slice(0, 220) || "no rig-derived rail call",
+  );
+  // OR'd, not replaced: a Contract, a lesson and the sandbox carry no `run` to
+  // ask, and there the expression has to degrade to what it always was.
+  check(
+    "...and still falls back to the live grant where there is no run",
+    /\|\| g\.bondCharges > 0/.test(call)
+    && /\|\| g\.level\.bombCharges > 0/.test(call)
+    && /\|\| g\.level\.thawCharges > 0/.test(call),
+  );
+
+  // THE MEASUREMENT THAT CHOSE THE POLICY, kept as arithmetic rather than as a
+  // sentence in a commit. The other way to make the size constant is to price
+  // every run at RAIL_SLOTS_MAX; on the iPhone 13 mini that is not a rounding
+  // difference, it is a layout MODE change and a fifth of the play area.
+  const MINI = { w: 780, h: 360, insets: { left: 50, right: 50, top: 0, bottom: 21 } };
+  setSafeAreaInsets(MINI.insets);
+  // A well-rigged native run: pause + the rotate pair + two ability triggers,
+  // no fullscreen toggle (the shells mount none).
+  setRailSlots(railSlotsFor({ bond: true, demo: true, thaw: false, auto: false, fullscreen: false }));
+  const granted = computeLayout(MINI.w, MINI.h);
+  setRailSlots(RAIL_SLOTS_MAX);
+  const worst = computeLayout(MINI.w, MINI.h);
+  check(
+    "pricing the 13 mini at its granted abilities keeps the vertical rail",
+    granted.mode === "snug" && granted.railSize >= 44,
+    `${granted.mode} rail=${granted.railSize.toFixed(1)} scale=${granted.scale.toFixed(4)}`,
+  );
+  check(
+    "...and pricing it at the worst case costs a fifth of the field",
+    worst.mode === "tall" && worst.scale < granted.scale * 0.82,
+    `granted ${granted.scale.toFixed(4)} (${granted.fw.toFixed(0)}x${granted.fh.toFixed(0)}) vs `
+      + `max ${worst.scale.toFixed(4)} (${worst.fw.toFixed(0)}x${worst.fh.toFixed(0)})`,
+  );
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+}
+
+section("Reduced motion reaches the crest's congestion states and the rotate guard (app.css)");
+// ---------------------------------------------------------------------------
+// TWO GUARDS THAT LOST, and neither is visible to the fit harness: the crest's
+// congestion classes are written by main.ts's syncHud, so no fixture carries
+// one, and the rotate guard is the portrait screen.
+//
+// The crest's guard read `.plant__crest, .plant__crest::before` — one class —
+// against sixteen rules of the form `.plant--congest-* .plant__crest--<strip>`
+// at two. Measured with the state classes forced on, a congested panel under
+// Reduce Motion was still running crest-jiggle or crest-rattle on all eight
+// strips, crest-spark on the glint layer and all seven cube-* churns.
+//
+// The rotate guard had no guard at all, on the one screen whose entire content
+// IS an animation. The end state is the teaching there — a phone held
+// landscape — so it is held rather than dropped.
+// ---------------------------------------------------------------------------
+{
+  const reduce = [...APP_CSS.matchAll(/@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g)]
+    .map((m) => {
+      let i = m.index + m[0].length;
+      let depth = 1;
+      while (depth > 0) {
+        if (APP_CSS[i] === "{") depth += 1;
+        else if (APP_CSS[i] === "}") depth -= 1;
+        i += 1;
+      }
+      return APP_CSS.slice(m.index + m[0].length, i - 1);
+    });
+  const stops = (sel: string): boolean =>
+    reduce.some((b) => {
+      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const r = new RegExp(`${esc}[^{}]*\\{[^}]*animation:\\s*none`).exec(b);
+      return !!r;
+    });
+  check(
+    "the crest's reduce guard reaches the congestion states it was losing to",
+    stops(".plant--congest-warn .plant__crest")
+    && stops(".plant--congest-danger .plant__crest"),
+  );
+  check(
+    "...including the glint layer both states animate",
+    stops(".plant--congest-warn .plant__crest::before")
+    && stops(".plant--congest-danger .plant__crest::before"),
+  );
+  check(
+    "the rotate guard's phone stops spinning under Reduce Motion",
+    stops(".rotate-guard .phone"),
+  );
+  // …AND HOLDS THE FRAME THAT TEACHES. `animation: none` alone would leave the
+  // outline upright, i.e. the panel would be telling a player holding the phone
+  // in portrait to hold it in portrait.
+  check(
+    "...and is held at the landscape frame the loop was travelling to",
+    reduce.some((b) => /\.rotate-guard \.phone[^{}]*\{[^}]*transform:\s*rotate\(-90deg\)/.test(b)),
+  );
+}
+
+section("No infinite animation survives Reduce Motion on a specificity technicality (app.css, F9)");
+// ---------------------------------------------------------------------------
+// The guards this file is full of are per-instrument and that is right — each
+// one writes the end state its readout needs. What this pins is the other
+// kind: a guard that was written against a rule it cannot out-specify, and so
+// is not a guard.
+//
+// `.tier-pips--live .tier-pip` (0,2,0) was sitting next to a flicker written on
+// `.tier-pips--live .tier-pip:not(.tier-pip--done)` (0,3,0) — `:not()` carries
+// its argument's specificity — so up to three pips per tier plate kept blinking
+// under Reduce Motion, 34 of them across the menu's fixtures on one device. The
+// splash loader's sweep had no guard at all, and `animation: none` alone would
+// have parked its bar at `translateX(-100%)`: a loading screen with no loader.
+//
+// Both are answered from the END of the stylesheet on purpose — a tie goes to
+// the later rule — which is the thing worth pinning, because a guard moved back
+// up beside its animation would silently stop guarding again.
+// ---------------------------------------------------------------------------
+{
+  const heads = [...APP_CSS.matchAll(/@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g)];
+  const last = heads[heads.length - 1];
+  let i = last.index + last[0].length;
+  let depth = 1;
+  while (depth > 0) {
+    if (APP_CSS[i] === "{") depth += 1;
+    else if (APP_CSS[i] === "}") depth -= 1;
+    i += 1;
+  }
+  const lastBlock = APP_CSS.slice(last.index + last[0].length, i - 1);
+  check(
+    "the pip flicker is stopped at the flicker's own specificity",
+    /\.tier-pips--live \.tier-pip:not\(\.tier-pip--done\)[^{}]*\{[^}]*animation:\s*none/.test(lastBlock),
+    lastBlock.replace(/\s+/g, " ").slice(0, 200),
+  );
+  check(
+    "the splash loader stops with its bar still on its track",
+    /\.loader::after[^{}]*\{[^}]*animation:\s*none[^}]*transform:\s*translateX\(0\)/.test(lastBlock),
+    lastBlock.replace(/\s+/g, " ").slice(0, 200),
+  );
+  // The position IS the mechanism. Anything after this block at the same weight
+  // wins over it, so "last" is the invariant rather than a tidiness preference.
+  check(
+    "...and that block is the stylesheet's last word on reduced motion",
+    APP_CSS.slice(i).trim() === "",
+    `${APP_CSS.slice(i).replace(/\s+/g, " ").slice(0, 120)}`,
+  );
+}
+
+section("--text-faint is decorative; text uses --text-faint-ink (tokens.css, app.css, F8)");
+// ---------------------------------------------------------------------------
+// #55557a measures 2.13:1 on --surface-3 and 2.89:1 on --bg-deep — under WCAG
+// AA (4.5:1) and under the 3:1 large-text floor on every ground in the palette
+// — and twenty declarations in app.css were painting with it, fifteen of them
+// under words: the menu's best-score line, the tower's locked floors, the
+// guide's locked marks and drill rows, the plant's clean-notch readout and its
+// mods label, the yard's idle spend, the rack's shed label, the Contract card's
+// state and supply labels, and Tier S's seed id.
+//
+// The token is not deleted, because the five that remain are not reading
+// matter: a stowed system's 15px icon, the full-chain star in two states, the
+// " ·" generated between owned items, and the build stamp (aria-hidden,
+// pointer-events none — sim/uifit's own DECORATIVE list calls it "nothing a
+// player reads"). Splitting the token is what lets one step of the ramp go on
+// being the quietest shape in the room while no sentence is set in it.
+// ---------------------------------------------------------------------------
+{
+  const tokens = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  const hex = (name: string): string =>
+    (new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`).exec(tokens) ?? ["", ""])[1];
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (h: string): number => {
+    const n = parseInt(h.slice(1), 16);
+    return 0.2126 * toLinear((n >> 16) & 255)
+      + 0.7152 * toLinear((n >> 8) & 255)
+      + 0.0722 * toLinear(n & 255);
+  };
+  const contrast = (a: string, b: string): number => {
+    const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const WCAG_AA = 4.5;
+  const ink = hex("text-faint-ink");
+  const faint = hex("text-faint");
+  const muted = hex("text-muted");
+  const bg = hex("bg");
+  check("a text-weight companion to --text-faint exists", /^#[0-9a-f]{6}$/i.test(ink), ink || "absent");
+  // THE REPORT, MEASURED — kept so the reason the split exists survives a
+  // future palette pass that might otherwise "simplify" the two back into one.
+  check(
+    "--text-faint fails AA on the app's own ground, which is why it is decorative-only",
+    contrast(faint, bg) < WCAG_AA,
+    `${faint} on ${bg} is ${contrast(faint, bg).toFixed(2)}:1`,
+  );
+  check(
+    "--text-faint-ink clears AA on that ground",
+    contrast(ink, bg) >= WCAG_AA,
+    `${ink} on ${bg} is ${contrast(ink, bg).toFixed(2)}:1`,
+  );
+  // Still a RAMP: the new step has to stay quieter than --text-muted, or the
+  // hierarchy the four stops encode collapses into three.
+  check(
+    "...and is still a step below --text-muted, not a second copy of it",
+    lum(ink) < lum(muted) && lum(ink) > lum(faint),
+    `${faint} < ${ink} < ${muted}`,
+  );
+
+  // The five that may keep it, by name. A sixth appearing without an argument
+  // beside it is the thing this pin is here to stop.
+  const DECORATIVE = [
+    ".build-tag",                       // aria-hidden debug stamp
+    ".pl-chain__star",                  // the full-chain promise, an SVG star
+    ".pl-chain--congest .pl-chain__star",
+    ".rack-slot--shed",                 // a stowed system's icon and pips
+    ".workshop__owned-item:not(:last-child)::after", // a generated " ·"
+  ];
+  const users = [...APP_CSS.matchAll(/(?:^|[};])\s*([^{}@]+?)\s*\{[^}]*var\(--text-faint\)[^}]*\}/g)]
+    .map((m) => m[1].trim().replace(/\s+/g, " "));
+  check(
+    "only the five decorative sites still paint with --text-faint",
+    users.length === DECORATIVE.length && users.every((u) => DECORATIVE.includes(u)),
+    users.filter((u) => !DECORATIVE.includes(u)).join(" | ") || `${users.length} sites`,
+  );
+  // …and the labels that moved actually landed on the new token rather than on
+  // a fresh hex, which is the other way this could have been "fixed".
+  check(
+    "the text sites moved to the token, not to a new colour",
+    (APP_CSS.match(/var\(--text-faint-ink\)/g) ?? []).length === 15,
+    String((APP_CSS.match(/var\(--text-faint-ink\)/g) ?? []).length),
+  );
+  check(
+    "...and app.css still writes no raw hex for either step",
+    !APP_CSS.includes("#55557a") && !APP_CSS.includes(ink),
+  );
 }
 
 console.log(

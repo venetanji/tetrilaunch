@@ -1009,7 +1009,7 @@ body.crt-off #app::after { display: none; }
 }
 .base-bay__best {
   font-family: var(--font-pixel); font-size: 6.5px; letter-spacing: 0.06em;
-  color: var(--text-faint); text-transform: uppercase; white-space: nowrap;
+  color: var(--text-faint-ink); text-transform: uppercase; white-space: nowrap;
   flex: none;
 }
 /* THE PARKED FLOOR'S SEAL, IN WORDS — the state the tower stamps one column
@@ -1115,9 +1115,19 @@ body.crt-off #app::after { display: none; }
    coloured NUMBERS would read as four different states instead. */
 .bay-stat .ico { color: var(--stat-tint, var(--text-dim)); }
 .bay-stat__txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* NOWRAP, because at the compact tier this label sits BESIDE its value rather
+   than over it (see the `.modal--draft .draft__bank` rules at compact density)
+   and a wrapped label there is not a taller label — it is a label that has
+   taken the value's width to wrap INTO. Measured on `draft-skydeck-picked`,
+   the 640x360 budget phone: the notch chip's label broke across two 6px lines
+   and the value beside it was cut from the 63px "6+1 · 2/3" needs to 47px,
+   i.e. the clause standing was ellipsised away by a label growing sideways.
+   Both halves are the same defect and this is the half that CSS owns; the
+   other half is the copy, which got shorter at the same time (screens.ts). */
 .bay-stat__lbl {
   font-family: var(--font-pixel); font-size: 6px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-muted);
+  white-space: nowrap;
 }
 .bay-stat__val {
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
@@ -1268,7 +1278,7 @@ body.crt-off #app::after { display: none; }
 .bay-belt__mat.is-dark { opacity: 0.22; filter: grayscale(1); }
 .bay-belt__count {
   margin-left: auto; min-width: 0;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* The developer sandbox entry, and only that — the entitlement pair moved onto
@@ -1833,7 +1843,7 @@ body.crt-off #app::after { display: none; }
   background: rgba(255, 176, 32, 0.16);
 }
 .tower__floor.is-locked {
-  color: var(--text-faint);
+  color: var(--text-faint-ink);
   background: rgba(255, 255, 255, 0.012);
   opacity: 0.55;
   cursor: not-allowed;
@@ -4847,6 +4857,26 @@ body.crt-off #app::after { display: none; }
    information survives, the animation does not. */
 @media (prefers-reduced-motion: reduce) {
   .plant__crest, .plant__crest::before { animation: none; }
+  /* THE SAME CALL, WRITTEN AT THE CONGESTION STATES' OWN WEIGHT — and the
+     second line is the whole fix, not decoration. Every rule that puts motion
+     on this crest is `.plant--congest-* .plant__crest--<strip>`, two classes
+     deep; the line above is one, so it was out-specified by all sixteen of
+     them and the guard simply lost. Measured with the state classes forced on
+     (main.ts's syncHud writes them, which is why no fixture carries one and
+     nothing in the fit harness could see this): under Reduce Motion the
+     congested crest was still running crest-jiggle or crest-rattle on all
+     eight strips, crest-spark on the glint layer, and all seven cube-* churns
+     — the panel jiggling for exactly as long as the bay stays congested.
+     `.plant--congest-* .plant__crest` matches those strips at the same
+     specificity and later in the file, so the tie goes to the guard, and
+     because `animation` is one property it takes the churn down with the
+     shudder — which is the right trade: the CHURN is a texture loop, not a
+     reading, and what actually says "congested" is the recoloured metal three
+     rules up (`--cell-*`, `--crest-cold`), which is untouched here. */
+  .plant--congest-warn .plant__crest,
+  .plant--congest-danger .plant__crest,
+  .plant--congest-warn .plant__crest::before,
+  .plant--congest-danger .plant__crest::before { animation: none; }
 }
 
 .plant__body {
@@ -5411,8 +5441,12 @@ body.crt-off #app::after { display: none; }
    full chain is possible this bay"; at the 9px the star used to draw at,
    surface-3 read as dimmed, and at the size above it reads as a HOLE punched in
    the row — a missing element rather than an unreachable one. `--text-faint` is
-   the same statement at the same weight as every other unreached readout in the
-   app. */
+   the quietest step of the text ramp, and this is one of the five places still
+   entitled to it: the star is a GLYPH, not reading matter, so the contrast
+   floor that moved every faint LABEL in the app onto `--text-faint-ink`
+   (tokens.css) deliberately does not reach it. A shape at the bottom of the
+   ramp is the statement; the same dimming under a sentence is a sentence
+   nobody can read. */
 .pl-chain--congest .pl-chain__star { color: var(--text-faint); }
 /* ---------- R4: THE PAYOUT LEADS ----------
    `.pl-chain__val` moves to the FRONT of the row, where the pixel-type word
@@ -5863,13 +5897,13 @@ body.crt-off #app::after { display: none; }
   padding-right: max(4px, calc(8 * var(--fpx)));
   margin-right: max(2px, calc(4 * var(--fpx)));
 }
-.pl-notch--clean .pl-notch__total { color: var(--text-faint); }
+.pl-notch--clean .pl-notch__total { color: var(--text-faint-ink); }
 /* THE MARK'S CLEAN COLOUR CARRIES THE SAME SCOPE AS ITS RED ONE. The total
    above needs none — `.pl-notch--clean` is only ever written onto a Deep Run
    row — but the LABEL's red is scoped past a Contract (see the rule three above
    this one), which puts it four classes deep, and a bare `.pl-notch--clean
    .lbl` at two would lose to it and leave a zero-notch mark in danger red. */
-.hud:not(.hud--contract) .pl-notch--clean .lbl { color: var(--text-faint); }
+.hud:not(.hud--contract) .pl-notch--clean .lbl { color: var(--text-faint-ink); }
 /* THE STACK BADGE. Per-axis count in the mark's bottom-right quarter — the
    stack is a real fact (three notches on Sweeper is three times the tempo) and
    the total on the row's left cannot carry which axis it is on. A BARE numeral:
@@ -5900,7 +5934,7 @@ body.crt-off #app::after { display: none; }
   color: var(--text); background: var(--bg-deep);
   border: 1px solid currentColor; border-radius: var(--r-sm);
 }
-.pl-notch__none { color: var(--text-faint); }
+.pl-notch__none { color: var(--text-faint-ink); }
 
 /* The tier line — the same label-plus-mono-value shell as .pl-notch and
    .pl-queue above, so it inherits their optical correction below rather than
@@ -6561,7 +6595,7 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .lbl__q { display: none; }
 [data-density="compact"] .pl-mods > .lbl { display: none; }
 .pl-mods > .lbl {
-  flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint);
+  flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint-ink);
   writing-mode: vertical-rl; transform: rotate(180deg); align-self: stretch; text-transform: uppercase;
 }
 .mod {
@@ -7414,6 +7448,53 @@ body.crt-off #app::after { display: none; }
   display: flex; flex-direction: column; gap: var(--sp-2);
   justify-content: flex-end;
 }
+/* THE FOURTH TOGGLE, and why this tier exists at all.
+   Tier S's row is only rendered once the nine-tap door has been found
+   (screens.ts's settingsScreen), and because it is the only way back OUT of
+   the mode it is then on screen every single visit. Nothing in the harness had
+   ever drawn it — every Settings literal in the repo pins `devMode: false` —
+   so the state was measured nowhere until `settings-dev` (sim/uifit/fixtures).
+   With it, this column asked for 393px in the ~322px a 360dp landscape phone
+   leaves under the modal's header, and overflowed on TEN of the nineteen rows:
+   68px on the 640x360 budget phone, 60px on the iPhone 13 mini, 55px on the SE
+   3, down to 5px on a Pixel 7.
+   NOT A SCROLLER, and the arithmetic is the reason rather than taste. The
+   allowlist in sim/uifit/run.ts is for panes with more STOCK than screen — a
+   leaderboard, a shop with seven 44px BUY buttons in a 200px shelf — and four
+   switches is not that: at the tap floor they are 4x44 plus three gaps, i.e.
+   200px, in 322. The column was not too long, its ROWS were too tall: 14px of
+   padding either side of a 16px label over a 14px sentence that wrapped, which
+   is a `roomy` row's proportions rendered on a phone.
+   So the rows come down to their tap floor and the column packs two-up where
+   there is width for it. `auto-fit` rather than a hard two columns because the
+   compact tier spans a 304px column (640x360) to a 422px one (OnePlus 12) and
+   a forced second column on the narrow end would leave each label ~64px, i.e.
+   a five-line sentence beside a switch. At the 190px floor the three narrowest
+   phones stay one column and get their fit from the row height alone, which is
+   where the overflow actually was. Dressed as cards (the same treatment
+   `.controls__pane .setting` already gives a `.setting` inside a grid), since
+   a bottom rule reads as a separator only in a single column. */
+[data-density="compact"] .settings__toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-content: start;
+}
+[data-density="compact"] .settings__toggles .setting {
+  gap: var(--sp-2);
+  padding: 5px 10px;
+  border-bottom: none;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.03);
+}
+/* The label keeps both lines — what a switch does is the one thing a settings
+   row is for, and the workshop's shelf already records what cutting the
+   sentence costs. It is the SIZE that gives, down to the same 14/11 pair the
+   compact tier uses everywhere else. */
+[data-density="compact"] .settings__toggles .setting__label b { font-size: 14px; }
+[data-density="compact"] .settings__toggles .setting__label span {
+  font-size: 11px; line-height: 1.25;
+}
 
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
@@ -7909,13 +7990,33 @@ body.crt-off #app::after { display: none; }
   background: rgba(8,8,18,0.55);
   min-width: 0;
 }
+/* ONE LINE AT EVERY WIDTH, and the nowrap is on the BASE rule because that is
+   the only place a rule about this row can be true.
+   It lived in the `max-height: 520px` tier below — i.e. on every landscape
+   phone and no tablet — which made the three tablets in the matrix the rows
+   nobody had written a rule for. Measured on the `refit-staged` fixture, the
+   state whose note carries the "N moved" count and so squeezes the title
+   hardest: the row laid out 16px tall on the Pixel Tablet, the iPad mini and
+   the iPad Pro, with "CRYO VAULT — PROJECTED" broken across two lines that an
+   8px pixel face at 0.06em then set on top of each other. Every phone row was
+   already correct, which is exactly why no assertion in the fit harness had an
+   opinion: a header that wraps does not overflow, scroll, clip or leave the
+   viewport, it just doubles.
+   The height argument the compact tier gave ("wrapped, the projection's own
+   header cost as much height as a row of stat tiles") is a phone argument. The
+   reason it belongs here is a different one and holds everywhere: the note
+   beside the title is already built to ellipsise, so a wrap is never the
+   graceful degradation — it is the row failing to use the escape hatch it has.
+   min-width:0 rides along because a nowrap flex ROW takes its own minimum from
+   its items, and this row is itself an item of `.projection`'s column. */
 .projection__hd {
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  white-space: nowrap; min-width: 0;
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-dim);
 }
-/* min-width:0 because the compact tier pins this row to `white-space: nowrap`
-   (see the .projection__hd rule at compact density below), and a nowrap flex item takes
+/* min-width:0 because this row is pinned to `white-space: nowrap` (see the
+   base rule above), and a nowrap flex item takes
    its minimum from the whole unbroken string — so without a floor the note
    cannot shrink and pushes itself straight out of the header instead of
    ellipsizing inside it. The Final Inspection's note is the longest copy this
@@ -8121,9 +8222,11 @@ body.crt-off #app::after { display: none; }
   .modal--draft .mod-card__box { width: 16px; height: 16px; font-size: 7px; }
   .modal--draft .mod-card__top { gap: 5px; }
   .modal--draft .mod-card__lvl { font-size: 7px; }
-  /* Kept on one line: wrapped, the projection's own header cost as much height
-     as a row of stat tiles. */
-  .projection__hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
+  /* The nowrap that used to live here is on the base rule now — it was never a
+     compact-tier fact (see the note by `.projection__hd`). What is left is the
+     one thing this tier actually buys: a smaller face, so the row costs 7px of
+     the phone's height instead of 8. */
+  .projection__hd { font-size: 7px; }
   .modal--draft .draft__cards { gap: 7px; }
   /* The projection is the reason the modal is worth opening, so it shrinks
      rather than scrolling away: tighter tiles, smaller labels, and a grid that
@@ -8366,7 +8469,7 @@ body.crt-off #app::after { display: none; }
 .guide__row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .guide__mark { flex: none; font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; }
 .guide__mark--drill { color: var(--accent); font-family: var(--font-ui); font-size: 13px; }
-.guide__mark--locked { color: var(--text-faint); }
+.guide__mark--locked { color: var(--text-faint-ink); }
 
 /* THE PANE. Never scrolls — see .guide__body. */
 .guide__pane {
@@ -8432,7 +8535,7 @@ body.crt-off #app::after { display: none; }
 }
 .guide__drill-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .guide__drill-kind { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; color: var(--accent); }
-.guide__drill--locked .guide__drill-kind { color: var(--text-faint); }
+.guide__drill--locked .guide__drill-kind { color: var(--text-faint-ink); }
 .guide__drill-brief {
   font-size: var(--fs-xs); color: var(--text-dim); line-height: 1.35;
   /* Two lines, then ellipsis. The brief is a restatement of a pass condition
@@ -8444,7 +8547,7 @@ body.crt-off #app::after { display: none; }
   flex: none; display: inline-flex; align-items: center; gap: 4px;
   font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; color: var(--accent);
 }
-.guide__drill--locked .guide__drill-go { color: var(--text-faint); }
+.guide__drill--locked .guide__drill-go { color: var(--text-faint-ink); }
 
 /* Landscape phones. Everything here buys back height for the pane's copy, and
    nothing here shrinks a tap target: the two 44px floors (a row, the drill
@@ -8493,6 +8596,19 @@ button.panel { color: var(--text); }
 .rotate-guard.show { display: flex; }
 .rotate-guard .phone { width: 70px; height: 120px; border: 3px solid var(--accent); border-radius: 12px; animation: rot 1.6s var(--ease) infinite; box-shadow: var(--glow-accent); }
 @keyframes rot { 0%,40% { transform: rotate(0);} 60%,100% { transform: rotate(-90deg);} }
+/* THE END STATE, HELD. This is the one screen in the app whose entire content
+   is an animation: a portrait outline that tips to landscape, forever, on a
+   panel that appears precisely because the player is holding the phone the
+   wrong way. Under Reduce Motion it was the loop nobody had guarded, and an
+   unguarded infinite loop on a full-screen takeover is the worst place in the
+   build to have one — there is nothing else on the panel to look at.
+   `rotate(-90deg)` and not `rotate(0)` because the keyframe's END is the
+   teaching: the phone LANDSCAPE is the instruction, the tipping was only how
+   it was being said. Same call the rest of this stylesheet makes — the theatre
+   goes, the teaching stays — and the copy beside it says the rest. */
+@media (prefers-reduced-motion: reduce) {
+  .rotate-guard .phone { animation: none; transform: rotate(-90deg); }
+}
 
 /* ---------- Leaderboard ---------- */
 /* #lb-body is the flexible, scrollable region inside `.modal`'s flex column —
@@ -8828,13 +8944,28 @@ button.panel { color: var(--text); }
    card itself has no height to give — it is centred in a fixed viewport with no
    scroller — which is why this is a swapped cell rather than the block it
    started as. */
-.stat--clause { min-width: 0; max-width: 15ch; }
+.stat--clause { min-width: 0; }
 /* `display: block` is load-bearing, not tidiness: `b` is inline by default, and
    overflow/text-overflow do nothing to an inline box — measured, the name ran
    255px out of a 165px cell and took the whole card past the viewport with it
-   (sim/uifit's spill and offscreen assertions, both). */
+   (sim/uifit's spill and offscreen assertions, both).
+   THE `ch` CAP IS ON THE BOLD, and moving it down from the cell is the fix for
+   a truncation that only ever hit the devices with the MOST room. `ch` is the
+   zero's advance in the element's OWN font, and the cell is 16px body text
+   while the name below is mono at this clamp — so "15ch" on the cell meant 15
+   characters of the wrong face at the wrong size. At the clamp's 20px ceiling
+   the name needs 180px and the cell offered 120, so "Bled Hydraulics" — the
+   longest name any standing stop can deal, and the one the `bayclear-clause`
+   fixture is built from — arrived as "Bled Hydr…" on both iPads, the Pixel
+   Tablet and every desktop row, while the phones (where the clamp sits at
+   13px) were correct all along. Read here it says what it always meant: this
+   name gets fifteen characters of the face it is actually set in, which is
+   exactly the 180px it needs at 20px and 117px at 13px.
+   `min()` keeps the old guard rather than replacing it: 100% still stops the
+   name widening a cell the card has already constrained, and the ch term is
+   what stops the cell being constrained too tightly in the first place. */
 .stat--clause b {
-  display: block; max-width: 100%;
+  display: block; max-width: min(100%, 15ch);
   font-size: clamp(13px, 2.6vh, 20px);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -8897,7 +9028,7 @@ button.panel { color: var(--text); }
   font-family: var(--font-mono); font-size: 10px; color: var(--accent);
   display: inline-flex; align-items: center; white-space: nowrap;
 }
-.refit__order-spend--idle { color: var(--text-faint); font-family: var(--font-body); }
+.refit__order-spend--idle { color: var(--text-faint-ink); font-family: var(--font-body); }
 
 /* Shelf and projection side by side, the draft modal's own split and for its
    own reason: landscape phones are WIDE and short, so stacking would put the
@@ -9385,7 +9516,7 @@ button.panel { color: var(--text); }
 .rack__shed { padding-top: 8px; border-top: 1px dashed var(--line); }
 .rack__shed-label {
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
-  color: var(--text-faint); flex: none; margin-right: 2px;
+  color: var(--text-faint-ink); flex: none; margin-right: 2px;
 }
 .rack__note { font-size: var(--fs-sm); line-height: 1.4; margin: 0; }
 /* 44 square, which is the tap floor and not a coincidence: this control has no
@@ -9780,7 +9911,7 @@ button.panel { color: var(--text); }
    salvageHTML (screens.ts's two currencies), a drawn glyph beside a number. */
 .contract-card__state {
   font-family: var(--font-mono); font-weight: 700; font-size: 12px; line-height: 1;
-  color: var(--text-faint); flex: none; white-space: nowrap;
+  color: var(--text-faint-ink); flex: none; white-space: nowrap;
 }
 .contract-card__state--pays { color: var(--warn); }
 .contract-card__state--done { color: var(--success); }
@@ -9806,7 +9937,7 @@ button.panel { color: var(--text); }
 .contract-card__supply { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .contract-card__supply-lbl {
   font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--text-faint); flex: none;
+  color: var(--text-faint-ink); flex: none;
 }
 .contract-card__supply-val { font-size: var(--fs-sm); color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
 .contract-card__supply-val b { color: var(--text); }
@@ -12012,7 +12143,7 @@ button.panel { color: var(--text); }
 }
 .sbx-brief__id {
   margin-top: auto;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint-ink);
   word-break: break-all;
 }
 
@@ -12093,4 +12224,56 @@ button.panel { color: var(--text); }
 }
 .salvage-row__amt--sandbox {
   font-family: var(--font-pixel); font-size: 18px; color: var(--warn);
+}
+
+/* ============================================================================
+   REDUCED MOTION: THE LAST WORD (F9)
+   ============================================================================
+   Twenty-nine reduced-motion blocks sit next to the rules they answer, which
+   is the right place for a guard that has an END STATE to write — the pattern
+   this stylesheet uses everywhere is "the theatre goes, the teaching stays",
+   and what stays is a decision about that specific instrument (the loss dial
+   falls back to a still danger-red readout, the belt to a parked tread).
+
+   This block is for the other kind: guards that lost a SPECIFICITY argument to
+   the rule they were written against, and are therefore not guards at all. It
+   is last in the file on purpose — a tie goes to the later rule, so a selector
+   written at the same weight as the animation's own wins from here and from
+   nowhere else.
+
+   Measured by rendering every fixture under `prefers-reduced-motion: reduce`
+   and reading back each element and pseudo whose computed
+   animation-iteration-count is `infinite`, with the runtime-only state classes
+   (main.ts's syncHud writes them; no fixture carries one) forced on. The list
+   came back at two names once the crest's congestion states were scoped — and
+   what did NOT come back is worth writing down so this block never grows into
+   a blanket: the belt's five loops, the drag hint's arc and dot, the tower's
+   lamps and car, the crest sparkle, the material aura, the bay-clear rays, the
+   loss FX, the danger pulses (pulse-danger, quote-blink), the armed demo
+   trigger, the bond hold, the coach's rotate pulse, the unlock breathe, the
+   Tier S target and the unknown-stat glyph are all stopped at their own rules,
+   each with the end state its instrument needs.
+
+   Nothing ONE-SHOT is touched from here. A card popping in, a tile flashing a
+   changed number, a floor arriving as the car docks: those end by themselves
+   and they are how the screen says something happened. Blanket-stopping them
+   would take away the feedback rather than the motion, which is the opposite
+   of what this preference asks for. */
+@media (prefers-reduced-motion: reduce) {
+  /* The tier plate's live pips. The guard beside them reads
+     `.tier-pips--live .tier-pip` (0,2,0) while the flicker is written on
+     `.tier-pips--live .tier-pip:not(.tier-pip--done)` (0,3,0) — `:not()` takes
+     its argument's specificity — so the guard lost and up to three pips per
+     plate kept blinking: 34 of them across the menu's fixtures on one device.
+     Same selector here, so the weights match and the position decides. No end
+     state needed: the pips' resting look is the rule above the flicker
+     (opacity 0.45, no glow), which is the keyframe's own 0% frame. */
+  .tier-pips--live .tier-pip:not(.tier-pip--done) { animation: none; }
+  /* The splash loader's indeterminate sweep — the one infinite loop that IS
+     the whole element. `animation: none` alone would park the bar at the
+     keyframe's start, `translateX(-100%)`, i.e. off its own track and
+     invisible: a loading screen with no loader on it. Parked at 0 instead it
+     reads as a progress track at the beginning of its travel, which is what a
+     splash is honestly saying. */
+  .loader::after { animation: none; transform: translateX(0); }
 }

@@ -1692,50 +1692,73 @@ export function menuPlaySub(
   // finish Flight School, on the Flight School button, would be a button
   // refusing to do the thing it is for.
   if (tier === LICENCE_TIER) {
-    // WRITTEN TO THE BOX, at 28 characters. `.btn__sub` is one ellipsised line
-    // on a short viewport and a two-line clamp above 700px, and the Flight
-    // School row is the narrowest text column on the menu — its title is the
-    // only two-word one and it carries the FLIGHT badge beside it, so the sub
-    // gets ~165px. Measured there, "Lesson 4 of 4 · pick up where you left off"
-    // ellipsised to "Lesson 4 of 4 · pick …" on a 640x360 phone and wrapped the
-    // button a line taller than Contracts and Workshop on a tablet — the exact
-    // defect `.btn__sub`'s own note is written against. The numbers still lead;
-    // what changed is that the clause behind them now fits.
-    if (!licence) return "Licence earned · re-fly any";
+    // WRITTEN TO THE BOX, AND THE BOX IS 108 PIXELS.
+    //
+    // `.btn__sub` is one ellipsised line on a short viewport and a two-line
+    // clamp above 700px, and the Flight School row is the narrowest text column
+    // on the menu — its title is the only two-word one and it carries the
+    // FLIGHT badge beside it. That column used to be estimated at "~165px" and
+    // these lines were budgeted in CHARACTERS against it; both numbers were
+    // wrong. Measured in the harness on the 640x360 budget phone — the smallest
+    // box in the matrix — `#menu-play-sub` is 108px wide on a lobby row and
+    // 122px on a ladder row, and FIVE of the seven subtitles this function can
+    // put there were past it: the exam at 125px, this one at 125, the Contract
+    // gate at 136, the Workshop gate at 136 and the rig gate at 162. A
+    // character count cannot see that, so every line below is now sized by the
+    // measurement and sim/systems.ts pins the budget itself.
+    //
+    // PAYLOAD FIRST is what makes them fit without saying less. `.btn__sub`
+    // ellipsises from the right, so the rule these lines already followed for
+    // numbers ("the numbers lead, the ellipsis only eats prose") is the rule:
+    // put the thing the player has to act on — the Exam, the Contract, the
+    // Reactor, the count — at the head of the line and let the grammar around
+    // it be what gives. The verbs went; the nouns and the figures stayed.
+    if (!licence) return "Licence earned · re-fly";
     // THE SUBTITLE NAMES THE RUNG, and on two of the twelve the rung is not a
     // bay — so the primary is disabled there (menuScreen) and this line is the
     // only thing on the screen that says why. Both of those read as an
-    // instruction rather than a state ("clear a Contract", not "no Contract
+    // instruction rather than a state ("a Contract to go on", not "no Contract
     // cleared"), which is the rule the rig lock's own line already follows: a
     // subtitle under a button the player just pressed is the one place in the
-    // game where an instruction is what they came for.
-    if (licence.next === "contract") return "Clear one Contract to go on";
-    if (licence.next === "workshop") return "Install the Reactor to go on";
+    // game where an instruction is what they came for. The RUNG leads and the
+    // instruction is what is left of the verb — at 136px "Clear one Contract to
+    // go on" and "Install the Reactor to go on" both lost their tail, i.e. both
+    // lost the half that said the run was gated at all.
+    if (licence.next === "contract") return "A Contract to go on";   // 97px
+    if (licence.next === "workshop") return "The Reactor to go on";  // 102px
     // The graduation flight is a bay like the others to this button, and
     // nothing like them to the player: it is Tier 1's own first bay, with the
-    // money, the clock and the fine live. The line says which, because it is
-    // the one rung whose terms are not "nothing to lose".
-    if (licence.next === "exam") return `Step ${licence.step} of ${licence.total} · ${FINAL_EXAM}`;
+    // money, the clock and the fine live. The line names it first for that
+    // reason as well as for the fit — it is the one rung whose terms are not
+    // "free to fail", and "Step 10 of 10 · Final …" was an ordinal where the
+    // warning should be.
+    if (licence.next === "exam") return `${FINAL_EXAM} · ${licence.step} of ${licence.total}`; // 100px
     return licence.done === 0
-      ? `${licence.total} steps · nothing to lose`
-      : `Step ${licence.step} of ${licence.total} · resume`;
+      // "nothing to lose" was 124px and lost "to lose" — the half that says it.
+      ? `${licence.total} steps · free to fail`                   // 102px
+      : `Step ${licence.step} of ${licence.total} · resume`;      // 103px
   }
   // A LADDER FLOOR WITH THE LICENCE STILL OWED says what is in the way, and
   // says it on the button the player just pressed rather than in a toast over
   // it — the same argument the tower's own refusals make.
-  // WRITTEN TO THE BOX, at 27 characters. `.btn__sub` ellipsises past ~34 on a
-  // 780px phone, and this line grew a denominator when the ladder did — "Finish
-  // Flight School first · 3 of 12" is 35 and would have ellipsised on the one
-  // screen every player passes through. The numbers still lead; the words
-  // behind them got shorter.
-  if (licence) return `Finish Flight School · ${licence.done}/${licence.total}`;
+  // WRITTEN TO THE BOX — 94px of the 122px this row has on the 640x360 budget
+  // phone, the narrowest box in the matrix (see the note at the top of the
+  // lobby branch for how all of these were measured). "Finish Flight School ·
+  // 4/10" wanted 126px and lost its denominator to the ellipsis, which is the
+  // half of the line a player is actually counting. The verb goes instead: the
+  // button says FLIGHT SCHOOL and is disabled, so "finish" was the one word
+  // here that the control was already saying.
+  if (licence) return `Flight School · ${licence.done}/${licence.total}`;
   // …AND THE SAME SENTENCE FOR THE SECOND LOCK. It names the door rather than
-  // the state ("install a system" and not "no systems installed"), because a
+  // the state ("one system" and not "no systems installed"), because a
   // subtitle under a button the player just pressed is the one place in the
   // game where an instruction is what they came for. The Workshop button two
   // rows down is wearing the NEXT STEP badge while this line is showing, so
-  // the sentence and the badge point at the same control.
-  if (!rigged) return "Install a system in the Workshop";
+  // the word and the badge point at the same control — which is also what let
+  // the sentence come down from 162px to 113 in a 122px box: "Install a system
+  // in the Workshop" was ellipsising at "Install a system in the …", i.e. it
+  // was spending every pixel it had on the preposition and losing the door.
+  if (!rigged) return "One system · Workshop";  // 113px in a 122px box
   // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
   // once · no mercy", which described a floor that was not playable yet and
   // promised something the mode does not do — the Skydeck flies Mark 10's
@@ -6058,12 +6081,28 @@ export function draftScreen(opts: {
              figure the plant panel's tally now leads with, so the bill a player
              signs here and the bill they read mid-bay are one reading. -->
         <div class="bay-stat">${icon("notch", 14)}<span class="bay-stat__txt">
-          <span class="bay-stat__lbl">Notches${
+          <span class="bay-stat__lbl">${
+            // THE WORD THE GLYPH IS NOT ALREADY SAYING. This label used to read
+            // "Notches · clause Bay 10" — 23 characters of 6px pixel face, and
+            // at the compact tier (where the label sits beside the value, not
+            // over it) the chip has about 91px for it against the ~146px that
+            // string wants. So it wrapped to two lines and took the width out
+            // of the value, which arrived as "6+1 · 2" with the clause
+            // standing ellipsised off the end. The label was eating the figure
+            // it labels.
+            //
+            // What comes off is "Notches", and it comes off because the cell
+            // already leads with the NOTCH MARK (icon("notch") above) — the
+            // same mark the plant panel's tally leads with mid-bay. The word
+            // was the glyph again in letters. The bay number goes with it for
+            // the same reason: this modal's projection header, four rows down,
+            // is titled "Bay N — projected". What is left is the one fact
+            // nothing else on the screen carries, and the singular/plural is
+            // load-bearing — "Clause" is the next stop's one standing clause,
+            // "Clauses" is a run with no next stop left to arm.
             opts.standing
-              ? opts.standing.nextBay === null
-                ? " · clauses"
-                : ` · clause Bay ${opts.standing.nextBay}`
-              : ""
+              ? opts.standing.nextBay === null ? "Clauses" : "Clause"
+              : "Notches"
           }</span>
           <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}${
             opts.standing ? ` · ${opts.standing.active}/${opts.standing.total}` : ""
