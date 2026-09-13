@@ -28173,6 +28173,33 @@ section("The CRT comb repeats on whole device pixels, and can be switched off");
 //      arithmetic can be perfect and the clip still be the world rect, which
 //      is precisely the state this change found.
 // ===========================================================================
+section("The congestion rows are exactly the bay wide (render.ts's drawCongestionRows)");
+{
+  // OWNER'S READ ON DEVICE: for one release the rows ran out into the halo
+  // band with the wall glow (the clip widened by wallGlowBleed), and floor
+  // light spilling past both walls made the bay read wider than it is, on
+  // the instrument whose whole job is to say how full the bay is. The halo
+  // is the wall's light and may finish outside; the rows are the floor's and
+  // stop at the walls — x 0..WORLD.width, engine.ts's WALL_INNER being
+  // WORLD.width. Source-pinned, because the width is two literals in one
+  // function and a draw-sequence pin would only restate them.
+  const renderSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "game", "render.ts"),
+    "utf8",
+  );
+  const rowsFn = renderSrc.slice(
+    renderSrc.indexOf("function drawCongestionRows("),
+    renderSrc.indexOf("export function render("),
+  );
+  check("drawCongestionRows exists to be checked", rowsFn.length > 0 && rowsFn.length < 4000);
+  check("the rows start at the left wall and run the bay's width, not the halo's",
+    /const x0 = 0;/.test(rowsFn) && /const w = WORLD\.width;/.test(rowsFn)
+      && !/bleed/.test(rowsFn.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")),
+    rowsFn.match(/const x0 = .*|const w = .*/g)?.join(" | "));
+  check("...and the bake hands them no bleed to run into",
+    /drawCongestionRows\(bctx, rows\);/.test(renderSrc));
+}
+
 section("The wall glow finishes outside the field, short of the rail (render.ts)");
 {
   setSafeAreaInsets(NO_INSETS);

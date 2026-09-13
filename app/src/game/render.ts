@@ -823,19 +823,22 @@ function congestionRows(scene: Scene): CongestionRows | null {
   };
 }
 
-/** `bleed` is the same allowance the bake's clip was widened by (wallGlowBleed).
- *  The rows run out into it with the glow rather than stopping at the wall: they
- *  are drawn OVER the halo, so a row that stopped at WORLD.width would put a
- *  vertical seam down the middle of the very halo the widened clip exists to
- *  complete — the guillotine moved 25 world px out, not removed. */
+/** EXACTLY THE BAY WIDE, wall to wall — x 0..WORLD.width, the interior the
+ *  walls stand at the edges of (engine.ts's WALL_INNER is WORLD.width) — and
+ *  NOT out into the halo band the bake's clip was widened by (wallGlowBleed).
+ *  For one release the rows ran out with the glow, on the argument that a row
+ *  stopping at the wall put a seam down the halo. The owner's read of it on
+ *  device was the opposite: floor light spilling past both walls read as the
+ *  bay being wider than it is, on the very instrument that says how full the
+ *  bay is. The halo is the WALL's light and may finish outside; the rows are
+ *  the FLOOR's and stop where the floor does. */
 function drawCongestionRows(
   ctx: CanvasRenderingContext2D,
   rows: CongestionRows,
-  bleed: GlowBleed,
 ): void {
   const { lit, warnRow, dangerRow } = rows;
-  const x0 = -bleed.left;
-  const w = WORLD.width + bleed.left + bleed.right;
+  const x0 = 0;
+  const w = WORLD.width;
 
   ctx.save();
   for (let r = 0; r < lit; r++) {
@@ -1463,7 +1466,7 @@ function getBackgroundLayer(
   drawWalls(bctx, sky);
   // Over the walls' glow and under everything else, which is exactly where
   // this used to run when it ran live — see the note above drawCongestionRows.
-  if (rows) drawCongestionRows(bctx, rows, bleed);
+  if (rows) drawCongestionRows(bctx, rows);
   bctx.restore();
   bgLayerKey = key;
   return bgLayer;
