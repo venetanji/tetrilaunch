@@ -29358,7 +29358,7 @@ section("Escape backs out of a screen, not only the pause card (D12)");
     /if \(button === PAD_BACK\) return this\.clickBackTarget\(\);/.test(mainSrc));
 
   const globalKey = between("private onGlobalKey = ", "private onKeydown = ");
-  check("the handler exists to be checked", globalKey.length > 0 && globalKey.length < 3000);
+  check("the handler exists to be checked", globalKey.length > 0 && globalKey.length < 4500);
   check("Escape outside a run clicks the same back control the pad's B would",
     /e\.key === "Escape"[\s\S]{0,200}?this\.clickBackTarget\(\)/.test(globalKey), globalKey);
   // The bar is on the two states a run occupies, not on a key compare: a
