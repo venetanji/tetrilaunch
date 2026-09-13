@@ -104,6 +104,27 @@ export interface Settings {
    *  Off by default: the game's cursors are the intended look, and a player
    *  who has not asked for anything gets it. */
   systemCursor: boolean;
+  /** The CRT SCANLINE COMB (styles/app.css's #app::after).
+   *
+   *  true  — a dark line every third device-pixel row, multiplied over the
+   *          whole app, canvas and chrome alike.
+   *  false — `crt-off` goes on <body> and the rule stands down entirely.
+   *
+   *  The overlay has shipped since the first retro pass with a class to turn it
+   *  off that nothing ever wrote. It is a switch now for two reasons that only
+   *  bite on one half of the hardware — which is also why the DEFAULT is asked
+   *  rather than declared. It is a full-screen `mix-blend-mode: multiply`
+   *  composite of every device pixel, every frame, on the devices with the
+   *  least headroom: sim/renderperf puts the DRAWING half of a mid-size bay at
+   *  9.7ms p50 of the 16.67ms budget at 844x390 dpr 3, with the physics half
+   *  still to come out of what is left. And the texture it buys is at or under
+   *  the resolving limit of a phone panel held at arm's length.
+   *
+   *  This is the first setting in the file whose honest default is a property
+   *  of the DEVICE rather than of the design, and the shape that answer takes
+   *  is deliberate: resolved at load, written into the object, and beaten by
+   *  any saved value — see scanlinesDefault. */
+  scanlines: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
@@ -115,7 +136,43 @@ const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
   leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
   systemCursor: false,
+  // Not the right answer for every device — scanlinesDefault re-decides this
+  // one on load. It is the answer for a platform that cannot be asked, and
+  // "the overlay is the intended look" is the right thing to say to a platform
+  // whose pointer nobody can classify.
+  scanlines: true,
 };
+
+/**
+ * THE SCANLINES DEFAULT, ASKED OF THE DEVICE.
+ *
+ * A pointer that is COARSE is a finger, which means a phone or a tablet: the
+ * hardware paying a full-screen multiply composite out of the smallest frame
+ * budget in the build, on the panel where a one-device-px comb is closest to
+ * invisible. Both facts point the same way, so the overlay starts off there and
+ * on everywhere else.
+ *
+ * Phrased as "not coarse" rather than "fine" on purpose. `(pointer: fine)` is
+ * false on a device with NO pointer at all — a TV, a pad-only build — and
+ * those are exactly the large, distant screens the comb reads best on. An
+ * engine with no matchMedia, or one that throws reaching for it, lands on
+ * DEFAULTS' `true` by the same rule: "I could not tell" is not a reason to take
+ * the look away.
+ *
+ * RESOLVED AT LOAD, BEATEN BY A SAVE. The device answer is only ever a DEFAULT:
+ * the moment the player touches the switch, saveSettings writes the whole
+ * object and their answer wins on that device forever after. That also means a
+ * profile carried from a phone to a desktop keeps the phone's answer, which is
+ * the correct trade — a setting the player chose must not be re-decided
+ * underneath them by a change of screen.
+ */
+function scanlinesDefault(): boolean {
+  try {
+    return window.matchMedia?.("(pointer: coarse)")?.matches !== true;
+  } catch {
+    return DEFAULTS.scanlines;
+  }
+}
 
 /** Keys a save may still carry that this build no longer answers to. Dropped
  *  on load so they stop riding along in every subsequent write — a dead flag
@@ -127,9 +184,12 @@ export function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Record<string, unknown>;
     for (const k of RETIRED_SETTINGS) delete saved[k];
-    return { ...DEFAULTS, ...saved };
+    // The device answer goes in BETWEEN the declared defaults and the save, so
+    // it can only ever fill a key the player has not answered themselves. See
+    // scanlinesDefault for why one setting is asked rather than written.
+    return { ...DEFAULTS, scanlines: scanlinesDefault(), ...saved };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, scanlines: scanlinesDefault() };
   }
 }
 

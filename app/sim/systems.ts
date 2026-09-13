@@ -75,11 +75,15 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import {
   callCount, installBrowserStubs, makeRecCtx, newRec, resetRec, setCount, setReducedMotion,
+  setValues,
   type Rec,
 } from "./canvasrec";
 import {
-  COMPACT_MAX_RENDER_DPR, debrisCount, DEBRIS_FRAME_CAP, FRAME_PX, frostMark,
-  landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale, THAW_REACH, THAW_REACH_MS,
+  COMPACT_MAX_RENDER_DPR, crispFontPx, debrisCount, DEBRIS_FRAME_CAP, dprQueries, fitViewport,
+  FRAME_PX, frostMark, landingHint, MAX_RENDER_DPR, MAX_RENDER_PIXELS, renderScale,
+  SCANLINE_LINE_CSS, SCANLINE_PERIOD_CSS, scanlineMetrics,
+  THAW_REACH, THAW_REACH_MS,
+  WALL_GLOW_REACH, wallGlowBleed,
 } from "../src/game/render";
 import { FX_TTL, BLAST_AMBER, PENALTY_SINK_PX, type FxEvent } from "../src/game/fx";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -208,6 +212,7 @@ import { DEVICES } from "./uifit/devices";
 import {
   computeLayout,
   getRailSlots,
+  NO_INSETS,
   RAIL_GAP,
   RAIL_MAX,
   RAIL_MIN,
@@ -7923,7 +7928,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
     leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
-    systemCursor: false,
+    systemCursor: false, scanlines: true,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -27425,6 +27430,118 @@ section("The canvas is sized by policy, and phones get a lower ceiling (render.t
 }
 
 // ===========================================================================
+// A CHANGE OF DENSITY IS A CHANGE OF VIEWPORT (render.ts's dprQueries, and
+// main.ts's density watch).
+//
+// Every event main.ts listens to is about the viewport's SIZE. Nothing fires
+// when only its devicePixelRatio moves — drag a window from a 1x display to a
+// 2x one and innerWidth, innerHeight and the safe-area insets are all
+// unchanged, so the frame loop's comparison agrees, the watchdog's comparison
+// agrees, and the canvas keeps a backing store sized for a display it is no
+// longer on. The field then rasterises at half the resolution the panel can
+// show, for as long as the window stays where it is.
+//
+// The query is the half that can be arithmetically wrong, so it is the half
+// pinned as a function. The wire — that the watch re-arms, and that it re-solves
+// through the ceiling rather than around it — is asked of main.ts's source, the
+// same way the renderScale wire above is.
+// ===========================================================================
+section("A device-pixel-ratio change re-solves the layout (render.ts's dprQueries)");
+{
+  /** Does a `(min-resolution: A) and (max-resolution: B)` string bracket `r`? */
+  const brackets = (q: string, r: number): boolean => {
+    const m = q.match(/min-resolution: ([\d.]+)dppx\) and \(max-resolution: ([\d.]+)dppx/);
+    return m !== null && Number(m[1]) <= r && r <= Number(m[2]);
+  };
+
+  for (const r of [1, 1.25, 1.5, 2, 2.625, 3, 4 / 3]) {
+    const [range, exact] = dprQueries(r);
+    check(`the ${r} watch is true at the ratio it was armed at`,
+      brackets(range, r) && exact === `(resolution: ${r}dppx)`,
+      `${range} | ${exact}`);
+  }
+
+  // THE BRACKET MUST NOT SWALLOW A REAL CHANGE. The smallest step any platform
+  // offers is 1 -> 1.25; every neighbour in the matrix has to fall outside.
+  const RATIOS = [1, 1.25, 1.5, 2, 2.625, 3];
+  let swallowed = "";
+  for (const armed of RATIOS) {
+    const [range] = dprQueries(armed);
+    for (const other of RATIOS) {
+      if (other !== armed && brackets(range, other)) swallowed += `${armed}<-${other} `;
+    }
+  }
+  check("...and false at every other ratio a display can be", swallowed === "", swallowed);
+
+  // A non-terminating ratio (a 133% Windows scale factor) has to survive the
+  // round trip through CSS text — which is the whole reason the bracket exists
+  // rather than a bare equality on a stringified double.
+  check("a ratio that does not terminate in decimal still brackets itself",
+    brackets(dprQueries(4 / 3)[0], 4 / 3),
+    dprQueries(4 / 3)[0]);
+
+  // Garbage in, a watchable query out: devicePixelRatio is 0 or absent before
+  // first layout in some shells, and a query built on NaN matches nothing ever.
+  check("a ratio the shell has not reported yet arms at 1x rather than at NaN",
+    brackets(dprQueries(0)[0], 1) && brackets(dprQueries(Number.NaN)[0], 1),
+    `${dprQueries(0)[0]} | ${dprQueries(Number.NaN)[0]}`);
+
+  // THE POLICY SURVIVES THE NEW PATH. A density change routes through onResize,
+  // so a window dragged onto a denser display gets the policy's answer and not
+  // the display's — both halves of it, the ratio ceiling and the pixel budget.
+  // That is the failure a watch wired straight to the canvas would introduce
+  // while looking like a fix: the one gesture this change makes possible is
+  // "the ratio just tripled", which is exactly the gesture the budget exists
+  // to survive.
+  check("a phone-sized window that becomes 3x still rasterises at the ceiling",
+    renderScale(3, 812, 375) === COMPACT_MAX_RENDER_DPR,
+    `${renderScale(3, 812, 375)}`);
+  const afterJump = (w: number, h: number, r: number): number =>
+    Math.round(w * h * renderScale(r, w, h) ** 2);
+  check("...and a desktop one lands inside the pixel budget, whatever it jumped to",
+    [1.25, 1.5, 2, 2.625, 3].every((r) => afterJump(1440, 900, r) <= MAX_RENDER_PIXELS
+      && afterJump(2560, 1600, r) <= MAX_RENDER_PIXELS),
+    [1.25, 1.5, 2, 2.625, 3]
+      .map((r) => `${r}->${(afterJump(2560, 1600, r) / 1e6).toFixed(2)}MP`).join(" "));
+
+  // THE WIRE.
+  const dprMainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // A WHOLE LINE OF ITS OWN, matched anchored — `/…armDprWatch\(\);/` alone is
+  // also satisfied by the call sitting behind a `//`, which is precisely the
+  // shape of the red-first experiment this pin has to be able to fail.
+  const onResizeBody = dprMainSrc.slice(
+    dprMainSrc.indexOf("private onResize = (): void => {"),
+    dprMainSrc.indexOf("const mobile = \"ontouchstart\" in window"),
+  );
+  check("the resize path arms the density watch every time it solves",
+    /^\s*this\.armDprWatch\(\);$/m.test(onResizeBody)
+      && onResizeBody.includes("this.canvas.height = Math.floor(h * this.dpr);"),
+    `onResize body ${onResizeBody.length} chars`);
+  check("...the watch is built from dprQueries, not from a hand-rolled string",
+    /dprQueries\(window\.devicePixelRatio \|\| 1\)/.test(dprMainSrc)
+      && !/matchMedia\(`\(resolution/.test(dprMainSrc));
+  check("...it keeps only a candidate that is true right now",
+    /if \(!mq\.matches\) continue;/.test(dprMainSrc));
+  check("...and a change re-solves rather than resizing the canvas behind the policy",
+    /private onDprChange = \(\): void => \{\n\s*this\.onResize\(\);\n\s*\};/.test(dprMainSrc));
+  // Asked of destroy()'s OWN body rather than of the file: armDprWatch also
+  // removes a listener (that is how it re-arms), so a whole-file search for the
+  // call would be satisfied by the re-arm alone and would never notice the
+  // teardown going missing.
+  const destroyBody = dprMainSrc.slice(
+    dprMainSrc.indexOf("private destroy(): void {"),
+    dprMainSrc.indexOf("// ---------------- state / rendering ----------------"),
+  );
+  check("...with the listener torn down when the app is",
+    destroyBody.includes('this.dprMQ?.removeEventListener?.("change", this.onDprChange)')
+      && destroyBody.includes("this.dprMQ = null;"),
+    `destroy() body ${destroyBody.length} chars`);
+}
+
+// ===========================================================================
 // THE BACKGROUND LAYER RE-BAKES WITHOUT REALLOCATING (render.ts's
 // getBackgroundLayer).
 //
@@ -27550,6 +27667,648 @@ section("The background layer re-bakes in place, it does not reallocate (render.
   glob.document = prevDoc;
   glob.window = prevWin;
   glob.Path2D = prevPath;
+}
+
+// ===========================================================================
+// THE FIELD'S TYPE LANDS ON THE DEVICE'S PIXEL GRID (render.ts's crispFontPx).
+//
+// Eight sites draw text on the canvas, and every one of them is authored in
+// world px and rasterised through the world transform — so what reaches the
+// panel is `size * scale * dpr`, where dpr is renderScale's capped answer and
+// not the display's. On the iPhone X the game locks to landscape on, that
+// factor is 0.781, and all eight of the authored sizes came out fractional:
+// 8.59, 9.38, 10.16, 10.94, 14.06, 20.31, 23.44 device px. Meanwhile the DOM
+// chrome one layer up is laid out at the panel's full 3x.
+//
+// TWO HALVES. The arithmetic is a pure function and pinned as one. The wiring is
+// asked of a real frame through the recording context, because "every site" is
+// the claim and a site that forgot to snap is exactly what a spot check misses.
+// ===========================================================================
+section("Every canvas text site rasterises on whole device pixels (render.ts)");
+{
+  // The iPhone X's real factor, from the real solver, so the numbers in the
+  // comment above are the numbers this pin is actually about.
+  setSafeAreaInsets(NO_INSETS);
+  setRailSlots(RAIL_SLOTS_BASE);
+  const phone = computeLayout(812, 375);
+  const phoneK = phone.scale * renderScale(3, 812, 375);
+  check("the iPhone X really does rasterise the field at 0.78 world px a device px",
+    Math.abs(phoneK - 0.78125) < 1e-9, `${phoneK}`);
+
+  const AUTHORED = [11, 12, 13, 14, 18, 26, 30];
+  const before = AUTHORED.map((s) => s * phoneK);
+  check("...and every authored size lands between device pixels before the snap",
+    before.every((d) => Math.abs(d - Math.round(d)) > 0.05),
+    AUTHORED.map((s, i) => `${s}->${before[i].toFixed(2)}`).join(" "));
+  check("...and on a whole one after it",
+    AUTHORED.every((s) => Number.isInteger(
+      Math.round(crispFontPx(s, phoneK) * phoneK * 1e6) / 1e6)),
+    AUTHORED.map((s) => `${s}->${(crispFontPx(s, phoneK) * phoneK).toFixed(4)}`).join(" "));
+
+  // NEAREST, not up and not down: a size is moved by less than half a device px
+  // in world terms, so the ladder keeps its shape wherever the grid allows one.
+  check("the snap is to the NEAREST whole device px",
+    AUTHORED.every((s) => Math.abs(crispFontPx(s, phoneK) - s) * phoneK <= 0.5 + 1e-9),
+    AUTHORED.map((s) => `${s}->${crispFontPx(s, phoneK).toFixed(2)}`).join(" "));
+
+  // A FLOOR OF ONE WHOLE DEVICE PX. A tiny size on a shrunken viewport rounds to
+  // zero, and a zero-sized font is not small type, it is no text at all — the
+  // failure this shape of arithmetic invites.
+  check("a size that would round away is held at one device px",
+    crispFontPx(11, 0.02) * 0.02 === 1 && crispFontPx(1, 0.001) * 0.001 === 1,
+    `${crispFontPx(11, 0.02) * 0.02} / ${crispFontPx(1, 0.001) * 0.001}`);
+  // A scale that is absent, zero or NaN is a frame drawn before anything has
+  // been measured; the authored size is the only honest answer there.
+  check("an unmeasured frame keeps the authored size rather than dividing by zero",
+    crispFontPx(13, 0) === 13 && crispFontPx(13, Number.NaN) === 13
+      && crispFontPx(13, -1) === 13,
+    `${crispFontPx(13, 0)} / ${crispFontPx(13, Number.NaN)} / ${crispFontPx(13, -1)}`);
+  // A 1:1 frame must come out untouched, which is what says this is a snap and
+  // not a resize: every whole authored size is already on the grid at dpr 1.
+  check("a frame drawn at 1:1 is pixel-identical to what it always was",
+    AUTHORED.every((s) => crispFontPx(s, 1) === s));
+
+  // ---- EVERY SITE, in one frame. ----
+  const stubs = installBrowserStubs();
+  const g = new Game(makeBaseLevel(0), {}, 41);
+  g.status = "playing";
+  // The gauge is inert on a calm bay and the stabiliser tag only draws when the
+  // launcher is cancelling wind, so both are switched on: the frame has to be
+  // able to reach all eight sites or "every site" is not what is being checked.
+  g.level.windMax = 6;
+  g.level.windAssist = 0.3;
+  const rec = newRec();
+  const canvas: Record<string, unknown> = { width: 1268, height: 586 };
+  const ctx = makeRecCtx(canvas, rec);
+  const DPR = renderScale(3, 812, 375);
+  render(ctx as unknown as CanvasRenderingContext2D, 812, 375, DPR, {
+    cubes: g.cubes, constraints: [], compactor: g.compactor, cannon: g.cannon,
+    trajectory: [], now: 5000, aiming: false,
+    effects: [
+      // A payout carrying BOTH riders, so the number, the timing callout and
+      // the congestion tag are all on screen at once.
+      { kind: "payout", x: 600, y: 400, amount: 120, grade: "excellent", congested: true, t0: 4960 },
+      { kind: "salvage", x: 400, y: 380, amount: 40, t0: 4960 },
+      { kind: "penalty", x: 800, y: 360, amount: 25, t0: 4960 },
+    ],
+    level: g.level, nextIsBomb: false, bombs: [], windNow: 4, windAverage: 3,
+    reload: 1, settling: false, strandWarning: false,
+  });
+
+  const fonts = setValues(rec, "font").map(String);
+  check("the frame really reaches all eight canvas text sites",
+    fonts.length === 8, `${fonts.length} font writes: ${fonts.join(" | ")}`);
+  const sizes = fonts.map((f) => Number(/(\d+(?:\.\d+)?)px/.exec(f)?.[1] ?? Number.NaN));
+  const devicePx = sizes.map((s) => s * phoneK);
+  check("...and not one of them sets a size that lands between device pixels",
+    devicePx.every((d) => Number.isFinite(d) && Math.abs(d - Math.round(d)) < 1e-6),
+    devicePx.map((d) => d.toFixed(4)).join(" "));
+  // Weight and family are unchanged by the snap — this is a size fix, and a
+  // font shorthand that lost its family falls back to the UA's default face.
+  check("...and every one of them still names its weight and its family",
+    fonts.every((f) => f.startsWith("700 ")
+      && (f.includes("JetBrains Mono") || f.includes("system-ui"))),
+    fonts.join(" | "));
+
+  g.destroy();
+  stubs.restore();
+}
+
+
+
+// ===========================================================================
+// A CLEARED BAY AND A CRUSHED ROW BLOOM IN PLACE UNDER REDUCED MOTION
+// (render.ts's drawBayClearFx and drawRowFlashFx).
+//
+// The blast debris opts out of the preference outright and the thaw cue opts
+// into a static version of itself. These two were doing neither, and one of
+// them is the largest single piece of travel the renderer draws: a band
+// crossing the whole 1280px bay in 1.4 seconds, drawn for a player who had
+// asked the platform, in the one way a platform offers, not to be shown travel.
+//
+// WHICH RULING EACH GETS, AND WHY NEITHER GETS THE DEBRIS'. The debris is
+// REMOVED because every part of it is motion and the shockwave underneath it
+// still says a blast happened. Neither of these has anything underneath it —
+// the sweep is the only thing that celebrates a cleared bay ON the bay, and the
+// flash is the only mark a crushed row leaves — so removing them would tell a
+// player less about their own field, which is not what the preference asks for.
+// Both take the THAW cue's ruling instead: keep the cue, take the travel out,
+// spend opacity where the movement was.
+//
+// ISOLATED BY DELTA, the way the debris pin is: a frame carrying the cue
+// against the same frame without it, at the same setting of the preference.
+// Each setting gets its OWN base, because half a dozen other things in a frame
+// already read the preference and a calm cue measured against a live base would
+// be reporting all of them as the cue.
+//
+// FILTERED FIRST, THEN SLICED, rather than diffed whole. drawEffects is the
+// last thing render() draws and it wraps the lot in one save/restore, so the
+// base frame is NOT a prefix of the frame carrying the cue — its closing
+// restores sit where the cue's commands now are. But every arc, fillRect,
+// fillStyle and globalAlpha the base issues still comes BEFORE every one the
+// cue issues, so taking each kind on its own and dropping as many as the base
+// had leaves the cue's own, exactly.
+// ===========================================================================
+section("A cleared bay and a crushed row bloom in place under reduced motion (render.ts)");
+{
+  const rec = newRec();
+  // fillRect and arc keep their ARGUMENTS: every claim below is about WHERE a
+  // shape lands — how far the ring reached, how much field the wash covers —
+  // and a count alone would pass on a ring that had stopped growing by being
+  // drawn somewhere else entirely.
+  const stubs = installBrowserStubs();
+  const canvas: Record<string, unknown> = { width: 2560, height: 1440 };
+  const ctx = makeRecCtx(canvas, rec, ["fillRect", "arc"]);
+  const g = new Game(makeBaseLevel(0), {}, 12);
+  g.status = "playing";
+
+  const paintFx = (effects: FxEvent[], now: number, calm: boolean): Rec => {
+    setReducedMotion(calm);
+    resetRec(rec);
+    render(ctx as unknown as CanvasRenderingContext2D, 1280, 720, 2, {
+      cubes: g.cubes, constraints: g.constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now, aiming: false, effects,
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return {
+      calls: [...rec.calls], sets: [...rec.sets],
+      args: rec.args.map(([k, a]) => [k, [...a]] as [string, unknown[]]),
+    };
+  };
+
+  const T0 = 5000;
+  const CUE: FxEvent[] = [
+    { kind: "bayclear", x: 620, y: 400, t0: T0 },
+    { kind: "rowflash", y: 420, x0: 40, x1: 1240, t0: T0 },
+  ];
+
+  /** What the cue added, one kind of command at a time. `pick` pulls a single
+   *  kind out of a recording in issue order; the cue's are whatever is left
+   *  after dropping as many as the bare frame had. `additive` records that the
+   *  cue only ever ADDED to each kind, which is the assumption the drop rests
+   *  on and is asserted below rather than trusted. */
+  let additive = true;
+  const added = (
+    now: number, calm: boolean,
+    pick: (r: Rec) => string[],
+  ): string[] => {
+    const base = pick(paintFx([], now, calm));
+    const full = pick(paintFx(CUE, now, calm));
+    additive = additive && full.length >= base.length
+      && JSON.stringify(full.slice(0, base.length)) === JSON.stringify(base);
+    return full.slice(base.length);
+  };
+  const gradCount = (now: number, calm: boolean): number =>
+    callCount(paintFx(CUE, now, calm), "createLinearGradient")
+      - callCount(paintFx([], now, calm), "createLinearGradient");
+  const pickArg = (name: string) => (r: Rec): string[] =>
+    r.args.filter(([k]) => k === name).map(([, a]) => a.join(","));
+  const pickSet = (prop: string) => (r: Rec): string[] =>
+    r.sets.filter(([k]) => k === prop).map(([, v]) => String(v));
+
+  // Warm the sprite and background caches: a cold frame pays for every bake,
+  // and the delta would report that bake as the cue.
+  paintFx([], T0, false);
+
+  // 200ms in, both cues are alive (the flash runs 450ms, the sweep 1400); at
+  // 900ms the sweep is alone and well past halfway across; at 1399 it is one
+  // millisecond from the end, which is where its ring finally arrives.
+  const EARLY = T0 + 200;
+  const LATE = T0 + 900;
+  const ENDING = T0 + FX_TTL.bayclear - 1;
+
+  // 1. THE CUE SURVIVES THE PREFERENCE. The half that separates these two from
+  // the debris, and the half a well-meaning "return early like debris does"
+  // would take away.
+  const calmRects = added(EARLY, true, pickArg("fillRect"));
+  const calmArcs = added(EARLY, true, pickArg("arc"));
+  check("both cues still draw under the preference — the field still says what happened",
+    calmRects.length === 2 && calmArcs.length === 1,
+    `${calmRects.length} fills, ${calmArcs.length} rings: ${calmRects.join(" | ")}`);
+  check("...and the cue only ever ADDS to a frame, which is what makes the delta the cue",
+    additive);
+
+  // 2. NO RAMP, NO BAND. Live, each drawer builds a linear gradient — the
+  // sweeping band and the row's directional wipe. Calm, neither does: both are
+  // flat fills, which is what "a static bloom" means written in commands.
+  check("live, the sweep and the wipe are a gradient each",
+    gradCount(EARLY, false) === 2, `${gradCount(EARLY, false)}`);
+  check("...and under the preference neither of them is",
+    gradCount(EARLY, true) === 0 && gradCount(LATE, true) === 0,
+    `${gradCount(EARLY, true)} early / ${gradCount(LATE, true)} late`);
+
+  // 3. THE RING IS AT FULL REACH FROM ITS FIRST FRAME rather than arriving
+  // there. Stated against the live cue's OWN end state instead of against a
+  // copy of the reach constant: the claim is "calm starts where live finishes",
+  // and a pin holding its own duplicate of 440 would go on passing after
+  // somebody widened the ring.
+  const ringR = (now: number, calm: boolean): number =>
+    Number(added(now, calm, pickArg("arc"))[0]?.split(",")[2] ?? Number.NaN);
+  const liveR0 = ringR(EARLY, false);
+  const liveR1 = ringR(LATE, false);
+  const liveEnd = ringR(ENDING, false);
+  const calmR0 = ringR(EARLY, true);
+  const calmR1 = ringR(LATE, true);
+  check("live, the ring is still growing between 200ms and 900ms",
+    liveR0 < liveR1 && liveR1 < liveEnd, `${liveR0} -> ${liveR1} -> ${liveEnd}`);
+  check("...and calm it is already, in every frame, where the sweep only arrives at the end",
+    calmR0 === calmR1 && Math.abs(calmR0 - liveEnd) < 0.01,
+    `calm ${calmR0} / ${calmR1} vs live at 1399ms ${liveEnd}`);
+
+  // 4. THE WASH COVERS THE FIELD THE BAND WOULD HAVE CROSSED, at the band's
+  // MEAN rather than its crest — 0.094 against 0.5, derived in render.ts beside
+  // BAYCLEAR_CALM_ALPHA. A wash at the crest would be five times the light the
+  // sweep ever put on any part of the bay at once, which is a louder cue in the
+  // name of a calmer one.
+  const calmFills = added(EARLY, true, pickSet("fillStyle"));
+  check("the calm wash covers the same field the band crossed",
+    calmRects.includes(`0,0,${WORLD.width},${WORLD.height}`), calmRects.join(" | "));
+  check("...in flat green under a tenth alpha, not at the band's own crest",
+    calmFills.some((f) => /^rgba\(0,255,156,0\.0\d/.test(f)), calmFills.join(" | "));
+
+  // 5. THE ROW BAND IS FLAT, AND ITS FADE IS SPENT EVENLY. (1-t)² puts three
+  // quarters of the cue's light into its first 100ms, which is a strobe over
+  // the pile rather than a bloom; calm spends the same 450ms linearly.
+  check("the calm row band is flat white at half the ramp's edge alpha",
+    calmFills.includes("rgba(255,255,255,0.45)"), calmFills.join(" | "));
+  const rowT = 200 / FX_TTL.rowflash;
+  const calmAlphas = added(EARLY, true, pickSet("globalAlpha")).map(Number);
+  const liveAlphas = added(EARLY, false, pickSet("globalAlpha")).map(Number);
+  check("...and its fade is linear under the preference where it is squared beside it",
+    calmAlphas.some((a) => Math.abs(a - (1 - rowT)) < 1e-9)
+      && liveAlphas.some((a) => Math.abs(a - (1 - rowT) * (1 - rowT)) < 1e-9),
+    `calm ${calmAlphas.join(",")} / live ${liveAlphas.join(",")}`);
+
+  setReducedMotion(false);
+  g.destroy();
+  stubs.restore();
+}
+
+// ===========================================================================
+// THE CRT COMB REPEATS ON THE PIXEL GRID, AND HAS A SWITCH AT LAST
+// (render.ts's scanlineMetrics, store.ts's scanlines, app.css's #app::after).
+//
+// The overlay is a repeating-linear-gradient laid over the whole app: a dark
+// line one CSS px tall every three. It has shipped since the first retro pass
+// with two things wrong with it.
+//
+// ONE, a CSS px is not a pixel. On a Pixel 7, whose devicePixelRatio is 2.625,
+// the authored three-px period is 7.875 DEVICE px and the line is 2.625 of
+// them, so the comb never repeats on the grid it is rasterised onto: the first
+// line covers three device rows, the second two and a fraction, the third
+// lands half a row further off, and the eight-row beat that finally closes the
+// cycle is a moiré banding the whole screen. It is the same arithmetic
+// crispFontPx was written for one section up — this is the DOM's half of it —
+// and the fix is the same shape: snap to whole device px and hand back the CSS
+// length that produces them, published per solve because the ratio is exactly
+// what can change under a window that never moved.
+//
+// TWO, the class that turns the overlay off was wired to nothing. app.css has
+// advertised `crt-off` on <body> since the block was written, with a comment
+// saying so, and no line in the app ever wrote it. It is a Settings switch now
+// whose default is asked of the device rather than declared, because this is a
+// full-screen `mix-blend-mode: multiply` composite of every device pixel every
+// frame — a cost the hardware with the least headroom pays for a texture at or
+// under the resolving limit of a phone panel held at arm's length.
+//
+// WHAT IS PINNED WHERE. The snapping is arithmetic and is pinned as arithmetic.
+// The stylesheet, the publish and the class write are SOURCE pins for the
+// reason the cursor and autosizing pins are: there is no layout engine in this
+// process, the claim is that a refactor cannot quietly unhook one end of the
+// chain, and each end is one line that can be forgotten.
+// ===========================================================================
+section("The CRT comb repeats on whole device pixels, and can be switched off");
+{
+  // ---- THE ARITHMETIC ----
+  // A whole-number display must come out untouched, which is what says this is
+  // a snap and not a redesign: 1x, 2x and 3x panels get the comb they always
+  // got, pixel for pixel.
+  check("a whole-number display gets exactly the overlay it always had",
+    [1, 2, 3].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.period === SCANLINE_PERIOD_CSS && m.line === SCANLINE_LINE_CSS;
+    }),
+    [1, 2, 3].map((d) => `${d}:${JSON.stringify(scanlineMetrics(d))}`).join(" "));
+
+  // The Pixel 7's 2.625 spelled out, because it is the device in the report.
+  const p7 = scanlineMetrics(2.625);
+  check("the Pixel 7's period is a whole 8 device px rather than 7.875",
+    Math.abs(p7.period * 2.625 - 8) < 1e-9, `${p7.period * 2.625}`);
+  check("...and its line a whole 3 rather than 2.625",
+    Math.abs(p7.line * 2.625 - 3) < 1e-9, `${p7.line * 2.625}`);
+
+  // Every ratio a platform actually hands out, including the Windows scale
+  // factors that do not terminate in decimal (4/3 at 133%, 5/3 at 166%).
+  const RATIOS = [1, 1.25, 4 / 3, 1.5, 5 / 3, 1.75, 2, 2.25, 2.5, 2.625, 2.75, 3, 3.5, 4];
+  const whole = (x: number): boolean => Math.abs(x - Math.round(x)) < 1e-6;
+  check("every ratio a platform offers repeats on the grid, line and period alike",
+    RATIOS.every((d) => {
+      const m = scanlineMetrics(d);
+      return whole(m.line * d) && whole(m.period * d);
+    }),
+    RATIOS.map((d) => {
+      const m = scanlineMetrics(d);
+      return `${d.toFixed(3)}:${(m.line * d).toFixed(3)}/${(m.period * d).toFixed(3)}`;
+    }).join(" "));
+
+  // A COMB HAS TO STAY A COMB. A line as tall as its own period is not a
+  // scanline, it is a sheet of black laid over the game at multiply — the one
+  // failure this shape of rounding invites that would be visible from orbit,
+  // and the one a shrunken ratio walks straight into.
+  const SMALL = [0.1, 0.25, 0.5, 0.75, 1];
+  check("the line never reaches its own period, however small the ratio gets",
+    [...RATIOS, ...SMALL].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.line > 0 && m.line < m.period;
+    }),
+    SMALL.map((d) => `${d}:${scanlineMetrics(d).line}/${scanlineMetrics(d).period}`).join(" "));
+
+  check("a ratio that is absent, zero, negative or NaN falls back to the authored comb",
+    [0, -1, Number.NaN, Number.POSITIVE_INFINITY].every((d) => {
+      const m = scanlineMetrics(d);
+      return m.period === SCANLINE_PERIOD_CSS && m.line === SCANLINE_LINE_CSS;
+    }));
+
+  // ---- THE STYLESHEET READS THEM ----
+  const crtCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const appAfter = /#app::after\s*\{[^}]*\}/.exec(crtCss)?.[0] ?? "";
+  // The FALLBACKS are the authored numbers rather than zero: a frame that
+  // somehow paints before the first solve gets the old overlay, not a black
+  // sheet and not nothing.
+  check("the overlay's gradient is written in the published variables, authored values as fallback",
+    appAfter.includes(`var(--scanline-line, ${SCANLINE_LINE_CSS}px)`)
+      && appAfter.includes(`var(--scanline-period, ${SCANLINE_PERIOD_CSS}px)`),
+    appAfter.replace(/\s+/g, " ").slice(0, 260) || "no #app::after rule");
+  check("the off-switch the block always advertised is still the off-switch",
+    /body\.crt-off\s+#app::after\s*\{[^}]*display:\s*none/.test(crtCss));
+
+  // ---- main.ts PUBLISHES THEM, ON THE SOLVE PATH, FROM THE RAW RATIO ----
+  const combSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  // Sliced between onResize's first statement and its last, so this is
+  // containment rather than "the string appears somewhere in main.ts" — the
+  // claim is that the comb is re-published by the thing that re-solves, which
+  // is also what the density watch routes through.
+  const rStart = combSrc.indexOf("this.dpr = renderScale(");
+  const rEnd = combSrc.indexOf("this.syncPlantRoof();", rStart);
+  const onResizeSrc = rStart >= 0 && rEnd > rStart ? combSrc.slice(rStart, rEnd) : "";
+  check("the comb is published on the solve path, where the density watch lands",
+    onResizeSrc.includes("scanlineMetrics(window.devicePixelRatio || 1)")
+      && /setProperty\("--scanline-line"/.test(onResizeSrc)
+      && /setProperty\("--scanline-period"/.test(onResizeSrc),
+    `${onResizeSrc.length} chars of onResize`);
+  // From the DISPLAY's ratio, not renderScale's capped one. The cap exists
+  // because the frame is fill-bound and says how much CANVAS the budget can
+  // afford; it has nothing to say about a CSS gradient, which rasterises at
+  // the panel's real density like every other piece of chrome.
+  check("...from the display's real ratio rather than the canvas's capped one",
+    !/scanlineMetrics\(\s*this\.dpr/.test(combSrc));
+
+  check("the Scanlines switch is spent on the class app.css documents",
+    /classList\.toggle\("crt-off", !this\.settings\.scanlines\)/.test(combSrc));
+  // Twice: once at boot beside the other applied settings, once on the flip.
+  // A switch applied only on the flip is a setting that does not survive a
+  // reload, which is the whole point of persisting it.
+  check("...and applied at boot as well as on the flip",
+    /key === "scanlines"\) this\.applyScanlines\(\)/.test(combSrc)
+      && (combSrc.match(/this\.applyScanlines\(\)/g) ?? []).length >= 2,
+    `${(combSrc.match(/this\.applyScanlines\(\)/g) ?? []).length} call sites`);
+
+  // ---- THE ROW ----
+  const paneSettings = {
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false,
+    devMode: false, systemCursor: false, scanlines: true,
+  };
+  const paneOn = S.settingsScreen(paneSettings);
+  const paneOff = S.settingsScreen({ ...paneSettings, scanlines: false });
+  check("Settings carries a Scanlines row", paneOn.includes('data-toggle="scanlines"'));
+  check("...reporting the state it was handed, both ways round",
+    /data-toggle="scanlines" aria-checked="true"/.test(paneOn)
+      && /data-toggle="scanlines" aria-checked="false"/.test(paneOff));
+
+  // ---- THE DEFAULT IS ASKED OF THE DEVICE, AND A SAVE BEATS IT ----
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const prevWin = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const bag = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => bag.get(k) ?? null,
+        setItem: (k: string, v: string) => void bag.set(k, v),
+        removeItem: (k: string) => void bag.delete(k),
+      },
+    });
+    let pointer = "fine";
+    const setPointer = (kind: string): void => {
+      pointer = kind;
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: { matchMedia: (q: string) => ({ matches: q.includes(`pointer: ${pointer}`) }) },
+      });
+    };
+    try {
+      setPointer("coarse");
+      check("a thumb starts with the overlay off", loadSettings().scanlines === false);
+      setPointer("fine");
+      check("...and a mouse starts with it on", loadSettings().scanlines === true);
+      // Phrased as "not coarse" rather than "fine" on purpose: a device with NO
+      // pointer — a TV, a pad-only build — answers false to `(pointer: fine)`,
+      // and those are the large distant screens the comb reads best on.
+      setPointer("none");
+      check("...as does a screen with no pointer at all", loadSettings().scanlines === true);
+
+      // THE SAVE BEATS THE DEVICE, both ways round — a default that could only
+      // be overridden in one direction is a default that sometimes is not one.
+      setPointer("fine");
+      localStorage.setItem("tetrilaunch.settings", JSON.stringify({ scanlines: false }));
+      check("a player who switched it off keeps it off on a mouse",
+        loadSettings().scanlines === false);
+      setPointer("coarse");
+      localStorage.setItem("tetrilaunch.settings", JSON.stringify({ scanlines: true }));
+      check("...and one who switched it on keeps it on under a thumb",
+        loadSettings().scanlines === true);
+
+      // "I could not tell" is not a reason to take the look away.
+      localStorage.removeItem("tetrilaunch.settings");
+      Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+      check("a platform with no matchMedia keeps the intended look",
+        loadSettings().scanlines === true);
+      delete (globalThis as unknown as Record<string, unknown>).window;
+      check("...and so does one with no window at all", loadSettings().scanlines === true);
+    } finally {
+      bag.clear();
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+      if (prevWin) Object.defineProperty(globalThis, "window", prevWin);
+      else delete (globalThis as unknown as Record<string, unknown>).window;
+    }
+  }
+}
+
+// ===========================================================================
+// THE WALL GLOW FINISHES IN THE LETTERBOX BAND (render.ts's wallGlowBleed).
+//
+// Two halves, and they fail in different ways:
+//
+//   1. THE ARITHMETIC. How much room is there beside the field, and how much
+//      of it may the halo have? This is a pure function of the solved layout,
+//      so it is checked against computeLayout's real answers on the real rows
+//      of the device matrix rather than against invented numbers.
+//   2. THE WIRING. Does the BAKE actually clip to the widened rect? The
+//      arithmetic can be perfect and the clip still be the world rect, which
+//      is precisely the state this change found.
+// ===========================================================================
+section("The wall glow finishes outside the field, short of the rail (render.ts)");
+{
+  setSafeAreaInsets(NO_INSETS);
+  setRailSlots(RAIL_SLOTS_BASE);
+
+  // An ultrawide landscape phone: layout.ts's "wide" mode, ~73 CSS px of gutter
+  // a side, and the row the finding was written against — the halo's razor edge
+  // sat in the middle of that band with flat backdrop either side of it.
+  const ultra = computeLayout(812, 375);
+  const ultraVp = { scale: ultra.scale, ox: ultra.ox, oy: ultra.oy };
+  const ultraBleed = wallGlowBleed(812, ultraVp, ultra);
+  check("an ultrawide row gets a bleed at all", ultraBleed.left > 0 && ultraBleed.right > 0,
+    `mode ${ultra.mode}, gutter ${(812 - ultra.fw) / 2}px, bleed ${JSON.stringify(ultraBleed)}`);
+  check("...the same on both sides, because the rail's side is not knowable here",
+    Math.abs(ultraBleed.left - ultraBleed.right) < 1e-9);
+
+  /** Where app.css puts the rail column's INNER edge, as a distance from the
+   *  field's edge in CSS px — the `max()` of the stylesheet's two offsets,
+   *  subtracted from the gutter. The pin's own copy of the rule: deriving it
+   *  from render.ts's helper would let a wrong rule agree with itself. */
+  const railClearanceCss = (gutter: number, railSize: number, inset: number): number =>
+    gutter - railSize - Math.max(4 + inset, (gutter - railSize) / 2);
+
+  const ultraGutter = (812 - ultra.fw) / 2;
+  check("...and it stops short of the rail column rather than painting under it",
+    ultraBleed.right * ultra.scale <= railClearanceCss(ultraGutter, ultra.railSize, 0) + 1e-9,
+    `bleed ${(ultraBleed.right * ultra.scale).toFixed(2)}css vs clearance ` +
+    `${railClearanceCss(ultraGutter, ultra.railSize, 0).toFixed(2)}css`);
+
+  // 16:9 — no NATURAL gutter, so layout.ts reserves an 84px band on the rail's
+  // edge and the field sits flush against the other side. Both halves of the
+  // cap show up on this one row: nothing at all on the flush side, and on the
+  // band side only the 12 CSS px the centred column leaves inboard of itself —
+  // not the 27 world px the halo would like.
+  const flush = computeLayout(1280, 720);
+  const flushBleed = wallGlowBleed(1280, { scale: flush.scale, ox: flush.ox, oy: flush.oy }, flush);
+  const flushGutter = 1280 - flush.ox - flush.fw;
+  check("the flush side of a snug row bleeds nothing at all",
+    flush.mode === "snug" && flush.ox === 0 && flushBleed.left === 0,
+    `mode ${flush.mode}, ox ${flush.ox}, bleed ${JSON.stringify(flushBleed)}`);
+  check("...and the reserved band gives only what it has left inboard of the rail",
+    flushBleed.right > 0
+      && Math.abs(flushBleed.right - railClearanceCss(flushGutter, flush.railSize, 0) / flush.scale)
+        < 1e-9
+      && flushBleed.right < WALL_GLOW_REACH,
+    `bleed ${flushBleed.right.toFixed(2)} world px of ${WALL_GLOW_REACH}`);
+
+  // A 21:9 DESKTOP window, where the gutter is enormous and the rail is nowhere
+  // near it. This is the only shape in the matrix where the REACH is the
+  // binding term, which is what makes it the pin that would catch a cap that
+  // had quietly become unbounded.
+  const desk = computeLayout(2560, 720);
+  const deskBleed = wallGlowBleed(2560, { scale: desk.scale, ox: desk.ox, oy: desk.oy }, desk);
+  check("a huge gutter is capped by the halo's own reach, not by the rail",
+    deskBleed.left === WALL_GLOW_REACH && deskBleed.right === WALL_GLOW_REACH,
+    `gutter ${(2560 - desk.fw) / 2}css, bleed ${JSON.stringify(deskBleed)}`);
+
+  // "tall" mode puts the rail in the BOTTOM band, so a side gutter there is
+  // free whatever the strip's size. Stated against a synthetic layout because
+  // no real row reaches it: a tall row is width-bound by construction, so its
+  // side gutters are whatever the safe-area insets left and nothing more.
+  const tallBleed = wallGlowBleed(700, { scale: 0.5, ox: 30, oy: 0 },
+    { ...ultra, mode: "tall", railSize: 60 });
+  check("a tall row's side gutter is free — its rail is in the bottom band",
+    tallBleed.left === WALL_GLOW_REACH && tallBleed.right === WALL_GLOW_REACH,
+    `bleed ${JSON.stringify(tallBleed)} from a 60-world-px gutter`);
+
+  // An OFF-FIELD surface (attract.ts fits with fitViewport and mounts no rail):
+  // no chrome to stay clear of, so nothing but the reach caps it.
+  const demoVp = fitViewport(600, 200);
+  const demoBleed = wallGlowBleed(600, demoVp, null);
+  check("the attract panel has no rail to dodge and takes the full reach",
+    demoBleed.left === WALL_GLOW_REACH && demoBleed.right === WALL_GLOW_REACH,
+    JSON.stringify(demoBleed));
+
+  // A pathological box where the rail is pinned over the field: the clearance
+  // is negative and the bleed has to clamp, not go inside out.
+  const squeezed = wallGlowBleed(700, { scale: 0.5, ox: 30, oy: 0 },
+    { ...ultra, mode: "wide", railSize: 60 });
+  check("a rail already standing on the field gets no halo painted under it",
+    squeezed.left === 0 && squeezed.right === 0, JSON.stringify(squeezed));
+
+  // ---- THE WIRING. What rect does the bake actually clip to? ----
+  //
+  // The background layer is a MODULE-LEVEL canvas made once per process, so by
+  // the time this section runs it already exists and no createElement stub
+  // installed here will ever see it — which is exactly why the pin above it
+  // (the re-bake pin) has to run before anything else renders. What is still
+  // reachable is the canvas OBJECT itself: the live frame stamps it with
+  // drawImage, so tracing that hands it over, and swapping its getContext for a
+  // recorder of ours makes the next bake's commands readable. The bake calls
+  // getContext fresh every time, so the swap takes effect on the very next
+  // cache miss and nothing has to be re-created.
+  const stubs = installBrowserStubs();
+  const g2 = new Game(makeBaseLevel(0), {}, 31);
+  g2.status = "playing";
+  const liveRec2 = newRec();
+  const liveCanvas2: Record<string, unknown> = { width: 1624, height: 750 };
+  const liveCtx2 = makeRecCtx(liveCanvas2, liveRec2, ["drawImage"]);
+  const paint2 = (dpr: number): void => {
+    resetRec(liveRec2);
+    render(liveCtx2 as unknown as CanvasRenderingContext2D, 812, 375, dpr, {
+      cubes: g2.cubes, constraints: [], compactor: g2.compactor, cannon: g2.cannon,
+      trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g2.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+  };
+
+  paint2(2);
+  // The background blit is the frame's first drawImage, and its source is the
+  // layer canvas.
+  const blit = liveRec2.args.find(([n]) => n === "drawImage");
+  const bgCanvas = blit?.[1][0] as Record<string, unknown> | undefined;
+  check("the frame's first stamp is the background layer",
+    bgCanvas !== undefined && typeof bgCanvas.getContext === "function",
+    blit ? "source is not a canvas" : "no drawImage in the frame");
+
+  if (bgCanvas) {
+    const bakeRec = newRec();
+    const bakeCtx = makeRecCtx(bgCanvas, bakeRec, ["rect"]);
+    bgCanvas.getContext = (): unknown => bakeCtx;
+    // A different dpr is a different backing size, which is a cache miss — so
+    // this frame re-bakes, through our recorder, at the same viewport the
+    // arithmetic above was solved for.
+    paint2(3);
+    // The bake's clip is the one rect() spanning the whole shaft.
+    const clipRect = bakeRec.args
+      .filter(([n]) => n === "rect")
+      .map(([, a]) => a as number[])
+      .find((a) => a.length === 4 && (a[2] as number) >= WORLD.width);
+    check("the background bake really clips wider than the world rect",
+      clipRect !== undefined && clipRect[2] > WORLD.width && clipRect[0] < 0,
+      `bake clip rect ${clipRect ? clipRect.join(",") : "none"}`);
+    check("...by exactly the bleed the solver allowed, no more",
+      clipRect !== undefined
+        && Math.abs(clipRect[0] + ultraBleed.left) < 1e-6
+        && Math.abs(clipRect[2] - (WORLD.width + ultraBleed.left + ultraBleed.right)) < 1e-6,
+      `clip ${clipRect?.join(",")} vs bleed ${JSON.stringify(ultraBleed)}`);
+  }
+
+  g2.destroy();
+  stubs.restore();
 }
 
 // ===========================================================================

@@ -105,7 +105,7 @@ import {
   type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
 import { sandboxContract, sandboxScreen } from "./ui/sandbox-screen";
-import { render, renderScale } from "./game/render";
+import { dprQueries, render, renderScale, scanlineMetrics } from "./game/render";
 import { CHUTE_ROOF_BASE_Y, setChuteRoofY } from "./game/chute";
 import { CELL, WALL_INNER, WORLD } from "./game/engine";
 import { shipmentAura, shipmentColor, type Material } from "./game/theme";
@@ -926,6 +926,11 @@ class App {
    *  written by onResize, read by the watchdog. Null until the first solve,
    *  which viewportChanged treats as "disagrees with everything". */
   private lastSolve: ViewportReading | null = null;
+  /** The density watch: a MediaQueryList that is true exactly while the display
+   *  is still at the ratio the published layout was solved at. Null before the
+   *  first solve, and on any engine that could not evaluate either candidate
+   *  query (see render.ts's dprQueries). */
+  private dprMQ: MediaQueryList | null = null;
   /** Live handle for the watchdog interval; non-null exactly while a burst is
    *  armed. */
   private watchdogTimer: number | null = null;
@@ -1278,6 +1283,7 @@ class App {
     // here — the whole point of baking the bitmaps as data URIs is that they
     // arrive with no load, and that cuts both ways.
     this.applySystemCursor();
+    this.applyScanlines();
     // The starting input family: fine pointer means keyboard+mouse until an
     // input says otherwise (D2 — the profile follows the last input seen).
     this.setProfile(this.finePointer() ? "keyboard" : "touch");
@@ -1396,6 +1402,8 @@ class App {
     this.game?.destroy();
     this.attract.stop();
     this.disarmWatchdog();
+    this.dprMQ?.removeEventListener?.("change", this.onDprChange);
+    this.dprMQ = null;
     this.clearHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
@@ -1833,6 +1841,18 @@ class App {
    *  that is still resting on them (see onToggle). */
   private applySystemCursor(): void {
     document.documentElement.dataset.systemCursor = this.settings.systemCursor ? "on" : "off";
+  }
+
+  /** The Scanlines switch, spent on the class app.css has always had and
+   *  nothing ever wrote (`crt-off` on <body>, see the CRT block there).
+   *
+   *  On BODY rather than on the root, because that is the selector the
+   *  stylesheet already documents and re-homing it would change the overlay's
+   *  contract for no gain. A presence toggle rather than a named
+   *  `data-scanlines="on|off"` for the same reason: unlike the cursor's hook
+   *  this one existed first, and the setting is what finally reaches it. */
+  private applyScanlines(): void {
+    document.body.classList.toggle("crt-off", !this.settings.scanlines);
   }
 
   /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
@@ -4595,6 +4615,57 @@ class App {
     this.watchdogTimer = null;
   }
 
+  /**
+   * THE DENSITY WATCH — the other axis a viewport can change on.
+   *
+   * Everything above this watches the viewport's SIZE, because every event a
+   * page is given is about size: resize, orientationchange, visualViewport,
+   * the watchdog's own comparison of innerWidth/innerHeight. None of them fire
+   * when the display's DEVICE-PIXEL RATIO changes underneath a box that did
+   * not move — drag a window from a 1x monitor to a 2x one, or plug in an
+   * external display and have the OS move the window to it, and the CSS
+   * viewport is identical in every number this file reads. The canvas kept its
+   * old backing store and the field went on rasterising at half the resolution
+   * the panel could show, permanently, until something else happened to
+   * trigger a resize.
+   *
+   * A MediaQueryList is the event the platform does give for it, and this
+   * RE-ARMS on every solve because such a list asks a fixed question: the one
+   * that was watching "is the ratio still 1x" has nothing left to say once the
+   * answer is 2x, so each change installs the next watch as its last act.
+   *
+   * It deliberately routes through onResize rather than resizing the canvas
+   * itself. onResize is where renderScale's ceiling lives (MAX_RENDER_DPR, and
+   * the lower COMPACT_MAX_RENDER_DPR on a phone-sized box), and a path that
+   * sized the backing store from the raw devicePixelRatio would be a way to
+   * spend three times the fill rate the frame budget was measured at by
+   * plugging in a monitor. Re-solving is also what re-publishes --field-* for
+   * the DOM chrome, which is free here and wrong to skip.
+   */
+  private armDprWatch(): void {
+    const mm = window.matchMedia;
+    if (!mm) return;
+    this.dprMQ?.removeEventListener?.("change", this.onDprChange);
+    this.dprMQ = null;
+    for (const q of dprQueries(window.devicePixelRatio || 1)) {
+      const mq = mm.call(window, q);
+      // A query describing the ratio RIGHT NOW that does not match right now is
+      // a query this engine cannot evaluate — an older WebKit meeting the range
+      // form, say — and registering on it would be registering on a watch that
+      // can never fire. Fall through to the next candidate instead.
+      if (!mq.matches) continue;
+      mq.addEventListener?.("change", this.onDprChange);
+      this.dprMQ = mq;
+      return;
+    }
+  }
+
+  /** The ratio moved off the one the layout was solved at. Re-solve, which also
+   *  re-arms this watch at the new ratio (see armDprWatch). */
+  private onDprChange = (): void => {
+    this.onResize();
+  };
+
   private watchdogTick = (): void => {
     // Disarm on EXPIRY, not on a clean tick: the whole point is that the
     // viewport can go on being wrong for a while, so "it agreed once" is not
@@ -4729,6 +4800,11 @@ class App {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.sizeCanvas(w, h);
+    // ...and re-aim the density watch at the ratio this solve was made at. It
+    // has to be re-armed rather than registered once: a MediaQueryList asks a
+    // FIXED question, so the list that was watching "still 1x" has nothing to
+    // say once the answer is 2x. See armDprWatch.
+    this.armDprWatch();
 
     // Safe-area insets first: the layout solver subtracts them from the usable
     // box, so they have to be current before computeLayout runs. Measured from
@@ -4770,6 +4846,20 @@ class App {
     // The gap the solver budgeted the column with — the CSS reads it back so
     // the rendered stack matches the fit prediction exactly.
     rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
+    // The CRT comb's line and period, as CSS lengths that land on whole DEVICE
+    // px (render.ts's scanlineMetrics). A stylesheet can only write CSS px and
+    // a CSS px is not a pixel, so the authored `1px in 3px` only repeats
+    // cleanly on a whole-number ratio. Published from HERE because the ratio is
+    // precisely what can change under a window that never moved, and this path
+    // is where armDprWatch lands when it does.
+    //
+    // From the RAW devicePixelRatio, not renderScale's capped answer: the cap
+    // exists because the frame is fill-bound and says how much CANVAS the
+    // budget can afford. It has nothing to say about a CSS gradient, which
+    // rasterises at the panel's real density like the rest of the chrome.
+    const comb = scanlineMetrics(window.devicePixelRatio || 1);
+    rs.setProperty("--scanline-line", `${comb.line}px`);
+    rs.setProperty("--scanline-period", `${comb.period}px`);
     // How far the chrome is magnified above its authored box (game/layout.ts's
     // chromeZoom). app.css's screen-anchored scaffolds put this straight into
     // `zoom`, so a browser window bigger than the reference renders the
@@ -9417,6 +9507,10 @@ class App {
     // same frame they let go of the switch — which is the only feedback this
     // particular toggle can give.
     if (key === "systemCursor") this.applySystemCursor();
+    // Same shape and the same reason: one class write, no re-render, and the
+    // overlay over the player's own hand changes on the frame they let go of
+    // the switch — which is the only feedback this toggle can give.
+    if (key === "scanlines") this.applyScanlines();
     // A toggle that changes what a SCREEN SAYS, not only what the game does,
     // has to redraw the screen saying it. TWO of them do: the gamepad pane's
     // aim row and the keyboard pane's Arc height / Mouse rotate pair each
