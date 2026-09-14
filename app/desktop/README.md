@@ -105,7 +105,14 @@ on Apple Silicon — the build would be dead on arrival on every recent Mac.
 `"-"` is the ad-hoc identity: no certificate, no authority, but a real
 signature, which is what arm64 requires.
 
-The macOS workflow requires these GitHub Actions repository secrets:
+The macOS workflow requires these six secrets, and they live in the
+**`desktop-build` environment** — not at repository level. Same reasoning as
+`android-build` and `ios-build`: an environment can carry protection rules a
+repo secret cannot. `desktop.yml`'s packaging job is bound to it with
+`environment: desktop-build`; **a job without that binding reads every one of
+these as the empty string** and fails at the guard as though nothing were ever
+configured. That is not a hypothetical — it is how the v1.0.4 desktop build
+failed.
 
 | Secret | Value |
 | --- | --- |
@@ -113,15 +120,45 @@ The macOS workflow requires these GitHub Actions repository secrets:
 | `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting that `.p12` |
 | `MACOS_SIGNING_IDENTITY` | Full identity, for example `Developer ID Application: Example Ltd (TEAMID)` |
 | `APPLE_ID` | Apple Account used for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple Account |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple Account, from appleid.apple.com → Sign-In and Security → App-Specific Passwords |
 | `APPLE_TEAM_ID` | Ten-character Apple Developer Team ID |
 
-Export the certificate from Keychain Access, then encode it without line wraps
-before storing it as `MACOS_CERTIFICATE`:
+`APPLE_TEAM_ID` is deliberately duplicated here rather than shared with
+`ios-build`: one environment per signing domain keeps a desktop release from
+depending on an environment named for the iOS pipeline.
+
+The certificate is a **Developer ID Application** one — the certificate type
+for software shipped outside the Mac App Store, and *not* the Apple
+Distribution certificate `ios-build` uses. Create it once at
+developer.apple.com → Certificates → + → Developer ID Application, then export
+the certificate *and its private key* together from Keychain Access as a
+`.p12`, and encode it without line wraps:
 
 ```bash
 base64 < DeveloperIDApplication.p12 | tr -d '\n'
 ```
+
+`MACOS_SIGNING_IDENTITY` is the identity string exactly as `security
+find-identity -v -p codesigning` prints it for that certificate, without the
+surrounding quotes.
+
+Setting all six, given the values above:
+
+```bash
+gh api -X PUT repos/:owner/:repo/environments/desktop-build   # once, if it does not exist
+
+base64 < DeveloperIDApplication.p12 | tr -d '\n' |
+  gh secret set MACOS_CERTIFICATE --env desktop-build
+gh secret set MACOS_CERTIFICATE_PASSWORD       --env desktop-build
+gh secret set MACOS_SIGNING_IDENTITY           --env desktop-build
+gh secret set APPLE_ID                         --env desktop-build
+gh secret set APPLE_APP_SPECIFIC_PASSWORD      --env desktop-build
+gh secret set APPLE_TEAM_ID                    --env desktop-build
+```
+
+Then rehearse with a `workflow_dispatch` of `desktop.yml` before tagging: it
+builds and signs identically but creates no release, so a wrong certificate
+costs a re-run rather than a half-published release.
 
 The workflow fails before packaging if any secret is missing; it never silently
 publishes an ad-hoc build as a signed release.

@@ -50,6 +50,24 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    # THE macOS SIGNING SECRETS LIVE IN AN ENVIRONMENT, NOT AT REPO LEVEL, and
+    # without this line the job cannot see them: an unbound job reads every
+    # environment secret as the empty string and dies at the guard below with
+    # "Required macOS signing secret CSC_LINK is not configured" — which reads
+    # like a secret nobody ever set, even when all six are sitting in the
+    # environment. That is exactly how run #11 and #12 failed on v1.0.4, with
+    # APPLE_TEAM_ID blank here while ios.yml was reading the same-named secret
+    # fine from `ios-build`. Same trap android.yml and ios.yml document.
+    #
+    # Bound for the whole matrix rather than the macOS leg alone. Windows and
+    # Linux reference none of these secrets, so nothing extra is materialised
+    # into those runners, and `desktop-build` is the honest name for the one
+    # place this workflow's credentials live — including the Windows EV
+    # code-signing certificate that desktop/README.md anticipates buying.
+    # Conditioning the binding on `matrix.script` instead would hang a release
+    # on an empty-string environment name, which is not a bet worth taking for
+    # a workflow that only ever runs on a tag.
+    environment: desktop-build
     strategy:
       # One platform's toolchain breaking should still tell you about the other
       # two, and on a tag build you want to see every failure at once rather
@@ -176,7 +194,7 @@ jobs:
           set -euo pipefail
           for name in CSC_LINK CSC_KEY_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::Required macOS signing secret $name is not configured"
+              echo "::error::Required macOS signing secret $name is not set in the desktop-build environment — see the signing table in app/desktop/README.md."
               exit 1
             fi
           done
