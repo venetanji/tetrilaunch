@@ -195,7 +195,27 @@ export function moveFocus(root: HTMLElement, dir: NavDir): boolean {
     return { x: r.left, y: r.top, w: r.width, h: r.height };
   });
   const next = pickNext(rects, from, dir);
-  if (next !== from) focusOn(targets[next]);
+  if (next !== from) {
+    focusOn(targets[next]);
+    return true;
+  }
+  // THE WALL. No control lies further this way, so a focus move is a no-op —
+  // but the pane may still hold unshown content that carries no control of its
+  // own (a shelf's Owned/Installed reference strips, a gated card's "Needs …"
+  // price, the rack note, the foot of the guide). reveal() only ever runs on a
+  // focus MOVE, so it never reaches this boundary and a pad-only player — a
+  // Steam Deck — could not scroll to that content at all. edgeScroll is its
+  // complement: walk the focused control's scrollable ancestors and advance the
+  // FIRST with room in `dir` by a near-page step, mirroring reveal's own
+  // ancestor-walk. The press is USED either way — a scrollable wall advances the
+  // view, a true wall is a dead end — so the boolean this returns is unchanged.
+  for (let port = scrollPort(targets[from]); port; port = scrollPort(port)) {
+    const delta = edgeScroll(port.scrollTop, port.scrollHeight, port.clientHeight, dir);
+    if (delta !== 0) {
+      port.scrollTop += delta;
+      break;
+    }
+  }
   return true;
 }
 
@@ -348,6 +368,51 @@ export function revealShift(
   if (a < portLo) return a - portLo;
   if (b > portHi) return b - portHi;
   return 0;
+}
+
+/** How much of the scrollport a wall-press advances the view by — a near-page
+ *  step, with a fifth of the pane left as overlap so the reader keeps their
+ *  place. Not a full page: a page-per-press over-runs a short pane and loses the
+ *  row the eye was on. */
+export const PANE_SCROLL_FRACTION = 0.8;
+
+/**
+ * The scroll delta a pad press should apply when it hits the FOCUS WALL — the
+ * last control in the pressed direction, where pickNext returns `from` and no
+ * focus move (and so no reveal) happens. reveal() brings a control's own unit
+ * into view on every focus MOVE; this is its complement for the boundary reveal
+ * never runs at, and it is the only way a pad reaches pane content that carries
+ * no control of its own: the Workshop's Owned/Installed reference strips and
+ * rack note, a shelf's trailing gated cards (their price is a non-focusable
+ * span), the foot of the guide. Without it those sit below the last button
+ * forever on a controller — a Steam Deck cannot scroll to them.
+ *
+ * A near-page step (PANE_SCROLL_FRACTION of the port) toward the pressed edge,
+ * clamped so it never overscrolls, and 0 when the pane is already at that end —
+ * which is how moveFocus tells a scrollable wall (advance the view) from a true
+ * wall (nothing more to show). Vertical only, for pickInView's own reason: every
+ * scroller the overlay has scrolls in Y, and the two horizontal strips are one
+ * row that cannot strand content past a fold.
+ *
+ * Works entirely in the port's LOCAL scroll coordinates (scrollTop /
+ * scrollHeight / clientHeight are all unzoomed CSS px), so unlike reveal it
+ * needs no visual-to-local conversion — there is no getBoundingClientRect in it.
+ */
+export function edgeScroll(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  dir: NavDir,
+  frac: number = PANE_SCROLL_FRACTION,
+): number {
+  if (dir !== "up" && dir !== "down") return 0;
+  const maxTop = Math.max(0, scrollHeight - clientHeight);
+  const step = clientHeight * frac;
+  if (dir === "down") {
+    const room = maxTop - scrollTop;
+    return room > 0 ? Math.min(step, room) : 0;
+  }
+  return scrollTop > 0 ? -Math.min(step, scrollTop) : 0;
 }
 
 const scrolls = (o: string): boolean => o === "auto" || o === "scroll";

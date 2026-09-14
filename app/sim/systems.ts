@@ -256,7 +256,7 @@ import { MENU_BAY, PREVIEW_BAY, demoLevel } from "../src/game/attract";
 import { createAutopilot } from "../src/game/autopilot";
 import {
   armActivate, armRelease, DISARMED,
-  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
+  edgeScroll, FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, PANE_SCROLL_FRACTION, pickInView, pickNext, revealShift,
   // F7: the inert seal, driven directly by the section at the foot of this file.
   sealBehindScrim,
   type ArmState, type NavRect,
@@ -19497,6 +19497,76 @@ section("A pad selection is revealed whole, ring included (ui/padnav.ts)");
   check("the scroll clearance is that ring's outer edge, in one number",
     Number(width?.[1]) + Number(offset?.[1]) === FOCUS_RING_GAP,
     `${width?.[1]} + ${offset?.[1]} vs ${FOCUS_RING_GAP}`);
+}
+
+// ---------------------------------------------------------------------------
+section("A pad reaches pane content that carries no control (ui/padnav.ts)");
+// ---------------------------------------------------------------------------
+// THE GAP, reported on a Steam Deck: the Workshop's pad could cycle focus
+// through the buy buttons but could not scroll the pane down, so the reference
+// strips at its foot (Owned / Installed), the rack note and any trailing gated
+// card — none of which carry a control of their own — were unreachable without
+// touch, a Deck-Verified failure. reveal() scrolls a control's own unit into
+// view on every focus MOVE, but at the last control in a direction pickNext
+// returns `from`, no focus moves, and reveal never runs — so the pane sat still
+// and everything below the last button stayed off-screen.
+//
+// edgeScroll is the wall's answer, and the piece with no browser in it: given a
+// port's own scroll metrics it returns how far to advance the view toward the
+// pressed edge. The DOM half (finding the port, applying the delta) is
+// moveFocus, pinned by source below and exercised for real by sim/uifit's pad
+// driving. Every number here is a 200px pane over 500px of content, so a
+// near-page step is 200 * PANE_SCROLL_FRACTION.
+{
+  const STEP = 200 * PANE_SCROLL_FRACTION;
+  // A pane with room below advances by a near-page step toward the far edge, so
+  // a wall-press reveals the strip under the last button.
+  check("a down-press at the wall advances the pane toward the foot",
+    edgeScroll(0, 500, 200, "down") === STEP);
+  // ...clamped to the remaining room, so the last press lands flush on the foot
+  // rather than overscrolling into empty space.
+  check("...clamped so the final step stops flush at the bottom",
+    edgeScroll(250, 500, 200, "down") === 50);
+  // Already at the bottom: nothing left to show, so the delta is 0 — which is
+  // how moveFocus tells a scrollable wall from a true one and lets the press
+  // fall through as an ordinary (dead) wall.
+  check("a pane already at its foot does not move",
+    edgeScroll(300, 500, 200, "down") === 0);
+  // The same promise the other way up, for content stranded ABOVE the first
+  // control (a header, an intro paragraph).
+  check("an up-press at the wall advances the pane toward the head",
+    edgeScroll(300, 500, 200, "up") === -STEP);
+  check("...clamped flush at the top",
+    edgeScroll(30, 500, 200, "up") === -30);
+  check("a pane already at its head does not move",
+    edgeScroll(0, 500, 200, "up") === 0);
+  // A pane that does not overflow has no wall to answer: no vertical room, no
+  // scroll, in either direction.
+  check("a pane that fits its content never scrolls",
+    edgeScroll(0, 200, 200, "down") === 0 && edgeScroll(0, 200, 200, "up") === 0);
+  // Vertical only — the overlay's two horizontal strips are one row and cannot
+  // strand content past a fold, so a left/right wall stays a plain wall (the
+  // same axis decision pickInView makes).
+  check("a horizontal wall is left to be a plain wall",
+    edgeScroll(0, 500, 200, "left") === 0 && edgeScroll(0, 500, 200, "right") === 0);
+
+  // THE DOM HALF, pinned by source: moveFocus, when a focus move is a no-op
+  // (next === from, the wall), walks the focused control's scrollable ancestors
+  // and applies edgeScroll to the first with room — the complement of reveal(),
+  // which every focus MOVE already runs. Held to shape here because no headless
+  // check can press a pad; sim/uifit drives the real scroll over the real panes.
+  const padSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "padnav.ts"),
+    "utf8",
+  );
+  const mv = padSrc.slice(
+    padSrc.indexOf("export function moveFocus("),
+    padSrc.indexOf("export function focusOn("),
+  );
+  check("moveFocus exists to be checked", mv.length > 0 && mv.length < 2000);
+  check("moveFocus scrolls the pane at the wall the pad cannot cross by focus",
+    /if \(next !== from\)[\s\S]*?scrollPort\([\s\S]*?edgeScroll\([\s\S]*?\.scrollTop \+=/.test(mv),
+    mv.replace(/\s+/g, " ").slice(0, 400) || "no edgeScroll wall branch in moveFocus");
 }
 
 // ---------------------------------------------------------------------------
