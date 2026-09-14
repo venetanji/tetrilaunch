@@ -8911,13 +8911,18 @@ button.panel { color: var(--text); }
   left: calc(var(--field-x) + var(--field-w) / 2);
   top: calc(var(--field-y) + 0.14 * var(--field-h));
   transform: translate(-50%, 0) scale(0.94);
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 16px;
+  /* Sized in --fpx like the rest of the plant HUD, not fixed px, so it tracks
+     the letterboxed field: native ~1280 field → --fpx ≈ 1 → the old fixed sizes;
+     docked high-res field → grows in step with the readouts instead of staying
+     pinned small. Floors sit below native so small screens shrink with the field
+     (never above today's fixed size, so no new overflow) and stay readable. */
+  display: flex; align-items: center; gap: max(6px, calc(8 * var(--fpx)));
+  padding: max(6px, calc(8 * var(--fpx))) max(12px, calc(16 * var(--fpx)));
   border-radius: var(--r-md);
   background: rgba(4, 20, 14, 0.88);
   border: var(--bw) solid var(--success);
   box-shadow: var(--shadow-hard-sm), 0 0 18px rgba(0, 255, 156, 0.35);
-  font-family: var(--font-pixel); font-size: 10px; letter-spacing: 0.06em;
+  font-family: var(--font-pixel); font-size: max(8px, calc(10 * var(--fpx))); letter-spacing: 0.06em;
   color: var(--success); white-space: nowrap;
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
@@ -8925,11 +8930,13 @@ button.panel { color: var(--text); }
 }
 .settle-note.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .settle-note__dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: max(6px, calc(8 * var(--fpx))); height: max(6px, calc(8 * var(--fpx))); border-radius: 50%;
   background: var(--success); box-shadow: 0 0 8px var(--success);
   animation: pulse-danger 900ms var(--ease) infinite;
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Only the animation is dropped — the dot keeps its --fpx size, which is
+     geometry the reduced-motion path must not touch, so nothing to reconcile. */
   .settle-note__dot { animation: none; }
 }
 
@@ -10737,8 +10744,16 @@ button.panel { color: var(--text); }
   left: calc(var(--field-x) + var(--field-w) / 2);
   transform: translateX(-50%);
   z-index: 5;
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 14px;
+  /* Sized in --fpx (the field-relative unit the rest of the plant HUD uses),
+     not fixed px, so the banner tracks the letterboxed field: at the Deck's
+     native ~1280 field --fpx ≈ 1 and these match their old fixed values, but
+     docked to a high-res external display the field grows and the banner grows
+     with the --fpx-scaled readouts around it instead of staying pinned small.
+     Floors equal the old `@media (max-height: 480px)` step-down (now removed —
+     see below), so a short landscape phone, where --fpx is always < 0.67 and
+     the floors always win, renders exactly what that media query used to. */
+  display: flex; align-items: center; gap: max(7px, calc(10 * var(--fpx)));
+  padding: max(5px, calc(7 * var(--fpx))) max(10px, calc(14 * var(--fpx)));
   background: rgba(10, 10, 20, 0.78);
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-md);
@@ -10746,22 +10761,29 @@ button.panel { color: var(--text); }
   font-family: var(--font-pixel);
   white-space: nowrap;
 }
+/* All font/pip sizes ride --fpx too (floor px, then calc(<native> * --fpx)), so
+   the whole banner scales as one unit with the field. Floors: the mode/of/
+   contract pixel-font labels floor near their native size (7-8px, the pixel
+   font's readable minimum, matching .pl-funds .lbl at 7px) so they never regress
+   below today; the headline number and pips floor at the old max-height step-
+   down values (12px, 7x4px) so cramped screens are unchanged. */
 .bay-banner__mode {
-  font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-size: max(7px, calc(8 * var(--fpx))); letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text-muted);
 }
-.bay-banner__n { font-size: 15px; font-weight: 700; color: var(--accent); }
-.bay-banner__of { font-size: 10px; color: var(--text-dim); }
-.bay-banner__pips { display: flex; gap: 3px; align-items: center; }
-.bay-banner__pips i { width: 9px; height: 5px; border-radius: 1px; background: var(--surface-3); display: block; }
+.bay-banner__n { font-size: max(12px, calc(15 * var(--fpx))); font-weight: 700; color: var(--accent); }
+.bay-banner__of { font-size: max(8px, calc(10 * var(--fpx))); color: var(--text-dim); }
+.bay-banner__pips { display: flex; gap: max(2px, calc(3 * var(--fpx))); align-items: center; }
+.bay-banner__pips i { width: max(7px, calc(9 * var(--fpx))); height: max(4px, calc(5 * var(--fpx))); border-radius: 1px; background: var(--surface-3); display: block; }
 .bay-banner__pips i.done { background: var(--accent); }
 .bay-banner__pips i.cur { background: var(--warn); box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
-.bay-banner--contract { font-size: 10px; color: var(--text); }
-@media (max-height: 480px) {
-  .bay-banner { padding: 5px 10px; gap: 7px; }
-  .bay-banner__n { font-size: 12px; }
-  .bay-banner__pips i { width: 7px; height: 4px; }
-}
+.bay-banner--contract { font-size: max(8px, calc(10 * var(--fpx))); color: var(--text); }
+/* The `@media (max-height: 480px)` step-down that used to live here is gone: on
+   any viewport that short the field is at most 480*16/9 ≈ 853px wide, so --fpx
+   is always < 0.67 and every calc() above falls to its floor — and those floors
+   ARE the values that media query set (padding 5/10, gap 7, n 12, pips 7x4).
+   Keeping a fixed-px override here would have re-pinned the banner at high res on
+   the very short-and-docked case the --fpx move exists to fix. */
 
 /* ---------- Interactive coach (first-run tutorial) ----------
    One instruction at a time, advancing when the player actually performs the
