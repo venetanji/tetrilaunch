@@ -94,10 +94,14 @@ nsis:
 mac:
   icon: build/icon.png # electron-builder derives the .icns from this.
   category: public.app-category.games
+  # dmg only. A `zip` target would re-package the very same `.app` the dmg
+  # already contains — ~155 MB per arch of duplicate — and its only real
+  # consumer is a Squirrel.Mac/Sparkle auto-updater feed, which this app does
+  # not have (`publish: null`, see the note above and desktop/README.md). So it
+  # was 310 MB of dead weight in every macOS release. Bring it back only when an
+  # auto-updater that reads the zip is added.
   target:
     - target: dmg
-      arch: [x64, arm64]
-    - target: zip
       arch: [x64, arm64]
   # AD-HOC, NOT null. This is the one place where "no code signing" is the
   # wrong instruction. `identity: null` skips codesign entirely, and an
