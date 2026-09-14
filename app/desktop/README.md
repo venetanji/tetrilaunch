@@ -118,7 +118,7 @@ failed.
 | --- | --- |
 | `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing the Developer ID Application certificate and private key |
 | `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting that `.p12` |
-| `MACOS_SIGNING_IDENTITY` | Full identity, for example `Developer ID Application: Example Ltd (TEAMID)` |
+| `MACOS_SIGNING_IDENTITY` | The certificate name **without** the `Developer ID Application:` prefix, e.g. `Example Ltd (TEAMID)` — electron-builder prepends the cert type itself and errors if you include it |
 | `ASC_API_KEY_P8` | Base64 of the App Store Connect API key (`.p8`) — **the same value `ios-build` holds** |
 | `ASC_API_KEY_ID` | That key's ID, e.g. `2X9R4HXF34` — same as `ios-build` |
 | `ASC_API_ISSUER_ID` | The issuer UUID from the same page — same as `ios-build` |
@@ -194,17 +194,21 @@ Then encode it without line wraps:
 base64 < DeveloperIDApplication.p12 | tr -d '\n'
 ```
 
-`MACOS_SIGNING_IDENTITY` is the certificate's Common Name verbatim. On a Mac,
-`security find-identity -v -p codesigning` prints it; from the PEM above, so
-does
+`MACOS_SIGNING_IDENTITY` is the certificate's Common Name **with the
+`Developer ID Application:` prefix stripped off**. electron-builder prepends
+the certificate type itself and throws `InvalidConfigurationError: Please
+remove prefix "Developer ID Application:"` if the prefix is present — so the
+full CN, which is what a first attempt naturally reaches for, is exactly the
+value that fails. From the PEM above:
 
 ```bash
 openssl x509 -in developerID.pem -noout -subject
 # subject=UID=ABCDE12345, CN=Developer ID Application: Example Ltd (ABCDE12345), ...
+# -> MACOS_SIGNING_IDENTITY = Example Ltd (ABCDE12345)
 ```
 
-Take the `CN=` value without the surrounding quotes. Its parenthesised suffix
-is also `APPLE_TEAM_ID`.
+Take the `CN=` value and drop the leading `Developer ID Application: `. Its
+parenthesised suffix is also `APPLE_TEAM_ID`.
 
 Setting all six, given the values above:
 

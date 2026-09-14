@@ -1,4 +1,4 @@
-name: Desktop builds
+name: Desktop build & release
 
 # Windows installer, macOS dmg/zip and Linux AppImage, published to a GitHub
 # Release.

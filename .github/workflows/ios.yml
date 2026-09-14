@@ -1,4 +1,4 @@
-name: iOS TestFlight build
+name: iOS build & TestFlight
 
 # Builds the signed iOS app and uploads it to TestFlight. From there App Store
 # submission is a deliberate click in App Store Connect — same shape as
