@@ -38,11 +38,9 @@
 
 	"Depots"
 	{
-		// DEPOT IDS ARE ASSUMED (AppID+1/+2/+3) AND MUST BE CONFIRMED against
-		// the Steamworks dashboard (SteamPipe → Depots) before the first real
-		// upload. A wrong id uploads into the wrong depot silently.
+		// Depot IDs confirmed against the dashboard 2026-09-14.
 		"5270761" "depot_build_5270761.vdf"   // Windows  -> win-unpacked/
-		"5270762" "depot_build_5270762.vdf"   // Linux    -> linux-unpacked/
-		"5270763" "depot_build_5270763.vdf"   // macOS    -> mac/ (x64; see file)
+		"5270762" "depot_build_5270762.vdf"   // macOS    -> mac/ (x64; see file)
+		"5270763" "depot_build_5270763.vdf"   // Linux    -> linux-unpacked/
 	}
 }

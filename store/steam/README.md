@@ -13,15 +13,15 @@ Phase 5 before touching anything here.
 | --- | --- |
 | `app_build_5270760.vdf` | The build. App ID, `ContentRoot`, `Preview`, `SetLive`, and the depot → depot-script map. |
 | `depot_build_5270761.vdf` | Windows depot ← `win-unpacked/` |
-| `depot_build_5270762.vdf` | Linux depot ← `linux-unpacked/` (the Steam Deck one) |
-| `depot_build_5270763.vdf` | macOS depot ← `mac/` (x64; runs everywhere via Rosetta 2 — see the file) |
+| `depot_build_5270762.vdf` | macOS depot ← `mac/` (x64; runs everywhere via Rosetta 2 — see the file) |
+| `depot_build_5270763.vdf` | Linux depot ← `linux-unpacked/` (the Steam Deck one) |
 
 **`output/` is gitignored** — it is the `BuildOutput` cache and logs.
 
-> **Depot IDs are ASSUMED** (AppID+1/+2/+3) and **must be confirmed** against the
-> Steamworks dashboard (SteamPipe → Depots) before the first real upload. If they
-> are wrong the upload goes into the wrong depot with no error. A confirmed set
-> is a find-and-replace across these four files.
+> **Depot IDs confirmed 2026-09-14:** `5270761` Windows, `5270762` macOS,
+> `5270763` Linux. Note macOS and Linux are NOT in AppID order — set each depot's
+> **Operating Systems** field in App Admin to match, or Steam serves the wrong
+> tree to a platform with no error.
 
 ## Two safety defaults baked into `app_build`
 
@@ -75,8 +75,8 @@ path that stops existing fails loudly.
 | Depot | Content root | Launch binary / target |
 | --- | --- | --- |
 | Windows `5270761` | `app/desktop/release/win-unpacked/` | `Tetrilaunch.exe` |
-| Linux `5270762` | `app/desktop/release/linux-unpacked/` | `tetrilaunch` (lowercase) |
-| macOS `5270763` | `app/desktop/release/mac/` (x64) | `Tetrilaunch.app` |
+| macOS `5270762` | `app/desktop/release/mac/` (x64) | `Tetrilaunch.app` |
+| Linux `5270763` | `app/desktop/release/linux-unpacked/` | `tetrilaunch` (lowercase) |
 
 Three things about that table:
 

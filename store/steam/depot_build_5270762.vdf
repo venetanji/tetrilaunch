@@ -1,16 +1,28 @@
-// Linux depot for Tetrilaunch. Content: app/desktop/release/linux-unpacked/.
-// THE DEPOT THAT MAKES STEAM DECK POSSIBLE. Launch binary (set in App Admin
-// launch options, NOT here): `tetrilaunch` — LOWERCASE. It disagrees with the
-// productName on purpose (electron-builder's linux.executableName); a launch
-// option with a capital T installs fine and never starts.
+// macOS depot for Tetrilaunch. Content: app/desktop/release/mac/ (the x64
+// build). Launch target (set in App Admin launch options, NOT here):
+// Tetrilaunch.app.
+//
+// WHY x64 AND NOT arm64 OR UNIVERSAL: a Steam depot is selected by OS, not by
+// CPU — one macOS depot serves every Mac, so it has to carry a binary every Mac
+// can run. The x64 build runs natively on Intel and under Rosetta 2 on Apple
+// Silicon, so this single existing artifact covers the whole install base with
+// no extra build. A UNIVERSAL build (native on both) is the proper upgrade and
+// is tracked as a follow-up in docs/STEAM.md; it needs an electron-builder
+// `--universal` dir target and a Mac to sign, so it is deliberately not the
+// first cut. arm64-only is wrong here: it would not run on Intel Macs at all.
+//
+// Not on the Steam Deck path — the Deck consumes the Linux (or Windows/Proton)
+// depot — so this depot is wired but first exercised in CI, not locally (no Mac
+// in the dev/CI-Windows loop).
 "DepotBuild"
 {
-	"DepotID" "5270762"   // CONFIRM against the dashboard.
+	"DepotID" "5270762"   // macOS (per the dashboard: 61 win, 62 mac, 63 linux).
 
 	"FileMapping"
 	{
 		// Relative to the AppBuild's ContentRoot (app/desktop/release/).
-		"LocalPath" "linux-unpacked/*"
+		// release/mac/ is the x64 tree; release/mac-arm64/ is the arm64 one.
+		"LocalPath" "mac/*"
 		"DepotPath" "."
 		"Recursive" "1"
 	}
