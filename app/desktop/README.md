@@ -119,13 +119,26 @@ failed.
 | `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing the Developer ID Application certificate and private key |
 | `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting that `.p12` |
 | `MACOS_SIGNING_IDENTITY` | Full identity, for example `Developer ID Application: Example Ltd (TEAMID)` |
-| `APPLE_ID` | Apple Account used for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple Account, from appleid.apple.com → Sign-In and Security → App-Specific Passwords |
-| `APPLE_TEAM_ID` | Ten-character Apple Developer Team ID |
+| `ASC_API_KEY_P8` | Base64 of the App Store Connect API key (`.p8`) — **the same value `ios-build` holds** |
+| `ASC_API_KEY_ID` | That key's ID, e.g. `2X9R4HXF34` — same as `ios-build` |
+| `ASC_API_ISSUER_ID` | The issuer UUID from the same page — same as `ios-build` |
 
-`APPLE_TEAM_ID` is deliberately duplicated here rather than shared with
-`ios-build`: one environment per signing domain keeps a desktop release from
-depending on an environment named for the iOS pipeline.
+Only the first three are new. The last three are the credential `ios.yml`
+already uses to upload to TestFlight: `notarytool` accepts an App Store Connect
+API key in place of an Apple ID and app-specific password, so a Developer ID
+release needs no second credential invented for it. Environment secrets are not
+shared between environments, so the values still have to be *copied* into
+`desktop-build` — but there is nothing new to create.
+
+Preferring the API key is not only about reuse. An app-specific password hangs
+off a personal Apple account and stops working the moment that password changes
+or the entry is revoked, which surfaces as a release failing notarization months
+after anyone touched this workflow.
+
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are **not** used
+here, and adding the first two back would actively break things: app-builder-lib
+tests for that pair before looking for an API key, so setting either one commits
+it to a path it cannot then complete.
 
 The certificate is a **Developer ID Application** one — the certificate type
 for software shipped outside the Mac App Store, and *not* the Apple
@@ -202,9 +215,12 @@ base64 < DeveloperIDApplication.p12 | tr -d '\n' |
   gh secret set MACOS_CERTIFICATE --env desktop-build
 gh secret set MACOS_CERTIFICATE_PASSWORD       --env desktop-build
 gh secret set MACOS_SIGNING_IDENTITY           --env desktop-build
-gh secret set APPLE_ID                         --env desktop-build
-gh secret set APPLE_APP_SPECIFIC_PASSWORD      --env desktop-build
-gh secret set APPLE_TEAM_ID                    --env desktop-build
+
+# The App Store Connect trio, same values already in ios-build.
+base64 < AuthKey_XXXXXXXXXX.p8 | tr -d '\n' |
+  gh secret set ASC_API_KEY_P8 --env desktop-build
+gh secret set ASC_API_KEY_ID                   --env desktop-build
+gh secret set ASC_API_ISSUER_ID                --env desktop-build
 ```
 
 Then rehearse with a `workflow_dispatch` of `desktop.yml` before tagging: it

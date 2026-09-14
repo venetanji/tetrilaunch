@@ -177,9 +177,24 @@ jobs:
 
       # electron-builder imports the base64 PKCS#12 from CSC_LINK into a
       # temporary keychain, signs the app and dmg with Developer ID, then asks
-      # Apple to notarize the dmg. The checked-in config stays ad-hoc so a local
+      # Apple to notarize it. The checked-in config stays ad-hoc so a local
       # build without secrets remains useful; these overrides are deliberately
       # confined to the macOS CI leg.
+      #
+      # NOTARIZATION AUTHENTICATES WITH THE App Store Connect API KEY, not an
+      # Apple ID and app-specific password. notarytool takes either, and the
+      # API key is the one this repo already has: ios-build holds the same
+      # three values for the TestFlight upload, so a Developer ID release needs
+      # no second credential invented for it. It is also the more durable half
+      # of the choice — an app-specific password hangs off a personal Apple
+      # account and dies silently when that password is changed or the entry is
+      # revoked, taking the next release with it.
+      #
+      # DO NOT ADD APPLE_ID OR APPLE_APP_SPECIFIC_PASSWORD TO THIS STEP'S env.
+      # app-builder-lib's getNotarizeOptions tests that pair FIRST and, if
+      # either is merely present, commits to it and throws when the rest of the
+      # trio is missing — so a half-set Apple ID would break notarization that
+      # the API key below would otherwise have completed.
       - name: Package, sign and notarize macOS
         if: matrix.script == 'dist:mac'
         working-directory: app/desktop
@@ -187,22 +202,76 @@ jobs:
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
           set -euo pipefail
-          for name in CSC_LINK CSC_KEY_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::Required macOS signing secret $name is not set in the desktop-build environment — see the signing table in app/desktop/README.md."
+          # Secret name : the env var it arrives as, so the error names the
+          # thing you actually have to go and set.
+          for pair in \
+            "MACOS_CERTIFICATE:CSC_LINK" \
+            "MACOS_CERTIFICATE_PASSWORD:CSC_KEY_PASSWORD" \
+            "MACOS_SIGNING_IDENTITY:MACOS_SIGNING_IDENTITY" \
+            "ASC_API_KEY_P8:ASC_API_KEY_P8" \
+            "ASC_API_KEY_ID:ASC_API_KEY_ID" \
+            "ASC_API_ISSUER_ID:ASC_API_ISSUER_ID"; do
+            secret=${pair%%:*}
+            var=${pair##*:}
+            if [ -z "${!var:-}" ]; then
+              echo "::error::$secret is not set in the desktop-build environment — see the signing table in app/desktop/README.md."
               exit 1
             fi
           done
+
+          # APPLE_API_KEY is a PATH to the .p8, not its contents: @electron/
+          # notarize hands it straight to `notarytool --key`. The secret holds
+          # the key base64-encoded (same shape ios.yml stores it in), so it has
+          # to land on disk first.
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_${ASC_API_KEY_ID}.p8"
+          export APPLE_API_KEY_ID="$ASC_API_KEY_ID"
+          export APPLE_API_ISSUER="$ASC_API_ISSUER_ID"
+          printf '%s' "$ASC_API_KEY_P8" | base64 -d > "$APPLE_API_KEY"
+
           npm run dist:mac -- \
             --config.mac.identity="$MACOS_SIGNING_IDENTITY" \
             --config.mac.hardenedRuntime=true \
             --config.mac.notarize=true \
             --config.dmg.sign=true
+
+      # NOTARIZATION FAILING IS NOT LOUD. app-builder-lib's notarizeIfProvided
+      # logs "skipped macOS notarization" as a WARNING and returns normally when
+      # it cannot assemble credentials — so a renamed or empty API-key variable
+      # produces a green build, a signed dmg, and a release that every user's
+      # Mac refuses with "Apple could not verify this app is free of malware".
+      # The guard above cannot catch that alone: it proves the secrets are
+      # non-empty, not that Apple accepted them. So assert the outcome.
+      #
+      # stapler validate is the direct question — is the notarization ticket
+      # attached — and @electron/notarize staples the .app (throwing if that
+      # fails) before electron-builder wraps it in the dmg. spctl then asks
+      # Gatekeeper the same question a user's Mac asks on first launch, which
+      # is the one that actually matters.
+      - name: Verify the build is notarized, not just signed
+        if: matrix.script == 'dist:mac'
+        working-directory: app/desktop
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # One .app per arch: release/mac/ for x64, release/mac-arm64/ for arm64.
+          apps=(release/mac*/*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::no .app bundle was produced; nothing was signed"
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            echo "--- $app"
+            if ! xcrun stapler validate "$app"; then
+              echo "::error::$app carries no notarization ticket. The package step likely skipped notarization with a warning rather than failing — check its log for 'skipped macOS notarization'."
+              exit 1
+            fi
+            spctl --assess --type execute --verbose=4 "$app"
+          done
 
       - uses: actions/upload-artifact@v7
         with:
