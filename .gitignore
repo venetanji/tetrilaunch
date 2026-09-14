@@ -38,6 +38,10 @@ keystore.properties
 *.p8
 *.p12
 *.mobileprovision
+# Local signing material of every kind. The extension list above misses raw
+# keys (.key/.pem), CSRs and .cer downloads, so ignore the whole tree — nothing
+# under secrets/ is ever meant to be committed.
+secrets/
 
 # audio masters. The generated originals are the biggest thing in the project
 # and are only needed when re-trimming; the PROCESSED assets under
