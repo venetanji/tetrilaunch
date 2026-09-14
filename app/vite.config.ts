@@ -90,11 +90,13 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        // The policy pages are real documents, not app routes. Without this,
-        // the SW's navigation fallback serves the game shell for /privacy and
-        // /support to anyone who has visited the game once — while the store
-        // reviewers, fetching fresh, see the policy. Both must see the policy.
-        navigateFallbackDenylist: [/^\/privacy/, /^\/support/],
+        // The policy pages and the /about landing page are real documents, not
+        // app routes. Without this, the SW's navigation fallback serves the game
+        // shell for /privacy, /support and /about to anyone who has visited the
+        // game once — while a fresh fetch (a store reviewer, or someone opening
+        // the shared /about link for the first time) sees the real page. Both
+        // must see the real page.
+        navigateFallbackDenylist: [/^\/privacy/, /^\/support/, /^\/about/],
         // mp3 included so the PWA still has sound offline. It is by a wide
         // margin the biggest thing in the precache — ~30.3 MB of a ~30.7 MB
         // total, and 29 of that is music, because the Deep Run gives each of
