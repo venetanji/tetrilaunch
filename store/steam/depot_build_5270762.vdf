@@ -1,0 +1,17 @@
+// Linux depot for Tetrilaunch. Content: app/desktop/release/linux-unpacked/.
+// THE DEPOT THAT MAKES STEAM DECK POSSIBLE. Launch binary (set in App Admin
+// launch options, NOT here): `tetrilaunch` — LOWERCASE. It disagrees with the
+// productName on purpose (electron-builder's linux.executableName); a launch
+// option with a capital T installs fine and never starts.
+"DepotBuild"
+{
+	"DepotID" "5270762"   // CONFIRM against the dashboard.
+
+	"FileMapping"
+	{
+		// Relative to the AppBuild's ContentRoot (app/desktop/release/).
+		"LocalPath" "linux-unpacked/*"
+		"DepotPath" "."
+		"Recursive" "1"
+	}
+}

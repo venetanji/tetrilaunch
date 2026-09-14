@@ -31984,9 +31984,13 @@ section("The desktop monetization boundary (docs/STEAM.md)");
     `${(builderYml.match(/- target: dir/g) ?? []).length} of 3`);
   // The installers are the direct-download channel and Steam is an ADDITIONAL
   // channel, not a replacement. This is the pin that catches a "simplification"
-  // that dropped them.
+  // that dropped them. The mac `zip` target is deliberately NOT in this list:
+  // v1.0.5 removed it as redundant — a zip re-packages the very `.app` the dmg
+  // already carries, and nothing here consumes it (no Sparkle/Squirrel feed;
+  // see the mac block in electron-builder.yml). That removal is a separate
+  // decision from Steam and is not a target traded away for the `dir` depots.
   check("...and no installer target was traded away for it",
-    ["- target: nsis", "- target: dmg", "- target: zip", "- target: AppImage"]
+    ["- target: nsis", "- target: dmg", "- target: AppImage"]
       .every((t) => builderYml.includes(t)));
 }
 

@@ -11,17 +11,21 @@ this builds on and none of which is repeated here.
 
 ## Status
 
-**Blocked on tax verification** of the Steamworks account (submitted late
-August 2026; Valve quotes a few business days and it has been about a week).
-Until it clears there is no App ID, and without an App ID there are no depot
-IDs, no store page and no upload.
+**Unblocked.** The Steamworks account cleared tax verification and the app was
+approved — **App ID `5270760`**. The SteamPipe scripts are written and live in
+`store/steam/` (App ID filled in; depot IDs assumed as AppID+1/+2/+3 and to be
+confirmed against the dashboard), and CI can upload them — see Phase 5.
 
-That blocks less than it sounds like. Everything through Phase 4 below is local
-work that needs no App ID, and even the SteamPipe scripts can be exercised
-offline — `preview "1"` in an app_build script does a full dry run that chunks
-and validates content without uploading, and `sdk/tools/ContentServer/` serves
-depot content locally. The App ID is a find-and-replace at the end, not a
-prerequisite.
+A correction to what this section used to claim: **there is no fully-offline
+dry run.** `preview "1"` still requires a login and still contacts the server to
+initialize the build — verified 2026-09-14 with SDK 1.65's `steamcmd`, which
+gets as far as `Scanning content` and then fails `Failed to initialize build on
+server (Access Denied)` under an anonymous login. What that *did* prove offline
+(short of the credential wall) is that the VDFs parse, the App ID is recognised,
+and the `ContentRoot`/file-mapping resolve against a real `win-unpacked/`. A real
+dry run (and any upload) needs the build account logged in. `preview "1"` remains
+the right safe default in the committed VDF — it is a build that uploads nothing,
+not a build that runs without credentials.
 
 ## What is already true
 
@@ -352,13 +356,24 @@ automatically.** `SetLive` works for beta branches only; promoting to default
 is a deliberate click in the Steamworks web UI. That is a feature — it is the
 thing standing between a tag push and shipping a broken build to everyone.
 
-### CI
+### CI — implemented
 
-`.github/workflows/desktop.yml` already builds all three platforms on a matrix
-and knows how to publish on a `v*` tag. The Steam upload is a new job gated on
-that matrix, and it needs one thing the workflow has never needed: a **Steam
-build account** — a dedicated account with "Edit App Metadata" and "Publish App
-Changes To Steam", never the owner account.
+`.github/workflows/desktop.yml` now carries the upload. A `steam-upload` job,
+`needs: package`, gated on `workflow_dispatch` with a `steam_upload` boolean so
+it **never fires on a tag or a published release** — only on a deliberate,
+box-ticked dispatch. When asked, the `package` matrix also uploads each
+platform's unpacked tree as a `steam-*` artifact (the installers-only upload
+omits them), and the `steam-upload` job downloads all three back into
+`app/desktop/release/`, restores the build account's `config.vdf`, fetches
+Valve's `steamcmd`, flips `Preview "1"→"0"` over a copy of the committed VDF, and
+runs `run_app_build` with `SetLive "playtest"`. The desktop monetization gate
+(`verify:store:desktop`) also runs in every matrix leg now, so a depot-bound tree
+is proven store-free before it can be uploaded.
+
+It needs one thing the workflow has never needed: a **Steam build account** — a
+dedicated account with "Edit App Metadata" and "Publish App Changes To Steam",
+never the owner account — supplied as the `STEAM_BUILD_ACCOUNT` and
+`STEAM_CONFIG_VDF` secrets in the `desktop-build` environment.
 
 Steam Guard is the awkward part, and it works differently from every other
 credential in this repo. `steamcmd` cannot be given a 2FA code
@@ -389,10 +404,14 @@ Not code, and the long pole once the account clears:
 
 ## Sequencing
 
-Phases 1–4 need no App ID and can start now. **Phase 1 and the subtractive half
-of Monetization are done** (this branch); Phase 5's scripts can be written and
-dry-run with `preview "1"`, and only the actual upload waits. Phase 6 is gated
-on the account and on art.
+**Phase 1, the subtractive half of Monetization, and Phase 5's scripts + CI are
+done** (this branch). What remains before a build lands on the Deck is not code:
+the depots created and added to the package in the partner site, and the build
+account logged in once so its `config.vdf` becomes a secret. Then a dispatch with
+`steam_upload` ticked pushes to the `playtest` branch. Phase 6 (store page,
+review, the two-week window) is gated on art and Valve, not on us. Phases 2–4
+(Steamworks binding, achievements, Cloud) are deferred: the game is fully
+unlocked on desktop, so none of them block a playable first upload.
 
 The one thing worth doing before anything else is the Phase 2 spike, because
 the binding choice decides how much of `electron-builder.yml` changes, and that

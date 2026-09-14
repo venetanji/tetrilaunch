@@ -1,0 +1,3 @@
+# SteamPipe build cache and logs (the AppBuild "BuildOutput"). Regenerated on
+# every run — logs, chunk cache, depot manifests — and can be hundreds of MB.
+output/

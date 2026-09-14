@@ -1,84 +1,126 @@
 # Steam depot scripts
 
-Empty of scripts on purpose. This is where the SteamPipe `app_build_*.vdf` and
-`depot_build_*.vdf` files will live once an App ID exists — copied out of
-`tools/steamworks/sdk/tools/ContentBuilder/scripts/`, kept here rather than in
-the SDK tree because that tree is a gitignored vendor download and these are
-ours. It sits beside `store/play/` for the same reason that directory exists.
-
-What the directory holds today is the one thing that does not need an App ID:
-**the content roots, written down.**
+The SteamPipe scripts that upload Tetrilaunch's desktop build to its depots.
+App ID **5270760**. Kept here rather than under the gitignored Steamworks SDK
+tree because they are ours; sits beside `store/play/` for the same reason.
 
 The full plan is [docs/STEAM.md](../../docs/STEAM.md). Read its Phase 1 and
-Phase 5 before adding anything here.
+Phase 5 before touching anything here.
+
+## The scripts
+
+| File | Role |
+| --- | --- |
+| `app_build_5270760.vdf` | The build. App ID, `ContentRoot`, `Preview`, `SetLive`, and the depot → depot-script map. |
+| `depot_build_5270761.vdf` | Windows depot ← `win-unpacked/` |
+| `depot_build_5270762.vdf` | Linux depot ← `linux-unpacked/` (the Steam Deck one) |
+| `depot_build_5270763.vdf` | macOS depot ← `mac/` (x64; runs everywhere via Rosetta 2 — see the file) |
+
+**`output/` is gitignored** — it is the `BuildOutput` cache and logs.
+
+> **Depot IDs are ASSUMED** (AppID+1/+2/+3) and **must be confirmed** against the
+> Steamworks dashboard (SteamPipe → Depots) before the first real upload. If they
+> are wrong the upload goes into the wrong depot with no error. A confirmed set
+> is a find-and-replace across these four files.
+
+## Two safety defaults baked into `app_build`
+
+- **`Preview "1"` — a DRY RUN.** As committed, `steamcmd` chunks and validates
+  the content and uploads **nothing**. This is deliberate: the roadmap's #1 trap
+  is a green run that uploaded nothing because someone forgot the flag was on, so
+  here forgetting it is the *safe* direction. The real upload flips it to `"0"`,
+  and **CI does that over a copy**, never by editing the committed file.
+- **`SetLive "playtest"` — a BETA branch.** Beta branches can be set live from
+  the script; the **default branch cannot** (that is a manual click in App Admin
+  → Builds — the guard between a CI run and shipping to everyone). Point the Deck
+  at the `playtest` branch once and every upload lands there.
+
+## Running it
+
+### Dry run — no login, no App-ID access needed
+
+Validates the VDF and that the content chunks cleanly. Do this after any build
+before trusting a real upload. `ContentRoot` is relative to the script file, so
+run it against the tree `desktop:dist:steam` (or CI) left under
+`app/desktop/release/`:
+
+```sh
+# from repo root, using the SDK's bundled steamcmd
+tools/steamworks/sdk/tools/ContentBuilder/builder/steamcmd.exe \
+  +run_app_build "$(pwd)/store/steam/app_build_5270760.vdf" +quit
+```
+
+(`builder_linux/steamcmd.sh` on Linux/CI.) A dry run prints the depot manifests
+it *would* upload; the exit code and the `output/` logs are the evidence.
+
+### Real upload — CI, to the `playtest` beta branch
+
+`.github/workflows/desktop.yml`'s `steam-upload` job stages the three platforms'
+unpacked trees into `app/desktop/release/`, restores the build account's
+`config.vdf` from a secret, copies `app_build_5270760.vdf` with `Preview "0"`,
+and runs `steamcmd +login <build account> +run_app_build … +quit`.
 
 ## The content roots
 
 `npm run desktop:dist:steam` (from `app/`) builds the `--mode native` bundle,
-runs the desktop monetization check over it, and then packages **only** the
-unpacked application directory — the `dir` target each platform block in
-`app/desktop/electron-builder.yml` now declares. Steam is the installer; a
-depot wants that directory and not the NSIS/dmg/AppImage the other targets
-produce.
+runs the desktop monetization check over it, and packages **only** the unpacked
+application directory — the `dir` target each platform block in
+`app/desktop/electron-builder.yml` declares. Steam is the installer; a depot
+wants that directory, not the NSIS/dmg/AppImage the other targets produce.
 
-Paths are relative to the repo root, and they are **pinned here rather than
-globbed** deliberately. A glob that matches nothing uploads an empty depot and
-reports success; a pinned path that stops existing fails loudly, at the step
-that can still be fixed.
+Paths are relative to the repo root and **pinned here rather than globbed**: a
+glob that matches nothing uploads an empty depot and reports success; a pinned
+path that stops existing fails loudly.
 
-| Depot | Content root | Launch binary |
+| Depot | Content root | Launch binary / target |
 | --- | --- | --- |
-| Windows | `app/desktop/release/win-unpacked/` | `Tetrilaunch.exe` |
-| Linux | `app/desktop/release/linux-unpacked/` | `tetrilaunch` |
-| macOS (x64) | `app/desktop/release/mac/` | `Tetrilaunch.app` |
-| macOS (arm64) | `app/desktop/release/mac-arm64/` | `Tetrilaunch.app` |
-
-Measured on x64 Linux, 2026-09-01: `desktop:dist:steam` emitted
-`release/linux-unpacked/` and nothing else — **71 files, 315 MB**, `tetrilaunch`
-at the root, `resources/app.asar` 33.6 MB, no AppImage. `desktop:dist:linux`
-run afterwards still produced `Tetrilaunch-1.0.2-linux-x86_64.AppImage` at
-152 MB, which is the installers-are-untouched half of the same claim. Windows
-and macOS are unbuilt (no Wine, no Mac in that container); CI is where their
-`dir` targets are first exercised.
+| Windows `5270761` | `app/desktop/release/win-unpacked/` | `Tetrilaunch.exe` |
+| Linux `5270762` | `app/desktop/release/linux-unpacked/` | `tetrilaunch` (lowercase) |
+| macOS `5270763` | `app/desktop/release/mac/` (x64) | `Tetrilaunch.app` |
 
 Three things about that table:
 
 - **The Linux binary is lowercase.** `tetrilaunch`, not `Tetrilaunch` — see
-  `linux.executableName` in `electron-builder.yml` and the reason recorded
-  there. A launch option that disagrees installs fine and never starts.
-- **macOS has two roots, and which one ships is still open.** Two arches, two
-  directories, one `.app` in each. Per-arch depots, a universal build, or
-  arm64-only are all defensible and the choice belongs to Phase 5, so no path
-  here is marked canonical yet.
-- **`dist:steam` builds the host platform and host arch.** That is what makes
-  it a fast local loop. For anything else, drive electron-builder directly
-  (`npx electron-builder --dir --mac --arm64` and so on) from `app/desktop/`.
-  Cross-building the unpacked tree is *less* constrained than the installers —
-  there is no NSIS toolchain or dmg to make — but a macOS tree still wants a
-  Mac to sign, ad-hoc or otherwise.
+  `linux.executableName`. A launch option that disagrees installs and never
+  starts.
+- **macOS ships x64, on purpose.** A Steam depot is chosen by OS, not CPU, so one
+  Mac depot must run on every Mac; x64 does (native on Intel, Rosetta 2 on Apple
+  Silicon) from an artifact CI already builds. Native-arm64 / universal is a
+  documented follow-up (`docs/STEAM.md`), not the first cut. `release/mac-arm64/`
+  holds the arm64 tree if we switch.
+- **`dist:steam` builds the host platform and host arch only.** For anything
+  else, drive electron-builder directly (`npx electron-builder --dir --linux`
+  and so on) from `app/desktop/`, or let CI's matrix do it.
 
 ## What must never be in a depot
 
 `steam_appid.txt` beside the binary is a local-development file: it lets
-`SteamAPI_Init` succeed without launching through Steam. Shipping it in the
-depot is a documented way to break the real launch path. Whatever writes it
-must write it into the checkout, never into `release/`.
+`SteamAPI_Init` succeed without launching through Steam. Shipping it in the depot
+breaks the real launch path. Whatever writes it writes it into the checkout,
+never into `release/`. (Nothing here writes one yet — there is no Steamworks
+binding in the build. That is Phase 2.)
 
-## Traps to expect when the scripts do land
+## Manual prerequisites (partner site — not scriptable)
 
-All four cost a full build cycle to discover, and all four are already known:
+These gate the first real upload and cannot be done via API:
 
-- **`app_build_*.vdf` ships with `"Preview" "1"`.** Copy the template, forget
-  the flag, and you get a green run that uploaded nothing. Useful on purpose
-  before an App ID exists: `preview "1"` is a complete dry run that chunks and
-  validates content offline.
-- **`ContentRoot` is relative to the script file, not the working directory.**
-  From here that means pointing back out at `app/desktop/release/`.
-- **Alternate-platform depots must be added to the app's package.** If they are
-  not, installing on that platform deploys **zero files** — not an error, not a
-  partial install, nothing. Check it the first time a non-Windows depot goes
-  live.
-- **The `default` branch cannot be set live from a script.** `SetLive` works on
-  beta branches only; promoting to default is a deliberate click in the
-  Steamworks web UI. That is a feature, and the thing standing between a tag
-  push and shipping a broken build to everyone.
+1. **Create the three depots** under App 5270760 and **add every one to the
+   app's package.** The alternate-platform trap: a depot not added to the package
+   deploys **zero files** on that platform — not an error, nothing. Confirm the
+   IDs back into these four files.
+2. **Set each depot's launch options** (Windows `Tetrilaunch.exe`, Linux
+   `tetrilaunch`, macOS `Tetrilaunch.app`).
+3. **A dedicated build account** (email Steam Guard) with depot-build rights, not
+   the owner account. Log it in interactively once with `steamcmd`, then preserve
+   `config/config.vdf` as the CI secret. Re-supplying a password re-issues the
+   token and breaks CI on the *next* release, not at the time.
+
+## Traps (all four cost a full build cycle to discover)
+
+- **`Preview "1"` uploads nothing.** Useful on purpose for the dry run; a trap
+  only when it survives into the real upload. CI flips it over a copy.
+- **`ContentRoot` is relative to the script file**, not the working directory —
+  hence `../../app/desktop/release/`.
+- **Alternate-platform depots must be added to the package** (see prerequisite 1).
+- **The `default` branch cannot be set live from a script.** `SetLive` is
+  beta-only; promoting to default is a deliberate click in App Admin → Builds.

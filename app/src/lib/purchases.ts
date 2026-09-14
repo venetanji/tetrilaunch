@@ -309,16 +309,18 @@ let paywallInFlight = false;
  * flow is pending is the same tap, not a second intent.
  */
 export async function presentPaywall(): Promise<boolean> {
+  if (paywallInFlight) return unlimited;
   // The second door. Nothing routes here on desktop today — `fullGame()` is
   // already true there, so no tier gate ever asks — which is precisely why the
   // refusal is loud: if this warning is ever seen, the monetization boundary
-  // has been crossed by a caller that thought it was on the web. Checked before
-  // the in-flight guard so a desktop caller is refused immediately, not queued.
+  // has been crossed by a caller that thought it was on the web. After the
+  // in-flight guard (the one-tap-one-flow invariant owns the very first line),
+  // but still before anything touches the web SDK — and on desktop the flag is
+  // never set, so the warning always fires here.
   if (isDesktop) {
     console.warn(DESKTOP_NO_PAYWALL);
     return unlimited;
   }
-  if (paywallInFlight) return unlimited;
   paywallInFlight = true;
   try {
     return await presentPaywallOnce();
