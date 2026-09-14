@@ -129,18 +129,69 @@ depending on an environment named for the iOS pipeline.
 
 The certificate is a **Developer ID Application** one — the certificate type
 for software shipped outside the Mac App Store, and *not* the Apple
-Distribution certificate `ios-build` uses. Create it once at
-developer.apple.com → Certificates → + → Developer ID Application, then export
-the certificate *and its private key* together from Keychain Access as a
-`.p12`, and encode it without line wraps:
+Distribution certificate `ios-build` uses. Only the Apple Developer Program
+**Account Holder** can create one; Admins cannot. The team is capped at five,
+and revoking one invalidates the signature on builds already in the wild, so
+treat it as long-lived.
+
+#### Producing the `.p12` without a Mac
+
+Keychain Access is the usual route and is not the only one — nothing here
+needs a Mac. Everything Mac-only (`codesign`, `stapler`, the notarization
+submission) happens on the CI runner; locally you only ever handle files.
+
+```bash
+# The private key. Apple never sees this file; losing it means a new cert.
+openssl genrsa -out developerID.key 2048
+
+# The CSR to upload at developer.apple.com → Certificates → + →
+# Developer ID Application. Download the .cer it returns.
+openssl req -new -key developerID.key -out developerID.certSigningRequest \
+  -subj "/emailAddress=you@example.com/CN=Your Name/C=US"
+
+# That .cer is the public half only, in DER. Convert it,
+openssl x509 -inform DER -in developerID_application.cer -out developerID.pem
+
+# fetch Apple's intermediate — see below for why,
+curl -O https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+openssl x509 -inform DER -in DeveloperIDG2CA.cer -out DeveloperIDG2CA.pem
+
+# and bundle key + leaf + chain together.
+openssl pkcs12 -export -legacy \
+  -inkey developerID.key \
+  -in developerID.pem \
+  -certfile DeveloperIDG2CA.pem \
+  -out DeveloperIDApplication.p12 \
+  -passout pass:CHOOSE_A_PASSWORD
+```
+
+Two flags in that last command are the ones that save a debugging session:
+
+- **`-certfile`** puts Apple's intermediate in the bundle. Without it the
+  `.p12` imports cleanly and then `codesign` cannot build a chain to a trusted
+  root — an error that names neither the intermediate nor the cause. A `.p12`
+  exported from Keychain Access on a Mac carries the chain already, which is
+  why this trap is invisible in the usual instructions.
+- **`-legacy`** picks the PKCS#12 encryption macOS's `security import` accepts.
+  OpenSSL 3 defaults to AES-256, which it has been known to refuse.
+
+Then encode it without line wraps:
 
 ```bash
 base64 < DeveloperIDApplication.p12 | tr -d '\n'
 ```
 
-`MACOS_SIGNING_IDENTITY` is the identity string exactly as `security
-find-identity -v -p codesigning` prints it for that certificate, without the
-surrounding quotes.
+`MACOS_SIGNING_IDENTITY` is the certificate's Common Name verbatim. On a Mac,
+`security find-identity -v -p codesigning` prints it; from the PEM above, so
+does
+
+```bash
+openssl x509 -in developerID.pem -noout -subject
+# subject=UID=ABCDE12345, CN=Developer ID Application: Example Ltd (ABCDE12345), ...
+```
+
+Take the `CN=` value without the surrounding quotes. Its parenthesised suffix
+is also `APPLE_TEAM_ID`.
 
 Setting all six, given the values above:
 
