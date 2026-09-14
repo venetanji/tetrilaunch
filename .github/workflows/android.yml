@@ -1,4 +1,4 @@
-name: Android debug APK
+name: Android build & release
 
 # Builds an installable debug APK so the native path stays provably working
 # rather than documented-and-rotting. Nothing is signed or published — release
