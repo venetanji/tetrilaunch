@@ -30908,6 +30908,37 @@ section("Escape backs out of a screen, not only the pause card (D12)");
 }
 
 // ---------------------------------------------------------------------------
+section("The unlock ceremony is dismissible by pad (Steam Deck controller parity)");
+// ---------------------------------------------------------------------------
+// THE RIDE IS DRAWN OVER A LIVE MENU, not on a screen of its own. The tower's
+// unlock celebration sits on top of the menu whose primary action is Play, so
+// padnav's focusInitial lands a pad on Play and the general confirm route
+// (el.click) launches a run rather than clearing the banner. A pointer clears
+// the ride by touching the celebrated floor — pickTier's dismissal-only branch
+// — but a pad-only player (a Steam Deck, which fails the "all functionality
+// reachable via controller" Verified requirement without this) had no
+// equivalent and was stranded on the banner mid-tutorial. onPadUiButton now
+// answers confirm during `celebrating` the same way a floor tap does, mirroring
+// the bayclear tap-through case that sits beside it.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const a = mainSrc.indexOf("private onPadUiButton(");
+  const b = mainSrc.indexOf("private onClick =", a + 1);
+  const padUi = a < 0 || b < 0 ? "" : mainSrc.slice(a, b);
+  check("onPadUiButton exists to be checked", padUi.length > 0 && padUi.length < 8000);
+  // The dismissal reuses pickTier against the parked/celebrated floor
+  // (towerState().selected, towerTravel null throughout the ride) rather than a
+  // hand-rolled teardown, so a pad confirm and a pointer floor tap end the
+  // ceremony through one code path and can never drift.
+  check("confirm during the unlock ceremony dismisses it the way a floor tap does",
+    /if \(this\.celebrating && button === PAD_CONFIRM\) \{[\s\S]{0,240}?this\.pickTier\(this\.towerState\(\)\.selected\);[\s\S]{0,80}?return true;/
+      .test(padUi), padUi.slice(0, 400) || "no celebrating confirm branch in onPadUiButton");
+}
+
+// ---------------------------------------------------------------------------
 section("A sign-in or sign-out that did not complete says so (F4)");
 // ---------------------------------------------------------------------------
 // THE DELETION ALREADY DID THIS and the other two account actions did not: a
