@@ -1,4 +1,4 @@
-name: Deploy: production worker
+name: "Deploy: production worker"
 
 # Production is deliberately manual. Bind this job to a protected GitHub
 # environment with a required reviewer so publishing tetrilaunch.com always

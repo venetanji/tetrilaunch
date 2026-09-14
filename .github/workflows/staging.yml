@@ -1,4 +1,4 @@
-name: Deploy: staging worker
+name: "Deploy: staging worker"
 
 # The `staging` branch, and only it. PRs land here before main, and main is the
 # one branch that must never be deployed by accident: wrangler.jsonc binds
