@@ -28316,6 +28316,24 @@ section("The CRT comb repeats on whole device pixels, and can be switched off");
     /data-toggle="scanlines" aria-checked="true"/.test(paneOn)
       && /data-toggle="scanlines" aria-checked="false"/.test(paneOff));
 
+  // ---- THE FULLSCREEN ROW ----
+  // Fullscreen moved off the HUD/pause card (desktop) into Settings, where it is
+  // a LIVE mirror of the window state, not a persisted setting — so the row is
+  // handed availability and the current fullscreen state rather than reading a
+  // Settings field. Where the Fullscreen API can do nothing (native shells,
+  // iPhone Safari — platform.ts's fullscreenSupported) it renders no row at all,
+  // the same "no dead switch" rule the Haptics and Scanlines rows follow.
+  const fsAvailOff = S.settingsScreen(paneSettings, undefined, true, true, false);
+  const fsAvailOn = S.settingsScreen(paneSettings, undefined, true, true, true);
+  const fsUnavail = S.settingsScreen(paneSettings, undefined, true, false, false);
+  check("Settings carries a Fullscreen row where fullscreen is available",
+    fsAvailOff.includes('data-toggle="fullscreen"'));
+  check("...mirroring the live window state, both ways round",
+    /data-toggle="fullscreen" aria-checked="true"/.test(fsAvailOn)
+      && /data-toggle="fullscreen" aria-checked="false"/.test(fsAvailOff));
+  check("...and NO Fullscreen row where the API can do nothing",
+    !fsUnavail.includes('data-toggle="fullscreen"'));
+
   // ---- THE DEFAULT IS ASKED OF THE DEVICE, AND A SAVE BEATS IT ----
   {
     const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
