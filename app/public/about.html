@@ -11,20 +11,36 @@
   framework and NO external/runtime requests. Every asset it loads is
   first-party from this same origin — the brand fonts (/fonts, self-hosted so
   the app never phones fonts.gstatic.com), the logo (/favicon.svg) and the
-  screenshots (/about/*.png, copied from store/play into public/ so the site can
-  actually serve them). Keep it that way: this page has to load and look right
-  even if the game bundle is broken.
+  screenshots (/about/*.png). Keep it that way: this page has to load and look
+  right even if the game bundle is broken.
+
+  THE SCREENSHOTS ARE FRAMES OF THE REAL GAME, captured headlessly from the
+  dev build (Playwright, the same engine the uifit harness uses) against a
+  seeded mid-ladder save: menu, Workshop and Contracts at 960x540 CSS x2.5,
+  the three bay shots at 1280x720 x1.875 — 2400x1350 each, the same 16:9
+  recipe docs/PLAY.md describes for the store set. They go stale every time
+  the HUD changes, so regenerate ALL of them rather than swapping one; a
+  gallery with two generations of chrome in it reads as two different games.
+  store/play/ is a separate set for the store listings and is not this page's
+  source.
 
   The game stays untouched at the apex — this is a SEPARATE page at /about, not
   the front door. The PWA service worker is told not to shadow it: see
   navigateFallbackDenylist in vite.config.ts, which lists /about alongside the
-  policy pages.
+  policy pages. The page and its gallery are also WEB-ONLY: vite.config.ts
+  keeps them out of the service-worker precache (workbox.globIgnores) and
+  deletes them from every native/desktop bundle (stripWebOnly), so ~1.4 MB of
+  promo PNG never ships inside the app it advertises.
 
   Beta links are the payload; if any change, change them here:
     - iOS TestFlight: https://testflight.apple.com/join/nfQJAZJK
     - Android closed test (join the Google group first): https://groups.google.com/g/tetrilaunch
     - Web: the game itself at / (best in landscape)
     - Desktop (Mac/Windows): GitHub Releases — swap for direct links once they exist.
+    - Steam: App ID 5270760 (docs/STEAM.md). The store page is not live and no
+      store URL is documented yet, so the Steam button below is a COMMENTED
+      placeholder — fill in the URL from the Steamworks partner site once the
+      "Coming Soon" page is approved, and do not guess it before then.
 -->
 <html lang="en">
   <head>
@@ -607,24 +623,28 @@
       <div class="wrap">
         <div class="gallery">
           <figure class="shot">
-            <img src="/about/aim-arc.png" alt="Aiming a shot: a dotted parabola previews the tetromino's flight across the bay" loading="lazy" />
+            <img src="/about/aim-arc.png" width="2400" height="1350" alt="Aiming a shot in a Deep Run bay: a dotted parabola arcs from the cannon over the compactor piston toward a pile of settled tetrominoes, with the funds-versus-target readout and the ship's system rack in the plant panel" loading="lazy" />
             <figcaption><b>Aim.</b> Drag to set angle and power — a dotted arc previews the flight.</figcaption>
           </figure>
           <figure class="shot">
-            <img src="/about/launch.png" alt="A tetromino mid-flight, arcing across the bay after launch" loading="lazy" />
-            <figcaption><b>Launch.</b> Tetromino shipments fly across the bay and settle into the pile.</figcaption>
+            <img src="/about/launch.png" width="2400" height="1350" alt="A green tetromino mid-flight along the aim arc, about to land on the pile at the back of the bay" loading="lazy" />
+            <figcaption><b>Launch.</b> Shipments fly under real physics and settle wherever they land.</figcaption>
           </figure>
           <figure class="shot">
-            <img src="/about/stacked-bay.png" alt="A bay filling up with stacked tetrominoes and the compactor bar" loading="lazy" />
+            <img src="/about/stacked-bay.png" width="2400" height="1350" alt="A bay stacked high with tetrominoes against the back wall, the compactor piston pushing in from the left, eighteen lines cleared and the funds bar closing on its target" loading="lazy" />
             <figcaption><b>Compact.</b> The compactor sweeps in — land full rows before it clears them.</figcaption>
           </figure>
           <figure class="shot">
-            <img src="/about/workshop.png" alt="The Workshop screen showing permanent ship-system upgrades bought with salvage" loading="lazy" />
+            <img src="/about/workshop.png" width="2400" height="1350" alt="The Workshop: a rack of five installed ship systems, a build budget readout and a Launcher Coils upgrade card priced in salvage" loading="lazy" />
             <figcaption><b>Refit.</b> Spend salvage on permanent ship systems between runs.</figcaption>
           </figure>
           <figure class="shot">
-            <img src="/about/menu.png" alt="The Tetrilaunch main menu with Deep Run, Contracts and Workshop" loading="lazy" />
-            <figcaption><b>Progress.</b> Ten tiers, per-tier leaderboards, daily contracts.</figcaption>
+            <img src="/about/contracts.png" width="2400" height="1350" alt="The Contracts board: today's three contracts — a Lines contract with a launch budget, a Set Piece contract and a zero-waste Pattern contract — each paying salvage" loading="lazy" />
+            <figcaption><b>Contracts.</b> Three a day, no clock, no launch cost — retry as often as you like.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="/about/menu.png" width="2400" height="1350" alt="The Tetrilaunch main menu: the attract demo, the ten-floor tier tower parked on Tier 3, and the Deep Run, Contracts and Workshop buttons" loading="lazy" />
+            <figcaption><b>Progress.</b> Climb the tier tower — ten Tiers, each with its own leaderboard.</figcaption>
           </figure>
         </div>
       </div>
@@ -671,21 +691,26 @@
             <span class="tag">DEEP RUN</span>
             <h3>The gauntlet</h3>
             <p>
-              Ten bays, one life. Each bay you clear lets you ratchet one axis of
-              difficulty and refit your ship with salvage. Ten tiers, each with its
-              own leaderboard — how deep can you get?
+              Ten bays, one life. Every bay you clear deals a hazard draft — take
+              a notch and it sticks for the run — and every third bay docks you
+              at a refit stop to spend scrap on the ship. Ten Tiers, each with
+              its own leaderboard: how deep can you get?
             </p>
           </div>
           <div class="mode contracts">
             <span class="tag">CONTRACTS</span>
             <h3>Quick challenges</h3>
             <p>
-              Short, self-contained bays you can retry as much as you like. A fresh
-              set every day from a shared seed — including a zero-waste pattern
-              contract for the perfectionists.
+              Short, self-contained bays with no clock and no launch cost, free to
+              fail and retry. Three fresh ones every day from a shared seed —
+              including a zero-waste pattern contract for the perfectionists.
             </p>
           </div>
         </div>
+        <p class="note">
+          New pilots start in <b>Flight School</b>: ten short lessons that teach the
+          drag, the compactor and the economy, and hand you the licence for Tier 1.
+        </p>
       </div>
     </section>
 
@@ -715,6 +740,15 @@
             <span class="lead">Mac &amp; Windows</span>
             <span class="sub">Desktop builds →</span>
           </a>
+          <!-- STEAM — PLACEHOLDER, deliberately not rendered. App ID 5270760
+               (docs/STEAM.md); the store page is not live and no URL is
+               documented. Once the Coming Soon page is approved, paste the
+               store URL from Steamworks here and uncomment:
+          <a class="btn btn-block" href="STEAM_STORE_URL" target="_blank" rel="noopener">
+            <span class="lead">Steam</span>
+            <span class="sub">Coming soon — wishlist →</span>
+          </a>
+          -->
         </div>
         <p class="note">
           On Android, join the Google group first — that's what adds you to the Play
