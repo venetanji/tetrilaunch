@@ -8524,6 +8524,28 @@ class App {
       this.overlay.querySelector<HTMLElement>('[data-action="skip-bayclear"]')?.click();
       return true;
     }
+    // A CONFIRM ENDS THE UNLOCK CEREMONY, exactly as a tap on the celebrated
+    // floor does — and this is the pad's ONLY route to it. The tier-unlock ride
+    // is drawn OVER a live menu whose primary action is Play, so focusInitial
+    // parks the pad on Play and the general confirm route below (el.click) would
+    // launch a run rather than clear the banner. A pointer dismisses the ride by
+    // touching the floor (pickTier's dismissal-only branch); without this a
+    // pad-only player — a Steam Deck, where controller parity is a Verified
+    // requirement — was stranded on the banner, unable to continue the tutorial.
+    //
+    // Reuses pickTier against the parked floor rather than a hand-rolled
+    // teardown, so pointer and pad end the ceremony through ONE path and cannot
+    // drift. The car is parked at the celebrated floor (towerState().selected)
+    // with towerTravel null for the whole ride (armUnlockCelebration never sets
+    // it, and setState clears it on the way into the menu), so pickTier takes its
+    // dismissal-only branch: it ends the ride, plays the click, runs no travel.
+    // `celebrating` is only ever true on the menu (armUnlockCelebration /
+    // endUnlockCelebration bracket it), so no state guard is needed — mirroring
+    // the bayclear tap-through case above.
+    if (this.celebrating && button === PAD_CONFIRM) {
+      this.pickTier(this.towerState().selected);
+      return true;
+    }
     // THE CONTROLS SHORTCUT (button 8 — Select/Back/View, "…" on a Deck).
     // Consulted before focus movement so it cannot be shadowed by a screen's
     // own controls, and after the wake window so the press that woke the pad

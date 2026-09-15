@@ -256,7 +256,7 @@ import { MENU_BAY, PREVIEW_BAY, demoLevel } from "../src/game/attract";
 import { createAutopilot } from "../src/game/autopilot";
 import {
   armActivate, armRelease, DISARMED,
-  FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickInView, pickNext, revealShift,
+  edgeScroll, FOCUS_RING_GAP, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, PANE_SCROLL_FRACTION, pickInView, pickNext, revealShift,
   // F7: the inert seal, driven directly by the section at the foot of this file.
   sealBehindScrim,
   type ArmState, type NavRect,
@@ -19500,6 +19500,93 @@ section("A pad selection is revealed whole, ring included (ui/padnav.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("A pad reaches pane content that carries no control (ui/padnav.ts)");
+// ---------------------------------------------------------------------------
+// THE GAP, reported on a Steam Deck: the Workshop's pad could cycle focus
+// through the buy buttons but could not scroll the pane down, so the reference
+// strips at its foot (Owned / Installed), the rack note and any trailing gated
+// card — none of which carry a control of their own — were unreachable without
+// touch, a Deck-Verified failure. reveal() scrolls a control's own unit into
+// view on every focus MOVE, but at the last control in a direction pickNext
+// returns `from`, no focus moves, and reveal never runs — so the pane sat still
+// and everything below the last button stayed off-screen.
+//
+// edgeScroll is the wall's answer, and the piece with no browser in it: given a
+// port's own scroll metrics it returns how far to advance the view toward the
+// pressed edge. The DOM half (finding the port, applying the delta) is
+// moveFocus, pinned by source below and exercised for real by sim/uifit's pad
+// driving. Every number here is a 200px pane over 500px of content, so a
+// near-page step is 200 * PANE_SCROLL_FRACTION.
+{
+  const STEP = 200 * PANE_SCROLL_FRACTION;
+  // A pane with room below advances by a near-page step toward the far edge, so
+  // a wall-press reveals the strip under the last button.
+  check("a down-press at the wall advances the pane toward the foot",
+    edgeScroll(0, 500, 200, "down") === STEP);
+  // ...clamped to the remaining room, so the last press lands flush on the foot
+  // rather than overscrolling into empty space.
+  check("...clamped so the final step stops flush at the bottom",
+    edgeScroll(250, 500, 200, "down") === 50);
+  // Already at the bottom: nothing left to show, so the delta is 0 — which is
+  // how moveFocus tells a scrollable wall from a true one and lets the press
+  // fall through as an ordinary (dead) wall.
+  check("a pane already at its foot does not move",
+    edgeScroll(300, 500, 200, "down") === 0);
+  // The same promise the other way up, for content stranded ABOVE the first
+  // control (a header, an intro paragraph).
+  check("an up-press at the wall advances the pane toward the head",
+    edgeScroll(300, 500, 200, "up") === -STEP);
+  check("...clamped flush at the top",
+    edgeScroll(30, 500, 200, "up") === -30);
+  check("a pane already at its head does not move",
+    edgeScroll(0, 500, 200, "up") === 0);
+  // A pane that does not overflow has no wall to answer: no vertical room, no
+  // scroll, in either direction.
+  check("a pane that fits its content never scrolls",
+    edgeScroll(0, 200, 200, "down") === 0 && edgeScroll(0, 200, 200, "up") === 0);
+  // Vertical only — the overlay's two horizontal strips are one row and cannot
+  // strand content past a fold, so a left/right wall stays a plain wall (the
+  // same axis decision pickInView makes).
+  check("a horizontal wall is left to be a plain wall",
+    edgeScroll(0, 500, 200, "left") === 0 && edgeScroll(0, 500, 200, "right") === 0);
+
+  // THE DOM HALF, pinned by source: moveFocus, when a focus move is a no-op
+  // (next === from, the wall), walks the focused control's scrollable ancestors
+  // and applies edgeScroll to the first with room — the complement of reveal(),
+  // which every focus MOVE already runs. Held to shape here because no headless
+  // check can press a pad; sim/uifit drives the real scroll over the real panes.
+  const padSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "padnav.ts"),
+    "utf8",
+  );
+  const mv = padSrc.slice(
+    padSrc.indexOf("export function moveFocus("),
+    padSrc.indexOf("export function focusOn("),
+  );
+  check("moveFocus exists to be checked", mv.length > 0 && mv.length < 4000);
+  // The scroll itself lives in one helper both branches share, so the two
+  // cannot disagree about what "advance the pane" means.
+  check("scrollPane advances a port by edgeScroll's step",
+    /function scrollPane\([\s\S]*?edgeScroll\(port\.scrollTop, port\.scrollHeight, port\.clientHeight, dir\)[\s\S]*?port\.scrollTop \+= delta/.test(mv),
+    "no scrollPane helper applying edgeScroll");
+  const wall = mv.slice(mv.indexOf("// THE WALL"), mv.indexOf("function scrollPane("));
+  check("moveFocus scrolls the pane at the wall the pad cannot cross by focus",
+    /scrollPort\(targets\[from\]\)[\s\S]*?scrollPane\(port, dir\)/.test(wall),
+    wall.replace(/\s+/g, " ").slice(0, 400) || "no scrollPane wall branch in moveFocus");
+  // ...AND BEFORE LEAVING THE PANE (codex, PR #218). The Workshop's Contracts /
+  // Start Run buttons sit below its scroller, so a Down from the last BUY
+  // button is not a wall at all — pickNext finds a footer button — and the wall
+  // branch never ran while the strips under that button were still unshown.
+  // The leave branch closes it: when the next control lies OUTSIDE a scroller
+  // the focused one lives in, that scroller is advanced first, and focus only
+  // leaves once it has no room left. A move within the pane is untouched.
+  const leave = mv.slice(mv.indexOf("if (next !== from)"), mv.indexOf("// THE WALL"));
+  check("a press that would leave a pane with room left scrolls the pane first",
+    /for \(let port = scrollPort\(targets\[from\]\); port && !port\.contains\(targets\[next\]\);[\s\S]*?if \(scrollPane\(port, dir\)\) return true;[\s\S]*?focusOn\(targets\[next\]\)/.test(leave),
+    leave.replace(/\s+/g, " ").slice(0, 400) || "no leave-a-pane branch before focusOn");
+}
+
+// ---------------------------------------------------------------------------
 section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)");
 // ---------------------------------------------------------------------------
 // THE BUG, reported as "after a purchase the scroll refreshes to the top".
@@ -30905,6 +30992,37 @@ section("Escape backs out of a screen, not only the pause card (D12)");
   ]) {
     check(`Escape now leaves ${state}`, doors.includes(`case "${state}":`), doors.slice(0, 200));
   }
+}
+
+// ---------------------------------------------------------------------------
+section("The unlock ceremony is dismissible by pad (Steam Deck controller parity)");
+// ---------------------------------------------------------------------------
+// THE RIDE IS DRAWN OVER A LIVE MENU, not on a screen of its own. The tower's
+// unlock celebration sits on top of the menu whose primary action is Play, so
+// padnav's focusInitial lands a pad on Play and the general confirm route
+// (el.click) launches a run rather than clearing the banner. A pointer clears
+// the ride by touching the celebrated floor — pickTier's dismissal-only branch
+// — but a pad-only player (a Steam Deck, which fails the "all functionality
+// reachable via controller" Verified requirement without this) had no
+// equivalent and was stranded on the banner mid-tutorial. onPadUiButton now
+// answers confirm during `celebrating` the same way a floor tap does, mirroring
+// the bayclear tap-through case that sits beside it.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const a = mainSrc.indexOf("private onPadUiButton(");
+  const b = mainSrc.indexOf("private onClick =", a + 1);
+  const padUi = a < 0 || b < 0 ? "" : mainSrc.slice(a, b);
+  check("onPadUiButton exists to be checked", padUi.length > 0 && padUi.length < 8000);
+  // The dismissal reuses pickTier against the parked/celebrated floor
+  // (towerState().selected, towerTravel null throughout the ride) rather than a
+  // hand-rolled teardown, so a pad confirm and a pointer floor tap end the
+  // ceremony through one code path and can never drift.
+  check("confirm during the unlock ceremony dismisses it the way a floor tap does",
+    /if \(this\.celebrating && button === PAD_CONFIRM\) \{[\s\S]{0,240}?this\.pickTier\(this\.towerState\(\)\.selected\);[\s\S]{0,80}?return true;/
+      .test(padUi), padUi.slice(0, 400) || "no celebrating confirm branch in onPadUiButton");
 }
 
 // ---------------------------------------------------------------------------
