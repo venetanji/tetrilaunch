@@ -196,6 +196,20 @@ export function moveFocus(root: HTMLElement, dir: NavDir): boolean {
   });
   const next = pickNext(rects, from, dir);
   if (next !== from) {
+    // LEAVING A PANE BEFORE THE PANE IS DONE. The Workshop's Contracts / Start
+    // Run buttons sit BELOW its scroller (`.workshop__go` is a sibling of the
+    // body, not a child of the shelf), so a Down from the last BUY button finds
+    // one of them and, without this, focus would jump out of the pane while the
+    // Owned/Installed strips and the trailing gated cards under that button are
+    // still unshown — the exact content the wall branch below exists to reach,
+    // skipped because there happened to be a control past the pane (codex,
+    // PR #218). So a press that would carry focus OUT of a scroller the focused
+    // control lives in first spends itself on that scroller while it has room
+    // in `dir`; only a pane at its edge lets focus leave. A move WITHIN the
+    // pane is untouched: reveal() brings the next control in, as before.
+    for (let port = scrollPort(targets[from]); port && !port.contains(targets[next]); port = scrollPort(port)) {
+      if (scrollPane(port, dir)) return true;
+    }
     focusOn(targets[next]);
     return true;
   }
@@ -210,12 +224,21 @@ export function moveFocus(root: HTMLElement, dir: NavDir): boolean {
   // ancestor-walk. The press is USED either way — a scrollable wall advances the
   // view, a true wall is a dead end — so the boolean this returns is unchanged.
   for (let port = scrollPort(targets[from]); port; port = scrollPort(port)) {
-    const delta = edgeScroll(port.scrollTop, port.scrollHeight, port.clientHeight, dir);
-    if (delta !== 0) {
-      port.scrollTop += delta;
-      break;
-    }
+    if (scrollPane(port, dir)) break;
   }
+  return true;
+}
+
+/** Advance `port` toward the `dir` edge by a near-page step (edgeScroll) and
+ *  say so, or false when it has no real room that way. "Real" is more than a
+ *  pixel: a pane a fraction of a pixel short of its edge is at its edge, and
+ *  spending a press on that fraction would read as a dead press to the player
+ *  (and, in the leave-a-pane case above, keep focus in the pane one press too
+ *  long). Local scroll coordinates throughout, as edgeScroll's own note says. */
+function scrollPane(port: HTMLElement, dir: NavDir): boolean {
+  const delta = edgeScroll(port.scrollTop, port.scrollHeight, port.clientHeight, dir);
+  if (Math.abs(delta) <= 1) return false;
+  port.scrollTop += delta;
   return true;
 }
 

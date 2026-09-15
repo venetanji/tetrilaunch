@@ -19563,10 +19563,27 @@ section("A pad reaches pane content that carries no control (ui/padnav.ts)");
     padSrc.indexOf("export function moveFocus("),
     padSrc.indexOf("export function focusOn("),
   );
-  check("moveFocus exists to be checked", mv.length > 0 && mv.length < 2000);
+  check("moveFocus exists to be checked", mv.length > 0 && mv.length < 4000);
+  // The scroll itself lives in one helper both branches share, so the two
+  // cannot disagree about what "advance the pane" means.
+  check("scrollPane advances a port by edgeScroll's step",
+    /function scrollPane\([\s\S]*?edgeScroll\(port\.scrollTop, port\.scrollHeight, port\.clientHeight, dir\)[\s\S]*?port\.scrollTop \+= delta/.test(mv),
+    "no scrollPane helper applying edgeScroll");
+  const wall = mv.slice(mv.indexOf("// THE WALL"), mv.indexOf("function scrollPane("));
   check("moveFocus scrolls the pane at the wall the pad cannot cross by focus",
-    /if \(next !== from\)[\s\S]*?scrollPort\([\s\S]*?edgeScroll\([\s\S]*?\.scrollTop \+=/.test(mv),
-    mv.replace(/\s+/g, " ").slice(0, 400) || "no edgeScroll wall branch in moveFocus");
+    /scrollPort\(targets\[from\]\)[\s\S]*?scrollPane\(port, dir\)/.test(wall),
+    wall.replace(/\s+/g, " ").slice(0, 400) || "no scrollPane wall branch in moveFocus");
+  // ...AND BEFORE LEAVING THE PANE (codex, PR #218). The Workshop's Contracts /
+  // Start Run buttons sit below its scroller, so a Down from the last BUY
+  // button is not a wall at all — pickNext finds a footer button — and the wall
+  // branch never ran while the strips under that button were still unshown.
+  // The leave branch closes it: when the next control lies OUTSIDE a scroller
+  // the focused one lives in, that scroller is advanced first, and focus only
+  // leaves once it has no room left. A move within the pane is untouched.
+  const leave = mv.slice(mv.indexOf("if (next !== from)"), mv.indexOf("// THE WALL"));
+  check("a press that would leave a pane with room left scrolls the pane first",
+    /for \(let port = scrollPort\(targets\[from\]\); port && !port\.contains\(targets\[next\]\);[\s\S]*?if \(scrollPane\(port, dir\)\) return true;[\s\S]*?focusOn\(targets\[next\]\)/.test(leave),
+    leave.replace(/\s+/g, " ").slice(0, 400) || "no leave-a-pane branch before focusOn");
 }
 
 // ---------------------------------------------------------------------------
