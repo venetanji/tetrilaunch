@@ -64,7 +64,46 @@ const ONLY_DEVICE = opt("device");
  */
 const ALLOWED_SCROLLERS = [
   "#lb-body",          // leaderboard rows — an unbounded list by definition
-  ".workshop__shop",   // workshop stock
+  // THE WORKSHOP'S RACK PANEL (screens.ts's workshopScreen), and it replaced
+  // `.workshop__shop` — the scrolling shelf of cards this screen used to be.
+  // The entry survives the rebuild because the arithmetic still bites at the
+  // bottom of the matrix, but it bites in far fewer places:
+  //
+  //   A plate is 44px because that is the tap floor, and a group row costs
+  //   44 + 6 of padding at compact, 44 + 10 at roomy. What it fits inside is
+  //   the rows region: the panel minus its pinned header, padding and border,
+  //   measured at 31px compact and 65px roomy.
+  //
+  //   At roomy/regular the panel is 372px wide, so five plates a row, and the
+  //   worst reachable ownership state is six plate-rows (ten slots bought
+  //   against one system owned: 1 plate + 9 open + the "every slot bought" tag
+  //   over three rows, nine shelf plates over two, one options row) = 319px.
+  //   Measured on a 1280x720 laptop: 378px of rows region in a 443px body. It
+  //   never scrolls there. On a 412-tall phone the panel widens to 448px so a
+  //   row takes EIGHT plates; four rows is 203px, measured against 213px of
+  //   rows region in a 244px body on a Pixel 7. Four fit, five do not.
+  //
+  //   The 360-tall rows of the matrix (640x360, 740x360, 780x360) are the
+  //   exception: measured on an iPhone 13 mini, 163px of rows region in a 194px
+  //   body against 203px of content on the stocked save — three rows fit, four
+  //   do not, so a save with a shed AND an unbought shelf scrolls ~40px THERE.
+  //   The alternatives are shrinking the plate under the tap floor (the
+  //   regression this project already fixed once), unpinning the header, or
+  //   cutting the two doors at the foot — and a slot count, a build budget and
+  //   the way out of the shop are each worth more than the fourth row.
+  //
+  // NOT `.workshop__detail` beside it. That panel has no [data-scroll] at all:
+  // its job is to answer the plate the player just pressed, and an answer below
+  // a fold is not one. It is written to the pane instead — the blurb clamps to
+  // one line at compact, the ladder's stats ellipsise with the full string in
+  // each row's title, and the footnote is dropped below 400px of viewport.
+  //
+  // NOR the panel around it. The entry names `.rack__rows`, the region that
+  // actually moves, and not `.workshop__rack`, which is the frame: the slot
+  // count and the build budget sit in a header OUTSIDE the scroller so they
+  // cannot scroll away from the plates they describe, and an allowlist entry on
+  // the whole panel would have quietly permitted exactly that.
+  ".rack__rows",
   // The refit yard's SHELF, added on arithmetic rather than preference. It
   // offers seven upgrade tracks, each with a BUY button, and a button is 44px
   // because that is the tap floor. Seven of them is 308px of button before a
@@ -331,7 +370,7 @@ const ASSERTIONS = [
   { id: "plant", desc: "the HUD plant panel stays inside its design box, clear of the belt" },
   { id: "crest", desc: "the crest ring registers with the panel's own edges" },
   { id: "rail", desc: "the control rail never overlaps the field" },
-  { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
+  { id: "twocol", desc: "the workshop body is two panels of one height, detail fixed" },
   { id: "oneline", desc: "rows designed as one line render on one line" },
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
@@ -1460,20 +1499,34 @@ function measure(cfg: {
     }
   }
 
-  // --- twocol: the workshop's two-column body -------------------------------
-  // Asserts the LAYOUT, which moved: it used to check that the card grid ran
-  // two-up. The shop is now one of two columns itself — a fixed aside carrying
-  // budget and owned state, beside the scrolling shelf — so the card grid
-  // reflowing to a single column inside a narrow shelf is correct, and the
-  // thing worth holding is that the body kept its two tracks and that the
-  // aside is NOT the part that scrolls.
+  // --- twocol: the workshop's two panels ------------------------------------
+  // Asserts the LAYOUT, which has moved twice: it began as "the card grid runs
+  // two-up", became "a fixed aside beside a scrolling shelf", and is now the
+  // rack panel beside the detail. Three things are worth holding through that,
+  // and all three are the owner's review constraints rather than a style:
+  //
+  //   1. the body still has two tracks at every viewport — a panel that
+  //      collapsed under the other would put the ladder below the fold;
+  //   2. the DETAIL does not scroll. It is the one panel with no [data-scroll]
+  //      and nothing on the allowlist, so an overflow here is the copy
+  //      outgrowing the pane, which is a CI failure and not a design;
+  //   3. the two panels end on ONE line (align-items: stretch). "Make sure that
+  //      both panels are the same height" is the review note this screen was
+  //      rebuilt under, so it is checked rather than trusted to a default.
   const body = document.querySelector(".workshop__body");
   if (body) {
     const tracks = getComputedStyle(body).gridTemplateColumns.trim().split(/\s+/).length;
     if (tracks < 2) out.twocol.push(`workshop body has ${tracks} column(s)`);
-    const aside = document.querySelector(".workshop__aside");
-    if (aside && aside.scrollHeight - aside.clientHeight > 1) {
-      out.twocol.push(`workshop aside scrolls ${Math.round(aside.scrollHeight - aside.clientHeight)}px`);
+    const detail = document.querySelector(".workshop__detail");
+    if (detail && detail.scrollHeight - detail.clientHeight > 1) {
+      out.twocol.push(`workshop detail scrolls ${Math.round(detail.scrollHeight - detail.clientHeight)}px`);
+    }
+    const panel = document.querySelector(".workshop__rack");
+    if (panel && detail) {
+      // 1px of tolerance for the subpixel rounding a fractional grid track
+      // leaves on a dpr the device matrix does not round to.
+      const gap = Math.abs(panel.getBoundingClientRect().height - detail.getBoundingClientRect().height);
+      if (gap > 1) out.twocol.push(`workshop panels differ by ${Math.round(gap)}px in height`);
     }
   }
 

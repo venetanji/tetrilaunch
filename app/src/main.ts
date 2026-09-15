@@ -1098,6 +1098,24 @@ class App {
    *  drill, which is all of the others. */
   private drillFromShop = false;
 
+  /** WHICH PLATE THE WORKSHOP'S DETAIL IS DRAWING (screens.ts's
+   *  workshopScreen) — a system id, an unlock id, or null before the screen has
+   *  ever been opened.
+   *
+   *  HELD HERE RATHER THAN RE-DERIVED PER RENDER, and that is the whole point
+   *  of the field: the four purchase actions on that screen re-render it
+   *  wholesale (renderKeepingScroll), and a selection recomputed on the way
+   *  through would MOVE under the player exactly when they had just acted —
+   *  buy tier 1 of the Launcher and the recommendation becomes something else,
+   *  so the detail would swap to a different system to tell you what you just
+   *  bought. The plate may change rows (a bought system leaves the shelf for
+   *  the rack, a mounted one crosses to the shed); the selection does not.
+   *
+   *  Resolved ONCE on the way in, by the screen's own rule
+   *  (workshopDefaultSelection), so the state layer and the markup cannot
+   *  disagree about which plate is open. */
+  private workshopSelected: string | null = null;
+
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
    *  settings.seenTutorial is set (finish or skip); each step advances when
@@ -1524,6 +1542,16 @@ class App {
     // trip this on the way in.
     if (s !== "account") this.paywallReturn = null;
     if (s !== "account") this.accountError = null;
+    // THE WORKSHOP OPENS ON ONE PLATE, chosen on the way IN. Every entry from
+    // outside the shop re-asks screens.ts's workshopDefaultSelection — the
+    // recommendation if there is one, else the rack's first plate — and every
+    // render from inside keeps whatever the player last pressed. The drill
+    // offer (sys-drill-offer) draws the shop UNDER its modal, so leaving it
+    // counts as an entry and the shop re-opens on what to buy next, which is
+    // the question a player who just bought a system is holding.
+    if (s === "workshop" && this.state !== s) {
+      this.workshopSelected = S.workshopDefaultSelection(this.meta);
+    }
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -3712,7 +3740,8 @@ class App {
       // The profile rides along because the rack's slots say what to DO to
       // them, and that word is the device's (D7, bindings.ts's hintPress).
       case "workshop":
-        this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile);
+        this.overlay.innerHTML =
+          S.workshopScreen(this.meta, this.profile, this.workshopSelected);
         break;
       // Tier S. The MODE ships (lib/devmode.ts), so this is no longer gated on
       // the build — it is gated on the door being open, and guarded here as
@@ -3885,7 +3914,8 @@ class App {
         const track = this.drillOffer;
         const spec = track ? DRILLS[`sys-${track}`] : undefined;
         if (track && spec) {
-          this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile)
+          this.overlay.innerHTML =
+            S.workshopScreen(this.meta, this.profile, this.workshopSelected)
             + S.systemDrillOfferModal({
               name: upgradeById(track)?.name ?? track,
               drill: spec.name,
@@ -4392,11 +4422,17 @@ class App {
    *
    * The reported bug: buy something on the Workshop and the shop pane jumps
    * back to the top. renderOverlay rewrites `overlay.innerHTML` wholesale, so
-   * a purchase does not update `.workshop__shop` — it replaces it, and a fresh
-   * element scrolls to 0. Measured on a 740x360 phone against a progressed
-   * save: a 906px shelf in a 181px pane, the player 725px down it, and every
-   * BUY threw them back to the first card. The stock they were shopping for is
-   * exactly the stock that is furthest from the top.
+   * a purchase does not update the pane — it replaces it, and a fresh element
+   * scrolls to 0. Measured on a 740x360 phone against a progressed save: a
+   * 906px shelf in a 181px pane, the player 725px down it, and every BUY threw
+   * them back to the first card. The stock they were shopping for is exactly
+   * the stock that is furthest from the top.
+   *
+   * That pane is `.rack__rows` now and it is far shorter (44px plates in
+   * place of ~120px cards), so the jump is a handful of pixels on the 360-tall
+   * rows rather than 725 — but the Workshop gained a SELECTION in the same
+   * rebuild, and every one of its five actions re-renders through here to keep
+   * it. The seam earns its place twice over.
    *
    * NOT folded into renderOverlay itself, and that is the whole design of this
    * seam. The offsets are only worth keeping when the shelf the player is in
@@ -6605,6 +6641,31 @@ class App {
     // The shelf the player just bought from is the shelf they are still
     // shopping in — see renderKeepingScroll, which is what the four purchase
     // handlers on this screen use instead of a bare renderOverlay.
+    this.renderKeepingScroll();
+  }
+
+  /** Workshop: read a different system.
+   *
+   *  THE ONE ACTION THAT SPENDS NOTHING, which is what the plates were missing.
+   *  A plate used to be `data-action="mount"` — the only control a system had,
+   *  and it toggled the rack — so browsing the loadout meant changing it. Now a
+   *  press selects, mounting is a button in the detail, and the two decisions
+   *  are two controls.
+   *
+   *  Unknown ids are IGNORED rather than stored, and that is ASKED rather than
+   *  assumed (found in review — this comment claimed the check and the code
+   *  only tested for a non-empty string). A stale attribute must not be able to
+   *  park the field on something the panel does not draw: the screen resolves
+   *  such an id back to its default, so the ring would be on one plate while
+   *  `workshopSelected` named another, which is exactly the drift the shared
+   *  resolver exists to prevent, re-introduced one layer up. screens.ts owns
+   *  the answer (workshopHasPlate) so the question cannot be asked two ways.
+   *
+   *  No save, no sound, no haptic — nothing here is a transaction. */
+  private onSelectSystem(id: string): void {
+    if (!id || id === this.workshopSelected) return;
+    if (!S.workshopHasPlate(this.meta, id)) return;
+    this.workshopSelected = id;
     this.renderKeepingScroll();
   }
 
@@ -9058,6 +9119,7 @@ class App {
       case "stage-upgrade": this.onStageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
       case "unstage-upgrade": this.onUnstageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
       case "refit-done": this.onRefitDone(); break;
+      case "select-system": this.onSelectSystem(el.getAttribute("data-select") ?? ""); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
       case "buy-slot": this.onBuySlot(); break;

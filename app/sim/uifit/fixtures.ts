@@ -17,7 +17,7 @@ import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
 import {
-  LESSONS, LESSON_COUNT, LICENCE_LESSON_COUNT, REVEAL, lessonHasEconomy, levelForLesson,
+  LESSONS, LICENCE_LESSON_COUNT, REVEAL, lessonHasEconomy, levelForLesson,
 } from "../../src/game/school";
 import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
@@ -29,7 +29,7 @@ import { CHAIN_RUNGS_MAX, makeBaseLevel } from "../../src/game/level";
  *  Was the BAY_1 alias, which could only ever describe one tier. */
 const BAY_1 = makeBaseLevel(0);
 import {
-  newMeta, schoolStepOfFlight, SCHOOL_STEPS, SLOT_BASE, SLOT_CAP,
+  newMeta, schoolStepOfFlight, SCHOOL_FLIGHTS, SCHOOL_STEPS, SLOT_BASE, SLOT_CAP, stowedIds,
   tierProgressFor, type MetaState, type NextStepId,
 } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
@@ -321,19 +321,41 @@ function midMeta(): MetaState {
 }
 
 /**
- * A PROGRESSED save, which midMeta above is not: it is `newMeta()` with three
- * numbers written on it, so the ✓ Installed and ✓ Owned strips — the only part
- * of the Workshop that GROWS with the save — were empty in the one fixture
- * measuring that screen, and never measured at all. Adding this immediately
- * caught them overflowing the fixed aside they used to live in, on nine of the
- * thirteen devices; they render in the scroller now.
+ * THE SCHOOL IS BEHIND THIS SAVE — and it has to be said out loud, because
+ * `newMeta()` says the opposite and every meta here is built from it.
  *
- * Five systems installed at mixed tiers (the long strip), one option owned, two
- * systems still on the shelf. Mark 3 beaten, so nothing is gated by tier and
- * the remaining cards render their price rather than their "Needs Tier N" line
- * — the gated case is midMeta's, at Mark 0. Loadout costs 135 of Mark 4's 308
- * budget, i.e. a legal one (upgrades.ts's loadoutLegal), because an
- * over-budget readout is a bug report rather than a layout case.
+ * meta.ts's licenceDone is `licence >= SCHOOL_FLIGHTS`, and the Workshop's very
+ * first branch is `school = !licenceDone(meta)`: mid-school the screen hides
+ * every system but the Reactor, the rack, the shed, the options and its own
+ * header line. So a shop fixture on a save with `licence: 0` measures ONE
+ * PLATE — which is exactly what `workshop` and `workshop-owned` were doing
+ * before this, under comments describing a full shelf they never rendered, and
+ * what `sys-drill-offer` was doing on a licence one flight short of the ladder's
+ * length. sim/systems.ts never caught it because its own `freshMeta` sets the
+ * licence; only the fixtures did not.
+ *
+ * Applied HERE rather than inside midMeta/ownedMeta because those two feed the
+ * guide fixtures and the base-bay panel's PROGRESS as well, and the ladder
+ * state is exactly the thing those measure.
+ */
+const graduated = (m: MetaState): MetaState => ({ ...m, licence: SCHOOL_FLIGHTS });
+
+/**
+ * A PROGRESSED save, which midMeta above is not: it is `newMeta()` with three
+ * numbers written on it, so everything on the Workshop that GROWS with the save
+ * was empty in the one fixture measuring that screen. It was added for the ✓
+ * Installed / ✓ Owned strips of the old shelf — and immediately caught them
+ * overflowing the fixed aside they used to live in, on nine of thirteen
+ * devices. Both the strips and that aside are gone now; what this save measures
+ * on the rebuilt screen is the panel's fullest shape, four group rows at once.
+ *
+ * Five systems installed at mixed tiers, one option owned, and a four-slot rack
+ * against five systems — so one of them is in the SHED, which is the row no
+ * other fixture draws by accident. Mark 3 beaten, so nothing is gated by tier
+ * and the shelf plates carry prices rather than lock badges — the gated case is
+ * midMeta's, at Mark 0. Loadout costs 135 of Mark 4's 308 budget, i.e. a legal
+ * one (upgrades.ts's loadoutLegal), because an over-budget readout is a bug
+ * report rather than a layout case.
  */
 function ownedMeta(): MetaState {
   const m = newMeta();
@@ -1128,27 +1150,81 @@ export const SCREENS: Record<string, () => string> = {
         day: dailySeed(new Date(Date.UTC(2026, 7, 27))),
       }),
 
-  // TWO fixtures, because the screen has two shapes and only one of them was
-  // ever measured. `workshop` is the early save: nothing owned, so there are no
-  // strips and most of the shelf wears a "Needs Tier N" gate. `workshop-owned`
-  // is a Mark-3 save, where the shelf is down to its last cards and carries
-  // both ownership strips at its foot. One shelf in both — the Systems/Options
-  // tabs are gone and both card kinds render together.
+  /* ---- THE WORKSHOP, IN EVERY SHAPE ITS TWO PANELS TAKE ------------------
+   * Seven fixtures, and the count is the point: the screen's constraint is
+   * "no combination of ownership should need scrolling" (docs/workshop-
+   * redesign-plan.md), and a constraint about COMBINATIONS cannot be measured
+   * by one save. Between them these pin the tallest rack panel, the widest rack
+   * row, the tallest shelf, every plate badge, and all four shapes the detail
+   * takes (owned, stowed, gated, option).
+   *
+   * `workshop` is the early save: nothing owned, so the shelf is all ten
+   * systems and most of them wear a LOCK badge at Mark 0. `workshop-owned` is
+   * the Mark-3 save — five systems, four aboard and one in the shed, so it is
+   * the one fixture that draws all four group rows at once, which is the
+   * tallest the panel gets at a realistic ownership level.
+   *
+   * …and the split measures the ON-RAMP too, at no extra fixture cost: midMeta
+   * owns no system, so `workshop` renders the first-visit blurb and the refused
+   * Start Run ("Install a system to fly" — the wider of the two labels, which
+   * is the one the row has to fit), while ownedMeta's five installs give
+   * `workshop-owned` the standing blurb and the live primary. The two states of
+   * meta.ts's rigStarted, one on each fixture.
+   * --------------------------------------------------------------------- */
+  workshop: () => S.workshopScreen(graduated(midMeta())),
+  "workshop-owned": () => S.workshopScreen(graduated(ownedMeta())),
+  // THE TALLEST SHELF. One system owned against a stock four-slot rack: the
+  // rack row draws one plate, three open slots and the +1 plate (five, i.e.
+  // exactly one row at the roomy column width), and the shelf draws the other
+  // NINE — the most plates this panel ever puts in one group. Mark 1, so the
+  // shelf is a mix of live prices and lock badges rather than all of one.
+  "workshop-early": () => S.workshopScreen(graduated({
+    ...newMeta(), salvage: 1_480, runs: 3, bestBay: 4, mark: 1,
+    loadout: { ...newTiers(), reactor: 1 },
+  })),
+  // THE WIDEST RACK ROW, and the end of the ladder. Ten slots bought, all ten
+  // systems owned at the Workshop's cap and all ten aboard: no shed row, no
+  // shelf row, the +1 plate replaced by the "every slot bought" tag, and a
+  // detail whose buy control is the "Workshop max" tag rather than a price.
+  // Mark 9 so the 550-point loadout is legal (budgetForMark(10) is 1100) and
+  // nothing is gated — this fixture is about width, not locks.
+  "workshop-full": () => S.workshopScreen(graduated({
+    ...newMeta(), salvage: 240, runs: 90, bestBay: 10, mark: 9, slots: SLOT_CAP,
+    unlocks: ["survey", "scrap-cache"],
+    loadout: Object.fromEntries(UPGRADES.map((u) => [u.id, 2])) as UpgradeTiers,
+  })),
+  // THE DETAIL'S OTHER THREE SHAPES, addressed directly through the screen's
+  // `selected` argument — the same door main.ts's workshopSelected opens, so
+  // these are states a player reaches by pressing a plate rather than states
+  // invented for the harness.
   //
-  // …and the split now measures the ON-RAMP as well, at no extra fixture cost:
-  // midMeta owns no system, so `workshop` renders the first-visit blurb and the
-  // refused Start Run ("Install a system to fly" — the wider of the two labels,
-  // which is the one the row has to fit), while ownedMeta's five installs give
-  // `workshop-owned` the standing blurb and the live primary. The two states of
-  // meta.ts's rigStarted, one on each fixture.
-  workshop: () => S.workshopScreen(midMeta()),
-  "workshop-owned": () => S.workshopScreen(ownedMeta()),
-  // THE SCHOOL'S SHELF — one card, rung 6 (meta.ts's schoolLadder). Its own
+  // A STOWED system: the foot grows a second button (Mount beside the price),
+  // which is the widest that row ever gets, and the header carries the "in the
+  // shed" tag instead of "aboard".
+  "workshop-shed": () => {
+    // Hydraulics rather than whatever the slot slice happens to drop: it is
+    // owned at TIER 1, so the foot carries a live price beside the Mount button
+    // — [Mount][T2 · 30], the widest that row ever gets. ownedMeta's natural
+    // shed holds the Reactor at the Workshop's cap, whose foot is a tag.
+    const m = graduated({ ...ownedMeta(), stowed: ["hydraulics"] });
+    return S.workshopScreen(m, "touch", stowedIds(m)[0] ?? null);
+  },
+  // A MARK-GATED system: no price at all, a "Needs Tier 3 · build budget …"
+  // line in its place — the longest string the detail's foot can carry — and
+  // nothing in the panel dimmed, because this is the one place the gate is
+  // explained.
+  "workshop-gated": () => S.workshopScreen(graduated(midMeta()), "touch", "bonds"),
+  // AN OPTION: no ladder, no mount button, the "Permanent" tag and the option's
+  // own footnote. Scrap Cache because it is the pricier of the two live
+  // unlocks, so its plate carries the wider price.
+  "workshop-option": () => S.workshopScreen(graduated(ownedMeta()), "touch", "scrap-cache"),
+  // THE SCHOOL'S PANEL — one plate, rung 6 (meta.ts's schoolLadder). Its own
   // fixture because it is the shortest this screen ever renders and the only
-  // state in which the rack is absent: one install, no unlocks, no rack row, no
-  // +1 slot, a two-sentence blurb and a refused Start Run. A shelf this empty
-  // is the case where `.workshop__shop`'s scroller has nothing to scroll and
-  // the aside is the tallest thing in the row.
+  // state in which the rack, the shed, the options and the header line are all
+  // absent: one shelf row, a two-sentence blurb, one ladder and a refused Start
+  // Run. A panel this empty is the case where the rack's scroller has nothing
+  // to scroll at all, and the one where the equal-height rule is most visible:
+  // an almost-empty frame stretched to the detail's height beside it.
   "workshop-school": () => S.workshopScreen({
     ...newMeta(), licence: LICENCE_LESSON_COUNT, claimedContracts: ["school"], salvage: 15,
   }),
@@ -1980,7 +2056,11 @@ export const SCREENS: Record<string, () => string> = {
   // The purchase that explains itself (screens.ts's systemDrillOfferModal),
   // over the Workshop it was bought from. The Incinerator's is the worst case
   // of the ten: the longest system name paired with the longest drill brief.
-  "sys-drill-offer": () => S.workshopScreen({ ...newMeta(), licence: LESSON_COUNT, salvage: 400, mark: 5 })
+  // SCHOOL_FLIGHTS, not LESSON_COUNT: the offer is gated on licenceDone
+  // (main.ts's onBuyInstall) and SCHOOL_FLIGHTS is LESSON_COUNT + 1, so a
+  // licence one flight short drew the school's one-plate panel under a modal
+  // the school can never raise.
+  "sys-drill-offer": () => S.workshopScreen({ ...newMeta(), licence: SCHOOL_FLIGHTS, salvage: 400, mark: 5 })
     + S.systemDrillOfferModal({
       name: "Incinerator",
       drill: DRILLS["sys-incinerator"].name,

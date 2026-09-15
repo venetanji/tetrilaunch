@@ -113,12 +113,16 @@ export function pickNext(rects: NavRect[], from: number, dir: NavDir): number {
  * with the scrollport. -1 when nothing in `rects` is on screen at all.
  *
  * THE HAZARD THIS ANSWERS is a selection the player cannot see. main.ts's
- * renderKeepingScroll puts a shelf back where the player left it after a
- * purchase; focusInitial, running inside the same render, lands on the
- * screen's first primary action, which on the Workshop is a BUY button near
- * the TOP of that shelf. Both are individually right and together they leave
- * the ring 605px above the fold (measured on a 740x360 phone) — where the next
- * Confirm spends salvage on an item nobody looked at.
+ * renderKeepingScroll puts a pane back where the player left it after a
+ * purchase; focusInitial, running inside the same render, lands somewhere of
+ * its own choosing. On the Workshop's old card shelf that was the screen's
+ * first primary action — a BUY button near the TOP of a pane restored to 661.
+ * Both are individually right and together they left the ring 605px above the
+ * fold (measured on a 740x360 phone), where the next Confirm spends salvage on
+ * an item nobody looked at. That screen now nominates its own landing
+ * (`data-pad-initial`), which closes its particular case; this stays for every
+ * scroller that does not, and for the case the nomination itself is scrolled
+ * away from.
  *
  * MOST OF ITS OWN HEIGHT rather than nearest-to-centre: a control the player
  * can see all of beats one clipped to a sliver at the edge, which is the same
@@ -170,14 +174,34 @@ export function focusTargets(root: HTMLElement): HTMLElement[] {
   return out;
 }
 
-/** Land focus somewhere sensible on a fresh screen: the primary action if it
- *  is live, else the first target. Returns false on a screen with nothing to
- *  land on (the splash, the bay-clear tap-through). */
+/**
+ * Land focus somewhere sensible on a fresh screen: the screen's own nomination
+ * if it made one, else the primary action if it is live, else the first target.
+ * Returns false on a screen with nothing to land on (the splash, the bay-clear
+ * tap-through).
+ *
+ * `data-pad-initial` IS THE SCREEN OVERRIDING THE DEFAULT, and the Workshop is
+ * why it exists. Its primary is Start Run, pinned at the bottom of the screen,
+ * while the thing a pad player arrives to use is the selected plate at the top
+ * left of the rack panel — so the default landing was both the loudest button
+ * and the furthest from the work. It is also the RE-LANDING that matters: a
+ * purchase can destroy the control the pad was holding (a bought-out buy button
+ * becomes "Workshop max"), and without a nomination focus would jump from the
+ * detail's foot to Start Run, i.e. from the shop to its exit, one press away
+ * from leaving. The selected plate is where the player already is.
+ *
+ * ONE nomination per screen, and the first in document order wins if a screen
+ * ever renders two — a screen that cannot say where the pad belongs does not
+ * get to say it twice. Marked on an element that must also be focusable: it is
+ * looked up inside `targets`, so a nomination on a disabled or hidden control
+ * is simply not found and the primary answers as before.
+ */
 export function focusInitial(root: HTMLElement): boolean {
   const targets = focusTargets(root);
   if (!targets.length) return false;
+  const nominated = targets.find((el) => el.hasAttribute("data-pad-initial"));
   const primary = targets.find((el) => el.classList.contains("btn--primary"));
-  focusOn(primary ?? targets[0]);
+  focusOn(nominated ?? primary ?? targets[0]);
   return true;
 }
 
@@ -248,7 +272,7 @@ function scrollPane(port: HTMLElement, dir: NavDir): boolean {
  *  mouse hover, and they are exactly what the harness has to measure. */
 export function focusOn(el: HTMLElement): void {
   el.focus({ preventScroll: true });
-  // The overlay has real scrollers (the refit shelf, the workshop pane, the
+  // The overlay has real scrollers (the refit shelf, the workshop's rack, the
   // guide index); a focused control below their fold has to come to the pad
   // player, since the pad has no wheel.
   reveal(el);
@@ -319,14 +343,17 @@ export function sealBehindScrim(root: ScrimRoot): void {
  *   ~4px on the row a D-pad step scrolled to — the pad's own cursor, cut by
  *   the act of moving it.
  *
- *   THE CARD. The refit shelf and the workshop shelf focus a BUY button that
- *   sits inside a .shop-card, vertically centred in a row whose height is set
- *   by the copy beside it. Below the button are the card's remaining height,
- *   its 10px padding and its 2px border — 13px on a Pixel 7, 33px on a 720p
- *   laptop, 50px at 1080p, all of it scrolled under the shelf's edge. That is
- *   the bug as it was reported: "the bottom border disappears when the
- *   selection is highlighted". The border is not being restyled; the card is
- *   being scrolled half out of the pane by the focus that selected it.
+ *   THE CARD. The refit shelf focuses a BUY button that sits inside a
+ *   .shop-card, vertically centred in a row whose height is set by the copy
+ *   beside it. Below the button are the card's remaining height, its 10px
+ *   padding and its 2px border — 13px on a Pixel 7, 33px on a 720p laptop,
+ *   50px at 1080p, all of it scrolled under the shelf's edge. That is the bug
+ *   as it was reported: "the bottom border disappears when the selection is
+ *   highlighted". The border is not being restyled; the card is being scrolled
+ *   half out of the pane by the focus that selected it. (The Workshop's shelf
+ *   had the same shape and is now a panel of 44px plates, where the control IS
+ *   the unit — so that screen exercises the walk's other end rather than
+ *   leaving it.)
  *
  * WHY THE MOUSE LOOKED FINE. Hover neither focuses nor scrolls — the pointer
  * goes to the card, the card stays where it is, and both the border and the
@@ -344,11 +371,12 @@ export function sealBehindScrim(root: ScrimRoot): void {
  *   `scroll-margin` value could cover it. So the scroll reveals the UNIT the
  *   control belongs to instead: the outermost ancestor that still fits inside
  *   the scrollport. On the refit shelf that walk stops at .refit-card; on the
- *   workshop pane .workshop__grid is the whole 1260px list and does not fit,
- *   so it stops at .shop-card; on the guide index the topic button is its own
- *   parent's whole content and the unit is the button. No screen names itself
- *   anywhere in here, which is the point: a new card menu is covered the day
- *   it is written.
+ *   Workshop's rack panel a plate's .rack__plates row usually fits, so the
+ *   unit is the whole row of plates and a step never leaves half of one under
+ *   the edge; on the guide index the topic button is its own parent's whole
+ *   content and the unit is the button. No screen names itself anywhere in
+ *   here, which is the point: a new card menu is covered the day it is
+ *   written.
  *
  * Written as arithmetic over scrollTop rather than as scrollIntoView because
  * the gap has to apply to the unit, and scrollIntoView takes its clearance
