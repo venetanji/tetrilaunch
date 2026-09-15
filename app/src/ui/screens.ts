@@ -91,7 +91,25 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   const tint = lic
     ? " tier-plate--lic"
     : sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
-  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${lic ? "Flight" : sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${lic ? LICENCE_MARK : sky ? SKY_STAR : sbx ? "S" : tier}</span></span>`;
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${lic ? "Flight" : sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${tierPlateFace(tier)}</span></span>`;
+}
+
+/** What the plate's NUMBER SLOT shows for a floor: the digit, or the mark a
+ *  special floor wears where the digit would go.
+ *
+ *  One function rather than an expression inside tierPlateHTML, because the
+ *  slot is written from TWO places — the plate at rest (above) and main.ts's
+ *  rollPlate, which rolls the old face out and the new one in while the car
+ *  travels. rollPlate kept its own copy of this rule, and the copy predated the
+ *  ground floor: riding down to Flight School the odometer rolled "-2" (the
+ *  lobby's raw id, LICENCE_TIER) onto the plate and held it for the whole
+ *  ride, then the landing swapped in the wing. Owner-reported. The face the
+ *  car rolls onto is now, by construction, the face the plate lands on. */
+export function tierPlateFace(tier: number): string {
+  if (tier === LICENCE_TIER) return LICENCE_MARK;
+  if (tier === SKYDECK_TIER) return SKY_STAR;
+  if (tier === SANDBOX_TIER) return "S";
+  return String(tier);
 }
 
 /** The Skydeck's mark, in the plate's number slot where every other floor puts
