@@ -2616,6 +2616,18 @@ export function settingsScreen(
    *  navigator.vibrate, so the toggle there was a switch wired to nothing —
    *  it hides instead. Defaults on so headless callers keep the full panel. */
   hapticsAvailable = true,
+  /** Whether a fullscreen control can do anything here (lib/platform's
+   *  fullscreenSupported — false in the native shells and on iPhone Safari,
+   *  which have no working Fullscreen API). False renders NO row rather than a
+   *  dead switch, the same rule Haptics and Scanlines follow. Defaults off:
+   *  a caller that does not know cannot promise fullscreen works. */
+  fullscreenAvailable = false,
+  /** The window's CURRENT fullscreen state (lib/platform's isFullscreen), not a
+   *  saved setting. This row is a LIVE mirror — the app always starts windowed
+   *  and nothing is persisted — so it reflects the real state, including a
+   *  fullscreen entered by the shell's F11. main.ts keeps it in sync on
+   *  fullscreenchange (syncFullscreenControls). */
+  fullscreenOn = false,
 ): string {
   return `<div class="screen neon-backdrop center">
     <div class="panel modal modal--settings pop">
@@ -2629,6 +2641,19 @@ export function settingsScreen(
           ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
           ${hapticsAvailable ? toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics) : ""}
           ${toggleHTML("scanlines", "Scanlines", "CRT comb over the whole screen · starts off on touch", s.scanlines)}
+          ${
+            // A LIVE mirror of the window state, not a Settings field — the app
+            // always starts windowed and nothing persists (main.ts's onToggle
+            // special-cases this key: it calls toggleFullscreen and writes no
+            // setting). Hidden where the API can do nothing (native shells,
+            // iPhone Safari), the same no-dead-switch rule as the rows above.
+            // On desktop this is the ONLY fullscreen control besides F11 — the
+            // HUD/pause buttons are web-only now (platform.ts's
+            // fullscreenButtonShown).
+            fullscreenAvailable
+              ? toggleHTML("fullscreen", "Fullscreen", "Fill the screen", fullscreenOn)
+              : ""
+          }
           ${
             // Only once the door has been found. Rendering it off would put the
             // secret on the one screen everybody opens, and rendering nothing
