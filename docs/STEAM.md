@@ -387,6 +387,12 @@ release, not at the time.
 
 ## Phase 6 — store page and release
 
+> **The build runs and plays on a Steam Deck (2026-09-14).** The actionable
+> release plan — store content (with exact image dimensions), the achievements
+> design, controller/Deck-Verified work, and the timeline — is its own document:
+> [steam-store-and-achievements-plan.md](./steam-store-and-achievements-plan.md).
+> The summary below stays as the overview.
+
 Not code, and the long pole once the account clears:
 
 - **The $100 App ID fee**, payable after tax verification, before an App ID
