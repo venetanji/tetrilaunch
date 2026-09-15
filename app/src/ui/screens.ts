@@ -5627,7 +5627,9 @@ function workshopRack(
       : id === nextId
         ? `<span class="rack-slot__badge rack-slot__badge--next">${icon("play", 9)}</span>`
         : where === "shed"
-          ? `<span class="rack-slot__badge rack-slot__badge--shed">${icon("stow", 10)}</span>`
+          // 9px like the other three: the badge box is 13px with a 1px border,
+          // so 10 was the one glyph touching its own frame.
+          ? `<span class="rack-slot__badge rack-slot__badge--shed">${icon("stow", 9)}</span>`
           : "";
     // The LOOK follows the data for ownership and the ROW for stowage, which is
     // the one combination that survives the school: there the Reactor sits in

@@ -9593,8 +9593,27 @@ button.panel { color: var(--text); }
   padding-bottom: 4px;
 }
 /* The rows, and the only thing in this panel that may move. [data-scroll]
-   supplies flex/min-height/overflow; this is the pinned header's other half. */
-.rack__rows { display: flex; flex-direction: column; }
+   supplies flex/min-height/overflow; this is the pinned header's other half.
+
+   THE 4px OF PADDING IS THE FOCUS RING'S, and it is not spare space. D4's ring
+   is a 2px outline at 2px offset, i.e. it is drawn 4px OUTSIDE the control's
+   border box — and this element is a scrollport, so anything outside a plate on
+   the first row or in the left/right column is clipped by its edge. The pad
+   steers by that ring; a cursor cut in half by the pane it is moving through is
+   the same class of defect as the card-border crop padnav's `reveal` exists to
+   fix, one box further out.
+
+   IT IS PAID FOR, NOT ADDED. The first and last group rows give up their outer
+   padding (they had 5px roomy / 3px compact against the pane edge, which this
+   replaces) and the compact header gives up its 2px, so the rows region keeps
+   the height it had: measured on a Pixel 7, 205px of content in a 215px box
+   where it was 203 in 213. The horizontal 8px comes out of the plate track, so
+   the compact column widens by exactly that to keep eight plates across. */
+.rack__rows { display: flex; flex-direction: column; padding: 4px; }
+/* The outer edges belong to the scrollport now; between two rows the pair of
+   paddings still supplies the ring's 4px from both sides. */
+.rack__group:first-child { padding-top: 0; }
+.rack__group:last-child { padding-bottom: 0; }
 /* The panel's own eyebrow. It carried the deleted aside's class name for one
    review — a selector pointing at markup that no longer exists — and these are
    that rule's declarations under a name the markup can still explain. */
@@ -9722,14 +9741,26 @@ button.panel { color: var(--text); }
   display: inline-flex; align-items: center; gap: 2px;
 }
 .rack-slot--plus:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
-/* THE PLATE BADGES — four shapes in one 14px corner box, because a 44px plate
+/* THE PLATE BADGES — four shapes in one 13px corner box, because a 44px plate
    has no room for a word and hue is not a carrier here. `lock` (Mark-gated),
    `play` (the one thing to buy next, meta.ts's recommendedPurchase), `stow`
    (owned, not flying) and `check` (an owned option). Each is a distinct
-   SILHOUETTE at 9px; the colour is a second, redundant channel. */
+   SILHOUETTE at 9px; the colour is a second, redundant channel.
+
+   INSIDE THE PLATE, and that is a correction rather than a preference. They
+   hung at top:-6px right:-5px, which is fine on a canvas and wrong in a
+   SCROLLPORT: .rack__rows is overflow-y:auto, so overflow-x computes to auto
+   too, and the compact eight-across row fills its track exactly — the rightmost
+   badge pushed 4px of horizontal scroll onto the panel (measured on a Pixel 7,
+   workshop-early) and the first row's badges were cut by the top edge. Corner
+   offsets inside the box cannot do either, at any density, and they leave the
+   scrollport's clearance budget to the one thing that genuinely must live
+   outside the plate: the focus ring (see .rack__rows). The 44px box has the
+   room — the glyph is 15px and centred, so it ends 14.5px from each side, and
+   this sits in the 13px the corner has spare. */
 .rack-slot__badge {
-  position: absolute; top: -6px; right: -5px;
-  width: 14px; height: 14px;
+  position: absolute; top: 1px; right: 1px;
+  width: 13px; height: 13px;
   border-radius: var(--r-sm);
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
@@ -9844,10 +9875,11 @@ button.panel { color: var(--text); }
 
    THE COLUMN WIDTH IS ARITHMETIC, not a breakpoint. 372px of rack panel holds
    five 44px plates and their gaps once the 58px label track, its 8px gap, the
-   28px of frame padding and the 4px of border are taken out (58+8+28+4 = 98;
-   372-98 = 274; 5x44+4x6 = 244 fits, 6x44+5x6 = 294 does not — the same answer
-   the borderless sum gave, unlike the compact one below, which it cost four
-   pixels and a plate). The detail wants at least 390px — below
+   28px of frame padding, the 8px of scrollport padding and the 4px of border
+   are taken out (58+8+28+8+4 = 106; 372-106 = 266; 5x44+4x6 = 244 fits,
+   6x44+5x6 = 294 does not — the same answer the shorter sums gave, unlike the
+   compact one below, where every omitted term cost a plate). The detail wants
+   at least 390px — below
    that the ladder's longest stat ("+18% muzzle speed · 60% wind cancelled",
    ~250px at 12px mono) ellipsises down to uselessness. So the rack track is
    whichever is SMALLER: its ideal width, or whatever is left once the detail
@@ -9925,7 +9957,8 @@ button.panel { color: var(--text); }
      the whole reason the column is re-sized rather than the panel re-flowed.
      The figure is 448 and every term of it is load-bearing:
 
-       448 - 4 border (var(--bw) each side) - 16 frame padding (8 + 8)
+       456 - 4 border (var(--bw) each side) - 16 frame padding (8 + 8)
+           - 8 scrollport padding (the focus ring's, see .rack__rows)
            - 42 label track - 6 label gap = 380px of plate track,
        and 8 plates is 8x44 + 7x4 = 380 exactly.
 
@@ -9937,9 +9970,9 @@ button.panel { color: var(--text); }
      The detail's floor drops to 330 with it — the ladder's stat is 10px here,
      so it needs proportionally less — which keeps the arithmetic solvable on
      the 640x360 budget phone as well, and still leaves the Pixel 7's detail
-     875 - 448 - 8 = 419px, comfortably over the 390 the roomy column wants. */
+     875 - 456 - 8 = 411px, comfortably over the 390 the roomy column wants. */
   .workshop__body { --detail-min: 330px; gap: var(--sp-2); }
-  .workshop__body { grid-template-columns: min(448px, calc(100% - var(--detail-min) - var(--sp-2))) minmax(0, 1fr); }
+  .workshop__body { grid-template-columns: min(456px, calc(100% - var(--detail-min) - var(--sp-2))) minmax(0, 1fr); }
   .workshop__rack { padding: 6px 8px; }
   /* ONE LINE, and the count is what gives way. Pinning the header outside the
      scroller costs the rows region whatever the header takes, and at 342px of
@@ -9950,7 +9983,9 @@ button.panel { color: var(--text); }
      one readout the plates themselves restate, an open slot at a time), while
      the budget — the number that explains a refused purchase, and the reason
      the header is pinned at all — keeps its width. */
-  .rack__hdr { padding-bottom: 2px; flex-wrap: nowrap; gap: 8px; }
+  /* padding-bottom: 0 — the rows region's own 4px of scrollport padding is the
+     separation now, and those 2px go back into the plate rows (see .rack__rows). */
+  .rack__hdr { padding-bottom: 0; flex-wrap: nowrap; gap: 8px; }
   .rack__count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workshop__budget { flex: none; }
   .rack__count { font-size: 10px; }
@@ -9981,9 +10016,15 @@ button.panel { color: var(--text); }
    a fact — where dropping the Stow button would cost the loadout screen its
    only loadout control. 400px is the boundary because it is the tallest
    viewport that still cannot hold four plate-rows: the 360-tall devices have
-   ~190px of body and want more than that for the panel alone. */
+   ~190px of body and want more than that for the panel alone.
+
+   :not(--warn) IS THE WHOLE RULE. The selector was `.workshop__note`, and the
+   full-rack warning is a `.workshop__note.workshop__note--warn` — so the one
+   sentence that says a purchase is about to go straight to the shed was hidden
+   on exactly the devices whose rack fills first. The repetition may go; the
+   only warning on the screen may not. */
 @media (max-height: 400px) {
-  .workshop__note { display: none; }
+  .workshop__note:not(.workshop__note--warn) { display: none; }
 }
 
 /* ============================================================================

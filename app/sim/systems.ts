@@ -2253,6 +2253,35 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
   // for one review, which named a column this rebuild deleted — a class whose
   // name points at markup that no longer exists is how the next reader loses an
   // afternoon.
+  /* ---- THE SCROLLPORT'S EDGES (codex, on PR #222) ------------------------
+   * .rack__rows is `overflow-y: auto`, which makes overflow-x `auto` too: it
+   * is a scrollport in both axes, and anything drawn outside a plate is cut by
+   * its edge or pushes the panel sideways. Three rules keep that from
+   * happening, and all three are load-bearing UX rather than theme.
+   * -------------------------------------------------------------------- */
+  check("the plate badges sit inside the plate, not over the scrollport's edge",
+    /\.rack-slot__badge \{\s*\n\s*position: absolute; top: 1px; right: 1px;/.test(workshopCss)
+      // …and no NEGATIVE offset anywhere in the block, which is the shape of
+      // the defect rather than the one declaration that had it. Matched as a
+      // minus after a colon: `-\d` alone also finds var(--surface-2).
+      && !/\.rack-slot__badge \{[^}]*:\s*-/.test(workshopCss),
+    workshopCss.slice(workshopCss.indexOf(".rack-slot__badge {"),
+      workshopCss.indexOf(".rack-slot__badge {") + 90));
+  // …and the ring, which MUST be outside the control (D4 is an outline at an
+  // offset), gets the clearance instead. 4px is the token's own arithmetic:
+  // 2px of outline drawn 2px off the border box.
+  check("the rows region reserves the focus ring's 4px on all four edges",
+    workshopCss.includes(".rack__rows { display: flex; flex-direction: column; padding: 4px; }"));
+  check("...paid for by the first and last rows, so the pane keeps its height",
+    workshopCss.includes(".rack__group:first-child { padding-top: 0; }")
+      && workshopCss.includes(".rack__group:last-child { padding-bottom: 0; }"));
+  // THE ONE NOTE THAT MAY NOT BE DROPPED. The short-viewport rule hides the
+  // tiers footnote, which repeats what the T3 ladder row already draws; it hid
+  // the full-rack WARNING with it, which nothing else on the screen says — on
+  // exactly the devices whose rack fills first.
+  check("the short-viewport rule hides the footnote and not the warning",
+    workshopCss.includes(".workshop__note:not(.workshop__note--warn) { display: none; }")
+      && !/@media \(max-height: 400px\) \{\s*\n\s*\.workshop__note \{/.test(workshopCss));
   check("the rack's label class is named for the rack, not the deleted aside",
     workshopCss.includes(".rack__label {") && !workshopCss.includes(".workshop__aside-label"),
     workshopCss.includes(".workshop__aside-label") ? "the aside name survives" : "no .rack__label");
