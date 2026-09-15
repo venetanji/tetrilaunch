@@ -1391,51 +1391,217 @@ section("Installs — what salvage buys (meta.ts)");
     menuPlaySub(S.SKYDECK_TIER, 3, null).includes(`step above Tier ${MARK_COUNT}`),
     menuPlaySub(S.SKYDECK_TIER, 3, null));
 
+  /* ---- THE WORKSHOP'S TWO PANELS ----------------------------------------
+   * The shop is no longer a scrolling column of cards; it is a panel of 44px
+   * PLATES grouped by state, and one DETAIL beside them
+   * (docs/workshop-redesign-plan.md). Every pin below that says "shelf" now
+   * means "the shelf row of the panel", and the ones that used to read the
+   * ✓ Installed / ✓ Owned strips read the rows themselves — the rack row IS
+   * the owned view, which is why those strips are gone.
+   * -------------------------------------------------------------------- */
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
-  check("the Workshop shows the build budget", shop.includes("build budget"));
-  // ONE SHELF. The tab assertions these replace were the mirror image: they
-  // pinned the INACTIVE pane out of the output, because the overflow fix of
-  // the day depended on only half the stock rendering. The split is gone, so
-  // the property worth holding is the opposite one — every purchasable thing
-  // is in the markup at once, and neither kind can go missing behind a click.
-  check("the shelf carries systems and options together",
-    shop.includes(`data-action="buy-install"`) && shop.includes(`data-action="buy-unlock"`));
+  // THE BUDGET MOVED OUT OF THE ASIDE and into the rack panel's header line,
+  // where it is on screen at every scroll position rather than beside a pane
+  // that could scroll away from it. Bare numbers by the mockup's design, so the
+  // WORDS are pinned where they actually live: the accessible name.
+  check("the build budget rides in the rack panel's header",
+    /<span class="workshop__budget"[^>]*aria-label="Build budget \d+ of \d+"/.test(shop),
+    shop.slice(shop.indexOf("workshop__budget"), shop.indexOf("workshop__budget") + 140));
+  check("...and the deleted aside took no second copy of it with it",
+    !shop.includes(`class="workshop__aside"`) && !shop.includes("workshop__budget-box"));
+  // ONE PANEL, BOTH KINDS. The tab assertions this replaces pinned the INACTIVE
+  // pane out of the output; the shelf that replaced the tabs pinned both card
+  // kinds into one list. The property is the same one either way — nothing
+  // purchasable may go missing behind a click — and it is now a statement about
+  // PLATES, because the detail draws one thing at a time by design.
+  check("every system and every live option has a plate",
+    INSTALLS.every((i) => shop.includes(`data-select="${i.id}"`)) &&
+      UNLOCKS.filter((u) => !u.retired).every((u) => shop.includes(`data-select="${u.id}"`)),
+    INSTALLS.filter((i) => !shop.includes(`data-select="${i.id}"`)).map((i) => i.id).join(","));
   check("the Workshop has no tab bar", !shop.includes(`data-action="shop-tab"`));
-  // The aside is the fixed column; the budget lives there now rather than on
-  // the deleted tab bar, and it is the usual reason a card is greyed out.
-  check("the build budget rides in the fixed aside",
-    shop.includes("workshop__aside") && shop.includes("workshop__budget"));
+  // EVERY SYSTEM IN EXACTLY ONE ROW. rack / shed / shelf are derived from three
+  // different functions (mountedIds, stowedIds, the loadout), so a system could
+  // in principle be drawn twice or not at all — which on this screen would mean
+  // a plate whose position lies about its state, and position is how this panel
+  // carries state at all.
+  for (const m of [
+    freshMeta({ salvage: 50 }),
+    freshMeta({ salvage: 400, mark: MARK_COUNT, loadout: { ...newTiers(), reactor: 2, launcher: 1 } }),
+    freshMeta({ salvage: 0, mark: MARK_COUNT, slots: SLOT_CAP,
+      loadout: Object.fromEntries(UPGRADES.map((u) => [u.id, 2])) as UpgradeTiers }),
+    freshMeta({ salvage: 90, mark: 3, loadout: { ...newTiers(), reactor: 1, bay: 1 }, stowed: ["bay"] }),
+  ]) {
+    const html = workshopScreen(m);
+    const drawn = [...html.matchAll(/data-select="([a-z-]+)"/g)].map((x) => x[1]);
+    const systems = drawn.filter((id) => installById(id));
+    check(`every system is on the panel exactly once (${systems.length} drawn)`,
+      systems.length === INSTALLS.length && new Set(systems).size === systems.length,
+      systems.join(","));
+    // …and the rows themselves are the three states in the order the plan fixes
+    // — what flies, what waits, what is for sale, then the options — with the
+    // empty ones ABSENT rather than drawn as a labelled blank. Derived from the
+    // save rather than from the markup, so a panel that simply drew no rows at
+    // all could not satisfy it by agreeing with itself.
+    const rows = [...html.matchAll(/class="rack__group-label">([a-z]+)</g)].map((x) => x[1]);
+    const want = [
+      "rack",
+      stowedIds(m).length ? "shed" : "",
+      installShelf().some((i) => (m.loadout[i.id] ?? 0) === 0) ? "shelf" : "",
+      "options",
+    ].filter(Boolean).join(",");
+    check(`the panel's rows read ${want} (${rows.join(",")})`,
+      rows.join(",") === want, `${rows.join(",")} vs ${want}`);
+  }
   const richMeta = freshMeta({ salvage: 99999, mark: MARK_COUNT });
   let allIn = richMeta;
   for (const i of INSTALLS) { const n = buyInstall(allIn, i.id); if (n) allIn = n; }
   const shopFull = workshopScreen(allIn);
-  check("an exhausted shelf still shows what is installed",
-    shopFull.includes("✓ Installed"));
-  // Both card kinds carry a glyph and a body wrapper. This mattered more once
-  // they shared a shelf than it did when they sat on separate tabs: a card
-  // missing its glyph now sits directly beside one that has it, at a visibly
-  // different left edge, in the same grid.
+  // NOTHING LEFT TO SELL, and the panel says so by having no shelf row at all
+  // rather than by printing a reference strip of what you own. The owned view
+  // IS the rack and the shed.
+  check("an exhausted shelf leaves no shelf row behind",
+    !shopFull.includes(`class="rack__group-label">shelf<`) &&
+      INSTALLS.every((i) => shopFull.includes(`data-select="${i.id}"`)),
+    [...shopFull.matchAll(/class="rack__group-label">([a-z]+)</g)].map((x) => x[1]).join(","));
   check("an option card carries its glyph",
-    shop.includes(`class="shop-card__name"><svg`),
+    shop.includes(`class="shop-card__name">`) && /class="shop-card__name">\s*<svg/.test(shop),
     shop.slice(shop.indexOf("shop-card__name"), shop.indexOf("shop-card__name") + 80));
-  check("both card kinds wrap name and desc in a body",
-    shop.includes(`class="shop-card__body"`) &&
-      shop.split(`class="shop-card__body"`).length - 1 >= 2);
+  const gatedShop = workshopScreen(freshMeta({ salvage: 50 }), "touch", "bonds");
   check("a tier-gated system is shown, locked, rather than hidden",
-    shop.includes("Bond Emitter") && shop.includes("Needs Tier 3"),
-    shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");
+    gatedShop.includes("Bond Emitter") && gatedShop.includes("Needs Tier 3"),
+    gatedShop.includes("Bond Emitter") ? "gate copy missing" : "plate missing");
+  // …and its PLATE wears the lock while the detail stays at full brightness:
+  // the detail is the one place the gate is explained, so dimming it would dim
+  // the explanation.
+  check("...with the lock on the plate and nothing dimmed in the detail",
+    /data-select="bonds"[^>]*/.test(gatedShop) &&
+      gatedShop.includes(`rack-slot--gated`) && !gatedShop.includes(`workshop__detail shop-card--gated`));
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
   check("an install the player cannot afford is offered but disabled",
     brokeShop.includes(`data-action="buy-install"`) && brokeShop.includes("disabled"));
   const installedShop = workshopScreen(
-    freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: 1 } }));
-  check("an owned track stays on the shelf, offering its next tier",
+    freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: 1 } }), "touch", "reactor");
+  check("an owned track still offers its next tier",
     installedShop.includes(`data-install="reactor"`) && installedShop.includes("T2"));
   const maxedShop = workshopScreen(
-    freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: UPRATE_MAX_TIER } }));
-  check("a track at the Workshop's cap leaves the shelf for the strip",
-    maxedShop.includes("✓ Installed") && !maxedShop.includes(`data-install="reactor"`));
+    freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: UPRATE_MAX_TIER } }), "touch", "reactor");
+  check("a track at the Workshop's cap says so instead of pricing a third tier",
+    maxedShop.includes("Workshop max") && !maxedShop.includes(`data-install="reactor"`));
+
+  /* ---- THE LADDER, AND THE ANSWER TO "WHAT DOES A TIER GET ME" -----------
+   * `UpgradeDef.tiers` has carried the per-rung delta since the refit yard was
+   * written and this shop printed none of it — the owner's ask ("the stats that
+   * an upgrade gets me") was data the app already had and never rendered. These
+   * pin that it is the DATA on screen rather than a second copy of it, and that
+   * the third rung keeps saying where it is actually bought.
+   * -------------------------------------------------------------------- */
+  for (const def of UPGRADES) {
+    const html = workshopScreen(freshMeta({ salvage: 500, mark: MARK_COUNT }), "touch", def.id);
+    const rungs = [...html.matchAll(/class="ladder__stat">([^<]*)</g)].map((m) => m[1]);
+    check(`${def.id}'s ladder is its own three tier strings`,
+      rungs.length === MAX_TIER && rungs.every((r, i) => r === def.tiers[i]),
+      `${rungs.join(" | ")} vs ${def.tiers.join(" | ")}`);
+  }
+  {
+    // ONE RUNG OWNED, so this block sees all three ladder states at once: a
+    // checked row behind, the lit next row the button below would buy, and the
+    // run-only rung ahead.
+    const html = workshopScreen(
+      freshMeta({ salvage: 500, mark: MARK_COUNT, loadout: { ...newTiers(), reactor: 1 } }),
+      "touch", "reactor");
+    // THE THIRD RUNG IS NOT FOR SALE HERE, and the owner asked for that to be
+    // clarified in as many words. It is said twice on purpose: as a TAG on the
+    // row itself (what a player glancing at a system sees) and as the footnote
+    // under the ladder (what a player wondering about the shop reads).
+    check("the T3 row names the shop that sells it",
+      /ladder__end ladder__end--run">refit stop.*?scrap</s.test(html),
+      html.slice(html.indexOf("ladder__end--run"), html.indexOf("ladder__end--run") + 120));
+    check("...and the Workshop's own rungs are never tagged with it",
+      (html.match(/ladder__end--run/g) ?? []).length === 1,
+      String((html.match(/ladder__end--run/g) ?? []).length));
+    const FOOTNOTE =
+      "Tiers 1–2 are bought here with salvage. Tier 3 is fitted at a refit stop, for scrap.";
+    check("the footnote is said once per detail, not once per card",
+      (html.split(FOOTNOTE).length - 1) === 1,
+      String(html.split(FOOTNOTE).length - 1));
+    // The boilerplate this replaced: the same sentence glued onto all twelve
+    // card descriptions, in the space the actual description needed.
+    check("...and the per-card boilerplate it replaced is gone",
+      !html.includes("Installs at tier 1") && !html.includes("Owned at tier"));
+    check("the buy button's face is the tier and the price",
+      /data-install="reactor"[^>]*>T2<span class="price__sep">·<\/span>/.test(html),
+      html.slice(html.indexOf(`data-install="reactor"`), html.indexOf(`data-install="reactor"`) + 220));
+    // THE MARKS ARE THE COLOUR-BLIND CARRIER. A lit row and a dim one differ by
+    // hue and nothing else; a CHECK and a PLAY differ by shape, and the "owned"
+    // word differs by being a word. All three rows are marked here.
+    const rows = [...html.matchAll(/class="ladder__row([^"]*)"/g)].map((m) => m[1].trim());
+    check("the ladder marks owned, next and run-only as three different rows",
+      rows.length === MAX_TIER && rows[0].includes("--owned")
+        && rows[1].includes("--next") && rows[2].includes("--run"),
+      rows.join(" | "));
+    check("...and the owned rung says so in a word, not only in a colour",
+      /class="ladder__end ladder__end--owned">owned</.test(html));
+  }
+  // AN OPTION HAS NO LADDER, and the detail says why rather than drawing three
+  // empty rungs. Its own footnote, its own tag, and no mount button — an option
+  // is not a thing the ship carries.
+  {
+    const opt = workshopScreen(freshMeta({ salvage: 500, mark: MARK_COUNT }), "touch", "survey");
+    check("an option's detail has no ladder and says so",
+      !opt.includes(`class="ladder"`) && opt.includes("It has no tiers."),
+      opt.includes(`class="ladder"`) ? "ladder drawn" : "note missing");
+    check("...and offers no mount, because nothing mounts an option",
+      !opt.includes(`data-action="mount"`) && opt.includes(`data-action="buy-unlock"`));
+  }
+
+  /* ---- SELECTION, THE PAD, AND THE DEVICE'S OWN VERB ---------------------- */
+  {
+    const m = freshMeta({ salvage: 500, mark: MARK_COUNT, loadout: { ...newTiers(), reactor: 1 } });
+    const html = workshopScreen(m, "touch", "launcher");
+    // aria-pressed rather than a class alone: the plate is a toggle in the only
+    // sense a screen reader has for "this one is the one being read".
+    check("the selected plate is the pressed one",
+      /data-select="launcher"[^>]*aria-pressed="true"/.test(html) &&
+        (html.match(/aria-pressed="true"/g) ?? []).length === 1,
+      String((html.match(/aria-pressed="true"/g) ?? []).length));
+    check("...and every other plate says it is not",
+      /data-select="reactor"[^>]*aria-pressed="false"/.test(html));
+    // The pad's landing is the SELECTED plate, not the screen's primary — which
+    // on this screen is Start Run, pinned at the foot, one press from leaving
+    // the shop (padnav's focusInitial).
+    check("the pad opens the shop on the selected plate",
+      /data-select="launcher"[^>]*data-pad-initial/.test(html) &&
+        (html.match(/data-pad-initial/g) ?? []).length === 1,
+      String((html.match(/data-pad-initial/g) ?? []).length));
+    // An id the panel does not draw must not render an empty detail: the screen
+    // resolves it the same way main.ts does, through workshopDefaultSelection.
+    check("a stale selection falls back rather than drawing nothing",
+      workshopScreen(m, "touch", "no-such-system").includes(`shop-card workshop__detail`));
+    check("...and the fallback is the recommendation the badge names",
+      S.workshopDefaultSelection(m) === recommendedPurchase(m)?.id,
+      `${S.workshopDefaultSelection(m)} vs ${recommendedPurchase(m)?.id}`);
+  }
+  // D2: the plate's tooltip is the only instruction on this screen, and it says
+  // the press in the DEVICE'S word. Hardcoding "tap" here is the pre-D2 bug —
+  // a desktop player being told to tap — in the one place a fine pointer is
+  // almost the only reader.
+  for (const profile of ["touch", "keyboard", "gamepad"] as const) {
+    const html = workshopScreen(freshMeta({ salvage: 500 }), profile);
+    check(`a plate names the press in the ${profile} player's own word`,
+      html.includes(`${hintPress(profile)} to select.`),
+      html.slice(html.indexOf("title=\""), html.indexOf("title=\"") + 110));
+  }
+  // ONE SCROLLER ON THE SCREEN, and it is the rack panel. The detail carries no
+  // [data-scroll] at all — its job is to answer the plate just pressed, and an
+  // answer below a fold is not one — so a second region appearing here is the
+  // copy outgrowing the pane rather than a layout decision.
+  for (const m of [freshMeta({ salvage: 50 }), allIn, freshMeta()]) {
+    const regions = [...workshopScreen(m).matchAll(/class="([^"]*)"[^>]*data-scroll/g)]
+      .map((x) => x[1]);
+    check(`the rack panel is the screen's only scroller (${regions.length})`,
+      regions.length === 1 && regions[0].includes("workshop__rack"), regions.join(" | "));
+  }
 
   /* ---- THE SHELF ORDER, AND THE ONE CARD THAT GLOWS ----------------------
    * Two rules, pinned as rules rather than as a layout:
@@ -1449,12 +1615,17 @@ section("Installs — what salvage buys (meta.ts)");
    * meta.ts's recommendedPurchase now, and these check they cannot drift apart
    * again rather than checking today's answers.
    * -------------------------------------------------------------------- */
-  /** The id on the card wearing `shop-card--next`, or null. Read off the CARD
-   *  rather than off a character window, because a card's own body div shares
-   *  the class prefix and its description is longer than any fixed slice. */
-  const glowingCard = (html: string): string | null => {
-    for (const m of html.matchAll(/<div class="(shop-card[^"]*)"[\s\S]*?data-install="([a-z]+)"/g)) {
-      if (m[1].includes("shop-card--next")) return m[2];
+  /** The id on the PLATE wearing the `next` badge, or null.
+   *
+   *  The highlight used to be a warm border on a shop card; the shop is a panel
+   *  of plates now, so the recommendation is a 14px corner badge on one of them
+   *  (plus the `Next step` chip in the detail when that plate is the selected
+   *  one). Read plate by plate to the closing tag rather than off a character
+   *  window: a plate's own title carries the system's name and gate, which is
+   *  longer than any fixed slice. */
+  const badgedPlate = (html: string): string | null => {
+    for (const m of html.matchAll(/data-select="([a-z-]+)"[\s\S]*?<\/button>/g)) {
+      if (m[0].includes("rack-slot__badge--next")) return m[1];
     }
     return null;
   };
@@ -1483,10 +1654,13 @@ section("Installs — what salvage buys (meta.ts)");
     shelfIds.indexOf("demolition") === 2 &&
       shelfIds.slice(0, 2).join(",") === "reactor,launcher",
     shelfIds.slice(0, 3).join(","));
-  check("...and the shop draws the cards in that order",
+  check("...and the shop draws the shelf's plates in that order",
     (() => {
+      // The SHELF ROW, read plate by plate: `data-install` now appears once
+      // per screen (the detail's buy button), so the order lives on the panel.
       const open = workshopScreen(freshMeta({ salvage: 400, mark: MARK_COUNT }));
-      const drawn = [...open.matchAll(/data-install="([a-z]+)"/g)].map((m) => m[1]);
+      const row = /class="rack__group-label">shelf<[\s\S]*?<\/div>\s*<\/div>/.exec(open)?.[0] ?? "";
+      const drawn = [...row.matchAll(/data-select="([a-z]+)"/g)].map((m) => m[1]);
       return drawn.join(",") === shelfIds.join(",");
     })());
 
@@ -1524,9 +1698,17 @@ section("Installs — what salvage buys (meta.ts)");
   });
   check("a full rack of maxed systems recommends a slot",
     recommendedPurchase(capped)?.kind === "slot", String(recommendedPurchase(capped)?.kind));
-  check("...and then no card on the shelf glows",
-    glowingCard(workshopScreen(capped)) === null,
-    String(glowingCard(workshopScreen(capped))));
+  // …and NO SYSTEM plate wears the badge — but the +1 plate does, which is the
+  // half this screen could not say before. A slot recommendation used to
+  // highlight nothing at all, because the only control it could name was a
+  // button in the rack's header that the shelf's highlight rule had no reach
+  // into. The slot is a plate in the rack row now, so the badge always has
+  // something to sit on.
+  check("...and then no system plate glows",
+    badgedPlate(workshopScreen(capped)) === null,
+    String(badgedPlate(workshopScreen(capped))));
+  check("...the +1 slot plate wears it instead",
+    /data-action="buy-slot"[\s\S]*?rack-slot__badge--next/.test(workshopScreen(capped)));
 
   // ---- THE BADGE AND THE HIGHLIGHT ARE ONE DECISION ----------------------
   // `nextStep` names the Workshop exactly when there is something to recommend,
@@ -1544,9 +1726,9 @@ section("Installs — what salvage buys (meta.ts)");
       (nextStep(m) === "workshop") === (rec !== null),
       `${nextStep(m)} vs ${rec?.kind ?? "nothing"}`);
     if (rec && rec.kind !== "slot") {
-      check(`the glowing card is the recommended one (${rec.id})`,
-        glowingCard(workshopScreen(m)) === rec.id,
-        `${glowingCard(workshopScreen(m))} vs ${rec.id}`);
+      check(`the badged plate is the recommended one (${rec.id})`,
+        badgedPlate(workshopScreen(m)) === rec.id,
+        `${badgedPlate(workshopScreen(m))} vs ${rec.id}`);
     }
   }
 
@@ -1737,13 +1919,22 @@ section("Installs — what salvage buys (meta.ts)");
       && /Undo/.test(undoNames[0]),
     undoNames.join(" | "));
 
-  // THE WORKSHOP'S SHELF HAS THE SAME IDIOM AND HAD THE SAME HOLE — its buy
+  // THE WORKSHOP'S SHOP HAS THE SAME IDIOM AND HAD THE SAME HOLE — its buy
   // buttons have been a bare price since B6, which predates the yard's. One
   // shop, one grammar, one fix.
+  //
+  // SWEPT OVER THE SELECTIONS rather than read off one render, because the shop
+  // draws ONE buy button now: its detail panel shows the selected system, so
+  // "every buy button carries its own name" is a statement about every system a
+  // player can select, not about a shelf of twelve cards. Same property, and a
+  // stronger sweep — the old version only ever saw the cards the shelf happened
+  // to be rendering.
   const ariaShop = freshMeta({ salvage: 5_000, mark: MARK_COUNT });
-  const shopHTML = workshopScreen(ariaShop);
-  for (const action of ["buy-install", "buy-unlock"] as const) {
-    const names = ariaNames(shopHTML, action);
+  const installNames = INSTALLS.map((i) => ariaNames(workshopScreen(ariaShop, "touch", i.id), "buy-install"))
+    .flat();
+  const unlockNames = UNLOCKS.filter((u) => !u.retired)
+    .map((u) => ariaNames(workshopScreen(ariaShop, "touch", u.id), "buy-unlock")).flat();
+  for (const [action, names] of [["buy-install", installNames], ["buy-unlock", unlockNames]] as const) {
     check(`every ${action} button carries its own name`,
       names.length > 1 && names.every((n) => n.length > 0),
       names.join(" | "));
@@ -1751,8 +1942,8 @@ section("Installs — what salvage buys (meta.ts)");
       new Set(names).size === names.length, names.join(" | "));
   }
   check("a Workshop buy button quotes the price the player can see",
-    ariaNames(shopHTML, "buy-install").every((n) => /T\d\s*·\s*\d+/.test(n)),
-    ariaNames(shopHTML, "buy-install").join(" | "));
+    installNames.every((n) => /T\d\s*·\s*\d+/.test(n)),
+    installNames.join(" | "));
   check("a staged track shows what the order does to it",
     staged.includes(upgradeById("reactor")!.current(1)) &&
       staged.includes(upgradeById("reactor")!.current(2)));
@@ -1907,19 +2098,23 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
     slotPrice(SLOT_BASE) === SLOT_PRICES[0] && slotPrice(SLOT_BASE + 1) === SLOT_PRICES[1]);
   check("a full rack has nothing left to sell", slotPrice(SLOT_CAP) === null);
   // --- the costume --------------------------------------------------------
-  // screens.ts has always put `disabled` on the header's slot button below the
-  // salvage line, but the costume lived nowhere: no rule in app.css matched a
-  // disabled button inside .rack__hdr, so at 0 salvage the rack's one price
-  // rendered as the loudest, most enabled-looking control on the screen and
-  // ate taps. Reported from the first playtest after slots shipped. Pinned by
-  // selector because it is load-bearing UX, not theme — the button must go
-  // dark the way the shop cards' prices on the same right rail do.
+  // screens.ts has always put `disabled` on the slot control below the salvage
+  // line, but the costume lived nowhere: no rule in app.css matched it, so at 0
+  // salvage the rack's one price rendered as the loudest, most enabled-looking
+  // control on the screen and ate taps. Reported from the first playtest after
+  // slots shipped. Pinned by selector because it is load-bearing UX, not theme
+  // — the control must go dark the way the detail's buy button does.
+  //
+  // THE SELECTOR MOVED WITH THE CONTROL. The +1 slot was a button in the rack's
+  // header (.rack__hdr .btn); it is a PLATE in the rack row now, sitting after
+  // the open slots it adds to, which is the only place the badge for a `slot`
+  // recommendation could ever have gone.
   const workshopCss = fs.readFileSync(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
     "utf8",
   ).replace(/\r\n/g, "\n");
-  check("the rack's slot button wears the shop cards' disabled costume",
-    workshopCss.includes(".rack__hdr .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }"));
+  check("the rack's slot plate wears the buy button's disabled costume",
+    workshopCss.includes(".rack-slot--plus:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }"));
   // The whole ladder against one climb of the tier ladder. NOT affordable
   // inside it, deliberately — this is what the endgame faucet buys (meta.ts's
   // SLOT_PRICES note), and the day it becomes affordable in one climb it has
@@ -18744,7 +18939,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     const rich = S.workshopScreen({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, salvage: 1_000, mark: 3 });
     check("...and not when the shelf is the next step",
       route(rich).length > 0 && !route(rich).includes("next-badge")
-        && rich.includes("shop-card--next"));
+        && rich.includes("rack-slot__badge--next"));
   }
 
   // ---- THE RECORDER FOLLOWS THE RUN BACK ----------------------------------
@@ -19631,12 +19826,12 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
 {
   const region = (id: string, className: string, scrollTop = 0) => ({ id, className, scrollTop });
 
-  // The Workshop's shelf, mid-purchase: same region, new element. This is the
-  // whole reported bug in four lines.
-  const shelfOut = [region("", "workshop__shop", 725)];
-  const shelfIn = [region("", "workshop__shop")];
+  // The Workshop's rack panel, mid-purchase: same region, new element. This is
+  // the whole reported bug in four lines.
+  const shelfOut = [region("", "workshop__rack", 725)];
+  const shelfIn = [region("", "workshop__rack")];
   restoreScroll(shelfIn, captureScroll(shelfOut));
-  check("the workshop shelf comes back where the player left it",
+  check("the workshop panel comes back where the player left it",
     shelfIn[0].scrollTop === 725);
 
   // An id beats a class, because four of the five [data-scroll] regions carry
@@ -19647,7 +19842,7 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
   // whole className: a state class appended later must not silently rename the
   // region and turn the restore back into the jump it fixes.
   check("a class-only region is keyed by its first class, not its class list",
-    scrollKey(region("", "workshop__shop is-flashing")) === "workshop__shop");
+    scrollKey(region("", "workshop__rack is-flashing")) === "workshop__rack");
 
   // NAVIGATION BETWEEN SCREENS must not carry an offset across. Both of these
   // screens have exactly one [data-scroll] region, so anything matching by
@@ -19660,7 +19855,7 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
   // A shelf already at the top restores to the top by doing nothing, which is
   // what lets the common case cost one empty map and no second walk.
   check("a screen nobody scrolled captures nothing",
-    captureScroll([region("lb-body", ""), region("", "workshop__shop")]).size === 0);
+    captureScroll([region("lb-body", ""), region("", "workshop__rack")]).size === 0);
 
   // A region with neither id nor class is unidentifiable, and guessing is
   // worse than leaving it at the top.
@@ -20553,17 +20748,20 @@ section("Every card names the press the device can actually make (D7)");
     scrap: 340, profile: "keyboard",
   });
   check("the mouse inspection card says Click", inspection.includes("Click to preview"));
-  // THE RACK IS THE GAMEPAD'S CARD. Two states, one control (screens.ts's
-  // slotBtn), so the pin asks for both words: a rig with more systems than
-  // slots has something aboard AND something in the shed.
+  // THE RACK IS THE GAMEPAD'S CARD. A plate SELECTS now — mounting moved to a
+  // button in the detail (docs/workshop-redesign-plan.md) — so the sentence the
+  // pin asks for is the selection one, still in the device's own word, and
+  // still in both of the states a rig with more systems than slots is in: one
+  // plate aboard, one in the shed.
   const rigged = {
     ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, mark: 3, salvage: 240,
     loadout: { ...newTiers(), reactor: 2, launcher: 1, magazine: 1, bay: 1, hydraulics: 1 },
   };
   const padRack = S.workshopScreen(rigged, "gamepad");
   check("the gamepad build rack says press A, not tap",
-    padRack.includes("Aboard; press A to stow.")
-      && padRack.includes("In the shed; press A to mount.")
+    padRack.includes("Aboard; press A to select.")
+      && padRack.includes("In the shed; press A to select.")
+      && padRack.includes("press A to buy.")
       && !/tap/i.test(padRack));
   // The negative half, on the screen a mouse player actually reads: no surface
   // in this family may still be telling them to tap something.
@@ -26053,17 +26251,21 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // ---- THE SHELF ------------------------------------------------------
     const shopMid = workshopScreen(onLadder({ salvage: 15 }));
     const shopAfter = workshopScreen(graduate({ salvage: 15 }));
+    // THE PLATES, not the buy buttons: the shop draws ONE buy button now (its
+    // detail panel prices the selected system), so what the shelf offers is
+    // what the panel puts a plate on.
     const cards = (html: string): string[] =>
-      [...html.matchAll(/data-action="buy-install" data-install="([a-z]+)"/g)].map((m) => m[1]);
+      [...html.matchAll(/data-action="select-system" data-select="([a-z-]+)"/g)].map((m) => m[1]);
     check("the school's Workshop sells the Reactor and nothing else",
       cards(shopMid).join(",") === SCHOOL_INSTALL, cards(shopMid).join(","));
     check("...and every other install is ABSENT, not greyed",
       INSTALLS.filter((i) => i.id !== SCHOOL_INSTALL)
-        .every((i) => !shopMid.includes(`data-install="${i.id}"`)));
+        .every((i) => !shopMid.includes(`data-select="${i.id}"`)));
     check("...the unlocks with them",
       !shopMid.includes(`data-action="buy-unlock"`));
-    check("...and the rack and its +1 slot too",
-      !shopMid.includes(`data-action="buy-slot"`) && !shopMid.includes(`data-action="mount"`));
+    check("...and the rack, its +1 slot and the mount control too",
+      !shopMid.includes(`data-action="buy-slot"`) && !shopMid.includes(`data-action="mount"`)
+        && !shopMid.includes(`class="rack__hdr"`));
     check("the whole shelf comes back at graduation",
       cards(shopAfter).length > 1 && shopAfter.includes(`data-action="buy-slot"`),
       String(cards(shopAfter).length));
@@ -31800,19 +32002,23 @@ section("--text-faint is decorative; text uses --text-faint-ink (tokens.css, app
     `${faint} < ${ink} < ${muted}`,
   );
 
-  // The five that may keep it, by name. A sixth appearing without an argument
+  // The four that may keep it, by name. A fifth appearing without an argument
   // beside it is the thing this pin is here to stop.
+  //
+  // It was five until the Workshop's rebuild: `.workshop__owned-item` was the
+  // "✓ Owned" reference strip at the foot of the old shelf, and the shop has no
+  // such strip any more — the rack and options ROWS are the owned view, so
+  // there is nothing left to collapse into a line of names.
   const DECORATIVE = [
     ".build-tag",                       // aria-hidden debug stamp
     ".pl-chain__star",                  // the full-chain promise, an SVG star
     ".pl-chain--congest .pl-chain__star",
     ".rack-slot--shed",                 // a stowed system's icon and pips
-    ".workshop__owned-item:not(:last-child)::after", // a generated " ·"
   ];
   const users = [...APP_CSS.matchAll(/(?:^|[};])\s*([^{}@]+?)\s*\{[^}]*var\(--text-faint\)[^}]*\}/g)]
     .map((m) => m[1].trim().replace(/\s+/g, " "));
   check(
-    "only the five decorative sites still paint with --text-faint",
+    "only the four decorative sites still paint with --text-faint",
     users.length === DECORATIVE.length && users.every((u) => DECORATIVE.includes(u)),
     users.filter((u) => !DECORATIVE.includes(u)).join(" | ") || `${users.length} sites`,
   );

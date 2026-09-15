@@ -392,7 +392,7 @@ body.crt-off #app::after { display: none; }
 }
 
 /* THE scroll opt-in. sim/uifit's `scrollers` assertion enforces the allowlist
-   (#lb-body, .workshop__shop, #refit-grid — plus the coach card's give-way
+   (#lb-body, .workshop__rack, #refit-grid — plus the coach card's give-way
    body, which scrolls without the attribute); an entry beyond it fails the
    build. */
 [data-scroll] {
@@ -9110,10 +9110,13 @@ button.panel { color: var(--text); }
      the projection packs its tiles to whatever it is given. */
   .refit__body { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
 }
-/* One column of rows, whole copy, and the pane scrolls — the Workshop's shelf
-   verbatim (see .workshop__grid for the argument). Seven tracks at the 44px tap
-   floor cannot fit a 360px-tall phone under any layout, which is why #refit-grid
-   is on sim/uifit's ALLOWED_SCROLLERS in the first place. */
+/* One column of rows, whole copy, and the pane scrolls. It was the Workshop's
+   shelf verbatim; that shelf has since become a panel of 44px plates, and this
+   one did not follow it because the two shops are not the same shape — a refit
+   is a plan you commit to, so every track here shows its whole ladder at once
+   (see refitScreen), where the Workshop shows one at a time. Seven tracks at
+   the 44px tap floor cannot fit a 360px-tall phone under any layout, which is
+   why #refit-grid is on sim/uifit's ALLOWED_SCROLLERS in the first place. */
 .refit__shelf {
   display: flex; flex-direction: column; gap: 8px;
   min-height: 120px;
@@ -9456,12 +9459,11 @@ button.panel { color: var(--text); }
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
    ========================================================================== */
 /* height:100% + min-height:0 make this the middle link of the fit chain
-   .screen -> .workshop -> .workshop__body -> [data-scroll].workshop__shop:
-   the header, the aside and Start Run stay pinned, and only the stock
-   scrolls. The chain gained a link when the tab bar was replaced by a
-   two-column body, and every one of them needs min-height:0 or the scroller
-   resolves its height from its content and the pane grows instead of
-   scrolling. */
+   .screen -> .workshop -> .workshop__body -> [data-scroll].workshop__rack:
+   the header, the meta line, the detail panel and the two doors at the foot
+   all stay pinned, and only the rack's rows may move. Every link needs
+   min-height:0 or the scroller resolves its height from its content and the
+   panel grows instead of scrolling. */
 .workshop {
   max-width: 980px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
   display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3);
@@ -9469,19 +9471,6 @@ button.panel { color: var(--text); }
 .workshop__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
 .workshop__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
 .workshop__meta { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em; }
-/* ONE COLUMN, at every viewport. The shelf ran `auto-fit, minmax(210px, 1fr)`
-   — four columns on a tablet, two on a landscape phone — and every one of those
-   columns was narrower than the merchandise needed: sim/uifit reported 90
-   ellipsis truncations on this screen alone, i.e. the description was cut on
-   every card of every device in the matrix. A shop where you cannot read what
-   you are buying is not a denser shop, it is a broken one.
-
-   Columns were bought to avoid scrolling, and the scroller is already here:
-   .workshop__shop is one of the three allowlisted [data-scroll] regions
-   (sim/uifit's ALLOWED_SCROLLERS), so the shelf being taller than the pane is
-   its designed behaviour rather than a fit failure. Spending the full width on
-   one column is what buys the full sentence back. */
-.workshop__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; }
 /* THE CARD IS A ROW at every size, not only on a short phone. A single-column
    tile would put a 500px-wide buy button under a two-word name; the row shape
    the compact breakpoint already used — body left, price right, both centred —
@@ -9495,10 +9484,11 @@ button.panel { color: var(--text); }
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-hard-sm);
 }
-/* Gated unlocks stay VISIBLE (dimmed) rather than hidden — a locked capstone you
-   can see is a goal; one you can't is a surprise. (No .shop-card--owned rule:
-   owned purchases render as the .workshop__owned strip below, never as cards —
-   what you own is reference, what you can buy is the merchandise.) */
+/* Gated cards stay VISIBLE (dimmed) rather than hidden — a locked capstone you
+   can see is a goal; one you can't is a surprise. The refit yard is the only
+   caller left: the Workshop's gated systems are plates now (.rack-slot--gated),
+   and its detail panel is never dimmed, because the detail is the one place the
+   gate is explained. */
 .shop-card--gated { opacity: 0.6; }
 .shop-card__name {
   font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3);
@@ -9527,55 +9517,96 @@ button.panel { color: var(--text); }
 }
 
 /* ---------------------------------------------------------------------------
-   THE RACK (screens.ts's workshopScreen) — what a run actually carries.
+   THE RACK PANEL (screens.ts's workshopScreen) — every system as a plate,
+   grouped by state, and the left half of the body.
 
-   It is a SHOP CARD'S SIBLING, not a shop card: the same panel treatment and
-   the same rhythm down the shelf, but it sells nothing except the slot button
-   in its header. Everything else in it is a toggle, and toggles have to be
-   distinguishable from prices at a glance or the screen has two kinds of
-   button wearing one costume.
+   IT IS THE WHOLE SHOP NOW, not a strip above one. The shelf it replaced was a
+   column of ~120px `.shop-card` rows — twelve of them, i.e. 1191px of card, of
+   which a Steam Deck showed 444 and a 915x412 phone 226. A PLATE is 44px
+   square, which is the tap floor and therefore the smallest a control may be,
+   and twelve plates in five-wide rows is four rows. Same merchandise, a fifth
+   of the height, and the copy the cards were carrying moved to the detail
+   beside this panel where it is read one system at a time.
 
-   The row WRAPS. Ten slots at the 44px tap floor is 440px plus gaps, which is
-   wider than a landscape phone's shop column — and the alternative, a
-   horizontal scroller, is the exact failure the HUD's own rack assertion
-   exists to catch ("one of them parked off the right edge is not a readout").
-   Here there is vertical room to spend, because the pane scrolls.
+   THE ROW IS THE STATE. rack / shed / shelf / options, ruled off from each
+   other by the dashed line the shed already used: position answers "what am I
+   flying" before a single glyph is read, which is what the named-tile option
+   could not do, and it carries the distinction without asking a hue to (the
+   owner is red-green colour-vision impaired — DESIGN.md).
+
+   WHY IT STILL SCROLLS, AND WHERE. Rows cost 44 + 10 of group padding = 54px,
+   the header line 24, the frame 20. At roomy/regular the column is 372px, which
+   is 278px of plate track — five 44px plates and four 6px gaps is 244, six is
+   294 — so five per row, and the worst reachable state is SIX plate-rows: ten
+   slots bought with one system owned draws 1 plate + 9 open + the "every slot
+   bought" tag over three rows, nine shelf plates over two, and one options row.
+   Six rows is 264 of plate + 40 of group padding + 3 rules + 12 of wrap gaps =
+   319, plus 44 of header and frame = 363, against the ~468px of body a 720px
+   logical box leaves under the header, meta line and footer. It never scrolls
+   here.
+
+   On a 412-tall phone (compact, ~242px of body) the column widens to 444px so a
+   row takes EIGHT plates, and the same enumeration gives four plate-rows:
+   4x44 + 3x6 group padding + 2 rules + 4 of wrap gap = 200, plus 35 of header
+   and frame = 235. Four rows fit, five (264+) do not. The 360-tall rows of the
+   device matrix have ~190-204px of body — three rows fit, four do not — so a
+   mid-game save scrolls this panel THERE and nowhere else. That is the one
+   place the owner's "no scrolling with any combination" cannot hold at the 44px
+   tap floor without cutting the header or the footer, and the floor and the
+   chrome are worth more than the last row. Hence [data-scroll] and the entry on
+   sim/uifit's ALLOWED_SCROLLERS, which carries this same arithmetic.
    ------------------------------------------------------------------------ */
-.rack {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 14px; margin-bottom: 8px;
+.workshop__rack {
+  /* NO GAP between the header and the group rows, and none between the rows:
+     each `.rack__group` carries its own 5px of padding and the dashed rule sits
+     on the boundary between two of them, so a flex gap here would both float
+     that rule in the middle of nothing and spend 4 x 6px of the panel's height
+     on air. Measured on a Pixel 7 against the stocked save: 16px of gap was the
+     difference between a panel that fits its 240px and one that scrolls by 4. */
+  display: flex; flex-direction: column; gap: 0;
+  padding: 10px 14px;
+  min-width: 0; min-height: 0;
   background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-hard-sm);
 }
-.rack__hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-/* The slot button is the one PRICE in the rack, and it must go dark exactly
-   the way the shop cards' prices on the same right rail do — identical filter,
-   identical dead cursor. screens.ts has always set `disabled` below the
-   salvage line; only this costume was missing, so at 0 salvage the header's
-   loudest control was a full-brightness primary that ate taps. Reported from
-   the first playtest after the slots shipped, which is what "loudest control
-   on the screen" buys you. */
-.rack__hdr .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
-/* The count takes the free space so the slot button lands on the same right
-   rail the shop cards' prices do — .shop-card__foot's min-width is 96px and
-   this button sits inside it optically even though it is in a different box. */
+/* The header line: what the rack is, what it holds, and what the Mark allows.
+   It does not scroll with the rows — `flex: none` inside a scrolling column
+   keeps it at the top of the CONTENT, which is where it belongs: the budget is
+   read once on arrival, not tracked while browsing. */
+.rack__hdr {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; flex: none;
+  padding-bottom: 4px;
+}
+/* The count takes the free space so the budget lands on the panel's right
+   edge — the same rail the detail's prices sit on, one column over. */
 .rack__count {
   flex: 1 1 auto; min-width: 0;
-  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-dim);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
 }
 .rack__full {
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em;
-  color: var(--success);
+  color: var(--success); align-self: center;
 }
-.rack__row, .rack__shed { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.rack__shed { padding-top: 8px; border-top: 1px dashed var(--line); }
-.rack__shed-label {
+/* The budget keeps the panel's right edge even when the header line WRAPS. The
+   count takes the free space, so on one line the budget is already there; on
+   the narrowest column (640x360, where "4/4 slots · 80 pts aboard" and the
+   figures together outrun 252px) the budget drops to a second line, and without
+   this it lands orphaned under the `systems` label instead of under itself. */
+.rack__hdr .workshop__budget { margin-left: auto; }
+/* One band per state. The label is a fixed 58px track so the plate columns line
+   up down the panel — a row whose plates started at a different x per label
+   length would make four bands read as four unrelated strips — and it is nudged
+   down 18px to sit on the optical centre of the first 44px plate beside it. */
+.rack__group { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; flex: none; }
+.rack__group + .rack__group { border-top: 1px dashed var(--line); }
+.rack__group-label {
+  flex: none; width: 58px; padding-top: 18px;
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
-  color: var(--text-faint-ink); flex: none; margin-right: 2px;
+  text-transform: uppercase; color: var(--text-faint-ink);
 }
-.rack__note { font-size: var(--fs-sm); line-height: 1.4; margin: 0; }
+.rack__plates { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; flex: 1 1 auto; }
 /* 44 square, which is the tap floor and not a coincidence: this control has no
    text to grow it, so the floor IS the size. sim/uifit's `tap` assertion holds
    it. Same cyan-topped plate language as the HUD rack, at the size a thumb can
@@ -9595,6 +9626,7 @@ button.panel { color: var(--text); }
      reading the field on this screen; the coefficient was just the plate's,
      inherited by a class rather than by an argument. */
   --plate-w: 44px;
+  position: relative;
   flex: none; width: var(--plate-w); height: var(--plate-w);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   padding: 0;
@@ -9616,8 +9648,31 @@ button.panel { color: var(--text); }
   box-shadow: none;
   color: var(--text-faint);
 }
+/* NOT OWNED: merchandise, not kit. The same drained plate as the shed with the
+   text one step brighter, because these carry a price rather than a tier and a
+   price has to be readable. Which of the two a plate is, is never asked of the
+   colour — it is asked of the ROW the plate is in. */
+.rack-slot--unowned {
+  background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--text-muted);
+}
+/* Gated by a Mark. Dimmed the same way a gated card always was, and wearing the
+   lock badge — the dim alone would only say "duller", the badge says "shut" and
+   the detail beside it says by what. */
+.rack-slot--gated { opacity: 0.6; }
+/* THE SELECTED PLATE — an INSET ring and a glow, deliberately not an outline.
+   The outline at 2px offset is this design system's ONE focus token (see D4
+   above), and the pad steers by focus: if selection wore the same ring, a pad
+   player walking the panel could not tell the plate they are ON from the plate
+   the detail is DRAWING, which on this screen are routinely different. Inside
+   the border for selection, outside it for focus, and both can show at once. */
+.rack-slot--sel {
+  box-shadow: var(--shadow-hard-sm), inset 0 0 0 2px var(--accent), var(--glow-accent);
+}
 /* The same box with nothing in it. A span, not a button: there is no system
-   here to toggle, so a control would be a target that does nothing. */
+   here to select, so a control would be a target that does nothing. */
 .rack-slot--open {
   background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
   border-top-color: var(--line-strong);
@@ -9628,55 +9683,162 @@ button.panel { color: var(--text); }
   border: 1px solid var(--line-strong);
 }
 .rack-slot__g { display: flex; }
-
-/* Owned unlocks, collapsed to one line. They get no card on purpose — this is a
-   shop, so what you own is reference and what you can buy is the merchandise.
-   It also means the screen gets SHORTER as you progress rather than longer. */
-.workshop__owned {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
-  padding: 7px 10px;
-  border-radius: var(--r-md);
-  border: var(--bw) solid rgba(0,255,156,0.3);
-  background: rgba(0,255,156,0.05);
+/* THE +1 SLOT, as a plate in the row it widens. It is the one PRICE among the
+   plates, and it must go dark exactly the way the detail's buy button does —
+   identical filter, identical dead cursor. screens.ts has always set `disabled`
+   below the salvage line; only this costume was missing, so at 0 salvage the
+   loudest control on the screen was a full-brightness primary that ate taps
+   (reported from the first playtest after the slots shipped). The rule used to
+   live on `.rack__hdr .btn:disabled`, which is where this control used to be. */
+.rack-slot--plus {
+  font-family: var(--font-pixel); font-size: 8px; gap: 2px;
+  border-style: dashed;
 }
-.workshop__owned-label {
-  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
-  color: var(--success); flex: none;
+.rack-slot--plus small {
+  font-family: var(--font-mono); font-size: 8px; color: var(--success);
+  display: inline-flex; align-items: center; gap: 2px;
 }
-.workshop__owned-item { font-size: 11px; color: var(--text-dim); }
-.workshop__owned-item:not(:last-child)::after { content: " ·"; color: var(--text-faint); }
+.rack-slot--plus:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+/* THE PLATE BADGES — four shapes in one 14px corner box, because a 44px plate
+   has no room for a word and hue is not a carrier here. `lock` (Mark-gated),
+   `play` (the one thing to buy next, meta.ts's recommendedPurchase), `stow`
+   (owned, not flying) and `check` (an owned option). Each is a distinct
+   SILHOUETTE at 9px; the colour is a second, redundant channel. */
+.rack-slot__badge {
+  position: absolute; top: -6px; right: -5px;
+  width: 14px; height: 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--warn);
+}
+.rack-slot__badge--owned { color: var(--success); border-color: rgba(0,255,156,0.45); }
+.rack-slot__badge--next { color: var(--warn); border-color: var(--warn); }
+.rack-slot__badge--shed { color: var(--text-dim); }
+/* An option has no tiers, so its plate spends the pip row on the price. */
+.rack-slot__price {
+  font-family: var(--font-mono); font-size: 8px; color: var(--success);
+  display: inline-flex; align-items: center; gap: 2px;
+}
 
-/* TWO COLUMNS, ONE SCROLLER. The left column is the build budget and nothing
-   else, and it must stay put: the cap is the usual reason a card is greyed out,
-   so scrolling it away from the cards it explains is the one thing this pane
-   must not do. The right column is the shelf, and it is the only thing that
-   moves.
+/* ---------------------------------------------------------------------------
+   THE DETAIL (screens.ts's workshopScreen) — the selected plate's whole story,
+   and the right half of the body.
 
-   The aside sizes to ITS CONTENT rather than to a number. It was capped at
-   200px back when it also carried the owned and installed strips — which have
-   moved into the scroller, because a pane that cannot scroll must not hold a
-   list that grows (a Mark-3 save ran five installed names past the bottom of
-   the screen). What is left is one budget box, and a track wide enough for its
-   label is a track wide enough: every pixel past that is width the one column
-   of merchandise wants. Both tracks keep minmax(0, …) so nothing in either can
-   push the grid wider than the panel. */
+   It wears the `.shop-card` frame the shelf's rows used to, because it IS that
+   card: same panel treatment, same name/desc/price grammar, one of them instead
+   of twelve. What it adds is the LADDER — `UpgradeDef.tiers`, three strings
+   that say what each rung gives, which this shop has never printed. The owner
+   asked to see "the stats that an upgrade gets me"; this is them.
+   ------------------------------------------------------------------------ */
+.workshop__detail {
+  /* align-items is an OVERRIDE, not a default: this panel wears .shop-card for
+     its frame and that rule centres its grid items. In a flex column `center`
+     means centred HORIZONTALLY, which would shrink-wrap every paragraph and
+     the ladder to its own text width and stack them down the middle. */
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 14px 16px;
+  min-width: 0; min-height: 0;
+}
+.workshop__detail-hdr { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }
+.workshop__detail-hdr .shop-card__name { flex: 1 1 auto; min-width: 0; }
+.workshop__detail-hdr .shop-card__tag { margin-left: auto; flex: none; }
+/* The shed's tag is the aboard tag's opposite and says so in WORDS ("aboard" /
+   "in the shed"); the border and ink only follow. --text-muted rather than a
+   fifth stop on the ramp — the tag is a label, not decoration. */
+.shop-card__tag--shed { color: var(--text-muted); border-color: var(--line-strong); }
+.workshop__detail-blurb { flex: none; }
+/* THE LADDER. Four tracks: the marker, the tier, the stat, and what the rung
+   costs or already is. The stat is monospace because the three rows are read as
+   a COLUMN of numbers that grow — "+6% / +12% / +18%" only reads as a ladder if
+   the digits line up — and it ellipsises rather than wrapping, with the whole
+   string in the row's `title`, because a row that grew to two lines would push
+   the footnote and the buttons off a 360-tall phone. */
+.ladder { display: flex; flex-direction: column; gap: 3px; flex: none; }
+.ladder__row {
+  display: grid; grid-template-columns: 14px 22px minmax(0, 1fr) auto;
+  align-items: center; gap: 0 8px;
+  min-height: 26px; padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+}
+/* Three states, three carriers, none of them a hue on its own: an owned rung
+   has a CHECK and the word "owned", the next one has a PLAY mark and a lit
+   inset frame, and tier 3 has neither plus the words "refit stop · scrap". */
+.ladder__row--owned { color: var(--text); }
+.ladder__row--next {
+  color: var(--accent);
+  background: rgba(0,240,255,0.06);
+  box-shadow: inset 0 0 0 1px rgba(0,240,255,0.25);
+}
+.ladder__row--run { color: var(--text-muted); }
+.ladder__mark { display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; }
+.ladder__t { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em; }
+.ladder__stat {
+  font-family: var(--font-mono); font-weight: 500; font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.ladder__end {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.06em;
+  text-transform: uppercase; display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.ladder__end--owned { color: var(--text-muted); }
+/* The scrap currency's own colour (.currency--scrap wears the same --warn), so
+   the tag matches the shop it names rather than inventing a third amber. */
+.ladder__end--run { color: var(--warn); }
+/* THE ONE FOOTNOTE, and it replaced a sentence repeated on every card. The
+   shelf used to append "Installs at tier 1; the Workshop raises it to 2, refit
+   stops to 3" to all twelve descriptions — the same fact, twelve times, in the
+   place the actual description needed. Said once, under the ladder that has
+   already drawn it. */
+.workshop__note { color: var(--text-muted); font-size: 12px; line-height: 1.35; margin: 0; flex: none; }
+/* Pinned to the bottom of the panel by `margin-top: auto`, so the two panels'
+   controls sit on one line whatever the copy above does. */
+.workshop__detail-foot {
+  display: flex; justify-content: flex-end; align-items: center; gap: 8px;
+  margin-top: auto; flex-wrap: wrap; flex: none;
+}
+.workshop__detail-foot .shop-card__tag { margin-left: 0; }
+
+/* TWO PANELS, ONE HEIGHT, AND ONLY THE LEFT ONE MAY SCROLL.
+
+   The body used to be a fixed aside (the build budget, and nothing else) beside
+   a scrolling shelf. Both halves of that are gone: the budget rides in the rack
+   panel's header line, where it is still always visible and now beside the
+   thing it caps, and the shelf is the rack panel itself.
+
+   THE SAME HEIGHT is the owner's review constraint, and grid gives it for free
+   — `align-items: stretch` is the default, and it is written out here because
+   it is a requirement rather than an accident. Both panels therefore end on one
+   line, and the detail's foot pins its buttons to that line (margin-top: auto).
+
+   THE COLUMN WIDTH IS ARITHMETIC, not a breakpoint. 372px of rack panel is
+   exactly five 44px plates and their gaps once the 58px label track and the
+   28px of frame padding are taken out (58+8+28 = 94; 372-94 = 278; 5x44+4x6 =
+   244 fits, 6x44+5x6 = 294 does not). The detail wants at least 390px — below
+   that the ladder's longest stat ("+18% muzzle speed · 60% wind cancelled",
+   ~250px at 12px mono) ellipsises down to uselessness. So the rack track is
+   whichever is SMALLER: its ideal width, or whatever is left once the detail
+   has its floor. On a 980px body that is 372; on a 640x360 phone's ~590 it is
+   252, which draws four plates a row and scrolls — which is the state the
+   allowlist entry is for. */
 .workshop__body {
+  --detail-min: 390px;
   display: grid;
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  grid-template-columns:
+    min(372px, calc(100% - var(--detail-min) - var(--sp-3))) minmax(0, 1fr);
   gap: var(--sp-3);
+  align-items: stretch;
   flex: 1 1 auto;
   min-height: 0;
-}
-.workshop__aside {
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  min-width: 0; min-height: 0;
-  align-content: start;
 }
 /* THE FOOT — two doors out of the shop, centred as one block. This was a lone
    `align-self:center` on the Start Run button; a row of two needs a row, and
    the row keeps the pair centred so the screen's exit stays where the eye has
    always found it rather than sliding left as the second button appears.
-   flex: none so it cannot be squeezed by the scroller above it. */
+   flex: none so it cannot be squeezed by the panels above it. */
 .workshop__go {
   display: flex; flex: none; gap: var(--sp-3);
   justify-content: center; align-items: center; flex-wrap: wrap;
@@ -9685,15 +9847,12 @@ button.panel { color: var(--text); }
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text-muted);
 }
-.workshop__budget-box {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 8px 10px;
-  border-radius: var(--r-md);
-  border: var(--bw) solid var(--line);
-  background: var(--surface-2);
-}
-.workshop__shop { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
-/* The budget, not the price, is what usually refuses a purchase here. */
+/* The budget, not the price, is what usually refuses a purchase here — which is
+   why it moved out of the deleted aside and into a header that is always on
+   screen. Bare numbers, with the words in the title and the accessible name:
+   the label is 40px this line would have to take off the slot count, and the
+   detail spells the same gate out in full ("Needs build budget 135/440")
+   whenever a system is actually barred by it. */
 .workshop__budget { font-family: var(--font-mono); font-size: 10px; color: var(--warn); letter-spacing: 0; }
 /* Tab bar. The WORKSHOP no longer has tabs — its Systems/Options split was
    removed — but the CONTROLS screen (controlsScreen) renders its keyboard /
@@ -9720,49 +9879,64 @@ button.panel { color: var(--text); }
    tall. The pane below them scrolls; the control that chooses WHICH pane cannot
    be the hardest thing on the screen to hit. */
 
-/* Short (landscape-phone) viewports. The card gives up its SHAPE rather than
-   the screen giving up fitting: the blurb goes (it explains the screen, not the
-   goods), and the card turns from a 122px tile into a ~40px row — name, one
-   clamped line of desc, price. The columns get WIDER doing it, not narrower,
-   because a row is width-scarce where a tile was height-scarce. The full desc
-   is still one taller screen away. */
+/* Short (landscape-phone) viewports. The panels give up their PADDING and their
+   type sizes rather than the screen giving up fitting: the blurb goes (it
+   explains the screen, not the goods), the meta line goes with it, and the rack
+   panel gets WIDER — 444px, eight plates a row instead of five — because a
+   44px plate cannot shrink and rows are the only thing there is to save.
+   Everything in the detail steps down one notch, the refit modal's own compact
+   scale, and the tap floor is never touched. */
 @media (max-height: 460px) {
   .workshop { gap: var(--sp-2); padding-block: var(--sp-2); }
   .workshop__blurb { display: none; }
+  /* The meta line goes the way the blurb already did, and for the same reason:
+     "52 runs logged · deepest bay 10 · Tier 4 — Deep Run ○ · Contracts 0/3" is
+     a progress report, and this screen is a shop. 18px of the ~242px of body a
+     412-tall phone has, which is a third of a plate row. */
+  .workshop__meta { display: none; }
   .workshop__hdr h2 { font-size: clamp(16px, 4.2vh, 26px); }
-  /* Cutting the explanation is the wrong trade — it is the only thing that
-     tells you what you are buying — so the PAGE stops scrolling and the card
-     area becomes the only scroller: salvage, the build budget and Start Run
-     stay pinned and on-screen at every ownership state, and the shopping
-     happens inside a region instead of running off the bottom. The
-     owned/installed strips ride INSIDE that region, at its foot — reference
-     that grows with the save cannot live in a pane that never scrolls.
-
-     The fit/scroll half of this has moved OUT of this breakpoint and into the
-     base .screen / [data-scroll] rules — it was never a small-screen special
-     case, it was the right structure at every size, and .screen--fit existed
-     only because page scrolling used to be the default. */
-  /* The card is a row at every size now (see .shop-card above); a short
-     viewport only tightens it. What it must NOT do any more is take the
-     description away: two columns of clamped one-line descs was the old trade,
-     and it cost every card on every device its sentence. One column, whole
-     copy, and the pane scrolls — which is what the pane is for. */
-  .workshop__body { gap: var(--sp-2); }
-  .workshop__grid { gap: 4px; }
-  .shop-card { gap: 2px 10px; padding: 6px 10px; border-radius: var(--r-md); }
-  .shop-card__name { font-size: 11px; gap: 5px; }
-  /* min-width:0 and wrapping, because the shelf carries icon + name + the NEXT
-     STEP badge in one flex row. The badge does not shrink, so without a zero
-     min-width the 1fr track refused to go below its content and the badge rode
-     out over the price button in the auto track — visible on the one card that
-     matters most, since the badge only ever appears on the recommended
-     purchase. Wrapping lets it drop under the name instead. */
-  .shop-card__name .next-badge { flex: none; }
-  .shop-card__desc { font-size: 10px; line-height: 1.3; }
-  .shop-card__foot .btn { padding: 4px 8px; font-size: 9px; }
-  .shop-card__foot { min-width: 84px; }
-  .shop-card__locked { max-width: 148px; }
+  /* EIGHT PLATES A ROW, which is what turns five plate-rows into four and is
+     the whole reason the column is re-sized rather than the panel re-flowed:
+     444 - 42 label - 6 gap - 16 frame = 380, and 8x44 + 7x4 = 380 exactly. The
+     detail's floor drops to 330 with it — the ladder's stat is 10px here, so it
+     needs proportionally less — which keeps the arithmetic solvable on the
+     640x360 budget phone as well. */
+  .workshop__body { --detail-min: 330px; gap: var(--sp-2); }
+  .workshop__body { grid-template-columns: min(444px, calc(100% - var(--detail-min) - var(--sp-2))) minmax(0, 1fr); }
+  .workshop__rack { padding: 6px 8px; }
+  .rack__hdr { padding-bottom: 2px; }
+  .rack__count { font-size: 10px; }
+  .rack__group { padding: 3px 0; gap: 6px; }
+  .rack__group-label { width: 42px; font-size: 6px; padding-top: 19px; }
+  .rack__plates { gap: 4px; }
+  .workshop__detail { padding: 8px 10px; gap: 5px; }
+  .workshop__detail .shop-card__name { font-size: 11px; gap: 5px; }
+  /* One line, ellipsised. The blurb is the sentence that says what the system
+     IS, and the ladder under it is what it DOES — on a screen with 242px of
+     body the second is worth more, so the first gives up its wrap rather than
+     the ladder giving up a rung. */
+  .workshop__detail-blurb {
+    font-size: 10px; line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .ladder { gap: 2px; }
+  .ladder__row { min-height: 19px; padding: 0 6px; gap: 0 6px; }
+  .ladder__stat { font-size: 10px; }
+  .ladder__t { font-size: 7px; }
+  .ladder__end { font-size: 6px; }
+  .workshop__note { font-size: 10px; line-height: 1.25; }
+  .workshop__detail-foot .btn { padding: 4px 10px; font-size: 9px; }
+}
+/* THE FOOTNOTE IS THE FIRST THING TO GO on the shortest rows in the matrix, and
+   never a button. It says the same thing the T3 ladder row beside it is already
+   drawing ("refit stop · scrap"), so dropping it costs a repetition rather than
+   a fact — where dropping the Stow button would cost the loadout screen its
+   only loadout control. 400px is the boundary because it is the tallest
+   viewport that still cannot hold four plate-rows: the 360-tall devices have
+   ~190px of body and want more than that for the panel alone. */
+@media (max-height: 400px) {
+  .workshop__note { display: none; }
+}
 
 /* ============================================================================
    CONTROLS (canvas D1) — Settings → Controls. Three input families on the
@@ -10590,9 +10764,18 @@ button.panel { color: var(--text); }
   .coach__next { padding: 5px 8px; gap: 3px; }
   .coach__next p { font-size: 10.5px; line-height: 1.3; }
 }
-/* A11: the Workshop's one next-step card. */
-.shop-card--next { border-color: var(--warn); }
-.shop-card__name .next-badge { margin-left: 6px; vertical-align: 2px; }
+/* A11: the Workshop's one next-step chip. The warm BORDER that used to go with
+   it is gone — the recommendation is a badge on a 44px plate now
+   (.rack-slot__badge--next), and the detail's header carries this chip when the
+   plate it is drawing happens to be that one. Nothing else in the app ever wore
+   .shop-card--next, so the rule went with the shelf. */
+/* flex: none, because .shop-card__name is a wrapping flex row and the badge is
+   the one child in it that must not be squeezed: without this the 1fr name
+   track refused to go below its content on a compact viewport and the badge
+   rode out over the price beside it. Wrapping lets it drop under the name
+   instead. (It only ever appears on the recommended purchase, i.e. on the one
+   card that matters most.) */
+.shop-card__name .next-badge { margin-left: 6px; vertical-align: 2px; flex: none; }
 
 /* ============================================================================
    TIER PROGRESSION (meta.ts's tier-completion economy) — the menu's tier
