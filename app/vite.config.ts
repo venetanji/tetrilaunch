@@ -1,5 +1,8 @@
 import { execSync } from "node:child_process";
-import { defineConfig } from "vite";
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // A local debug APK always reports versionCode=1/versionName=1.0 — Capacitor's
@@ -46,6 +49,38 @@ function buildId(): string {
 // reaches a bundle that did not ask for it.
 const NATIVE_MODES = new Set(["native", "teststore", "sandbox"]);
 
+// WEB-ONLY files under public/: the /about landing page and its gallery. They
+// are served by the Pages deploy and by nothing else — a phone that installed
+// the app, a desktop that ran the installer and a Steam depot all already HAVE
+// the game, and a promo page for it is dead weight there (~2 MB of PNG, or
+// about 6% of the bundle, for a route no native shell can even navigate to).
+//
+// Two mechanisms, because there are two consumers of public/:
+//   - the service worker's precache, which is told to skip them below
+//     (workbox.globIgnores) so a web player who never opens /about never
+//     downloads it either;
+//   - the native bundle, from which they are DELETED after the build. Vite's
+//     publicDir copy has no filter, and both Capacitor (`webDir: "dist"`) and
+//     electron-builder (`from: ../dist`) take dist/ wholesale, so the one place
+//     that can keep them out of every native/desktop package at once is the
+//     end of the native build itself. desktop/electron-builder.yml excludes the
+//     same paths again in its own filter, as a belt to this brace.
+const WEB_ONLY = ["about", "about.html"];
+
+function stripWebOnly(mode: string): Plugin {
+  return {
+    name: "tetrilaunch:strip-web-only",
+    apply: "build",
+    closeBundle() {
+      if (!NATIVE_MODES.has(mode)) return;
+      const dist = fileURLToPath(new URL("./dist/", import.meta.url));
+      for (const rel of WEB_ONLY) {
+        rmSync(resolve(dist, rel), { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   base: "./",
   define: {
@@ -61,6 +96,7 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
   },
   plugins: [
+    stripWebOnly(mode),
     VitePWA({
       disable: NATIVE_MODES.has(mode),
       registerType: "autoUpdate",
@@ -121,6 +157,11 @@ export default defineConfig(({ mode }) => ({
         // build, green census, perfect online playback, and an installed PWA
         // that precaches zero beds.
         globPatterns: ["**/*.{js,css,html,svg,png,woff2,mp3,m4a,ogg}"],
+        // The /about landing page and its gallery are web-only marketing (see
+        // WEB_ONLY above). The html and png globs would otherwise precache all
+        // of it for every player of the game, whether or not they ever open
+        // the page.
+        globIgnores: ["about/**", "about.html"],
         // Default is 2 MB and the music tracks exceed it — without this they
         // are silently dropped from the precache manifest and only the effects
         // survive, which is exactly the kind of partial success that looks fine

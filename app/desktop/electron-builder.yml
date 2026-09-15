@@ -49,6 +49,13 @@ files:
     to: dist
     filter:
       - "**/*"
+      # The /about landing page and its screenshot gallery are web-only
+      # marketing. The native build already deletes them from dist/
+      # (vite.config.ts's stripWebOnly); this is the same rule stated where
+      # the package is assembled, so a dist/ built by any other route still
+      # cannot carry ~2 MB of promo PNG into the installer or a Steam depot.
+      - "!about/**"
+      - "!about.html"
 
 # The bundle stays inside the asar, audio included. ~32 MB of it is mp3, and
 # protocol.handle already returns whole files rather than honouring range
