@@ -9534,27 +9534,34 @@ button.panel { color: var(--text); }
    could not do, and it carries the distinction without asking a hue to (the
    owner is red-green colour-vision impaired — DESIGN.md).
 
-   WHY IT STILL SCROLLS, AND WHERE. Rows cost 44 + 10 of group padding = 54px,
-   the header line 24, the frame 20. At roomy/regular the column is 372px, which
-   is 278px of plate track — five 44px plates and four 6px gaps is 244, six is
-   294 — so five per row, and the worst reachable state is SIX plate-rows: ten
-   slots bought with one system owned draws 1 plate + 9 open + the "every slot
-   bought" tag over three rows, nine shelf plates over two, and one options row.
-   Six rows is 264 of plate + 40 of group padding + 3 rules + 12 of wrap gaps =
-   319, plus 44 of header and frame = 363, against the ~468px of body a 720px
-   logical box leaves under the header, meta line and footer. It never scrolls
-   here.
+   WHY IT STILL SCROLLS, AND WHERE. A plate row costs 44 + 6 of group padding =
+   50px at compact, 44 + 10 = 54 at roomy, and what it has to fit inside is the
+   ROWS region — the panel's height minus the pinned header, its own padding and
+   its border, measured at 31px compact and 65px roomy.
 
-   On a 412-tall phone (compact, ~242px of body) the column widens to 444px so a
-   row takes EIGHT plates, and the same enumeration gives four plate-rows:
-   4x44 + 3x6 group padding + 2 rules + 4 of wrap gap = 200, plus 35 of header
-   and frame = 235. Four rows fit, five (264+) do not. The 360-tall rows of the
-   device matrix have ~190-204px of body — three rows fit, four do not — so a
-   mid-game save scrolls this panel THERE and nowhere else. That is the one
-   place the owner's "no scrolling with any combination" cannot hold at the 44px
-   tap floor without cutting the header or the footer, and the floor and the
-   chrome are worth more than the last row. Hence [data-scroll] and the entry on
-   sim/uifit's ALLOWED_SCROLLERS, which carries this same arithmetic.
+   At roomy/regular the column is 372px, which is 274px of plate track (see the
+   width note below), so five 44px plates and four 6px gaps per row. The worst
+   reachable state is SIX plate-rows: ten slots bought against one system owned
+   draws 1 plate + 9 open + the "every slot bought" tag over three rows, nine
+   shelf plates over two, and one options row — 264 of plate + 40 of group
+   padding + 3 rules + 12 of wrap gaps = 319px. Measured on a 1280x720 laptop:
+   378px of rows region inside a 443px body. It never scrolls here.
+
+   On a 412-tall phone (compact) the column widens to 448px so a row takes EIGHT
+   plates, and the same enumeration gives four rows: 4x44 + 4x6 group padding +
+   3 rules = 203px. Measured on a Pixel 7: 213px of rows region inside a 244px
+   body — four rows fit, five (253+) do not, on every ownership state the
+   fixtures reach.
+
+   The 360-tall rows of the device matrix are the exception and the only one.
+   Measured on an iPhone 13 mini (780x360 with iOS insets): 163px of rows region
+   inside a 194px body, against 203px of content on the stocked save — three
+   plate rows fit, four do not, so a save with a shed AND an unbought shelf
+   scrolls by ~40px THERE. The alternatives are shrinking the plate under the
+   44px tap floor (the regression this project already fixed once), unpinning
+   the header (the thing that must stay), or cutting the two doors at the foot —
+   each worth more than the fourth row. Hence [data-scroll] on .rack__rows and
+   the entry on sim/uifit's ALLOWED_SCROLLERS, which carries this arithmetic.
    ------------------------------------------------------------------------ */
 .workshop__rack {
   /* NO GAP between the header and the group rows, and none between the rows:
@@ -9562,7 +9569,13 @@ button.panel { color: var(--text); }
      on the boundary between two of them, so a flex gap here would both float
      that rule in the middle of nothing and spend 4 x 6px of the panel's height
      on air. Measured on a Pixel 7 against the stocked save: 16px of gap was the
-     difference between a panel that fits its 240px and one that scrolls by 4. */
+     difference between a panel that fits its 240px and one that scrolls by 4.
+
+     THE PANEL IS NOT THE SCROLLER; .rack__rows inside it is. The header has to
+     stay on screen at every offset — the build budget is the usual reason a
+     purchase is refused, so scrolling it away from the merchandise is the one
+     thing this pane must not do — and it only actually scrolls on the 360-tall
+     rows, which is exactly where nobody would have noticed it going. */
   display: flex; flex-direction: column; gap: 0;
   padding: 10px 14px;
   min-width: 0; min-height: 0;
@@ -9578,6 +9591,16 @@ button.panel { color: var(--text); }
 .rack__hdr {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; flex: none;
   padding-bottom: 4px;
+}
+/* The rows, and the only thing in this panel that may move. [data-scroll]
+   supplies flex/min-height/overflow; this is the pinned header's other half. */
+.rack__rows { display: flex; flex-direction: column; }
+/* The panel's own eyebrow. It carried the deleted aside's class name for one
+   review — a selector pointing at markup that no longer exists — and these are
+   that rule's declarations under a name the markup can still explain. */
+.rack__label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-muted);
 }
 /* The count takes the free space so the budget lands on the panel's right
    edge — the same rail the detail's prices sit on, one column over. */
@@ -9794,6 +9817,11 @@ button.panel { color: var(--text); }
    place the actual description needed. Said once, under the ladder that has
    already drawn it. */
 .workshop__note { color: var(--text-muted); font-size: 12px; line-height: 1.35; margin: 0; flex: none; }
+/* …and the one note that is about THIS purchase rather than about the shop: a
+   full rack sends the system you are buying straight to the shed. Amber,
+   because it is the same "this will not fly" the shed row says, and never
+   colour alone — it is a whole sentence. */
+.workshop__note--warn { color: var(--warn); }
 /* Pinned to the bottom of the panel by `margin-top: auto`, so the two panels'
    controls sit on one line whatever the copy above does. */
 .workshop__detail-foot {
@@ -9814,10 +9842,12 @@ button.panel { color: var(--text); }
    it is a requirement rather than an accident. Both panels therefore end on one
    line, and the detail's foot pins its buttons to that line (margin-top: auto).
 
-   THE COLUMN WIDTH IS ARITHMETIC, not a breakpoint. 372px of rack panel is
-   exactly five 44px plates and their gaps once the 58px label track and the
-   28px of frame padding are taken out (58+8+28 = 94; 372-94 = 278; 5x44+4x6 =
-   244 fits, 6x44+5x6 = 294 does not). The detail wants at least 390px — below
+   THE COLUMN WIDTH IS ARITHMETIC, not a breakpoint. 372px of rack panel holds
+   five 44px plates and their gaps once the 58px label track, its 8px gap, the
+   28px of frame padding and the 4px of border are taken out (58+8+28+4 = 98;
+   372-98 = 274; 5x44+4x6 = 244 fits, 6x44+5x6 = 294 does not — the same answer
+   the borderless sum gave, unlike the compact one below, which it cost four
+   pixels and a plate). The detail wants at least 390px — below
    that the ladder's longest stat ("+18% muzzle speed · 60% wind cancelled",
    ~250px at 12px mono) ellipsises down to uselessness. So the rack track is
    whichever is SMALLER: its ideal width, or whatever is left once the detail
@@ -9842,10 +9872,6 @@ button.panel { color: var(--text); }
 .workshop__go {
   display: flex; flex: none; gap: var(--sp-3);
   justify-content: center; align-items: center; flex-wrap: wrap;
-}
-.workshop__aside-label {
-  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--text-muted);
 }
 /* The budget, not the price, is what usually refuses a purchase here — which is
    why it moved out of the deleted aside and into a header that is always on
@@ -9896,15 +9922,37 @@ button.panel { color: var(--text); }
   .workshop__meta { display: none; }
   .workshop__hdr h2 { font-size: clamp(16px, 4.2vh, 26px); }
   /* EIGHT PLATES A ROW, which is what turns five plate-rows into four and is
-     the whole reason the column is re-sized rather than the panel re-flowed:
-     444 - 42 label - 6 gap - 16 frame = 380, and 8x44 + 7x4 = 380 exactly. The
-     detail's floor drops to 330 with it — the ladder's stat is 10px here, so it
-     needs proportionally less — which keeps the arithmetic solvable on the
-     640x360 budget phone as well. */
+     the whole reason the column is re-sized rather than the panel re-flowed.
+     The figure is 448 and every term of it is load-bearing:
+
+       448 - 4 border (var(--bw) each side) - 16 frame padding (8 + 8)
+           - 42 label track - 6 label gap = 380px of plate track,
+       and 8 plates is 8x44 + 7x4 = 380 exactly.
+
+     It shipped at 444 for one review, which is the same sum with the panel's
+     2px BORDERS left out — 376px of track, four short of eight plates, so the
+     Pixel 7 drew SEVEN and wrapped the eighth. A border is not decoration in a
+     box-sizing:border-box layout; it is part of the width.
+
+     The detail's floor drops to 330 with it — the ladder's stat is 10px here,
+     so it needs proportionally less — which keeps the arithmetic solvable on
+     the 640x360 budget phone as well, and still leaves the Pixel 7's detail
+     875 - 448 - 8 = 419px, comfortably over the 390 the roomy column wants. */
   .workshop__body { --detail-min: 330px; gap: var(--sp-2); }
-  .workshop__body { grid-template-columns: min(444px, calc(100% - var(--detail-min) - var(--sp-2))) minmax(0, 1fr); }
+  .workshop__body { grid-template-columns: min(448px, calc(100% - var(--detail-min) - var(--sp-2))) minmax(0, 1fr); }
   .workshop__rack { padding: 6px 8px; }
-  .rack__hdr { padding-bottom: 2px; }
+  /* ONE LINE, and the count is what gives way. Pinning the header outside the
+     scroller costs the rows region whatever the header takes, and at 342px of
+     column — the 13 mini, the narrowest place this panel still draws four group
+     rows — "systems", "4/4 slots · 80 pts aboard" and "build budget 135/440"
+     total ~360px and wrap to two lines, i.e. 19px of plate row spent on air.
+     So the line does not wrap here: the count shrinks and ellipsises (it is the
+     one readout the plates themselves restate, an open slot at a time), while
+     the budget — the number that explains a refused purchase, and the reason
+     the header is pinned at all — keeps its width. */
+  .rack__hdr { padding-bottom: 2px; flex-wrap: nowrap; gap: 8px; }
+  .rack__count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workshop__budget { flex: none; }
   .rack__count { font-size: 10px; }
   .rack__group { padding: 3px 0; gap: 6px; }
   .rack__group-label { width: 42px; font-size: 6px; padding-top: 19px; }

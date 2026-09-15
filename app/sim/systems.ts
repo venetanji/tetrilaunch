@@ -1401,15 +1401,29 @@ section("Installs — what salvage buys (meta.ts)");
    * -------------------------------------------------------------------- */
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
-  // THE BUDGET MOVED OUT OF THE ASIDE and into the rack panel's header line,
-  // where it is on screen at every scroll position rather than beside a pane
-  // that could scroll away from it. Bare numbers by the mockup's design, so the
-  // WORDS are pinned where they actually live: the accessible name.
-  check("the build budget rides in the rack panel's header",
-    /<span class="workshop__budget"[^>]*aria-label="Build budget \d+ of \d+"/.test(shop),
-    shop.slice(shop.indexOf("workshop__budget"), shop.indexOf("workshop__budget") + 140));
+  // THE BUDGET MOVED OUT OF THE ASIDE and into the rack panel's header, which
+  // sits OUTSIDE the panel's scroller so it is on screen at every offset rather
+  // than beside a pane that could scroll away from it. It names itself in
+  // VISIBLE text: it shipped for one review as a bare "135/440" carrying its
+  // words in a title and an aria-label, and neither reaches a reader — a title
+  // is hover-only and an aria-label on a generic span is ignored by assistive
+  // tech, so the two numbers most likely to refuse a purchase were unlabelled
+  // for everybody. Pinned as the rendered text for that reason.
+  check("the build budget rides in the rack panel's header, saying its own name",
+    /<span class="workshop__budget"[^>]*>build budget \d+<span class="price__sep">\/<\/span>\d+<\/span>/.test(shop),
+    shop.slice(shop.indexOf("workshop__budget"), shop.indexOf("workshop__budget") + 160));
+  check("...and it is not hidden in an attribute instead",
+    !/class="workshop__budget"[^>]*aria-label=/.test(shop));
   check("...and the deleted aside took no second copy of it with it",
-    !shop.includes(`class="workshop__aside"`) && !shop.includes("workshop__budget-box"));
+    !shop.includes("workshop__aside") && !shop.includes("workshop__budget-box"));
+  // THE HEADER IS NOT INSIDE THE SCROLLER. The count and the budget are the two
+  // numbers that explain a refused purchase, so a layout that let them scroll
+  // away from the plates would be the exact failure the deleted aside's own
+  // note argued against — and it would only show on the 360-tall rows, which is
+  // where nobody would have caught it by looking.
+  check("the slot count and the budget sit outside the scrolling region",
+    /class="rack__hdr"[\s\S]*?<\/div>\s*<div class="rack__rows" data-scroll>/.test(shop),
+    shop.slice(shop.indexOf("rack__hdr"), shop.indexOf("rack__hdr") + 60));
   // ONE PANEL, BOTH KINDS. The tab assertions this replaces pinned the INACTIVE
   // pane out of the output; the shelf that replaced the tabs pinned both card
   // kinds into one list. The property is the same one either way — nothing
@@ -1471,12 +1485,79 @@ section("Installs — what salvage buys (meta.ts)");
   check("a tier-gated system is shown, locked, rather than hidden",
     gatedShop.includes("Bond Emitter") && gatedShop.includes("Needs Tier 3"),
     gatedShop.includes("Bond Emitter") ? "gate copy missing" : "plate missing");
-  // …and its PLATE wears the lock while the detail stays at full brightness:
+  // …and THAT plate wears the lock while the detail stays at full brightness:
   // the detail is the one place the gate is explained, so dimming it would dim
-  // the explanation.
-  check("...with the lock on the plate and nothing dimmed in the detail",
-    /data-select="bonds"[^>]*/.test(gatedShop) &&
-      gatedShop.includes(`rack-slot--gated`) && !gatedShop.includes(`workshop__detail shop-card--gated`));
+  // the explanation. Read plate by plate rather than "the word appears
+  // somewhere" (found in review — the old form matched a lock on any plate on
+  // the screen, which on this fixture is most of them).
+  /** ONE plate's whole markup, by id, or null when the panel does not draw it.
+   *
+   *  Walks BACK from the id attribute to the button that owns it, rather than
+   *  forward from a `<button class="rack-slot…"` pattern: a forward regex with
+   *  `[\s\S]*?` in it starts at the FIRST plate on the screen and runs through
+   *  every plate between that one and the id — which is how the first version
+   *  of this pin "found" a lock on the Bond Emitter that actually belonged to
+   *  four plates earlier. The class is part of what these pins read (dimming,
+   *  selection), so it has to be inside the slice, which is why badgedPlate's
+   *  forward form — correct for a badge, which follows the id — is not reused.
+   *  Ids are unique on the panel; "every system is on the panel exactly once"
+   *  above is the pin that keeps them so. */
+  const plateOf = (html: string, id: string): string | null => {
+    const at = html.indexOf(`data-select="${id}"`);
+    if (at < 0) return null;
+    const start = html.lastIndexOf("<button", at);
+    const end = html.indexOf("</button>", at);
+    return start < 0 || end < 0 ? null : html.slice(start, end + "</button>".length);
+  };
+  const bondsPlate = plateOf(gatedShop, "bonds");
+  check("...with the lock on THAT plate and nothing dimmed in the detail",
+    bondsPlate !== null && bondsPlate.includes("rack-slot--gated")
+      && bondsPlate.includes(`class="rack-slot__badge"`)
+      && !gatedShop.includes(`workshop__detail shop-card--gated`),
+    bondsPlate ?? "bonds plate absent");
+  /* ---- A LOCK MEANS "YOU CANNOT HAVE THIS", NEVER "YOU ALREADY DO" --------
+   * Found in review. `gated` was "installAvailable says no and installGates has
+   * a reason", which is true of an OWNED system whose next tier is over the
+   * Mark's build budget — so a legal Mark-1 rig drew padlocks, dimmed, on two
+   * systems it was flying, under titles reading "Aboard", and in the shed row
+   * the lock displaced the stow badge that says what the row is for. The rig
+   * below is that exact save: 205 points of a 220-point budget.
+   * -------------------------------------------------------------------- */
+  {
+    const tight = freshMeta({
+      salvage: 400, mark: 1,
+      loadout: { ...newTiers(), reactor: 2, launcher: 2, magazine: 2, bay: 1, hydraulics: 1 },
+    });
+    check("the tight rig is the over-budget-next-rung case it is meant to be",
+      tiersCost(tight.loadout) === 205 && markBudget(tight) === 220
+        && installGates(tight, installById("bay")!).some((g) => g.includes("budget")),
+      `${tiersCost(tight.loadout)}/${markBudget(tight)}`);
+    const tightShop = workshopScreen(tight);
+    for (const id of ["bay", "hydraulics", "reactor", "launcher", "magazine"]) {
+      const pl = plateOf(tightShop, id);
+      check(`an owned ${id} is neither dimmed nor locked by its own budget`,
+        pl !== null && !pl.includes("rack-slot--gated") && !pl.includes(`class="rack-slot__badge">`),
+        pl ?? "plate absent");
+    }
+    // …and the budget that refuses its next rung is still EXPLAINED, in the one
+    // place with room for the sentence.
+    const tightDetail = workshopScreen(tight, "touch", "bay");
+    check("...and the detail still names the budget that refuses its next rung",
+      tightDetail.includes("Needs build budget"),
+      tightDetail.slice(tightDetail.indexOf("workshop__detail-foot"),
+        tightDetail.indexOf("workshop__detail-foot") + 160));
+    // THE SHED ROW KEEPS ITS OWN BADGE. A stowed system is owned, so the lock
+    // can no longer displace the stow mark that says which row this is.
+    const stowed = freshMeta({
+      salvage: 400, mark: 1, stowed: ["bay"],
+      loadout: { ...newTiers(), reactor: 2, launcher: 2, magazine: 2, bay: 1, hydraulics: 1 },
+    });
+    const shedPlate = plateOf(workshopScreen(stowed), "bay");
+    check("a stowed system wears the stow badge, not a padlock",
+      shedPlate !== null && shedPlate.includes("rack-slot__badge--shed")
+        && !shedPlate.includes("rack-slot--gated"),
+      shedPlate ?? "plate absent");
+  }
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
   check("an install the player cannot afford is offered but disabled",
     brokeShop.includes(`data-action="buy-install"`) && brokeShop.includes("disabled"));
@@ -1543,6 +1624,30 @@ section("Installs — what salvage buys (meta.ts)");
     check("...and the owned rung says so in a word, not only in a colour",
       /class="ladder__end ladder__end--owned">owned</.test(html));
   }
+  // A FULL RACK DOES NOT REFUSE THE SALE, so the detail has to say where the
+  // purchase is actually going. Found in review: the sentence was one clause of
+  // the per-card boilerplate the ladder replaced, and it is the one clause the
+  // ladder does not say — the rungs are about the system, this is about the
+  // ship. Without it a player with four of four slots bought a system and had
+  // it stowed silently.
+  {
+    const full = freshMeta({
+      salvage: 400, mark: MARK_COUNT,
+      loadout: Object.fromEntries(
+        UPGRADES.slice(0, SLOT_BASE).map((u) => [u.id, 1])) as UpgradeTiers,
+    });
+    const unowned = installShelf().find((i) => (full.loadout[i.id] ?? 0) === 0)!;
+    check("the rack being full is stated before the purchase, not after",
+      workshopScreen(full, "touch", unowned.id).includes("The rack is full"),
+      unowned.id);
+    // …and only then: a system already aboard is not going anywhere.
+    check("...and never on a system that is already aboard",
+      !workshopScreen(full, "touch", UPGRADES[0].id).includes("The rack is full"));
+    // …nor when there is somewhere for it to go.
+    check("...nor while a slot is free",
+      !workshopScreen(freshMeta({ salvage: 400, mark: MARK_COUNT }), "touch", unowned.id)
+        .includes("The rack is full"));
+  }
   // AN OPTION HAS NO LADDER, and the detail says why rather than drawing three
   // empty rungs. Its own footnote, its own tag, and no mount button — an option
   // is not a thing the ship carries.
@@ -1553,6 +1658,25 @@ section("Installs — what salvage buys (meta.ts)");
       opt.includes(`class="ladder"`) ? "ladder drawn" : "note missing");
     check("...and offers no mount, because nothing mounts an option",
       !opt.includes(`data-action="mount"`) && opt.includes(`data-action="buy-unlock"`));
+    // AN OPTION PLATE'S ACCESSIBLE NAME SAYS THE SAME THING ITS TOOLTIP DOES.
+    // Found in review: the title had three states and the aria-label had two,
+    // so a locked option read "for sale" to a screen reader.
+    // Same backward walk as plateOf above, and for the same reason.
+    const optPlateOf = (html: string, id: string): string => {
+      const at = html.indexOf(`data-select="${id}"`);
+      if (at < 0) return "";
+      const start = html.lastIndexOf("<button", at);
+      const end = html.indexOf("</button>", at);
+      return start < 0 || end < 0 ? "" : html.slice(start, end + "</button>".length);
+    };
+    const ownedOpt = optPlateOf(
+      workshopScreen(freshMeta({ salvage: 500, mark: MARK_COUNT, unlocks: ["survey"] })), "survey");
+    check("an owned option's plate says owned in both places",
+      /title="[^"]*Owned;/.test(ownedOpt) && /aria-label="[^"]*, owned"/.test(ownedOpt), ownedOpt);
+    const saleOpt = optPlateOf(workshopScreen(freshMeta({ salvage: 500, mark: MARK_COUNT })), "survey");
+    check("...and a for-sale one names its price in both places",
+      /title="[^"]*For sale at 60 salvage;/.test(saleOpt)
+        && /aria-label="[^"]*for sale at 60 salvage"/.test(saleOpt), saleOpt);
   }
 
   /* ---- SELECTION, THE PAD, AND THE DEVICE'S OWN VERB ---------------------- */
@@ -1578,6 +1702,16 @@ section("Installs — what salvage buys (meta.ts)");
     // resolves it the same way main.ts does, through workshopDefaultSelection.
     check("a stale selection falls back rather than drawing nothing",
       workshopScreen(m, "touch", "no-such-system").includes(`shop-card workshop__detail`));
+    // …and main.ts asks the SAME question before it stores one, so the field
+    // and the drawn `aria-pressed` plate can never be two different systems
+    // (found in review: onSelectSystem's comment claimed this and its code
+    // only tested for a non-empty string).
+    check("the screen exports the predicate main.ts guards the field with",
+      S.workshopHasPlate(m, "launcher") && !S.workshopHasPlate(m, "no-such-system"));
+    check("...and it answers for every kind of plate the panel draws",
+      ["reactor", "launcher", "survey", "scrap-cache"].every((id) => S.workshopHasPlate(m, id))
+        && !S.workshopHasPlate(m, "bulk"),
+      ["reactor", "launcher", "survey", "scrap-cache"].filter((id) => !S.workshopHasPlate(m, id)).join(","));
     check("...and the fallback is the recommendation the badge names",
       S.workshopDefaultSelection(m) === recommendedPurchase(m)?.id,
       `${S.workshopDefaultSelection(m)} vs ${recommendedPurchase(m)?.id}`);
@@ -1599,8 +1733,8 @@ section("Installs — what salvage buys (meta.ts)");
   for (const m of [freshMeta({ salvage: 50 }), allIn, freshMeta()]) {
     const regions = [...workshopScreen(m).matchAll(/class="([^"]*)"[^>]*data-scroll/g)]
       .map((x) => x[1]);
-    check(`the rack panel is the screen's only scroller (${regions.length})`,
-      regions.length === 1 && regions[0].includes("workshop__rack"), regions.join(" | "));
+    check(`the rack's ROWS are the screen's only scroller (${regions.length})`,
+      regions.length === 1 && regions[0].includes("rack__rows"), regions.join(" | "));
   }
 
   /* ---- THE SHELF ORDER, AND THE ONE CARD THAT GLOWS ----------------------
@@ -2115,6 +2249,13 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
   ).replace(/\r\n/g, "\n");
   check("the rack's slot plate wears the buy button's disabled costume",
     workshopCss.includes(".rack-slot--plus:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }"));
+  // THE PANEL'S EYEBROW IS NAMED FOR THE PANEL. It wore .workshop__aside-label
+  // for one review, which named a column this rebuild deleted — a class whose
+  // name points at markup that no longer exists is how the next reader loses an
+  // afternoon.
+  check("the rack's label class is named for the rack, not the deleted aside",
+    workshopCss.includes(".rack__label {") && !workshopCss.includes(".workshop__aside-label"),
+    workshopCss.includes(".workshop__aside-label") ? "the aside name survives" : "no .rack__label");
   // The whole ladder against one climb of the tier ladder. NOT affordable
   // inside it, deliberately — this is what the endgame faucet buys (meta.ts's
   // SLOT_PRICES note), and the day it becomes affordable in one climb it has
@@ -19828,8 +19969,8 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
 
   // The Workshop's rack panel, mid-purchase: same region, new element. This is
   // the whole reported bug in four lines.
-  const shelfOut = [region("", "workshop__rack", 725)];
-  const shelfIn = [region("", "workshop__rack")];
+  const shelfOut = [region("", "rack__rows", 725)];
+  const shelfIn = [region("", "rack__rows")];
   restoreScroll(shelfIn, captureScroll(shelfOut));
   check("the workshop panel comes back where the player left it",
     shelfIn[0].scrollTop === 725);
@@ -19842,7 +19983,7 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
   // whole className: a state class appended later must not silently rename the
   // region and turn the restore back into the jump it fixes.
   check("a class-only region is keyed by its first class, not its class list",
-    scrollKey(region("", "workshop__rack is-flashing")) === "workshop__rack");
+    scrollKey(region("", "rack__rows is-flashing")) === "rack__rows");
 
   // NAVIGATION BETWEEN SCREENS must not carry an offset across. Both of these
   // screens have exactly one [data-scroll] region, so anything matching by
@@ -19855,7 +19996,7 @@ section("A shelf keeps the player's place across a re-render (ui/scrollkeep.ts)"
   // A shelf already at the top restores to the top by doing nothing, which is
   // what lets the common case cost one empty map and no second walk.
   check("a screen nobody scrolled captures nothing",
-    captureScroll([region("lb-body", ""), region("", "workshop__rack")]).size === 0);
+    captureScroll([region("lb-body", ""), region("", "rack__rows")]).size === 0);
 
   // A region with neither id nor class is unidentifiable, and guessing is
   // worse than leaving it at the top.

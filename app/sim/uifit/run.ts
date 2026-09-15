@@ -70,29 +70,40 @@ const ALLOWED_SCROLLERS = [
   // bottom of the matrix, but it bites in far fewer places:
   //
   //   A plate is 44px because that is the tap floor, and a group row costs
-  //   44 + 10 of padding = 54. At roomy/regular the panel is 372px wide, which
-  //   takes five plates a row, and the worst reachable ownership state is six
-  //   plate-rows (ten slots bought against one system owned: 1 plate + 9 open
-  //   + the "every slot bought" tag over three rows, nine shelf plates over
-  //   two, one options row) = 363px inside the ~468px of body a 720px logical
-  //   box leaves. It never scrolls there. On a 412-tall phone the panel widens
-  //   to 444px so a row takes EIGHT plates; the same enumeration gives four
-  //   rows = 235px inside ~242px. Four fit, five do not.
+  //   44 + 6 of padding at compact, 44 + 10 at roomy. What it fits inside is
+  //   the rows region: the panel minus its pinned header, padding and border,
+  //   measured at 31px compact and 65px roomy.
   //
-  //   The 360-tall rows of the matrix (640x360, 740x360, 780x360) have
-  //   ~190-204px of body: three rows fit and four do not, so a save with a shed
-  //   AND an unbought shelf scrolls this panel THERE. The alternatives are
-  //   shrinking the plate under the tap floor (the regression this project
-  //   already fixed once) or cutting the header line or the two doors at the
-  //   foot — and a slot count, a build budget and the way out of the shop are
-  //   each worth more than the fourth row.
+  //   At roomy/regular the panel is 372px wide, so five plates a row, and the
+  //   worst reachable ownership state is six plate-rows (ten slots bought
+  //   against one system owned: 1 plate + 9 open + the "every slot bought" tag
+  //   over three rows, nine shelf plates over two, one options row) = 319px.
+  //   Measured on a 1280x720 laptop: 378px of rows region in a 443px body. It
+  //   never scrolls there. On a 412-tall phone the panel widens to 448px so a
+  //   row takes EIGHT plates; four rows is 203px, measured against 213px of
+  //   rows region in a 244px body on a Pixel 7. Four fit, five do not.
+  //
+  //   The 360-tall rows of the matrix (640x360, 740x360, 780x360) are the
+  //   exception: measured on an iPhone 13 mini, 163px of rows region in a 194px
+  //   body against 203px of content on the stocked save — three rows fit, four
+  //   do not, so a save with a shed AND an unbought shelf scrolls ~40px THERE.
+  //   The alternatives are shrinking the plate under the tap floor (the
+  //   regression this project already fixed once), unpinning the header, or
+  //   cutting the two doors at the foot — and a slot count, a build budget and
+  //   the way out of the shop are each worth more than the fourth row.
   //
   // NOT `.workshop__detail` beside it. That panel has no [data-scroll] at all:
   // its job is to answer the plate the player just pressed, and an answer below
   // a fold is not one. It is written to the pane instead — the blurb clamps to
   // one line at compact, the ladder's stats ellipsise with the full string in
   // each row's title, and the footnote is dropped below 400px of viewport.
-  ".workshop__rack",
+  //
+  // NOR the panel around it. The entry names `.rack__rows`, the region that
+  // actually moves, and not `.workshop__rack`, which is the frame: the slot
+  // count and the build budget sit in a header OUTSIDE the scroller so they
+  // cannot scroll away from the plates they describe, and an allowlist entry on
+  // the whole panel would have quietly permitted exactly that.
+  ".rack__rows",
   // The refit yard's SHELF, added on arithmetic rather than preference. It
   // offers seven upgrade tracks, each with a BUY button, and a button is 44px
   // because that is the tap floor. Seven of them is 308px of button before a

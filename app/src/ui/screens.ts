@@ -22,7 +22,8 @@ import {
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded, rigStarted,
   FREE_TIER_LIMIT,
   SCHOOL_INSTALL, SCHOOL_LADDER, SCHOOL_STEPS, FINAL_EXAM, licenceDone, schoolProgress,
-  type MetaState, type NextStepId, type SchoolStepKind, type TierProgress, type UnlockDef,
+  type MetaState, type NextStepId, type Purchase, type SchoolStepKind, type TierProgress,
+  type UnlockDef,
 } from "../game/meta";
 import { LESSON_COUNT, LICENCE_LESSON_COUNT, type Lesson } from "../game/school";
 import { lessonPictogramHTML } from "./lessonart";
@@ -5528,9 +5529,17 @@ function workshopOptions(meta: MetaState): UnlockDef[] {
  */
 function workshopRack(
   meta: MetaState,
-  /** The plate to draw as selected — resolved here, so a caller may pass the
-   *  raw `workshopSelected` field (or null) without knowing the rule. */
-  selected: string | null,
+  /** The plate to draw as selected, ALREADY RESOLVED by workshopScreen. Passed
+   *  rather than re-derived: resolving it here as well meant walking
+   *  workshopPlateOrder and recommendedPurchase three times per render (once
+   *  per half, once in the caller) for an answer that must be the same all
+   *  three times anyway — and a screen that computes its selection twice is one
+   *  edit away from computing it two different ways. */
+  sel: string | null,
+  /** meta.ts's recommendedPurchase, resolved once by workshopScreen for the
+   *  same reason: the badge on a plate and the chip in the detail are one
+   *  decision, so they read one value. */
+  rec: Purchase | null,
   /** The live input family (D2) — a plate says what to DO to it, and what that
    *  is depends on the device (bindings.ts's hintPress). */
   profile: InputProfile,
@@ -5564,14 +5573,6 @@ function workshopRack(
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a plate the purchase path refuses.
   const mark = meta.mark;
-  const sel = workshopSelection(meta, selected);
-  // THE BADGE IS NOT THIS SCREEN'S OPINION. It used to be the cheapest
-  // affordable card, decided here, while the menu decided independently whether
-  // to badge the Workshop at all — two rules that agreed only by coincidence,
-  // and disagreed the moment "cheapest" stopped being "best". Both read
-  // meta.ts's recommendedPurchase, which ranks a new system over a second
-  // uprate while a slot is free, then follows installShelf's order.
-  const rec = recommendedPurchase(meta);
   const nextId = rec && rec.kind !== "slot" ? rec.id : null;
   const slots = slotsFor(meta);
   const aboard = mountedIds(meta);
@@ -5593,18 +5594,32 @@ function workshopRack(
    *             plate has no room for a word and hue is not a carrier here
    *   outline   .rack-slot--sel plus aria-pressed, for the one being read
    *
-   * BADGE PRIORITY is lock, then play, then stow, and the two collisions are
-   * both harmless. A gated system is never recommended (recommendedPurchase
-   * filters on installAvailable), so lock and play cannot both apply. A STOWED
-   * system can be recommended — an uprate of something in the shed — and there
-   * the play badge wins, because the shed row it is sitting in is already
-   * saying "stowed" louder than a 14px corner mark can.
+   * BADGE PRIORITY is lock, then play, then stow, and neither collision can
+   * mislead. A gated system is never recommended (recommendedPurchase filters
+   * on installAvailable), so lock and play cannot both apply. A STOWED system
+   * can be recommended — an uprate of something in the shed — and there the
+   * play badge wins, because the shed ROW it is sitting in is already saying
+   * "stowed" louder than a 14px corner mark can.
+   *
+   * THE LOCK IS ABOUT MERCHANDISE, NOT ABOUT THE SHIP, and that is the fix this
+   * note exists for (found in review). `gated` used to be "installAvailable is
+   * false and installGates has a reason", which is TRUE of a system you already
+   * own whose NEXT tier is over the Mark's build budget — so a Mark-1 rig
+   * carrying 205 of its 220 points drew padlocks on the Bay Extension and the
+   * Press Hydraulics it was flying, dimmed, under titles reading "Aboard"; in
+   * the shed row the lock even displaced the stow badge. A lock on a plate has
+   * to mean "you cannot have this", and a system aboard your ship is the one
+   * thing that cannot mean. Owned systems are never dimmed and never locked
+   * here; the budget that refuses their next rung is explained in words where
+   * there is room for words — the detail's foot, via installGates.
    * -------------------------------------------------------------------- */
   const plate = (id: string, where: "rack" | "shed" | "shelf"): string => {
     const def = upgradeById(id)!;
     const inst = installById(id);
     const tier = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
-    const gated = inst ? !installAvailable(meta, inst) && installGates(meta, inst).length > 0 : false;
+    const owned = tier > 0;
+    const gated = !owned && inst !== undefined
+      && !installAvailable(meta, inst) && installGates(meta, inst).length > 0;
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < tier ? "on" : ""}"></i>`).join("");
     const badge = gated
@@ -5618,7 +5633,6 @@ function workshopRack(
     // the one combination that survives the school: there the Reactor sits in
     // the shelf row after it is bought, and a plate drawn dim because of its row
     // would be telling the player they do not own the thing they just paid for.
-    const owned = tier > 0;
     const state = where === "shed" ? "In the shed"
       : owned ? "Aboard"
         : gated ? `Locked — needs ${installGates(meta, inst!).join(" · ")}`
@@ -5647,7 +5661,9 @@ function workshopRack(
       title="${u.name} — permanent option. ${
         owned ? "Owned" : gated ? `Locked — needs ${unlockGates(u, meta.unlocks, mark).join(" · ")}` : `For sale at ${u.cost} salvage`
       }; ${press} to select."
-      aria-label="${u.name}, permanent option, ${owned ? "owned" : "for sale"}">
+      aria-label="${u.name}, permanent option, ${
+        owned ? "owned" : gated ? `locked, needs ${unlockGates(u, meta.unlocks, mark).join(", ")}` : `for sale at ${u.cost} salvage`
+      }">
       <span class="rack-slot__g">${icon(u.id as IconName, 15)}</span>${
         owned
           ? `<span class="rack-slot__badge rack-slot__badge--owned">${icon("check", 9)}</span>`
@@ -5686,14 +5702,27 @@ function workshopRack(
 
   const shelfIds = installShelf().filter((i) => (meta.loadout[i.id] ?? 0) === 0).map((i) => i.id);
   const options = workshopOptions(meta);
+  /* THE HEADER IS OUTSIDE THE SCROLLER, and the rows region is the scroller.
+   * It read as one scrolling column until review: `.rack__hdr` was an ordinary
+   * flex child of the pane, so on the 360-tall rows — the only devices where
+   * this panel scrolls at all — the slot count and the build budget scrolled
+   * away with the plates, which is exactly what the comment beside them claims
+   * cannot happen and what the Workshop's own aside note has argued against
+   * since the aside existed: the cap is the usual reason a purchase is refused,
+   * so scrolling it away from the merchandise it explains is the one thing this
+   * pane must not do. Splitting the scroller off is better than `position:
+   * sticky` here because the allowlist can then name the region that actually
+   * moves (`.rack__rows`), instead of naming a pane whose header only LOOKS
+   * pinned. */
   const rackPanel = school
     // The school's one plate, in the one row it can be in. No header line: see
     // the school note above.
-    ? `<section class="workshop__rack" data-scroll>${
-        group("shelf", plate(SCHOOL_INSTALL, "shelf"))}</section>`
-    : `<section class="workshop__rack" data-scroll>
+    ? `<section class="workshop__rack">
+      <div class="rack__rows" data-scroll>${group("shelf", plate(SCHOOL_INSTALL, "shelf"))}</div>
+    </section>`
+    : `<section class="workshop__rack">
       <div class="rack__hdr">
-        <span class="workshop__aside-label">systems</span>
+        <span class="rack__label">systems</span>
         <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots<span class="price__sep">·</span>${
           // THE POINTS ABOARD, beside the budget's own readout and deliberately
           // a different number from it. The budget counts what is OWNED, which
@@ -5707,18 +5736,27 @@ function workshopRack(
              header that is always on screen. It is the usual reason a purchase
              is refused — a player staring at 400 salvage and a dead button needs
              to be told it is the Mark talking — and the detail beside this panel
-             spells the same gate out in words when a system is actually barred
-             (installGates). The numbers alone are the mockup's line; the label
-             they need rides in the title and the accessible name, where a
-             40px word would otherwise have to come out of the count. -->
-        <span class="workshop__budget" title="Build budget — every tier you own costs points against the Mark's cap"
-          aria-label="Build budget ${tiersCost(meta.loadout)} of ${markBudget(meta)}">${
-            tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
+             spells the same gate out in full when a system is actually barred
+             (installGates).
+             AND IT SAYS ITS OWN NAME, in the visible text. It shipped for one
+             review as a bare "135/440" with the words in a title and an
+             aria-label, on the mockup's authority; both of those are wrong for
+             the job. A title attribute reaches a hovering mouse and nothing
+             else, and
+             an aria-label on a generic span is ignored by assistive tech — so
+             the two numbers most likely to refuse a purchase were unlabelled
+             for every reader on every device. The header line has the room at
+             every width in the matrix (the count ends near the middle of the
+             panel even on the narrowest phone); this costs it nothing. -->
+        <span class="workshop__budget" title="Every tier you own costs points against the Mark's cap">build budget ${
+          tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
       </div>
-      ${group("rack", aboard.map((id) => plate(id, "rack")).join("") + openSlots + slotPlateHTML)}
-      ${shed.length ? group("shed", shed.map((id) => plate(id, "shed")).join("")) : ""}
-      ${shelfIds.length ? group("shelf", shelfIds.map((id) => plate(id, "shelf")).join("")) : ""}
-      ${options.length ? group("options", options.map(optPlate).join("")) : ""}
+      <div class="rack__rows" data-scroll>
+        ${group("rack", aboard.map((id) => plate(id, "rack")).join("") + openSlots + slotPlateHTML)}
+        ${shed.length ? group("shed", shed.map((id) => plate(id, "shed")).join("")) : ""}
+        ${shelfIds.length ? group("shelf", shelfIds.map((id) => plate(id, "shelf")).join("")) : ""}
+        ${options.length ? group("options", options.map(optPlate).join("")) : ""}
+      </div>
     </section>`;
 
   return rackPanel;
@@ -5729,11 +5767,14 @@ function workshopRack(
  * that spends height on words. Paired with workshopRack above; see its header
  * for why the two are separate functions rather than one.
  */
-function workshopDetail(meta: MetaState, selected: string | null): string {
+function workshopDetail(
+  meta: MetaState,
+  /** Resolved by workshopScreen — see workshopRack's parameter note. */
+  sel: string | null,
+  rec: Purchase | null,
+): string {
   const school = !licenceDone(meta);
   const mark = meta.mark;
-  const sel = workshopSelection(meta, selected);
-  const rec = recommendedPurchase(meta);
   const nextId = rec && rec.kind !== "slot" ? rec.id : null;
   const slots = slotsFor(meta);
   const aboard = mountedIds(meta);
@@ -5830,7 +5871,20 @@ function workshopDetail(meta: MetaState, selected: string | null): string {
       <p class="shop-card__desc workshop__detail-blurb">${def.blurb}</p>
       <div class="ladder">${
         [0, 1, 2].map((i) => ladderRow(def, i, owned, available)).join("")}</div>
-      <p class="workshop__note">${FOOTNOTE}</p>
+      <p class="workshop__note">${FOOTNOTE}</p>${
+        // HONEST COPY FOR A SYSTEM THAT CANNOT MOUNT YET, restored (found in
+        // review). A full rack does not refuse the sale — meta.ts's buyInstall
+        // takes the salvage and the system lands in the shed — so nothing here
+        // is disabled and, without this line, nothing on the screen would tell
+        // the player their new system is not going to undock with them. It was
+        // one clause of the per-card boilerplate the ladder replaced, and it is
+        // the one clause the ladder does NOT say: the rungs are about the
+        // system, this is about the ship. A second note rather than a longer
+        // footnote, because it is true of one purchase and not of the shop.
+        owned === 0 && rackFull
+          ? `<p class="workshop__note workshop__note--warn">The rack is full — this one waits in the shed until you free a slot or buy one.</p>`
+          : ""
+      }
       <div class="workshop__detail-foot">${mountBtn}${buy}</div>
     </div>`;
   };
@@ -5888,14 +5942,26 @@ export function workshopDefaultSelection(meta: MetaState): string | null {
   return order[0] ?? null;
 }
 
+/** Does this save's Workshop actually draw a plate for `id`?
+ *
+ *  Exported for main.ts's onSelectSystem, which must refuse an id the panel
+ *  does not draw rather than store it: the screen would fall back on its own,
+ *  but then `workshopSelected` and the rendered `aria-pressed` plate would be
+ *  two different systems — the drift the shared resolver below exists to
+ *  prevent, re-introduced one layer up. (Found in review: the handler's comment
+ *  claimed this check and the code did not make it.) */
+export function workshopHasPlate(meta: MetaState, id: string): boolean {
+  return workshopPlateOrder(meta).includes(id);
+}
+
 /** The plate the panel and the detail must agree on: the caller's, when the
  *  panel still draws it, and the default otherwise. One function, because
- *  workshopRack and workshopDetail resolve it independently and a stale id
- *  falling back differently in the two halves would outline one plate and
- *  describe another. */
+ *  fixtures, pins and main.ts all address the screen by id and a stale one must
+ *  resolve the same way for every caller. */
 function workshopSelection(meta: MetaState, selected: string | null): string | null {
-  const order = workshopPlateOrder(meta);
-  return selected !== null && order.includes(selected) ? selected : workshopDefaultSelection(meta);
+  return selected !== null && workshopHasPlate(meta, selected)
+    ? selected
+    : workshopDefaultSelection(meta);
 }
 
 export function workshopScreen(
@@ -5919,10 +5985,16 @@ export function workshopScreen(
   // primary at the foot of this file.
   const schoolGo = school && rigStarted(meta);
 
+  // ONE RESOLUTION PER RENDER, for both halves. The selection and the
+  // recommendation are each a pure function of the save, so re-deriving them in
+  // the two panels could not disagree today — but it is two more places to edit
+  // and three walks of the plate order per render, and the whole reason the
+  // panel and the detail are separate functions is that they are edited apart.
   const sel = workshopSelection(meta, selected);
+  const rec = recommendedPurchase(meta);
 
-  const rackPanel = workshopRack(meta, sel, profile);
-  const detail = workshopDetail(meta, sel);
+  const rackPanel = workshopRack(meta, sel, rec, profile);
+  const detail = workshopDetail(meta, sel, rec);
 
   return `<div class="screen neon-backdrop">
     <div class="workshop">

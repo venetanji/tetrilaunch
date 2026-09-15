@@ -4428,7 +4428,7 @@ class App {
    * them back to the first card. The stock they were shopping for is exactly
    * the stock that is furthest from the top.
    *
-   * That pane is `.workshop__rack` now and it is far shorter (44px plates in
+   * That pane is `.rack__rows` now and it is far shorter (44px plates in
    * place of ~120px cards), so the jump is a handful of pixels on the 360-tall
    * rows rather than 725 — but the Workshop gained a SELECTION in the same
    * rebuild, and every one of its five actions re-renders through here to keep
@@ -6652,14 +6652,19 @@ class App {
    *  press selects, mounting is a button in the detail, and the two decisions
    *  are two controls.
    *
-   *  Unknown ids are IGNORED rather than stored: a stale attribute must not be
-   *  able to park the detail on something the panel does not draw (the screen
-   *  would fall back on its own, but then the field and the markup would
-   *  disagree about what is selected, which is the drift the shared resolver
-   *  exists to prevent). No save, no sound, no haptic — nothing here is a
-   *  transaction. */
+   *  Unknown ids are IGNORED rather than stored, and that is ASKED rather than
+   *  assumed (found in review — this comment claimed the check and the code
+   *  only tested for a non-empty string). A stale attribute must not be able to
+   *  park the field on something the panel does not draw: the screen resolves
+   *  such an id back to its default, so the ring would be on one plate while
+   *  `workshopSelected` named another, which is exactly the drift the shared
+   *  resolver exists to prevent, re-introduced one layer up. screens.ts owns
+   *  the answer (workshopHasPlate) so the question cannot be asked two ways.
+   *
+   *  No save, no sound, no haptic — nothing here is a transaction. */
   private onSelectSystem(id: string): void {
     if (!id || id === this.workshopSelected) return;
+    if (!S.workshopHasPlate(this.meta, id)) return;
     this.workshopSelected = id;
     this.renderKeepingScroll();
   }

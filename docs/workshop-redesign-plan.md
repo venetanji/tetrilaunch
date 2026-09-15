@@ -106,6 +106,8 @@ with:
   and the build budget (`135/440`, `.workshop__budget`). The aside
   (`.workshop__aside`, the budget box) is removed: the budget lives here,
   always visible, because the cap is the usual reason a purchase is refused.
+  (As built: it reads `build budget 135/440` in visible words — a bare figure
+  with the label in a `title`/`aria-label` reached no reader.)
 - **Four group rows**, each a `.rack__group`: a fixed-width label at the left
   (`rack`, `shed`, `shelf`, `options`; the `.rack__shed-label` style, 58px at
   roomy/regular) and a wrapping flex row of plates (`.rack__plates`, 6px gap).
@@ -208,7 +210,9 @@ The `.shop-card` frame, a flex column, foot pinned to its bottom
   (arithmetic below); it still carries `[data-scroll]` and replaces
   `.workshop__shop` on `ALLOWED_SCROLLERS`, with the arithmetic in the
   comment, because the 360-tall rows of the matrix cannot hold four rows of
-  44px plates. `.workshop__shop` and its allowlist entry go.
+  44px plates. `.workshop__shop` and its allowlist entry go. (As built: the
+  allowlisted region is the panel's inner `.rack__rows`, not the panel — the
+  header line is pinned above it.)
 - Compact (`@media (max-height: 460px)`, existing block): hide
   `.workshop__meta` the way the blurb is already hidden; rows stay 44px (the
   tap floor); the detail's compact sizes as the refit modal's; if the harness
@@ -217,24 +221,34 @@ The `.shop-card` frame, a flex column, foot pinned to its bottom
 
 ### Fit arithmetic (why "no scrolling" holds where it holds)
 
-Rows are 44px plates + 4–6px gaps ≈ 48–50px; the header line is 24px.
+Rewritten against the built screen (pre-PR review); the estimates this replaces
+were a row short at compact and counted the header inside the scroller.
 
-- **Roomy/regular (~468px of body, 5 plates per row):** the worst possible
-  state — 10 systems spread over rack/shed/shelf, 10 open slots, the +1 plate
-  and 2 options — is 8 rows ≈ 425px. Every reachable state fits; the panel
-  never scrolls here.
-- **Pixel-7 class (~242px of body, 8 plates per row):** four rows (216px) fit;
-  five (264px) do not. A row wraps only past eight plates: the rack row at
-  `slots ≥ 8`, the shelf never (10 systems, and the shelf empties as they are
-  bought). So the only overflowing states are `slots ≥ 8` with both the shed
-  and the shelf non-empty — buying an eighth slot (360 salvage of slots) while
-  systems are still unbought. The scroller catches that; nothing else scrolls.
-- **360-tall rows (~190–204px of body, 4–5 plates per row):** three rows
-  (168px) fit, four (216px) do not, so mid-game states with a shed scroll the
-  rack panel there. This is the one place the owner's "no scrolling with any
-  combination" cannot hold at the 44px tap floor without cutting the header
-  or the footer; the plan keeps the floor and the chrome and lets the
-  allowlisted panel scroll on those devices only.
+A plate row costs 44px + its group padding: 50px at compact, 54px at roomy. What
+it must fit inside is the **rows region** (`.rack__rows`), i.e. the panel minus
+its **pinned header**, padding and border — measured at 31px compact, 65px roomy.
+The header sits outside the scroller on purpose: the slot count and the build
+budget are the two numbers that explain a refused purchase, so they may never
+scroll away from the plates.
+
+- **Roomy/regular (372px column, 5 plates per row):** the worst reachable state
+  — ten slots bought against one system owned: 1 plate + 9 open + the *every
+  slot bought* tag over three rows, nine shelf plates over two, one options row
+  — is 6 rows = 319px. Measured on a 1280×720 laptop: **378px of rows region in
+  a 443px body**; on 1920×1080, 379 in 667. Never scrolls here.
+- **Pixel-7 class (448px column, 8 plates per row):** four rows = 203px, against
+  a measured **213px of rows region in a 244px body**. Four fit, five (253px+)
+  do not, and no fixture reaches five. The column is 448 and not 444 because the
+  panel's 2px borders are part of its width: 448 − 4 border − 16 padding − 42
+  label − 6 gap = 380 = 8×44 + 7×4 exactly.
+- **360-tall rows (640×360, 740×360, 780×360):** measured on an iPhone 13 mini,
+  **163px of rows region in a 194px body** against 203px of content on the
+  stocked save — three rows fit, four do not, so a save with a shed *and* an
+  unbought shelf scrolls by ~40px there. This is the one place the owner's "no
+  scrolling with any combination" cannot hold at the 44px tap floor without
+  unpinning the header or cutting the footer; the plan keeps the floor, the
+  header and the chrome and lets the allowlisted rows region scroll on those
+  devices only.
 
 ## Implementation steps (one PR against `staging`)
 
