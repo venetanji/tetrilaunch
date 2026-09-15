@@ -16328,6 +16328,34 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     plateLbl.length > 0 && plateLbl.length <= PLATE_LABEL_CH,
     `${plateLbl.length} characters against ${PLATE_LABEL_CH}ch`);
 
+  // THE FACE THE CAR ROLLS ONTO IS THE FACE THE PLATE LANDS ON. rollPlate
+  // (main.ts) rolls the plate's number slot from the old floor to the new one
+  // while the car travels, and it used to carry its own table of the special
+  // floors — a table written before the ground floor existed. Riding down to
+  // Flight School it rolled "-2" (LICENCE_TIER, printed raw) onto the plate
+  // and held it for the whole ride; the landing then swapped in the wing.
+  // Owner-reported. Both writers now read screens.ts's tierPlateFace, pinned
+  // here on its values for every floor that is not a digit...
+  for (const [t, name] of [
+    [S.LICENCE_TIER, "the lobby"], [S.SKYDECK_TIER, "the roof"], [S.SANDBOX_TIER, "Tier S"], [7, "a rung"],
+  ] as const) {
+    const face = S.tierPlateFace(t);
+    const slot = /<span class="tier-plate__n">([^<]*)<\/span>/.exec(S.tierPlateHTML(t, "menu"))?.[1];
+    check(`the plate's face for ${name} is what the plate at rest shows ("${face}")`,
+      face === slot && !/^-?\d+$/.test(face) === (t < 1 || t > MARK_COUNT), `slot "${slot}"`);
+  }
+  // ...and on rollPlate reading it rather than keeping a copy that can lag.
+  const mainForPlate = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const rollPlateSrc = mainForPlate.slice(
+    mainForPlate.indexOf("private rollPlate("), mainForPlate.indexOf("private ridingUp("));
+  check("rollPlate rolls the plate's own faces, not a local table of them",
+    rollPlateSrc.length > 0 && /S\.tierPlateFace\(from\)[\s\S]*S\.tierPlateFace\(to\)/.test(rollPlateSrc)
+      && !/String\(t\)|SKYDECK_TIER \?/.test(rollPlateSrc),
+    rollPlateSrc.replace(/\s+/g, " ").slice(0, 300) || "rollPlate not found");
+
   // THE MENU'S PRIMARY BUTTON follows the parked floor: the same button flies a
   // Mark and opens the level select, because the floor decides what it does.
   const menuAt = (t: S.TowerState): string =>

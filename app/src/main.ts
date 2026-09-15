@@ -3234,13 +3234,17 @@ class App {
    * through the top, riding down it leaves through the bottom. The plate's
    * number slot is a fixed 2ch (app.css), so "9" to "10" rolls in the same box
    * as "2" to "1" and nothing around it moves.
+   *
+   * The faces are screens.ts's tierPlateFace — the same function the plate is
+   * built from — and NOT a local table of the special floors. A local table is
+   * what this was, and it was missing the ground floor: the ride down to
+   * Flight School rolled "-2" onto the plate (LICENCE_TIER, printed raw) and
+   * held it until the landing rebuilt the plate with the wing.
    */
   private rollPlate(from: number, to: number, dur: number): void {
     const n = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate__n");
     if (!n) return;
-    const face = (t: number): string =>
-      t === S.SKYDECK_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
-    this.roll(n, face(from), face(to), this.ridingUp(from, to), dur);
+    this.roll(n, S.tierPlateFace(from), S.tierPlateFace(to), this.ridingUp(from, to), dur);
   }
 
   /**
