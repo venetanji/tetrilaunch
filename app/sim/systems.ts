@@ -124,6 +124,7 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
+  tierUnlockReady, claimTierUnlock,
   recordContractClear, recordRunEnd, recordSystemDrillOffer, safeLoadout, schoolLength,
   systemDrillOffered,
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
@@ -5085,8 +5086,15 @@ section("Tier milestones pay the salvage (meta.ts)");
     "a tier pays exactly its award across all milestones",
     both.meta.salvage === tierSalvage(1),
   );
-  check("completion raises the Mark", both.meta.mark === 1 && markUnlocked(both.meta) === 2);
-  check("completion resets both halves", !both.meta.tierRunDone && both.meta.tierContracts === 0);
+  // DEFERRED CLAIM: completing both halves READIES the unlock but does not raise
+  // the Mark — the hub's Unlock button does, via claimTierUnlock. completedTier
+  // still names the tier that just became claimable (asserted above), so the
+  // end-of-run modal is unchanged.
+  check("completion readies the claim without raising the Mark yet",
+    tierUnlockReady(both.meta) && both.meta.mark === 0);
+  const claimed = claimTierUnlock(both.meta);
+  check("claiming raises the Mark", claimed.meta.mark === 1 && markUnlocked(claimed.meta) === 2);
+  check("claiming resets both halves", !claimed.meta.tierRunDone && claimed.meta.tierContracts === 0);
 
   let other = recordRunEnd(newMeta(), 1, true, 10).meta;
   let last: number | null = null;
@@ -5099,12 +5107,14 @@ section("Tier milestones pay the salvage (meta.ts)");
 
   // What does NOT count: a duplicate Contract id, a Contract from another
   // tier, a lost run, and a won run flown at a Mark below the current tier.
-  const dup = recordContractClear(both.meta, { id: "t1-c0", tier: 2 });
+  // These read the CLAIMED state (Mark raised to tier 2, halves reset) — the
+  // state the recorder used to return directly, now reached through the claim.
+  const dup = recordContractClear(claimed.meta, { id: "t1-c0", tier: 2 });
   check(
     "a replayed Contract counts nothing",
     !dup.firstClear && dup.meta.tierContracts === 0 && dup.salvage === 0,
   );
-  const offTier = recordContractClear(both.meta, { id: "elsewhere", tier: 9 });
+  const offTier = recordContractClear(claimed.meta, { id: "elsewhere", tier: 9 });
   check(
     "an off-tier Contract logs but ticks and pays nothing",
     offTier.firstClear && offTier.meta.tierContracts === 0 && offTier.salvage === 0,
@@ -5112,7 +5122,7 @@ section("Tier milestones pay the salvage (meta.ts)");
   const lost = recordRunEnd(newMeta(), 1, false, 4);
   check("a lost run ticks nothing", !lost.meta.tierRunDone && lost.meta.salvage === 0);
   check("a lost run still counts as a run", lost.meta.runs === 1 && lost.meta.bestBay === 4);
-  const stale = recordRunEnd(both.meta, 1, true, 10);
+  const stale = recordRunEnd(claimed.meta, 1, true, 10);
   check(
     "beating an old Mark ticks and pays nothing",
     !stale.meta.tierRunDone && stale.salvage === 0,
@@ -18853,7 +18863,11 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
       // and the tier would silently fail to complete.
       out = recordContractClear(out, { id: `ceremony${tag}-t${tier}-c${i}`, tier }).meta;
     }
-    return out;
+    // DEFERRED CLAIM: completing both halves only READIES the unlock now — the
+    // ceremony is owed the moment the player claims it, so the claim is part of
+    // "completing a tier" from the ride's point of view (meta.ts's
+    // claimTierUnlock advances the Mark, which is what pendingUnlockMark reads).
+    return claimTierUnlock(out).meta;
   };
 
   // A NEW PLAYER IS OWED NOTHING. Tier 1 is where everyone starts — it was

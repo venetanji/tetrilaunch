@@ -2032,6 +2032,26 @@ export function tierHubScreen(
     : nextTier !== null
     ? "Clear the run and its Contracts to open the next Tier"
     : "Fly any Tier, or seal the ones you've cleared";
+  // THE UNLOCK CARD — the objective as a gated button (meta.ts's deferred
+  // claim). The tier opens when both halves are done: a won run and the tier's
+  // Contracts. The two conditions are drawn as a checklist off the parked
+  // floor's TierProgress, and the button lights and unlocks (data-action
+  // "claim-tier") only when both are met — the same rule tierUnlockReady enforces
+  // in the handler. Shown only on the ladder (nextTier !== null); the roof and a
+  // finished ladder keep the plain objective line above.
+  const runDone = progress?.runDone === true;
+  const contractsHave = Math.min(progress?.contracts ?? 0, progress?.needed ?? TIER_CONTRACTS_REQUIRED);
+  const contractsNeed = progress?.needed ?? TIER_CONTRACTS_REQUIRED;
+  const contractsDone = contractsHave >= contractsNeed;
+  const unlockReady = nextTier !== null && runDone && contractsDone;
+  // The one directive lands on the Unlock button while the claim is owed
+  // (meta.ts's nextStep returns "unlock"). It outranks the New Run / Earn badges
+  // for the same reason the step does: claiming is the only thing left to do.
+  const unlockNext = !firstLaunch && guide?.step === "unlock";
+  const reqRow = (done: boolean, ico: IconName, label: string): string =>
+    `<li class="tierhub__req${done ? " is-done" : ""}">${
+      icon(done ? "check" : ico, 13)
+    }<span>${label}</span></li>`;
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -2053,14 +2073,38 @@ export function tierHubScreen(
           <button class="icon-btn tierhub__back" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
           <div class="eyebrow tierhub__eyebrow">${hubEyebrow}</div>
         </div>
-        <!-- THE OBJECTIVE (the clear CTA to open the next Tier). Title names the
-             goal, the line under it the single next step — both derived from the
-             same guide.step the NEXT STEP badge reads, so the banner and the
-             badged button can never disagree. -->
-        <div class="tierhub__obj">
+        <!-- THE OBJECTIVE. On the ladder it is the UNLOCK CARD: the goal, a
+             two-item checklist (a won run and the tier's Contracts), and the
+             gated Unlock button that lights and advances the Mark only when both
+             are met (meta.ts's deferred claim). The roof and a finished ladder,
+             which have no tier to unlock, keep the plain objective line. -->
+        ${
+          nextTier !== null
+            ? `<div class="tierhub__obj tierhub__unlock">
+          <h1 class="display neon-text brand-gradient tierhub__obj-ttl">Unlock Tier ${nextTier}</h1>
+          <ul class="tierhub__reqs">
+            ${reqRow(runDone, "play", "Clear a run")}
+            ${reqRow(contractsDone, "contracts", `Clear ${contractsNeed} Contracts · ${contractsHave}/${contractsNeed}`)}
+          </ul>
+          <button class="btn btn--primary btn--block btn--menu tierhub__unlock-btn${unlockNext ? " btn--next" : ""}" data-action="claim-tier"${
+              unlockReady ? "" : " disabled aria-disabled=\"true\""
+            }>${icon(unlockReady ? "up" : "workshop")}<span class="btn__txt"><span>${
+              unlockReady ? `Unlock Tier ${nextTier}` : "Locked"
+            }</span><span class="btn__sub">${
+              unlockReady
+                ? "Both halves cleared — claim it"
+                : runDone
+                ? "Clear the Contracts to unlock"
+                : contractsDone
+                ? "Clear a run to unlock"
+                : "Clear a run and the Contracts"
+            }</span></span>${unlockNext ? nextBadgeHTML() : ""}</button>
+        </div>`
+            : `<div class="tierhub__obj">
           <h1 class="display neon-text brand-gradient tierhub__obj-ttl">${hubObjTitle}</h1>
           <p class="tierhub__obj-sub">${hubObjSub}</p>
-        </div>
+        </div>`
+        }
         <!-- The recap sits ON the column it describes. It answers "what is
              this floor like to fly", and the button that flies it is the next
              thing under it. -->

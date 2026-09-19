@@ -1618,6 +1618,34 @@ function advanceTier(meta: MetaState): TierResult {
   };
 }
 
+/** The tier that is DONE but not yet claimed — both halves landed and a Mark is
+ *  still there to advance into — or null. The recorders return this as their
+ *  completedTier (they no longer advance the Mark themselves), the hub lights
+ *  its Unlock button on it, and nextStep points the badge at it. Gated on
+ *  `meta.mark < MARK_COUNT` rather than markUnlocked, so completing the top tier
+ *  (markUnlocked === MARK_COUNT) is still claimable — it is the advance that
+ *  opens the seal phase. */
+function tierReady(meta: MetaState): number | null {
+  return meta.tierRunDone && meta.tierContracts >= TIER_CONTRACTS_REQUIRED && meta.mark < MARK_COUNT
+    ? markUnlocked(meta)
+    : null;
+}
+
+/** True when the hub's Unlock button is live — both halves of the current tier
+ *  are done and there is a Mark left to open. */
+export function tierUnlockReady(meta: MetaState): boolean {
+  return tierReady(meta) !== null;
+}
+
+/** Claim the tier the two halves have earned: advance the Mark, pay the award's
+ *  rounding remainder (the shares were paid as the halves landed) and reset the
+ *  halves for the tier above. A no-op TierResult when nothing is owed, so a
+ *  stray press or a double-fire cannot advance twice — the same guard
+ *  advanceTier has always carried. */
+export function claimTierUnlock(meta: MetaState): TierResult {
+  return advanceTier(meta);
+}
+
 /**
  * Record a finished Deep Run. Every run bumps the lifetime counters; a WON run
  * at the current tier marks the run half of the tier done and banks that
@@ -1664,8 +1692,12 @@ export function recordRunEnd(
     tierRunDone: meta.tierRunDone || newlyDone,
     sealedMarks: sealed,
   };
-  const result = advanceTier(next);
-  return { ...result, salvage: result.salvage + share };
+  // DEFERRED CLAIM: the tier no longer advances the instant its second half
+  // lands. Both halves and their salvage shares are still banked here — the
+  // change is only that the Mark waits for the player to press Unlock on the
+  // hub (claimTierUnlock). completedTier still reports the tier that JUST
+  // became claimable, which is what the end-of-run modal reads.
+  return { meta: next, completedTier: tierReady(next), salvage: share };
 }
 
 /**
@@ -1694,8 +1726,9 @@ export function recordContractClear(
     salvage: meta.salvage + share,
     tierContracts: countsForTier ? meta.tierContracts + 1 : meta.tierContracts,
   };
-  const result = advanceTier(next);
-  return { ...result, salvage: result.salvage + share, firstClear: true };
+  // Deferred like the run half above: bank the share and the tick, but leave the
+  // Mark for the hub's Unlock button (claimTierUnlock).
+  return { meta: next, completedTier: tierReady(next), salvage: share, firstClear: true };
 }
 
 /** Snapshot of the current tier's completion state — one shape for the menu
@@ -1821,7 +1854,7 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * sockets. So the finished ladder gets its own answer, and it names the only
  * objective left: fly a Mark clean.
  * ---------------------------------------------------------------------- */
-export type NextStepId = "licence" | "workshop" | "contracts" | "run" | "seal";
+export type NextStepId = "licence" | "workshop" | "contracts" | "run" | "seal" | "unlock";
 
 /** The cheapest system the player could install right now, or null.
  *
@@ -1951,6 +1984,11 @@ export function nextStep(meta: MetaState): NextStepId {
     if (rung?.kind === "workshop") return "workshop";
     return "licence";
   }
+  // BOTH HALVES DONE, WAITING TO BE CLAIMED. Deferred-claim (meta.ts's
+  // tierUnlockReady): once the tier's run and its Contracts are both behind the
+  // player the one thing left is to press Unlock on the hub, so the badge points
+  // there and nothing below can outrank it.
+  if (tierUnlockReady(meta)) return "unlock";
   // A GRADUATE WHO HAS NOT FLOWN A RUN IS POINTED AT ONE. The whole of the old
   // on-ramp block lived here — earn, spend, then fly — and the school now does
   // all three above, so what is left of it is its last line: the exam is the

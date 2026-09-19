@@ -80,6 +80,7 @@ import {
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
   FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding,
+  tierUnlockReady, claimTierUnlock,
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -9009,6 +9010,20 @@ class App {
       case "tiers":
         if (!this.settings.seenTutorial) this.setState("tutorial-offer");
         else this.toHub();
+        break;
+      // CLAIM THE TIER (screens.ts's unlock card, meta.ts's claimTierUnlock).
+      // Deferred-claim: both halves of the tier are done and the player presses
+      // Unlock to advance the Mark — which arms the tierlevator's ride the same
+      // way an automatic advance used to (re-entering "tiers" runs
+      // armUnlockCelebration, and the freshly-advanced Mark is what it rides to).
+      // Gated here as well as rendered gated, so a stale card cannot advance a
+      // tier whose halves are not both done.
+      case "claim-tier":
+        if (tierUnlockReady(this.meta)) {
+          this.meta = claimTierUnlock(this.meta).meta;
+          saveMeta(this.meta);
+          this.setState("tiers");
+        }
         break;
       // The offer's two answers. "Skip" marks the tutorial seen (so the offer
       // never returns) and drops into the hub, where toHub completes onboarding.
