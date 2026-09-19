@@ -79,7 +79,7 @@ import {
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
-  FREE_TIER_LIMIT, tierIncluded, rigStarted,
+  FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding,
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -185,7 +185,7 @@ type AppState =
   // the intermediate tier hub Play opens (tierHubScreen) — the tower, the recap,
   // Contracts and the Workshop. The double-gameplay UX split the old one-screen
   // menu into these two.
-  | "splash" | "menu" | "tiers" | "howto" | "settings" | "account" | "account-delete"
+  | "splash" | "menu" | "tiers" | "tutorial-offer" | "howto" | "settings" | "account" | "account-delete"
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
@@ -3485,7 +3485,7 @@ class App {
     if (ttl) {
       ttl.textContent = tier === S.LICENCE_TIER
         ? "Flight School"
-        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
+        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "New Run";
     }
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
     btn?.classList.toggle("btn--sbx", sbx);
@@ -3700,15 +3700,12 @@ class App {
           {
             step: nextStep(this.meta),
             install: this.nextInstall(),
-            // THE ONE DIRECTIVE (A3), and while the licence is owed it belongs
-            // to the tower's ground floor rather than to the demo panel: the
-            // primary button IS the tutorial's door now, and a START HERE chip
-            // over the artwork beside a badged Flight School button is the
-            // two-directive screen menuPlayBadged's own note warns about. The
-            // chip survives only for a licensed save that never finished the
-            // old coach, which the migration makes vanishingly rare and which
-            // it still reads correctly for.
-            firstLaunch: !this.settings.seenTutorial && licenceDone(this.meta),
+            // THE ONE DIRECTIVE (A3) on the front door: "Start here" on the Play
+            // button, which is the door the tutorial is now offered behind
+            // (main.ts's tutorial-offer). Keyed on seenTutorial alone — onboarding
+            // is optional, so a fresh save is "first launch" whether or not it
+            // has earned a licence it may never earn.
+            firstLaunch: !this.settings.seenTutorial,
           },
           this.towerState(),
           // HOW MANY standing clauses the roof's run carries, for the primary
@@ -3723,6 +3720,12 @@ class App {
         );
         break;
       }
+      // The first-Play tutorial offer (screens.ts's tutorialOfferModal): Play the
+      // tutorial, or skip straight into the hub. Its own centred card on the neon
+      // backdrop — it needs nothing but its own markup.
+      case "tutorial-offer":
+        this.overlay.innerHTML = S.tutorialOfferModal();
+        break;
       // The profile rides along because the rack's slots say what to DO to
       // them, and that word is the device's (D7, bindings.ts's hintPress).
       case "workshop":
@@ -7230,6 +7233,15 @@ class App {
   private toHub(): void {
     this.contract = null; this.contractMusic = null; this.drill = null;
     this.lesson = null; this.lessonCard = null;
+    // ONBOARDING IS OPTIONAL, so the hub is the one place that guarantees it is
+    // behind the player: whatever door they came through — a skipped tutorial, a
+    // tutorial quit half-way, or a grandfathered save that never had one — they
+    // arrive licensed, with Tier 1 open (meta.ts's completeOnboarding). The
+    // tower therefore never has to draw the old Flight School lobby.
+    if (!licenceDone(this.meta)) {
+      this.meta = completeOnboarding(this.meta);
+      saveMeta(this.meta);
+    }
     this.setState("tiers");
   }
 
@@ -8451,6 +8463,10 @@ class App {
       // The front door's own sub-screens go back to it.
       case "settings": case "howto":
         return '[data-action="menu"]';
+      // The tutorial offer's reversible answer is Skip — it changes nothing the
+      // player has to undo and drops them where Play was taking them anyway.
+      case "tutorial-offer":
+        return '[data-action="offer-skip"]';
       // The hub's sub-screens go back to the hub, and the hub goes back to the
       // front door.
       case "tiers":
@@ -8985,9 +9001,28 @@ class App {
         else this.setState("contracts");
         break;
       case "menu": this.toMenu(); break;
-      // The front door's Play, and the way back from Contracts/Workshop: the
-      // tier hub (tierHubScreen).
-      case "tiers": this.toHub(); break;
+      // The front door's Play, and the way back from Contracts/Workshop/etc.:
+      // the tier hub (tierHubScreen). THE FIRST time Play is pressed the tutorial
+      // is offered (tutorialOfferModal); after that — and on every back-to-hub,
+      // which can only fire once the first Play has already set seenTutorial —
+      // it goes straight to the hub.
+      case "tiers":
+        if (!this.settings.seenTutorial) this.setState("tutorial-offer");
+        else this.toHub();
+        break;
+      // The offer's two answers. "Skip" marks the tutorial seen (so the offer
+      // never returns) and drops into the hub, where toHub completes onboarding.
+      // "Play" runs Flight School from lesson 1 — the lesson flow sets
+      // seenTutorial at graduation, and toHub completes onboarding on the way
+      // back — so seenTutorial is deliberately NOT pre-set here (the coach reveal
+      // on lesson 1 reads it).
+      case "offer-skip":
+        this.finishTutorial();
+        this.toHub();
+        break;
+      case "offer-tutorial":
+        this.startLesson(0);
+        break;
       // The pause card's Quit on a run with bays behind it — its own action
       // rather than a branch on "menu", so the eight other back buttons that
       // carry that action cannot accidentally inherit (or route around) the

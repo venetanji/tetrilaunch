@@ -500,19 +500,15 @@ export function tierOpen(state: TowerState, tier: number): boolean {
   // the ground floor — menuScreen's fallback tower, every uifit fixture —
   // rendering the tower it always did.
   if (state.licensed === false) return false;
-  // AND THE RIG GATES IT NEXT, in the same place and for a reason of the same
-  // shape: a Deep Run is ten bays with three refit stops in them, and a rig
-  // with no system installed docks at all three to find empty shelves
-  // (upgrades.ts's yardHasStock). The owner's call is that the first system is
-  // bought BEFORE the first run, so the door names the purchase and the
-  // Workshop is the step (meta.ts's nextStep).
-  //
-  // Asked AFTER the licence so the two locks are read in the order they are
-  // earned: an unlicensed player is told about Flight School, not about a shop
-  // they cannot open yet.
-  //
-  // ABSENT READS AS RIGGED, same as `licensed` above and for the same reason.
-  if (state.rigged === false) return false;
+  // THE RIG NO LONGER GATES THE LADDER. It used to: a Deep Run is ten bays with
+  // three refit stops, and the owner's call was that the first system is bought
+  // BEFORE the first run, so an un-rigged save was refused Tier 1 and pointed at
+  // the Workshop. Optional onboarding retires that forced first purchase — Tier
+  // 1 is playable the moment the player skips into the hub — so `rigged` is now
+  // only a soft nudge (nextStep still recommends the first system, the Upgrades
+  // button still wears the badge) rather than a lock. A system-less first run
+  // simply finds its refit shelves empty, which is the player's to fix when they
+  // like.
   return included && tier >= 1 && tier <= state.unlocked;
 }
 
@@ -2040,11 +2036,13 @@ export function tierHubScreen(
   // has nowhere else to go.
   return `<div class="screen neon-backdrop">
     <div class="menu split menu--hub">
-      <!-- THE HUB'S SIDE COLUMN — the objective, not the demo. The wordmark and
-           the self-playing bay belong to the front door (menuScreen); this
-           screen is reached by pressing Play there, so it opens on WHAT to do
-           next rather than on the pitch. The Back chip returns to that door. -->
-      <div class="menu__brand tierhub__side">
+      <!-- TWO COLUMNS: the tierlevator on the LEFT, every control on the RIGHT.
+           The demo and the wordmark belong to the front door (menuScreen); this
+           screen is reached by pressing Play there, so it opens on the ladder
+           and the loop rather than on the pitch. -->
+      ${tierTowerHTML(twr)}
+      <div class="menu__actions tierhub__actions">
+        <!-- The header: Back to the front door, and which floor is parked. -->
         <div class="tierhub__hd">
           <button class="icon-btn tierhub__back" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
           <div class="eyebrow tierhub__eyebrow">${hubEyebrow}</div>
@@ -2057,24 +2055,9 @@ export function tierHubScreen(
           <h1 class="display neon-text brand-gradient tierhub__obj-ttl">${hubObjTitle}</h1>
           <p class="tierhub__obj-sub">${hubObjSub}</p>
         </div>
-        <!-- The shelf: the leaderboard and the Full Game entry (Settings and the
-             tutorial live on the front door now). -->
-        <div class="menu__nav">
-          ${
-            store?.unlimited ? unlimitedBadgeHTML()
-            : store?.available ? unlockChipHTML()
-            : ""
-          }
-          <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        </div>
-      </div>
-      ${tierTowerHTML(twr)}
-      <div class="menu__actions">
         <!-- The recap sits ON the column it describes. It answers "what is
              this floor like to fly", and the button that flies it is the next
-             thing under it — across the screen from it (where it started) the
-             player had to hold four numbers in their head while their eye
-             travelled past the whole tower to reach the button they qualify. -->
+             thing under it. -->
         ${baseBayPanelHTML({
           tier: sel, best,
           // The parked floor's seal, stated beside the floor's other terms. The
@@ -2107,7 +2090,7 @@ export function tierHubScreen(
         <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play"${playLocked ? " disabled aria-disabled=\"true\"" : ""}>${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
-          licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Play Tier"
+          licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "New Run"
         }</span><span class="btn__sub" id="menu-play-sub">${
           // The rule lives in menuPlaySub, because the ride rewrites this exact
           // node by id and two copies of it would drift — see the note there.
@@ -2116,7 +2099,7 @@ export function tierHubScreen(
             tierOpenedBy(sel, twr), twr.rigged !== false,
           )
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
+        <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Earn<!--
           THE TIER'S CONTRACT PIPS, on the button that leads to them. They
           replaced the run-end "Tier N progress" banner: a sentence about
           finishing Contracts on a screen the player wants to leave was never
@@ -2163,13 +2146,19 @@ export function tierHubScreen(
               : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
         }</span></span>${workshopNext ? nextBadgeHTML() : ""}</button>
-        <!-- Three, and never a fourth. This column is the recap plus the loop
-             it describes, and the recap is not compressible: it holds four
-             readouts and the belt. No extra entry is a button here — the
-             Full Game upsell is a shelf row in the brand column, and Tier S is
-             a plate under the tower (#90) — which is what keeps this column
-             the same three rows in every build and at every entitlement
-             state. -->
+        <!-- The shelf, below the three loop actions: the leaderboard and the
+             Full Game entry. These left the side column when the hub went to two
+             columns — the tower took the left, so the leaderboard and the
+             purchase live under New Run / Earn / Upgrades rather than beside
+             them. -->
+        <div class="menu__nav tierhub__shelf">
+          ${
+            store?.unlimited ? unlimitedBadgeHTML()
+            : store?.available ? unlockChipHTML()
+            : ""
+          }
+          <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
+        </div>
       </div>
     </div>
     <div class="build-tag" aria-hidden="true">${
@@ -2239,12 +2228,16 @@ export function menuScreen(
              (Tutorial with a Start here chip, or How to Play); then the Full
              Game entry (a badge once owned) and Settings. -->
         <div class="menu__nav menu__home-actions">
-          <button class="btn btn--primary btn--lg btn--block btn--menu menu__play" data-action="tiers">${
+          <button class="btn btn--primary btn--lg btn--block btn--menu menu__play${firstLaunch ? " btn--next" : ""}" data-action="tiers">${
             icon("play")
-          }<span class="btn__txt"><span>Play</span><span class="btn__sub">Fly the Tiers</span></span></button>
-          <button class="btn btn--secondary btn--block" data-action="${firstLaunch ? "tutorial" : "howto"}">${
+          }<span class="btn__txt"><span>Play</span><span class="btn__sub">${
+            // Play carries the one first-launch directive now, because Play is
+            // the door the tutorial is offered behind (main.ts's tutorial-offer).
+            firstLaunch ? "Start with the tutorial" : "Fly the Tiers"
+          }</span></span>${firstLaunch ? nextBadgeHTML("Start here") : ""}</button>
+          <button class="btn btn--secondary btn--block" data-action="howto">${
             icon("howto")
-          }${firstLaunch ? "Tutorial" : "How to Play"}${firstLaunch ? nextBadgeHTML("Start here") : ""}</button>
+          }How to Play</button>
           ${
             store?.unlimited ? unlimitedBadgeHTML()
             : store?.available ? unlockChipHTML()
@@ -2257,6 +2250,35 @@ export function menuScreen(
     <div class="build-tag" aria-hidden="true">${
       typeof import.meta.env !== "undefined" ? ((import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev") : "dev"
     }</div>
+  </div>`;
+}
+
+/**
+ * THE FIRST-PLAY TUTORIAL OFFER (main.ts's "tutorial-offer" state).
+ *
+ * Onboarding is optional: the first time a player presses Play on the front
+ * door, this asks whether to walk through Flight School or drop straight into
+ * the game. Skip is the ghost button, not a scold — the tutorial is a few short
+ * lessons and How to Play keeps it for later — and Play the tutorial is the
+ * primary, because a first-timer who wants teaching should not have to hunt for
+ * it. Either answer marks the tutorial seen (so this never returns) and lands
+ * the player in the tier hub with Tier 1 open (meta.ts's completeOnboarding).
+ */
+export function tutorialOfferModal(): string {
+  return `<div class="screen neon-backdrop">
+    <div class="offer">
+      <div class="offer__card">
+        <div class="eyebrow">First flight</div>
+        <h2 class="display neon-text brand-gradient offer__ttl">Learn the ropes?</h2>
+        <p class="offer__sub">Flight School is a few short lessons — load the cannon, arc a
+        piece across the bay, clear a row. Skip straight to playing if you'd rather; it's
+        always in How to Play.</p>
+        <div class="offer__actions">
+          <button class="btn btn--primary btn--lg btn--block" data-action="offer-tutorial">${icon("howto")}Play Tutorial</button>
+          <button class="btn btn--ghost btn--block" data-action="offer-skip">Skip — just play</button>
+        </div>
+      </div>
+    </div>
   </div>`;
 }
 

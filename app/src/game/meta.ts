@@ -1236,6 +1236,20 @@ export function recordLesson(meta: MetaState, index: number): MetaState {
   return done > meta.licence ? { ...meta, licence: done } : meta;
 }
 
+/**
+ * ONBOARDING IS OPTIONAL NOW. Flight School moved to the home screen and is
+ * offered — not forced — the first time a player presses Play; skipping it, or
+ * leaving it part-way, lands them in the tier hub with Tier 1 open. This grants
+ * the licence in one write so every existing `licenceDone` pathway (the tier
+ * gate in tierOpen, nextStep, the Contracts board's shape) opens exactly as it
+ * did when the ladder was climbed — the difference is only that the player was
+ * not made to climb it. Idempotent and monotone, like recordLesson: a player
+ * who DID climb the ladder is already at SCHOOL_FLIGHTS and this is a no-op.
+ */
+export function completeOnboarding(meta: MetaState): MetaState {
+  return meta.licence >= SCHOOL_FLIGHTS ? meta : { ...meta, licence: SCHOOL_FLIGHTS };
+}
+
 /** Has this system's practice bay already been offered? */
 export function systemDrillOffered(meta: MetaState, id: UpgradeId): boolean {
   return (meta.systemDrillsSeen ?? []).includes(id);
