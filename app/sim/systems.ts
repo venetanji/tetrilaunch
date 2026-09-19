@@ -1268,10 +1268,10 @@ section("Installs — what salvage buys (meta.ts)");
     })) === "seal");
 
   // …and the hub renders exactly the one badge the rule picked (A3), the
-  // tier plate in the Play Tier button (A1). The front door (menuScreen)
-  // carries no badge at all once seen — on first launch only, it shows the
-  // Guided Tutorial in How to Play's slot, with its own START HERE marker
-  // (A2: a seventh row overflows a 360dp phone, so it takes a slot).
+  // tier plate in the New Run button (A1). The front door (menuScreen)
+  // carries no badge at all once seen — on first launch only, Play itself
+  // wears the "Start here" badge, with its subtitle swapped to name the
+  // tutorial it opens (main.ts's "tutorial-offer" screen, behind Play).
   const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: false });
   const hubMid = tierHubScreen(0, 0, undefined, tierProgressFor(freshMeta()),
@@ -1281,9 +1281,14 @@ section("Installs — what salvage buys (meta.ts)");
   check("the Deep Run button carries the tier plate", hubMid.includes("tier-plate--menu"));
   const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: true });
-  check("first launch swaps How to Play for the badged Guided Tutorial",
-    menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
-  check("once seen, How to Play returns and the tutorial entry goes",
+  // THE HOME'S SECONDARY IS ALWAYS "How to Play" NOW — there is no separate
+  // `data-action="tutorial"` button any more. The offer to walk through Flight
+  // School moved to its own screen (main.ts's "tutorial-offer", opened behind
+  // Play — see tutorialOfferModal below), so the front door's ONE directive on
+  // first launch lands on Play itself instead of swapping How to Play out.
+  check("first launch still shows How to Play, not a separate tutorial button",
+    menuFirst.includes('data-action="howto"') && !menuFirst.includes('data-action="tutorial"'));
+  check("...and How to Play stays exactly the same once the tutorial is seen",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
   // ONE DIRECTIVE, AND ON FIRST LAUNCH IT IS THE TUTORIAL'S. START HERE and
   // NEXT STEP are the same claim in the same amber, and a fresh save showed
@@ -1296,6 +1301,22 @@ section("Installs — what salvage buys (meta.ts)");
     (menuFirst.match(/next-badge/g) ?? []).length === 1);
   check("...and it is the tutorial's",
     menuFirst.includes(">Start here<") && !menuFirst.includes(">Next step<"));
+  // THE DIRECTIVE LANDS ON PLAY ITSELF NOW — there is no separate tutorial
+  // button for it to sit on, so Play carries both the badge and a subtitle
+  // naming what it opens (main.ts's "tutorial-offer" screen, behind Play).
+  const menuFirstPlayBtn = /<button[^>]*data-action="tiers"[\s\S]*?<\/button>/
+    .exec(menuFirst)?.[0] ?? "";
+  check("...specifically on the Play button, badged and re-worded",
+    /class="[^"]*\bbtn--next\b[^"]*"/.test(menuFirstPlayBtn)
+      && menuFirstPlayBtn.includes(">Start here<")
+      && menuFirstPlayBtn.includes("Start with the tutorial"));
+  // THE OFFER ITSELF (main.ts's "tutorial-offer" state, opened behind Play) —
+  // a light smoke check that both its actions render, so a screen this small
+  // still gets caught if a future edit drops one of its two buttons.
+  const tutorialOffer = S.tutorialOfferModal();
+  check("the tutorial offer renders both its actions",
+    tutorialOffer.includes('data-action="offer-tutorial"')
+      && tutorialOffer.includes('data-action="offer-skip"'));
   // DEFERRED, NOT CANCELLED: the step badge is back on the hub the moment the
   // chip goes, with nothing else about the screen different. `hubMid` is the
   // same save at the same step with seenTutorial set.
@@ -16337,7 +16358,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   const menuAt = (t: S.TowerState): string =>
     S.tierHubScreen(0, 0, undefined, undefined, undefined, t);
   check("the primary button flies the ladder from a Mark",
-    menuAt(open).includes("Play Tier") && !menuAt(open).includes(">Sandbox<"));
+    menuAt(open).includes("New Run") && !menuAt(open).includes(">Sandbox<"));
   check("the primary button becomes Sandbox on the roof",
     menuAt(parked).includes(">Sandbox<"));
   // Four withheld readouts, not four wrong ones: nothing is chosen yet, and the
@@ -17165,9 +17186,14 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
       && S.floorSealState(base, S.SKYDECK_TIER) === null
       && S.floorSealState(base, S.LICENCE_TIER) === null
       && S.floorSealState(base, S.SANDBOX_TIER) === null);
-  check("...and a locked ladder answers null on every rung of it",
-    S.floorSealState({ ...base, licensed: false }, 1) === null
-      && S.floorSealState({ ...base, rigged: false }, 1) === null);
+  check("...and a licence-locked ladder answers null on every rung of it",
+    S.floorSealState({ ...base, licensed: false }, 1) === null);
+  // RIGGED NO LONGER LOCKS THE LADDER (screens.ts's tierOpen), so a rung the
+  // player has reached answers exactly as it would rigged — the rig is a soft
+  // nudge now, not a gate floorSealState has to read null through.
+  check("...while an unrigged rung the player has reached answers same as rigged",
+    S.floorSealState({ ...base, rigged: false }, 1) === S.floorSealState(base, 1)
+      && S.floorSealState({ ...base, rigged: false }, 1) !== null);
 
   /* -----------------------------------------------------------------------
    * THE SAME STATE, WHERE THE FLOOR IS NAMED — the destination panel beside
@@ -25758,14 +25784,12 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       !held.includes("Flight School first"));
   }
 
-  // THE DEEP RUN'S SECOND LOCK — a system installed (meta.ts's rigStarted).
-  //
-  // The owner's report is the whole argument: a Deep Run flown on a stock rig
-  // docks at three refit stops with nothing on the shelves, because a refit
-  // raises tracks the ship already carries and refuses tier 0. So the exam's
-  // door is shut until the first purchase, the Workshop is the step that opens
-  // it (nextStep's on-ramp above), and this is the pair that keeps the door and
-  // the step describing the same rule.
+  // THE DEEP RUN'S SECOND LOCK IS RETIRED — a system installed (meta.ts's
+  // rigStarted) used to gate the ladder outright; optional onboarding retired
+  // that forced first purchase (screens.ts's tierOpen), so an un-rigged but
+  // licensed save now finds Tier 1 open. The rig is a SOFT NUDGE instead: the
+  // Workshop button still wears the NEXT STEP badge and the primary still
+  // names the first system in its subtitle, but nothing is disabled over it.
   //
   // THE ABSENT FIELD READS AS RIGGED, which is what keeps every caller that
   // predates the on-ramp — menuScreen's fallback tower, every uifit fixture —
@@ -25777,32 +25801,38 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     };
     const open: S.TowerState = { ...shut, rigged: true };
     const legacy: S.TowerState = { unlocked: 1, selected: 1, skydeck: false, contracts: 0 };
-    check("a licensed pilot with no system installed cannot fly Tier 1",
-      !S.tierOpen(shut, 1));
-    check("...and one install opens it", S.tierOpen(open, 1));
+    check("a licensed pilot with no system installed can still fly Tier 1 — the rig no longer gates it",
+      S.tierOpen(shut, 1));
+    check("...and a rigged pilot flies it too, same as before", S.tierOpen(open, 1));
     check("...while the lobby stays open, because it is the one floor nothing gates",
       S.tierOpen(shut, S.LICENCE_TIER));
     check("...and a caller that never heard of the rig renders the ladder it always did",
       S.tierOpen(legacy, 1));
-    // The floor says WHY, in the same slot the licence uses and never both at
-    // once: the locks are read in the order they are earned, so a player still
-    // in school is told about school and not about a shop.
-    check("a rig-locked floor names the shop",
+    // THE FLOOR ITSELF IS OPEN, so it carries no lock note of any kind — the
+    // note only ever spoke while `open` was false, and Tier 1 is open now.
+    const floorOneOf = (html: string): string =>
+      /<button[^>]*data-tier="1"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+    check("...and the open floor itself carries no lock note",
+      !floorOneOf(S.tierTowerHTML(shut)).includes("aria-disabled")
+        && !floorOneOf(S.tierTowerHTML(shut)).includes("install a system first"));
+    // THE SOFT NUDGE STILL NAMES THE SHOP, but only on rungs the ladder has not
+    // reached yet (locked for PROGRESSION, not for the rig) — the one-line
+    // reason floorHTML prints for any locked rung while `rigged` is false.
+    check("a not-yet-reached floor still nudges toward the shop while unrigged",
       S.tierTowerHTML(shut).includes("install a system first"));
     check("...and a school-locked floor still names the school, not the shop",
       S.tierTowerHTML({ ...shut, licensed: false }).includes("Flight School first")
         && !S.tierTowerHTML({ ...shut, licensed: false }).includes("install a system first"));
-    check("...and an opened floor names neither",
+    check("...and once rigged, no floor names the shop",
       !S.tierTowerHTML(open).includes("install a system first"));
-    // THE PRIMARY IS A DEAD BUTTON OTHERWISE. The tower's floors may refuse a
-    // tap — refusing a pick is information from a chooser — but the primary IS
-    // the action, and an enabled action that does nothing is the worst control
-    // on the screen. Its subtitle carries the reason, so the disabled state is
-    // never mute.
+    // THE PRIMARY STAYS LIVE EITHER WAY — the rig is a nudge, not a gate, so an
+    // enabled action that does nothing is no longer the risk here; the risk
+    // WOULD be a stale disabled state left over from the old gate, so this
+    // pins that it is gone. Its subtitle still carries the nudge.
     // A GRADUATE with nothing installed, which after this ladder is only ever a
     // grandfathered save (lib/store.ts) — the school's own rung 6 installs the
     // Reactor, so a new player cannot reach the tower unrigged. It is still the
-    // state the rig lock exists for, and it is still the state this block pins.
+    // state the rig nudge exists for, and it is still the state this block pins.
     const licensed: MetaState = { ...newMeta(), licence: SCHOOL_FLIGHTS, salvage: 15 };
     const menuOf = (twr: S.TowerState): string =>
       tierHubScreen(0, 15, undefined, tierProgressFor(licensed),
@@ -25810,11 +25840,11 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         twr);
     const primary = (html: string): string =>
       /<button[^>]*id="menu-play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
-    check("the rig-locked menu disables its primary",
-      primary(menuOf(shut)).includes("disabled"));
-    check("...and says which door opens it",
+    check("an unrigged licensed menu leaves its primary live — the rig no longer disables it",
+      !primary(menuOf(shut)).includes("disabled"));
+    check("...and still says which door the nudge points at",
       primary(menuOf(shut)).includes("One system · Workshop"));
-    check("...and an opened ladder leaves the primary live",
+    check("...and a rigged ladder leaves the primary live too — the rule for both",
       !primary(menuOf(open)).includes("disabled"));
     // The Contract board's own subtitle, on the same state: while one clear
     // buys the system that opens the exam, the number leads and what follows it

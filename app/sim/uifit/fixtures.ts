@@ -570,13 +570,15 @@ const TOWER_EXAM: S.TowerState = {
 
 /** THE STEP AFTER THAT ONE — licensed, and no system installed yet.
  *
- *  The tower a player meets between Flight School and their first Deep Run: the
- *  car parked on Tier 1, every Mark still locked (this time by the rig gate,
- *  meta.ts's rigStarted), and the primary DISABLED under the longest sentence
- *  it ever carries in that state. It is a distinct layout from `menu-licence`
- *  and not a re-skin of it — the parked floor is a Mark, so the recap panel
- *  draws Tier 1's bay rather than the lobby's lesson track, and the primary is
- *  a disabled Deep Run rather than a live Flight School.
+ *  The tower a player meets between Flight School and their first Deep Run:
+ *  the car parked on Tier 1, which optional onboarding now leaves OPEN and its
+ *  primary LIVE (screens.ts's tierOpen no longer gates the ladder on the rig —
+ *  it is a soft nudge instead: the primary's subtitle still names the first
+ *  system to buy, and the Workshop button still wears the NEXT STEP badge).
+ *  It is a distinct layout from `menu-licence` and not a re-skin of it — the
+ *  parked floor is a Mark, so the recap panel draws Tier 1's bay rather than
+ *  the lobby's lesson track, and the primary is a live Deep Run naming the
+ *  nudge rather than a live Flight School.
  *
  *  Worth its own fixture on the same argument menu-licence makes: it is a
  *  screen every single player passes through exactly once, in the session
@@ -978,15 +980,20 @@ export const SCREENS: Record<string, () => string> = {
     live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts", install: null, firstLaunch: false,
     }, TOWER_LOBBY_HELD)),
-  // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
-  // the upsell chip — the tallest menu the app can produce, which is exactly
-  // why it is its own fixture.
+  // A2's first launch: Play badged "Start here" with its subtitle swapped to
+  // "Start with the tutorial", plus the upsell chip — the home's own worst
+  // case, which is exactly why it is its own fixture.
   "menu-first": () =>
     S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts",
       install: { name: "Reactor Output", cost: 15 },
       firstLaunch: true,
     }),
+
+  // THE TUTORIAL OFFER (main.ts's "tutorial-offer" state, opened behind the
+  // front door's Play button on a first launch) — a centered card with no
+  // arguments of its own, so this is its whole surface.
+  "tutorial-offer": () => S.tutorialOfferModal(),
 
   // ---- THE TIER HUB (screens.ts's tierHubScreen) ---------------------------
   //
