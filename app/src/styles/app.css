@@ -811,38 +811,56 @@ body.crt-off #app::after { display: none; }
    tower block below, beside `.tierhub__actions`, which is where its objective
    banner and shelf rules already lived. */
 
-/* HOME: still one 16:9 panel, but `.menu--home` carries the whole menu —
-   there is no tower or action rail beside it to make `.menu` a three-column
-   grid any more. `display: grid` with a single `minmax(0, max-content)`
-   column is what STRETCHES `.menu__brand` to `.menu`'s full height anyway —
-   the same mechanism the .split three-column row already relies on (a
-   grid's lone auto row has `align-content: normal`, which resolves to
-   `stretch`, exactly as `.split`'s own comment above derives for its row).
-   Without it `.menu__brand`'s height would be its own content's, the
-   --brand-cap equation above would have no box to solve against, and the
-   panel would sit at the STEPPED fallback width on every engine that could
-   otherwise compute it properly. `.menu`'s own `justify-content: center`
-   and `max-width` already centre and bound the result — nothing else here
-   is needed to keep the column off the edges on a wide window. */
+/* HOME IS TWO COLUMNS NOW, mirroring the hub (screens.ts's menuScreen): the
+   16:9 demo on the LEFT as the centrepiece, the four front-door actions as a
+   calm rail on the RIGHT. It used to be ONE column — the demo stacked over the
+   four actions — which is why `.menu__brand` wrapped both; the split moved the
+   actions out into their own grid column beside the demo, so `.menu__brand`
+   holds only the demo now and IS the demo's own column.
+
+   Built on `.split` exactly as `.menu--hub` is: this rule only names the two
+   tracks (`--split-cols`) and the vertical alignment (`--split-align`), and
+   `.split` supplies the grid, the gap (`--split-gap`, the base `.menu`'s own
+   --sp-4 / --sp-3-under-700 token) and — the reason to build on `.split` at all
+   — the portrait collapse to one column (`@media (max-aspect-ratio: 1/1)`,
+   beside `.split` itself). Demo track is the same `minmax(0, max-content)` the
+   base three-column `.menu` uses, so it measures the panel's own capped width
+   and the grid shrinks it below the cap only where a narrow window lacks the
+   room; the rail track reuses `--rail-w` (300px, 232px under 700px), the same
+   token every other action rail in this file is measured at. 360 (phone demo) +
+   300 rail + a --sp-4 gap + `.menu`'s clamp padding comes to ~738px, inside the
+   780px an iPhone 13 mini gives in landscape.
+
+   `--split-align: center`, NOT the base `.menu`'s `stretch`: the demo is 16:9
+   with a width-derived height, so stretching it to the row would distort it,
+   and the whole point of the right column is a rail that reads BALANCED —
+   centred as a group against the taller demo — rather than a stack pinned to
+   the row's full height. */
 .menu--home {
-  display: grid;
-  grid-template-columns: minmax(0, max-content);
+  --split-cols: minmax(0, max-content) var(--rail-w);
+  --split-align: center;
 }
-/* THE SHELF IS FOUR ROWS NOW, not the three --shelf-floor was measured for,
-   and the first of them is taller: Play carries an icon, a title AND a
-   live subtitle (`.btn--lg.btn--menu`, the same shape the hub's own primary
-   wears) where How to Play, the store row and Settings are one line each.
-   --shelf-floor is what the panel equation two rules up (100cqh = panel
-   height + reserve) solves against, so leaving it at three plain rows just
-   prints as a panel too tall for the shelf under it — the exact failure its
-   own comment already measured once, for a different row count. 74px is
-   Play's own floor: `.btn--lg`'s 18px top-and-bottom padding around the
-   two-line title+subtitle stack (~38px at this rule's un-clamped type
-   scale, the same stack every other `.btn--menu` on the hub already
-   carries) plus a hair of rounding. */
+/* THE DEMO NO LONGER RESERVES SHELF HEIGHT. In the old one-column home the
+   panel's width equation (--brand-cap, up in the @supports block) had to leave
+   the four stacked actions their own height below it — that is what
+   --brand-reserve bought. The actions are a separate column now, so the demo
+   owes the height budget nothing and the reserve goes to zero; the panel is
+   then free to grow with the column's height (capped, see the @supports block)
+   instead of being held short to make room under itself. `0px`, not `0`, so the
+   `calc(100cqh - var(--brand-reserve))` in the solver stays a length. */
 .menu--home .menu__brand {
-  --shelf-floor: calc(74px + 3 * 44px + 3 * var(--sp-3));
-  --brand-reserve: calc(var(--shelf-floor) + 12px + var(--sp-4));
+  --brand-reserve: 0px;
+}
+/* The rail fills its own 300px/232px track (not the old `.menu__nav` width of
+   var(--brand-w), which was the demo's width back when the rail sat under the
+   demo in the same column) and centres its four buttons as a group, so a short
+   rail reads as a calm column beside the demo rather than a stack hung off one
+   edge. The grid's own `--split-align: center` already centres the whole rail
+   against the demo; this centres the buttons WITHIN it for the case a tall
+   window lets the rail outgrow its content. */
+.menu--home .menu__home-actions {
+  width: 100%;
+  justify-content: center;
 }
 
 /* ---------- THE HUB IS TWO COLUMNS (screens.ts's tierHubScreen) ----------
@@ -1035,6 +1053,24 @@ body.crt-off #app::after { display: none; }
        what the phones already draw, and it is what the base step above gives
        them too — so this pin only has to exist inside the enhancement. */
     @media (max-height: 460px) { .menu__brand { --brand-cap: 360px; } }
+    /* HOME'S PANEL IS CAPPED, because its reserve is zero (the actions moved
+       into a column of their own — see `.menu--home .menu__brand` above). With
+       the reserve gone the equation is (100cqh * 16/9), which on a tall window
+       would balloon the demo to 900px+ and swamp the 300px rail beside it. So
+       home clamps it to the authored 640 — wide enough to be the centrepiece,
+       short enough to stay a panel next to a calm rail — and the grid's own
+       `minmax(0, max-content)` track shrinks it below the cap wherever a
+       narrow-but-tall window (an 800x600 desktop drag) lacks the width. Two
+       classes, so it wins over the unconditional `.menu__brand` solver above;
+       it sits INSIDE this @supports because it uses `100cqh`, and the stepped
+       fallback governs an engine without container units exactly as before. */
+    .menu--home .menu__brand {
+      --brand-cap: min(calc((100cqh - var(--brand-reserve)) * 16 / 9), 640px);
+    }
+    /* ...and the phone keeps its 360, a two-class pin placed AFTER the home cap
+       so it wins the tie on source order — the cap alone would hand a 348px-tall
+       phone column a ~618px panel that does not fit beside the rail. */
+    @media (max-height: 460px) { .menu--home .menu__brand { --brand-cap: 360px; } }
   }
 }
 .menu__title {
@@ -2809,56 +2845,52 @@ body.crt-off #app::after { display: none; }
 @media (prefers-reduced-motion: reduce) { .menu__unlock { animation: none; } }
 .menu__demo { position: relative; }
 
-/* The rail fills its column now that the row stretches. The three primary
-   entries take a quarter more than the three plain ones — they are the ones
-   carrying two lines of text — which is the ratio the buttons already had at
-   their natural heights, just held against the column instead of against
-   their own content. The max-heights are what stop a tablet from stretching
-   six buttons into six panels. */
+/* The rail fills its column, and every row keeps its own natural height — no
+   row grows to swallow the leftover. The max-heights below are a safety ceiling
+   for the same reason they always were (stop a tablet stretching a control into
+   a panel), and `justify-content: space-between` is what SPENDS the leftover:
+   see the even-rhythm note below. */
 .menu__actions {
   display: flex; flex-direction: column; gap: var(--sp-3);
   width: 100%; justify-self: end;
   justify-content: center;
 }
-/* `min-height` is the load-bearing half. Without it the rail's own flex
-   distribution SHRANK the plain buttons to 38-42px on every 360px phone —
-   under the 44px tap floor the whole rail is built to clear — because
-   `flex-shrink` defaults to 1 and the six natural heights plus five gaps come
-   out just over the column. Six 44px rows and five sp-2 gaps is 304px against
-   the 325px the column gets at compact, so the floor fits with room to spare
-   and the grow below spends only what is actually left over. */
-/* The caps, like the shelf's above, are a ceiling on GROWTH and not a height:
-   the phone's rows measure 59-64px against them and never reach either, so
-   these numbers are inert on every handset in the matrix and only decide what
-   the rail does with height a bigger window leaves over.
-   64/84 was that ceiling for a 360px-tall phone read as if it were the whole
-   story. In the authored box the rail gets 544px, its recap takes 116 and the
-   gaps 32, which leaves 132px per row for the three the loop is made of — so
-   the old cap stopped the column 144px short and printed the difference as
-   empty space under WORKSHOP. 132/100 is that arithmetic, and it keeps the
-   1.3125 ratio the pair already had, so a mixed rail still reads as two
-   weights rather than one. Past the zoom cap (a 4K panel, a very tall narrow
-   window) they go on doing the job they were written for: stopping three
-   buttons from becoming three panels. */
-/* space-between, not flex-start: the three buttons are capped (below), and on
-   a window where the caps bind — 1280x720, the authored box un-zoomed — the
-   last button stopped 6px above the cell's bottom while the tower beside it
-   ran to the line. The tower, the shelf and this rail are read as one row of
-   controls sharing one bottom line, so the leftover goes into the gaps
-   between the rail's rows (2px each there) rather than under the last one.
-   Where nothing is capped there is no leftover and this is flex-start. */
-/* --sp-1, not the --sp-2 this rule measured against when it was four rows
-   (the recap and the three loop buttons). It is seven now — the header, the
-   objective and the shelf moved in off the old side column when the hub went
-   from three columns to two — and a gap tuned for four rows' worth of
-   breathing room is six of them on seven, 48px a column that is no longer
-   spare anywhere in the fleet (a 600px-tall desktop window, `regular`
-   density, still wanted more than it had). Halving it recovers 24px for
-   nothing this rail cannot spare it: every child below is already sized off
-   its own content or a tap floor, never off the gap. */
+/* EVEN RHYTHM, spent as GAP rather than as button growth. This rail used to let
+   its two loop buttons grow (`flex-grow: 1.25`) to eat the column's leftover,
+   with `space-between` only distributing whatever the max-height caps refused —
+   and since nothing in the fleet actually hits those caps, the buttons ate
+   ALL of it. Measured on the hub before this change: New Run grew to 114px on
+   an 800x600 window and 156 on an iPad while every gap stayed pinned at the 4px
+   floor — the "recap tight against New Run, gaps not consistent" the rebalance
+   is for. One button carrying the whole slack is a lump, not a rhythm.
+
+   So the buttons no longer grow. `flex: 0 1 auto` keeps the shrink (with the
+   44px min-height floor the whole rail is built to clear — a landscape phone
+   packs all six rows into ~310px with nothing to spare, so the shrink is what
+   lets a hair of overflow settle onto the floor rather than past it) but drops
+   the grow, and with no row swallowing the leftover, `space-between` hands it
+   to the FIVE GAPS EQUALLY. A short window (the phone, exactly full) gets 0 in
+   every gap — even, if tight — and every taller window gets the same generous
+   figure in all five: ~16px on an 800x600 window, more on a tablet, always the
+   same top to bottom. The rail reads as one composed column instead of a stack
+   with a bulge in the middle.
+
+   The caps stay as a safety ceiling on the off chance a future row COULD grow,
+   the same job they always did; they are inert on every row in the matrix now
+   that nothing grows into them. */
 .menu__actions { justify-content: space-between; gap: var(--sp-1); }
-.menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 100px; }
-.menu__actions > .btn--menu { flex-grow: 1.25; max-height: 132px; }
+.menu__actions > .btn { flex: 0 1 auto; min-height: 44px; max-height: 100px; }
+.menu__actions > .btn--menu { max-height: 132px; }
+/* MORE AIR ABOVE THE OBJECTIVE THAN BELOW IT — the one thing this screen exists
+   to say wants a beat of separation from the utilitarian header above it (back,
+   leaderboard) that its checklist and recap below do not. `space-between` alone
+   would make every gap identical; this margin rides on TOP of the gap above the
+   objective, so that one reads generous while the rest stay even. Off the phone
+   only (min-height:461 — a landscape phone is packed to the pixel and has no
+   slack to spend on a margin), where every window has leftover for it. */
+@media (min-height: 461px) {
+  .menu__actions > .tierhub__obj { margin-top: var(--sp-3); }
+}
 /* The recap sits under the column's fixed head (the header and objective,
    `.menu__actions > .tierhub__hd, .tierhub__obj`) and is itself one more fixed
    measure: `flex: none` rather than a height, so it stays exactly as tall as
@@ -9364,43 +9396,16 @@ button.panel { color: var(--text); }
   .tierhub__actions:has(.tierhub__unlock) .btn__sub { font-size: 11px; }
 }
 
-/* Home's own compact pin, kept apart from the block above rather than folded
-   into it — that block is the ORIGINAL three-row shelf's arithmetic, argued
-   at length beside it, and Home's is a different budget entirely: FOUR rows
-   sharing the column with the panel where three used to, because the loop
-   that used to live in its own action rail (Contracts, Workshop) is gone
-   from this screen and Play — the one survivor — now shares the demo
-   column's height budget instead.
-
-   The phone-tier pin two screens up holds every OTHER menu's panel at
-   360px regardless of this screen's shelf, because it has no way to know
-   the shelf changed shape — so Home inherited a panel sized for three 44px
-   rows under a shelf that is now Play's own taller row plus three more
-   44px rows. 172px is not a derivation, it is a MEASUREMENT: the uifit
-   harness (sim/uifit's iOS iPhone 13 mini row, 780x360 with a 21px
-   home-indicator inset) is the tightest box in the fleet once a bottom
-   inset is in play, and it is what this number was walked down against —
-   208px still clipped Settings 19px into the safe area, 172px is the first
-   step that clears it with the panel still filling the column's width.
-
-   ON THE LIVE PANEL ONLY, not on --brand-cap itself — `.menu__nav` reads
-   the SAME token for its own width (`width: var(--brand-w)`), and the
-   reduced-motion fallback panel's height is its own content's, not this
-   token's, so shrinking --brand-cap wholesale narrowed the FOUR BUTTONS
-   to 172px too, on every fixture whether the canvas was live or not (a
-   Tutorial row's icon rendered 24px outside its own button — sim/uifit's
-   `spill` assertion, caught on the `menu-first` fixture). The live panel
-   is the one thing that actually needs to be narrower here; the shelf
-   underneath it does not. */
+/* Home's own compact pin. It used to SHRINK the demo — 172px, down from the
+   phone's own 360 — because the four actions were STACKED under the panel in
+   the same column and the panel had to give up width to leave them height.
+   The two-column split ended that: the demo and the rail are side by side now
+   (`.menu--home`, up in the menu block), so the demo keeps the fleet's 360 pin
+   (the @supports block above) and the rail lives in its own 300px track. What
+   is left here is the RAIL'S gap, stepped down to --sp-2 like every other phone
+   control — four buttons in a 360px-tall column want the tighter rhythm even
+   though they no longer share the demo's height. */
 @media (max-height: 460px) {
-  .menu--home .menu__demo.is-live {
-    width: 172px;
-    margin-inline: auto;
-  }
-  /* The shelf's own gap steps too, and unconditionally rather than only
-     beside the reduced-motion fallback (contrast `.menu__demo:not(.is-live)
-     ~ .menu__nav` above) — Home's LIVE demo shares this column's budget
-     with four rows now, where the hub's live demo never had to. */
   .menu--home .menu__nav { gap: var(--sp-2); }
 }
 

@@ -2243,13 +2243,22 @@ export function menuScreen(
   // door shows at most the one chip.
   const firstLaunch = guide?.firstLaunch === true;
   return `<div class="screen neon-backdrop">
-    <div class="menu menu--home">
+    <div class="menu split menu--home">
+      <!-- TWO COLUMNS, mirroring the hub (screens.ts's tierHubScreen): the demo
+           panel on the LEFT as the visual centrepiece, the four actions as a
+           calm rail on the RIGHT, vertically centred against the taller demo.
+           Home and the hub read as one system this way — the same split grid,
+           the same right-hand action rail. It collapses to one column (demo
+           over buttons) in portrait, on the split's own aspect query. -->
       <div class="menu__brand">
         <!-- The demo (game/attract.ts drives the canvas) with the wordmark and
              its description sitting in it. main.ts adds the is-live class only
              once the canvas is actually being drawn into; while it is, the
              paragraph is the canvas's text alternative, and on reduced motion
-             (or without a 2D context) it is shown on screen. -->
+             (or without a 2D context) it is shown on screen. The brand block now
+             wraps ONLY the demo — it is the demo's own column, and the width
+             equation (--brand-cap, app.css) still solves against it — while the
+             action rail is its sibling in the grid. -->
         <div class="menu__demo">
           <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
           <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
@@ -2257,28 +2266,28 @@ export function menuScreen(
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           where every cleared bay ratchets one difficulty axis of your choosing.</p>
         </div>
-        <!-- The four front-door actions, plainly worded. Play is the primary and
-             leads to the tier hub; the tutorial follows the fresh-save face
-             (Tutorial with a Start here chip, or How to Play); then the Full
-             Game entry (a badge once owned) and Settings. -->
-        <div class="menu__nav menu__home-actions">
-          <button class="btn btn--primary btn--lg btn--block btn--menu menu__play${firstLaunch ? " btn--next" : ""}" data-action="tiers">${
-            icon("play")
-          }<span class="btn__txt"><span>Play</span><span class="btn__sub">${
-            // Play carries the one first-launch directive now, because Play is
-            // the door the tutorial is offered behind (main.ts's tutorial-offer).
-            firstLaunch ? "Start with the tutorial" : "Fly the Tiers"
-          }</span></span>${firstLaunch ? nextBadgeHTML("Start here") : ""}</button>
-          <button class="btn btn--secondary btn--block" data-action="howto">${
-            icon("howto")
-          }How to Play</button>
-          ${
-            store?.unlimited ? unlimitedBadgeHTML()
-            : store?.available ? unlockChipHTML()
-            : ""
-          }
-          <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
-        </div>
+      </div>
+      <!-- The four front-door actions, plainly worded, as the right-hand rail.
+           Play is the primary and leads to the tier hub; the tutorial follows
+           the fresh-save face (Tutorial with a Start here chip, or How to Play);
+           then the Full Game entry (a badge once owned) and Settings. -->
+      <div class="menu__nav menu__home-actions">
+        <button class="btn btn--primary btn--lg btn--block btn--menu menu__play${firstLaunch ? " btn--next" : ""}" data-action="tiers">${
+          icon("play")
+        }<span class="btn__txt"><span>Play</span><span class="btn__sub">${
+          // Play carries the one first-launch directive now, because Play is
+          // the door the tutorial is offered behind (main.ts's tutorial-offer).
+          firstLaunch ? "Start with the tutorial" : "Fly the Tiers"
+        }</span></span>${firstLaunch ? nextBadgeHTML("Start here") : ""}</button>
+        <button class="btn btn--secondary btn--block" data-action="howto">${
+          icon("howto")
+        }How to Play</button>
+        ${
+          store?.unlimited ? unlimitedBadgeHTML()
+          : store?.available ? unlockChipHTML()
+          : ""
+        }
+        <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
     <div class="build-tag" aria-hidden="true">${
