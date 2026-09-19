@@ -337,7 +337,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
           pays salvage or moves the ladder — Tier S keeps its own board.</p>
         <div class="sbx__hdr-end">
           <div class="sbx__best"><span>Tier S best</span><b>${best || "—"}</b></div>
-          <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+          <button class="icon-btn" data-action="tiers" aria-label="Back">✕</button>
         </div>
       </header>
 

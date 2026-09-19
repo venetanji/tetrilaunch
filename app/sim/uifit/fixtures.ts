@@ -988,6 +988,70 @@ export const SCREENS: Record<string, () => string> = {
       firstLaunch: true,
     }),
 
+  // ---- THE TIER HUB (screens.ts's tierHubScreen) ---------------------------
+  //
+  // The double-gameplay UX split the old menu in two: the front door above
+  // (menuScreen) is now just Play/Tutorial/Settings/Buy, and everything that
+  // moved off it — the objective banner, the tier tower, the bay recap and the
+  // three loop actions (the tier run, Contracts and the Workshop) — landed
+  // here. Same signature as menuScreen, so each hub fixture below is the SAME
+  // argument set as the menu fixture it pairs with, just handed to the other
+  // screen — this is what used to be measured on the menu fixtures above and
+  // still has to be.
+  //
+  // No `live()` pairing here: `is-live` only ever touched the menu's demo
+  // canvas (.menu__demo), which the hub does not render — its brand column is
+  // the objective banner, not the attract bay — so a "hub-live" fixture would
+  // be byte-identical to "hub" and buy the matrix nothing.
+  hub: () => S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
+  "hub-skydeck": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length),
+  "hub-unlimited": () =>
+    S.tierHubScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE),
+  "hub-nostore": () =>
+    S.tierHubScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE),
+  "hub-tower-top": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP),
+  "hub-seals": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SEALS),
+  "hub-tier-s": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX),
+  "hub-licence": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_LICENCE),
+  "hub-unrigged": () =>
+    S.tierHubScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
+      step: "workshop",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: false,
+    }, TOWER_UNRIGGED),
+  "hub-school-shop": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
+    }, TOWER_LADDER_SHOP),
+  "hub-school-buy": () =>
+    S.tierHubScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
+      step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
+    }, TOWER_LADDER_SHOP2),
+  "hub-school-exam": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_EXAM),
+  "hub-lobby-held": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: null, firstLaunch: false,
+    }, TOWER_LOBBY_HELD),
+  // The NEXT STEP badge now lives on the hub rather than on the front door's
+  // tutorial chip, so this is the hub's own worst case for the same fresh save
+  // "menu-first" measures on the front door.
+  "hub-first": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: true,
+    }),
+
   // THE GUIDE (How to Play). Seven fixtures, because the pane has seven shapes
   // and the screen it replaces had ONE fixture — a single argument-less call —
   // which is how a horizontal card row shipped for months clipping its own copy

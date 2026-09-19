@@ -238,7 +238,7 @@ import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
-  menuScreen, menuPlaySub, salvageHTML,
+  menuScreen, tierHubScreen, menuPlaySub, salvageHTML,
   collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
   chainLadderHTML, CHAIN_AT_REST,
 } from "../src/ui/screens";
@@ -1267,15 +1267,18 @@ section("Installs — what salvage buys (meta.ts)");
       mark: MARK_COUNT, salvage: 10_000, loadout: everything, slots: SLOT_CAP,
     })) === "seal");
 
-  // …and the menu renders exactly the one badge the rule picked (A3), the
-  // tier plate in the Deep Run button (A1), and — on first launch only — the
+  // …and the hub renders exactly the one badge the rule picked (A3), the
+  // tier plate in the Play Tier button (A1). The front door (menuScreen)
+  // carries no badge at all once seen — on first launch only, it shows the
   // Guided Tutorial in How to Play's slot, with its own START HERE marker
   // (A2: a seventh row overflows a 360dp phone, so it takes a slot).
   const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: false });
+  const hubMid = tierHubScreen(0, 0, undefined, tierProgressFor(freshMeta()),
+    { step: "contracts", install: null, firstLaunch: false });
   check("exactly one menu action carries the NEXT STEP badge",
-    (menuMid.match(/next-badge/g) ?? []).length === 1);
-  check("the Deep Run button carries the tier plate", menuMid.includes("tier-plate--menu"));
+    (hubMid.match(/next-badge/g) ?? []).length === 1);
+  check("the Deep Run button carries the tier plate", hubMid.includes("tier-plate--menu"));
   const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: true });
   check("first launch swaps How to Play for the badged Guided Tutorial",
@@ -1287,16 +1290,17 @@ section("Installs — what salvage buys (meta.ts)");
   // BOTH at once — the demo panel's chip, and the step badge on Contracts,
   // which is precisely what a fresh save's nextStep is. Two things each calling
   // themselves the one next step is the A3 rule broken in the one session it
-  // exists for.
+  // exists for. The front door carries at most its own directive; the hub's
+  // badge is asserted separately below.
   check("first launch carries exactly one directive",
     (menuFirst.match(/next-badge/g) ?? []).length === 1);
   check("...and it is the tutorial's",
     menuFirst.includes(">Start here<") && !menuFirst.includes(">Next step<"));
-  // DEFERRED, NOT CANCELLED: the step badge is back the moment the chip goes,
-  // with nothing else about the screen different. `menuMid` is the same save at
-  // the same step with seenTutorial set.
+  // DEFERRED, NOT CANCELLED: the step badge is back on the hub the moment the
+  // chip goes, with nothing else about the screen different. `hubMid` is the
+  // same save at the same step with seenTutorial set.
   check("...and the step badge takes over once the chip is gone",
-    menuMid.includes(">Next step<") && !menuMid.includes(">Start here<"));
+    hubMid.includes(">Next step<") && !hubMid.includes(">Start here<"));
   // The primary is gated at the RULE rather than in the markup, because main.ts
   // re-decides this button's badge on every ride (setSelectedTier) and a copy
   // in each place is two rules to keep in step. Not a fresh-save concern only:
@@ -1305,7 +1309,7 @@ section("Installs — what salvage buys (meta.ts)");
   check("the primary's badge defers to a live tutorial chip on any step",
     S.menuPlayBadged("run", 1, false) && !S.menuPlayBadged("run", 1, false, true));
 
-  // THE SEAL STEP ON THE MENU. A next step nobody can read is not a next step:
+  // THE SEAL STEP ON THE HUB. A next step nobody can read is not a next step:
   // the badge has to land on the action that actually does the sealing (the
   // run — sealing is flown, never bought), and the button has to say how many
   // Marks are still owed, because the count lives nowhere else on this screen
@@ -1313,7 +1317,7 @@ section("Installs — what salvage buys (meta.ts)");
   const sealTower = (selected: number, sealed: number[]): S.TowerState =>
     ({ unlocked: MARK_COUNT, selected, skydeck: false, sealed });
   const sealMenu = (selected: number, sealed: number[]): string =>
-    menuScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
+    tierHubScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
       { step: "seal", install: null, firstLaunch: false }, sealTower(selected, sealed));
   const playButton = (html: string): string =>
     /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
@@ -13994,7 +13998,7 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // failure worth catching is a leak somewhere nobody thought to look — an
     // aria-label, a title, a button subtitle, a tooltip. Every name and every
     // "Bay N" the day deals is checked against all of it.
-    const roofMenu = S.menuScreen(
+    const roofMenu = S.tierHubScreen(
       98_760, 1_480, { available: true, unlimited: false }, undefined, undefined,
       { unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2 },
       listed.length,
@@ -16301,7 +16305,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // menu rather than over the three call sites, because the failure this
   // catches is a fourth surface — a subtitle, a guide topic, an aria-label —
   // reintroducing it somewhere nobody thought to look.
-  const wholeMenu = S.menuScreen(0, 0, undefined, undefined, undefined, beaten);
+  const wholeMenu = S.tierHubScreen(0, 0, undefined, undefined, undefined, beaten);
   check("no surface calls it anything else", !/\bgods?\b/i.test(wholeMenu));
 
   // THE TOKEN IS BUDGETED, NOT CHOSEN. The shaft plate's number slot is
@@ -16328,12 +16332,12 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     plateLbl.length > 0 && plateLbl.length <= PLATE_LABEL_CH,
     `${plateLbl.length} characters against ${PLATE_LABEL_CH}ch`);
 
-  // THE MENU'S PRIMARY BUTTON follows the parked floor: the same button flies a
+  // THE HUB'S PRIMARY BUTTON follows the parked floor: the same button flies a
   // Mark and opens the level select, because the floor decides what it does.
   const menuAt = (t: S.TowerState): string =>
-    S.menuScreen(0, 0, undefined, undefined, undefined, t);
+    S.tierHubScreen(0, 0, undefined, undefined, undefined, t);
   check("the primary button flies the ladder from a Mark",
-    menuAt(open).includes("Deep Run") && !menuAt(open).includes(">Sandbox<"));
+    menuAt(open).includes("Play Tier") && !menuAt(open).includes(">Sandbox<"));
   check("the primary button becomes Sandbox on the roof",
     menuAt(parked).includes(">Sandbox<"));
   // Four withheld readouts, not four wrong ones: nothing is chosen yet, and the
@@ -17198,11 +17202,11 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
       S.floorSealFace("sealed") === "held"
         && S.floorSealFace("broken") === "spent"
         && S.floorSealFace("at-stake") === "at-stake");
-    // AND IT IS WIRED TO THE PARKED FLOOR, not merely available: the menu
+    // AND IT IS WIRED TO THE PARKED FLOOR, not merely available: the hub
     // reads the one rule for the floor the car is on, so the panel cannot
     // claim a stamp the building is not drawing one column over.
     const parked = (tier: number): string =>
-      S.menuScreen(12, 0, undefined, undefined, undefined, { ...base, selected: tier });
+      S.tierHubScreen(12, 0, undefined, undefined, undefined, { ...base, selected: tier });
     check("the menu states the parked floor's seal beside its terms",
       parked(2).includes(">Sealed<")
         && parked(1).includes(">Seal broken — re-fly with no bay retry to seal it<")
@@ -17487,15 +17491,17 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   // THE MANUAL'S DOOR. It was the whole demo panel: a transparent hit layer at
   // inset 0 with no border, labelled by a 6px corner tag — the largest target
   // and the first tab stop on the home screen, for the reference manual, next
-  // to a primary button reading Flight School. It is the app's own secondary
-  // button in the panel now, at the app's own button height.
+  // to a primary button reading Flight School. The double-gameplay split moved
+  // it again: How to Play is now a full, plainly-labelled nav button on the
+  // front door (menuScreen), alongside Play/Tutorial/Settings/Buy, at the
+  // app's own button height — not a corner watermark on the demo panel.
   const manual = menuScreen(0, 0, undefined, tierProgressFor(newMeta()),
     { step: "contracts", install: null, firstLaunch: false });
   check("the manual's door is a real button",
-    manual.includes('class="btn btn--secondary menu__howto"')
-      && manual.includes('data-action="howto"'));
+    manual.includes('class="btn btn--secondary btn--block" data-action="howto"')
+      && manual.includes(">How to Play<"));
   check("...at the tap floor",
-    /min-height:\s*44px/.test(decls(".menu__howto").join(";")));
+    /min-height:\s*44px/.test(decls(".menu__nav > .btn").join(";")));
   check("...and the whole-panel hit layer is gone from both files",
     !manual.includes("menu__demo-hit") && !css.includes(".menu__demo-hit"));
 }
@@ -25799,7 +25805,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // state the rig lock exists for, and it is still the state this block pins.
     const licensed: MetaState = { ...newMeta(), licence: SCHOOL_FLIGHTS, salvage: 15 };
     const menuOf = (twr: S.TowerState): string =>
-      menuScreen(0, 15, undefined, tierProgressFor(licensed),
+      tierHubScreen(0, 15, undefined, tierProgressFor(licensed),
         { step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false },
         twr);
     const primary = (html: string): string =>
@@ -25974,7 +25980,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
 
     // ---- THE TWO DOORS OPEN IN THE LADDER'S OWN ORDER -------------------
     const menuAt = (m: MetaState, twr: S.TowerState): string =>
-      menuScreen(0, m.salvage, undefined, tierProgressFor(m),
+      tierHubScreen(0, m.salvage, undefined, tierProgressFor(m),
         { step: nextStep(m), install: null, firstLaunch: false }, twr);
     const towerAt = (m: MetaState): S.TowerState => ({
       unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,

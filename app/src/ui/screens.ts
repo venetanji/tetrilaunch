@@ -1847,7 +1847,21 @@ export function menuPlaySub(
  *  the demo taking How to Play's job is what freed it one. Tier S is not a row
  *  anywhere: it is the tower's top floor, and the primary button flies whatever
  *  floor the car is parked on. */
-export function menuScreen(
+/**
+ * THE TIER HUB — the intermediate "play" screen, reached from the home screen's
+ * Play button (main.ts's "tiers" state). It carries everything about FLYING a
+ * tier: the tierlevator, the parked floor's recap, and the three loop actions
+ * (the tier run, Contracts and the Workshop). Its objective banner names the one
+ * thing to do to open the next Tier.
+ *
+ * This used to be the whole menu (`menuScreen`) — the demo/wordmark, the shelf
+ * and this column all on one screen. The double-gameplay UX split it: the
+ * front door (menuScreen, below) is now just Play / Tutorial / Settings / Buy,
+ * and this is where Play lands. The tower's in-place ride (main.ts's
+ * setSelectedTier, setPlaySub) still patches the ids below — the ride only runs
+ * while this screen is mounted, so those ids only have to exist here.
+ */
+export function tierHubScreen(
   best: number,
   salvage = 0,
   store?: StoreState,
@@ -1989,6 +2003,33 @@ export function menuScreen(
   const contractsNext = !firstLaunch && guide?.step === "contracts";
   const workshopNext = !firstLaunch && guide?.step === "workshop";
   const badged = menuPlayBadged(guide?.step, sel, selSealed, firstLaunch);
+  // THE OBJECTIVE BANNER — the one thing this screen exists to say: what opens
+  // the next Tier. The title names the goal (the next locked Mark, or the
+  // ladder/seal gates at the ends) and the sub says the single next step, taken
+  // off the same guide.step the NEXT STEP badge below reads. Derived, never
+  // typed: a screen that read the clock or hand-counted floors would drift from
+  // the buttons under it.
+  const unlockedMark = twr.unlocked;
+  const nextTier = unlockedMark >= 1 && unlockedMark < MARK_COUNT ? unlockedMark + 1 : null;
+  const hubEyebrow = skySel ? "Skydeck" : sbxSel ? "Sandbox" : licSel ? "Flight School" : `Tier ${sel}`;
+  const hubObjTitle = licence !== null
+    ? "Finish Flight School"
+    : nextTier !== null
+    ? `Unlock Tier ${nextTier}`
+    : sealsOwed > 0
+    ? "Seal every Tier"
+    : "Every Tier cleared";
+  const hubObjSub = licence !== null
+    ? "Clear the lessons to open the Tier ladder"
+    : guide?.step === "contracts"
+    ? "Clear this Tier's Contracts to open the next"
+    : guide?.step === "workshop"
+    ? "Install a system in the Workshop to go on"
+    : guide?.step === "seal"
+    ? "Seal every Tier from the Skydeck"
+    : nextTier !== null
+    ? "Clear the run and its Contracts to open the next Tier"
+    : "Fly any Tier, or seal the ones you've cleared";
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -1998,74 +2039,26 @@ export function menuScreen(
   // panel keeps its optional `extras` slot for the next thing that genuinely
   // has nowhere else to go.
   return `<div class="screen neon-backdrop">
-    <div class="menu split">
-      <div class="menu__brand">
-        <!-- The demo (game/attract.ts drives the canvas), the wordmark sitting
-             in it, and the paragraph both replaced.
-
-             The title lives INSIDE the demo box on purpose: the panel is a
-             live bay with no HUD over it, so its top-left corner is the one
-             place a real screenshot would have chrome and the mini-field
-             doesn't. Split across two lines there because the wordmark is
-             sharing the frame with the play area rather than owning a headline
-             of its own — the SPANS only stack while the demo is live (see
-             app.css), so the reduced-motion fallback still reads as one word.
-
-             The copy under it stays in the DOM either way: main.ts adds the
-             is-live class only once the demo is actually running, and while it
-             is, the paragraph is the canvas's text alternative — a screen
-             reader still gets the description, and anyone on reduced motion
-             (or without a 2D context) gets it on screen. -->
-        <div class="menu__demo">
-          <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
-          <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
-          <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
-          full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
-          where every cleared bay ratchets one difficulty axis of your choosing.</p>
-          <!-- THE MANUAL, SIZED LIKE THE MANUAL. The whole panel used to be
-               the door: a transparent hit layer at "inset: 0", no border, and
-               a 6px corner tag in 8px pixel type for a label. That made the
-               reference manual the largest target on the home screen and the
-               first thing in the tab order, out-weighing Flight School — which
-               IS the tutorial now — with something that read as a watermark on
-               the artwork rather than as a control. The only affordance it had
-               was a border on hover, which a touch device never shows.
-
-               So it is a real button in the panel instead, at the app's own
-               secondary chrome and the 44px tap floor, docked in the corner
-               the bay never fills (the cannon is bottom-left, the pile builds
-               bottom-right, and the wordmark owns the lower-left plate). The
-               panel goes back to being a demo, and the directive on the home
-               screen belongs to the thing the player should actually do.
-
-               It stays OUTSIDE the <h1> and the canvas rather than wrapping
-               them, which is what the hit layer was really for: the wordmark
-               is not phrasing content and cannot legally live inside a button,
-               and the canvas has to stay out of the accessible name.
-
-               THE FACE FOLLOWS THE ACTION, and always did — it read "Tutorial"
-               on both branches once, so on a fresh save the biggest, brightest
-               thing on the screen said TUTORIAL and opened the catalogue. It
-               is also a label-in-name rule (WCAG 2.5.3): the visible label has
-               to be in the accessible name, which is why the aria-label is not
-               a second, different sentence any more. -->
-          <button class="btn btn--secondary menu__howto" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}">${
-            icon("howto", 12)
-          }<span class="menu__howto-txt">${
-            guide?.firstLaunch ? "Tutorial" : "How to Play"
-          }</span>${
-            // ON THIS BUTTON'S OWN CORNER, not pinned to a corner of the panel.
-            // The directive belongs to the control that performs it, and the
-            // badge and the label claiming two different corners of the artwork
-            // is what the old corner-tag layout did wrong in the first place.
-            guide?.firstLaunch ? nextBadgeHTML("Start here") : ""
-          }</button>
+    <div class="menu split menu--hub">
+      <!-- THE HUB'S SIDE COLUMN — the objective, not the demo. The wordmark and
+           the self-playing bay belong to the front door (menuScreen); this
+           screen is reached by pressing Play there, so it opens on WHAT to do
+           next rather than on the pitch. The Back chip returns to that door. -->
+      <div class="menu__brand tierhub__side">
+        <div class="tierhub__hd">
+          <button class="icon-btn tierhub__back" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+          <div class="eyebrow tierhub__eyebrow">${hubEyebrow}</div>
         </div>
-        <!-- The SHELF: everything a player does not open the game to reach.
-             How to Play used to head it and is now the demo panel above, which
-             is what freed the row the entitlement entry takes — a full-size
-             button in the column, rather than the 23px footnote it started as
-             or the band across the artwork that replaced it. -->
+        <!-- THE OBJECTIVE (the clear CTA to open the next Tier). Title names the
+             goal, the line under it the single next step — both derived from the
+             same guide.step the NEXT STEP badge reads, so the banner and the
+             badged button can never disagree. -->
+        <div class="tierhub__obj">
+          <h1 class="display neon-text brand-gradient tierhub__obj-ttl">${hubObjTitle}</h1>
+          <p class="tierhub__obj-sub">${hubObjSub}</p>
+        </div>
+        <!-- The shelf: the leaderboard and the Full Game entry (Settings and the
+             tutorial live on the front door now). -->
         <div class="menu__nav">
           ${
             store?.unlimited ? unlimitedBadgeHTML()
@@ -2073,7 +2066,6 @@ export function menuScreen(
             : ""
           }
           <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-          <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
         </div>
       </div>
       ${tierTowerHTML(twr)}
@@ -2115,7 +2107,7 @@ export function menuScreen(
         <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play"${playLocked ? " disabled aria-disabled=\"true\"" : ""}>${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
-          licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
+          licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Play Tier"
         }</span><span class="btn__sub" id="menu-play-sub">${
           // The rule lives in menuPlaySub, because the ride rewrites this exact
           // node by id and two copies of it would drift — see the note there.
@@ -2148,7 +2140,7 @@ export function menuScreen(
             : menuContractsSub(sel, progress, twr.rigged === false,
                 twr.licensed === false && twr.rigged !== false)
         }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${workshopShut ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
+        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${workshopShut ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Upgrades<span class="btn__sub">${
           learningBasics
             ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
             // NAMES THE RUNG IN THE WAY OUT, like the line above it and like
@@ -2165,7 +2157,7 @@ export function menuScreen(
                 // here the price is already met and the thing worth saying is
                 // that this is the button that unlocks the exam.
                 ? twr.rigged === false
-                  ? `${guide.install.name} for ${salvageHTML(guide.install.cost, 10)} — opens the Deep Run`
+                  ? `${guide.install.name} for ${salvageHTML(guide.install.cost, 10)} — opens the Tier run`
                   : `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
                 : `${salvageHTML(salvage, 10)} — Contracts pay salvage`
               : `${salvageHTML(salvage, 10)} banked`
@@ -2190,6 +2182,79 @@ export function menuScreen(
       // DOES define import.meta.env (vite-node) without defining
       // VITE_BUILD_ID, and the footer printed the string "undefined" in
       // every menu screenshot it took.
+      typeof import.meta.env !== "undefined" ? ((import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev") : "dev"
+    }</div>
+  </div>`;
+}
+
+/**
+ * THE FRONT DOOR — the streamlined home screen. Four things and no more: the
+ * self-playing demo as the pitch, and the four actions a player opens the app
+ * to reach — Play (which leads to the tier hub, tierHubScreen), the tutorial,
+ * Settings and the Full Game purchase. Everything about FLYING a tier — the
+ * tierlevator, the recap, Contracts and the Workshop — moved to the hub Play
+ * opens, so this screen never has to hold four numbers in the player's head.
+ *
+ * The signature is the tier hub's, positionally: main.ts and the sim/uifit
+ * fixtures hand both screens the same arguments, and the home simply ignores
+ * the ones it no longer needs (the underscore-prefixed params). The demo panel
+ * keeps class `menu__demo` because syncAttract mounts the attract bay by that
+ * selector while the "menu" state is up (main.ts), exactly as before.
+ */
+export function menuScreen(
+  _best: number,
+  _salvage = 0,
+  store?: StoreState,
+  _progress?: TierProgress,
+  guide?: {
+    step: NextStepId;
+    install: { name: string; cost: number } | null;
+    firstLaunch: boolean;
+  },
+  _tower?: TowerState,
+  _standingClauses = 0,
+): string {
+  // ONE DIRECTIVE ON THE SCREEN (A3): on first launch it is the tutorial's
+  // "Start here". Every other next step lives on the hub, on the button that
+  // actually performs it — so Play here never carries a badge, and the front
+  // door shows at most the one chip.
+  const firstLaunch = guide?.firstLaunch === true;
+  return `<div class="screen neon-backdrop">
+    <div class="menu menu--home">
+      <div class="menu__brand">
+        <!-- The demo (game/attract.ts drives the canvas) with the wordmark and
+             its description sitting in it. main.ts adds the is-live class only
+             once the canvas is actually being drawn into; while it is, the
+             paragraph is the canvas's text alternative, and on reduced motion
+             (or without a 2D context) it is shown on screen. -->
+        <div class="menu__demo">
+          <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
+          <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
+          <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
+          full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
+          where every cleared bay ratchets one difficulty axis of your choosing.</p>
+        </div>
+        <!-- The four front-door actions, plainly worded. Play is the primary and
+             leads to the tier hub; the tutorial follows the fresh-save face
+             (Tutorial with a Start here chip, or How to Play); then the Full
+             Game entry (a badge once owned) and Settings. -->
+        <div class="menu__nav menu__home-actions">
+          <button class="btn btn--primary btn--lg btn--block btn--menu menu__play" data-action="tiers">${
+            icon("play")
+          }<span class="btn__txt"><span>Play</span><span class="btn__sub">Fly the Tiers</span></span></button>
+          <button class="btn btn--secondary btn--block" data-action="${firstLaunch ? "tutorial" : "howto"}">${
+            icon("howto")
+          }${firstLaunch ? "Tutorial" : "How to Play"}${firstLaunch ? nextBadgeHTML("Start here") : ""}</button>
+          ${
+            store?.unlimited ? unlimitedBadgeHTML()
+            : store?.available ? unlockChipHTML()
+            : ""
+          }
+          <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
+        </div>
+      </div>
+    </div>
+    <div class="build-tag" aria-hidden="true">${
       typeof import.meta.env !== "undefined" ? ((import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev") : "dev"
     }</div>
   </div>`;
@@ -2255,7 +2320,7 @@ function unlimitedBadgeHTML(): string {
  *  a band across the demo artwork, and this — and only this one treats a
  *  purchase entry the way the rest of the screen treats a control. */
 function unlockChipHTML(): string {
-  return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Full Game</button>`;
+  return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Buy Full Game</button>`;
 }
 
 /* #89 re-added a sandboxChipHTML here; #90 had deleted it. #90 wins: Tier S
@@ -3169,7 +3234,7 @@ export function leaderboardScreen(rows: string, opts?: {
             : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · Deep Run`
         }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+        <button class="icon-btn" data-action="tiers" aria-label="Back">${icon("close", 18)}</button>
       </div>
       ${tabs}
       <div id="lb-body" data-scroll>${rows}</div>
@@ -5775,7 +5840,7 @@ export function workshopScreen(
             <div class="chip__label">Salvage</div>
             <div class="chip__value">${salvageHTML(meta.salvage, 16)}</div>
           </div>
-          <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+          <button class="icon-btn" data-action="tiers" aria-label="Back">${icon("close", 18)}</button>
         </div>
       </div>
       <div class="workshop__meta muted">${
@@ -7384,7 +7449,9 @@ export function endModal(opts: {
               }Contracts${opts.step === "contracts" ? nextBadgeHTML() : ""}</button>`
             : ""
         }
-        <button class="btn btn--ghost" data-action="menu">Menu</button>
+        <!-- Back to the tier hub (not the front door): the tierlevator's unlock
+             ceremony rides there, and the loop continues from it. -->
+        <button class="btn btn--ghost" data-action="tiers">Tiers</button>
       </div>
     </div>
   </div>`;
@@ -7803,7 +7870,7 @@ export function contractsScreen(opts: {
         </div>
         <div class="contracts__hdr-side">
           ${tierChip}
-          <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+          <button class="icon-btn" data-action="tiers" aria-label="Back">${icon("close", 18)}</button>
         </div>
       </div>
       <div class="contracts__board">${cards}</div>

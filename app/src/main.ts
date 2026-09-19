@@ -181,7 +181,11 @@ import {
 } from "./lib/audio";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "account" | "account-delete"
+  // "menu" is the streamlined front door (screens.ts's menuScreen); "tiers" is
+  // the intermediate tier hub Play opens (tierHubScreen) — the tower, the recap,
+  // Contracts and the Workshop. The double-gameplay UX split the old one-screen
+  // menu into these two.
+  | "splash" | "menu" | "tiers" | "howto" | "settings" | "account" | "account-delete"
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
@@ -1385,7 +1389,7 @@ class App {
         this.setState(this.previewReturn);
         return;
       }
-      if (this.state === "menu" || this.state === "settings") this.renderOverlay();
+      if (this.state === "menu" || this.state === "tiers" || this.state === "settings") this.renderOverlay();
     };
     void (async () => {
       try { this.auth = await initAuth(); }
@@ -1484,13 +1488,16 @@ class App {
     // replaced. Harmless (setPlayPlate no-ops on a missing element) but it
     // would also leave towerTravel set, which pickTier reads as "still
     // moving" and would make the next tap on the parked floor a no-op.
-    if (s !== "menu") {
+    // The tower and its ride live on the HUB now (state "tiers"), so the
+    // travel timers and the ceremony are scoped to it — leaving the hub for any
+    // other screen, the front door included, clears them.
+    if (s !== "tiers") {
       window.clearTimeout(this.towerTravel ?? undefined);
       window.clearTimeout(this.denyTimer);
       window.clearTimeout(this.storeNoteTimer);
       window.clearTimeout(this.bayLandTimer);
       this.towerTravel = null;
-      // The unlock ceremony belongs to the home screen and dies with it. It has
+      // The unlock ceremony belongs to the tier hub and dies with it. It has
       // already been marked seen (armUnlockCelebration), so walking out halfway
       // up the shaft spends it — which is the honest reading: the player was
       // shown their new floor and chose to go somewhere else. Clearing
@@ -1528,7 +1535,11 @@ class App {
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
     // bed, and renderOverlay reads it through towerState to mount the ride.
-    if (s === "menu") this.armUnlockCelebration();
+    // THE UNLOCK RIDE LIVES ON THE HUB now, not the front door: the tierlevator
+    // moved there with the split, so the ceremony arms when the hub mounts (it
+    // burns the watermark the moment it arms, so it must never arm on a screen
+    // with no tower to ride — the front door would consume the ceremony unseen).
+    if (s === "tiers") this.armUnlockCelebration();
     this.syncMusic(s);
     this.renderOverlay();
     // Mid-hold the overlay is the dead bay's HUD and nothing else — its rail
@@ -1676,8 +1687,8 @@ class App {
       // No stopStinger on the celebrating path: syncMusic runs on every state
       // change, and playStinger already no-ops when the piece it is handed is
       // the one playing, so the ceremony survives a re-render. `celebrating` is
-      // only ever true on the menu (setState clears it on the way out), so this
-      // cannot leak the fanfare onto the Workshop or the Contract board.
+      // only ever true on the tier hub (setState clears it on the way out), so
+      // this cannot leak the fanfare onto the Workshop or the Contract board.
       default:
         if (this.celebrating) { playStinger("unlockFanfare"); return; }
         stopStinger();
@@ -2748,7 +2759,7 @@ class App {
       // without this would leave a 14s fanfare ringing UNDER the menu bed for
       // whatever was left of it. The old UNLOCK_BED was music, and swapping one
       // bed for another needed no such thing.
-      if (this.state === "menu") { stopStinger(); playMusic("menu"); }
+      if (this.state === "tiers") { stopStinger(); playMusic("menu"); }
     }, total + UNLOCK_MUSIC_TAIL_MS);
   }
 
@@ -3669,9 +3680,15 @@ class App {
     const hadScrim = this.overlay.querySelector(".modal-scrim") !== null;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
+      // THE TWO HALVES OF THE OLD MENU. Both are handed the identical arguments
+      // — the front door (menuScreen) ignores the ones it no longer needs, the
+      // hub (tierHubScreen) uses them all — so the split is a swap of the render
+      // function, not two argument lists that could drift.
       case "menu":
+      case "tiers": {
         this.resetRailBudget();
-        this.overlay.innerHTML = S.menuScreen(
+        const render = this.state === "menu" ? S.menuScreen : S.tierHubScreen;
+        this.overlay.innerHTML = render(
           // The parked floor's OWN board, so the recap panel's one number
           // belongs to the floor the rest of the panel is describing — see
           // setSelectedTier, which does the same on every ride.
@@ -3705,6 +3722,7 @@ class App {
           CLAUSE_COUNT,
         );
         break;
+      }
       // The profile rides along because the rack's slots say what to DO to
       // them, and that word is the device's (D7, bindings.ts's hintPress).
       case "workshop":
@@ -5791,7 +5809,9 @@ class App {
       // back in (`pickedAtMark === meta.mark` is what makes a pick fresh).
       this.pickedAtMark = this.meta.mark;
     }
-    this.setState("menu");
+    // Back to the hub, where the tower shows the ladder that just opened and the
+    // unlock ceremony rides — not the front door, which has no tower.
+    this.setState("tiers");
   }
 
   /** The next FLIGHT the ground floor owes (meta.ts's nextFlightAfter). The
@@ -7203,6 +7223,16 @@ class App {
     this.setState("menu");
   }
 
+  /** The front door's Play, and the door back OUT of Contracts/Workshop: land
+   *  on the tier hub. Clears the same transient run/lesson state toMenu does, so
+   *  arriving here from a settled Contract never leaves one dangling. Entering
+   *  "tiers" is what arms the tierlevator's unlock ceremony (setState). */
+  private toHub(): void {
+    this.contract = null; this.contractMusic = null; this.drill = null;
+    this.lesson = null; this.lessonCard = null;
+    this.setState("tiers");
+  }
+
   /**
    * THE ONE DOOR THAT ABANDONS A LIVE RUN, and the arming that stands in it.
    *
@@ -8418,9 +8448,16 @@ class App {
       // is one action being priced, not a choice between exits, so B gives the
       // reversible answer rather than dismissing the question.
       case "account-delete": return '[data-action="account-delete-back"]';
-      case "settings": case "workshop": case "contracts":
-      case "howto": case "leaderboard": case "sandbox":
+      // The front door's own sub-screens go back to it.
+      case "settings": case "howto":
         return '[data-action="menu"]';
+      // The hub's sub-screens go back to the hub, and the hub goes back to the
+      // front door.
+      case "tiers":
+        return '[data-action="menu"]';
+      case "workshop": case "contracts":
+      case "leaderboard": case "sandbox":
+        return '[data-action="tiers"]';
       default: return null;
     }
   }
@@ -8948,6 +8985,9 @@ class App {
         else this.setState("contracts");
         break;
       case "menu": this.toMenu(); break;
+      // The front door's Play, and the way back from Contracts/Workshop: the
+      // tier hub (tierHubScreen).
+      case "tiers": this.toHub(); break;
       // The pause card's Quit on a run with bays behind it — its own action
       // rather than a branch on "menu", so the eight other back buttons that
       // carry that action cannot accidentally inherit (or route around) the
