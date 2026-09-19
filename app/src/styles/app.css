@@ -790,20 +790,26 @@ body.crt-off #app::after { display: none; }
 @media (max-height: 620px) { .menu__brand { --brand-cap: 360px; } }
 @media (min-height: 700px) { .menu__brand { --brand-cap: 640px; } }
 
-/* ---------- Two front doors, one component (screens.ts's menuScreen /
-   tierHubScreen) ----------
+/* ---------- One front door, one component (screens.ts's menuScreen) ----------
    .menu__brand was built for exactly one job: hold a 16:9 demo panel and
    solve its width from the row's height, leaving just enough of that height
-   for the shelf under it. The double-gameplay split gave the class two more
-   jobs it was never built for — Home's shelf IS the whole menu now (four
-   stacked actions, no tower or loop column beside it), and the hub's side
-   column has no panel at all (a back header, the objective banner, a
-   two-row shelf). Both overrides below are UNCONDITIONAL — no @media or
-   @supports of their own — so they win over every one of --brand-cap's
-   height-keyed steps and the cqh equation by SPECIFICITY alone (two classes
-   beats one, regardless of which rule comes later in the file), which is
-   what lets them sit here beside the rule they override instead of chasing
-   it down the cascade. */
+   for the shelf under it. The double-gameplay split gave the class a second
+   job it was never built for — Home's shelf IS the whole menu now (four
+   stacked actions, no tower or loop column beside it) — which is what the
+   override below is for. It is UNCONDITIONAL — no @media or @supports of its
+   own — so it wins over every one of --brand-cap's height-keyed steps and the
+   cqh equation by SPECIFICITY alone (two classes beats one, regardless of
+   which rule comes later in the file), which is what lets it sit here beside
+   the rule it overrides instead of chasing it down the cascade.
+
+   THE HUB NO LONGER USES THIS CLASS AT ALL. It used to carry a third column —
+   a `.menu__brand`-classed side column holding the back header, the objective
+   banner and a shelf, sized by a `--brand-cap` override of its own — until the
+   hub went from three columns to two (tierHubScreen): the tower took the left
+   column outright and everything else, header through shelf, moved into the
+   action rail on the right. `.menu--hub`'s own grid override is with the
+   tower block below, beside `.tierhub__actions`, which is where its objective
+   banner and shelf rules already lived. */
 
 /* HOME: still one 16:9 panel, but `.menu--home` carries the whole menu —
    there is no tower or action rail beside it to make `.menu` a three-column
@@ -839,27 +845,47 @@ body.crt-off #app::after { display: none; }
   --brand-reserve: calc(var(--shelf-floor) + 12px + var(--sp-4));
 }
 
-/* THE HUB'S SIDE COLUMN has no panel at all — just the back header, the
-   objective banner and a shelf of at most two rows (Leaderboard, plus the
-   store row when it is offered) — so the height-driven equation is the
-   wrong tool entirely: a column stretched to the tower's full height with
-   nothing of its own to spend it on prints the difference as dead air under
-   the objective. A FIXED width, sized for TEXT rather than a 16:9 box, and
-   `align-self: start` so the column stops matching the tower's height and
-   simply sits as tall as its own content, at the top of the row — which is
-   also where the portrait branch's stacking order (side, then tower, then
-   actions) wants the objective to read first. */
-.menu--hub .menu__brand {
-  --brand-cap: 260px;
-  align-self: start;
-}
-@media (max-width: 700px) {
-  /* Steps with --tower-w/--rail-w just above .menu__brand's own rule, on the
-     same width axis and for the same reason: this is the one constraint on
-     the row that is genuinely horizontal. */
-  .menu--hub .menu__brand { --brand-cap: 210px; }
+/* ---------- THE HUB IS TWO COLUMNS (screens.ts's tierHubScreen) ----------
+   The tierlevator on the left, everything a player can DO on the right — no
+   third column holding a demo or a brand stack any more (menuScreen owns
+   that, on the front door). `.split`'s own default (a wide primary column
+   plus a narrow one) is built for a column that reflows; this row is two
+   FIXED-ish widths instead, because the left one is a drawing of a building
+   that must not stretch to fill whatever a window leaves over (the same
+   argument the base `.menu` rule makes for --tower-w) and the right one is a
+   column of full-width buttons and a recap panel that stops looking like a
+   control surface and starts looking like a poster past a certain width.
+
+   --tower-w is the base rule's own token (118px, 92px under 700px width) —
+   reused rather than restated, since the drawing does not care how many
+   columns share the row with it. The action rail gets a RANGE, not a second
+   fixed width: `var(--rail-w)` (300px/232px, the same token and the same
+   700px step the old three-column rail used) as its floor, so nothing here
+   shrinks a button rail that already earned its size, and 460px as its
+   ceiling — wide enough to give `.tierhub__obj-sub`'s longest sentence and
+   the recap panel's four stats room to breathe on a tablet or a windowed
+   desktop, capped well short of the reading-width a `.btn--block` stops
+   looking like a button past. Grid hands a `minmax()` track exactly that
+   much room and no more: it grows to 460px where the row has it, and shrinks
+   toward 300/232 where it does not — the base `.menu` rule's own
+   `justify-content: center` then centres whatever the two columns come to
+   inside the row, precisely as it already does for the (now unused, see the
+   note beside .menu__brand above) three-column case it was written for. */
+.menu--hub {
+  --split-cols: var(--tower-w) minmax(var(--rail-w), 460px);
 }
 
+/* THE ACTION RAIL IS ITS OWN CONTAINER now that it holds the objective
+   directly, standing in for `.menu__brand`'s old role: `.tierhub__obj-ttl`
+   reads its `cqw` off the nearest inline-size container, and without this the
+   nearest one left is `.menu` itself (`container-type: size`, up in the base
+   rule) — the WHOLE row, tower column included, not the ~300-460px the
+   action rail actually gets (see `.menu--hub`'s grid override above). That
+   is not a subtle miscalculation: measured against the row instead of the
+   column, `8.5cqw` prints the objective title at 60-100px instead of
+   20-30, which is what an early pass of this screen actually shipped, if
+   only in a diff never sent to a device. */
+.tierhub__actions { container-type: inline-size; }
 /* THE COMPACT HEADER — the back chip and the eyebrow share one row. The demo
    column's own header-shaped control, `.menu__howto`, docks OVER the live
    canvas; this column has no canvas to dock over, so it is a plain flex row
@@ -874,18 +900,17 @@ body.crt-off #app::after { display: none; }
 /* THE OBJECTIVE — the one thing this screen exists to say (the clear CTA
    that opens the next Tier), so it is the loudest text in the column: the
    same display face and gradient the wordmark wears, sized off the
-   column's own width (`.menu__brand`'s `container-type: inline-size`, the
-   same container the wordmark reads its `cqw` off) rather than the
-   wordmark's own clamp, which was tuned for a plate at 47% of a 16:9 panel
-   this column does not have. */
+   column's own width (`.tierhub__actions`'s `container-type: inline-size`,
+   just above) rather than the wordmark's own clamp, which was tuned for a
+   plate at 47% of a 16:9 panel this column does not have. */
 .tierhub__obj { display: flex; flex-direction: column; gap: 6px; }
 .tierhub__obj-ttl {
   /* THE FALLBACK, for engines with no container queries (this app's iOS 15
      floor — see the long note on --brand-cap above) — same shape and same
-     reason as .menu__title's own pair: a vw clamp approximating the column's
-     fixed width (260px down to 210px under the 700px width step) before the
-     cqw declaration that supersedes it wherever the column can be measured
-     directly. */
+     reason as .menu__title's own pair: a vw clamp approximating the column
+     before the cqw declaration that supersedes it wherever the column can be
+     measured directly (the action rail's own bounds, 300-460px — see
+     `.menu--hub`'s grid override). */
   font-size: clamp(20px, 2.8vw, 30px);
   font-size: clamp(20px, 8.5cqw, 30px);
   line-height: 1.05;
@@ -895,6 +920,55 @@ body.crt-off #app::after { display: none; }
   font-size: var(--fs-sm);
   line-height: 1.3;
 }
+/* THE HEADER AND THE OBJECTIVE ARE THE COLUMN'S FIXED HEAD, exactly the role
+   `.base-bay` already plays one rule down (`.menu__actions > .base-bay`,
+   below) — sized to their own content and never to the flex column's
+   leftover, so the three loop buttons are the only things in this column
+   that grow or shrink. Without this a short landscape phone's flex-shrink
+   (the default, 1) would take height off the back chip and the objective
+   before it touched a button that is already sitting on its 44px floor. */
+.menu__actions > .tierhub__hd,
+.menu__actions > .tierhub__obj { flex: none; }
+/* THE SHELF IS THE COLUMN'S FIXED FOOT, the same trade in the other
+   direction. `.menu__nav`'s own rule hands it `flex: 1 1 auto` and a width of
+   `var(--brand-w)` — both written for the ONE other place the class is used
+   (menuScreen's `.menu__home-actions`, nested inside `.menu__brand`, where
+   that token is real) — so here, where `--brand-w` resolves to nothing and
+   there is no panel above it to hang off, `flex: none` and a full-width
+   restate are what keep the shelf at its own two-row height instead of
+   swallowing whatever the three loop buttons above it did not, and instead
+   of shrinking to the width of a custom property that does not exist in this
+   branch of the tree.
+
+   AND A ROW, not `.menu__nav`'s own column — the same reshape the shelf's
+   entries already got once before, in the old side column (#90 folded a
+   third door into this same pair rather than stacking it). Stacked, the
+   entitlement chip and Leaderboard are two more 44px rows on a column that
+   is already asked for a header, an objective, a recap and three loop
+   buttons in the same space three-column hub gave the actions rail alone —
+   measured at 780x360, stacking them cost 56px this column does not have.
+   Side by side they are one row regardless of whether the chip renders at
+   all: `flex: 1 1 160px` on each lets a lone Leaderboard button still read
+   as a full-width row (nothing to share the line with) and lets two share it
+   evenly once the entitlement is offered, wrapping only if a window is
+   narrower than two 160px minimums plus the gap — narrower than this column
+   ever gets (see `.menu--hub`'s own 300px floor). */
+/* Both selectors carry `.menu__nav` alongside the modifier, not just
+   `.tierhub__shelf` alone, and that is load-bearing rather than decorative:
+   `.menu__nav` and `.menu__nav > .btn` are the base rules being overridden,
+   sitting FURTHER DOWN this file (the shelf, in file order, further down
+   still) — an equal-specificity single-class selector up here would lose
+   that race regardless of which is more "correct", because the cascade
+   breaks same-specificity ties by source order, not by which rule reads as
+   the override. Two classes on the same element outrank one at any
+   position, which is what actually wins it. */
+.menu__nav.tierhub__shelf {
+  flex: none;
+  flex-direction: row;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.menu__nav.tierhub__shelf > .btn { flex: 1 1 160px; }
 
 /* ...and the enhancement, for engines that can measure the column. Scoped away
    from the stacked branch because `100cqh` is the whole .menu row, and the row
@@ -2780,13 +2854,25 @@ body.crt-off #app::after { display: none; }
    controls sharing one bottom line, so the leftover goes into the gaps
    between the rail's rows (2px each there) rather than under the last one.
    Where nothing is capped there is no leftover and this is flex-start. */
-.menu__actions { justify-content: space-between; gap: var(--sp-2); }
+/* --sp-1, not the --sp-2 this rule measured against when it was four rows
+   (the recap and the three loop buttons). It is seven now — the header, the
+   objective and the shelf moved in off the old side column when the hub went
+   from three columns to two — and a gap tuned for four rows' worth of
+   breathing room is six of them on seven, 48px a column that is no longer
+   spare anywhere in the fleet (a 600px-tall desktop window, `regular`
+   density, still wanted more than it had). Halving it recovers 24px for
+   nothing this rail cannot spare it: every child below is already sized off
+   its own content or a tap floor, never off the gap. */
+.menu__actions { justify-content: space-between; gap: var(--sp-1); }
 .menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 100px; }
 .menu__actions > .btn--menu { flex-grow: 1.25; max-height: 132px; }
-/* The recap is the column's fixed head; the three buttons share what is left.
-   `flex: none` on it rather than a height, so it stays exactly as tall as its
-   own content and the loop gets every remaining pixel. */
-.menu__actions > .base-bay { flex: none; margin-bottom: var(--sp-2); }
+/* The recap sits between the two fixed ends of the column — the header and
+   objective above it (`.menu__actions > .tierhub__hd, .tierhub__obj`, up
+   beside the objective's own rules) and the shelf below (`.tierhub__shelf`,
+   same place) — and is itself one more fixed measure: `flex: none` rather
+   than a height, so it stays exactly as tall as its own content and the loop
+   below it gets every remaining pixel. */
+.menu__actions > .base-bay { flex: none; }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -7664,6 +7750,77 @@ body.crt-off #app::after { display: none; }
 
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
+
+/* ---------- The tutorial offer (screens.ts's tutorialOfferModal) ----------
+   One question, asked once (main.ts's "tutorial-offer" state, on the way from
+   the front door's Play into the hub). It is not a `.modal`: there is no scrim
+   over live content to dismiss back to, no #lb-body-shaped unbounded list to
+   fence off, and nothing behind it worth blurring — the whole screen IS the
+   question, so it is laid out straight in `.screen` rather than through the
+   modal pair's own centring dance.
+
+   `.offer` fills the screen and centres the one card it holds, the same
+   split of jobs `.center`'s own comment argues for a `.modal`'s `margin:
+   auto`: the container never clips the card's top edge on a short landscape
+   phone, it only ever adds air around it. `flex: 1; min-height: 0` is what
+   lets `.screen`'s own flex column actually hand this element the row's
+   height to centre within, rather than the height of its own content — the
+   same reason `[data-scroll]` needs it elsewhere in this file. `overflow-y:
+   auto` is the backstop `.coach__body` and `.guide__body` already keep for
+   exactly this reason (their own comments call it out by name): the two
+   short sentences and two buttons below fit every device in the matrix at
+   their authored size, so the valve should never open, and it staying
+   unlisted in sim/uifit/run.ts's ALLOWED_SCROLLERS is what makes needing it
+   a CI failure rather than a silent fallback. */
+.offer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* THE CARD, in the app's own panel vocabulary — the same near-black vertical
+   gradient, hairline border and hard shadow the demo panel's plate
+   (`.menu__demo.is-live::before`) and the tower's shaft (`.tower__shaft`)
+   already wear, rather than a new material invented for one screen. `min(440px,
+   92vw)` is `.modal`'s own two-cap shape (see the long note on it above) at a
+   narrower design width: a yes/no with two sentences of copy does not want a
+   520px reading measure, and 440px is what `.offer__sub`'s longest sentence
+   ("Flight School is a few short lessons…") sits at without the ragged short
+   last line a wider card would give it. `92vw` is the same floor `.modal`
+   uses for the same reason — a window narrower than ~478px would otherwise be
+   asked for more card than it has. */
+.offer__card {
+  width: min(440px, 92vw);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: clamp(20px, 4vw, 40px);
+  text-align: center;
+  background: linear-gradient(180deg, rgba(22, 22, 37, 0.95), rgba(9, 9, 18, 0.96));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-hard-lg);
+}
+.offer__ttl { font-size: clamp(22px, 5vw, 34px); }
+.offer__sub { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
+/* Stacked, not `.modal .row`'s wrapped row — a first-launch fork wants an
+   obvious ranking (the tutorial primary above the skip) rather than two equal
+   options side by side, and `.btn--block` on both already commits to full
+   width. */
+.offer__actions { display: flex; flex-direction: column; gap: var(--sp-2); }
+@media (max-height: 460px) {
+  /* The phone tier's own pin, on the same query the menu's short-viewport
+     block above uses and for the same reason: a landscape phone's binding
+     constraint is height, not width, and desktop-authored padding is what
+     overflows first. */
+  .offer__card { padding: 12px clamp(16px, 4vw, 32px); gap: var(--sp-3); }
+  .offer__ttl { font-size: clamp(18px, 4.2vw, 26px); }
+}
+
 .stat-row { display: flex; justify-content: center; gap: var(--sp-6); margin: var(--sp-2) 0; }
 /* align-items: center, not the default stretch. Each .stat is a mono figure
    over a pixel-font label, and those two have very different intrinsic
@@ -8984,6 +9141,23 @@ button.panel { color: var(--text); }
   .base-bay { gap: 4px; padding: 5px 7px 6px; }
   .base-bay__grid { gap: 4px; }
   .bay-stat { padding: 3px 5px; gap: 5px; }
+  /* One more pass on the same panel, in the hub only, once the belt cut two
+     rules down still left it the tallest thing in a column that is over its
+     budget everywhere (see the tally beside .menu__actions's gap step). */
+  .tierhub__actions .base-bay { padding: 2px 6px 3px; gap: 1px; }
+  .tierhub__actions .base-bay__grid { gap: 1px; }
+  .tierhub__actions .bay-stat { padding: 1px 5px; }
+  /* THE HUB'S RECAP PAYS A SECOND TIME HERE, because it is no longer the only
+     thing this column is fitting — see the note beside .menu__actions's gap
+     step below, which tallies the whole column's arithmetic. The belt row is
+     the one part of the recap that is decoration ON TOP of the four stats
+     (which materials a Mark deals, restated in full the moment the player
+     opens a run) rather than a number this screen says nowhere else, so it is
+     the one row that goes rather than shrinks further — tighter than 10px
+     type and 3px padding would stop being the belt's own glyphs and start
+     being noise. */
+  .tierhub__actions .bay-belt { display: none; }
+  .menu__actions > .base-bay { margin-bottom: 0; }
   /* 10px, down from 11. The longest of the four values is the clock's
      "2:30 · 10 bays" — fourteen mono characters, which at 11px want 98px of a
      cell that has 102 once the glyph and the paddings are out, and the pair of
@@ -8993,7 +9167,37 @@ button.panel { color: var(--text); }
      read as three readouts and a mistake. */
   .bay-stat__val { font-size: 10px; }
   .menu__sub { font-size: var(--fs-sm); max-width: 44ch; }
-  .menu__actions { gap: var(--sp-2); }
+  .menu__actions { gap: 0; }
+  /* THE HUB'S ACTION RAIL CARRIES SEVEN CHILDREN NOW, not the four rows above
+     were measured for (the recap and the three loop buttons) — the header,
+     the objective and the shelf moved in off the old side column when the
+     hub went from three columns to two (`.menu--hub`'s grid override, up
+     beside the tower block). Measured at 780x360 (iPhone 13 mini) before any
+     of this query's hub-specific cuts: 511px of column against the 326px row
+     it actually gets, 185 over. None of the following touches a button's own
+     44px floor — every pixel comes off the header, the objective, the recap
+     (this rule and the belt/padding cuts above it) and the gaps between all
+     seven rows (1px here, down from --sp-2's 8, is 42px on its own across
+     six gaps). */
+  .tierhub__back { width: 44px; height: 44px; font-size: 16px; }
+  .tierhub__obj { gap: 3px; }
+  .tierhub__obj-ttl {
+    font-size: clamp(15px, 2vw, 19px);
+    font-size: clamp(15px, 7.2cqw, 19px);
+    line-height: 1.05;
+  }
+  /* THE STEP NAMES THE GOAL; THE BUTTON BELOW IT NAMES THE ACTION. Losing the
+     sentence between them (menuPlaySub, on the very next control down) is
+     what actually closes the 185px above — see the tally there — and it is
+     the one cut on this list that removes a SENTENCE rather than tightening
+     a number, so it gets its own line: `.tierhub__obj-sub` restates
+     `#menu-play-sub`'s own line in different words ("Clear this Tier's
+     Contracts to open the next" against the button's "Clear 10 bays · opens
+     Tier N"), never a second fact, so nothing this screen says is lost, only
+     said once instead of twice. The title above it keeps the goal legible on
+     its own. */
+  .tierhub__obj-sub { display: none; }
+  .menu__actions .btn--lg { padding: 6px 18px; }
   /* Sized down again once the options carried icons: a glyph does some of the
      label's identifying work, so the button no longer has to be the only thing
      making the option findable. The rail is six buttons tall on a 360px-high
