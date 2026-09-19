@@ -789,6 +789,113 @@ body.crt-off #app::after { display: none; }
    equation exists to remove, and the exact behaviour iOS 15 had. */
 @media (max-height: 620px) { .menu__brand { --brand-cap: 360px; } }
 @media (min-height: 700px) { .menu__brand { --brand-cap: 640px; } }
+
+/* ---------- Two front doors, one component (screens.ts's menuScreen /
+   tierHubScreen) ----------
+   .menu__brand was built for exactly one job: hold a 16:9 demo panel and
+   solve its width from the row's height, leaving just enough of that height
+   for the shelf under it. The double-gameplay split gave the class two more
+   jobs it was never built for — Home's shelf IS the whole menu now (four
+   stacked actions, no tower or loop column beside it), and the hub's side
+   column has no panel at all (a back header, the objective banner, a
+   two-row shelf). Both overrides below are UNCONDITIONAL — no @media or
+   @supports of their own — so they win over every one of --brand-cap's
+   height-keyed steps and the cqh equation by SPECIFICITY alone (two classes
+   beats one, regardless of which rule comes later in the file), which is
+   what lets them sit here beside the rule they override instead of chasing
+   it down the cascade. */
+
+/* HOME: still one 16:9 panel, but `.menu--home` carries the whole menu —
+   there is no tower or action rail beside it to make `.menu` a three-column
+   grid any more. `display: grid` with a single `minmax(0, max-content)`
+   column is what STRETCHES `.menu__brand` to `.menu`'s full height anyway —
+   the same mechanism the .split three-column row already relies on (a
+   grid's lone auto row has `align-content: normal`, which resolves to
+   `stretch`, exactly as `.split`'s own comment above derives for its row).
+   Without it `.menu__brand`'s height would be its own content's, the
+   --brand-cap equation above would have no box to solve against, and the
+   panel would sit at the STEPPED fallback width on every engine that could
+   otherwise compute it properly. `.menu`'s own `justify-content: center`
+   and `max-width` already centre and bound the result — nothing else here
+   is needed to keep the column off the edges on a wide window. */
+.menu--home {
+  display: grid;
+  grid-template-columns: minmax(0, max-content);
+}
+/* THE SHELF IS FOUR ROWS NOW, not the three --shelf-floor was measured for,
+   and the first of them is taller: Play carries an icon, a title AND a
+   live subtitle (`.btn--lg.btn--menu`, the same shape the hub's own primary
+   wears) where How to Play, the store row and Settings are one line each.
+   --shelf-floor is what the panel equation two rules up (100cqh = panel
+   height + reserve) solves against, so leaving it at three plain rows just
+   prints as a panel too tall for the shelf under it — the exact failure its
+   own comment already measured once, for a different row count. 74px is
+   Play's own floor: `.btn--lg`'s 18px top-and-bottom padding around the
+   two-line title+subtitle stack (~38px at this rule's un-clamped type
+   scale, the same stack every other `.btn--menu` on the hub already
+   carries) plus a hair of rounding. */
+.menu--home .menu__brand {
+  --shelf-floor: calc(74px + 3 * 44px + 3 * var(--sp-3));
+  --brand-reserve: calc(var(--shelf-floor) + 12px + var(--sp-4));
+}
+
+/* THE HUB'S SIDE COLUMN has no panel at all — just the back header, the
+   objective banner and a shelf of at most two rows (Leaderboard, plus the
+   store row when it is offered) — so the height-driven equation is the
+   wrong tool entirely: a column stretched to the tower's full height with
+   nothing of its own to spend it on prints the difference as dead air under
+   the objective. A FIXED width, sized for TEXT rather than a 16:9 box, and
+   `align-self: start` so the column stops matching the tower's height and
+   simply sits as tall as its own content, at the top of the row — which is
+   also where the portrait branch's stacking order (side, then tower, then
+   actions) wants the objective to read first. */
+.menu--hub .menu__brand {
+  --brand-cap: 260px;
+  align-self: start;
+}
+@media (max-width: 700px) {
+  /* Steps with --tower-w/--rail-w just above .menu__brand's own rule, on the
+     same width axis and for the same reason: this is the one constraint on
+     the row that is genuinely horizontal. */
+  .menu--hub .menu__brand { --brand-cap: 210px; }
+}
+
+/* THE COMPACT HEADER — the back chip and the eyebrow share one row. The demo
+   column's own header-shaped control, `.menu__howto`, docks OVER the live
+   canvas; this column has no canvas to dock over, so it is a plain flex row
+   instead. */
+.tierhub__hd {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.tierhub__back { flex: none; }
+
+/* THE OBJECTIVE — the one thing this screen exists to say (the clear CTA
+   that opens the next Tier), so it is the loudest text in the column: the
+   same display face and gradient the wordmark wears, sized off the
+   column's own width (`.menu__brand`'s `container-type: inline-size`, the
+   same container the wordmark reads its `cqw` off) rather than the
+   wordmark's own clamp, which was tuned for a plate at 47% of a 16:9 panel
+   this column does not have. */
+.tierhub__obj { display: flex; flex-direction: column; gap: 6px; }
+.tierhub__obj-ttl {
+  /* THE FALLBACK, for engines with no container queries (this app's iOS 15
+     floor — see the long note on --brand-cap above) — same shape and same
+     reason as .menu__title's own pair: a vw clamp approximating the column's
+     fixed width (260px down to 210px under the 700px width step) before the
+     cqw declaration that supersedes it wherever the column can be measured
+     directly. */
+  font-size: clamp(20px, 2.8vw, 30px);
+  font-size: clamp(20px, 8.5cqw, 30px);
+  line-height: 1.05;
+}
+.tierhub__obj-sub {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+}
+
 /* ...and the enhancement, for engines that can measure the column. Scoped away
    from the stacked branch because `100cqh` is the whole .menu row, and the row
    is the brand column ONLY while the grid has one row — which is the landscape
@@ -2542,6 +2649,15 @@ body.crt-off #app::after { display: none; }
    generous rather than absurd because it is nearly the proportion the phone
    already gives these rows: 89 of a 544px column is 16%, against 44 of 317. */
 .menu__nav > .btn { flex: 1 1 auto; min-height: 44px; max-height: 96px; }
+/* PLAY IS DOMINANT ON THE FRONT DOOR — it is the one primary action the
+   streamlined home screen carries, where the hub spreads three across its
+   own action rail (`.menu__actions > .btn--menu`, same ratio: a quarter
+   more growth and roughly a third more ceiling than its plain siblings).
+   Without this, `.menu__nav > .btn`'s equal `flex: 1 1 auto` above hands
+   Play and Settings the same share of whatever leftover height the column
+   has, and a tall window erodes exactly the size difference that says
+   "press this one first". */
+.menu__home-actions > .btn--menu { flex-grow: 1.4; max-height: 140px; }
 
 /* ---------- The manual's door, docked in the demo panel ----------
    IT USED TO BE THE WHOLE PANEL: `.menu__demo-hit`, `inset: 0`, transparent,
@@ -8899,6 +9015,46 @@ button.panel { color: var(--text); }
   .menu .ico { width: 13px; height: 13px; }
 }
 
+/* Home's own compact pin, kept apart from the block above rather than folded
+   into it — that block is the ORIGINAL three-row shelf's arithmetic, argued
+   at length beside it, and Home's is a different budget entirely: FOUR rows
+   sharing the column with the panel where three used to, because the loop
+   that used to live in its own action rail (Contracts, Workshop) is gone
+   from this screen and Play — the one survivor — now shares the demo
+   column's height budget instead.
+
+   The phone-tier pin two screens up holds every OTHER menu's panel at
+   360px regardless of this screen's shelf, because it has no way to know
+   the shelf changed shape — so Home inherited a panel sized for three 44px
+   rows under a shelf that is now Play's own taller row plus three more
+   44px rows. 172px is not a derivation, it is a MEASUREMENT: the uifit
+   harness (sim/uifit's iOS iPhone 13 mini row, 780x360 with a 21px
+   home-indicator inset) is the tightest box in the fleet once a bottom
+   inset is in play, and it is what this number was walked down against —
+   208px still clipped Settings 19px into the safe area, 172px is the first
+   step that clears it with the panel still filling the column's width.
+
+   ON THE LIVE PANEL ONLY, not on --brand-cap itself — `.menu__nav` reads
+   the SAME token for its own width (`width: var(--brand-w)`), and the
+   reduced-motion fallback panel's height is its own content's, not this
+   token's, so shrinking --brand-cap wholesale narrowed the FOUR BUTTONS
+   to 172px too, on every fixture whether the canvas was live or not (a
+   Tutorial row's icon rendered 24px outside its own button — sim/uifit's
+   `spill` assertion, caught on the `menu-first` fixture). The live panel
+   is the one thing that actually needs to be narrower here; the shelf
+   underneath it does not. */
+@media (max-height: 460px) {
+  .menu--home .menu__demo.is-live {
+    width: 172px;
+    margin-inline: auto;
+  }
+  /* The shelf's own gap steps too, and unconditionally rather than only
+     beside the reduced-motion fallback (contrast `.menu__demo:not(.is-live)
+     ~ .menu__nav` above) — Home's LIVE demo shares this column's budget
+     with four rows now, where the hub's live demo never had to. */
+  .menu--home .menu__nav { gap: var(--sp-2); }
+}
+
 /* ============================================================================
    SETTLE NOTE — shown while the bay's funding target is met and the field is
    still coming to rest (game.ts's Game.settling / main.ts's showSettleNote).
@@ -10720,8 +10876,13 @@ button.panel { color: var(--text); }
   .btn__txt { gap: 2px; }
   .btn--menu { line-height: 1.2; }
   /* The icon shrinks with the label it sits beside; the BUTTON does not shrink
-     with either (see the note by .btn--menu). */
-  .menu__actions .btn--menu .ico { width: 13px; height: 13px; margin-inline: 0; }
+     with either (see the note by .btn--menu). Scoped to `.menu__actions`
+     AND `.menu__home-actions` — the hub's action rail is where this rule was
+     first written (a tier plate lives there, not a plain icon), but Home's
+     Play button carries the same `.btn--lg.btn--menu` shape with a plain
+     icon in the same slot, and a rule tuned for one occupant of a shared
+     slot has to cover the other or the slot has two behaviours. */
+  :is(.menu__actions, .menu__home-actions) .btn--menu .ico { width: 13px; height: 13px; margin-inline: 0; }
 }
 
 /* ---------- Bay-progress banner ----------
