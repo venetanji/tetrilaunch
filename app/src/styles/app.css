@@ -2374,65 +2374,42 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ============================================================================
-   THE BUILDING ON A PHONE — eleven rungs at the tap floor, in a column that
-   fits six.
+   THE BUILDING ON A PHONE — all eleven rungs, no scroll.
 
-   THE ARITHMETIC THIS REPLACES. A 360px-tall phone gives the shaft ~313px;
-   eleven floors, two 3px paddings and ten 2px gaps divide that to 26px a
-   floor, and the plinth under them is 22px. sim/uifit recorded exactly that —
-   `.tower__floor 82x22` through `108x30`, `.tower__base 92x22`, across 662
-   baselined `tap` findings, the largest single block of them in the file — and
-   the note that used to stand here called it settled: "eleven floors cannot
-   each be 44px in a 313px shaft by arithmetic". That is true of a shaft that
-   must show all eleven at once, and that was the assumption, never a
-   requirement. The ladder is a LIST — eleven named floors, read one at a time,
-   with one of them parked on — and a list longer than its column is the one
-   case the product rule has always had an answer for: it scrolls, and the
-   answer is written down in sim/uifit/run.ts's allowlist beside the workshop's
-   stock and the guide's index.
+   A 360px-tall phone gives the shaft ~313px; eleven floors, two 3px paddings
+   and ten 2px gaps divide that to about 26px a floor. So compact density does
+   what every taller density already does — the rungs DIVIDE the column, share
+   its height, and all eleven sit on screen at once with nothing below a fold.
+   sim/uifit records them the way it always did while they divided: `.tower__floor
+   82x22` through `108x30`, a band of `tap` findings under the 44px floor, which
+   is the accepted cost of a building read at a glance.
 
-   So at compact density the run of floors becomes an allowlisted scroller and
-   every rung takes the 44px floor: 11 x 44 + 10 x 2 + 6 = 510px of building
-   behind a ~291px window, which the player moves through by drag
-   — and which main.ts parks on the selected floor on every render and every
-   ride (its parkTowerView, off ui/scrollkeep's centreScroll), so the floor the
-   rest of the screen is describing is never the one below the fold.
+   IT USED TO SCROLL HERE. Each rung took the full 44px tap floor (11 x 44 +
+   gaps = 510px of building behind a ~291px window) and the run became an
+   allowlisted scroller that main.ts parked on the selected floor. Two things
+   changed the call. The Flight School lobby left the shaft — onboarding moved
+   to the front door — giving its ~22-44px of plinth back to the rungs; and the
+   owner's read is that a ten-floor ladder you take in at a glance beats one you
+   drag past a fold. Under 44px on the shortest phones is the price, and it is
+   the price this ladder paid before the scroller and pays again now.
 
-   WHAT DOES NOT CHANGE, and both halves are load-bearing:
+   WHAT DOES NOT CHANGE:
 
-     - EVERY OTHER DENSITY. Regular and roomy still divide the column between
-       eleven rungs, because there the answer to "does a floor clear 44px" is
-       arithmetic about a column that has the height (a 1280x720 laptop gets
-       42px, a 1920x1080 desktop 44.7) rather than a hard no. Nothing above
-       this block is touched, so no desktop or tablet row in the baseline
-       moves — the condition this whole change is held to.
-     - THE CEREMONY. Not one property here is a thing the ride animates: the
-       ride writes `top` on the car and paint on the plates, and the car is
-       absolutely positioned INSIDE the scroller, so it rides the shaft's own
-       floor-plus-gap step — read from the same token the floors are, 46px
-       here against roomy's 28 — and the scroll offset simply carries it. The
-       destination floor is pinned into view before the ride starts (it is the
-       selected floor, and that is what parkTowerView reveals on the mount
-       that starts the ceremony), so the car climbs into a window that is
-       already showing where it is going.
+     - EVERY OTHER DENSITY. Regular and roomy already divide the column; nothing
+       above this block moves, so no desktop or tablet baseline row shifts.
+     - THE CEREMONY. The ride writes `top` on the car and paint on the plates,
+       both off --tower-floor-h and --tower-run-h — and with the column divided
+       the run IS the box (100%), the same resting geometry every other density
+       measures. The car rides the shared floor-plus-gap step with no scroll
+       offset to carry it, and the selected floor is already on screen.
 
-   THE HEADHOUSE IS STILL 22px HERE, and that is a measurement rather than an
-   omission. It is drawn in the 19px band ABOVE the shaft, and on the budget
-   phone that band is the whole distance to the top of the glass — the tower's
-   box starts 19px down a 360px viewport. Growing the roof to 44px sends it 25px
-   off the screen; growing it downward puts it over the Skydeck's own rung,
-   which is the mis-tap .tower__head--floor's note rejects it for. The only fit
-   that works is the roof becoming a row INSIDE this scroller, which is a
-   restructure of the beacon (and of where the Tier S gesture lives) rather
-   than a size, so it is left for the owner's call and its 24 baseline entries
-   stand.
+   THE HEADHOUSE stays in the 19px band ABOVE the shaft (the Tier S beacon), so
+   it takes no height from the eleven rungs below it.
    ========================================================================== */
-[data-density="compact"] .tower {
-  /* THE TAP FLOOR, as a floor rather than a quotient. 44px is WCAG 2.5.5 /
-     iOS HIG, the same number every button on this screen is built to and the
-     one the rail's own buttons cannot go under. */
-  --tower-floor-h: 44px;
-}
+/* NO 44px OVERRIDE ANY MORE. Compact keeps the divided --tower-floor-h every
+   other density uses, so all eleven rungs share the shaft and the run is the
+   box — see the block header above for why fitting beat scrolling once the
+   lobby left the shaft. */
 /* …AND THE PLINTH WITH THEM. The earned ground floor is furniture — it took
    22px on the argument that it should share the rungs' trade (see
    .tower__base--floor) — and with the rungs off that trade there is nothing
@@ -2443,45 +2420,13 @@ body.crt-off #app::after { display: none; }
    and 47.5px on a 412px-tall phone — writing 44 here would make the door
    SMALLER on half the fleet. */
 [data-density="compact"] .tower:not(.tower--lobby) { --tower-lobby-h: 44px; }
-[data-density="compact"] .tower__floors {
-  overflow-y: auto;
-  /* A rubber-band at the top of the shaft must not propagate to the WebView
-     and drag the whole app — the same containment every [data-scroll] region
-     takes, spelled here because this box is not one of them (see below). */
-  overscroll-behavior: contain;
-  /* THE FADE, so a floor cut by the window's edge reads as a building
-     continuing rather than as a plate drawn wrong. 12px is half a rung: enough
-     that the clipped plate is visibly dissolving, small enough that the floor
-     under the fold is still identifiable as a numbered floor rather than a
-     smudge. Symmetric, because both ends are cut at every offset except the
-     two extremes.
-     `mask-image` and its -webkit- twin, in that order: iOS 15's WKWebView —
-     which this app ships to — knows only the prefixed property, and a browser
-     that knows both takes the last one it understands. */
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px,
-    #000 calc(100% - 12px), transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 12px,
-    #000 calc(100% - 12px), transparent 100%);
-}
-/* NO SCROLLBAR IN THE SHAFT, on the one pointer that would draw one. The
-   building is 92-118px wide and 22 of those are the car's lane, so the 10px
-   the fine-pointer rule gives every scroller (see "The scrollbar, on the
-   engines that draw one") would come off the floors' own number column. A
-   compact viewport with a fine pointer is a desktop window dragged under
-   518px tall; the mask above is the affordance there as much as on a phone. */
-[data-density="compact"] .tower__floors::-webkit-scrollbar { width: 0; height: 0; }
-/* The rungs stop dividing the column and start stacking in it. */
-[data-density="compact"] .tower__floor { flex: none; height: var(--tower-floor-h); }
-/* The guide rail spans the RUN, not the window. `bottom` resolves against the
-   scrollport (the padding box, i.e. the ~291px on screen) for an absolutely
-   positioned child of a scroller, so a rail written as top/bottom would end
-   two hundred pixels short of the building it is a rail for and scroll away
-   from the car. Same 6px inset at each end as the roomy rule, taken off the
-   run instead. */
-[data-density="compact"] .tower__rail {
-  bottom: auto;
-  height: calc(var(--tower-run-h) - 12px);
-}
+/* The run of floors no longer scrolls at compact density — all eleven divide
+   the shaft and fit on screen — so it keeps the base .tower__floors box: no
+   overflow, no edge fade, no scroll containment, and .tower__floor keeps the
+   base `flex: 1 1 0` that shares the column between the eleven rungs. */
+/* The guide rail keeps the base rule (top/bottom 6px): the shaft no longer
+   scrolls at compact density, so the run IS the box and top/bottom spans the
+   whole building exactly as it does on every other density. */
 
 /* ============================================================================
    THE UNLOCK RIDE (screens.ts's TowerState.celebrate) — a new tier, celebrated.

@@ -16184,11 +16184,9 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     check("...and the whole run is that token multiplied back out",
       /--tower-run-h:\s*calc\(var\(--tower-slack\) \+ var\(--tower-floors\) \* var\(--tower-floor-h\)\)/
         .test(towerVars));
-    check("a compact phone gives every rung the 44px tap floor",
-      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px/.test(towerCss)
-        && /\[data-density="compact"\] \.tower__floor \{ flex: none; height: var\(--tower-floor-h\); \}/
-          .test(towerCss),
-      towerCss.slice(towerCss.indexOf('[data-density="compact"] .tower {'), 400));
+    check("a compact phone divides the shaft between all eleven rungs, not a 44px scroller",
+      !/\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px/.test(towerCss)
+        && !/\[data-density="compact"\] \.tower__floor \{ flex: none;/.test(towerCss));
     // …AND THE EARNED PLINTH WITH THEM, which is the other half of the 662
     // baselined findings. The ENTRANCE is excluded by selector rather than by
     // omission: while the licence is owed the plate is clamp(44px, 13%, 72px),
@@ -16197,12 +16195,11 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     check("...and the ground floor's plinth takes it too",
       /\[data-density="compact"\] \.tower:not\(\.tower--lobby\) \{ --tower-lobby-h: 44px; \}/
         .test(towerCss));
-    // THE SCROLLER IS THE RUN, NOT THE SHAFT. The headhouse is drawn 19px
-    // above the shaft on a negative `top`, so an overflow on the shaft itself
-    // would clip the beacon — and the Tier S gesture with it — off the top of
-    // the building.
-    check("the box that scrolls is the run of floors, not the housing",
-      /\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto/.test(towerCss)
+    // NO SCROLLER ANY MORE. All eleven rungs divide the shaft and fit, so the
+    // run of floors keeps the base box: no overflow. (The shaft itself still
+    // never takes an overflow, which would clip the beacon drawn above it.)
+    check("the run of floors no longer scrolls at compact density",
+      !/\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto/.test(towerCss)
         && !/\.tower__shaft \{[^}]*overflow/.test(towerCss));
     // THE PADDING AND THE GAP MOVED rather than being restated: with the
     // shaft's own padding gone, the run fills the shaft's padding box exactly,
@@ -16213,21 +16210,13 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
         .test(towerCss)
         && !/\.tower__shaft \{[^}]*padding: var\(--tower-pad\)/.test(towerCss),
       towerCss.slice(towerCss.indexOf(".tower__floors {"), towerCss.indexOf(".tower__floors {") + 320));
-    // A CUT FLOOR HAS TO READ AS A BUILDING CONTINUING. 12px is half a rung,
-    // at both ends because both ends are cut at every offset but the two
-    // extremes, and the -webkit- twin is there because iOS 15's WKWebView —
-    // which this app ships to — knows only the prefixed property.
-    check("...behind a fade at both cut edges, on both engines",
-      /-webkit-mask-image: linear-gradient\(180deg, transparent 0, #000 12px,/.test(towerCss)
-        && /\n  mask-image: linear-gradient\(180deg, transparent 0, #000 12px,/.test(towerCss)
-        && /#000 calc\(100% - 12px\), transparent 100%\)/.test(towerCss));
-    // THE RAIL SPANS THE BUILDING, NOT THE WINDOW. `bottom` on an absolutely
-    // positioned child of a scroller resolves against the scrollport, so a
-    // rail written as top/bottom would stop ~220px short of the run and scroll
-    // away from the car it is a rail for.
-    check("the car's guide rail spans the run once the run is longer than its box",
-      /\[data-density="compact"\] \.tower__rail \{\n\s*bottom: auto;\n\s*height: calc\(var\(--tower-run-h\) - 12px\);/
-        .test(towerCss));
+    // NO EDGE FADE, because nothing is cut: the whole building is on screen.
+    check("...and drops the scroller's edge fade with it",
+      !/mask-image: linear-gradient\(180deg, transparent 0, #000 12px,/.test(towerCss));
+    // THE RAIL KEEPS THE BASE RULE. With the column divided the run IS the box,
+    // so top/bottom 6px spans the whole building — no compact override needed.
+    check("the car's guide rail keeps the base top/bottom rule at compact density",
+      !/\[data-density="compact"\] \.tower__rail \{/.test(towerCss));
     // THE CEREMONY IS UNTOUCHED BY ALL OF IT. The ride writes `top` on the car
     // and paint on the plates; the car is absolutely positioned INSIDE the
     // scroller, so it rides the shaft's own floor-plus-gap step (46px here
@@ -30785,21 +30774,22 @@ section("The tower answers a cursor, and its plinth is a desktop target (D6)");
   check("...without shrinking the entrance the lobby state grows",
     plinth.includes("var(--tower-lobby-h)"), plinth);
 
-  // THE PHONE'S ARITHMETIC IS BYTE-IDENTICAL, quoted back declaration by
-  // declaration. If a later pass moves one of these to buy the plinth its
-  // 44px, the 640x360 budget phone loses the ladder's scroller — and that is a
-  // regression no roomy-scoped rule can show.
+  // THE PHONE DIVIDES THE SHAFT NOW, it does not scroll it. The Flight School
+  // lobby left the shaft (screens.ts), giving the rungs the room to all fit, and
+  // the owner's call is that a ladder read at a glance beats one dragged past a
+  // fold. Pin the new shape: no 44px floor token, no overflow scroller, no
+  // fixed-height stacking. (The dead `:not(.tower--lobby)` plinth token is left
+  // in place — nothing renders a plinth on the licensed tower now — and is not
+  // asserted here.)
   const compact: Array<[string, RegExp]> = [
-    ["the rungs keep their own 44px token",
-      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px;[^}]*\}/],
-    ["the earned plinth keeps its compact 44px",
-      /\[data-density="compact"\] \.tower:not\(\.tower--lobby\) \{ --tower-lobby-h: 44px; \}/],
-    ["the run of floors is still the allowlisted scroller",
+    ["no 44px floor token — the rungs divide the shaft",
+      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px;/],
+    ["the run of floors is no longer an overflow scroller",
       /\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto;/],
-    ["...and the rungs still stack in it rather than divide it",
-      /\[data-density="compact"\] \.tower__floor \{ flex: none; height: var\(--tower-floor-h\); \}/],
+    ["the rungs keep the base flex rather than a fixed height",
+      /\[data-density="compact"\] \.tower__floor \{ flex: none;/],
   ];
-  for (const [name, re] of compact) check(`compact is untouched: ${name}`, re.test(css));
+  for (const [name, re] of compact) check(`compact now fits: ${name}`, !re.test(css));
   const tokens = css.match(/(^|\n)\.tower \{[^}]*\}/)?.[0] ?? "";
   check("compact is untouched: the shaft's shared tokens are where they were",
     /--tower-pad:\s*3px;/.test(tokens) && /--tower-gap:\s*2px;/.test(tokens)
