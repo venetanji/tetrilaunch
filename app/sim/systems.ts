@@ -1275,10 +1275,18 @@ section("Installs — what salvage buys (meta.ts)");
   // tutorial it opens (main.ts's "tutorial-offer" screen, behind Play).
   const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: false });
+  // The hub's Contracts are inline now (the earn row of three chips), so the
+  // "clear Contracts" directive lands on that row rather than on a button — and
+  // the row only renders when a board is handed in, exactly as main.ts hands one
+  // for the "tiers" state (todaysContracts).
+  const hubBoard = (cleared: string[] = []): S.HubBoard =>
+    ({ cards: dailyContracts(1, 20_260_815), cleared });
   const hubMid = tierHubScreen(0, 0, undefined, tierProgressFor(freshMeta()),
-    { step: "contracts", install: null, firstLaunch: false });
+    { step: "contracts", install: null, firstLaunch: false }, undefined, 0, hubBoard());
   check("exactly one menu action carries the NEXT STEP badge",
     (hubMid.match(/next-badge/g) ?? []).length === 1);
+  check("the badge lands on the inline Contracts row, not a button",
+    /tierhub__earn[^"]*tierhub__earn--next/.test(hubMid));
   check("the Deep Run button carries the tier plate", hubMid.includes("tier-plate--menu"));
   const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: true });
@@ -25853,23 +25861,25 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       primary(menuOf(shut)).includes("One system · Workshop"));
     check("...and a rigged ladder leaves the primary live too — the rule for both",
       !primary(menuOf(open)).includes("disabled"));
-    // The Contract board's own subtitle, on the same state: while one clear
-    // buys the system that opens the exam, the number leads and what follows it
-    // is what it BUYS rather than the board's terms.
-    check("the Contracts button says what a clear buys on the on-ramp",
-      menuOf(shut).includes("one buys your first system"));
-    check("...and goes back to the board's terms once the rig exists",
-      menuOf(open).includes("no clock, no launch cost")
-        && !menuOf(open).includes("one buys your first system"));
-    // MID-SCHOOL, AFTER THE CONTRACT: the rig exists but the ladder is not
-    // finished, so the board is still the one cleared school card — neither
-    // the on-ramp's offer nor the daily terms are true, and the button says
-    // what the board holds and when the real one comes.
-    const mid = menuOf({ ...open, licensed: false, basics: true });
-    check("...and between the school's Contract and graduation it says the job is done",
-      mid.includes("Cleared · daily board at Tier 1")
-        && !mid.includes("no clock, no launch cost")
-        && !mid.includes("one buys your first system"));
+    // THE INLINE EARN ROW replaced the Contracts button, so what that button's
+    // subtitle said in prose the chips now say in state. The row is tied to the
+    // player's OWN contract tier (todaysContracts), not to the ladder's shop
+    // step, so the rig makes no difference to it — the distinction that matters
+    // now is whether the tier's quota is still open (a clear pays the milestone)
+    // or already met (nothing left to earn, so the chips read Practice).
+    const boardOf = (m: MetaState, twr: S.TowerState): string =>
+      tierHubScreen(0, m.salvage, undefined, tierProgressFor(m),
+        { step: nextStep(m), install: { name: "Reactor Output", cost: 15 }, firstLaunch: false },
+        twr, 0, { cards: dailyContracts(1, 20_260_815), cleared: [] });
+    check("the on-ramp's Contract chips say a clear pays the milestone",
+      boardOf(licensed, shut).includes("contract-chip__state is-pays"));
+    // …and once the tier's quota is met there is nothing more to earn, so the
+    // chips drop the pay for Practice — the same fact the old subtitle's "no
+    // clock, no launch cost" carried, now on the card the player taps.
+    const quotaMet: MetaState = { ...licensed, tierContracts: TIER_CONTRACTS_REQUIRED };
+    check("...and read Practice once the tier's quota is already met",
+      boardOf(quotaMet, open).includes(">Practice</span>")
+        && !boardOf(quotaMet, open).includes("contract-chip__state is-pays"));
     // THE SHOP IS THE OTHER END OF THE SAME DOOR. Its Start Run is a second
     // entrance to the exam (main.ts's startGame), so it has to be shut by the
     // same rule the tower is — a laxer second door is the failure meta.ts's
@@ -26036,11 +26046,23 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const open = menuAt(four, towerAt(four));
     const btn = (html: string, action: string): string =>
       new RegExp(`<button[^>]*data-action="${action}"[^>]*>`).exec(html)?.[0] ?? "";
+    // THE CONTRACTS DOOR IS THE INLINE EARN ROW NOW, not a button — during school
+    // it is the one school card (todaysContracts → schoolBoard), rendered as a
+    // chip that is LOCKED until the ladder reaches its Contract rung. So the
+    // render that used to gate a Contracts button gates the chip instead, and
+    // that gate wants the board handed in the way main.ts hands it for "tiers".
+    const earnAt = (m: MetaState, twr: S.TowerState): string =>
+      tierHubScreen(0, m.salvage, undefined, tierProgressFor(m),
+        { step: nextStep(m), install: null, firstLaunch: false }, twr, 0,
+        { cards: schoolBoard(), cleared: m.claimedContracts });
+    const earnRowOf = (html: string): string =>
+      /<div class="tierhub__earn[\s\S]*?<\/div>/.exec(html)?.[0] ?? "";
     check("Contracts and the Workshop are shut before the fourth basic",
-      btn(shut, "contracts").includes("disabled") && btn(shut, "workshop").includes("disabled"));
-    check("...and both say which lesson opens them",
-      shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`)
-        && (shut.match(new RegExp(`Opens after lesson ${LICENCE_LESSON_COUNT}`, "g")) ?? []).length === 2);
+      earnRowOf(earnAt(three, towerAt(three))).includes("is-locked")
+        && btn(shut, "workshop").includes("disabled"));
+    check("...and both say which rung opens them — the chip locked, the Workshop named",
+      earnRowOf(earnAt(three, towerAt(three))).includes(">Locked</span>")
+        && shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`));
     // …AND THEN IN ORDER, one rung apart (O6). They used to open together on
     // the fourth basic, which made the menu the laxer of two doors into one
     // room: the LADDER puts the Contract rung before the Workshop rung and
@@ -26048,8 +26070,9 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // a player who had just landed lesson 4 could walk into a shop the ladder
     // had not reached and meet one card they could not afford — while the
     // primary two buttons above said "Clear one Contract to go on".
-    check("the Contract board opens on the fourth basic",
-      !btn(open, "contracts").includes("disabled"), btn(open, "contracts"));
+    check("the Contract chip opens on the fourth basic",
+      !earnRowOf(earnAt(four, towerAt(four))).includes("is-locked"),
+      earnRowOf(earnAt(four, towerAt(four))));
     check("...and the Workshop waits the one rung the ladder makes it wait",
       btn(open, "workshop").includes("disabled"), btn(open, "workshop"));
     check("...which is the same rung schoolLadder is holding it at",

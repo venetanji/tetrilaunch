@@ -2865,6 +2865,17 @@ body.crt-off #app::after { display: none; }
    its own content and the three loop buttons below it get every remaining
    pixel. */
 .menu__actions > .base-bay { flex: none; }
+/* THE EARN ROW IS A FIXED MEASURE TOO, for the same reason — it sits between
+   New Run and Upgrades, the two `.btn--menu`s the `flex-grow: 1.25` rule two
+   lines up is written for, and has no such content to grow into (three
+   compact Contract chips, not an icon+title+subtitle stack). Left to the
+   column's default `flex: 1 1 auto` it would still only measure its own
+   content today, but naming it `none` here — like `.tierhub__hd`/`.tierhub__obj`
+   above and `.base-bay` just above it — says outright that this row is sized
+   by what is IN it, never by the column's leftover, so nothing later in this
+   file can start giving the loop buttons room to grow and stretch three tap
+   targets into three plates by accident. */
+.menu__actions > .tierhub__earn { flex: none; }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -9267,15 +9278,17 @@ button.panel { color: var(--text); }
   .tierhub__reqs { column-gap: 10px; row-gap: 1px; }
   .tierhub__req { font-size: 9px; gap: 3px; }
   .tierhub__req .ico { width: 10px; height: 10px; }
-  /* THE LOOP BUTTONS GIVE UP THEIR OWN LAST FRACTION, ONLY HERE — New Run,
-     Earn and Upgrades otherwise sit a hair above the 44px floor (their
+  /* THE LOOP BUTTONS GIVE UP THEIR OWN LAST FRACTION, ONLY HERE — New Run
+     and Upgrades otherwise sit a hair above the 44px floor (their
      icon+title+sub stack outgrows it by ~1px), which the plain-objective
      branch has room to leave alone. Paired with the unlock card the column
      is fighting for single pixels (see the tally above), so the one thing
      left to give is the gap `.btn__txt` holds between a menu button's title
      and its subtitle — collapsing it to nothing does not touch either
      line's own size, so nothing here reads smaller, it only reads closer
-     together. */
+     together. The earn row between them carries no `.btn__txt` of its own
+     (it is three Contract chips, not a title/subtitle stack) — its own cut
+     is beside `.contract-chip`'s base rule, in the Contracts section. */
   .tierhub__actions:has(.tierhub__unlock) .btn__txt { gap: 0; }
   .menu__actions .btn--lg { padding: 6px 18px; }
   /* Sized down again once the options carried icons: a glyph does some of the
@@ -10497,6 +10510,160 @@ button.panel { color: var(--text); }
 .contracts__foot { margin: 0; font-size: var(--fs-sm); line-height: 1.4; }
 .contracts__foot .next-badge { margin-right: 4px; vertical-align: 1px; }
 
+/* ============================================================================
+   THE HUB'S EARN ROW (screens.ts's contractChipHTML / tierHubScreen's
+   earnRow) — the parked tier's three daily Contracts, rendered inline in the
+   action rail in place of the old Contracts button. Three play-now cards
+   sharing one row instead of a whole `.contracts__board`, so this is
+   `.contract-card` above with the same job (kind, ask, state) at a fraction
+   of the size — a row-height plate, not a screen of them.
+   ========================================================================== */
+/* Equal thirds regardless of gap/how much a given kind's label runs to:
+   `flex: 1 1 0` ignores each chip's own content width, and `min-width: 0` is
+   what lets that content actually shrink to its third instead of forcing the
+   row wider than the rail (`.contracts__board > *` makes the same argument
+   for the full-size board, above). `position: relative` is only for the
+   NEXT STEP badge below — the row is not a button, so it needs its own
+   anchor rather than inheriting `.btn--menu`'s. */
+.tierhub__earn {
+  position: relative;
+  display: flex;
+  gap: var(--sp-2);
+  width: 100%;
+}
+/* THE CHIP ITSELF — `.contract-card`'s look (gradient fill, chunky border,
+   hard offset shadow, the same hover/press pair) at a size that fits three
+   across a ~300-460px rail instead of one per board column. A real button,
+   not `.contract-card`'s `<button class="panel">`-shaped reset: it carries
+   its own three-line stack (kind, goal, state) rather than the full card's
+   five, because a chip this size states only what a player needs to choose
+   between three offers, not the brief that sells one. `min-height:
+   var(--tap-min)` is the WCAG/HIG floor every other tappable control in this
+   app carries — these chips are real Contracts, not the tower's sanctioned
+   sub-44px exception (see the compact pass below for the one place that
+   floor is allowed to give a few pixels). */
+.contract-chip {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap-min);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 5px 7px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  background: linear-gradient(180deg, rgba(27, 27, 46, 0.95), rgba(12, 12, 24, 0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-hard-sm);
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.contract-chip:hover { border-color: var(--accent); }
+.contract-chip:active { transform: translate(1px, 1px); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .contract-chip { transition: none; }
+  .contract-chip:active { transform: none; }
+}
+/* The kind badge, restated as plain dim text rather than `.contract-card__kind`'s
+   bordered chip — a second border nested inside the chip's own is the kind of
+   thing that reads as a mistake at this scale, and the pixel face plus
+   `text-transform: uppercase` already carries the "chrome" reading without
+   one. */
+.contract-chip__kind {
+  font-family: var(--font-pixel);
+  font-size: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: var(--text-muted);
+}
+/* THE ASK — the one line meant to be read across the room, same idea as
+   `.contract-card__goal` at a scale that still reads at three-to-a-row: the
+   number in its own mono face and the app's brand cyan, the unit dim beside
+   it. */
+.contract-chip__goal {
+  font-family: var(--font-ui);
+  font-weight: var(--fw-medium);
+  font-size: 10px;
+  line-height: 1.15;
+  color: var(--text-dim);
+}
+.contract-chip__goal b {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-black);
+  font-size: 15px;
+  color: var(--accent);
+  margin-right: 2px;
+}
+/* THE FOOT LINE — cleared / pays / practice, pinned to the chip's bottom by
+   the auto margin exactly as `.contract-card__brief` pins the full card's
+   note, so all three chips' state lines sit level regardless of how many
+   lines the goal above them wrapped to. */
+.contract-chip__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: auto;
+  padding-top: 2px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.contract-chip__state .ico { flex: none; }
+/* Cleared today. `.currency--salvage` (screens.ts's salvageHTML) already
+   tints the salvage figure `--success` on its own span, so `.is-pays` here
+   is belt-and-braces for any text that ever sits beside it rather than a
+   fight with that rule — both name the same "this pays" colour. */
+.contract-chip__state.is-done { color: var(--success); }
+.contract-chip__state.is-pays { color: var(--success); }
+/* CLEARED TODAY, ON THE CHIP ITSELF — dim, not disabled: a cleared Contract
+   stays replayable (screens.ts's contractChipHTML), so this must read as
+   "already banked" rather than "can't tap this". The border takes
+   `.contract-card--done`'s own quiet success tint; the kind/goal text step
+   down in opacity so the already-`--success` state line is the brightest
+   thing left on the chip. Hover and press are deliberately untouched — a
+   done chip presses in exactly like a live one, because it is one. */
+.contract-chip.is-done { border-color: rgba(0, 255, 156, 0.4); }
+.contract-chip.is-done .contract-chip__kind,
+.contract-chip.is-done .contract-chip__goal { opacity: 0.6; }
+/* THE DAILY CAP — `disabled` (screens.ts sets it once the trial save's
+   allowance for today is spent), wearing the app's one dead-control costume:
+   identical filter, identical dead cursor, the same recipe
+   `.shop-card__foot .btn:disabled`, `.rack__hdr .btn:disabled` and
+   `.tierhub__unlock-btn:disabled` already use — a fourth control that
+   invented its own "this is off" look would be the tell that it is a
+   different kind of off. The hover rule is pinned back to the resting
+   border for the same reason `.contract-card`'s own capped face pins it: a
+   :hover that still lights up on a control a tap cannot act on is a lie the
+   filter alone does not cancel. */
+.contract-chip.is-capped,
+/* LOCKED BY THE LADDER — a Flight School save that has not reached the Contract
+   rung yet (screens.ts's contractChipHTML `locked`). The same dead-control
+   costume the daily cap wears: the reason differs (the ladder, not the day's
+   allowance) but the affordance is identical — a chip a tap cannot act on — so
+   it reads the one way every other off control in the app does. */
+.contract-chip.is-locked {
+  filter: grayscale(0.7) brightness(0.6);
+  cursor: default;
+}
+.contract-chip.is-capped:hover,
+.contract-chip.is-locked:hover { border-color: var(--line-strong); }
+/* The locked foot line drops the salvage/success tint back to the chip's own
+   resting ink — a Contract that cannot start yet has nothing to promise. */
+.contract-chip__state.is-locked {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 8px;
+}
+
 /* Short (landscape-phone) viewports — 792x360 is the measured target, 640x360
    the tightest in the matrix. The card keeps every slot and gives up size,
    because each slot is a different fact and dropping one would make two cards
@@ -10512,6 +10679,24 @@ button.panel { color: var(--text); }
   .contract-card__supply-val { font-size: var(--fs-xs); }
   .contract-card__brief { font-size: 10px; padding-top: 4px; }
   .contracts__foot { font-size: 11px; }
+  /* THE HUB'S EARN ROW PAYS THE SAME TOLL EVERY OTHER ROW IN THAT COLUMN
+     DOES at this height (see the tally beside `.menu__actions`'s own gap
+     step, "THE HUB IS TWO COLUMNS" section) — it sits between New Run and
+     Upgrades, which are already giving up their own last fraction there.
+     Gap and padding go first, same order as everywhere else in this pass;
+     `min-height` is the one thing that never moves elsewhere on this screen
+     and moves a little here, because three real Contract chips have no
+     title/subtitle gap to collapse the way a `.btn--menu` does — 40px, not
+     0: a few pixels short of the WCAG floor on the single tightest row in
+     the fleet (iPhone 13 mini) rather than the tower's blanket exemption
+     from it. */
+  .tierhub__earn { gap: 4px; }
+  .contract-chip { padding: 3px 6px; gap: 0; min-height: 40px; }
+  .contract-chip__kind { font-size: 5px; }
+  .contract-chip__goal { font-size: 9px; }
+  .contract-chip__goal b { font-size: 12px; }
+  .contract-chip__state { font-size: 8px; }
+  .contract-chip__state .ico { width: 9px; height: 9px; }
 }
 
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
@@ -11061,6 +11246,22 @@ button.panel { color: var(--text); }
    which is why this rule is one line and not a theme. */
 .btn--sbx { border-color: var(--warn); }
 .btn--next.btn--secondary:hover { border-color: var(--warn); }
+/* THE EARN ROW'S OWN NEXT-STEP FACE (screens.ts's `contractsNext` — the
+   tier's Contract quota is still open and meta.ts's nextStep names clearing
+   it as the one thing left to do). The row is not one button, so the badge
+   rides ITS corner rather than a single chip's — `.tierhub__earn`'s own
+   `position: relative` (above) is what this anchors against — in the same
+   spot every other badged control on this screen uses (`.btn--menu
+   .next-badge`, two rules up). The warm border lands on every chip still
+   worth playing, not the ones a first clear or the daily cap already took
+   off the table: `.is-done` keeps its own quiet success tint and
+   `.is-capped` stays greyed regardless, so the directive only lights the
+   doors still open — never a chip the row itself is saying not to bother
+   with. */
+.tierhub__earn .next-badge { position: absolute; top: -6px; right: -4px; }
+.tierhub__earn--next .contract-chip:not(.is-done):not(.is-capped) {
+  border-color: var(--warn);
+}
 /* A8: the fail card's block — the chain out of the wall the player just hit. */
 .coach__next {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;

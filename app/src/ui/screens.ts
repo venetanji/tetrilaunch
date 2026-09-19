@@ -1557,69 +1557,6 @@ export function menuPlayBadged(
 }
 
 /**
- * The Contracts entry's PIPS and SUBTITLE — one copy of each rule, for exactly
- * the reason menuPlaySub is a function rather than an expression: main.ts
- * rewrites both nodes IN PLACE while the elevator travels (setSelectedTier),
- * because re-rendering the menu mid-ride would tear down the attract demo. A
- * rule stated only inside the markup is a rule that stops applying the moment
- * the player taps a floor.
- *
- * They became per-floor at the same moment the Contract board did. The board is
- * the PARKED FLOOR's (main.ts's contractsTier), and the roof deals one of its
- * own: pentomino cargo, and no salvage, because a Skydeck Contract is not on
- * the ladder and meta.ts's recordContractClear banks nothing for it. Both of
- * those are things the door has to say before it is opened — a button
- * advertising a milestone the board behind it cannot pay is worse than a button
- * that says nothing.
- *
- * The pips go entirely on the roof. They are a claim about a TIER's quota
- * (`progress.contracts` of `needed`), and drawing a tier's progress over a
- * board that cannot move it would be the same lie in a smaller font.
- */
-export function menuContractsPips(tier: number, progress?: TierProgress): string {
-  if (!progress || tier === SKYDECK_TIER) return "";
-  return `<span class="tier-pips${progress.contracts < progress.needed ? " tier-pips--live" : ""}" role="img" aria-label="Tier ${progress.tier} Contracts: ${progress.contracts} of ${progress.needed} cleared">${
-    Array.from({ length: progress.needed }, (_, i) =>
-      `<span class="tier-pip${i < progress.contracts ? " tier-pip--done" : ""}"></span>`).join("")
-  }</span>`;
-}
-
-export function menuContractsSub(
-  tier: number,
-  progress?: TierProgress,
-  /** True while the board is the ON-RAMP's step — the licence earned, no system
-   *  installed yet, and one first clear enough to buy one (meta.ts's nextStep).
-   *  Absent on every caller that predates the on-ramp. */
-  firstSystem = false,
-  /** True from the school's Contract being cleared until graduation — the rig
-   *  exists, the ladder is not finished, and the board is still the ONE school
-   *  card, already cleared. The daily terms would be a lie here: there are no
-   *  "3 today" until Tier 1 opens (contracts.ts's school board). */
-  schoolMid = false,
-): string {
-  // Numbers lead (A3): at compact the sub is one ellipsized line, so the live
-  // figures must sit before the prose that can afford to go. On the roof the
-  // count is still the lead number and what follows it is what is DIFFERENT
-  // about this board — the cargo, and the terms.
-  if (tier === SKYDECK_TIER) return `${DAILY_COUNT} today · pentomino cargo · no salvage`;
-  // THE ONE STEP THAT NEEDS A PURPOSE AND NOT TERMS. "No clock, no launch cost"
-  // is what the board IS, which is the right line for a player who already
-  // knows why they are on it; the player who has just left Flight School does
-  // not, and the salvage number on this button is the price of the thing that
-  // opens the Deep Run. So while that is the step, the number leads and what
-  // follows it is what it BUYS.
-  if (firstSystem && progress) {
-    return `${salvageHTML(progress.milestone, 10)} a clear — one buys your first system`;
-  }
-  // Between the school's Contract and graduation the board holds one cleared
-  // card and nothing to earn; say so, and say when the real board comes.
-  if (schoolMid) return "Cleared · daily board at Tier 1";
-  return progress
-    ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
-    : "Short challenges · retry freely";
-}
-
-/**
  * The Tier that flying `tier` would OPEN, or null.
  *
  * One rule, exported, because two surfaces ask it — the menu's markup and
@@ -1849,6 +1786,51 @@ export function menuPlaySub(
  *  the demo taking How to Play's job is what freed it one. Tier S is not a row
  *  anywhere: it is the tower's top floor, and the primary button flies whatever
  *  floor the car is parked on. */
+
+/** The parked tier's daily Contract board, handed to the hub so its three cards
+ *  are playable inline instead of behind a Contracts button. `cards` is main.ts's
+ *  todaysContracts in order (so a card's index is its `data-slot`), `cleared` is
+ *  the persisted claimed-id list, and `allowance` gates the daily cap the same
+ *  way the full Contract board does. */
+export interface HubBoard {
+  cards: ContractCard[];
+  cleared: string[];
+  allowance?: { fullGame: boolean; remaining: number };
+}
+
+/** One daily Contract as a compact play-now card for the hub — the kind, the
+ *  ask, and its state (cleared, what a clear pays, or capped). Tapping it starts
+ *  that Contract (data-action "contract", the slot its index), the same handler
+ *  the full board's cards use. A far smaller face than contractsScreen's card:
+ *  the hub shows three of these in one row, so it states only what a player
+ *  needs to choose between them. */
+function contractChipHTML(
+  card: ContractCard, slot: number, done: boolean, capped: boolean, pays: number | null,
+  /** LOCKED BY THE LADDER, not by the day's allowance — a Flight School save that
+   *  has not yet reached the Contract rung. Disabled the same way `capped` is, so
+   *  the card cannot start the school Contract before the ladder asks for it (the
+   *  old Contracts button carried this as `learningBasics ? disabled`). */
+  locked = false,
+): string {
+  const kindLabel = card.kind === "pattern" ? "Pattern" : card.kind === "setpiece" ? "Set Piece" : "Lines";
+  const unit = card.kind === "setpiece" ? "in a row" : card.goal === 1 ? "line" : "lines";
+  const state = done
+    ? `<span class="contract-chip__state is-done">${icon("check", 12)} Cleared</span>`
+    : locked
+    ? `<span class="contract-chip__state is-locked">Locked</span>`
+    : pays !== null
+    ? `<span class="contract-chip__state is-pays">${salvageHTML(`+${pays}`, 10)}</span>`
+    : `<span class="contract-chip__state">Practice</span>`;
+  const shut = capped || locked;
+  return `<button class="contract-chip${done ? " is-done" : ""}${capped ? " is-capped" : ""}${locked ? " is-locked" : ""}" data-action="contract" data-slot="${slot}"${
+    shut ? " disabled" : ""
+  } aria-label="${kindLabel} Contract, ${card.name}: ${card.goal} ${unit}${done ? ", cleared" : locked ? ", locked" : capped ? ", daily limit reached" : ""}">
+    <span class="contract-chip__kind">${kindLabel}</span>
+    <span class="contract-chip__goal"><b>${card.goal}</b> ${unit}</span>
+    ${state}
+  </button>`;
+}
+
 /**
  * THE TIER HUB — the intermediate "play" screen, reached from the home screen's
  * Play button (main.ts's "tiers" state). It carries everything about FLYING a
@@ -1899,6 +1881,12 @@ export function tierHubScreen(
    *  differently every morning, which is fine in the app and fatal in
    *  sim/uifit. */
   standingClauses = 0,
+  /** The parked tier's daily Contract board, rendered inline as three
+   *  play-now cards in place of the old Contracts button (main.ts's
+   *  todaysContracts + the claimed list). Absent on the fallback tower and
+   *  every fixture that predates the inline board, which then simply omits the
+   *  cards row. */
+  board?: HubBoard,
 ): string {
   const twr: TowerState = tower ?? {
     unlocked: progress?.tier ?? 1,
@@ -2054,6 +2042,30 @@ export function tierHubScreen(
     `<li class="tierhub__req${done ? " is-done" : ""}">${
       icon(done ? "check" : ico, 13)
     }<span>${label}</span></li>`;
+  // THE EARN ROW — the parked tier's Contracts, playable inline instead of
+  // behind a button. A won Contract pays the tier's milestone share while the
+  // quota is open (contractsHave < contractsNeed) and nothing after; the daily
+  // allowance caps the uncleared ones for a trial save. Each card's slot is its
+  // index in the board main.ts handed us, which is todaysContracts' own order,
+  // so the tap starts the right Contract. Absent when no board was passed.
+  const earnPays = contractsHave < contractsNeed ? (progress?.milestone ?? null) : null;
+  // The "clear Contracts" directive (meta.ts's nextStep) has no single button to
+  // badge any more, so it lands on the row: exactly one NEXT STEP on the screen,
+  // as before.
+  // …and the whole row is LOCKED while Flight School is still on its basics, the
+  // same gate the old Contracts button carried (`learningBasics ? disabled`):
+  // the school's one card cannot start before the ladder reaches its Contract
+  // rung, and `canStartContract` gates the day's allowance, not the ladder.
+  const earnRow = board && board.cards.length > 0
+    ? `<div class="tierhub__earn${contractsNext ? " tierhub__earn--next" : ""}${learningBasics ? " tierhub__earn--locked" : ""}" role="group" aria-label="Today's Contracts">${
+      board.cards.map((c, i) => {
+        const done = board.cleared.includes(c.id);
+        const capped = !done && board.allowance?.fullGame === false
+          && (board.allowance.remaining ?? 0) <= 0;
+        return contractChipHTML(c, i, done, capped, done ? null : earnPays, learningBasics && !done);
+      }).join("")
+    }${contractsNext ? nextBadgeHTML() : ""}</div>`
+    : "";
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -2154,30 +2166,10 @@ export function tierHubScreen(
             tierOpenedBy(sel, twr), twr.rigged !== false,
           )
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${contractsNext ? " btn--next" : ""}" data-action="contracts"${learningBasics ? " disabled aria-disabled=\"true\"" : ""}>${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Earn<!--
-          THE TIER'S CONTRACT PIPS, on the button that leads to them. They
-          replaced the run-end "Tier N progress" banner: a sentence about
-          finishing Contracts on a screen the player wants to leave was never
-          read, where an unfilled pip flickering on this button is the same
-          fact at the moment the player can act on it.
-
-          Both faces carry ids for the same reason the primary button's two do:
-          the ride rewrites them in place rather than re-rendering the menu.
-          The wrapper is what holds the id, because the pips themselves are
-          ABSENT on the roof and a node that can vanish is a node the ride
-          cannot find again. -->
-          <span id="menu-contracts-pips">${menuContractsPips(sel, progress)}</span>
-        </span><span class="btn__sub" id="menu-contracts-sub">${
-          learningBasics
-            // NAMES THE RUNG THAT OPENS IT. "Opens after Flight School" was
-            // true when the licence was four lessons and the shops came after
-            // it; the shops are the ladder's two gates now, so the door opens
-            // of the way UP the ladder and the old line would have read as a
-            // promise it breaks.
-            ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
-            : menuContractsSub(sel, progress, twr.rigged === false,
-                twr.licensed === false && twr.rigged !== false)
-        }</span></span>${contractsNext ? nextBadgeHTML() : ""}</button>
+        <!-- EARN — the parked tier's Contracts, playable inline. The old
+             Contracts button led to a separate board; the three cards ARE the
+             board now, each one a tap away from the bay it deals. -->
+        ${earnRow}
         <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${workshopShut ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Upgrades<span class="btn__sub">${
           learningBasics
             ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
@@ -7151,7 +7143,7 @@ export function endModal(opts: {
   // precisely the bug this change exists to remove.
   //
   // The COUNT on the Contracts face is what the TIER still owes, which is the
-  // same figure the menu's Contracts pips draw (menuContractsPips) — the two
+  // same figure the hub's unlock checklist draws (tierProgressFor) — the two
   // doors into the same board must not name two different numbers. It is not
   // `contracts.remaining`: that is how many of TODAY'S three cards are still
   // unclaimed, which answers "is there anything behind this door" (the route
@@ -8738,6 +8730,12 @@ export function contractEndModal(opts: {
   // when the primary is routing somewhere ELSE — a primary that already goes
   // to the board does not need a quieter twin.
   const primaryIsBoard = !opts.firstSystem && !opts.boardComplete && !opts.nextContract;
+  // WHERE "THE BOARD" IS. The Skydeck keeps its own Contract screen, but a
+  // tier's Contracts live inline on the hub now (tierHubScreen's earn row), so a
+  // tier clear hands the player back to the hub rather than to a screen the tier
+  // no longer has.
+  const boardAction = opts.skydeck ? "contracts" : "tiers";
+  const boardLabel = opts.skydeck ? "Contract Board" : "Back to Tiers";
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal end end--contract pop">
       <div class="end__main">
@@ -8778,13 +8776,13 @@ export function contractEndModal(opts: {
               ? `<button class="btn btn--primary" data-action="workshop">Workshop →</button>`
               : opts.nextContract
                 ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
-                : `<button class="btn btn--primary" data-action="contracts">Contract Board →</button>`
+                : `<button class="btn btn--primary" data-action="${boardAction}">${boardLabel} →</button>`
         }
         <button class="btn btn--secondary" data-action="contract-retry">${icon("retry", 12)}Play Again</button>
         ${
           opts.sandbox || primaryIsBoard
             ? ""
-            : `<button class="btn btn--ghost" data-action="contracts">Contract Board</button>`
+            : `<button class="btn btn--ghost" data-action="${boardAction}">${boardLabel}</button>`
         }
       </div>
     </div>

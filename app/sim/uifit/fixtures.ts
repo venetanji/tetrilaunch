@@ -435,6 +435,19 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+// The parked tier's daily board, handed to the hub the way main.ts hands
+// todaysContracts for the "tiers" state — three chips in place of the old
+// Contracts button. The 20260815 seed at tier 3 is the board's WIDEST deal
+// (Lines / Set Piece / Pattern: three different kind labels and the longest
+// unit string), the same worst case the full `contracts` fixture is pinned on,
+// now measured at chip size too. `cleared` empty, so with PROGRESS's quota
+// still open every chip carries the milestone pay — the row's tallest state.
+const HUB_BOARD: S.HubBoard = { cards: dailyContracts(3, 20_260_815), cleared: [] };
+// The school's one-card board (contracts.ts's schoolBoard), for the lobby
+// fixtures — a Flight School save deals this, not the daily three, and it is
+// LOCKED as a chip until the ladder reaches its Contract rung (tower.basics).
+const SCHOOL_HUB_BOARD: S.HubBoard = { cards: schoolBoard(), cleared: [] };
+
 /** Tier S set to the WIDEST bay it can describe: the capstone Mark (every
  *  hazard axis open, so the axis row is at its longest), the last bay, a maxed
  *  rig, the material parade, and four axes already notched. Every one of those
@@ -1010,52 +1023,55 @@ export const SCREENS: Record<string, () => string> = {
   // canvas (.menu__demo), which the hub does not render — its brand column is
   // the objective banner, not the attract bay — so a "hub-live" fixture would
   // be byte-identical to "hub" and buy the matrix nothing.
-  hub: () => S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
+  hub: () => S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, undefined, 0, HUB_BOARD),
   // The unlock card in its READY state: both halves done, so the Unlock button
   // is live and badged. The default `hub` fixture above is the LOCKED state
-  // (a Mark-0 save, no run cleared, 0/3 Contracts).
+  // (a Mark-0 save, no run cleared, 0/3 Contracts). The quota is met here, so
+  // the earn row's chips read Practice rather than a pay.
   "hub-unlock-ready": () =>
     S.tierHubScreen(98_760, 1_480, STORE,
       { tier: 1, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
-      { step: "unlock", install: null, firstLaunch: false }),
+      { step: "unlock", install: null, firstLaunch: false }, undefined, 0, HUB_BOARD),
   "hub-skydeck": () =>
-    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length),
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length, HUB_BOARD),
   "hub-unlimited": () =>
-    S.tierHubScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE),
+    S.tierHubScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE,
+      undefined, 0, HUB_BOARD),
   "hub-nostore": () =>
-    S.tierHubScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE),
+    S.tierHubScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE,
+      undefined, 0, HUB_BOARD),
   "hub-tower-top": () =>
-    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP),
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP, 0, HUB_BOARD),
   "hub-seals": () =>
-    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SEALS),
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SEALS, 0, HUB_BOARD),
   "hub-tier-s": () =>
-    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX),
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX, 0, HUB_BOARD),
   "hub-licence": () =>
     S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "licence", install: null, firstLaunch: false,
-    }, TOWER_LICENCE),
+    }, TOWER_LICENCE, 0, SCHOOL_HUB_BOARD),
   "hub-unrigged": () =>
     S.tierHubScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
       step: "workshop",
       install: { name: "Reactor Output", cost: 15 },
       firstLaunch: false,
-    }, TOWER_UNRIGGED),
+    }, TOWER_UNRIGGED, 0, SCHOOL_HUB_BOARD),
   "hub-school-shop": () =>
     S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
-    }, TOWER_LADDER_SHOP),
+    }, TOWER_LADDER_SHOP, 0, SCHOOL_HUB_BOARD),
   "hub-school-buy": () =>
     S.tierHubScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
       step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
-    }, TOWER_LADDER_SHOP2),
+    }, TOWER_LADDER_SHOP2, 0, SCHOOL_HUB_BOARD),
   "hub-school-exam": () =>
     S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "licence", install: null, firstLaunch: false,
-    }, TOWER_EXAM),
+    }, TOWER_EXAM, 0, SCHOOL_HUB_BOARD),
   "hub-lobby-held": () =>
     S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts", install: null, firstLaunch: false,
-    }, TOWER_LOBBY_HELD),
+    }, TOWER_LOBBY_HELD, 0, SCHOOL_HUB_BOARD),
   // The NEXT STEP badge now lives on the hub rather than on the front door's
   // tutorial chip, so this is the hub's own worst case for the same fresh save
   // "menu-first" measures on the front door.
@@ -1064,7 +1080,7 @@ export const SCREENS: Record<string, () => string> = {
       step: "contracts",
       install: { name: "Reactor Output", cost: 15 },
       firstLaunch: true,
-    }),
+    }, undefined, 0, SCHOOL_HUB_BOARD),
 
   // THE GUIDE (How to Play). Seven fixtures, because the pane has seven shapes
   // and the screen it replaces had ONE fixture — a single argument-less call —

@@ -3529,25 +3529,13 @@ class App {
         && (school.next === "contract" || school.next === "workshop");
       (btn as HTMLButtonElement).disabled = !S.tierOpen(this.towerState(), tier) || lobbyShops;
     }
-    // THE CONTRACTS DOOR IS PER-FLOOR TOO, since the board behind it became
-    // per-floor (contractsTier). The roof deals pentomino cargo and banks no
-    // salvage, so riding onto it has to take the milestone claim and the tier
-    // pips off this button, and riding away has to put them back — the same
-    // shape as the badge above, and for the same reason: the ride patches the
-    // menu instead of re-rendering it, so a rule left only in the markup stops
-    // applying the moment the player taps a floor.
-    const cprog = tierProgressFor(this.meta);
-    const pips = this.overlay.querySelector<HTMLElement>("#menu-contracts-pips");
-    if (pips) pips.innerHTML = S.menuContractsPips(tier, cprog);
-    const csub = this.overlay.querySelector<HTMLElement>("#menu-contracts-sub");
-    // …and the on-ramp's line with it (screens.ts's menuContractsSub): while
-    // no system is installed the board's subtitle is what one clear BUYS, not
-    // the board's terms, and the ride must not revert it.
-    if (csub) {
-      csub.innerHTML = S.menuContractsSub(
-        tier, cprog, !rigStarted(this.meta), !licenceDone(this.meta) && rigStarted(this.meta),
-      );
-    }
+    // THE CONTRACTS CONTROL NO LONGER RIDES. It used to be one button whose
+    // pips and subtitle this patched per floor; it is now the inline earn row
+    // (screens.ts's tierHubScreen), three chips tied to the player's OWN
+    // contract tier (todaysContracts → contractsTier), not to the floor the car
+    // is previewing. The board a day deals does not change as the car travels,
+    // so there is nothing here to keep in step — the row renders once with the
+    // menu and stays put.
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
     // The extras strip carries straight across now. It used to need a filter:
@@ -3718,6 +3706,18 @@ class App {
           // button cannot disagree with the run that produces it — and it is
           // date-independent, which the names never were.
           CLAUSE_COUNT,
+          // THE PARKED TIER'S CONTRACTS, playable inline on the hub (screens.ts's
+          // HubBoard). Only the hub renders them — the front door ignores the
+          // arg — so it is built only there. `cards` is todaysContracts in its
+          // own order, which is what makes a card's slot the index the "contract"
+          // action reads.
+          this.state === "tiers"
+            ? {
+                cards: this.todaysContracts(),
+                cleared: this.meta.claimedContracts,
+                allowance: this.contractAllowance(),
+              }
+            : undefined,
         );
         break;
       }
@@ -8999,7 +8999,11 @@ class App {
         break;
       case "contract-next":
         if (this.nextContract) this.startContract(this.nextContract);
-        else this.setState("contracts");
+        // No next card: hand back to where this tier's Contracts live. The
+        // Skydeck keeps its own board screen; a tier's Contracts are inline on
+        // the hub now, so a tier clear returns there.
+        else if (this.contract && isSkydeckBoard(this.contract.tier)) this.setState("contracts");
+        else this.toHub();
         break;
       case "menu": this.toMenu(); break;
       // The front door's Play, and the way back from Contracts/Workshop/etc.:
