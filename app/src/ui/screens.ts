@@ -1119,7 +1119,13 @@ export function tierTowerHTML(state: TowerState): string {
         ${floors.join("")}
       </div>
     </div>
-    ${towerLobbyHTML(state)}
+    <!-- THE FLIGHT SCHOOL LOBBY ONLY WHILE THE LICENCE IS OWED. Onboarding moved
+         to the front door (the first-Play tutorial offer), and the hub the tower
+         lives on is always licensed by the time it renders — so the ground-floor
+         "LS" plinth is drawn only for the unlicensed states the fixtures still
+         exercise, never on the player's tower. Off it, the shaft ends at Tier 1,
+         which is the ladder's real ground floor now. -->
+    ${entrance ? towerLobbyHTML(state) : ""}
   </div>`;
 }
 
