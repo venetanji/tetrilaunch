@@ -1011,6 +1011,13 @@ export const SCREENS: Record<string, () => string> = {
   // the objective banner, not the attract bay — so a "hub-live" fixture would
   // be byte-identical to "hub" and buy the matrix nothing.
   hub: () => S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
+  // The unlock card in its READY state: both halves done, so the Unlock button
+  // is live and badged. The default `hub` fixture above is the LOCKED state
+  // (a Mark-0 save, no run cleared, 0/3 Contracts).
+  "hub-unlock-ready": () =>
+    S.tierHubScreen(98_760, 1_480, STORE,
+      { tier: 1, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
+      { step: "unlock", install: null, firstLaunch: false }),
   "hub-skydeck": () =>
     S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length),
   "hub-unlimited": () =>

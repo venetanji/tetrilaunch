@@ -36,6 +36,9 @@
   "Android · 640x360 budget|hub-unlimited|tap": [
     ".tower__floor 82x26"
   ],
+  "Android · 640x360 budget|hub-unlock-ready|tap": [
+    ".tower__floor 82x26"
+  ],
   "Android · 640x360 budget|hub-unrigged|tap": [
     ".tower__floor 82x26"
   ],
@@ -77,6 +80,9 @@
     ".tower__floor 108x26"
   ],
   "Android · Galaxy S8+|hub-unlimited|tap": [
+    ".tower__floor 108x26"
+  ],
+  "Android · Galaxy S8+|hub-unlock-ready|tap": [
     ".tower__floor 108x26"
   ],
   "Android · Galaxy S8+|hub-unrigged|tap": [
@@ -122,6 +128,9 @@
   "Android · OnePlus 12|hub-unlimited|tap": [
     ".tower__floor 108x26"
   ],
+  "Android · OnePlus 12|hub-unlock-ready|tap": [
+    ".tower__floor 108x26"
+  ],
   "Android · OnePlus 12|hub-unrigged|tap": [
     ".tower__floor 108x26"
   ],
@@ -163,6 +172,9 @@
     ".tower__floor 108x29"
   ],
   "Android · Pixel 5|hub-unlimited|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 5|hub-unlock-ready|tap": [
     ".tower__floor 108x29"
   ],
   "Android · Pixel 5|hub-unrigged|tap": [
@@ -208,6 +220,9 @@
   "Android · Pixel 7 cutout|hub-unlimited|tap": [
     ".tower__floor 108x30"
   ],
+  "Android · Pixel 7 cutout|hub-unlock-ready|tap": [
+    ".tower__floor 108x30"
+  ],
   "Android · Pixel 7 cutout|hub-unrigged|tap": [
     ".tower__floor 108x30"
   ],
@@ -251,6 +266,9 @@
   "Android · Pixel 7|hub-unlimited|tap": [
     ".tower__floor 108x30"
   ],
+  "Android · Pixel 7|hub-unlock-ready|tap": [
+    ".tower__floor 108x30"
+  ],
   "Android · Pixel 7|hub-unrigged|tap": [
     ".tower__floor 108x30"
   ],
@@ -276,41 +294,37 @@
     ".draft__body scrolls 16px"
   ],
   "Web · 1269x663 windowed|hub-licence|tap": [
-    ".tower__floor 108x39",
+    ".tower__floor 108x40",
     ".lic-pip 38x44"
   ],
   "Web · 1269x663 windowed|hub-lobby-held|tap": [
-    ".lic-pip 40x44"
+    ".lic-pip 41x44"
   ],
   "Web · 1269x663 windowed|hub-school-buy|tap": [
-    ".tower__floor 108x40",
+    ".tower__floor 108x41",
     ".lic-pip 38x44"
   ],
   "Web · 1269x663 windowed|hub-school-exam|tap": [
     ".tower__floor 108x40",
-    ".lic-pip 40x44"
+    ".lic-pip 41x44"
   ],
   "Web · 1269x663 windowed|hub-school-shop|tap": [
     ".tower__floor 108x40",
     ".lic-pip 38x44"
   ],
   "Web · 1280x720 laptop|hub-licence|tap": [
-    ".tower__floor 108x42",
     ".lic-pip 38x44"
   ],
   "Web · 1280x720 laptop|hub-lobby-held|tap": [
     ".lic-pip 40x44"
   ],
   "Web · 1280x720 laptop|hub-school-buy|tap": [
-    ".tower__floor 108x42",
     ".lic-pip 38x44"
   ],
   "Web · 1280x720 laptop|hub-school-exam|tap": [
-    ".tower__floor 108x42",
     ".lic-pip 40x44"
   ],
   "Web · 1280x720 laptop|hub-school-shop|tap": [
-    ".tower__floor 108x42",
     ".lic-pip 38x44"
   ],
   "Web · 800x600 window|draft-intro|scrollers": [
@@ -332,19 +346,19 @@
     ".draft__body scrolls 75px"
   ],
   "Web · 800x600 window|hub-licence|tap": [
-    ".tower__floor 108x39",
+    ".tower__floor 108x40",
     ".lic-pip 38x44"
   ],
   "Web · 800x600 window|hub-lobby-held|tap": [
-    ".lic-pip 40x44"
+    ".lic-pip 41x44"
   ],
   "Web · 800x600 window|hub-school-buy|tap": [
-    ".tower__floor 108x40",
+    ".tower__floor 108x41",
     ".lic-pip 38x44"
   ],
   "Web · 800x600 window|hub-school-exam|tap": [
     ".tower__floor 108x40",
-    ".lic-pip 40x44"
+    ".lic-pip 41x44"
   ],
   "Web · 800x600 window|hub-school-shop|tap": [
     ".tower__floor 108x40",
@@ -381,22 +395,22 @@
     ".tower__floor 108x26"
   ],
   "iOS · iPhone 13 mini|hub-licence|tap": [
-    ".tower__floor 108x21"
+    ".tower__floor 108x22"
   ],
   "iOS · iPhone 13 mini|hub-lobby-held|tap": [
-    ".tower__floor 108x25"
+    ".tower__floor 108x26"
   ],
   "iOS · iPhone 13 mini|hub-nostore|tap": [
     ".tower__floor 108x26"
   ],
   "iOS · iPhone 13 mini|hub-school-buy|tap": [
-    ".tower__floor 108x21"
+    ".tower__floor 108x22"
   ],
   "iOS · iPhone 13 mini|hub-school-exam|tap": [
-    ".tower__floor 108x21"
+    ".tower__floor 108x22"
   ],
   "iOS · iPhone 13 mini|hub-school-shop|tap": [
-    ".tower__floor 108x21"
+    ".tower__floor 108x22"
   ],
   "iOS · iPhone 13 mini|hub-seals|tap": [
     ".tower__floor 108x26"
@@ -412,6 +426,9 @@
     ".tower__floor 108x25"
   ],
   "iOS · iPhone 13 mini|hub-unlimited|tap": [
+    ".tower__floor 108x26"
+  ],
+  "iOS · iPhone 13 mini|hub-unlock-ready|tap": [
     ".tower__floor 108x26"
   ],
   "iOS · iPhone 13 mini|hub-unrigged|tap": [
@@ -457,6 +474,9 @@
   "iOS · iPhone 15|hub-unlimited|tap": [
     ".tower__floor 108x28"
   ],
+  "iOS · iPhone 15|hub-unlock-ready|tap": [
+    ".tower__floor 108x28"
+  ],
   "iOS · iPhone 15|hub-unrigged|tap": [
     ".tower__floor 108x28"
   ],
@@ -498,6 +518,9 @@
     ".tower__floor 108x32"
   ],
   "iOS · iPhone 16 Pro Max|hub-unlimited|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|hub-unlock-ready|tap": [
     ".tower__floor 108x32"
   ],
   "iOS · iPhone 16 Pro Max|hub-unrigged|tap": [
@@ -543,6 +566,9 @@
   "iOS · iPhone SE 3|hub-unlimited|tap": [
     ".tower__floor 82x28"
   ],
+  "iOS · iPhone SE 3|hub-unlock-ready|tap": [
+    ".tower__floor 82x28"
+  ],
   "iOS · iPhone SE 3|hub-unrigged|tap": [
     ".tower__floor 82x28"
   ],
@@ -584,6 +610,9 @@
     ".tower__floor 108x27"
   ],
   "iOS · iPhone X|hub-unlimited|tap": [
+    ".tower__floor 108x27"
+  ],
+  "iOS · iPhone X|hub-unlock-ready|tap": [
     ".tower__floor 108x27"
   ],
   "iOS · iPhone X|hub-unrigged|tap": [
