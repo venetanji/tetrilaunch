@@ -893,9 +893,10 @@ body.crt-off #app::after { display: none; }
 .tierhub__hd {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--sp-3);
 }
-.tierhub__back { flex: none; }
+.tierhub__back, .tierhub__lead { flex: none; }
 
 /* THE OBJECTIVE — the one thing this screen exists to say (the clear CTA
    that opens the next Tier), so it is the loudest text in the column: the
@@ -1013,46 +1014,9 @@ body.crt-off #app::after { display: none; }
    before it touched a button that is already sitting on its 44px floor. */
 .menu__actions > .tierhub__hd,
 .menu__actions > .tierhub__obj { flex: none; }
-/* THE SHELF IS THE COLUMN'S FIXED FOOT, the same trade in the other
-   direction. `.menu__nav`'s own rule hands it `flex: 1 1 auto` and a width of
-   `var(--brand-w)` — both written for the ONE other place the class is used
-   (menuScreen's `.menu__home-actions`, nested inside `.menu__brand`, where
-   that token is real) — so here, where `--brand-w` resolves to nothing and
-   there is no panel above it to hang off, `flex: none` and a full-width
-   restate are what keep the shelf at its own two-row height instead of
-   swallowing whatever the three loop buttons above it did not, and instead
-   of shrinking to the width of a custom property that does not exist in this
-   branch of the tree.
-
-   AND A ROW, not `.menu__nav`'s own column — the same reshape the shelf's
-   entries already got once before, in the old side column (#90 folded a
-   third door into this same pair rather than stacking it). Stacked, the
-   entitlement chip and Leaderboard are two more 44px rows on a column that
-   is already asked for a header, an objective, a recap and three loop
-   buttons in the same space three-column hub gave the actions rail alone —
-   measured at 780x360, stacking them cost 56px this column does not have.
-   Side by side they are one row regardless of whether the chip renders at
-   all: `flex: 1 1 160px` on each lets a lone Leaderboard button still read
-   as a full-width row (nothing to share the line with) and lets two share it
-   evenly once the entitlement is offered, wrapping only if a window is
-   narrower than two 160px minimums plus the gap — narrower than this column
-   ever gets (see `.menu--hub`'s own 300px floor). */
-/* Both selectors carry `.menu__nav` alongside the modifier, not just
-   `.tierhub__shelf` alone, and that is load-bearing rather than decorative:
-   `.menu__nav` and `.menu__nav > .btn` are the base rules being overridden,
-   sitting FURTHER DOWN this file (the shelf, in file order, further down
-   still) — an equal-specificity single-class selector up here would lose
-   that race regardless of which is more "correct", because the cascade
-   breaks same-specificity ties by source order, not by which rule reads as
-   the override. Two classes on the same element outrank one at any
-   position, which is what actually wins it. */
-.menu__nav.tierhub__shelf {
-  flex: none;
-  flex-direction: row;
-  flex-wrap: wrap;
-  width: 100%;
-}
-.menu__nav.tierhub__shelf > .btn { flex: 1 1 160px; }
+/* The hub's bottom shelf is gone: the Full Game purchase moved to the front
+   door and the leaderboard became a single icon in the header, so the three
+   loop buttons are now the last thing in the column. */
 
 /* ...and the enhancement, for engines that can measure the column. Scoped away
    from the stacked branch because `100cqh` is the whole .menu row, and the row
@@ -2895,12 +2859,11 @@ body.crt-off #app::after { display: none; }
 .menu__actions { justify-content: space-between; gap: var(--sp-1); }
 .menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 100px; }
 .menu__actions > .btn--menu { flex-grow: 1.25; max-height: 132px; }
-/* The recap sits between the two fixed ends of the column — the header and
-   objective above it (`.menu__actions > .tierhub__hd, .tierhub__obj`, up
-   beside the objective's own rules) and the shelf below (`.tierhub__shelf`,
-   same place) — and is itself one more fixed measure: `flex: none` rather
-   than a height, so it stays exactly as tall as its own content and the loop
-   below it gets every remaining pixel. */
+/* The recap sits under the column's fixed head (the header and objective,
+   `.menu__actions > .tierhub__hd, .tierhub__obj`) and is itself one more fixed
+   measure: `flex: none` rather than a height, so it stays exactly as tall as
+   its own content and the three loop buttons below it get every remaining
+   pixel. */
 .menu__actions > .base-bay { flex: none; }
 
 /* ---------- HUD ---------- */

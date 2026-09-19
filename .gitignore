@@ -58,3 +58,13 @@ __pycache__/
 
 # superpowers brainstorming scratch (visual companion mockups)
 .superpowers/
+
+# Impeccable design skill — installed locally via `npx impeccable install`.
+# Kept out of the tree so a feature branch stays focused; commit deliberately
+# if the team/CI should get the skill and its PR hooks.
+/.claude/settings.local.json
+/.claude/skills/impeccable/
+/.claude/agents/impeccable-*.md
+/.github/skills/
+/.github/agents/
+/.github/hooks/

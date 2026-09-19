@@ -1866,7 +1866,10 @@ export function menuPlaySub(
 export function tierHubScreen(
   best: number,
   salvage = 0,
-  store?: StoreState,
+  // The Full Game purchase lives on the front door now, not the hub, so the
+  // store state is no longer read here — kept in the signature to stay
+  // positionally identical to menuScreen (main.ts hands both the same args).
+  _store?: StoreState,
   progress?: TierProgress,
   guide?: {
     step: NextStepId;
@@ -2013,7 +2016,6 @@ export function tierHubScreen(
   // the buttons under it.
   const unlockedMark = twr.unlocked;
   const nextTier = unlockedMark >= 1 && unlockedMark < MARK_COUNT ? unlockedMark + 1 : null;
-  const hubEyebrow = skySel ? "Skydeck" : sbxSel ? "Sandbox" : licSel ? "Flight School" : `Tier ${sel}`;
   const hubObjTitle = licence !== null
     ? "Finish Flight School"
     : nextTier !== null
@@ -2068,10 +2070,13 @@ export function tierHubScreen(
            and the loop rather than on the pitch. -->
       ${tierTowerHTML(twr)}
       <div class="menu__actions tierhub__actions">
-        <!-- The header: Back to the front door, and which floor is parked. -->
+        <!-- The header: Back to the front door on the left, the leaderboard as a
+             single icon on the right. The parked floor is already named by the
+             tower, the New Run plate and the objective, so no eyebrow repeats it;
+             the Full Game purchase lives on the front door, not here. -->
         <div class="tierhub__hd">
           <button class="icon-btn tierhub__back" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
-          <div class="eyebrow tierhub__eyebrow">${hubEyebrow}</div>
+          <button class="icon-btn tierhub__lead" data-action="leaderboard" aria-label="Leaderboard">${icon("leaderboard", 18)}</button>
         </div>
         <!-- THE OBJECTIVE. On the ladder it is the UNLOCK CARD: the goal, a
              two-item checklist (a won run and the tier's Contracts), and the
@@ -2196,19 +2201,6 @@ export function tierHubScreen(
               : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
         }</span></span>${workshopNext ? nextBadgeHTML() : ""}</button>
-        <!-- The shelf, below the three loop actions: the leaderboard and the
-             Full Game entry. These left the side column when the hub went to two
-             columns — the tower took the left, so the leaderboard and the
-             purchase live under New Run / Earn / Upgrades rather than beside
-             them. -->
-        <div class="menu__nav tierhub__shelf">
-          ${
-            store?.unlimited ? unlimitedBadgeHTML()
-            : store?.available ? unlockChipHTML()
-            : ""
-          }
-          <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        </div>
       </div>
     </div>
     <div class="build-tag" aria-hidden="true">${
