@@ -17361,13 +17361,18 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   // identifier.
   check("the ground floor's plate reads LS while the licence is owed",
     lobby(1, 4).includes(">LS<"));
-  check("...and still reads LS once it is held", held.includes(">LS<"));
+  // ...AND THE LICENSED TOWER HAS NO LOBBY AT ALL. Onboarding moved to the front
+  // door (the first-Play tutorial offer), and the hub the tower lives on is
+  // always licensed by the time it renders — so the "LS" plinth is drawn only
+  // for the unlicensed states these fixtures still exercise, never on the
+  // player's tower (screens.ts's tierTowerHTML gates it on `entrance`).
+  check("...and the licensed tower drops the lobby entirely", !held.includes(">LS<"));
   check("...and never prints the lesson count as a fraction",
     !lobby(1, 4).includes(">1/4<") && !lobby(3, 9).includes(">3/9<"));
   // The count is not lost, it moved to the one place a shape cannot reach.
-  check("the count survives as the floor's accessible name",
+  check("the count survives as the floor's accessible name while it is owed",
     lobby(3, 9).includes('aria-label="Flight School — 3 of 9 steps.')
-      && held.includes('aria-label="Flight School — licence earned.'));
+      && !held.includes("Flight School"));
   check("...and the promise it opens Tier 1 is still on it",
     lobby(3, 9).includes("The licence that opens Tier 1."));
 
@@ -17406,10 +17411,9 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   // for a finished floor, at the same 16x16 the owed state costs — and the
   // owner's brief for the plate is exactly that: "9x9 and the unlock makes them
   // all a solid block".
-  check("...and its sockets close into one solid block instead",
-    sockets(held) === LESSON_COUNT && lit(held) === LESSON_COUNT
-      && held.includes("tower__sockets--solid"),
-    `${lit(held)} of ${sockets(held)}`);
+  check("...and the licensed tower draws no lobby sockets at all",
+    sockets(held) === 0,
+    `${sockets(held)}`);
   check("...which is a state the owed plate never draws",
     !lobby(LESSON_COUNT, SCHOOL_STEPS).includes("tower__sockets--solid"));
     // THE EARNED PLATE SITS ON THE NUMBERS' COLUMN (owner: "align the floor

@@ -1,342 +1,77 @@
 {
-  "Android · 640x360 budget|menu-tier-s-live|tap": [
+  "Android · 640x360 budget|hub-tier-s|tap": [
     ".tower__head 88x22"
   ],
-  "Android · 640x360 budget|menu-tier-s|tap": [
-    ".tower__head 88x22"
-  ],
-  "Android · Galaxy S8+|menu-tier-s-live|tap": [
+  "Android · Galaxy S8+|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "Android · Galaxy S8+|menu-tier-s|tap": [
+  "Android · OnePlus 12|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "Android · OnePlus 12|menu-tier-s-live|tap": [
+  "Android · Pixel 5|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "Android · OnePlus 12|menu-tier-s|tap": [
+  "Android · Pixel 7 cutout|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "Android · Pixel 5|menu-tier-s-live|tap": [
+  "Android · Pixel 7|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "Android · Pixel 5|menu-tier-s|tap": [
-    ".tower__head 114x22"
+  "Web · 1000x760 window|hub-licence|tap": [
+    ".lic-pip 38x44"
   ],
-  "Android · Pixel 7 cutout|menu-tier-s-live|tap": [
-    ".tower__head 114x22"
+  "Web · 1000x760 window|hub-lobby-held|tap": [
+    ".lic-pip 40x44"
   ],
-  "Android · Pixel 7 cutout|menu-tier-s|tap": [
-    ".tower__head 114x22"
+  "Web · 1000x760 window|hub-school-buy|tap": [
+    ".lic-pip 38x44"
   ],
-  "Android · Pixel 7|menu-tier-s-live|tap": [
-    ".tower__head 114x22"
+  "Web · 1000x760 window|hub-school-exam|tap": [
+    ".lic-pip 40x44"
   ],
-  "Android · Pixel 7|menu-tier-s|tap": [
-    ".tower__head 114x22"
-  ],
-  "Android · Pixel Tablet|menu-licence-live|tap": [
-    ".lic-pip 31x61"
-  ],
-  "Android · Pixel Tablet|menu-licence|tap": [
-    ".lic-pip 31x61"
-  ],
-  "Android · Pixel Tablet|menu-lobby-held-live|tap": [
-    ".lic-pip 34x61"
-  ],
-  "Android · Pixel Tablet|menu-lobby-held|tap": [
-    ".lic-pip 34x61"
-  ],
-  "Android · Pixel Tablet|menu-school-buy|tap": [
-    ".lic-pip 31x61"
-  ],
-  "Android · Pixel Tablet|menu-school-exam|tap": [
-    ".lic-pip 34x61"
-  ],
-  "Android · Pixel Tablet|menu-school-shop-live|tap": [
-    ".lic-pip 31x61"
-  ],
-  "Android · Pixel Tablet|menu-school-shop|tap": [
-    ".lic-pip 31x61"
-  ],
-  "Web · 1000x760 window|menu-licence-live|tap": [
-    ".lic-pip 22x44"
-  ],
-  "Web · 1000x760 window|menu-licence|tap": [
-    ".lic-pip 22x44"
-  ],
-  "Web · 1000x760 window|menu-lobby-held-live|tap": [
-    ".lic-pip 24x44"
-  ],
-  "Web · 1000x760 window|menu-lobby-held|tap": [
-    ".lic-pip 24x44"
-  ],
-  "Web · 1000x760 window|menu-school-buy|tap": [
-    ".lic-pip 22x44"
-  ],
-  "Web · 1000x760 window|menu-school-exam|tap": [
-    ".lic-pip 24x44"
-  ],
-  "Web · 1000x760 window|menu-school-shop-live|tap": [
-    ".lic-pip 22x44"
-  ],
-  "Web · 1000x760 window|menu-school-shop|tap": [
-    ".lic-pip 22x44"
+  "Web · 1000x760 window|hub-school-shop|tap": [
+    ".lic-pip 38x44"
   ],
   "Web · 1269x663 windowed|draft-picked|scrollers": [
     ".draft__body scrolls 16px"
   ],
-  "Web · 1269x663 windowed|menu-first|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
+  "Web · 1269x663 windowed|hub-licence|tap": [
+    ".tower__floor 108x39",
+    ".lic-pip 38x44"
   ],
-  "Web · 1269x663 windowed|menu-licence-live|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
+  "Web · 1269x663 windowed|hub-lobby-held|tap": [
+    ".lic-pip 40x44"
   ],
-  "Web · 1269x663 windowed|menu-licence|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
+  "Web · 1269x663 windowed|hub-school-buy|tap": [
+    ".tower__floor 108x40",
+    ".lic-pip 38x44"
   ],
-  "Web · 1269x663 windowed|menu-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
+  "Web · 1269x663 windowed|hub-school-exam|tap": [
+    ".tower__floor 108x40",
+    ".lic-pip 40x44"
   ],
-  "Web · 1269x663 windowed|menu-lobby-held-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22",
-    ".lic-pip 24x44"
+  "Web · 1269x663 windowed|hub-school-shop|tap": [
+    ".tower__floor 108x40",
+    ".lic-pip 38x44"
   ],
-  "Web · 1269x663 windowed|menu-lobby-held|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22",
-    ".lic-pip 24x44"
-  ],
-  "Web · 1269x663 windowed|menu-nostore-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-nostore|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-school-buy|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 1269x663 windowed|menu-school-exam|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 24x44"
-  ],
-  "Web · 1269x663 windowed|menu-school-shop-live|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 1269x663 windowed|menu-school-shop|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 1269x663 windowed|menu-seals-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-seals|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-skydeck-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-skydeck|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-tier-s-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-tier-s|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-tower-top-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-tower-top|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-unlimited-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-unlimited|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-unrigged-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu-unrigged|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1269x663 windowed|menu|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 1280x720 laptop|menu-licence-live|tap": [
+  "Web · 1280x720 laptop|hub-licence|tap": [
     ".tower__floor 108x42",
-    ".lic-pip 22x44"
+    ".lic-pip 38x44"
   ],
-  "Web · 1280x720 laptop|menu-licence|tap": [
+  "Web · 1280x720 laptop|hub-lobby-held|tap": [
+    ".lic-pip 40x44"
+  ],
+  "Web · 1280x720 laptop|hub-school-buy|tap": [
     ".tower__floor 108x42",
-    ".lic-pip 22x44"
+    ".lic-pip 38x44"
   ],
-  "Web · 1280x720 laptop|menu-lobby-held-live|tap": [
-    ".lic-pip 24x44"
-  ],
-  "Web · 1280x720 laptop|menu-lobby-held|tap": [
-    ".lic-pip 24x44"
-  ],
-  "Web · 1280x720 laptop|menu-school-buy|tap": [
+  "Web · 1280x720 laptop|hub-school-exam|tap": [
     ".tower__floor 108x42",
-    ".lic-pip 22x44"
+    ".lic-pip 40x44"
   ],
-  "Web · 1280x720 laptop|menu-school-exam|tap": [
+  "Web · 1280x720 laptop|hub-school-shop|tap": [
     ".tower__floor 108x42",
-    ".lic-pip 24x44"
-  ],
-  "Web · 1280x720 laptop|menu-school-shop-live|tap": [
-    ".tower__floor 108x42",
-    ".lic-pip 22x44"
-  ],
-  "Web · 1280x720 laptop|menu-school-shop|tap": [
-    ".tower__floor 108x42",
-    ".lic-pip 22x44"
-  ],
-  "Web · 1512x945 MacBook|menu-licence-live|tap": [
-    ".lic-pip 29x58"
-  ],
-  "Web · 1512x945 MacBook|menu-licence|tap": [
-    ".lic-pip 29x58"
-  ],
-  "Web · 1512x945 MacBook|menu-lobby-held-live|tap": [
-    ".lic-pip 32x58"
-  ],
-  "Web · 1512x945 MacBook|menu-lobby-held|tap": [
-    ".lic-pip 32x58"
-  ],
-  "Web · 1512x945 MacBook|menu-school-buy|tap": [
-    ".lic-pip 29x58"
-  ],
-  "Web · 1512x945 MacBook|menu-school-exam|tap": [
-    ".lic-pip 32x58"
-  ],
-  "Web · 1512x945 MacBook|menu-school-shop-live|tap": [
-    ".lic-pip 29x58"
-  ],
-  "Web · 1512x945 MacBook|menu-school-shop|tap": [
-    ".lic-pip 29x58"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-licence-live|tap": [
-    ".lic-pip 31x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-licence|tap": [
-    ".lic-pip 31x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-lobby-held-live|tap": [
-    ".lic-pip 33x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-lobby-held|tap": [
-    ".lic-pip 33x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-school-buy|tap": [
-    ".lic-pip 31x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-school-exam|tap": [
-    ".lic-pip 33x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-school-shop-live|tap": [
-    ".lic-pip 31x60"
-  ],
-  "Web · 1512x982 MacBook fullscreen|menu-school-shop|tap": [
-    ".lic-pip 31x60"
-  ],
-  "Web · 1920x1080 desktop|menu-licence-live|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 1920x1080 desktop|menu-licence|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 1920x1080 desktop|menu-lobby-held-live|tap": [
-    ".lic-pip 36x66"
-  ],
-  "Web · 1920x1080 desktop|menu-lobby-held|tap": [
-    ".lic-pip 36x66"
-  ],
-  "Web · 1920x1080 desktop|menu-school-buy|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 1920x1080 desktop|menu-school-exam|tap": [
-    ".lic-pip 36x66"
-  ],
-  "Web · 1920x1080 desktop|menu-school-shop-live|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 1920x1080 desktop|menu-school-shop|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-licence-live|tap": [
-    ".lic-pip 37x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-licence|tap": [
-    ".lic-pip 37x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-lobby-held-live|tap": [
-    ".lic-pip 40x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-lobby-held|tap": [
-    ".lic-pip 40x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-school-buy|tap": [
-    ".lic-pip 37x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-school-exam|tap": [
-    ".lic-pip 40x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-school-shop-live|tap": [
-    ".lic-pip 37x73"
-  ],
-  "Web · 1920x1200 desktop 16:10|menu-school-shop|tap": [
-    ".lic-pip 37x73"
-  ],
-  "Web · 2560x1080 ultrawide|menu-licence-live|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-licence|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-lobby-held-live|tap": [
-    ".lic-pip 36x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-lobby-held|tap": [
-    ".lic-pip 36x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-school-buy|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-school-exam|tap": [
-    ".lic-pip 36x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-school-shop-live|tap": [
-    ".lic-pip 33x66"
-  ],
-  "Web · 2560x1080 ultrawide|menu-school-shop|tap": [
-    ".lic-pip 33x66"
+    ".lic-pip 38x44"
   ],
   "Web · 800x600 window|draft-intro|scrollers": [
     ".draft__body scrolls 75px"
@@ -356,195 +91,65 @@
   "Web · 800x600 window|draft|scrollers": [
     ".draft__body scrolls 75px"
   ],
+  "Web · 800x600 window|hub-licence|tap": [
+    ".tower__floor 108x39",
+    ".lic-pip 38x44"
+  ],
+  "Web · 800x600 window|hub-lobby-held|tap": [
+    ".lic-pip 40x44"
+  ],
+  "Web · 800x600 window|hub-school-buy|tap": [
+    ".tower__floor 108x40",
+    ".lic-pip 38x44"
+  ],
+  "Web · 800x600 window|hub-school-exam|tap": [
+    ".tower__floor 108x40",
+    ".lic-pip 40x44"
+  ],
+  "Web · 800x600 window|hub-school-shop|tap": [
+    ".tower__floor 108x40",
+    ".lic-pip 38x44"
+  ],
+  "Web · 800x600 window|hub-tier-s|tap": [
+    ".tower__head 114x22"
+  ],
   "Web · 800x600 window|inspection-signed|scrollers": [
     ".draft__body scrolls 75px"
   ],
   "Web · 800x600 window|inspection|scrollers": [
     ".draft__body scrolls 75px"
   ],
-  "Web · 800x600 window|menu-first|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-licence-live|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 800x600 window|menu-licence|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 800x600 window|menu-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-lobby-held-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22",
-    ".lic-pip 24x44"
-  ],
-  "Web · 800x600 window|menu-lobby-held|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22",
-    ".lic-pip 24x44"
-  ],
-  "Web · 800x600 window|menu-nostore-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-nostore|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-school-buy|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 800x600 window|menu-school-exam|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 24x44"
-  ],
-  "Web · 800x600 window|menu-school-shop-live|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 800x600 window|menu-school-shop|tap": [
-    ".tower__floor 108x37",
-    ".lic-pip 22x44"
-  ],
-  "Web · 800x600 window|menu-seals-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-seals|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-skydeck-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-skydeck|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-tier-s-live|tap": [
-    ".tower__head 114x22",
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-tier-s|tap": [
-    ".tower__head 114x22",
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-tower-top-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-tower-top|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-unlimited-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-unlimited|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-unrigged-live|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu-unrigged|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
-  "Web · 800x600 window|menu|tap": [
-    ".tower__floor 108x41",
-    ".tower__base 118x22"
-  ],
   "Web · 800x600 window|refit-staged|scrollers": [
     "#refit-preview scrolls 152px"
   ],
-  "iOS · iPad Pro 12.9|menu-licence-live|tap": [
-    ".lic-pip 31x60"
+  "iOS · iPad mini|hub-licence|tap": [
+    ".lic-pip 39x45"
   ],
-  "iOS · iPad Pro 12.9|menu-licence|tap": [
-    ".lic-pip 31x60"
+  "iOS · iPad mini|hub-lobby-held|tap": [
+    ".lic-pip 41x45"
   ],
-  "iOS · iPad Pro 12.9|menu-lobby-held-live|tap": [
-    ".lic-pip 33x60"
+  "iOS · iPad mini|hub-school-buy|tap": [
+    ".lic-pip 39x45"
   ],
-  "iOS · iPad Pro 12.9|menu-lobby-held|tap": [
-    ".lic-pip 33x60"
+  "iOS · iPad mini|hub-school-exam|tap": [
+    ".lic-pip 41x45"
   ],
-  "iOS · iPad Pro 12.9|menu-school-buy|tap": [
-    ".lic-pip 31x60"
+  "iOS · iPad mini|hub-school-shop|tap": [
+    ".lic-pip 39x45"
   ],
-  "iOS · iPad Pro 12.9|menu-school-exam|tap": [
-    ".lic-pip 33x60"
-  ],
-  "iOS · iPad Pro 12.9|menu-school-shop-live|tap": [
-    ".lic-pip 31x60"
-  ],
-  "iOS · iPad Pro 12.9|menu-school-shop|tap": [
-    ".lic-pip 31x60"
-  ],
-  "iOS · iPad mini|menu-licence-live|tap": [
-    ".lic-pip 22x45"
-  ],
-  "iOS · iPad mini|menu-licence|tap": [
-    ".lic-pip 22x45"
-  ],
-  "iOS · iPad mini|menu-lobby-held-live|tap": [
-    ".lic-pip 25x45"
-  ],
-  "iOS · iPad mini|menu-lobby-held|tap": [
-    ".lic-pip 25x45"
-  ],
-  "iOS · iPad mini|menu-school-buy|tap": [
-    ".lic-pip 22x45"
-  ],
-  "iOS · iPad mini|menu-school-exam|tap": [
-    ".lic-pip 25x45"
-  ],
-  "iOS · iPad mini|menu-school-shop-live|tap": [
-    ".lic-pip 22x45"
-  ],
-  "iOS · iPad mini|menu-school-shop|tap": [
-    ".lic-pip 22x45"
-  ],
-  "iOS · iPhone 13 mini|menu-tier-s-live|tap": [
+  "iOS · iPhone 13 mini|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "iOS · iPhone 13 mini|menu-tier-s|tap": [
+  "iOS · iPhone 15|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "iOS · iPhone 15|menu-tier-s-live|tap": [
+  "iOS · iPhone 16 Pro Max|hub-tier-s|tap": [
     ".tower__head 114x22"
   ],
-  "iOS · iPhone 15|menu-tier-s|tap": [
-    ".tower__head 114x22"
-  ],
-  "iOS · iPhone 16 Pro Max|menu-tier-s-live|tap": [
-    ".tower__head 114x22"
-  ],
-  "iOS · iPhone 16 Pro Max|menu-tier-s|tap": [
-    ".tower__head 114x22"
-  ],
-  "iOS · iPhone SE 3|menu-tier-s-live|tap": [
+  "iOS · iPhone SE 3|hub-tier-s|tap": [
     ".tower__head 88x22"
   ],
-  "iOS · iPhone SE 3|menu-tier-s|tap": [
-    ".tower__head 88x22"
-  ],
-  "iOS · iPhone X|menu-tier-s-live|tap": [
-    ".tower__head 114x22"
-  ],
-  "iOS · iPhone X|menu-tier-s|tap": [
+  "iOS · iPhone X|hub-tier-s|tap": [
     ".tower__head 114x22"
   ]
 }
