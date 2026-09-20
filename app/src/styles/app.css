@@ -1247,7 +1247,12 @@ body.crt-off #app::after { display: none; }
   white-space: nowrap;
   position: relative;
 }
-.tierhub__go .ico { width: 11px; height: 11px; margin: 0; }
+.tierhub__go .ico { width: 11px; height: 11px; margin: 0; transform: translateY(-1px); }
+/* THE TRIANGLE RIDES 1px HIGH ON PURPOSE. The pixel face has no descenders and
+   its ink sits a pixel above its own em box, so a glyph centred on the LINE
+   box lands a pixel and a half below the label's visual centre — measured on
+   the card button at 4x, where "▸ PLAY" read as a triangle sitting low. A
+   transform rather than a margin so the button's layout box is untouched. */
 
 /* ---------- 3. THE CONTRACT CARDS ----------
    Three cards in a row that takes the rail's slack. Name at the top with its
