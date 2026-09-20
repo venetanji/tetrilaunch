@@ -12,7 +12,7 @@ import { icon, type IconName } from "./icons";
 import {
   MARK_COUNT, MAX_TIER, UPGRADES, budgetForMark, nextTierCost, orderCost, orderSize, orderedTier,
   refitShelf, tiersCost, upgradeById,
-  type RefitOrder, type UpgradeTiers,
+  type RefitOrder, type UpgradeDef, type UpgradeId, type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, UPRATE_MAX_TIER, installAvailable,
@@ -22,7 +22,8 @@ import {
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded, rigStarted,
   FREE_TIER_LIMIT,
   SCHOOL_INSTALL, SCHOOL_LADDER, SCHOOL_STEPS, FINAL_EXAM, licenceDone, schoolProgress,
-  type InstallDef, type MetaState, type NextStepId, type SchoolStepKind, type TierProgress,
+  type MetaState, type NextStepId, type Purchase, type SchoolStepKind, type TierProgress,
+  type UnlockDef,
 } from "../game/meta";
 import { LESSON_COUNT, LICENCE_LESSON_COUNT, type Lesson } from "../game/school";
 import { lessonPictogramHTML } from "./lessonart";
@@ -91,7 +92,25 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   const tint = lic
     ? " tier-plate--lic"
     : sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
-  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${lic ? "Flight" : sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${lic ? LICENCE_MARK : sky ? SKY_STAR : sbx ? "S" : tier}</span></span>`;
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${lic ? "Flight" : sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${tierPlateFace(tier)}</span></span>`;
+}
+
+/** What the plate's NUMBER SLOT shows for a floor: the digit, or the mark a
+ *  special floor wears where the digit would go.
+ *
+ *  One function rather than an expression inside tierPlateHTML, because the
+ *  slot is written from TWO places — the plate at rest (above) and main.ts's
+ *  rollPlate, which rolls the old face out and the new one in while the car
+ *  travels. rollPlate kept its own copy of this rule, and the copy predated the
+ *  ground floor: riding down to Flight School the odometer rolled "-2" (the
+ *  lobby's raw id, LICENCE_TIER) onto the plate and held it for the whole
+ *  ride, then the landing swapped in the wing. Owner-reported. The face the
+ *  car rolls onto is now, by construction, the face the plate lands on. */
+export function tierPlateFace(tier: number): string {
+  if (tier === LICENCE_TIER) return LICENCE_MARK;
+  if (tier === SKYDECK_TIER) return SKY_STAR;
+  if (tier === SANDBOX_TIER) return "S";
+  return String(tier);
 }
 
 /** The Skydeck's mark, in the plate's number slot where every other floor puts
@@ -5424,316 +5443,560 @@ export function refitScreen(opts: {
  * making a run that died in bay 3 worth having played.
  */
 /**
- * The Workshop.
+ * The Workshop — EVERY SYSTEM AS A PLATE, GROUPED BY STATE, and one detail
+ * panel beside them (docs/workshop-redesign-plan.md, Option A3).
  *
- * OWNED UNLOCKS DO NOT GET A CARD. They collapse into one compact strip, and
- * that is a deliberate inversion of what this screen used to do. It is a shop:
- * what you already own is reference, what you can buy is the merchandise, and
- * giving both the same 209px card meant the screen grew as the player
- * progressed — exactly backwards, and by eleven unlocks it was four screens of
- * scrolling on a landscape phone. Collapsing owned entries makes the Workshop
- * get SHORTER the further in you are, and puts the decision you actually came
- * here to make at the top.
+ * WHAT THIS REPLACED, and why the shape changed rather than the copy. The shop
+ * was one scrolling column of `.shop-card` rows: rack at the top, then a card
+ * per system carrying `def.blurb` plus a boilerplate ownership sentence, then
+ * the option cards, then two reference strips. Measured on the stocked save,
+ * that pane showed 444px of 1191 at Steam Deck size and 226 of 880 on a 915x412
+ * phone — i.e. the player read a fifth of the shop at a time, through a window
+ * squeezed between a header and two buttons. The owner's report is exact: "its
+ * height is not enough because of the stuff above and below it".
  *
- * ONE COLUMN OF ROWS, whole copy, and the pane scrolls. The shelf used to run
- * as many columns as the width allowed, which meant every card's description
- * was clamped to one line and ellipsised — 90 of them across the device matrix,
- * i.e. every card on every device. The columns were bought to avoid scrolling,
- * and this pane is one of the three places allowed to scroll; trading the
- * sentence for a scrollbar it already had was the wrong way round.
+ * THE SCROLLER WAS NOT THE BUG; THE CARD WAS. A card is ~120px and there are
+ * twelve things to sell, so any list of cards is taller than any landscape
+ * phone. A PLATE is 44px square — the tap floor, and the size this screen
+ * already used for the rack — so the same twelve fit in four rows of a 372px
+ * column with room to spare. What the card carried that the plate cannot is the
+ * copy, and that copy moves to the DETAIL, where it is read one system at a
+ * time instead of twelve at once.
+ *
+ * AND THE COPY GOT BETTER BY MOVING. The cards never said what a tier DOES —
+ * `UpgradeDef.tiers` has carried the per-rung delta since the refit yard was
+ * written, and this screen printed none of it, only `blurb` and a sentence of
+ * boilerplate repeated on every card ("Installs at tier 1; the Workshop raises
+ * it to 2…"). The owner asked for "the stats that an upgrade gets me"; the
+ * ladder in the detail is those three strings, and the boilerplate is deleted
+ * because the ladder shows the same fact as a shape.
+ *
+ * GROUPED BY STATE, WHICH IS THE OTHER HALF OF THE ASK. A2's named tiles were
+ * "not clear what's mounted/stowed at a glance"; here a plate's ROW is its
+ * state — rack, shed, shelf, options — so "what am I flying" is answered by
+ * position before anything is read. That also carries the states the palette
+ * may not: red/green is not a distinction this game draws (DESIGN.md), so every
+ * state lands on a row, a badge shape or a word, never on a hue alone.
+ *
+ * ONE PRESS, ONE MEANING. A plate SELECTS; it no longer mounts. Mount/stow is a
+ * button in the detail. The old plate did both jobs at once — it was the only
+ * control for a system and it toggled the rack — which made the rack the only
+ * row you could not browse without changing your loadout.
+ *
+ * BOTH PANELS, ONE HEIGHT, AND THE RACK IS THE ONLY SCROLLER (the owner's two
+ * review constraints). The arithmetic for "no scrolling with any combination"
+ * is at .workshop__rack in app.css: it holds at every roomy/regular size and on
+ * 412-tall phones, and fails only on the 360-tall rows of the device matrix,
+ * where three rows of 44px plates fit and four do not. The panel keeps
+ * [data-scroll] for exactly those, and nothing else on the screen scrolls.
  */
-export function workshopScreen(
+/** The plates the panel draws, in the order it draws them: the rack row, then
+ *  the shed, the shelf and the options. ONE function, because the default
+ *  selection, the rendered rows and main.ts's fallback have to agree about what
+ *  "the first plate" is — three copies of this order is how a screen ends up
+ *  selecting something it did not draw. */
+function workshopPlateOrder(meta: MetaState): string[] {
+  if (!licenceDone(meta)) return [SCHOOL_INSTALL];
+  return [
+    ...mountedIds(meta),
+    ...stowedIds(meta),
+    ...installShelf().filter((i) => (meta.loadout[i.id] ?? 0) === 0).map((i) => i.id),
+    ...workshopOptions(meta).map((u) => u.id),
+  ];
+}
+
+/** The live options, owned first — the fourth row, and the same order in the
+ *  row and in the plate order above. Retired unlocks are never merchandise and
+ *  never reference (meta.ts's UnlockDef.retired), so they are absent. */
+function workshopOptions(meta: MetaState): UnlockDef[] {
+  const live = UNLOCKS.filter((u) => !u.retired);
+  const owned = live.filter((u) => meta.unlocks.includes(u.id));
+  const forSale = live.filter((u) => !meta.unlocks.includes(u.id))
+    .sort((a, b) => a.rank - b.rank || a.cost - b.cost);
+  return [...owned, ...forSale];
+}
+
+/**
+ * THE RACK PANEL — every system as a 44px plate, grouped by the state it is in.
+ *
+ * Its own function rather than a closure inside workshopScreen, and that split
+ * is worth the few re-derived lines it costs: this panel and the detail beside
+ * it are the two halves of the screen the owner reviewed, they are edited
+ * independently, and nothing they share is state — `mountedIds`, `slotsFor` and
+ * `recommendedPurchase` are pure functions of the save, so asking each of them
+ * twice cannot produce two answers. What the two halves must agree on is the
+ * SELECTION, and they agree by both resolving it through workshopSelection.
+ */
+function workshopRack(
   meta: MetaState,
-  /** The live input family (D2) — the rack's slots say what to do to them, and
-   *  what that is depends on the device (bindings.ts's hintPress). Defaults to
-   *  touch, which is what every caller said before the verb was a table. */
-  profile: InputProfile = "touch",
+  /** The plate to draw as selected, ALREADY RESOLVED by workshopScreen. Passed
+   *  rather than re-derived: resolving it here as well meant walking
+   *  workshopPlateOrder and recommendedPurchase three times per render (once
+   *  per half, once in the caller) for an answer that must be the same all
+   *  three times anyway — and a screen that computes its selection twice is one
+   *  edit away from computing it two different ways. */
+  sel: string | null,
+  /** meta.ts's recommendedPurchase, resolved once by workshopScreen for the
+   *  same reason: the badge on a plate and the chip in the detail are one
+   *  decision, so they read one value. */
+  rec: Purchase | null,
+  /** The live input family (D2) — a plate says what to DO to it, and what that
+   *  is depends on the device (bindings.ts's hintPress). */
+  profile: InputProfile,
 ): string {
-  // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
-  // main.ts's onBuyUnlock enforces the gate against this same field, so any
-  // derivation here would risk offering a button the purchase path refuses.
-  const mark = meta.mark;
-  /* ---- THE SCHOOL'S SHELF -------------------------------------------------
-   * ONE CARD, and everything else is not merely disabled but ABSENT.
+  /* ---- THE SCHOOL'S PANEL -------------------------------------------------
+   * ONE PLATE, and everything else is not merely disabled but ABSENT.
    *
-   * The Workshop is the ground floor's second GATE (meta.ts's schoolLadder) and the
-   * owner's call for it is exact: "hide all other purchases after the first
+   * The Workshop is the ground floor's second GATE (meta.ts's schoolLadder) and
+   * the owner's call for it is exact: "hide all other purchases after the first
    * contract, just leave the reactor as the only one available to buy". The
    * argument is the one this file already makes for retired unlocks — a shelf
    * that lists what cannot be bought is a dishonest shelf — sharpened by the
-   * wallet: the Contract gate pays exactly one milestone (15), which is exactly the
-   * Reactor, so every other card on this shelf would be a price the player
-   * cannot meet, on a screen whose whole job right now is one purchase. Greying
-   * them out says "later"; a player at step 6 has no idea when later is.
+   * wallet: the Contract gate pays exactly one milestone (15), which is exactly
+   * the Reactor, so every other plate would be a price the player cannot meet,
+   * on a screen whose whole job right now is one purchase.
    *
-   * WHAT IS HIDDEN: every other install, both live unlocks, and the rack with
-   * its +1 slot. The rack is the sharpest of those — it is a decision about
-   * which systems fly, and the player owns none yet, so it would draw an empty
-   * row and a price above a shelf with one thing on it.
+   * WHAT IS HIDDEN: every other install, both live unlocks, the rack and shed
+   * rows and the +1 slot. The rack is the sharpest of those — it is a decision
+   * about which systems fly, and the player owns none yet — and the header line
+   * goes with it, because a slot count and a build budget are two numbers about
+   * a rig that does not exist. The detail's mount button goes for the same
+   * reason (workshopDetail's mountBtn).
    *
-   * AND IT STAYS ONE CARD FOR THE WHOLE SCHOOL, not just until the Reactor is
-   * bought. That is the decision worth arguing, because the other reading is
-   * defensible: once the Workshop gate is done the remaining rungs are flights,
-   * so the shop is "finished" and could open. It does not, for two reasons.
-   * The first is that the ladder is a sequence with ONE live step, and a shelf
-   * that grew back between lessons 5 and 6 would put a second decision beside
-   * the one the ladder is asking for — the exact interruption this reordering
-   * exists to remove. The second is arithmetic: after the Reactor the player
-   * has 0 salvage and no way to earn more until they graduate (the school's
-   * board is one card and it is claimed), so a full shelf mid-school is a wall
-   * of prices against an empty wallet — which is the thing the hiding was for.
-   * The shelf opens at graduation, with the daily board that can pay for it.
+   * AND IT STAYS ONE PLATE FOR THE WHOLE SCHOOL, not just until the Reactor is
+   * bought: the ladder is a sequence with ONE live step, and a panel that grew
+   * back between lessons 5 and 6 would put a second decision beside the one the
+   * ladder is asking for. After graduation the daily board can pay for the rest.
    * -------------------------------------------------------------------- */
+  const school = !licenceDone(meta);
+  // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() —
+  // main.ts's onBuyUnlock enforces the gate against this same field, so any
+  // derivation here would risk offering a plate the purchase path refuses.
+  const mark = meta.mark;
+  const nextId = rec && rec.kind !== "slot" ? rec.id : null;
+  const slots = slotsFor(meta);
+  const aboard = mountedIds(meta);
+  const shed = stowedIds(meta);
+  const nextSlot = slotPrice(slots);
+  // The tooltip names the press in the DEVICE'S own word (D2) rather than
+  // saying "tap" to a mouse: this string is a `title`, so a fine pointer
+  // hovering it is very nearly the only way anyone reads it.
+  const press = hintPress(profile);
+
+  /* ---- THE PLATES ---------------------------------------------------------
+   * 44 square, the existing .rack-slot, one per system, and every system is in
+   * exactly one row. What the plate carries:
+   *
+   *   position  rack / shed / shelf / options — the state, read before anything
+   *   pips      the tier, lit for what is owned (.ship-plate__pips)
+   *   badge     lock (Mark-gated), play (recommended), stow (in the shed),
+   *             check (an owned option) — a SHAPE in the corner, because the
+   *             plate has no room for a word and hue is not a carrier here
+   *   outline   .rack-slot--sel plus aria-pressed, for the one being read
+   *
+   * BADGE PRIORITY is lock, then play, then stow, and neither collision can
+   * mislead. A gated system is never recommended (recommendedPurchase filters
+   * on installAvailable), so lock and play cannot both apply. A STOWED system
+   * can be recommended — an uprate of something in the shed — and there the
+   * play badge wins, because the shed ROW it is sitting in is already saying
+   * "stowed" louder than a 14px corner mark can.
+   *
+   * THE LOCK IS ABOUT MERCHANDISE, NOT ABOUT THE SHIP, and that is the fix this
+   * note exists for (found in review). `gated` used to be "installAvailable is
+   * false and installGates has a reason", which is TRUE of a system you already
+   * own whose NEXT tier is over the Mark's build budget — so a Mark-1 rig
+   * carrying 205 of its 220 points drew padlocks on the Bay Extension and the
+   * Press Hydraulics it was flying, dimmed, under titles reading "Aboard"; in
+   * the shed row the lock even displaced the stow badge. A lock on a plate has
+   * to mean "you cannot have this", and a system aboard your ship is the one
+   * thing that cannot mean. Owned systems are never dimmed and never locked
+   * here; the budget that refuses their next rung is explained in words where
+   * there is room for words — the detail's foot, via installGates.
+   * -------------------------------------------------------------------- */
+  const plate = (id: string, where: "rack" | "shed" | "shelf"): string => {
+    const def = upgradeById(id)!;
+    const inst = installById(id);
+    const tier = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
+    const owned = tier > 0;
+    const gated = !owned && inst !== undefined
+      && !installAvailable(meta, inst) && installGates(meta, inst).length > 0;
+    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+      `<i class="${i < tier ? "on" : ""}"></i>`).join("");
+    const badge = gated
+      ? `<span class="rack-slot__badge">${icon("lock", 9)}</span>`
+      : id === nextId
+        ? `<span class="rack-slot__badge rack-slot__badge--next">${icon("play", 9)}</span>`
+        : where === "shed"
+          // 9px like the other three: the badge box is 13px with a 1px border,
+          // so 10 was the one glyph touching its own frame.
+          ? `<span class="rack-slot__badge rack-slot__badge--shed">${icon("stow", 9)}</span>`
+          : "";
+    // The LOOK follows the data for ownership and the ROW for stowage, which is
+    // the one combination that survives the school: there the Reactor sits in
+    // the shelf row after it is bought, and a plate drawn dim because of its row
+    // would be telling the player they do not own the thing they just paid for.
+    const state = where === "shed" ? "In the shed"
+      : owned ? "Aboard"
+        : gated ? `Locked — needs ${installGates(meta, inst!).join(" · ")}`
+          : "On the shelf";
+    return `<button class="rack-slot${
+      where === "shed" ? " rack-slot--shed" : owned ? "" : " rack-slot--unowned"
+    }${gated ? " rack-slot--gated" : ""}${id === sel ? " rack-slot--sel" : ""}"
+      data-action="select-system" data-select="${id}"${id === sel ? ` data-pad-initial aria-pressed="true"` : ` aria-pressed="false"`}
+      title="${def.name} — ${owned ? `tier ${tier}` : "not installed"}. ${state}; ${press} to select."
+      aria-label="${def.name}, ${owned ? `tier ${tier}` : "not installed"}, ${state.toLowerCase()}">
+      <span class="rack-slot__g">${icon(id as IconName, 15)}</span>
+      <span class="ship-plate__pips">${pips}</span>${badge}
+    </button>`;
+  };
+
+  // AN OPTION HAS NO TIERS, so its plate spends the pip row on the PRICE
+  // instead — the one number that decides whether it is merchandise or
+  // reference today. An owned option keeps the cyan plate and wears a check,
+  // which is the same "you have this" the rack row says by position.
+  const optPlate = (u: UnlockDef): string => {
+    const owned = meta.unlocks.includes(u.id);
+    const gated = !owned && !unlockAvailable(u, meta.unlocks, mark);
+    return `<button class="rack-slot${owned ? "" : " rack-slot--unowned"}${
+      gated ? " rack-slot--gated" : ""}${u.id === sel ? " rack-slot--sel" : ""}"
+      data-action="select-system" data-select="${u.id}"${u.id === sel ? ` data-pad-initial aria-pressed="true"` : ` aria-pressed="false"`}
+      title="${u.name} — permanent option. ${
+        owned ? "Owned" : gated ? `Locked — needs ${unlockGates(u, meta.unlocks, mark).join(" · ")}` : `For sale at ${u.cost} salvage`
+      }; ${press} to select."
+      aria-label="${u.name}, permanent option, ${
+        owned ? "owned" : gated ? `locked, needs ${unlockGates(u, meta.unlocks, mark).join(", ")}` : `for sale at ${u.cost} salvage`
+      }">
+      <span class="rack-slot__g">${icon(u.id as IconName, 15)}</span>${
+        owned
+          ? `<span class="rack-slot__badge rack-slot__badge--owned">${icon("check", 9)}</span>`
+          : `<small class="rack-slot__price">${icon("salvage", 8)}${u.cost}</small>`
+      }
+    </button>`;
+  };
+
+  // An OPEN slot is room, drawn at the size of the thing that would fill it. A
+  // span rather than a button: there is no system here to select, so a control
+  // would be a target that does nothing.
+  const openSlots = `<span class="rack-slot rack-slot--open" aria-hidden="true"></span>`
+    .repeat(Math.max(0, slots - aboard.length));
+  // THE +1 SLOT IS A PLATE NOW, not a header button, and that is what makes the
+  // rack row honest: the thing you buy sits in the row it widens, at the size of
+  // the plate it will hold, after the open slots it adds to. It is also where a
+  // `slot` recommendation can finally be pointed at — the badge used to name no
+  // control at all on this screen.
+  const slotPlateHTML = nextSlot === null
+    ? `<span class="rack__full">every slot bought</span>`
+    : `<button class="rack-slot rack-slot--unowned rack-slot--plus"
+      data-action="buy-slot"${meta.salvage >= nextSlot ? "" : " disabled"}
+      title="One more rack slot — ${nextSlot} salvage; ${press} to buy."
+      aria-label="${priceAria("Rack slot", "buy for", String(nextSlot), "salvage")}">+1<small>${
+        icon("salvage", 8)}${nextSlot}</small>${
+        rec?.kind === "slot" ? `<span class="rack-slot__badge rack-slot__badge--next">${icon("play", 9)}</span>` : ""
+      }</button>`;
+
+  /** One group row: a fixed-width label and a wrapping row of plates. Rows are
+   *  ruled off from each other by the dashed line the shed already used, which
+   *  is the whole visual grammar this panel needs — four bands, one meaning
+   *  each, no colour asked to carry any of it. */
+  const group = (label: string, plates: string): string =>
+    `<div class="rack__group"><span class="rack__group-label">${label}</span>
+      <div class="rack__plates">${plates}</div></div>`;
+
+  const shelfIds = installShelf().filter((i) => (meta.loadout[i.id] ?? 0) === 0).map((i) => i.id);
+  const options = workshopOptions(meta);
+  /* THE HEADER IS OUTSIDE THE SCROLLER, and the rows region is the scroller.
+   * It read as one scrolling column until review: `.rack__hdr` was an ordinary
+   * flex child of the pane, so on the 360-tall rows — the only devices where
+   * this panel scrolls at all — the slot count and the build budget scrolled
+   * away with the plates, which is exactly what the comment beside them claims
+   * cannot happen and what the Workshop's own aside note has argued against
+   * since the aside existed: the cap is the usual reason a purchase is refused,
+   * so scrolling it away from the merchandise it explains is the one thing this
+   * pane must not do. Splitting the scroller off is better than `position:
+   * sticky` here because the allowlist can then name the region that actually
+   * moves (`.rack__rows`), instead of naming a pane whose header only LOOKS
+   * pinned. */
+  const rackPanel = school
+    // The school's one plate, in the one row it can be in. No header line: see
+    // the school note above.
+    ? `<section class="workshop__rack">
+      <div class="rack__rows" data-scroll>${group("shelf", plate(SCHOOL_INSTALL, "shelf"))}</div>
+    </section>`
+    : `<section class="workshop__rack">
+      <div class="rack__hdr">
+        <span class="rack__label">systems</span>
+        <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots<span class="price__sep">·</span>${
+          // THE POINTS ABOARD, beside the budget's own readout and deliberately
+          // a different number from it. The budget counts what is OWNED, which
+          // is right — a tier you paid for is spent whether or not it undocks —
+          // but at the top of the ladder a rig can own 550 points and fly 220 of
+          // them, and a screen that only ever printed the first number would be
+          // describing a rig nobody flies. This is the one the bay meets.
+          tiersCost(maskLoadout(meta.loadout, aboard))
+        } pts aboard</span>
+        <!-- THE BUILD BUDGET, moved out of the deleted aside and into the one
+             header that is always on screen. It is the usual reason a purchase
+             is refused — a player staring at 400 salvage and a dead button needs
+             to be told it is the Mark talking — and the detail beside this panel
+             spells the same gate out in full when a system is actually barred
+             (installGates).
+             AND IT SAYS ITS OWN NAME, in the visible text. It shipped for one
+             review as a bare "135/440" with the words in a title and an
+             aria-label, on the mockup's authority; both of those are wrong for
+             the job. A title attribute reaches a hovering mouse and nothing
+             else, and
+             an aria-label on a generic span is ignored by assistive tech — so
+             the two numbers most likely to refuse a purchase were unlabelled
+             for every reader on every device. The header line has the room at
+             every width in the matrix (the count ends near the middle of the
+             panel even on the narrowest phone); this costs it nothing. -->
+        <span class="workshop__budget" title="Every tier you own costs points against the Mark's cap">build budget ${
+          tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
+      </div>
+      <div class="rack__rows" data-scroll>
+        ${group("rack", aboard.map((id) => plate(id, "rack")).join("") + openSlots + slotPlateHTML)}
+        ${shed.length ? group("shed", shed.map((id) => plate(id, "shed")).join("")) : ""}
+        ${shelfIds.length ? group("shelf", shelfIds.map((id) => plate(id, "shelf")).join("")) : ""}
+        ${options.length ? group("options", options.map(optPlate).join("")) : ""}
+      </div>
+    </section>`;
+
+  return rackPanel;
+}
+
+/**
+ * THE DETAIL — the other half of the body, and the only place on this screen
+ * that spends height on words. Paired with workshopRack above; see its header
+ * for why the two are separate functions rather than one.
+ */
+function workshopDetail(
+  meta: MetaState,
+  /** Resolved by workshopScreen — see workshopRack's parameter note. */
+  sel: string | null,
+  rec: Purchase | null,
+): string {
+  const school = !licenceDone(meta);
+  const mark = meta.mark;
+  const nextId = rec && rec.kind !== "slot" ? rec.id : null;
+  const slots = slotsFor(meta);
+  const aboard = mountedIds(meta);
+
+  /* ---- WHAT THE PANEL SHOWS -----------------------------------------------
+   * THE LADDER IS THE POINT. `UpgradeDef.tiers` is three strings saying what
+   * each rung gives ("+6% muzzle speed · 20% wind cancelled"), and until now
+   * this shop rendered none of them — the refit yard did, which meant the
+   * numbers a player needed to decide what to buy were only visible in the
+   * shop that sells the OTHER currency. Three rows, marked: a check on what is
+   * owned, a play on the rung the button below would buy, and the T3 row always
+   * ending in "refit stop · scrap".
+   *
+   * THAT LAST ROW IS THE OWNER'S OTHER ASK — "it's only 2 purchasable upgrades
+   * in the workshop, and the third one is run only, need to also clarify this".
+   * The ladder answers it structurally (T3 is drawn, greyed, with the place it
+   * is bought written on the end of its own row) and the footnote answers it in
+   * a sentence. Both, because the row is what a player glancing at a system
+   * sees and the sentence is what a player wondering about the shop reads.
+   * -------------------------------------------------------------------- */
+  const FOOTNOTE =
+    "Tiers 1–2 are bought here with salvage. Tier 3 is fitted at a refit stop, for scrap.";
+
+  const ladderRow = (def: UpgradeDef, i: number, owned: number, buyable: boolean): string => {
+    const t = i + 1;
+    const isOwned = t <= owned;
+    const isNext = t === owned + 1 && t <= UPRATE_MAX_TIER && buyable;
+    const isRun = t > UPRATE_MAX_TIER;
+    const mark_ = isOwned ? icon("check", 12) : isNext ? icon("play", 10) : "";
+    const end = isOwned
+      ? `<span class="ladder__end ladder__end--owned">owned</span>`
+      : isRun
+        // THE WORDS CARRY IT, not the amber: "refit stop · scrap" is the whole
+        // statement, and the colour is the scrap currency's own (--warn, the
+        // same one .currency--scrap wears) so the tag matches the shop it names.
+        ? `<span class="ladder__end ladder__end--run">refit stop<span class="price__sep">·</span>${icon("scrap", 9)}scrap</span>`
+        : "";
+    return `<div class="ladder__row${
+      isOwned ? " ladder__row--owned" : isNext ? " ladder__row--next" : isRun ? " ladder__row--run" : ""
+    }" title="Tier ${t} — ${def.tiers[i]}"><span class="ladder__mark">${mark_}</span><span class="ladder__t">T${t}</span><span class="ladder__stat">${
+      def.tiers[i]}</span>${end}</div>`;
+  };
+
+  const systemDetail = (id: string): string => {
+    const def = upgradeById(id)!;
+    const inst = installById(id)!;
+    const owned = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
+    const next = owned + 1;
+    const cost = uprateCost(inst);
+    const available = installAvailable(meta, inst);
+    const gates = installGates(meta, inst);
+    const onBoard = aboard.includes(id as UpgradeId);
+    const rackFull = aboard.length >= slots;
+    // Nothing in the detail is dimmed for a gated system: this is the one place
+    // the gate is EXPLAINED, so the explanation has to be legible.
+    const tag = owned === 0 ? ""
+      : onBoard
+        ? `<span class="shop-card__tag">aboard</span>`
+        : `<span class="shop-card__tag shop-card__tag--shed">in the shed</span>`;
+    // B6's price grammar, unchanged: "T2 · <salvage> 15" says which tier it buys
+    // in the same words the refit yard uses, with the one difference that
+    // matters — this purchase is salvage, that one scrap.
+    const buy = owned >= UPRATE_MAX_TIER
+      ? `<span class="shop-card__tag">Workshop max</span>`
+      : available
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${id}"
+            aria-label="${priceAria(def.name, owned === 0 ? "install" : "uprate to", `T${next} · ${cost}`, "salvage")}"${
+              meta.salvage >= cost ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
+        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
+    // MOUNT IS A BUTTON NOW, and it is the only control that used to be the
+    // plate. A full rack REFUSES a mount (meta.ts's toggleMount will not evict
+    // anything the player did not choose), so the button goes dark with the
+    // remedy in its title rather than tapping to nothing.
+    // NO MOUNT CONTROL MID-SCHOOL, and it is the same call the rack row is
+    // absent under: which systems fly is a decision about a rig the player is
+    // still one purchase away from having, and the school's flights are flown
+    // with the Reactor the ladder just sold them (school.ts's levelForLesson
+    // applies the loadout). A Stow button here would let a player at step 6
+    // take the system back out of the ship the next lesson is built around.
+    const mountBtn = owned === 0 || school ? ""
+      : `<button class="btn btn--secondary" data-action="mount" data-mount="${id}"${
+          !onBoard && rackFull ? " disabled" : ""}
+          title="${onBoard
+            ? `Stow ${def.name} — it keeps every tier you paid for, it just doesn't undock.`
+            : rackFull
+              ? `The rack is full — stow a system first, or buy a slot.`
+              : `Mount ${def.name} so the next run undocks with it.`}">${onBoard ? "Stow" : "Mount"}</button>`;
+    return `<div class="shop-card workshop__detail">
+      <div class="workshop__detail-hdr">
+        <div class="shop-card__name">${icon(id as IconName, 13)}${def.name}${
+          id === nextId ? nextBadgeHTML() : ""}</div>
+        ${tag}
+      </div>
+      <p class="shop-card__desc workshop__detail-blurb">${def.blurb}</p>
+      <div class="ladder">${
+        [0, 1, 2].map((i) => ladderRow(def, i, owned, available)).join("")}</div>
+      <p class="workshop__note">${FOOTNOTE}</p>${
+        // HONEST COPY FOR A SYSTEM THAT CANNOT MOUNT YET, restored (found in
+        // review). A full rack does not refuse the sale — meta.ts's buyInstall
+        // takes the salvage and the system lands in the shed — so nothing here
+        // is disabled and, without this line, nothing on the screen would tell
+        // the player their new system is not going to undock with them. It was
+        // one clause of the per-card boilerplate the ladder replaced, and it is
+        // the one clause the ladder does NOT say: the rungs are about the
+        // system, this is about the ship. A second note rather than a longer
+        // footnote, because it is true of one purchase and not of the shop.
+        owned === 0 && rackFull
+          ? `<p class="workshop__note workshop__note--warn">The rack is full — this one waits in the shed until you free a slot or buy one.</p>`
+          : ""
+      }
+      <div class="workshop__detail-foot">${mountBtn}${buy}</div>
+    </div>`;
+  };
+
+  const optionDetail = (u: UnlockDef): string => {
+    const owned = meta.unlocks.includes(u.id);
+    const available = unlockAvailable(u, meta.unlocks, mark);
+    const gates = unlockGates(u, meta.unlocks, mark);
+    // An option is not a rung on a track, so its price is just the salvage
+    // glyph and the number — and "Permanent" is the tag, because the Workshop
+    // and the mid-run Refit both sell upgrades and nothing else on screen says
+    // which purchases outlive the run (playtest feedback).
+    const buy = owned
+      ? `<span class="shop-card__tag">✓ Owned</span>`
+      : available
+        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"
+            aria-label="${priceAria(u.name, "unlock for", String(u.cost), "salvage")}"${
+              meta.salvage >= u.cost ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
+        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
+    return `<div class="shop-card workshop__detail">
+      <div class="workshop__detail-hdr">
+        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name}</div>
+        <span class="shop-card__tag">Permanent</span>
+      </div>
+      <p class="shop-card__desc workshop__detail-blurb">${u.desc}</p>
+      <p class="workshop__note">An option is bought once and changes what a run may attempt. It has no tiers.</p>
+      <div class="workshop__detail-foot">${buy}</div>
+    </div>`;
+  };
+
+  const selUnlock = sel === null ? undefined : UNLOCKS.find((u) => u.id === sel);
+  const detail = sel === null ? "" : selUnlock ? optionDetail(selUnlock) : systemDetail(sel);
+
+  return detail;
+}
+
+/**
+ * WHAT THE SCREEN OPENS ON — the recommendation if there is one, else the first
+ * plate in the panel.
+ *
+ * Exported because main.ts holds the selection across re-renders (a purchase
+ * must not move it) and therefore has to resolve the default ONCE, on the way
+ * in. Same function both sides, so the screen can never open on a plate the
+ * state layer does not think is selected.
+ *
+ * A `slot` recommendation resolves to no system, and that is correct rather
+ * than a gap: the answer is the +1 plate, which wears the badge itself. The
+ * fallback then takes the first plate, which is the rack's first system — the
+ * thing the player is most likely to be here about.
+ */
+export function workshopDefaultSelection(meta: MetaState): string | null {
+  const order = workshopPlateOrder(meta);
+  const rec = recommendedPurchase(meta);
+  if (rec && rec.kind !== "slot" && rec.id && order.includes(rec.id)) return rec.id;
+  return order[0] ?? null;
+}
+
+/** Does this save's Workshop actually draw a plate for `id`?
+ *
+ *  Exported for main.ts's onSelectSystem, which must refuse an id the panel
+ *  does not draw rather than store it: the screen would fall back on its own,
+ *  but then `workshopSelected` and the rendered `aria-pressed` plate would be
+ *  two different systems — the drift the shared resolver below exists to
+ *  prevent, re-introduced one layer up. (Found in review: the handler's comment
+ *  claimed this check and the code did not make it.) */
+export function workshopHasPlate(meta: MetaState, id: string): boolean {
+  return workshopPlateOrder(meta).includes(id);
+}
+
+/** The plate the panel and the detail must agree on: the caller's, when the
+ *  panel still draws it, and the default otherwise. One function, because
+ *  fixtures, pins and main.ts all address the screen by id and a stale one must
+ *  resolve the same way for every caller. */
+function workshopSelection(meta: MetaState, selected: string | null): string | null {
+  return selected !== null && workshopHasPlate(meta, selected)
+    ? selected
+    : workshopDefaultSelection(meta);
+}
+
+export function workshopScreen(
+  meta: MetaState,
+  /** The live input family (D2) — a plate says what to DO to it, and what that
+   *  is depends on the device (bindings.ts's hintPress). Defaults to touch,
+   *  which is what every caller said before the verb was a table. */
+  profile: InputProfile = "touch",
+  /** The plate whose ladder the detail is drawing (main.ts's
+   *  workshopSelected). Null — and anything no longer on the panel — falls back
+   *  to workshopDefaultSelection, so a fixture or a pin can address any system
+   *  directly and a stale id cannot render an empty detail. */
+  selected: string | null = null,
+): string {
+  // Mid-school this screen is one plate and a blurb; the argument for that, and
+  // the list of what it hides, is at workshopRack's own `school` branch.
   const school = !licenceDone(meta);
   // THE WORKSHOP'S RUNG IS DONE AND THE LADDER HAS MOVED ON. The one state in
   // which this screen is a step the player has just COMPLETED rather than a
   // shop they are browsing — and the state that had no way out of it. See the
   // primary at the foot of this file.
   const schoolGo = school && rigStarted(meta);
-  // Retired unlocks (the mod-pool shelf — see meta.ts's UnlockDef.retired)
-  // are never merchandise and never reference: they do nothing, so listing
-  // them anywhere would be the dishonest shelf this filter removes.
-  const live = school ? [] : UNLOCKS.filter((u) => !u.retired);
-  const owned = live.filter((u) => meta.unlocks.includes(u.id));
-  const forSale = live.filter((u) => !meta.unlocks.includes(u.id))
-    .sort((a, b) => a.rank - b.rank || a.cost - b.cost);
 
-  const cards = forSale
-    .map((u) => {
-      const available = unlockAvailable(u, meta.unlocks, mark);
-      const affordable = meta.salvage >= u.cost;
-      const gates = unlockGates(u, meta.unlocks, mark);
-      // B6's grammar without a tier: an option is not a rung on a track, so
-      // its price is just the salvage glyph and the number.
-      const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"
-            aria-label="${priceAria(u.name, "unlock for", String(u.cost), "salvage")}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
-        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
-      // "Permanent" on every card (playtest feedback): the Workshop and the
-      // mid-run Refit both sell upgrades, and nothing on screen said which
-      // purchases outlive the run. This is the one that does.
-      return `<div class="shop-card${available ? "" : " shop-card--gated"}">
-      <div class="shop-card__body">
-        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name} <span class="shop-card__tag">Permanent</span></div>
-        <p class="shop-card__desc">${u.desc}</p>
-      </div>
-      <div class="shop-card__foot">${foot}</div>
-    </div>`;
-    })
-    .join("");
-
-  const ownedStrip = owned.length
-    ? `<div class="workshop__owned">
-        <span class="workshop__owned-label">✓ Owned</span>
-        ${owned.map((u) => `<span class="workshop__owned-item">${u.name}</span>`).join("")}
-      </div>`
-    : "";
-
-  // ---- Systems -------------------------------------------------------------
-  // Installs sit ABOVE the unlock cards: a system is permanent power the player
-  // keeps, an unlock is an option that may or may not be dealt, and the shop
-  // should lead with the one that is guaranteed to matter. The budget readout
-  // rides on the section label because the cap, not the price, is what usually
-  // stops a purchase here — a player staring at 400 salvage and a greyed card
-  // needs to be told it is the Mark talking.
-  // A11: the ONE next-step card — the cheapest system the player can both
-  // reach and afford right now carries the badge and the warm border, so the
-  // shelf answers "which of these should I buy" instead of just listing.
-  // The shelf carries a track until the WORKSHOP is done with it, not until it
-  // is owned: tier 1 is the install, tier 2 the uprate, and tier 3 belongs to
-  // the refit stop's scrap. A card that vanished the moment a track was bought
-  // is what left budgetForMark with nothing to gate — 140 points of reachable
-  // loadout against a budget that climbs to 880.
-  const onShelf = (i: InstallDef): boolean =>
-    (meta.loadout[i.id] ?? 0) < UPRATE_MAX_TIER && (!school || i.id === SCHOOL_INSTALL);
-  // HONEST COPY FOR A SYSTEM THAT CANNOT MOUNT YET. A full rack does not refuse
-  // the sale (meta.ts's buyInstall says why), so nothing on the card is
-  // disabled and nothing else on screen would tell the player their new system
-  // is going straight into the shed. This sentence is the whole difference
-  // between a purchase and a surprise.
-  const rackFull = mountedIds(meta).length >= slotsFor(meta);
-  // THE BADGE IS NOT THIS SCREEN'S OPINION ANY MORE. It used to be the cheapest
-  // affordable card, decided here, while the menu decided independently whether
-  // to badge the Workshop at all — two rules that agreed only by coincidence,
-  // and disagreed the moment "cheapest" stopped being "best". Both now read
-  // meta.ts's recommendedPurchase, which ranks (a new system over a second
-  // uprate while a slot is free, then installShelf's order).
-  //
-  // A `slot` recommendation highlights NO card, and that is correct rather than
-  // a gap: the answer is the rack's own +1 button, which is a primary button
-  // sitting directly above this shelf. Glowing a card the recommendation did
-  // not name would be the drift this change removes, in the other direction.
+  // ONE RESOLUTION PER RENDER, for both halves. The selection and the
+  // recommendation are each a pure function of the save, so re-deriving them in
+  // the two panels could not disagree today — but it is two more places to edit
+  // and three walks of the plate order per render, and the whole reason the
+  // panel and the detail are separate functions is that they are edited apart.
+  const sel = workshopSelection(meta, selected);
   const rec = recommendedPurchase(meta);
-  const nextId = rec && rec.kind !== "slot" ? rec.id : undefined;
-  // installShelf, not INSTALLS: the array is the PRICE ladder (meta.ts's essay
-  // walks it in price order), and the shop is sorted by what to buy first.
-  const installCards = installShelf().filter(onShelf)
-    .map((i) => {
-      const def = upgradeById(i.id)!;
-      const owned = meta.loadout[i.id] ?? 0;
-      const next = owned + 1;
-      const cost = uprateCost(i);
-      const available = installAvailable(meta, i);
-      const affordable = meta.salvage >= cost;
-      const gates = installGates(meta, i);
-      // B6: one price grammar — "T1 · <salvage> 15", and now "T2 · 15" for the
-      // same track's second rung. The button says which tier it buys in the
-      // same words the refit yard's buy buttons use, with the one difference
-      // that matters: this purchase is salvage, that one scrap.
-      const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"
-            aria-label="${priceAria(def.name, owned === 0 ? "install" : "uprate to", `T${next} · ${cost}`, "salvage")}"${affordable ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
-        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
-      return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
-      <div class="shop-card__body">
-        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
-        <p class="shop-card__desc">${def.blurb} ${
-          owned === 0
-            ? `Installs at tier 1; the Workshop raises it to ${UPRATE_MAX_TIER}, refit stops to ${MAX_TIER}.${
-                rackFull ? " The rack is full — this one waits in the shed until you free a slot or buy one." : ""}`
-            : `Owned at tier ${owned}. Tier ${MAX_TIER} is scrap, at a refit stop.`
-        }</p>
-      </div>
-      <div class="shop-card__foot">${foot}</div>
-    </div>`;
-    })
-    .join("");
 
-  /* ---- The rack ----------------------------------------------------------
-   * WHAT A RUN CARRIES, and the one screen where that is a decision.
-   *
-   * It sits ABOVE the shelf and inside the scroller, and both placements are
-   * arguments rather than defaults.
-   *
-   * Above, because it is what the shelf is FOR. The Workshop's whole ordering
-   * rule is "lead with the decision you came here to make" (see the owned-
-   * collapse note above), and once a player owns more systems than they can
-   * mount, which four fly is a bigger decision than which fifth to buy — it is
-   * remade before every run, where a purchase is made once.
-   *
-   * Inside the scroller rather than pinned in the aside beside the build
-   * budget, because the two constraints do different things to the shelf. The
-   * budget GREYS CARDS — it is the usual reason a purchase is refused, so
-   * scrolling it away from the cards it explains would be the one thing this
-   * pane must not do (the aside's own note). A full rack refuses nothing: the
-   * purchase still goes through and the system lands in the shed
-   * (meta.ts's buyInstall). A constraint that never disables a button does not
-   * need to be pinned beside the buttons.
-   */
-  const slots = slotsFor(meta);
-  const aboard = mountedIds(meta);
-  const shed = stowedIds(meta);
-  const nextSlot = slotPrice(slots);
-  // ONE CONTROL PER SYSTEM, and it is the same control in both rows: one press
-  // moves it across. The refit yard settled this idiom for the same reason
-  // (upgrades.ts's clearTrack — "the tap floor leaves room for one"), and here
-  // it also means the shed is not a second kind of thing to learn; it is the
-  // rack's other half.
-  //
-  // The tooltip names that press in the DEVICE'S own word (D7) rather than
-  // saying "tap" to a mouse: this string is a `title`, so a fine pointer
-  // hovering it is very nearly the only way anyone reads it — which made
-  // "tap to stow" wrong for almost everybody who could see it at all.
-  const press = hintPress(profile);
-  const slotBtn = (id: string, on: boolean): string => {
-    const def = upgradeById(id)!;
-    const tier = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
-    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
-      `<i class="${i < tier ? "on" : ""}"></i>`).join("");
-    return `<button class="rack-slot${on ? "" : " rack-slot--shed"}" data-action="mount" data-mount="${id}"
-      title="${def.name} — tier ${tier}. ${on ? `Aboard; ${press} to stow.` : `In the shed; ${press} to mount.`}"
-      aria-label="${def.name}, ${on ? "aboard" : "in the shed"}">
-      <span class="rack-slot__g">${icon(id as IconName, 15)}</span>
-      <span class="ship-plate__pips">${pips}</span>
-    </button>`;
-  };
-  // An OPEN slot is a button too, and a disabled one — not a bare div. It is
-  // the target a player's thumb goes for after tapping something in the shed,
-  // and a control that is sometimes an element and sometimes not is a row that
-  // re-flows under the finger.
-  const openSlots = `<span class="rack-slot rack-slot--open" aria-hidden="true"></span>`
-    .repeat(Math.max(0, slots - aboard.length));
-  const slotFoot = nextSlot === null
-    ? `<span class="rack__full">every slot bought</span>`
-    : `<button class="btn btn--primary" data-action="buy-slot"${meta.salvage >= nextSlot ? "" : " disabled"}>+1 slot<span class="price__sep">·</span>${icon("salvage", 11)}${nextSlot}</button>`;
-  const rackHTML = `<section class="rack">
-      <div class="rack__hdr">
-        <span class="workshop__aside-label">rack</span>
-        <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots<span class="price__sep">·</span>${
-          // THE POINTS ABOARD, beside the budget's own readout in the aside and
-          // deliberately a different number from it. The budget counts what is
-          // OWNED, which is right — a tier you paid for is spent whether or not
-          // it undocks — but at the top of the ladder a rig can own 550 points
-          // and fly 220 of them, and a screen that only ever printed the first
-          // number would be describing a rig nobody flies. This is the one the
-          // bay actually meets.
-          tiersCost(maskLoadout(meta.loadout, aboard))
-        } pts aboard</span>
-        ${slotFoot}
-      </div>
-      <div class="rack__row">${aboard.map((id) => slotBtn(id, true)).join("")}${openSlots}</div>
-      ${shed.length
-        ? `<div class="rack__shed"><span class="rack__shed-label">shed</span>${
-            shed.map((id) => slotBtn(id, false)).join("")}</div>`
-        : ""}
-      <p class="rack__note muted">${
-        shed.length
-          ? "Systems in the shed keep every tier you paid for — they just don't undock. A refit stop can only raise what is aboard."
-          : "Every system you own is aboard. Buy a slot before the roster outgrows the rack."
-      }</p>
-    </section>`;
-
-  // Shelf order here too: one screen, one order. A reference strip sorted by
-  // price under a shelf sorted by rank is the same drift in miniature.
-  const installedStrip = installShelf().filter((i) => (meta.loadout[i.id] ?? 0) > 0)
-    .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
-    .join("");
-
-  // ONE SHELF. The Systems/Options tabs are gone.
-  //
-  // They split the shop by a distinction the player does not have: both halves
-  // are salvage, spent once, kept forever. What the split actually did was
-  // hide merchandise — the tab bar had to carry per-tab COUNTS precisely
-  // because, in its own words, "a tab that just says Options gives a player no
-  // reason to look, and the cheapest unlock they can afford is behind it". A
-  // shelf that needs a badge advertising the half you cannot see is one shelf
-  // too many.
-  //
-  // Systems lead, which is the ordering the tab bar was already asserting by
-  // putting them first: a system is power you are guaranteed to keep, an
-  // option changes what a run may attempt. Same order, no click.
-  const shelf = installCards + cards;
-  const shelfEmpty = !shelf;
-
-  // What you already have, at the FOOT of the shelf. Both strips used to ride
-  // in the fixed aside beside it, and that was a fit bug waiting for a save
-  // that owned anything: the aside cannot scroll (sim/uifit asserts it, and it
-  // is not on the allowlist), so on a landscape phone a Mark-3 loadout ran its
-  // five installed names straight down past the pane and level with Start Run.
-  // The new `workshop-owned` fixture is what caught it — the old one was
-  // `newMeta()` with three numbers on it, and owned nothing.
-  //
-  // Reference belongs where reference can scroll, and BELOW the merchandise:
-  // the shop leads with what you can buy, exactly as the owned-collapse note
-  // above argues, and the answer to "what do I already have" is one flick away
-  // rather than in the way.
-  const haveStrips =
-    (installedStrip
-      ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
-      : "") + ownedStrip;
-
-  // The FIXED column, and now ONLY the budget. What stays pinned is what
-  // CONSTRAINS a purchase — the cap the Mark sets is the usual reason a card is
-  // greyed out, and scrolling it away from the cards it explains is the one
-  // thing this pane must not do. Everything else in here was reference, and
-  // reference does not need to be pinned; it needs to be readable, which is
-  // what moving it into the scroller buys.
-  const aside = `<aside class="workshop__aside">
-        <div class="workshop__budget-box">
-          <span class="workshop__aside-label">build budget</span>
-          <span class="workshop__budget">${tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
-        </div>
-      </aside>`;
+  const rackPanel = workshopRack(meta, sel, rec, profile);
+  const detail = workshopDetail(meta, sel, rec);
 
   return `<div class="screen neon-backdrop">
     <div class="workshop">
@@ -5742,27 +6005,15 @@ export function workshopScreen(
           <div class="eyebrow">Between runs</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
           <p class="muted workshop__blurb" style="margin:0">${
-            // THE FIRST VISIT SAYS WHAT THE SHOP IS FOR, not how it is paid.
-            // The standing blurb explains the faucet, which is the sentence a
-            // player wants once they have a shelf to compare — but the player
-            // who has just cleared their first Contract is here for one
-            // purchase and has no idea it is the thing that opens the exam.
-            // Named off rigStarted, the same predicate the tower's door asks,
-            // so the promise here and the lock there cannot drift.
-            // THREE STATES NOW, and the school owns two of them. The
-            // standing blurb explains the FAUCET, which is the sentence a
-            // player wants once they have a shelf to compare; the player on
-            // this gate has one card and no idea what buying it does, and the
-            // player who has just bought it needs to know the ladder moved.
-            // Named off the ladder itself, the same predicate the shelf above
-            // is filtered by, so the promise here and the merchandise cannot
-            // drift.
+            // THREE STATES, and the school owns two of them. The standing blurb
+            // explains the FAUCET, which is the sentence a player wants once
+            // they have a shelf to compare; the player on this gate has one
+            // plate and no idea what buying it does, and the player who has just
+            // bought it needs to know the ladder moved. Named off the ladder
+            // itself, the same predicate the panel above is filtered by, so the
+            // promise here and the merchandise cannot drift.
             school
               ? rigStarted(meta)
-                // THE BLURB SAYS THE LADDER MOVED, and the primary at the foot
-                // of the screen is how you follow it. It said the lessons were
-                // "open at the school" — true, and it named no way to get
-                // there, which is the gap the owner fell into.
                 ? `${upgradeById(SCHOOL_INSTALL)!.name} is installed and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} are open — carry on below. A system is permanent: bought once, flown in every bay after.`
                 : `One system, and it is the last thing between you and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT}. A system is permanent — bought once, flown in every run after — so nothing here is spent twice.`
               : rigStarted(meta)
@@ -5779,13 +6030,9 @@ export function workshopScreen(
         </div>
       </div>
       <div class="workshop__meta muted">${
-        // A11: the meta line carries tier progress, in the same grammar the
-        // menu chip and the end modals use — EXCEPT during school, where every
-        // term of it is a claim about a tier the player cannot fly yet. "0 runs
-        // logged · deepest bay — · Tier 1 — Deep Run ○ · Contracts 1/3" reads
-        // as a quota of three owed, on a floor whose board deals one card. The
-        // ladder is the progress this player has, so the ladder is what the
-        // line reports.
+        // A11: the meta line carries tier progress, in the same grammar the menu
+        // chip and the end modals use — EXCEPT during school, where every term
+        // of it is a claim about a tier the player cannot fly yet.
         school
           ? `Flight School · step ${schoolProgress(meta)} of ${SCHOOL_STEPS}`
           : `${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"} · ${
@@ -5796,38 +6043,28 @@ export function workshopScreen(
           }`
       }</div>
       <div class="workshop__body">
-        ${aside}
-        <div class="workshop__shop" data-scroll>${school ? "" : rackHTML}${
-          shelfEmpty
-            ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
-            : `<div class="workshop__grid">${shelf}</div>`
-        }${haveStrips}</div>
+        ${rackPanel}
+        ${detail}
       </div>
       <div class="row workshop__go">
         <!-- THE SHOP'S OTHER DOOR (playtest feedback). The Workshop is where a
-             player finds out they are short of salvage — every greyed price on
-             the shelf above says so — and until now the only way out of that
-             discovery was back through the home screen. Contracts are what pay
-             salvage (the blurb at the top of this screen says so in the same
-             breath), so the door belongs on the screen that creates the want.
+             player finds out they are short of salvage — every dead price in the
+             detail says so — and until now the only way out of that discovery
+             was back through the home screen. Contracts are what pay salvage
+             (the blurb at the top says so in the same breath), so the door
+             belongs on the screen that creates the want.
 
-             SECONDARY, beside the primary rather than replacing it: Start Run
-             is still what the Workshop is FOR, and a shop whose loudest button
+             SECONDARY, beside the primary rather than replacing it: Start Run is
+             still what the Workshop is FOR, and a shop whose loudest button
              sends you shopping somewhere else has lost the plot. The badge is
              meta.ts's nextStep, exactly as on the home screen and the run-end
-             card — and it can never collide with this screen's OTHER badge,
-             the next-step install card above, because those two states are the
-             same rule's two branches: an affordable install makes the Workshop
-             the next step, and nothing else makes Contracts it. -->
+             card — and it can never collide with this screen's OTHER badge, the
+             recommended plate, because those two states are the same rule's two
+             branches: an affordable install makes the Workshop the next step,
+             and nothing else makes Contracts it. -->
         <button class="btn btn--secondary btn--lg${nextStep(meta) === "contracts" ? " btn--next" : ""}" data-action="contracts">${
           icon("contracts")
         }Contracts${nextStep(meta) === "contracts" ? nextBadgeHTML() : ""}</button>
-        <!-- …AND THE DOOR IS THE SAME DOOR HERE. Start Run is a second entrance
-             to the exam (main.ts's startGame), so a shop that could launch a
-             run the tower refuses would be the laxer of two doors into one
-             room — the exact failure meta.ts's buyInstall note argues against
-             for the loadout. The label says what is missing rather than going
-             mute, because this button sits on the screen that sells the fix. -->
         <!-- THE WAY BACK ONTO THE LADDER, and it is this button.
              The Workshop is a RUNG of Flight School (meta.ts's schoolLadder),
              and once the Reactor is bought that rung is done — but the screen
@@ -5850,8 +6087,8 @@ export function workshopScreen(
           // THE LABEL SAYS WHAT IS MISSING, and while the school is unfinished
           // what is missing is the school — not a system. This button is a
           // second entrance to the exam (main.ts's startGame), and a shop that
-          // could launch a run the tower refuses would be the laxer of two
-          // doors into one room.
+          // could launch a run the tower refuses would be the laxer of two doors
+          // into one room.
           schoolGo ? "Continue Flight School →"
             : !licenceDone(meta) ? `Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`
             : rigStarted(meta) ? "Start Run" : "Install a system to fly"

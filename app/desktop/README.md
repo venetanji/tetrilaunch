@@ -66,6 +66,14 @@ code-signing step:
 | macOS | dmg + zip, x64 and arm64 | `Tetrilaunch-<version>-mac-<arch>.dmg` / `.zip` |
 | Linux | AppImage, x64 | `Tetrilaunch-<version>-linux-x86_64.AppImage` |
 
+A fourth target, `dir`, is declared in each platform block and produces no
+installer at all — just the **unpacked application directory** the installers
+are made from, which is the artifact a Steam depot wants. `npm run
+desktop:dist:steam` from `app/` builds only that (and runs the desktop
+monetization check over the bundle first); `store/steam/README.md` pins the
+per-platform paths. Measured on x64 Linux: `release/linux-unpacked/`, 71 files,
+315 MB, `tetrilaunch` at the root, and no AppImage beside it.
+
 Output goes to `release/` (gitignored). `npm run desktop:dist` from `app/`
 builds the `--mode native` bundle first and then packages; `desktop:dist:win`,
 `:mac` and `:linux` pin the platform. Cross-building is limited: a dmg needs
@@ -105,23 +113,131 @@ on Apple Silicon — the build would be dead on arrival on every recent Mac.
 `"-"` is the ad-hoc identity: no certificate, no authority, but a real
 signature, which is what arm64 requires.
 
-The macOS workflow requires these GitHub Actions repository secrets:
+The macOS workflow requires these six secrets, and they live in the
+**`desktop-build` environment** — not at repository level. Same reasoning as
+`android-build` and `ios-build`: an environment can carry protection rules a
+repo secret cannot. `desktop.yml`'s packaging job is bound to it with
+`environment: desktop-build`; **a job without that binding reads every one of
+these as the empty string** and fails at the guard as though nothing were ever
+configured. That is not a hypothetical — it is how the v1.0.4 desktop build
+failed.
 
 | Secret | Value |
 | --- | --- |
 | `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing the Developer ID Application certificate and private key |
 | `MACOS_CERTIFICATE_PASSWORD` | Password used when exporting that `.p12` |
-| `MACOS_SIGNING_IDENTITY` | Full identity, for example `Developer ID Application: Example Ltd (TEAMID)` |
-| `APPLE_ID` | Apple Account used for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for that Apple Account |
-| `APPLE_TEAM_ID` | Ten-character Apple Developer Team ID |
+| `MACOS_SIGNING_IDENTITY` | The certificate name **without** the `Developer ID Application:` prefix, e.g. `Example Ltd (TEAMID)` — electron-builder prepends the cert type itself and errors if you include it |
+| `ASC_API_KEY_P8` | Base64 of the App Store Connect API key (`.p8`) — **the same value `ios-build` holds** |
+| `ASC_API_KEY_ID` | That key's ID, e.g. `2X9R4HXF34` — same as `ios-build` |
+| `ASC_API_ISSUER_ID` | The issuer UUID from the same page — same as `ios-build` |
 
-Export the certificate from Keychain Access, then encode it without line wraps
-before storing it as `MACOS_CERTIFICATE`:
+Only the first three are new. The last three are the credential `ios.yml`
+already uses to upload to TestFlight: `notarytool` accepts an App Store Connect
+API key in place of an Apple ID and app-specific password, so a Developer ID
+release needs no second credential invented for it. Environment secrets are not
+shared between environments, so the values still have to be *copied* into
+`desktop-build` — but there is nothing new to create.
+
+Preferring the API key is not only about reuse. An app-specific password hangs
+off a personal Apple account and stops working the moment that password changes
+or the entry is revoked, which surfaces as a release failing notarization months
+after anyone touched this workflow.
+
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are **not** used
+here, and adding the first two back would actively break things: app-builder-lib
+tests for that pair before looking for an API key, so setting either one commits
+it to a path it cannot then complete.
+
+The certificate is a **Developer ID Application** one — the certificate type
+for software shipped outside the Mac App Store, and *not* the Apple
+Distribution certificate `ios-build` uses. Only the Apple Developer Program
+**Account Holder** can create one; Admins cannot. The team is capped at five,
+and revoking one invalidates the signature on builds already in the wild, so
+treat it as long-lived.
+
+#### Producing the `.p12` without a Mac
+
+Keychain Access is the usual route and is not the only one — nothing here
+needs a Mac. Everything Mac-only (`codesign`, `stapler`, the notarization
+submission) happens on the CI runner; locally you only ever handle files.
+
+```bash
+# The private key. Apple never sees this file; losing it means a new cert.
+openssl genrsa -out developerID.key 2048
+
+# The CSR to upload at developer.apple.com → Certificates → + →
+# Developer ID Application. Download the .cer it returns.
+openssl req -new -key developerID.key -out developerID.certSigningRequest \
+  -subj "/emailAddress=you@example.com/CN=Your Name/C=US"
+
+# That .cer is the public half only, in DER. Convert it,
+openssl x509 -inform DER -in developerID_application.cer -out developerID.pem
+
+# fetch Apple's intermediate — see below for why,
+curl -O https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+openssl x509 -inform DER -in DeveloperIDG2CA.cer -out DeveloperIDG2CA.pem
+
+# and bundle key + leaf + chain together.
+openssl pkcs12 -export -legacy \
+  -inkey developerID.key \
+  -in developerID.pem \
+  -certfile DeveloperIDG2CA.pem \
+  -out DeveloperIDApplication.p12 \
+  -passout pass:CHOOSE_A_PASSWORD
+```
+
+Two flags in that last command are the ones that save a debugging session:
+
+- **`-certfile`** puts Apple's intermediate in the bundle. Without it the
+  `.p12` imports cleanly and then `codesign` cannot build a chain to a trusted
+  root — an error that names neither the intermediate nor the cause. A `.p12`
+  exported from Keychain Access on a Mac carries the chain already, which is
+  why this trap is invisible in the usual instructions.
+- **`-legacy`** picks the PKCS#12 encryption macOS's `security import` accepts.
+  OpenSSL 3 defaults to AES-256, which it has been known to refuse.
+
+Then encode it without line wraps:
 
 ```bash
 base64 < DeveloperIDApplication.p12 | tr -d '\n'
 ```
+
+`MACOS_SIGNING_IDENTITY` is the certificate's Common Name **with the
+`Developer ID Application:` prefix stripped off**. electron-builder prepends
+the certificate type itself and throws `InvalidConfigurationError: Please
+remove prefix "Developer ID Application:"` if the prefix is present — so the
+full CN, which is what a first attempt naturally reaches for, is exactly the
+value that fails. From the PEM above:
+
+```bash
+openssl x509 -in developerID.pem -noout -subject
+# subject=UID=ABCDE12345, CN=Developer ID Application: Example Ltd (ABCDE12345), ...
+# -> MACOS_SIGNING_IDENTITY = Example Ltd (ABCDE12345)
+```
+
+Take the `CN=` value and drop the leading `Developer ID Application: `. Its
+parenthesised suffix is also `APPLE_TEAM_ID`.
+
+Setting all six, given the values above:
+
+```bash
+gh api -X PUT repos/:owner/:repo/environments/desktop-build   # once, if it does not exist
+
+base64 < DeveloperIDApplication.p12 | tr -d '\n' |
+  gh secret set MACOS_CERTIFICATE --env desktop-build
+gh secret set MACOS_CERTIFICATE_PASSWORD       --env desktop-build
+gh secret set MACOS_SIGNING_IDENTITY           --env desktop-build
+
+# The App Store Connect trio, same values already in ios-build.
+base64 < AuthKey_XXXXXXXXXX.p8 | tr -d '\n' |
+  gh secret set ASC_API_KEY_P8 --env desktop-build
+gh secret set ASC_API_KEY_ID                   --env desktop-build
+gh secret set ASC_API_ISSUER_ID                --env desktop-build
+```
+
+Then rehearse with a `workflow_dispatch` of `desktop.yml` before tagging: it
+builds and signs identically but creates no release, so a wrong certificate
+costs a re-run rather than a half-published release.
 
 The workflow fails before packaging if any secret is missing; it never silently
 publishes an ad-hoc build as a signed release.
@@ -212,6 +328,11 @@ No auto-update and no Steamworks. Achievements, Steam Cloud and an update
 channel are their own piece of work; `publish` is explicitly `null` in
 `electron-builder.yml` so nothing generates half an update manifest in the
 meantime.
+
+The Steam half of that is planned in **[docs/STEAM.md](../../docs/STEAM.md)** —
+including the one thing this package's targets do not yet produce, which is the
+*unpacked* application directory a depot actually wants rather than the three
+installers above.
 
 ## Measured (2026-08-26, on the reference Windows box)
 

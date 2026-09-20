@@ -38,6 +38,20 @@ keystore.properties
 *.p8
 *.p12
 *.mobileprovision
+# ...and the Apple material the extension rules miss: a .cer or .pem is only a
+# certificate (public), but a .key/.csr sitting beside one is the private half,
+# and together they reconstruct the .p12. Rather than chase extensions, the
+# whole folder is ignored and only its README survives — the same shape as the
+# audio/ rule below. See secrets/README.md.
+secrets/*
+!secrets/README.md
+
+# Steamworks SDK. A ~25 MB zip plus a 270-entry tree, redistributable binaries
+# and a ContentBuilder that bakes in absolute paths; it is a versioned download
+# from partner.steamgames.com, not source. tools/steamworks/README.md records
+# which version to fetch and where it goes.
+tools/steamworks/*
+!tools/steamworks/README.md
 
 # audio masters. The generated originals are the biggest thing in the project
 # and are only needed when re-trimming; the PROCESSED assets under

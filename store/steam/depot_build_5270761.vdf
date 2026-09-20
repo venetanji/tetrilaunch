@@ -1,0 +1,15 @@
+// Windows depot for Tetrilaunch. Content: app/desktop/release/win-unpacked/.
+// Launch binary (set in the Steamworks App Admin launch options, NOT here):
+// Tetrilaunch.exe at the depot root.
+"DepotBuild"
+{
+	"DepotID" "5270761"   // CONFIRM against the dashboard.
+
+	"FileMapping"
+	{
+		// Relative to the AppBuild's ContentRoot (app/desktop/release/).
+		"LocalPath" "win-unpacked/*"
+		"DepotPath" "."
+		"Recursive" "1"
+	}
+}

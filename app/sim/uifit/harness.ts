@@ -17,7 +17,7 @@ import "../../src/styles/app.css";
 import { computeLayout, RAIL_GAP, railSlotsFor, setRailSlots, type Insets } from "../../src/game/layout";
 import { setPadFamily, type PadFamily } from "../../src/game/bindings";
 import { applySafeAreaInsets } from "../../src/lib/platform";
-import { focusBoxes, focusOn, focusTargets } from "../../src/ui/padnav";
+import { focusBoxes, focusOn, focusTargets, moveFocus, type NavDir } from "../../src/ui/padnav";
 import { railLoadoutFor, rootHooksFor, SCREENS, SCREEN_IDS } from "./fixtures";
 
 const overlay = document.getElementById("overlay") as HTMLElement;
@@ -149,6 +149,10 @@ export interface UiFitApi {
   padTargets(): HTMLElement[];
   padFocus(el: HTMLElement): void;
   padBoxes(el: HTMLElement): ReturnType<typeof focusBoxes>;
+  /** One D-pad step over the rendered screen — the REAL moveFocus, so a check
+   *  that a press scrolls a pane before leaving it (PR #218) measures the
+   *  shipping behaviour rather than a script's idea of it. */
+  padMove(dir: NavDir): boolean;
 }
 
 declare global {
@@ -201,6 +205,7 @@ const api: UiFitApi = {
   padTargets: () => focusTargets(overlay),
   padFocus: (el) => focusOn(el),
   padBoxes: (el) => focusBoxes(el),
+  padMove: (dir) => moveFocus(overlay, dir),
 };
 
 window.__uifit = api;

@@ -1,4 +1,4 @@
-name: Desktop builds
+name: Desktop build & release
 
 # Windows installer, macOS dmg/zip and Linux AppImage, published to a GitHub
 # Release.
@@ -31,6 +31,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      # Steam upload is OFF by a normal dispatch and never happens on a tag or a
+      # published release: it is a separate, deliberate act. Tick this box in the
+      # Actions UI to also push the unpacked build to the Steam depots' `playtest`
+      # BETA branch (never the default branch — that promotion stays a manual
+      # click in App Admin). See store/steam/README.md and docs/STEAM.md Phase 5.
+      steam_upload:
+        description: "Also upload the build to Steam (playtest beta branch)"
+        type: boolean
+        default: false
 
 # Read-only by default. Only the release job below widens this, and only to
 # contents: write, which is what creating a release and uploading assets needs.
@@ -50,6 +60,24 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    # THE macOS SIGNING SECRETS LIVE IN AN ENVIRONMENT, NOT AT REPO LEVEL, and
+    # without this line the job cannot see them: an unbound job reads every
+    # environment secret as the empty string and dies at the guard below with
+    # "Required macOS signing secret CSC_LINK is not configured" — which reads
+    # like a secret nobody ever set, even when all six are sitting in the
+    # environment. That is exactly how run #11 and #12 failed on v1.0.4, with
+    # APPLE_TEAM_ID blank here while ios.yml was reading the same-named secret
+    # fine from `ios-build`. Same trap android.yml and ios.yml document.
+    #
+    # Bound for the whole matrix rather than the macOS leg alone. Windows and
+    # Linux reference none of these secrets, so nothing extra is materialised
+    # into those runners, and `desktop-build` is the honest name for the one
+    # place this workflow's credentials live — including the Windows EV
+    # code-signing certificate that desktop/README.md anticipates buying.
+    # Conditioning the binding on `matrix.script` instead would hang a release
+    # on an empty-string environment name, which is not a bet worth taking for
+    # a workflow that only ever runs on a tag.
+    environment: desktop-build
     strategy:
       # One platform's toolchain breaking should still tell you about the other
       # two, and on a tag build you want to see every failure at once rather
@@ -128,6 +156,16 @@ jobs:
       - name: Build the native-mode web bundle
         run: npm run build:native
 
+      # The desktop monetization boundary (docs/STEAM.md). The unpacked tree this
+      # workflow can ship to a Steam depot must carry no purchase surface — no
+      # RevenueCat key of any shape, and the two gate markers must survive
+      # minification. This asserts it over the emitted dist/ bundle the same way
+      # `desktop:dist:steam` does locally. Cheap, platform-independent, and it
+      # fails loudly here rather than in a depot. Runs on every leg because the
+      # bundle is the same on all three and the check is a few greps.
+      - name: Verify the desktop bundle carries no store
+        run: npm run verify:store:desktop
+
       - name: Install the desktop package's dependencies
         run: npm ci
         working-directory: app/desktop
@@ -159,9 +197,24 @@ jobs:
 
       # electron-builder imports the base64 PKCS#12 from CSC_LINK into a
       # temporary keychain, signs the app and dmg with Developer ID, then asks
-      # Apple to notarize the dmg. The checked-in config stays ad-hoc so a local
+      # Apple to notarize it. The checked-in config stays ad-hoc so a local
       # build without secrets remains useful; these overrides are deliberately
       # confined to the macOS CI leg.
+      #
+      # NOTARIZATION AUTHENTICATES WITH THE App Store Connect API KEY, not an
+      # Apple ID and app-specific password. notarytool takes either, and the
+      # API key is the one this repo already has: ios-build holds the same
+      # three values for the TestFlight upload, so a Developer ID release needs
+      # no second credential invented for it. It is also the more durable half
+      # of the choice — an app-specific password hangs off a personal Apple
+      # account and dies silently when that password is changed or the entry is
+      # revoked, taking the next release with it.
+      #
+      # DO NOT ADD APPLE_ID OR APPLE_APP_SPECIFIC_PASSWORD TO THIS STEP'S env.
+      # app-builder-lib's getNotarizeOptions tests that pair FIRST and, if
+      # either is merely present, commits to it and throws when the rest of the
+      # trio is missing — so a half-set Apple ID would break notarization that
+      # the API key below would otherwise have completed.
       - name: Package, sign and notarize macOS
         if: matrix.script == 'dist:mac'
         working-directory: app/desktop
@@ -169,22 +222,76 @@ jobs:
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
           set -euo pipefail
-          for name in CSC_LINK CSC_KEY_PASSWORD MACOS_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::Required macOS signing secret $name is not configured"
+          # Secret name : the env var it arrives as, so the error names the
+          # thing you actually have to go and set.
+          for pair in \
+            "MACOS_CERTIFICATE:CSC_LINK" \
+            "MACOS_CERTIFICATE_PASSWORD:CSC_KEY_PASSWORD" \
+            "MACOS_SIGNING_IDENTITY:MACOS_SIGNING_IDENTITY" \
+            "ASC_API_KEY_P8:ASC_API_KEY_P8" \
+            "ASC_API_KEY_ID:ASC_API_KEY_ID" \
+            "ASC_API_ISSUER_ID:ASC_API_ISSUER_ID"; do
+            secret=${pair%%:*}
+            var=${pair##*:}
+            if [ -z "${!var:-}" ]; then
+              echo "::error::$secret is not set in the desktop-build environment — see the signing table in app/desktop/README.md."
               exit 1
             fi
           done
+
+          # APPLE_API_KEY is a PATH to the .p8, not its contents: @electron/
+          # notarize hands it straight to `notarytool --key`. The secret holds
+          # the key base64-encoded (same shape ios.yml stores it in), so it has
+          # to land on disk first.
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_${ASC_API_KEY_ID}.p8"
+          export APPLE_API_KEY_ID="$ASC_API_KEY_ID"
+          export APPLE_API_ISSUER="$ASC_API_ISSUER_ID"
+          printf '%s' "$ASC_API_KEY_P8" | base64 -d > "$APPLE_API_KEY"
+
           npm run dist:mac -- \
             --config.mac.identity="$MACOS_SIGNING_IDENTITY" \
             --config.mac.hardenedRuntime=true \
             --config.mac.notarize=true \
             --config.dmg.sign=true
+
+      # NOTARIZATION FAILING IS NOT LOUD. app-builder-lib's notarizeIfProvided
+      # logs "skipped macOS notarization" as a WARNING and returns normally when
+      # it cannot assemble credentials — so a renamed or empty API-key variable
+      # produces a green build, a signed dmg, and a release that every user's
+      # Mac refuses with "Apple could not verify this app is free of malware".
+      # The guard above cannot catch that alone: it proves the secrets are
+      # non-empty, not that Apple accepted them. So assert the outcome.
+      #
+      # stapler validate is the direct question — is the notarization ticket
+      # attached — and @electron/notarize staples the .app (throwing if that
+      # fails) before electron-builder wraps it in the dmg. spctl then asks
+      # Gatekeeper the same question a user's Mac asks on first launch, which
+      # is the one that actually matters.
+      - name: Verify the build is notarized, not just signed
+        if: matrix.script == 'dist:mac'
+        working-directory: app/desktop
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # One .app per arch: release/mac/ for x64, release/mac-arm64/ for arm64.
+          apps=(release/mac*/*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::no .app bundle was produced; nothing was signed"
+            exit 1
+          fi
+          for app in "${apps[@]}"; do
+            echo "--- $app"
+            if ! xcrun stapler validate "$app"; then
+              echo "::error::$app carries no notarization ticket. The package step likely skipped notarization with a warning rather than failing — check its log for 'skipped macOS notarization'."
+              exit 1
+            fi
+            spctl --assess --type execute --verbose=4 "$app"
+          done
 
       - uses: actions/upload-artifact@v7
         with:
@@ -202,6 +309,27 @@ jobs:
             app/desktop/release/*.AppImage
           if-no-files-found: error
           retention-days: 14
+
+      # THE STEAM DEPOT CONTENT — the unpacked application tree, which the `dir`
+      # target in electron-builder.yml produces alongside the installer above and
+      # which the installer upload deliberately omits. Only when a dispatch asked
+      # for a Steam upload, because these trees are ~300–400 MB each and no normal
+      # release consumes them. Per-leg globs: only the matching one exists on a
+      # given runner, and if-no-files-found fires only if the whole set is empty
+      # (a silently broken package). macOS ships the x64 tree (release/mac/) — see
+      # store/steam/depot_build_5270763.vdf for why. The steam-upload job below
+      # stages these back into this same layout so the VDF's ContentRoot resolves.
+      - name: Upload the unpacked depot trees
+        if: github.event_name == 'workflow_dispatch' && inputs.steam_upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-${{ matrix.os }}
+          path: |
+            app/desktop/release/win-unpacked/**
+            app/desktop/release/linux-unpacked/**
+            app/desktop/release/mac/**
+          if-no-files-found: error
+          retention-days: 3
 
   release:
     name: Publish release
@@ -297,3 +425,88 @@ jobs:
             exit 1
           fi
           echo "dispatched android.yml at $TAG"
+
+  # A DELIBERATE, DISPATCH-ONLY UPLOAD. Never on a tag or a published release —
+  # so a normal release ships the direct-download installers and touches Steam
+  # not at all. It pushes the unpacked trees to the depots' `playtest` BETA
+  # branch (App Admin promotes to default by hand). Everything it needs that is
+  # not in the repo is one-time human setup recorded in store/steam/README.md:
+  # the depots created and added to the package, a dedicated build account, and
+  # its Steam Guard token captured once and stored as STEAM_CONFIG_VDF.
+  steam-upload:
+    name: Upload to Steam (playtest beta)
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && inputs.steam_upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The build account's credentials live beside the macOS signing secrets.
+    environment: desktop-build
+    steps:
+      # For store/steam/*.vdf. The unpacked content comes from the artifacts, not
+      # the checkout, so no build toolchain is needed here.
+      - uses: actions/checkout@v7
+
+      # Stage every platform's unpacked tree back into app/desktop/release/, the
+      # layout the VDF's ContentRoot ("../../app/desktop/release/") expects.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: steam-*
+          merge-multiple: true
+          path: app/desktop/release
+
+      # A wrong-shaped depot uploads silently, so prove the launch binaries are
+      # where the depot scripts say before spending an upload. tetrilaunch is
+      # lowercase on purpose (linux.executableName).
+      - name: Check the staged content
+        run: |
+          set -euo pipefail
+          ls app/desktop/release
+          test -x app/desktop/release/win-unpacked/Tetrilaunch.exe || test -f app/desktop/release/win-unpacked/Tetrilaunch.exe
+          test -f app/desktop/release/linux-unpacked/tetrilaunch
+          test -d app/desktop/release/mac/Tetrilaunch.app
+
+      # Valve's standalone steamcmd. Fetched from Valve directly rather than a
+      # third-party deploy action, for the same supply-chain reason the release
+      # job uses gh and not a release action. steamcmd self-updates on first run.
+      - name: Install steamcmd
+        run: |
+          set -euo pipefail
+          curl -sqL "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz" \
+            | tar zxf - -C "$RUNNER_TEMP"
+
+      # THE STEAM GUARD TOKEN. steamcmd cannot take a 2FA code non-interactively,
+      # so the supported path is: log the build account in by hand once, preserve
+      # the resulting config/config.vdf, and restore it here. Re-supplying a
+      # password anywhere re-issues the token and silently invalidates this one —
+      # the next release is where that surfaces. Stored base64 (it is binary).
+      - name: Restore the build account's Steam Guard token
+        env:
+          STEAM_CONFIG_VDF: ${{ secrets.STEAM_CONFIG_VDF }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STEAM_CONFIG_VDF:-}" ]; then
+            echo "::error::STEAM_CONFIG_VDF is not set in the desktop-build environment. Do the one-time interactive steamcmd login (see store/steam/README.md) and store config.vdf base64-encoded."
+            exit 1
+          fi
+          mkdir -p ~/Steam/config
+          printf '%s' "$STEAM_CONFIG_VDF" | base64 -d > ~/Steam/config/config.vdf
+
+      # Flip the committed dry-run VDF to a real upload over a COPY — never the
+      # tracked file, whose safe default is Preview "1". SetLive "playtest" in the
+      # VDF puts the build on the beta branch.
+      - name: Upload to the playtest branch
+        env:
+          STEAM_BUILD_ACCOUNT: ${{ secrets.STEAM_BUILD_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STEAM_BUILD_ACCOUNT:-}" ]; then
+            echo "::error::STEAM_BUILD_ACCOUNT is not set in the desktop-build environment."
+            exit 1
+          fi
+          sed -E 's/("Preview"[[:space:]]+)"1"/\1"0"/' \
+            store/steam/app_build_5270760.vdf > store/steam/app_build_ci.vdf
+          echo "Preview line after flip:"; grep -E '"Preview"' store/steam/app_build_ci.vdf
+          "$RUNNER_TEMP/steamcmd.sh" \
+            +login "$STEAM_BUILD_ACCOUNT" \
+            +run_app_build "$(pwd)/store/steam/app_build_ci.vdf" \
+            +quit

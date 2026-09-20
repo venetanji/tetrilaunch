@@ -113,12 +113,16 @@ export function pickNext(rects: NavRect[], from: number, dir: NavDir): number {
  * with the scrollport. -1 when nothing in `rects` is on screen at all.
  *
  * THE HAZARD THIS ANSWERS is a selection the player cannot see. main.ts's
- * renderKeepingScroll puts a shelf back where the player left it after a
- * purchase; focusInitial, running inside the same render, lands on the
- * screen's first primary action, which on the Workshop is a BUY button near
- * the TOP of that shelf. Both are individually right and together they leave
- * the ring 605px above the fold (measured on a 740x360 phone) — where the next
- * Confirm spends salvage on an item nobody looked at.
+ * renderKeepingScroll puts a pane back where the player left it after a
+ * purchase; focusInitial, running inside the same render, lands somewhere of
+ * its own choosing. On the Workshop's old card shelf that was the screen's
+ * first primary action — a BUY button near the TOP of a pane restored to 661.
+ * Both are individually right and together they left the ring 605px above the
+ * fold (measured on a 740x360 phone), where the next Confirm spends salvage on
+ * an item nobody looked at. That screen now nominates its own landing
+ * (`data-pad-initial`), which closes its particular case; this stays for every
+ * scroller that does not, and for the case the nomination itself is scrolled
+ * away from.
  *
  * MOST OF ITS OWN HEIGHT rather than nearest-to-centre: a control the player
  * can see all of beats one clipped to a sliver at the edge, which is the same
@@ -170,14 +174,34 @@ export function focusTargets(root: HTMLElement): HTMLElement[] {
   return out;
 }
 
-/** Land focus somewhere sensible on a fresh screen: the primary action if it
- *  is live, else the first target. Returns false on a screen with nothing to
- *  land on (the splash, the bay-clear tap-through). */
+/**
+ * Land focus somewhere sensible on a fresh screen: the screen's own nomination
+ * if it made one, else the primary action if it is live, else the first target.
+ * Returns false on a screen with nothing to land on (the splash, the bay-clear
+ * tap-through).
+ *
+ * `data-pad-initial` IS THE SCREEN OVERRIDING THE DEFAULT, and the Workshop is
+ * why it exists. Its primary is Start Run, pinned at the bottom of the screen,
+ * while the thing a pad player arrives to use is the selected plate at the top
+ * left of the rack panel — so the default landing was both the loudest button
+ * and the furthest from the work. It is also the RE-LANDING that matters: a
+ * purchase can destroy the control the pad was holding (a bought-out buy button
+ * becomes "Workshop max"), and without a nomination focus would jump from the
+ * detail's foot to Start Run, i.e. from the shop to its exit, one press away
+ * from leaving. The selected plate is where the player already is.
+ *
+ * ONE nomination per screen, and the first in document order wins if a screen
+ * ever renders two — a screen that cannot say where the pad belongs does not
+ * get to say it twice. Marked on an element that must also be focusable: it is
+ * looked up inside `targets`, so a nomination on a disabled or hidden control
+ * is simply not found and the primary answers as before.
+ */
 export function focusInitial(root: HTMLElement): boolean {
   const targets = focusTargets(root);
   if (!targets.length) return false;
+  const nominated = targets.find((el) => el.hasAttribute("data-pad-initial"));
   const primary = targets.find((el) => el.classList.contains("btn--primary"));
-  focusOn(primary ?? targets[0]);
+  focusOn(nominated ?? primary ?? targets[0]);
   return true;
 }
 
@@ -195,7 +219,50 @@ export function moveFocus(root: HTMLElement, dir: NavDir): boolean {
     return { x: r.left, y: r.top, w: r.width, h: r.height };
   });
   const next = pickNext(rects, from, dir);
-  if (next !== from) focusOn(targets[next]);
+  if (next !== from) {
+    // LEAVING A PANE BEFORE THE PANE IS DONE. The Workshop's Contracts / Start
+    // Run buttons sit BELOW its scroller (`.workshop__go` is a sibling of the
+    // body, not a child of the shelf), so a Down from the last BUY button finds
+    // one of them and, without this, focus would jump out of the pane while the
+    // Owned/Installed strips and the trailing gated cards under that button are
+    // still unshown — the exact content the wall branch below exists to reach,
+    // skipped because there happened to be a control past the pane (codex,
+    // PR #218). So a press that would carry focus OUT of a scroller the focused
+    // control lives in first spends itself on that scroller while it has room
+    // in `dir`; only a pane at its edge lets focus leave. A move WITHIN the
+    // pane is untouched: reveal() brings the next control in, as before.
+    for (let port = scrollPort(targets[from]); port && !port.contains(targets[next]); port = scrollPort(port)) {
+      if (scrollPane(port, dir)) return true;
+    }
+    focusOn(targets[next]);
+    return true;
+  }
+  // THE WALL. No control lies further this way, so a focus move is a no-op —
+  // but the pane may still hold unshown content that carries no control of its
+  // own (a shelf's Owned/Installed reference strips, a gated card's "Needs …"
+  // price, the rack note, the foot of the guide). reveal() only ever runs on a
+  // focus MOVE, so it never reaches this boundary and a pad-only player — a
+  // Steam Deck — could not scroll to that content at all. edgeScroll is its
+  // complement: walk the focused control's scrollable ancestors and advance the
+  // FIRST with room in `dir` by a near-page step, mirroring reveal's own
+  // ancestor-walk. The press is USED either way — a scrollable wall advances the
+  // view, a true wall is a dead end — so the boolean this returns is unchanged.
+  for (let port = scrollPort(targets[from]); port; port = scrollPort(port)) {
+    if (scrollPane(port, dir)) break;
+  }
+  return true;
+}
+
+/** Advance `port` toward the `dir` edge by a near-page step (edgeScroll) and
+ *  say so, or false when it has no real room that way. "Real" is more than a
+ *  pixel: a pane a fraction of a pixel short of its edge is at its edge, and
+ *  spending a press on that fraction would read as a dead press to the player
+ *  (and, in the leave-a-pane case above, keep focus in the pane one press too
+ *  long). Local scroll coordinates throughout, as edgeScroll's own note says. */
+function scrollPane(port: HTMLElement, dir: NavDir): boolean {
+  const delta = edgeScroll(port.scrollTop, port.scrollHeight, port.clientHeight, dir);
+  if (Math.abs(delta) <= 1) return false;
+  port.scrollTop += delta;
   return true;
 }
 
@@ -205,7 +272,7 @@ export function moveFocus(root: HTMLElement, dir: NavDir): boolean {
  *  mouse hover, and they are exactly what the harness has to measure. */
 export function focusOn(el: HTMLElement): void {
   el.focus({ preventScroll: true });
-  // The overlay has real scrollers (the refit shelf, the workshop pane, the
+  // The overlay has real scrollers (the refit shelf, the workshop's rack, the
   // guide index); a focused control below their fold has to come to the pad
   // player, since the pad has no wheel.
   reveal(el);
@@ -276,14 +343,17 @@ export function sealBehindScrim(root: ScrimRoot): void {
  *   ~4px on the row a D-pad step scrolled to — the pad's own cursor, cut by
  *   the act of moving it.
  *
- *   THE CARD. The refit shelf and the workshop shelf focus a BUY button that
- *   sits inside a .shop-card, vertically centred in a row whose height is set
- *   by the copy beside it. Below the button are the card's remaining height,
- *   its 10px padding and its 2px border — 13px on a Pixel 7, 33px on a 720p
- *   laptop, 50px at 1080p, all of it scrolled under the shelf's edge. That is
- *   the bug as it was reported: "the bottom border disappears when the
- *   selection is highlighted". The border is not being restyled; the card is
- *   being scrolled half out of the pane by the focus that selected it.
+ *   THE CARD. The refit shelf focuses a BUY button that sits inside a
+ *   .shop-card, vertically centred in a row whose height is set by the copy
+ *   beside it. Below the button are the card's remaining height, its 10px
+ *   padding and its 2px border — 13px on a Pixel 7, 33px on a 720p laptop,
+ *   50px at 1080p, all of it scrolled under the shelf's edge. That is the bug
+ *   as it was reported: "the bottom border disappears when the selection is
+ *   highlighted". The border is not being restyled; the card is being scrolled
+ *   half out of the pane by the focus that selected it. (The Workshop's shelf
+ *   had the same shape and is now a panel of 44px plates, where the control IS
+ *   the unit — so that screen exercises the walk's other end rather than
+ *   leaving it.)
  *
  * WHY THE MOUSE LOOKED FINE. Hover neither focuses nor scrolls — the pointer
  * goes to the card, the card stays where it is, and both the border and the
@@ -301,11 +371,12 @@ export function sealBehindScrim(root: ScrimRoot): void {
  *   `scroll-margin` value could cover it. So the scroll reveals the UNIT the
  *   control belongs to instead: the outermost ancestor that still fits inside
  *   the scrollport. On the refit shelf that walk stops at .refit-card; on the
- *   workshop pane .workshop__grid is the whole 1260px list and does not fit,
- *   so it stops at .shop-card; on the guide index the topic button is its own
- *   parent's whole content and the unit is the button. No screen names itself
- *   anywhere in here, which is the point: a new card menu is covered the day
- *   it is written.
+ *   Workshop's rack panel a plate's .rack__plates row usually fits, so the
+ *   unit is the whole row of plates and a step never leaves half of one under
+ *   the edge; on the guide index the topic button is its own parent's whole
+ *   content and the unit is the button. No screen names itself anywhere in
+ *   here, which is the point: a new card menu is covered the day it is
+ *   written.
  *
  * Written as arithmetic over scrollTop rather than as scrollIntoView because
  * the gap has to apply to the unit, and scrollIntoView takes its clearance
@@ -348,6 +419,51 @@ export function revealShift(
   if (a < portLo) return a - portLo;
   if (b > portHi) return b - portHi;
   return 0;
+}
+
+/** How much of the scrollport a wall-press advances the view by — a near-page
+ *  step, with a fifth of the pane left as overlap so the reader keeps their
+ *  place. Not a full page: a page-per-press over-runs a short pane and loses the
+ *  row the eye was on. */
+export const PANE_SCROLL_FRACTION = 0.8;
+
+/**
+ * The scroll delta a pad press should apply when it hits the FOCUS WALL — the
+ * last control in the pressed direction, where pickNext returns `from` and no
+ * focus move (and so no reveal) happens. reveal() brings a control's own unit
+ * into view on every focus MOVE; this is its complement for the boundary reveal
+ * never runs at, and it is the only way a pad reaches pane content that carries
+ * no control of its own: the Workshop's Owned/Installed reference strips and
+ * rack note, a shelf's trailing gated cards (their price is a non-focusable
+ * span), the foot of the guide. Without it those sit below the last button
+ * forever on a controller — a Steam Deck cannot scroll to them.
+ *
+ * A near-page step (PANE_SCROLL_FRACTION of the port) toward the pressed edge,
+ * clamped so it never overscrolls, and 0 when the pane is already at that end —
+ * which is how moveFocus tells a scrollable wall (advance the view) from a true
+ * wall (nothing more to show). Vertical only, for pickInView's own reason: every
+ * scroller the overlay has scrolls in Y, and the two horizontal strips are one
+ * row that cannot strand content past a fold.
+ *
+ * Works entirely in the port's LOCAL scroll coordinates (scrollTop /
+ * scrollHeight / clientHeight are all unzoomed CSS px), so unlike reveal it
+ * needs no visual-to-local conversion — there is no getBoundingClientRect in it.
+ */
+export function edgeScroll(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  dir: NavDir,
+  frac: number = PANE_SCROLL_FRACTION,
+): number {
+  if (dir !== "up" && dir !== "down") return 0;
+  const maxTop = Math.max(0, scrollHeight - clientHeight);
+  const step = clientHeight * frac;
+  if (dir === "down") {
+    const room = maxTop - scrollTop;
+    return room > 0 ? Math.min(step, room) : 0;
+  }
+  return scrollTop > 0 ? -Math.min(step, scrollTop) : 0;
 }
 
 const scrolls = (o: string): boolean => o === "auto" || o === "scroll";
