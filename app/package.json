@@ -65,6 +65,9 @@
     "android:run:sandbox": "npm run android:sync:sandbox && cap run android",
     "audio:prepare": "node scripts/prepare-audio.mjs",
     "promo": "tsx sim/promo/run.ts",
+    "promo:beats": "tsx sim/promo/run.ts --all",
+    "promo:shots": "tsx sim/promo/run.ts --shots --store=all",
+    "promo:verify": "tsx sim/promo/verify.ts",
     "promo:assemble": "tsx sim/promo/assemble.ts"
   },
   "dependencies": {

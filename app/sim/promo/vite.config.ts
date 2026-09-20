@@ -23,7 +23,18 @@ const appRoot = resolve(here, "..", "..");
 export default defineConfig({
   root: here,
   publicDir: resolve(appRoot, "public"),
-  server: { fs: { allow: [appRoot] }, host: "127.0.0.1" },
+  server: {
+    fs: { allow: [appRoot] },
+    host: "127.0.0.1",
+    // HMR OFF. A capture run holds one page open for minutes at a time and
+    // the App is booted into it exactly once; an edit to any file under
+    // app/ while a run is in flight otherwise reloads that page mid-scene
+    // and the run dies with "Execution context was destroyed" (measured:
+    // editing beats.ts during an 85-shot matrix took it out at shot 26).
+    // A capture is a photograph of the tree as it was when the run started,
+    // so live-reloading it is not a feature here.
+    hmr: false,
+  },
   // vite-plugin-pwa is deliberately absent: a service worker would cache the
   // bundle between beats.
 });

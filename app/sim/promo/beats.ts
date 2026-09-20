@@ -21,7 +21,8 @@ import type { UpgradeTiers } from "../../src/game/upgrades";
 import type { Ratchets } from "../../src/game/hazards";
 import type { SandboxMaterial } from "../../src/game/sandbox";
 import type { GradeTally } from "../../src/game/grades";
-import { SCHOOL_STEPS, type MetaState } from "../../src/game/meta";
+import { MARK_COUNT, SCHOOL_STEPS, SLOT_CAP, type MetaState } from "../../src/game/meta";
+import { SKYDECK_TIER } from "../../src/ui/screens";
 
 /** A Tier S launch, exactly the fields game/sandbox.ts's SandboxState carries
  *  for a bay target. `bay` defaults to 1. */
@@ -164,6 +165,30 @@ export function isCornerDouble(e: PromoEvent): boolean {
  * same number from zero, so their `now` sequences are bit-for-bit the same.
  */
 export const PROMO_DT = 1000 / 60 + 2 ** -36;
+
+/**
+ * THE PAGE'S FIXED "NOW" — every capture runs on this instant, in UTC.
+ *
+ * Three screens are dated, and all three would otherwise render something
+ * different on a different day or a different machine's timezone:
+ * contracts.ts's dailySeed deals the Contract board from `new Date()`,
+ * skydeck.ts's skydeckSeed/skydeckRulesFor do the same for the Skydeck's
+ * rules, and attract.ts:353 seeds the front door's demo bay with Date.now().
+ * run.ts's clock shim serves Date from here plus the virtual clock's elapsed
+ * ms, and the browser context is pinned to UTC so the local-time getters
+ * those seeds are built from agree everywhere.
+ *
+ * The date itself is arbitrary but NOT free to change: a different epoch
+ * deals a different Contract board and a different Skydeck, so every store
+ * shot would have to be re-photographed and re-approved. 2026-03-14 is a
+ * Saturday, which is the ordinary weekday case for the daily board.
+ */
+export const PROMO_EPOCH = Date.UTC(2026, 2, 14, 12, 0, 0);
+
+/** The seed the page's Math.random is replaced with (run.ts's clock shim).
+ *  Unseeded Math.random survives in contracts.ts's `rng` defaults, which a
+ *  Contract briefing reaches through ui/sandbox-screen.ts. */
+export const PROMO_RNG_SEED = 0x7e7a1a17;
 
 const GRADE_ORDER = ["excellent", "good", "swept", "lucky"] as const;
 export function bestGrade(t: GradeTally): string {
@@ -559,7 +584,31 @@ export const BEAT_ORDER = [
 
 export type SceneShow =
   | { kind: "menu"; warmSec: number }
-  | { kind: "state"; state: string; warmSec: number }
+  | { kind: "state"; state: string; warmSec: number; waitFor?: string }
+  /**
+   * A screen reached by PRESSING THE APP'S OWN BUTTON, named by the
+   * `data-action` main.ts routes on rather than by any class name.
+   *
+   * Two reasons it exists beside "state". The first is correctness: several
+   * screens do work on the way in that `setState` alone skips — the
+   * leaderboard's entry calls `openBoard`, which is what fetches the rows, so
+   * a setState-only leaderboard shot read "No scores at this Tier yet — be
+   * the first!" at every store size. The second is the hub rebuild (#223):
+   * `data-action` is the App's router key, so a scene written against it
+   * survives a redesign that moves every class and every wrapper around it.
+   *
+   * `from` is the state the button is on (the front door for most of them),
+   * and `waitFor` is a selector the screen's own asynchronous content lands
+   * in — polled before the shot, so a network answer can never arrive half a
+   * frame after the shutter.
+   */
+  | {
+      kind: "action"; action: string; attrs?: Record<string, string>;
+      from?: string; warmSec: number; waitFor?: string;
+    }
+  /** THE TOWER with the car parked on a floor, through the App's own
+   *  pickTier — the hub, as it exists before #223 rebuilds it. */
+  | { kind: "tower"; tier: number; warmSec: number }
   | {
       kind: "bay"; config: BayConfig; bot: BotSpec; warmSec: number;
       /** Capture on this condition rather than at warmSec. */
@@ -568,6 +617,11 @@ export type SceneShow =
       settleFrames?: number;
       /** Hold the aim arc on screen for the shot. */
       aiming?: boolean;
+      /** One scripted hand (hands.ts) before the shot, on `fireWhen` — the
+       *  abilities a pilot will not pull on its own. The shot then lands
+       *  `settleFrames` later, with the effect drawn rather than just armed. */
+      fire?: ScriptedAction["action"];
+      fireWhen?: (st: PromoStatus, ev: PromoEvent[]) => boolean;
     };
 
 export interface SceneDef {
@@ -575,6 +629,20 @@ export interface SceneDef {
   /** "menu" scenes use the menu/boards CSS size, "game" scenes the gameplay one. */
   family: "menu" | "game";
   show: SceneShow;
+  /**
+   * THE SETUP this scene is photographed on — the save the page boots with,
+   * over STORE_META. "Different setups" is most of what a store listing is:
+   * the same Workshop screen on a starting rig and on a full one are two
+   * different screenshots, and only one of them sells the game.
+   */
+  setup?: keyof typeof SETUPS;
+  /** Only these store sizes, when set. The seven screens a listing actually
+   *  needs carry no restriction and are shot at every size; the extra setups
+   *  are pinned to the reference sizes so the matrix stays a few minutes
+   *  rather than half an hour. */
+  only?: string[];
+  /** One line for the manifest and the runbook: what this shot is FOR. */
+  note?: string;
 }
 
 /** The tower state every store scene boots with: licence earned, a Mark in
@@ -591,10 +659,102 @@ export const STORE_META: Partial<MetaState> = {
   },
 };
 
+/* ---------------------------------------------------------------------------
+ * THE SETUPS — the saves the store screens are photographed on.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A save per story the listing tells, each stated as the difference from
+ * STORE_META so the one place the "already taught, audio off, licence
+ * earned" baseline lives stays STORE_META.
+ *
+ * `fresh` is the exception and is built from nothing: it is the save a new
+ * install has, which is the whole point of it — the front door of a game
+ * nobody has played yet draws the Flight School ladder, not the tower, and
+ * that is a screenshot in its own right (and the one every "first run" bug
+ * report is about).
+ */
+export const SETUPS: Record<string, Partial<MetaState>> = {
+  /** Mid-ladder, the listing's default: a Mark in hand, floors sealed. */
+  ladder: {},
+  /** A brand new install. Deliberately NOT spread over STORE_META. */
+  fresh: {
+    mark: 0, salvage: 0, runs: 0, bestBay: 0, licence: 0, sealedMarks: [],
+    tierContracts: 0, seenContractBoard: false, seenDraft: false, seenRefit: false,
+    loadout: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0,
+      bonds: 0, demolition: 0, thaw: 0, cushion: 0, incinerator: 0 },
+  },
+  /** Contracts in flight: a board with work logged against it and the salvage
+   *  a few clears earn, so the screen shows a ledger rather than an invitation. */
+  contracts: { tierContracts: 6, salvage: 6_240, runs: 74, bestBay: 10, mark: 6 },
+  /** A full rig: every system owned at tier 2, every slot bought. The Workshop
+   *  screen's widest case, and the one that reads as a game with depth. */
+  rigged: {
+    mark: 9, salvage: 2_360, runs: 118, bestBay: 10, slots: SLOT_CAP,
+    unlocks: ["survey", "scrap-cache"],
+    loadout: { bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
+      bonds: 2, demolition: 2, thaw: 2, cushion: 2, incinerator: 2 },
+  },
+  /** THE SEALED TOWER — every Mark beaten and sealed, which is the Skydeck's
+   *  key (meta.ts's skydeckOpen: mark >= MARK_COUNT and nothing unsealed). The
+   *  front door then draws the roof above the tenth floor. */
+  sealed: {
+    mark: MARK_COUNT, sealedMarks: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    celebratedMark: MARK_COUNT, skydeckCelebrated: true, sealBreakSeen: true,
+    salvage: 4_100, runs: 143, bestBay: 10, slots: SLOT_CAP,
+    unlocks: ["survey", "scrap-cache"],
+    loadout: { bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
+      bonds: 2, demolition: 2, thaw: 1, cushion: 1, incinerator: 1 },
+  },
+};
+
+/** The size a scene is pinned to when it is a SETUP STUDY rather than one of
+ *  the seven screens a listing needs — Play's 16:9 and Steam's 1080p, the two
+ *  the owner crops everything else from. */
+const REFERENCE_SIZES = ["2400x1350", "1920x1080"];
+
 export const SCENES: SceneDef[] = [
-  { id: "menu", family: "menu", show: { kind: "menu", warmSec: 7 } },
+  /* --- the seven a store listing actually asks for, at every size --- */
   {
-    id: "aim-arc", family: "game",
+    id: "menu", family: "menu", show: { kind: "menu", warmSec: 7 },
+    note: "the front door: the tower, the play plate and the attract bay",
+  },
+  {
+    // THE HUB, as it stands today: the front door with the car parked on a
+    // floor the player has earned. #223 (claude/double-gameplay-ux-refactor)
+    // rebuilds this screen around a legend Unlock button and run / Contract /
+    // Workshop cards — when it lands, this scene's `pickTier` stays valid (it
+    // is the App's own entry point) but the shot must be RE-TAKEN, and a
+    // card-level scene can be added here as `{ kind: "action", action: … }`
+    // against whatever data-action the new cards carry. See the runbook.
+    // THE ROOF, on a save that earned it: every Mark beaten and sealed is the
+    // Skydeck's key (meta.ts's skydeckOpen), and the car riding to
+    // screens.ts's SKYDECK_TIER is the one hub state the front-door shot
+    // cannot also be — `menu` above is the same screen with the car parked on
+    // the floor a mid-ladder save is allowed.
+    id: "tier-hub", family: "menu", setup: "sealed",
+    show: { kind: "tower", tier: SKYDECK_TIER, warmSec: 3 },
+    note: "the tower sealed to the roof, the car on the Skydeck — RE-SHOOT after #223",
+  },
+  {
+    id: "workshop", family: "menu", show: { kind: "state", state: "workshop", warmSec: 0.5 },
+    note: "the rig shop on a mid-ladder save",
+  },
+  {
+    id: "contracts", family: "menu", setup: "contracts",
+    show: { kind: "state", state: "contracts", warmSec: 0.5 },
+    note: "the Contract board with work logged against it",
+  },
+  {
+    // Through the App's own button, not setState: the entry is what fetches
+    // the board (main.ts's `case "leaderboard"` → openBoard → refreshBoard),
+    // and `waitFor` holds the shutter until a row exists.
+    id: "leaderboard", family: "menu",
+    show: { kind: "action", action: "leaderboard", from: "menu", warmSec: 1, waitFor: ".lb__row" },
+    note: "the all-time board, rows fetched",
+  },
+  {
+    id: "mid-bay-launch", family: "game",
     show: {
       kind: "bay", config: { tier: 3, seed: 20260401, tiers: { bonds: 1 }, funds: 900 },
       bot: { preset: "aim", strategy: "excellent", seed: 31 }, warmSec: 20, aiming: true,
@@ -602,31 +762,89 @@ export const SCENES: SceneDef[] = [
       // off cooldown.
       until: (st) => st.elapsedMs > 8000 && st.cubes >= 12 && st.ready,
     },
+    note: "a launch being aimed: the trajectory arc over a working pile",
   },
   {
-    id: "line-clear", family: "game",
+    // A BAY UNDER PRESSURE, on the `loss` beat's own configuration: Mark 9
+    // with the press and the wind notched up, flown by the pilot that stands
+    // every shipment on end (beats.ts's loss phase). That pilot is the only
+    // one in sim/bots.ts that builds a pile worth photographing rather than
+    // one it keeps flattening — but the shutter goes BEFORE its ending, on a
+    // cube count, so this is a tall bay and not a lost one.
+    id: "stacked-bay", family: "game",
+    show: {
+      kind: "bay", config: { tier: 9, seed: 20260109, funds: 600, ratchets: { sweeper: 2, wind: 2 } },
+      bot: { preset: "lob-tall", seed: 9 }, warmSec: 60,
+      until: (st) => st.cubes >= 30,
+    },
+    note: "a tall, loaded bay: the pile a run is fighting to keep down",
+  },
+
+  /* --- the setup studies: the same screens on other saves --- */
+  {
+    id: "menu-fresh", family: "menu", setup: "fresh", only: REFERENCE_SIZES,
+    show: { kind: "menu", warmSec: 7 },
+    note: "the front door of a brand-new install: the Flight School ladder",
+  },
+  {
+    id: "workshop-full", family: "menu", setup: "rigged", only: REFERENCE_SIZES,
+    show: { kind: "state", state: "workshop", warmSec: 0.5 },
+    note: "the Workshop with every system owned and every slot bought",
+  },
+  {
+    id: "line-clear", family: "game", only: REFERENCE_SIZES,
     show: {
       kind: "bay", config: { tier: 2, seed: 20260402, funds: 900 },
       bot: { preset: "aim", strategy: "excellent", seed: 32 }, warmSec: 30,
       until: (_st, ev) => ev.some((e) => e.kind === "clear"), settleFrames: 7,
     },
+    note: "the moment a row pays",
   },
-  { id: "workshop", family: "menu", show: { kind: "state", state: "workshop", warmSec: 0.5 } },
-  { id: "contracts", family: "menu", show: { kind: "state", state: "contracts", warmSec: 0.5 } },
-  { id: "leaderboard", family: "menu", show: { kind: "state", state: "leaderboard", warmSec: 1 } },
   {
-    id: "materials-bay", family: "game",
+    // A BOND CHAIN MID-FLIGHT: the Emitter at tier 2 with a pile to bind, and
+    // the shot taken a few frames after the hand fires so the chain is drawn
+    // rather than merely armed. The hand is hands.ts's, through Game's own
+    // entry points — the same door a thumb uses.
+    // THE BOND BREAKER GOING OFF, on the configuration the `materials-rebar`
+    // beat already proves reaches it: Tier 6, rebar on the belt, the impatient
+    // spray, the Emitter at tier 2, and the hand fired on a settled pile at 8s
+    // (beats.ts's materials-rebar scripted cue, same numbers). Six frames of
+    // settle after the break so the seams are drawn snapping rather than
+    // merely gone.
+    id: "bond-chain", family: "game", only: REFERENCE_SIZES,
+    show: {
+      kind: "bay",
+      config: { tier: 6, seed: 20260300, material: "rebar", tiers: { bonds: 2 }, funds: 900 },
+      bot: { preset: "impatient", seed: 21 }, warmSec: 14,
+      fire: "bond", fireWhen: (st) => st.elapsedMs > 8000 && st.cubes >= 16,
+      settleFrames: 6,
+    },
+    note: "the Bond Breaker shattering a rebar pile",
+  },
+  {
+    id: "hazard-run", family: "game", only: REFERENCE_SIZES,
+    show: {
+      kind: "bay",
+      config: { tier: 8, seed: 20260818, ratchets: { wind: 2, time: 1, sweeper: 1 }, material: "all", funds: 1_200 },
+      bot: { preset: "impatient", seed: 81 }, warmSec: 24,
+      until: (st) => st.elapsedMs > 18_000 && st.cubes >= 24,
+    },
+    note: "a Tier 8 bay under wind, a tighter clock and a sweeper",
+  },
+  {
+    id: "materials-bay", family: "game", only: REFERENCE_SIZES,
     show: {
       kind: "bay", config: { tier: 8, seed: 20260408, material: "all", ratchets: { wind: 2 }, funds: 900 },
       bot: { preset: "patient", seed: 38 }, warmSec: 12,
     },
+    note: "the cargo materials on the belt",
   },
 ];
 
 /** A store size: the PNG the store wants, and the CSS viewport x DPR that
  *  produces it exactly. */
 export interface StoreSize {
-  store: "play" | "appstore";
+  store: "play" | "appstore" | "steam";
   /** Directory name under <out>/store/<store>/. */
   label: string;
   px: { w: number; h: number };
@@ -638,17 +856,49 @@ export interface StoreSize {
 }
 
 /**
- * Play's 16:9 recipe is docs/PLAY.md's: 960x540 @2.5 for menu and boards
- * (the phone-landscape layout the menu was designed around), 1280x720 @1.875
- * for gameplay. Apple's sizes are the current App Store Connect landscape
- * requirements as of this writing (docs/ios.md names only the two device
- * classes, not pixel sizes): iPhone 6.9" 2868x1320, 6.5" 2688x1242, iPad 13"
- * 2752x2064. Each is rendered at half size @2.
+ * THE SIZES, and the rule every row obeys: px = css x dpr EXACTLY, on both
+ * axes, with an integer css viewport — captureScene asserts it, because a
+ * fractional viewport is a half-pixel of layout the shipped app never has.
+ *
+ * Play's 16:9 recipe is docs/PLAY.md's: 960x540 @2.5 for menu and boards (the
+ * phone-landscape layout the menu was designed around), 1280x720 @1.875 for
+ * gameplay. Play also wants TABLET screenshots for the tablet listings, which
+ * are 16:10 rather than 16:9 and are their own layout solve (layout.ts letter-
+ * boxes the field, the rails do not) — hence rows of their own rather than an
+ * upscale of the phone shot.
+ *
+ * Apple's are the current App Store Connect LANDSCAPE requirements: the 6.9"
+ * and 6.5" iPhone rows are the two the listing requires, 6.7" and 5.5" are
+ * accepted sizes older listings still ask for, and the two iPad rows are 13"
+ * and 12.9". docs/ios.md names the device classes only, so the pixel sizes are
+ * stated here. Each is rendered at half size @2 — the density those panels
+ * actually are.
+ *
+ * Steam's screenshot size is 1920x1080 (docs/steam-store-and-achievements-plan.md,
+ * "Images — produce at Steam's exact dimensions"; five minimum, real
+ * gameplay). Its capsules are ARTWORK — a logo over art, not a screenshot —
+ * so only the main capsule's frame is rendered here, as a SOURCE to compose
+ * over; the rest come from app/resources/ through scripts/store-graphics.mjs.
+ *
+ * The portrait row exists for completeness: the game is landscape-only and a
+ * portrait viewport renders the rotate guard, so it is not a store shot.
  */
 export const STORE_SIZES: StoreSize[] = [
+  /* --- Google Play --- */
   {
     store: "play", label: "2400x1350", px: { w: 2400, h: 1350 },
     css: { menu: { w: 960, h: 540 }, game: { w: 1280, h: 720 } },
+    note: "phone 16:9 — the listing's main row",
+  },
+  {
+    store: "play", label: "1920x1200", px: { w: 1920, h: 1200 },
+    css: { menu: { w: 960, h: 600 }, game: { w: 960, h: 600 } },
+    note: "7\" tablet (16:10)",
+  },
+  {
+    store: "play", label: "2560x1600", px: { w: 2560, h: 1600 },
+    css: { menu: { w: 1280, h: 800 }, game: { w: 1280, h: 800 } },
+    note: "10\" tablet (16:10)",
   },
   {
     store: "play", label: "1024x500", px: { w: 1024, h: 500 },
@@ -661,16 +911,53 @@ export const STORE_SIZES: StoreSize[] = [
     only: ["menu"],
     note: "the game is landscape-only: a portrait viewport renders the rotate guard, so this row is not a meaningful store shot",
   },
+
+  /* --- App Store --- */
   {
     store: "appstore", label: "2868x1320", px: { w: 2868, h: 1320 },
     css: { menu: { w: 1434, h: 660 }, game: { w: 1434, h: 660 } },
+    note: "iPhone 6.9\" — required",
+  },
+  {
+    store: "appstore", label: "2796x1290", px: { w: 2796, h: 1290 },
+    css: { menu: { w: 1398, h: 645 }, game: { w: 1398, h: 645 } },
+    note: "iPhone 6.7\"",
   },
   {
     store: "appstore", label: "2688x1242", px: { w: 2688, h: 1242 },
     css: { menu: { w: 1344, h: 621 }, game: { w: 1344, h: 621 } },
+    note: "iPhone 6.5\" — required",
+  },
+  {
+    store: "appstore", label: "2208x1242", px: { w: 2208, h: 1242 },
+    css: { menu: { w: 1104, h: 621 }, game: { w: 1104, h: 621 } },
+    note: "iPhone 5.5\" — older listings only",
   },
   {
     store: "appstore", label: "2752x2064", px: { w: 2752, h: 2064 },
     css: { menu: { w: 1376, h: 1032 }, game: { w: 1376, h: 1032 } },
+    note: "iPad 13\" — required",
+  },
+  {
+    store: "appstore", label: "2732x2048", px: { w: 2732, h: 2048 },
+    css: { menu: { w: 1366, h: 1024 }, game: { w: 1366, h: 1024 } },
+    note: "iPad 12.9\"",
+  },
+
+  /* --- Steam --- */
+  {
+    store: "steam", label: "1920x1080", px: { w: 1920, h: 1080 },
+    // The one row whose two families differ in DPR rather than in viewport:
+    // 1080p is exactly 2x the menu's 960x540 and exactly 1.5x gameplay's
+    // 1280x720, which is the field's own size (render.ts's WORLD).
+    css: { menu: { w: 960, h: 540 }, game: { w: 1280, h: 720 } },
+    note: "Steam screenshots — five minimum, real gameplay",
+  },
+  {
+    store: "steam", label: "616x353", px: { w: 616, h: 353 },
+    css: { menu: { w: 616, h: 353 }, game: { w: 616, h: 353 } },
+    only: ["menu"],
+    note: "main capsule FRAME only — the shipped capsule is artwork with the logo over it; compose from this, do not upload it raw",
   },
 ];
+

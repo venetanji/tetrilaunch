@@ -124,6 +124,44 @@ export interface PromoApi {
   snapshot(cursor: number): { status: PromoStatus; events: PromoEvent[]; cursor: number };
   fixture(id: string): void;
   setState(s: string): void;
+  /** The App's OWN state id, for a caller that wants to assert the screen it
+   *  thinks it is looking at (run.ts does, before every store shot). */
+  state(): string;
+  /**
+   * Press one of the App's own buttons, by the `data-action` the App routes
+   * on — never by a class name. A screen reached this way runs the App's
+   * whole entry path (the leaderboard's `openBoard` fetch, a tier's ride, a
+   * card's arming), which `setState` alone skips: setState("leaderboard")
+   * renders the screen with no board fetched behind it, which is how the
+   * store shot came to read "No scores at this Tier yet".
+   *
+   * `data-action` is also the one selector in this App that a redesign does
+   * not churn — it IS the App's router key (main.ts's action switch) — so a
+   * scene written against it survives the hub rebuild (#223) that will move
+   * every class name around it.
+   */
+  click(action: string, attrs?: Record<string, string>): boolean;
+  /** Is anything matching this selector on the page? Polled by run.ts while
+   *  it waits for a screen's own asynchronous content (the board's rows). */
+  present(selector: string): boolean;
+  /**
+   * FREEZE THE STYLESHEET'S MOTION, at a stated frame.
+   *
+   * Every screen enters on a CSS transition and several carry looping
+   * decorations. Under the capture clock those advance with the CDP virtual
+   * time the driver hands out, but WHEN each one started still depends on
+   * which real compositor frame applied the class — so two runs caught the
+   * same modal at two different points of its fade (measured: the whole
+   * leaderboard card differing by up to 218/255 between two runs of the same
+   * command). Finishing every finite animation puts the screen where it will
+   * be a moment later — its settled, photographable state — and pinning the
+   * infinite ones to a fixed phase makes "a moment later" mean one thing.
+   *
+   * Phase 0 rather than any prettier offset: it is the only phase that is the
+   * same on every animation, every screen and every run, which is the whole
+   * point of pinning. The loops are rewound, not stopped — see the body.
+   */
+  quiesce(): { finished: number; pinned: number };
   pickTier(tier: number): void;
   setAiming(on: boolean): void;
   fireBomb(): boolean;
@@ -247,6 +285,45 @@ const api: PromoApi = {
   },
 
   setState: (s) => app().setState(s),
+  state: () => app().state,
+
+  click(action, attrs) {
+    const sel = `[data-action="${action}"]`
+      + Object.entries(attrs ?? {}).map(([k, v]) => `[${k}="${v}"]`).join("");
+    const el = document.querySelector<HTMLElement>(sel);
+    if (!el) return false;
+    el.click();
+    return true;
+  },
+
+  present: (selector) => !!document.querySelector(selector),
+
+  quiesce() {
+    let finished = 0, pinned = 0;
+    for (const a of document.getAnimations()) {
+      const end = (a.effect?.getComputedTiming().endTime ?? 0) as number;
+      // An infinite iteration count has no endTime to finish at — a.finish()
+      // throws on exactly those — so they are the pinned ones. Rewound to
+      // phase 0 and LEFT RUNNING rather than paused. The stylesheet's clock
+      // only moves when the driver advances it, so between frames a running
+      // loop is exactly as still as a stopped one and just as reproducible —
+      // and a page with something to draw is the less provoking shape for
+      // Chromium's compositor, which on a screen with no dirty region at all
+      // can stop answering Page.captureScreenshot (the tower's lamp and the
+      // tier plates' pips, `tower-lamp` and `pip-flicker`, are the only
+      // motion the front door has). That is a tendency, not a cure: the cure
+      // is retaking the scene in a fresh page, which runShots does.
+      if (!Number.isFinite(end)) {
+        a.currentTime = 0;
+        pinned += 1;
+        continue;
+      }
+      a.finish();
+      finished += 1;
+    }
+    return { finished, pinned };
+  },
+
   pickTier: (tier) => app().pickTier(tier),
 
   setAiming(on) {

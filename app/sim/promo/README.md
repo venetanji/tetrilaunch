@@ -5,16 +5,27 @@ in a real headless Chromium, one exact frame at a time, played by the sim's
 own pilots. Nothing here is a mock-up: the page imports `src/main.ts`, and the
 bays are the ones `launchSandbox` builds.
 
+**The owner's copy of this is [RUNBOOK.md](./RUNBOOK.md)** — which store wants
+which size, where the files land, and how to re-shoot one PNG. This file is
+the harness's own notes: what it does and why it is built the way it is.
+
 ```sh
+npm run promo:beats                               # every beat, in edit order
 npm run promo -- --beat=plan                      # one beat
 npm run promo -- --beat=plan --beat=precision     # several
-npm run promo -- --all                            # every beat, in edit order
-npm run promo -- --shots [--store=play|appstore|all]
+npm run promo:shots                               # every store, every size
+npm run promo -- --shots --store=play|appstore|steam|all
+npm run promo -- --shots --scene=leaderboard --store-size=2400x1350   # one PNG
+npm run promo:verify -- --a=<dir>/store --b=<dir>/store [--diff=<dir>]
 npm run promo:assemble -- [--cut=promo|materials] [--run] [--vertical] [--font=…]
 ```
 
 Options: `--fps=60` `--size=1920x1080` `--out=<dir>` (default `sim/results/promo`,
-gitignored) `--seeds=N` (luck's search width) `--no-webm`.
+gitignored) `--seeds=N` (luck's search width) `--no-webm` `--verbose[=frames]`.
+
+No ffmpeg on the box is a SKIP, never a failure: the PNG frames and every
+store shot still capture, the per-beat preview webm is skipped with a line
+saying so, and `promo:assemble` still writes `mux.sh` for a box that has one.
 
 ## Run order
 
@@ -34,10 +45,46 @@ gitignored) `--seeds=N` (luck's search width) `--no-webm`.
    `<out>/store/<store>/<size>/<NN>-<scene>.png`, with `manifest.json`. Never
    writes into `store/` in the repo; copy what you keep by hand.
 
+## What makes a capture REPRODUCIBLE
+
+The point of the whole rig is that the same command on the same tree produces
+the same PNG, so the owner can re-shoot one screenshot in a year and have it
+match its neighbours. Five things had to be closed for that to be true, and
+`verify.ts` is what keeps them closed:
+
+1. **The clock starts at zero** and moves only when the driver ticks it.
+2. **Date is pinned** to `PROMO_EPOCH` plus the virtual clock, in UTC. Three
+   screens are dated — the daily Contract board (`contracts.ts`'s dailySeed),
+   the Skydeck's rules (`skydeck.ts`), and the FRONT DOOR's attract bay, which
+   seeds itself `Date.now() ^ cycleIndex` on purpose (`attract.ts`:353). Before
+   this the menu shot dealt a different demo bay on every run.
+3. **Math.random is seeded** — `contracts.ts` leaves `rng` unseeded by design
+   in two places a screen reaches.
+4. **The stylesheet is frozen at a stated frame** before the shutter
+   (harness.ts's `quiesce`): finite transitions finished, loops pinned to
+   phase 0. Two runs used to catch the same modal at two points of its fade.
+5. **The screen is entered through the App's own door.** A scene that needs a
+   screen's entry work done — the leaderboard's board fetch — presses the
+   App's `data-action` button rather than calling setState, and waits for the
+   content (`waitFor`) instead of racing it.
+
+Measured on this tree, two runs of the same command: BEFORE, 30 shots with 19
+differing — whole screens, the leaderboard card at 22.75% of the frame and
+maxΔ 218. AFTER, 33 shots with 24 byte-identical, every DOM screen among
+them; the 9 that differ are gameplay scenes disagreeing only on the cannon
+and the plant panel's frame, seven of them at maxΔ ≤ 6, and 31 of 33 pass at
+`--tolerance=8`. What is left is the SPRITE BAKE, not the harness — see
+RUNBOOK.md.
+
 ## What is where
 
 - `beats.ts` — the beats (id, bay configuration, pilot, end condition, lead-in),
-  the store scenes and sizes. The one file to edit for a different shot.
+  the store SCENES, the SETUPS they are photographed on and the store SIZES.
+  The one file to edit for a different shot.
+- `verify.ts` — two capture runs compared pixel for pixel; the determinism
+  claim's evidence, and the check to run after any redesign.
+- `RUNBOOK.md` — the owner's session: commands, which store wants what, where
+  to copy the keepers.
 - `run.ts` — the driver: Vite dev server, Chromium, the clock, frames, mux.
 - `harness.ts` / `harness.html` — the page: the App plus `window.__promo`.
 - `preroll.ts` — flies a bay without filming it, to find `luck`'s seed and
@@ -92,10 +139,30 @@ preroll running in the page.
 
 ## Store shots
 
-Play 16:9 follows docs/PLAY.md: 960×540 @2.5 for the menu and boards,
-1280×720 @1.875 for gameplay → 2400×1350. Apple's sizes are the current App
-Store Connect landscape requirements (2868×1320, 2688×1242, 2752×2064), each
-rendered at half size @2 — docs/ios.md names the device classes only, so
-these are stated here rather than found in the repo. The portrait row exists
-for completeness: the game is landscape-only and a portrait viewport renders
-the rotate guard, so it is not a meaningful store shot.
+The sizes and what each store requires are in [RUNBOOK.md](./RUNBOOK.md); the
+short version is Play 16:9 plus two tablet rows, the App Store's six landscape
+device classes, and Steam's 1080p (the capsules are artwork, not screenshots —
+only the main capsule's FRAME is rendered here, as something to compose over).
+
+Each size states a CSS viewport per scene family and the DPR is derived, so
+`px = css x dpr` exactly on both axes with an integer viewport — asserted in
+`run.ts` before a page opens and pinned in `sim/systems.ts` so a bad row fails
+in a second rather than eight minutes in.
+
+The SETUPS are the different saves a screen is photographed on — `fresh` (a
+new install), `ladder` (mid-ladder, the default), `contracts` (a board with
+work against it), `rigged` (everything owned), `sealed` (every Mark sealed and
+the roof open). The same Workshop on a starting rig and on a full one are two
+different screenshots and only one of them sells the game.
+
+The portrait row exists for completeness: the game is landscape-only and a
+portrait viewport renders the rotate guard, so it is not a store shot.
+
+## The hub redesign (#223)
+
+`claude/double-gameplay-ux-refactor-rd54vn` rebuilds the hub. Nothing here
+selects a screen by class name — scenes are AppState ids, `data-action`
+presses and tower floors, which is what should make that survivable — but the
+`menu` and `tier-hub` shots ARE the redesign and must be re-taken at every
+size when it lands. A card-level scene is one `{ kind: "action", action: … }`
+entry in `SCENES`. See RUNBOOK.md §4.
