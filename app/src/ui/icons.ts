@@ -55,6 +55,22 @@ export type IconName =
   // and their metrics wobble the buttons. Emoji survive only in flavour copy
   // now, never in a control.
   | "pause" | "fullscreen" | "rotl" | "rotr" | "close" | "check" | "bond" | "retry"
+  // THE WORKSHOP'S TWO PLATE BADGES (screens.ts's workshopRack). A rack plate
+  // is 44px of icon and pips with no room for a word, so the two states that
+  // are neither "aboard" nor "for sale" wear a 14px corner badge instead:
+  // `lock` for a system the Mark has not opened, `stow` for one that is owned
+  // but not flying. Badges rather than hues because red/green is not a
+  // distinction this game may draw (DESIGN.md), so every plate state has to
+  // land on a shape or a position.
+  //
+  // Both are drawn AGAINST the glyph they could be confused with at 9px, which
+  // is the size a badge actually renders at. `lock` sits next to `bonds` (a
+  // filled centre with four spokes) and so keeps its mass in a WIDE flat body
+  // under an arch — no spokes, no symmetry about the centre. `stow` sits next
+  // to `demolition` (a filled slab with a boom arm going up-right) and so
+  // points its arrow DOWN into a tray that spans the full width: the two read
+  // as opposite directions before they read as anything else.
+  | "lock" | "stow"
   // THE PAD REFERENCE (bindings.ts's padChip): the four PlayStation face marks
   // and the menu bar-stack both families print on their Start/Options button.
   // These are the ONE set here that is not our own invention — they are a
@@ -280,6 +296,18 @@ const PATHS: Record<IconName, string> = {
   rotr: `<path d="M3.4 11.2A5.6 5.6 0 1 0 3.4 4.8"/><path d="M2.6 1.6v3.8h3.8"/>`,
   close: `<path d="M3.5 3.5l9 9"/><path d="M12.5 3.5l-9 9"/>`,
   check: `<path d="M2.5 8.5l4 4L13.5 4.5"/>`,
+  // A padlock: shackle, body, keyhole. The body is STROKED (an outline box) and
+  // only the keyhole is filled, so at 9px the glyph reads as a hollow box with
+  // one dark notch in it — the silhouette `bonds` cannot make, since that one
+  // is a filled centre with four spokes leaving the box entirely.
+  lock: `<path d="M5 7V4h6v3"/><path d="M3 7h10v7H3z"/>` +
+    `<path d="M7.5 9.5h1v2h-1z" fill="currentColor" stroke="none"/>`,
+  // Into the shed: an arrow driven DOWN onto a solid tray. The tray is the full
+  // 10 wide and sits on the floor of the box; `demolition`'s slab is 8 wide and
+  // carries an arm rising to the top-right corner, so the two differ in the
+  // one thing a 9px silhouette still resolves — which way the glyph points.
+  stow: `<path d="M8 2v7"/><path d="M5 6l3 3 3-3"/>` +
+    `<path d="M3 11h10v3H3z" fill="currentColor" stroke="none"/>`,
   // The Bond Breaker bolt — the same silhouette `bond-breaker`'s shop glyph
   // throws between its blocks, solid here because it is a lit trigger.
   bond: `<path d="M9.5 1L4 9h3.2L6 15l6-8H8.6z" fill="currentColor" stroke="none"/>`,

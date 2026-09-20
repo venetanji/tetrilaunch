@@ -1110,6 +1110,24 @@ class App {
    *  drill, which is all of the others. */
   private drillFromShop = false;
 
+  /** WHICH PLATE THE WORKSHOP'S DETAIL IS DRAWING (screens.ts's
+   *  workshopScreen) — a system id, an unlock id, or null before the screen has
+   *  ever been opened.
+   *
+   *  HELD HERE RATHER THAN RE-DERIVED PER RENDER, and that is the whole point
+   *  of the field: the four purchase actions on that screen re-render it
+   *  wholesale (renderKeepingScroll), and a selection recomputed on the way
+   *  through would MOVE under the player exactly when they had just acted —
+   *  buy tier 1 of the Launcher and the recommendation becomes something else,
+   *  so the detail would swap to a different system to tell you what you just
+   *  bought. The plate may change rows (a bought system leaves the shelf for
+   *  the rack, a mounted one crosses to the shed); the selection does not.
+   *
+   *  Resolved ONCE on the way in, by the screen's own rule
+   *  (workshopDefaultSelection), so the state layer and the markup cannot
+   *  disagree about which plate is open. */
+  private workshopSelected: string | null = null;
+
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
    *  settings.seenTutorial is set (finish or skip); each step advances when
@@ -1539,6 +1557,16 @@ class App {
     // trip this on the way in.
     if (s !== "account") this.paywallReturn = null;
     if (s !== "account") this.accountError = null;
+    // THE WORKSHOP OPENS ON ONE PLATE, chosen on the way IN. Every entry from
+    // outside the shop re-asks screens.ts's workshopDefaultSelection — the
+    // recommendation if there is one, else the rack's first plate — and every
+    // render from inside keeps whatever the player last pressed. The drill
+    // offer (sys-drill-offer) draws the shop UNDER its modal, so leaving it
+    // counts as an entry and the shop re-opens on what to buy next, which is
+    // the question a player who just bought a system is holding.
+    if (s === "workshop" && this.state !== s) {
+      this.workshopSelected = S.workshopDefaultSelection(this.meta);
+    }
     this.state = s;
     // AFTER the assignment and BEFORE the music and the render, because it
     // writes both of their inputs: syncMusic reads `celebrating` to pick the
@@ -3255,15 +3283,19 @@ class App {
    * through the top, riding down it leaves through the bottom. The plate's
    * number slot is a fixed 2ch (app.css), so "9" to "10" rolls in the same box
    * as "2" to "1" and nothing around it moves.
+   *
+   * The faces are screens.ts's tierPlateFace — the same function the plate is
+   * built from — and NOT a local table of the special floors. A local table is
+   * what this was, and it was missing the ground floor: the ride down to
+   * Flight School rolled "-2" onto the plate (LICENCE_TIER, printed raw) and
+   * held it until the landing rebuilt the plate with the wing.
    */
   private rollPlate(from: number, to: number, dur: number): void {
     // The plate is a readout on the run CARD, beside the button, since the hub
     // redesign — not inside #menu-play any more.
     const n = this.overlay.querySelector<HTMLElement>(".tierhub__run .tier-plate__n");
     if (!n) return;
-    const face = (t: number): string =>
-      t === S.SKYDECK_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
-    this.roll(n, face(from), face(to), this.ridingUp(from, to), dur);
+    this.roll(n, S.tierPlateFace(from), S.tierPlateFace(to), this.ridingUp(from, to), dur);
   }
 
   /**
@@ -3763,7 +3795,8 @@ class App {
       // The profile rides along because the rack's slots say what to DO to
       // them, and that word is the device's (D7, bindings.ts's hintPress).
       case "workshop":
-        this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile);
+        this.overlay.innerHTML =
+          S.workshopScreen(this.meta, this.profile, this.workshopSelected);
         break;
       // Tier S. The MODE ships (lib/devmode.ts), so this is no longer gated on
       // the build — it is gated on the door being open, and guarded here as
@@ -3936,7 +3969,8 @@ class App {
         const track = this.drillOffer;
         const spec = track ? DRILLS[`sys-${track}`] : undefined;
         if (track && spec) {
-          this.overlay.innerHTML = S.workshopScreen(this.meta, this.profile)
+          this.overlay.innerHTML =
+            S.workshopScreen(this.meta, this.profile, this.workshopSelected)
             + S.systemDrillOfferModal({
               name: upgradeById(track)?.name ?? track,
               drill: spec.name,
@@ -4443,11 +4477,17 @@ class App {
    *
    * The reported bug: buy something on the Workshop and the shop pane jumps
    * back to the top. renderOverlay rewrites `overlay.innerHTML` wholesale, so
-   * a purchase does not update `.workshop__shop` — it replaces it, and a fresh
-   * element scrolls to 0. Measured on a 740x360 phone against a progressed
-   * save: a 906px shelf in a 181px pane, the player 725px down it, and every
-   * BUY threw them back to the first card. The stock they were shopping for is
-   * exactly the stock that is furthest from the top.
+   * a purchase does not update the pane — it replaces it, and a fresh element
+   * scrolls to 0. Measured on a 740x360 phone against a progressed save: a
+   * 906px shelf in a 181px pane, the player 725px down it, and every BUY threw
+   * them back to the first card. The stock they were shopping for is exactly
+   * the stock that is furthest from the top.
+   *
+   * That pane is `.rack__rows` now and it is far shorter (44px plates in
+   * place of ~120px cards), so the jump is a handful of pixels on the 360-tall
+   * rows rather than 725 — but the Workshop gained a SELECTION in the same
+   * rebuild, and every one of its five actions re-renders through here to keep
+   * it. The seam earns its place twice over.
    *
    * NOT folded into renderOverlay itself, and that is the whole design of this
    * seam. The offsets are only worth keeping when the shelf the player is in
@@ -6666,6 +6706,31 @@ class App {
     this.renderKeepingScroll();
   }
 
+  /** Workshop: read a different system.
+   *
+   *  THE ONE ACTION THAT SPENDS NOTHING, which is what the plates were missing.
+   *  A plate used to be `data-action="mount"` — the only control a system had,
+   *  and it toggled the rack — so browsing the loadout meant changing it. Now a
+   *  press selects, mounting is a button in the detail, and the two decisions
+   *  are two controls.
+   *
+   *  Unknown ids are IGNORED rather than stored, and that is ASKED rather than
+   *  assumed (found in review — this comment claimed the check and the code
+   *  only tested for a non-empty string). A stale attribute must not be able to
+   *  park the field on something the panel does not draw: the screen resolves
+   *  such an id back to its default, so the ring would be on one plate while
+   *  `workshopSelected` named another, which is exactly the drift the shared
+   *  resolver exists to prevent, re-introduced one layer up. screens.ts owns
+   *  the answer (workshopHasPlate) so the question cannot be asked two ways.
+   *
+   *  No save, no sound, no haptic — nothing here is a transaction. */
+  private onSelectSystem(id: string): void {
+    if (!id || id === this.workshopSelected) return;
+    if (!S.workshopHasPlate(this.meta, id)) return;
+    this.workshopSelected = id;
+    this.renderKeepingScroll();
+  }
+
   /** Workshop: install a ship system with salvage.
    *
    *  Every refusal — gated Mark, already installed, unaffordable, over the
@@ -8625,6 +8690,28 @@ class App {
       this.overlay.querySelector<HTMLElement>('[data-action="skip-bayclear"]')?.click();
       return true;
     }
+    // A CONFIRM ENDS THE UNLOCK CEREMONY, exactly as a tap on the celebrated
+    // floor does — and this is the pad's ONLY route to it. The tier-unlock ride
+    // is drawn OVER a live menu whose primary action is Play, so focusInitial
+    // parks the pad on Play and the general confirm route below (el.click) would
+    // launch a run rather than clear the banner. A pointer dismisses the ride by
+    // touching the floor (pickTier's dismissal-only branch); without this a
+    // pad-only player — a Steam Deck, where controller parity is a Verified
+    // requirement — was stranded on the banner, unable to continue the tutorial.
+    //
+    // Reuses pickTier against the parked floor rather than a hand-rolled
+    // teardown, so pointer and pad end the ceremony through ONE path and cannot
+    // drift. The car is parked at the celebrated floor (towerState().selected)
+    // with towerTravel null for the whole ride (armUnlockCelebration never sets
+    // it, and setState clears it on the way into the menu), so pickTier takes its
+    // dismissal-only branch: it ends the ride, plays the click, runs no travel.
+    // `celebrating` is only ever true on the menu (armUnlockCelebration /
+    // endUnlockCelebration bracket it), so no state guard is needed — mirroring
+    // the bayclear tap-through case above.
+    if (this.celebrating && button === PAD_CONFIRM) {
+      this.pickTier(this.towerState().selected);
+      return true;
+    }
     // THE CONTROLS SHORTCUT (button 8 — Select/Back/View, "…" on a Deck).
     // Consulted before focus movement so it cannot be shadowed by a screen's
     // own controls, and after the wake window so the press that woke the pad
@@ -9242,6 +9329,7 @@ class App {
       case "stage-upgrade": this.onStageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
       case "unstage-upgrade": this.onUnstageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
       case "refit-done": this.onRefitDone(); break;
+      case "select-system": this.onSelectSystem(el.getAttribute("data-select") ?? ""); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
       case "buy-slot": this.onBuySlot(); break;

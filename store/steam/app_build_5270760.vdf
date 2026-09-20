@@ -1,0 +1,46 @@
+// Tetrilaunch — SteamPipe app build script. App ID 5270760.
+//
+// Read store/steam/README.md and docs/STEAM.md (Phase 5) before touching this.
+//
+// WHAT THIS UPLOADS: the UNPACKED application directories that
+// `npm run desktop:dist:steam` (and CI) leave under app/desktop/release/ — NOT
+// the NSIS/dmg/AppImage installers. Steam is the installer; a depot wants the
+// tree it installs. See electron-builder.yml's `dir` targets.
+//
+// PREVIEW IS "1" ON PURPOSE. As shipped this is a DRY RUN: steamcmd chunks and
+// validates the content and uploads NOTHING. That is the safe default the SDK
+// examples use and the one this repo's docs warn you not to leave on by
+// accident — so the real upload is a deliberate act:
+//   * CI flips it to "0" for the real upload (a sed over a copy — see
+//     .github/workflows/desktop.yml's steam-upload job), never in the committed
+//     file.
+//   * A dry run needs no login and no App ID access:
+//       steamcmd +run_app_build <abs path to this file> +quit
+//
+// SETLIVE targets the "playtest" BETA branch. Beta branches can be set live
+// from a script; the DEFAULT branch cannot (that is a deliberate click in the
+// Steamworks App Admin → Builds page) — which is exactly the guard between a CI
+// run and shipping a broken build to everyone. Point the Deck at the "playtest"
+// branch once and every upload appears there.
+"AppBuild"
+{
+	"AppID"       "5270760"
+	"Desc"        "Tetrilaunch depot build"   // CI overwrites with the tag/run
+	"Preview"     "1"                          // DRY RUN. CI sets "0" to upload.
+	"SetLive"     "playtest"                   // beta branch; default is manual
+
+	// Relative to THIS file (store/steam/), not the working directory — the trap
+	// the README and docs/STEAM.md both call out. Points back out at the tree
+	// electron-builder writes. CI stages the downloaded per-platform artifacts
+	// into this same layout so one ContentRoot serves both loops.
+	"ContentRoot" "../../app/desktop/release/"
+	"BuildOutput" "./output/"                  // gitignored; logs + chunk cache
+
+	"Depots"
+	{
+		// Depot IDs confirmed against the dashboard 2026-09-14.
+		"5270761" "depot_build_5270761.vdf"   // Windows  -> win-unpacked/
+		"5270762" "depot_build_5270762.vdf"   // macOS    -> mac/ (x64; see file)
+		"5270763" "depot_build_5270763.vdf"   // Linux    -> linux-unpacked/
+	}
+}
