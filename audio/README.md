@@ -74,7 +74,10 @@ in difficulty instead of restarting the arc at bay 1 every day.
 
 | role     | song                | plays over            |
 | -------- | ------------------- | --------------------- |
-| `menu`   | lounge-menu-pause   | menus, pause, tutorial fail |
+| `menu`   | lounge-menu-pause   | pause, Settings, tutorial fail, the seal notice |
+| `theme`  | **pending**         | the front door, `/about`, the promo cut's title beats |
+| `hub`    | **pending**         | the tier hub, Workshop, leaderboard |
+| `contracts` | **pending**      | the Contract board (not the attempt — that borrows a bay) |
 | `bay-1`  | chill beginning (Remastered) | bay 1, and a tier-1 board's first Contract |
 | `bay-2`  | 2 chill             | bay 2, and a Contract in tiers 1-2's window |
 | `bay-3`  | Threes              | bay 3, and a Contract in tiers 1-3's window |
@@ -86,6 +89,17 @@ in difficulty instead of restarting the arc at bay 1 every day.
 | `bay-9`  | Neon Static         | bay 9, and a Contract in tiers 7-10's window |
 | `bay-10` | Neon Pixel Pulse    | bay 10, the closer, and a Contract in tiers 8-10's window |
 | `contract-rare` | Whale Circuit | 5% of Contract attempts, beating both rules |
+
+### Roles that are named but not generated yet
+
+`theme`, `hub` and `contracts` are listed in `prepare-audio.mjs`'s
+`PENDING_MUSIC` rather than in `MUSIC`, because this script cannot map a bed
+without a master's song title and `sim/systems.ts` asserts set EQUALITY between
+the beds the game can ask for and the files in `app/public/audio/music/`. A
+pending role is excused from that census and from nothing else — including the
+reverse, so a pending role whose file has arrived fails until the line moves.
+The briefs they were commissioned to are in
+`design/audio/1.0.6-track-prompts.md`, along with the runbook for landing them.
 
 ## Adding a track
 

@@ -346,7 +346,47 @@ export type FxName =
   | "windLoop";
 
 /**
- * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
+ * THE BEDS THAT BELONG TO A SCREEN RATHER THAN TO A BAY.
+ *
+ * The ladder is fully scored — ten bays, ten songs, and sim/systems.ts pins
+ * that no two of them collide. Everything else in the game shared ONE bed:
+ * `menu` played the front door, the hub, the Workshop, the Contract board, the
+ * leaderboard, the pause card, the tutorial's failures and the seal notice.
+ * That is one lounge track carrying every surface a player is on when they are
+ * not flying, and it is the only place in the soundtrack where a whole class of
+ * screens says nothing about itself.
+ *
+ * So the out-of-bay half gets an arc too, and the split is by what the player
+ * is DOING rather than by which file loaded:
+ *
+ *   theme     the front door — the pitch. It plays over the live demo behind
+ *             the door, and it is the piece the store cut opens and closes on
+ *             (sim/promo/timeline.json's title beats, which play `menu` today:
+ *             the game's calling card is currently the track written to sit
+ *             under a paused bay).
+ *   hub       the tier hub — the loop. Picking a tier, reading the recap,
+ *             walking to the Workshop and back. This is where most out-of-run
+ *             minutes are actually spent (main.ts's "tiers" state, PR #223).
+ *   contracts the Contract board — the daily ritual. Three cards, once a day,
+ *             and a bed that is not the one the attempt itself borrows
+ *             (contracts.ts's contractBed hands out a BAY bed for that).
+ *   menu      what is left, and what the lounge track was always good at: the
+ *             pause card, Settings, the tutorial's failures, the seal notice.
+ *             Deliberately the quietest job in the set — a driving track under
+ *             a paused game reads as pressure while nothing is happening.
+ *
+ * ROUTING IS NOT HERE AND IS NOT YET WIRED. Which screen asks for which bed is
+ * main.ts's syncMusic, and the three new roles have no master yet — see
+ * scripts/prepare-audio.mjs's PENDING_MUSIC for what that costs and why the
+ * names land before the files. Pointing a screen at a bed that does not exist
+ * would make that screen SILENT (playMusic swallows the 404 by design), which
+ * is worse than the lounge bed it plays today, so the routing lands in the same
+ * commit as the assets.
+ */
+export type ScreenBed = "theme" | "hub" | "contracts" | "menu";
+
+/**
+ * The screen beds, the Deep Run's per-bay ladder, and the Contract bed — which
  * is one of the run's beds on loan today (contracts.ts's CONTRACT_BED).
  *
  * WHICH bed covers which bay is run design, not playback, so it lives in
@@ -354,7 +394,7 @@ export type FxName =
  * handed. The names are roles; scripts/prepare-audio.mjs decides which
  * generated master becomes each one.
  */
-export type MusicName = "menu" | ContractBed | BayTrack;
+export type MusicName = ScreenBed | ContractBed | BayTrack;
 /** `contractClear` is the daily Contract's own celebration. It exists because
  *  the alternative was worse than silence: a cleared Contract used to play
  *  `gameOver`, i.e. the run's funeral over a banked milestone. Deliberately

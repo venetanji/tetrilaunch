@@ -14820,12 +14820,44 @@ section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
 // ---------------------------------------------------------------------------
 section("Music beds (run ladder + Contract picks vs public/audio/music)");
 {
-  // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
-  // MusicName rather than imported: that module reads import.meta.env at load
-  // and reaches for Audio/AudioContext, so it cannot be pulled into a Node
-  // harness at all. One literal is a cheap price for checking the shipped set
-  // against what the game actually asks for.
-  const SCREEN_BEDS = ["menu"];
+  // The beds that play OUTSIDE a bay. READ FROM SOURCE rather than imported:
+  // lib/audio.ts reads import.meta.env at load and reaches for
+  // Audio/AudioContext, so it cannot be pulled into a Node harness at all —
+  // the same reason the effect census below scans instead of importing.
+  //
+  // Scanned rather than mirrored by hand, which it used to be. One literal was
+  // a cheap price while there was one screen bed; at four it is a copy of a
+  // union that nothing would notice going stale, and a stale copy here does not
+  // fail — it QUIETLY STOPS ASKING about a bed, which is the one outcome a
+  // census must not have.
+  const srcOf = (...q: string[]): string => fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ...q), "utf8",
+  );
+  /** Comments in this repo carry example names and whole essays, so they are
+   *  stripped before anything is matched — a note ABOUT a bed must never read
+   *  as a declaration OF one. Same helper, same reason, as the effect census. */
+  const noComments = (src: string): string =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const quoted = (src: string, re: RegExp): string[] =>
+    [...(re.exec(src)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+
+  const audioSrc = srcOf("src", "lib", "audio.ts");
+  const prepareSrc = srcOf("scripts", "prepare-audio.mjs");
+  const SCREEN_BEDS = quoted(noComments(audioSrc), /export type ScreenBed =([^;]*);/);
+  // Roles this release has NAMED but not yet generated — prepare-audio.mjs's
+  // PENDING_MUSIC, which is the single place the two halves of the seam agree
+  // on what is outstanding. They are excused from the shipped-file census
+  // below and from nothing else.
+  const PENDING_BEDS = quoted(noComments(prepareSrc), /\nconst PENDING_MUSIC = \[([^\]]*)\];/);
+  // Both extractions proven to have found something, for the reason the effect
+  // census states: a set comparison between two empty sets passes, so a renamed
+  // constant would retire this section rather than fail it. PENDING_MUSIC is
+  // allowed to be empty — that is what an all-shipped release looks like — so
+  // it is checked for still being FOUND, not for being populated.
+  check("the screen beds are still where this pin looks for them",
+    SCREEN_BEDS.length > 0, SCREEN_BEDS.join(", "));
+  check("prepare-audio still declares PENDING_MUSIC",
+    /\nconst PENDING_MUSIC = \[/.test(prepareSrc), PENDING_BEDS.join(", ") || "(empty)");
 
   const beds = Array.from({ length: RUN_LEVELS }, (_, i) => bayMusic(i));
   const trace = beds.map((b, i) => `${i + 1}:${b}`).join(" ");
@@ -14979,10 +15011,6 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   const LONG_EXT_RE = /\.(mp3|m4a|ogg)$/;
   const shippedFiles = fs.readdirSync(musicDir).filter((f) => LONG_EXT_RE.test(f));
   const shipped = new Set(shippedFiles.map((f) => f.replace(LONG_EXT_RE, "")));
-  const audioSrc = fs.readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "lib", "audio.ts"),
-    "utf8",
-  );
   const declaredExt = /const LONG_EXT = "(\.[a-z0-9]+)"/.exec(audioSrc)?.[1];
   check("audio.ts declares LONG_EXT for the long-form assets", !!declaredExt);
   const stingersDir = path.resolve(musicDir, "..", "stingers");
@@ -15024,10 +15052,23 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     ...TIERS.flatMap(windowOf),
     "contract-rare",
   ]);
-  const absent = [...wanted].filter((n) => !shipped.has(n));
+  // A PENDING role is a bed the code can NAME and the pipeline has not made
+  // yet, and the exemption is exactly that wide: it excuses the file, never the
+  // name. A typo in PENDING_MUSIC therefore cannot buy silence for a real
+  // role — a name that is not a declared bed is not excusing anything, and the
+  // check below says so.
+  const strayPending = PENDING_BEDS.filter((n) => !wanted.has(n));
+  check("every pending bed is one the game can actually ask for",
+    strayPending.length === 0, strayPending.join(", "));
+  const absent = [...wanted].filter((n) => !shipped.has(n) && !PENDING_BEDS.includes(n));
   const orphaned = [...shipped].filter((n) => !wanted.has(n));
   check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));
   check("no music file ships unclaimed", orphaned.length === 0, orphaned.join(", "));
+  // …and the exemption RETIRES ITSELF. A pending role whose file has arrived is
+  // a bed nobody is routed at and a census still looking the other way, which
+  // is the one state that would let this list rot into a permanent excuse.
+  const stalePending = PENDING_BEDS.filter((n) => shipped.has(n));
+  check("no pending bed has quietly shipped", stalePending.length === 0, stalePending.join(", "));
 }
 
 // ---------------------------------------------------------------------------

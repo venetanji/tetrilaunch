@@ -164,6 +164,44 @@ const MUSIC = {
   "Neon Pixel Pulse.mp3": "bay-10",
 };
 
+/**
+ * ROLES THAT ARE DECIDED BUT NOT YET GENERATED.
+ *
+ * Every other name in this file is mapped AHEAD of its master on purpose: a
+ * missing fx/ or stingers/ file fails the run, and that failure is the TODO
+ * (see the FX list's note). This list is the one place that rule does not work,
+ * and the difference is what the two halves cost while the file is absent.
+ *
+ * A mapped effect with no master is harmless in the app — playFx no-ops on an
+ * undecoded buffer and the cue is simply silent — so the only thing the
+ * failure interrupts is this script, which is exactly who it is addressed to.
+ *
+ * A mapped BED is not harmless, twice over. This script cannot name a music
+ * role without a source filename, because MUSIC is keyed by the master's own
+ * song title and that title does not exist until the take does; and
+ * sim/systems.ts asserts set EQUALITY between the beds the game can ask for and
+ * the files in public/audio/music, so a role landing before its file turns the
+ * harness red on every checkout rather than only on a prepare run. Meanwhile
+ * routing a screen at that role makes the screen SILENT (playMusic swallows
+ * the 404 by design), which is worse than the bed it plays today.
+ *
+ * So a bed's name and its file land together, and this list is what the two
+ * halves agree on in between. It is a COMMITMENT, not a wish: the role is
+ * named, lib/audio.ts's ScreenBed carries it, sim/systems.ts reads this list
+ * and excuses exactly these roles from the shipped-file census — and excuses
+ * nothing else, and fails if one of them turns out to HAVE shipped, which is
+ * the reminder to move it into MUSIC above.
+ *
+ * To retire one: drop the master into audio/tracks/, add its real song title
+ * to MUSIC under this role, delete the line from here, route the screen in
+ * main.ts's syncMusic, and commit the produced public/audio/music file with
+ * them. audio/README.md's "Adding a track" is the long form.
+ *
+ * The briefs these three were generated to are in
+ * design/audio/1.0.6-track-prompts.md, beside the sfx prompt sheet.
+ */
+const PENDING_MUSIC = ["theme", "hub", "contracts"];
+
 /** Two hits closer than this are one sound, not two — a double-tick reload
  *  must survive trimming intact. Above it, a second hit is the generator
  *  padding the 2s minimum with a pattern, and must be dropped. Tuned against
@@ -993,6 +1031,12 @@ async function main() {
   for (const f of tracks) {
     if (f.endsWith(".mp3") && !MUSIC[f]) unmapped.push(`tracks/${f}`);
   }
+  for (const name of PENDING_MUSIC) {
+    // Loud, and deliberately in the same column as the roles that DID ship, so
+    // a pending bed is read as a hole in the soundtrack rather than as an
+    // absence of news. It does not join `missing`: see PENDING_MUSIC.
+    console.log(`  ${name.padEnd(12)} PENDING — no master yet, nothing shipped for this role`);
+  }
   for (const [file, name] of Object.entries(MUSIC)) {
     if (!tracks.has(file)) {
       console.log(`  ${name.padEnd(12)} MISSING (${file})`);
@@ -1010,6 +1054,24 @@ async function main() {
   }
 
   console.log(`total shipped: ${(total / 1048576).toFixed(2)} MB`);
+  if (PENDING_MUSIC.length) {
+    console.log(
+      `note: ${PENDING_MUSIC.length} music role(s) still PENDING a master — ` +
+      `${PENDING_MUSIC.join(", ")}. Nothing plays them yet; see PENDING_MUSIC above.`,
+    );
+  }
+  // A pending role whose file somehow exists is the one state this list must
+  // not sit quietly in: the bed is shipped, the census in sim/systems.ts is
+  // still excusing it, and the screen that should play it is still routed at
+  // something else. Reported here as well as pinned there, because this is the
+  // run that would have produced it.
+  const promoted = PENDING_MUSIC.filter((n) => Object.values(MUSIC).includes(n));
+  if (promoted.length) {
+    console.error("");
+    console.error(`✗ audio prepare: still listed as PENDING but mapped — ${promoted.join(", ")}`);
+    console.error("  Delete those lines from PENDING_MUSIC; the role has a master now.");
+    process.exitCode = 1;
+  }
   if (unmapped.length) {
     console.log(`note: present but unmapped, so NOT shipped: ${unmapped.join(", ")}`);
     console.log("      add them to FX / STINGERS / MUSIC above, under the role they play.");
