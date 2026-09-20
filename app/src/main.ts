@@ -75,7 +75,8 @@ import {
   nextFlightAfter,
   GRADUATION_FLIGHT, SCHOOL_STEPS,
   markUnlocked, recordLesson, recordSystemDrillOffer, systemDrillOffered,
-  markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
+  markUnlockCelebrated, nextStep, nextStepIsNew, ackNextStep,
+  pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
@@ -621,6 +622,12 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** The locked Unlock button's answer (onClick's "claim-tier"): the hub's owed
+   *  halves wear `is-blink` for a beat. Its own clock rather than denyTimer's
+   *  because the two can overlap — a tap on a locked floor and a press on the
+   *  locked Unlock are different refusals on the same screen, and one clearing
+   *  the other's class early would cut a shake or a blink short. */
+  private blinkTimer = 0;
   /** noteStoreUnavailable's restore. Its own clock rather than denyTimer's:
    *  620ms is a shake, not a reading speed. */
   private storeNoteTimer = 0;
@@ -2612,13 +2619,15 @@ class App {
       // lobby's own readout, and they are passed rather than derived there so
       // a uifit fixture can state a half-finished licence without a meta.
       licensed: licenceDone(this.meta),
-      // THE SECOND LOCK ON THE LADDER (meta.ts's rigStarted). The car still
-      // PARKS on Tier 1 while it is shut — the selection above is unchanged —
-      // and that is deliberate: the parked floor is what the primary button
-      // describes, and "Deep Run · Install a system in the Workshop",
-      // disabled, is the sentence this whole re-order exists to put on screen.
-      // Parking in the lobby instead would say "go back to school", which is
-      // the one thing the player has just finished doing.
+      // WHETHER A SYSTEM IS ABOARD (meta.ts's rigStarted). This USED to be the
+      // second lock on the ladder — an un-rigged save was refused Tier 1 and
+      // pointed at the Workshop — and it no longer locks anything: optional
+      // onboarding made Tier 1 playable the moment the player skips into the
+      // hub (screens.ts's tierOpen says so at length). It is still passed
+      // because the tower still READS it as a soft nudge — the primary's
+      // subtitle and the Upgrades badge can name the first system without
+      // refusing the run — and because a uifit fixture states a stock ship
+      // without a meta.
       rigged: rigStarted(this.meta),
       // THE FOURTH RUNG, which is what opens the two shops (screens.ts's
       // menuScreen). Separate from `licensed` because they are now different
@@ -3248,7 +3257,9 @@ class App {
    * as "2" to "1" and nothing around it moves.
    */
   private rollPlate(from: number, to: number, dur: number): void {
-    const n = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate__n");
+    // The plate is a readout on the run CARD, beside the button, since the hub
+    // redesign — not inside #menu-play any more.
+    const n = this.overlay.querySelector<HTMLElement>(".tierhub__run .tier-plate__n");
     if (!n) return;
     const face = (t: number): string =>
       t === S.SKYDECK_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
@@ -3474,7 +3485,7 @@ class App {
    */
   private setSelectedTier(tier: number): void {
     const sbx = tier === S.SANDBOX_TIER;
-    const plate = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate");
+    const plate = this.overlay.querySelector<HTMLElement>(".tierhub__run .tier-plate");
     if (plate) plate.outerHTML = S.tierPlateHTML(tier, "menu");
     this.setPlaySub(tier);
     // The button's own NAME changes on the roof, not just its subtitle — the
@@ -3620,6 +3631,22 @@ class App {
     // an ordinary ladder floor a subtitle of its own, so a player riding the
     // car at the finished ladder watched their one stated objective turn back
     // into "Clear 10 bays in one run".
+    // THE TERMS LINE FIRST, on the same rule the markup uses (screens.ts's
+    // tierHubScreen: `ordinaryFloor`). The run card's second line is the
+    // floor's terms — bays, clock, best — on every ordinary Mark, and
+    // menuPlaySub's sentence only where it has something more urgent to say.
+    // The ride patches this node in place, so without this branch the first
+    // elevator move would swap the terms for "Clear 10 bays · opens Tier N"
+    // for good: the exact drift menuPlaySub's own note warns about.
+    if (
+      tier !== null && tier >= 1 && tier <= MARK_COUNT
+      && this.schoolPrompt() === null && nextStep(this.meta) !== "seal" && rigStarted(this.meta)
+    ) {
+      sub.textContent = S.hubRunTerms(
+        tier, tier === S.SANDBOX_TIER ? loadBest(BOARD_SANDBOX) : loadBest(),
+      );
+      return;
+    }
     sub.textContent = S.menuPlaySub(
       tier, CLAUSE_COUNT,
       tier !== null && nextStep(this.meta) === "seal"
@@ -3695,6 +3722,12 @@ class App {
             // is optional, so a fresh save is "first launch" whether or not it
             // has earned a licence it may never earn.
             firstLaunch: !this.settings.seenTutorial,
+            // IS THE STEP NEW TO THIS PLAYER (meta.ts's nextStepIsNew): the
+            // alert mino lights only while the step's identity differs from
+            // the one they last pressed through (onClick acknowledges it). The
+            // screen gets the answer rather than the map, so it never has to
+            // learn how a step spells its identity.
+            fresh: nextStepIsNew(this.meta),
           },
           this.towerState(),
           // HOW MANY standing clauses the roof's run carries, for the primary
@@ -5814,8 +5847,13 @@ class App {
       this.pickedAtMark = this.meta.mark;
     }
     // Back to the hub, where the tower shows the ladder that just opened and the
-    // unlock ceremony rides — not the front door, which has no tower.
-    this.setState("tiers");
+    // unlock ceremony rides — not the front door, which has no tower. Through
+    // toHub rather than setState so the arrival is the same arrival as every
+    // other: a tutorial quit half-way (lesson-exit) still lands licensed with
+    // Tier 1 open (completeOnboarding), and the pick stamped above survives
+    // it — toHub clears the run/lesson transients, which this method has
+    // already cleared, and touches neither pickedTier nor pickedAtMark.
+    this.toHub();
   }
 
   /** The next FLIGHT the ground floor owes (meta.ts's nextFlightAfter). The
@@ -7218,9 +7256,13 @@ class App {
     this.resetBay();
   }
 
-  /** Back to the home screen, with the mode state the trip invalidates cleared.
-   *  Every back/close/Menu button in the app is this call; the pause card's
-   *  Quit reaches it through requestQuitRun's gate. */
+  /** Back to the FRONT DOOR, with the mode state the trip invalidates cleared.
+   *  The doors out of the hub's family are this call — the hub's own back,
+   *  Settings, How to Play, the account and store sheets. The doors out of a
+   *  RUN are not: quitting a bay (requestQuitRun, the ungated pause Quit, the
+   *  coach-fail card's Menu) lands on the hub, because what a player does
+   *  after abandoning a run is a button on the hub and not on the splash — see
+   *  onClick's "menu" arm and toHub. */
   private toMenu(): void {
     this.contract = null; this.contractMusic = null; this.drill = null;
     this.lesson = null; this.lessonCard = null;
@@ -7280,16 +7322,21 @@ class App {
    */
   private requestQuitRun(): void {
     if (this.state !== "paused") return;
+    // Both exits land on the HUB (toHub), not the front door: a player who has
+    // just thrown a run away is going to fly another, or clear a Contract, or
+    // spend what the last one banked, and every one of those is a button on
+    // the tower's rail. The front door has none of them. toHub clears the same
+    // transient run state toMenu does, so nothing here needs a second cleanup.
     const run = this.run;
     if (!run || !quitLosesProgress(run)) {
-      this.toMenu();
+      this.toHub();
       return;
     }
     const was = this.quitArm;
     const step = armActivate(was);
     this.quitArm = step.state;
     if (step.confirmed) {
-      this.toMenu();
+      this.toHub();
       return;
     }
     // A refused repeat leaves the card exactly as it is — no re-patch, no
@@ -8681,6 +8728,26 @@ class App {
     if ((e.detail === 0 && !(e as PointerEvent).pointerType) || deferred) {
       this.actionFeedback(el);
     }
+    // PRESSING A BADGED CONTROL ACKNOWLEDGES THE BADGE (meta.ts's ackNextStep),
+    // in ONE place, ahead of every handler, so no control that grows a mino
+    // later can forget to put it out. Asked of the DOM rather than of a list
+    // of actions for the same reason: the screens decide what carries the
+    // badge (the mino inside the button, or the `btn--next` face the front
+    // door's "Start here" Play and the older badges wear), and this reads that
+    // decision back instead of keeping a second copy of it. The write is
+    // idempotent, so a press on an already-acknowledged badge costs a save and
+    // nothing else — and it lands BEFORE the handler because several of them
+    // re-render the hub, which is exactly where the badge would otherwise be
+    // drawn lit one more time. The third test is for a mino pinned to a hub
+    // CARD rather than to the button inside it (the run card's Play): pressing
+    // the card's control is pressing through the badge either way.
+    const badged = el.classList.contains("btn--next")
+      || el.querySelector(".alert-mino, .next-badge") !== null
+      || el.closest(".tierhub__card")?.querySelector(".alert-mino") != null;
+    if (badged) {
+      this.meta = ackNextStep(this.meta);
+      saveMeta(this.meta);
+    }
     switch (action) {
       // The primary button flies the parked floor — and on the roof, "flying
       // it" is opening the level select, because Tier S is the one floor that
@@ -9005,14 +9072,33 @@ class App {
         else if (this.contract && isSkydeckBoard(this.contract.tier)) this.setState("contracts");
         else this.toHub();
         break;
-      case "menu": this.toMenu(); break;
-      // The front door's Play, and the way back from Contracts/Workshop/etc.:
-      // the tier hub (tierHubScreen). THE FIRST time Play is pressed the tutorial
-      // is offered (tutorialOfferModal); after that — and on every back-to-hub,
-      // which can only fire once the first Play has already set seenTutorial —
-      // it goes straight to the hub.
+      // LEAVING A RUN LANDS ON THE HUB, NOT THE FRONT DOOR. The ungated pause
+      // card's Quit (screens.ts's pauseModal, on a run with nothing to lose)
+      // and the coach-fail card's Menu both carry the plain "menu" action, and
+      // both are the player abandoning a bay — the thing they want next is the
+      // tower and the day's board, not the splash they walked in through. The
+      // gated Quit already lands there (requestQuitRun); this keeps the
+      // ungated one from landing somewhere else for pressing one button fewer.
+      // Every other "menu" — Settings, How to Play, the hub's own back — is a
+      // door OUT of the hub's family and goes to the front door as it always
+      // did.
+      case "menu":
+        if (this.state === "paused" || this.state === "coach-fail") this.toHub();
+        else this.toMenu();
+        break;
+      // The front door's Play, and the way back from Contracts/Workshop/the
+      // Leaderboard/a lesson: the tier hub (tierHubScreen). The tutorial offer
+      // (tutorialOfferModal) stands behind ONE of those doors — Play on the
+      // front door, while the tutorial is still unseen — and behind none of
+      // the others. The state check is what makes that true: the offer is
+      // dismissed by finishing or skipping the tutorial (finishTutorial sets
+      // seenTutorial), but a player who declined to answer it at all — quit
+      // the tutorial half-way, say, then came back to the hub through the
+      // Workshop's back button — still has seenTutorial false, and re-offering
+      // the tutorial on every back-to-hub would turn a one-time welcome into a
+      // toll gate. So the flag alone does not decide; the door does.
       case "tiers":
-        if (!this.settings.seenTutorial) this.setState("tutorial-offer");
+        if (this.state === "menu" && !this.settings.seenTutorial) this.setState("tutorial-offer");
         else this.toHub();
         break;
       // CLAIM THE TIER (screens.ts's unlock card, meta.ts's claimTierUnlock).
@@ -9022,11 +9108,41 @@ class App {
       // armUnlockCelebration, and the freshly-advanced Mark is what it rides to).
       // Gated here as well as rendered gated, so a stale card cannot advance a
       // tier whose halves are not both done.
+      //
+      // A PRESS ON THE LOCKED BUTTON ANSWERS IN THE RAIL. The Unlock control is
+      // pressable while locked (screens.ts renders it `data-ready="false"`
+      // rather than disabled) so the player who reaches for it gets told WHAT
+      // is owed rather than nothing: the two halves are cards on the same rail
+      // — the run (`.tierhub__run`) and each Contract still owed — and the
+      // screen marks the unpaid ones `is-owed`. This flares exactly those with
+      // `is-blink` for a beat and puts nothing else on screen: no toast, no
+      // re-render (which would rebuild the rail under the player's finger and
+      // kill the animation it is starting), no sound of its own — the refusal
+      // IS the blink, the same way a locked floor's refusal is the shake
+      // (pickTier). Forcing a reflow between remove and add is what lets a
+      // second press replay the animation instead of being swallowed by the
+      // first one's class still being there.
       case "claim-tier":
         if (tierUnlockReady(this.meta)) {
           this.meta = claimTierUnlock(this.meta).meta;
           saveMeta(this.meta);
-          this.setState("tiers");
+          // Through toHub rather than setState, so the Mark just advanced meets
+          // the same onboarding guarantee every other arrival does; the
+          // ceremony arms the same way either way (re-entering "tiers").
+          this.toHub();
+          break;
+        }
+        {
+          const owed = Array.from(
+            this.overlay.querySelectorAll<HTMLElement>(".tierhub__actions .is-owed"),
+          );
+          window.clearTimeout(this.blinkTimer);
+          for (const o of owed) o.classList.remove("is-blink");
+          if (owed.length) void owed[0].offsetWidth;
+          for (const o of owed) o.classList.add("is-blink");
+          this.blinkTimer = window.setTimeout(() => {
+            for (const o of owed) o.classList.remove("is-blink");
+          }, 900);
         }
         break;
       // The offer's two answers. "Skip" marks the tutorial seen (so the offer

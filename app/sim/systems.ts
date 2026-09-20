@@ -132,6 +132,7 @@ import {
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
   installShelf, recommendedPurchase,
+  nextStepIdentity, nextStepIsNew, ackNextStep,
   recordLesson, rigStarted, licenceDone, basicsDone,
   schoolLadder, schoolProgress, schoolStepOfFlight, schoolNextStep, nextFlightAfter,
   SCHOOL_FLIGHTS, SCHOOL_STEPS, SCHOOL_LADDER, SCHOOL_INSTALL, GRADUATION_FLIGHT, FINAL_EXAM,
@@ -1268,6 +1269,72 @@ section("Installs — what salvage buys (meta.ts)");
       mark: MARK_COUNT, salvage: 10_000, loadout: everything, slots: SLOT_CAP,
     })) === "seal");
 
+  // ---- THE BADGE'S MEMORY (meta.ts's nextStepIdentity / ackNextStep) ------
+  // `nextStep` says where the alert mino goes; these say whether it is LIT.
+  // The rule under test is "new until pressed, new again only when the step
+  // changes in substance", and what "substance" means is the identity string
+  // per step — so each check below moves exactly one thing and asks whether
+  // the badge noticed. A day is passed explicitly (contracts.ts's dailySeed
+  // shape, YYYYMMDD) so the calendar can be dialled without a clock.
+  {
+    const day = 20260920;
+    check("a fresh save's next step is new", nextStepIsNew(newMeta(), day));
+    check("...and every step has an identity to remember",
+      nextStepIdentity(newMeta(), day) !== null);
+    const seen = ackNextStep(newMeta(), day);
+    check("pressing through the step puts the badge out",
+      !nextStepIsNew(seen, day));
+    check("...without touching the save it was asked of (pure)",
+      nextStepIsNew(newMeta(), day) && (newMeta().acked?.licence ?? null) === null);
+    check("...and a save written before `acked` existed reads as never pressed",
+      nextStepIsNew({ ...newMeta(), acked: undefined }, day));
+
+    // WORKSHOP: keyed to the PURCHASE, not the door. Banking more toward the
+    // same recommendation stays quiet; buying it, so a different one is now
+    // the recommendation, lights the door again.
+    const shop = freshMeta({ salvage: 30 });
+    const rec = recommendedPurchase(shop);
+    check("(fixture) salvage covering two installs recommends one",
+      nextStep(shop) === "workshop" && rec !== null && rec.id !== null);
+    const shopSeen = ackNextStep(shop, day);
+    check("the Workshop badge goes out when pressed", !nextStepIsNew(shopSeen, day));
+    const richer = { ...shopSeen, salvage: shopSeen.salvage + 5 };
+    check("...and stays out while the recommendation is the same purchase",
+      recommendedPurchase(richer)?.id === rec?.id && !nextStepIsNew(richer, day));
+    const bought = rec?.id ? buyInstall(shopSeen, rec.id) : null;
+    check("...but lights again once a DIFFERENT purchase is the one to make",
+      bought !== null && nextStep(bought) === "workshop"
+        && recommendedPurchase(bought)?.id !== rec?.id && nextStepIsNew(bought, day),
+      bought ? `${nextStep(bought)} → ${recommendedPurchase(bought)?.id ?? "nothing"}` : "no purchase");
+
+    // CONTRACTS: keyed to the day's board and the tier it is dealt for.
+    const board = freshMeta();
+    check("(fixture) a graduate with a run filed is owed Contracts",
+      nextStep(board) === "contracts");
+    const boardSeen = ackNextStep(board, day);
+    check("the Contracts badge goes out when pressed", !nextStepIsNew(boardSeen, day));
+    check("...and a new day's board lights it again", nextStepIsNew(boardSeen, day + 1));
+    check("...as does the same day at a higher tier",
+      nextStepIsNew({ ...boardSeen, mark: boardSeen.mark + 1 }, day));
+
+    // ONE STEP'S PRESS SAYS NOTHING ABOUT ANOTHER'S. Spending the Workshop's
+    // salvage moves the step to Contracts, which has not been pressed; and the
+    // Workshop's own memory survives the move.
+    const moved = { ...shopSeen, salvage: 0 };
+    check("acknowledging the Workshop leaves the Contracts badge lit",
+      nextStep(moved) === "contracts" && nextStepIsNew(moved, day));
+    check("...and keeps the Workshop's own memory for when it returns",
+      moved.acked?.workshop === nextStepIdentity(shop, day));
+
+    // UNLOCK and RUN move with the Mark, so each tier is called for once.
+    const ready = freshMeta({ tierRunDone: true, tierContracts: TIER_CONTRACTS_REQUIRED, salvage: 0 });
+    check("(fixture) both halves done is the Unlock step", nextStep(ready) === "unlock");
+    const readySeen = ackNextStep(ready, day);
+    check("the Unlock badge goes out when pressed", !nextStepIsNew(readySeen, day));
+    check("...and the next tier's Unlock is a new badge",
+      nextStepIsNew({ ...readySeen, mark: readySeen.mark + 1 }, day));
+  }
+
   // …and the hub renders exactly the one badge the rule picked (A3), the
   // tier plate in the New Run button (A1). The front door (menuScreen)
   // carries no badge at all once seen — on first launch only, Play itself
@@ -1275,19 +1342,170 @@ section("Installs — what salvage buys (meta.ts)");
   // tutorial it opens (main.ts's "tutorial-offer" screen, behind Play).
   const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: false });
-  // The hub's Contracts are inline now (the earn row of three chips), so the
-  // "clear Contracts" directive lands on that row rather than on a button — and
-  // the row only renders when a board is handed in, exactly as main.ts hands one
+  // The hub's Contracts are inline now (three play-now cards), so the "clear
+  // Contracts" directive lands on those cards rather than on a button — and the
+  // row only renders when a board is handed in, exactly as main.ts hands one
   // for the "tiers" state (todaysContracts).
   const hubBoard = (cleared: string[] = []): S.HubBoard =>
     ({ cards: dailyContracts(1, 20_260_815), cleared });
   const hubMid = tierHubScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: false }, undefined, 0, hubBoard());
-  check("exactly one menu action carries the NEXT STEP badge",
-    (hubMid.match(/next-badge/g) ?? []).length === 1);
-  check("the badge lands on the inline Contracts row, not a button",
-    /tierhub__earn[^"]*tierhub__earn--next/.test(hubMid));
-  check("the Deep Run button carries the tier plate", hubMid.includes("tier-plate--menu"));
+  // THE HUB'S DIRECTIVE IS A MINO, not the NEXT STEP chip (screens.ts's
+  // alertMinoHTML): one 14px amber square on the corner of the control that
+  // performs the step. A3 is unchanged — exactly ONE mark on the screen — and
+  // this is the pin that keeps it so, because the warm border it travels with
+  // lands on every card the step can be advanced by and only the mark is
+  // singular.
+  check("exactly one directive mark on the hub",
+    (hubMid.match(/alert-mino/g) ?? []).length === 1);
+  check("...and the chip is gone from this screen entirely",
+    !hubMid.includes("next-badge"));
+  const hubCardBtns = [...hubMid.matchAll(
+    /<button[^>]*data-action="contract"[^>]*>[\s\S]*?<\/button>/g,
+  )].map((m) => m[0]);
+  check("the mark lands on a Contract card's own button",
+    hubCardBtns.filter((b) => b.includes("alert-mino")).length === 1,
+    `${hubCardBtns.length} cards`);
+  check("...and the warm border lands on every card that can advance the step",
+    hubCardBtns.length === 3 && hubCardBtns.every((b) => b.includes("btn--next")));
+  check("the New Run card carries the tier plate", hubMid.includes("tier-plate--menu"));
+
+  /* -----------------------------------------------------------------------
+   * THE UNLOCK LEGEND — the hub's objective, as marks rather than a checklist.
+   *
+   * The button states what the Tier is waiting on with one seal (the run) and
+   * three checks (the Contracts), and the SAME two glyphs sit on the controls
+   * that fill them: the seal on the run card, a check in each Contract card's
+   * corner. That correspondence is the whole design, so it is what these pin —
+   * not the wording, which is copy, but the marks and their two states.
+   * -------------------------------------------------------------------- */
+  {
+    const hubAt = (
+      progress: Partial<ReturnType<typeof tierProgressFor>>,
+      step: ReturnType<typeof nextStep>, twr?: S.TowerState,
+      cleared: string[] = [],
+    ): string =>
+      tierHubScreen(98_760, 1_480, undefined,
+        { tier: 1, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15, ...progress },
+        { step, install: null, firstLaunch: false }, twr, 0,
+        { cards: dailyContracts(1, 20_260_815), cleared });
+    const legendOf = (html: string): string =>
+      /<span class="tierhub__legend"[\s\S]*?<\/span>\s*<\/button>/.exec(html)?.[0] ?? "";
+    const marks = (html: string): string[] =>
+      [...legendOf(html).matchAll(/class="(mark mark--[^"]*)"/g)].map((m) => m[1]);
+
+    const owed = hubAt({}, "contracts");
+    check("the Unlock legend is one seal and three checks",
+      marks(owed).length === 4
+        && marks(owed)[0].includes("mark--seal")
+        && marks(owed).slice(1).every((c) => c.includes("mark--chk")),
+      marks(owed).join(" | "));
+    check("...and every one of them reads owed on a fresh tier",
+      marks(owed).every((c) => !c.includes("is-done")), marks(owed).join(" | "));
+    const half = hubAt({ runDone: true, contracts: 1 }, "contracts");
+    check("...the seal fills when the run lands, and one check with one Contract",
+      marks(half)[0].includes("is-done")
+        && marks(half).slice(1).filter((c) => c.includes("is-done")).length === 1,
+      marks(half).join(" | "));
+    // THE SEAL IS TWO ELEMENTS, and the socket is load-bearing rather than
+    // decoration: `clip-path` clips after filters, so an octagon cannot carry a
+    // ring of its own, and on the ceremony button's bright fill an unringed
+    // cyan stamp is invisible. Pinned as structure because that is what a
+    // future "simplify this to one span" would take out.
+    check("...and the seal is a socket around a stamp, not a bare octagon",
+      /<span class="mark mark--seal[^"]*"><i class="mark__pip"><\/i><\/span>/.test(owed));
+    // …AND THE SAME GLYPHS SIT ON THE CONTROLS THAT FILL THEM.
+    check("the run card wears the run's own seal",
+      /tierhub__run[\s\S]*?class="mark mark--seal[^"]*mark--corner"/.test(owed));
+    check("...and each Contract card wears its own check",
+      (owed.match(/class="mark mark--chk[^"]*mark--corner"/g) ?? []).length === 3);
+
+    // PRESSABLE WHILE LOCKED — a disabled button dispatches no click, and the
+    // press is what blinks the owed halves (main.ts reads `data-ready` and
+    // selects `.tierhub__actions .is-owed`). This is the pin that keeps a
+    // future "it does nothing, so disable it" from taking the answer away.
+    const unlockBtnOf = (html: string): string =>
+      /<button[^>]*data-action="claim-tier"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+    check("the locked Unlock is pressable, and says it is not ready",
+      unlockBtnOf(owed).includes('data-ready="false"')
+        && !unlockBtnOf(owed).includes("disabled"),
+      unlockBtnOf(owed).slice(0, 160));
+    check("...and the owed halves are marked for the blink to find",
+      /class="tierhub__card tierhub__run[^"]*is-owed"/.test(owed)
+        && (owed.match(/tierhub__contract[^"]*is-owed/g) ?? []).length === 3);
+
+    // THE CEREMONY — both halves landed, so the button is the primary, wears
+    // the halo ring and carries its sparkles. Not a mood: `is-ceremony` is what
+    // every one of those rules is written against.
+    const ready = hubAt({ runDone: true, contracts: 3 }, "unlock");
+    check("a ready claim runs the ceremony",
+      unlockBtnOf(ready).includes("is-ceremony")
+        && unlockBtnOf(ready).includes("btn--primary")
+        && unlockBtnOf(ready).includes('data-ready="true"'));
+    check("...inside the halo ring, which is a wrapper so the ring is never cut",
+      ready.includes('<div class="tierhub__halo tierhub__card">'));
+    check("...with ten sparkles, staggered out of phase",
+      (ready.match(/class="tierhub__spark/g) ?? []).length === 10
+        && ready.includes("animation-delay:0.00s")
+        && ready.includes("animation-delay:2.16s"));
+    check("...and the locked face runs none of it",
+      !owed.includes("is-ceremony") && !owed.includes("tierhub__spark"));
+    // And nothing else on the screen is owed once both halves are in.
+    check("...and marks nothing as owed",
+      !ready.includes("is-owed"));
+
+    // THE TOP TIER'S CLAIM. `twr.unlocked` is `min(MARK_COUNT, mark + 1)`, so
+    // the tier that opens the seal phase and the finished ladder hand this
+    // screen the same number — the old derivation hid the card on both, and the
+    // last claim on the ladder could never be pressed. The step is the one
+    // input that can tell them apart (nextStep asks tierUnlockReady, which asks
+    // `mark < MARK_COUNT`), so at the top the legend renders exactly when the
+    // claim is live.
+    const top: S.TowerState =
+      { unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, contracts: 3 };
+    const topClaim = hubAt({ tier: MARK_COUNT, runDone: true, contracts: 3 }, "unlock", top);
+    check("the top tier's claim renders, and is pressable",
+      topClaim.includes('data-action="claim-tier"')
+        && unlockBtnOf(topClaim).includes('data-ready="true"'));
+    check("...titled for what it actually opens, not a Tier 11",
+      topClaim.includes(">Open the Skydeck<")
+        && !topClaim.includes(`Unlock Tier ${MARK_COUNT + 1}`));
+    const topDone = hubAt({ tier: MARK_COUNT, runDone: true, contracts: 3 }, "seal", top);
+    check("...and a finished ladder shows the plain objective instead",
+      !topDone.includes('data-action="claim-tier"')
+        && topDone.includes(">Seal every Tier<"));
+    // Below the top the legend is there in both states, which is the half that
+    // never broke and the half a fix here could break.
+    check("...while below the top it is there locked as well as ready",
+      owed.includes('data-action="claim-tier"')
+        && owed.includes(">Unlock Tier 2<"));
+
+    /* ---- THE CONTRACT CARDS' FOUR FACES ------------------------------- */
+    const cardBtns = (html: string): string[] =>
+      [...html.matchAll(/<button[^>]*data-action="contract"[\s\S]*?<\/button>/g)].map((m) => m[0]);
+    check("an open Contract card offers Play, as the primary",
+      cardBtns(owed)[0].includes(">Play<") && cardBtns(owed)[0].includes("btn--primary"));
+    const board = dailyContracts(1, 20_260_815);
+    const replay = hubAt({}, "contracts", undefined, [board[0].id]);
+    check("...a cleared one offers Play again, demoted but never disabled",
+      cardBtns(replay)[0].includes(">Play again<")
+        && cardBtns(replay)[0].includes("btn--secondary")
+        && !cardBtns(replay)[0].includes("disabled"));
+    check("...and reads Cleared where the reward was",
+      replay.includes('is-done">Cleared<'));
+    const met = hubAt({ contracts: 3 }, "run");
+    check("...a met quota offers Practice, and pays nothing",
+      cardBtns(met)[0].includes(">Practice<")
+        && met.includes('is-practice">Practice<'));
+    // THE ASK IS OFF THE FACE AND STILL IN THE NAME. A control list is read
+    // without the card, so the accessible name is the one place the goal has
+    // to survive — and the face is where three big numbers side by side read
+    // as a comparison the game is not offering.
+    check("the goal is gone from the card's face and kept in its name",
+      !/class="tierhub__contract-name">[^<]*\d+ lines/.test(owed)
+        && /aria-label="[^"]*: \d+ (lines?|in a row)"/.test(cardBtns(owed)[0]),
+      cardBtns(owed)[0].slice(0, 200));
+  }
   const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
     { step: "contracts", install: null, firstLaunch: true });
   // THE HOME'S SECONDARY IS ALWAYS "How to Play" NOW — there is no separate
@@ -1299,26 +1517,40 @@ section("Installs — what salvage buys (meta.ts)");
     menuFirst.includes('data-action="howto"') && !menuFirst.includes('data-action="tutorial"'));
   check("...and How to Play stays exactly the same once the tutorial is seen",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
-  // ONE DIRECTIVE, AND ON FIRST LAUNCH IT IS THE TUTORIAL'S. START HERE and
-  // NEXT STEP are the same claim in the same amber, and a fresh save showed
-  // BOTH at once — the demo panel's chip, and the step badge on Contracts,
-  // which is precisely what a fresh save's nextStep is. Two things each calling
-  // themselves the one next step is the A3 rule broken in the one session it
-  // exists for. The front door carries at most its own directive; the hub's
-  // badge is asserted separately below.
+  // ONE DIRECTIVE, AND ON FIRST LAUNCH IT IS THE TUTORIAL'S. A fresh save once
+  // showed two at once — the demo panel's START HERE chip and the step badge on
+  // Contracts, which is precisely what a fresh save's nextStep is — and two
+  // things each calling themselves the one next step is the A3 rule broken in
+  // the one session it exists for. The front door carries at most its own
+  // directive; the hub's is asserted separately below.
+  //
+  // IT IS A MINO NOW, on both screens (screens.ts's alertMinoHTML). The word
+  // went with the chip because the front door and the hub are walked through
+  // rather than read, and the mark is one game cell in the corner the badge
+  // already rode. The subtitle under Play still says the words.
   check("first launch carries exactly one directive",
-    (menuFirst.match(/next-badge/g) ?? []).length === 1);
-  check("...and it is the tutorial's",
-    menuFirst.includes(">Start here<") && !menuFirst.includes(">Next step<"));
+    (menuFirst.match(/alert-mino/g) ?? []).length === 1);
+  check("...and the front door carries no NEXT STEP chip at all",
+    !menuFirst.includes("next-badge") && !menuFirst.includes(">Start here<"));
   // THE DIRECTIVE LANDS ON PLAY ITSELF NOW — there is no separate tutorial
-  // button for it to sit on, so Play carries both the badge and a subtitle
+  // button for it to sit on, so Play carries both the mark and a subtitle
   // naming what it opens (main.ts's "tutorial-offer" screen, behind Play).
   const menuFirstPlayBtn = /<button[^>]*data-action="tiers"[\s\S]*?<\/button>/
     .exec(menuFirst)?.[0] ?? "";
-  check("...specifically on the Play button, badged and re-worded",
+  check("...specifically on the Play button, marked and re-worded",
     /class="[^"]*\bbtn--next\b[^"]*"/.test(menuFirstPlayBtn)
-      && menuFirstPlayBtn.includes(">Start here<")
+      && menuFirstPlayBtn.includes("alert-mino")
       && menuFirstPlayBtn.includes("Start with the tutorial"));
+  // ACKNOWLEDGEMENT TAKES THE MARK AND LEAVES THE BORDER (main.ts's
+  // nextStepIsNew, handed in as `guide.fresh`): the step is still the step, so
+  // the control it names keeps its warm edge — what goes is the "this is new"
+  // square, which would otherwise be permanent furniture on a rail the player
+  // walks past every session.
+  const menuAcked = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
+    { step: "contracts", install: null, firstLaunch: true, fresh: false });
+  check("...and an acknowledged step keeps the border but drops the mark",
+    !menuAcked.includes("alert-mino")
+      && /class="[^"]*\bbtn--next\b[^"]*"[^>]*data-action="tiers"/.test(menuAcked));
   // THE OFFER ITSELF (main.ts's "tutorial-offer" state, opened behind Play) —
   // a light smoke check that both its actions render, so a screen this small
   // still gets caught if a future edit drops one of its two buttons.
@@ -1329,8 +1561,8 @@ section("Installs — what salvage buys (meta.ts)");
   // DEFERRED, NOT CANCELLED: the step badge is back on the hub the moment the
   // chip goes, with nothing else about the screen different. `hubMid` is the
   // same save at the same step with seenTutorial set.
-  check("...and the step badge takes over once the chip is gone",
-    hubMid.includes(">Next step<") && !hubMid.includes(">Start here<"));
+  check("...and the hub's own mark takes over once the tutorial's is gone",
+    hubMid.includes("alert-mino") && !hubMid.includes("next-badge"));
   // The primary is gated at the RULE rather than in the markup, because main.ts
   // re-decides this button's badge on every ride (setSelectedTier) and a copy
   // in each place is two rules to keep in step. Not a fresh-save concern only:
@@ -1350,13 +1582,13 @@ section("Installs — what salvage buys (meta.ts)");
     tierHubScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
       { step: "seal", install: null, firstLaunch: false }, sealTower(selected, sealed));
   const playButton = (html: string): string =>
-    /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+    /<div class="tierhub__card tierhub__run[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
   // The car parked on Mark 10, which still owes its seal.
   const menuSeal = sealMenu(MARK_COUNT, [1, 2, 3]);
-  check("the seal step still badges exactly one action",
-    (menuSeal.match(/next-badge/g) ?? []).length === 1);
+  check("the seal step still marks exactly one action",
+    (menuSeal.match(/alert-mino/g) ?? []).length === 1);
   check("...and it is the run, because a seal is flown and not bought",
-    playButton(menuSeal).includes("next-badge"));
+    playButton(menuSeal).includes("alert-mino"));
   check("...and the button says how many Tiers are left to seal",
     menuSeal.includes(`${MARK_COUNT - 3} Tiers left to seal`), "no seal count on the primary");
 
@@ -1376,8 +1608,8 @@ section("Installs — what salvage buys (meta.ts)");
   // anyway, since that is keyed to meta.mark and meta.mark never moves again
   // up here.
   const menuSealed = sealMenu(3, [3, 4]);
-  check("a parked floor that is already sealed wears no seal badge",
-    !playButton(menuSealed).includes("next-badge"),
+  check("a parked floor that is already sealed wears no seal mark",
+    !playButton(menuSealed).includes("alert-mino"),
     "the primary claims a seal it cannot earn");
   check("...and claims no seal the run cannot land",
     !menuSealed.includes("left to seal"));
@@ -2185,6 +2417,29 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       check("...and a genuinely new save still owes it",
         boot({}, { seenTutorial: false }).seen === false);
       localStorage.removeItem("tetrilaunch.settings");
+
+      // ---- THE BADGE'S MEMORY, on the same shim ---------------------------
+      // `acked` (meta.ts) is optional on purpose: a save from before it existed
+      // must load with nothing acknowledged — every step lights once more, and
+      // nothing has to be back-filled — and a corrupt value must load rather
+      // than throw, failing LIT (a nudge, never a lock). The ack round-trips.
+      const bootAcked = (acked: unknown) => {
+        localStorage.setItem("tetrilaunch.meta", JSON.stringify({ runs: 3, licence: SCHOOL_FLIGHTS, acked }));
+        return loadMeta();
+      };
+      check("a save with no `acked` loads as never pressed",
+        nextStepIsNew(bootAcked(undefined), 20260920)
+          && Object.keys(bootAcked(undefined).acked ?? {}).length === 0);
+      check("...and a corrupt `acked` loads as never pressed rather than throwing",
+        [null, "junk", 7, ["contracts"], { contracts: 5 }].every((bad) =>
+          nextStepIsNew(bootAcked(bad), 20260920)));
+      {
+        const pressed = ackNextStep(bootAcked(undefined), 20260920);
+        saveMeta(pressed);
+        check("...while a real ack survives the save/load round trip",
+          !nextStepIsNew(loadMeta(), 20260920));
+      }
+      localStorage.removeItem("tetrilaunch.meta");
     } finally {
       if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
       else delete (globalThis as unknown as Record<string, unknown>).localStorage;
@@ -16368,13 +16623,19 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     menuAt(open).includes("New Run") && !menuAt(open).includes(">Sandbox<"));
   check("the primary button becomes Sandbox on the roof",
     menuAt(parked).includes(">Sandbox<"));
-  // Four withheld readouts, not four wrong ones: nothing is chosen yet, and the
-  // panel quoting Mark 5's bay under an S plate would be the screen promising a
-  // bay the launch will not deliver.
-  check("the recap withholds its numbers on the roof",
-    menuAt(parked).includes("base-bay--unknown"));
-  check("the recap still quotes a real bay on a Mark",
-    !menuAt(open).includes("base-bay--unknown"));
+  // …AND THE CARD UNDER IT WITHHOLDS ITS TERMS THERE. The hub's run card prints
+  // the parked floor's bay in one line ("10 bays · 3:00 · best 98760",
+  // screens.ts's hubRunTerms) — and on Tier S there is no such bay: nothing is
+  // chosen yet, and a card quoting Mark 5's terms under an S plate would be the
+  // screen promising a bay the launch will not deliver. So the sandbox keeps
+  // menuPlaySub's own sentence instead, which says what the floor actually is.
+  // (This used to be the four-cell recap panel's `base-bay--unknown` face; the
+  // panel is not on this screen any more, and its own pins are with it.)
+  check("the run card withholds its terms on the roof",
+    menuAt(parked).includes("Any Tier, bay or Contract")
+      && !/\d+ bays · \d+:\d\d · best/.test(menuAt(parked)));
+  check("...and quotes a real bay on a Mark",
+    /\d+ bays · \d+:\d\d · best/.test(menuAt(open)));
 
   // THE RUN. This is the gate that makes the mode safe to ship, so it is
   // checked at the model rather than only in main.ts's finishRun.
@@ -17240,10 +17501,17 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     // claim a stamp the building is not drawing one column over.
     const parked = (tier: number): string =>
       S.tierHubScreen(12, 0, undefined, undefined, undefined, { ...base, selected: tier });
-    check("the menu states the parked floor's seal beside its terms",
-      parked(2).includes(">Sealed<")
-        && parked(1).includes(">Seal broken — re-fly with no bay retry to seal it<")
-        && parked(3).includes(">Seal at stake<"));
+    // ON THE HUB the parked floor's seal is a STAMP rather than a sentence.
+    // The recap panel that carried the words is not on this screen any more —
+    // and it had already stopped carrying them on a landscape phone, where the
+    // column could not afford the line — so what the hub shows is the tower's
+    // own octagon on the floor the car is on, which is the drawing every other
+    // floor is stamped with. The sentences are still pinned, on the panel
+    // itself, immediately above.
+    check("the hub stamps the parked floor rather than describing it",
+      parked(2).includes('class="tower__seal"')
+        && parked(1).includes("tower__seal--broken")
+        && !parked(2).includes(">Sealed<"));
   }
   // The Skydeck is not a Mark. meta.ts can never record a seal for it, so a
   // build in which the Skydeck could wear a PRESSED stamp is drawing a state
@@ -25854,7 +26122,13 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         { step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false },
         twr);
     const primary = (html: string): string =>
-      /<button[^>]*id="menu-play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+      // THE RUN CARD, not just its button: the hub's primary is a card now (a
+    // plate, a title, the terms line, and the button that flies it), and
+    // `#menu-play-sub` — which every line below is actually about — is a span
+    // in the card beside the button rather than inside it. Read from the card's
+    // opening tag to the button's close, so both the subtitle and the button's
+    // own disabled state land in one string.
+    /<div class="tierhub__card tierhub__run[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
     check("an unrigged licensed menu leaves its primary live — the rig no longer disables it",
       !primary(menuOf(shut)).includes("disabled"));
     check("...and still says which door the nudge points at",
@@ -25871,15 +26145,16 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       tierHubScreen(0, m.salvage, undefined, tierProgressFor(m),
         { step: nextStep(m), install: { name: "Reactor Output", cost: 15 }, firstLaunch: false },
         twr, 0, { cards: dailyContracts(1, 20_260_815), cleared: [] });
-    check("the on-ramp's Contract chips say a clear pays the milestone",
-      boardOf(licensed, shut).includes("contract-chip__state is-pays"));
+    check("the on-ramp's Contract cards say a clear pays the milestone",
+      /class="tierhub__pay">[\s\S]*?currency--salvage/.test(boardOf(licensed, shut)));
     // …and once the tier's quota is met there is nothing more to earn, so the
     // chips drop the pay for Practice — the same fact the old subtitle's "no
     // clock, no launch cost" carried, now on the card the player taps.
     const quotaMet: MetaState = { ...licensed, tierContracts: TIER_CONTRACTS_REQUIRED };
     check("...and read Practice once the tier's quota is already met",
-      boardOf(quotaMet, open).includes(">Practice</span>")
-        && !boardOf(quotaMet, open).includes("contract-chip__state is-pays"));
+      boardOf(quotaMet, open).includes("is-practice\">Practice<")
+        && !/class="tierhub__pay">[\s\S]*?currency--salvage/.test(boardOf(quotaMet, open)),
+      boardOf(quotaMet, open).slice(boardOf(quotaMet, open).indexOf("tierhub__pay"), boardOf(quotaMet, open).indexOf("tierhub__pay") + 120));
     // THE SHOP IS THE OTHER END OF THE SAME DOOR. Its Start Run is a second
     // entrance to the exam (main.ts's startGame), so it has to be shut by the
     // same rule the tower is — a laxer second door is the failure meta.ts's
@@ -26056,12 +26331,12 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         { step: nextStep(m), install: null, firstLaunch: false }, twr, 0,
         { cards: schoolBoard(), cleared: m.claimedContracts });
     const earnRowOf = (html: string): string =>
-      /<div class="tierhub__earn[\s\S]*?<\/div>/.exec(html)?.[0] ?? "";
+      /<div class="tierhub__cards[\s\S]*?<\/button>\s*<\/div>\s*<\/div>/.exec(html)?.[0] ?? "";
     check("Contracts and the Workshop are shut before the fourth basic",
-      earnRowOf(earnAt(three, towerAt(three))).includes("is-locked")
+      earnRowOf(earnAt(three, towerAt(three))).includes("is-shut")
         && btn(shut, "workshop").includes("disabled"));
-    check("...and both say which rung opens them — the chip locked, the Workshop named",
-      earnRowOf(earnAt(three, towerAt(three))).includes(">Locked</span>")
+    check("...and both say which rung opens them — the card locked, the Workshop named",
+      earnRowOf(earnAt(three, towerAt(three))).includes("is-locked\">Locked<")
         && shut.includes(`Opens after lesson ${LICENCE_LESSON_COUNT}`));
     // …AND THEN IN ORDER, one rung apart (O6). They used to open together on
     // the fourth basic, which made the menu the laxer of two doors into one
@@ -26070,8 +26345,8 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // a player who had just landed lesson 4 could walk into a shop the ladder
     // had not reached and meet one card they could not afford — while the
     // primary two buttons above said "Clear one Contract to go on".
-    check("the Contract chip opens on the fourth basic",
-      !earnRowOf(earnAt(four, towerAt(four))).includes("is-locked"),
+    check("the Contract card opens on the fourth basic",
+      !earnRowOf(earnAt(four, towerAt(four))).includes("is-shut"),
       earnRowOf(earnAt(four, towerAt(four))));
     check("...and the Workshop waits the one rung the ladder makes it wait",
       btn(open, "workshop").includes("disabled"), btn(open, "workshop"));
@@ -26100,7 +26375,13 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // bays — an enabled action that does nothing is the worst control on the
     // screen, and on those two rungs there is nothing to fly.
     const primaryOf = (html: string): string =>
-      /<button[^>]*id="menu-play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+      // THE RUN CARD, not just its button: the hub's primary is a card now (a
+    // plate, a title, the terms line, and the button that flies it), and
+    // `#menu-play-sub` — which every line below is actually about — is a span
+    // in the card beside the button rather than inside it. Read from the card's
+    // opening tag to the button's close, so both the subtitle and the button's
+    // own disabled state land in one string.
+    /<div class="tierhub__card tierhub__run[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
     const deepRunAt = (m: MetaState): string =>
       primaryOf(menuAt(m, { ...towerAt(m), selected: 1 }));
     for (const [label, m] of [
@@ -31616,16 +31897,19 @@ section("No infinite animation survives Reduce Motion on a specificity technical
 // kind: a guard that was written against a rule it cannot out-specify, and so
 // is not a guard.
 //
-// `.tier-pips--live .tier-pip` (0,2,0) was sitting next to a flicker written on
+// The case that named this section was the tier plate's Contract pips:
+// `.tier-pips--live .tier-pip` (0,2,0) sitting next to a flicker written on
 // `.tier-pips--live .tier-pip:not(.tier-pip--done)` (0,3,0) — `:not()` carries
-// its argument's specificity — so up to three pips per tier plate kept blinking
+// its argument's specificity — so up to three pips per plate kept blinking
 // under Reduce Motion, 34 of them across the menu's fixtures on one device. The
-// splash loader's sweep had no guard at all, and `animation: none` alone would
+// pips are gone with the Contracts button they hung off (the hub's Unlock
+// legend states that same count now), so what is left down here is the splash
+// loader's sweep, which had no guard at all — and `animation: none` alone would
 // have parked its bar at `translateX(-100%)`: a loading screen with no loader.
 //
-// Both are answered from the END of the stylesheet on purpose — a tie goes to
-// the later rule — which is the thing worth pinning, because a guard moved back
-// up beside its animation would silently stop guarding again.
+// It is answered from the END of the stylesheet on purpose — a tie goes to the
+// later rule — which is the thing worth pinning, because a guard moved back up
+// beside its animation would silently stop guarding again.
 // ---------------------------------------------------------------------------
 {
   const heads = [...APP_CSS.matchAll(/@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g)];
@@ -31638,11 +31922,6 @@ section("No infinite animation survives Reduce Motion on a specificity technical
     i += 1;
   }
   const lastBlock = APP_CSS.slice(last.index + last[0].length, i - 1);
-  check(
-    "the pip flicker is stopped at the flicker's own specificity",
-    /\.tier-pips--live \.tier-pip:not\(\.tier-pip--done\)[^{}]*\{[^}]*animation:\s*none/.test(lastBlock),
-    lastBlock.replace(/\s+/g, " ").slice(0, 200),
-  );
   check(
     "the splash loader stops with its bar still on its track",
     /\.loader::after[^{}]*\{[^}]*animation:\s*none[^}]*transform:\s*translateX\(0\)/.test(lastBlock),

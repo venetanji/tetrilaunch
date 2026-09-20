@@ -1032,6 +1032,26 @@ export const SCREENS: Record<string, () => string> = {
     S.tierHubScreen(98_760, 1_480, STORE,
       { tier: 1, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
       { step: "unlock", install: null, firstLaunch: false }, undefined, 0, HUB_BOARD),
+  // THE TOP TIER'S CLAIM — the state the old derivation could not render at
+  // all (screens.ts walks the arithmetic). Unlocked sits at MARK_COUNT and the
+  // step says "unlock", so the legend is there and its title reads "Open the
+  // Skydeck" rather than counting to a Tier 11 the building does not have.
+  // Ceremony on, which is also this fixture's second job: the halo ring is the
+  // one thing on this screen drawn OUTSIDE a row's own box.
+  "hub-top-claim": () =>
+    S.tierHubScreen(98_760, 1_480, STORE,
+      { tier: MARK_COUNT, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
+      { step: "unlock", install: null, firstLaunch: false },
+      { unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, contracts: 3 },
+      0, HUB_BOARD),
+  // EVERY CONTRACT CLEARED — the cards' longest button label ("Play again"),
+  // their word-shaped reward ("Cleared") and three filled checks in the legend.
+  // The locked `hub` fixture measures the other end of the same row.
+  "hub-cleared": () =>
+    S.tierHubScreen(98_760, 1_480, STORE,
+      { tier: 3, runDone: false, contracts: 3, needed: 3, award: 60, milestone: 15 },
+      { step: "run", install: null, firstLaunch: false }, undefined, 0,
+      { cards: HUB_BOARD.cards, cleared: HUB_BOARD.cards.map((c) => c.id) }),
   "hub-skydeck": () =>
     S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length, HUB_BOARD),
   "hub-unlimited": () =>

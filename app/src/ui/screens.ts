@@ -225,6 +225,28 @@ export function nextBadgeHTML(label = "Next step"): string {
   return `<span class="next-badge">${label}</span>`;
 }
 
+/** THE ALERT MINO — the same claim as the NEXT STEP chip, drawn as a 14px
+ *  square with a pixel "!" instead of a word.
+ *
+ *  It replaces the chip on the two screens a player passes through rather than
+ *  reads: the front door and the hub. The chip is 6px type in a plate wide
+ *  enough to hold "Next step", and on a rail of four cards it was the widest
+ *  piece of furniture on the screen — a label competing with the labels it was
+ *  pointing at. A mino is the game's own unit: one cell, amber, in the corner
+ *  the badge already rode. It says "here" and nothing else, which is the whole
+ *  of what the chip ever said.
+ *
+ *  Everywhere the badge sits INSIDE prose — the coach's "Why" block, the
+ *  Contract footnotes, the shop card's name row, the run-end modal — it keeps
+ *  the word, because a bare square in a sentence is a typo. The rule is the
+ *  surface, not the state: chips label, minos mark.
+ *
+ *  `aria-label` rather than the glyph's own text, because "!" is not read
+ *  aloud as anything useful and the control under it is already named. */
+export function alertMinoHTML(): string {
+  return `<span class="alert-mino" aria-label="New">!</span>`;
+}
+
 /** The portrait rotate guard. The markup lives here rather than inline in
  *  main.ts's boot HTML so the uifit harness renders the exact DOM the app
  *  shows — this was the one screen with zero fit coverage on any viewport.
@@ -1489,6 +1511,30 @@ export function baseBayPanelHTML(opts: {
 }
 
 /**
+ * THE RUN CARD'S TERMS — what an ordinary Mark's bay costs you, in one line.
+ *
+ * Three numbers, all of them already on the screen this replaces: the bay count
+ * and the clock come off the same `baseBayFor` the recap panel's stat grid read
+ * them from, and Best is the one number that panel carried which appears
+ * nowhere else on the hub. The panel itself is gone from this screen — four
+ * stat cells, a belt ladder and a seal sentence were a page of terms above a
+ * button, on a rail that now has four cards to fit — and this is what survived
+ * the cut: the two facts that describe the shape of a run, and the score to
+ * beat.
+ *
+ * Exported because main.ts's ride patches `#menu-play-sub` in place while the
+ * elevator travels (setPlaySub), and a second copy of this rule there would
+ * drift from this one the first time either changed — the exact argument
+ * menuPlaySub below is written around. Marks only: the lobby, the sandbox and
+ * the roof have no `baseBayFor` bay of this shape and something more urgent to
+ * say, so they keep menuPlaySub's sentence.
+ */
+export function hubRunTerms(tier: number, best: number): string {
+  const bay = baseBayFor(Math.max(1, Math.min(MARK_COUNT, tier)));
+  return `${bay.bays} bays · ${formatMMSS(bay.timeLimitSec * 1000)} · best ${best}`;
+}
+
+/**
  * The primary button's subtitle — ONE copy of the rule.
  *
  * It has to be a function rather than an expression inside the markup because
@@ -1767,26 +1813,6 @@ export function menuPlaySub(
   return `Clear ${RUN_LEVELS} bays in one run`;
 }
 
-/** `store` is absent on web and on native builds without a RevenueCat key —
- *  the store entry point hides itself rather than offering a dead button.
- *  `guide` carries the first-session system (canvas A2/A3): which action
- *  holds the ONE NEXT STEP badge, the live numbers the subtitles state the
- *  offer in, and whether the Guided Tutorial entry is still owed.
- *
- *  THREE COLUMNS now, not two. The middle one is the tier tower (see
- *  tierTowerHTML), and the brand column's chip strip is gone with it — the
- *  strip's three readouts have each moved to where they are actually used:
- *  Tier IS the tower, Best is the base-bay panel's header, and Salvage was
- *  already printed on the Workshop button's subtitle in the same breath as
- *  what it can buy, so the chip was the second, context-free copy of it.
- *  The three columns are three KINDS of thing: the SHELF (the demo panel,
- *  which is the tutorial's door, over the entries nobody opens the game to
- *  reach), the LADDER, and the LOOP (the recap of the parked floor, then the
- *  three things you can launch into). The entitlement entry is a shelf row —
- *  the demo taking How to Play's job is what freed it one. Tier S is not a row
- *  anywhere: it is the tower's top floor, and the primary button flies whatever
- *  floor the car is parked on. */
-
 /** The parked tier's daily Contract board, handed to the hub so its three cards
  *  are playable inline instead of behind a Contracts button. `cards` is main.ts's
  *  todaysContracts in order (so a card's index is its `data-slot`), `cleared` is
@@ -1798,37 +1824,108 @@ export interface HubBoard {
   allowance?: { fullGame: boolean; remaining: number };
 }
 
-/** One daily Contract as a compact play-now card for the hub — the kind, the
- *  ask, and its state (cleared, what a clear pays, or capped). Tapping it starts
- *  that Contract (data-action "contract", the slot its index), the same handler
- *  the full board's cards use. A far smaller face than contractsScreen's card:
- *  the hub shows three of these in one row, so it states only what a player
- *  needs to choose between them. */
-function contractChipHTML(
+/* ---------------------------------------------------------------------------
+ * THE HUB'S TWO MARKS — one vocabulary for "what a Tier is still owed".
+ *
+ * A Tier opens on two halves: a cleared run and three Contracts (meta.ts's
+ * advanceTier). Before this pass the hub stated that twice, in two different
+ * dialects — a two-row checklist inside the unlock card ("Clear a run",
+ * "Clear 3 Contracts · 0/3") and, separately, three Contract chips with their
+ * own cleared/pays/locked words. A player had to read both and match them up.
+ *
+ * So the halves get GLYPHS instead, and the same glyph appears twice: once on
+ * the Unlock button, where the set of them is the legend for what the Tier is
+ * waiting on, and once on the control that clears it — the seal on the run
+ * card, a check in each Contract card's corner. The legend is then readable
+ * without instructions, because every mark in it is already sitting on the
+ * button that fills it.
+ *
+ * The SEAL is the tower's own octagon (the same clip-path `.tower__floor`'s
+ * stamp uses), because the run is the thing the building is drawn about. The
+ * CHECK is a square, which is a mino, which is what a Contract deals.
+ *
+ * THE SOCKET is the seal's outer ring, and it exists for the ceremony: on the
+ * ready Unlock button the fill is a bright cyan-to-pink sweep, and a cyan
+ * octagon on it disappears. `clip-path` clips AFTER filters and shadows, so a
+ * drop-shadow or a box-shadow on the mark itself is cut away with everything
+ * else outside the polygon — the ring has to be a second, larger element
+ * behind it. On the dark surfaces it reads as a hairline; on the bright fill
+ * it is what keeps the mark a mark. The checks make the same argument with a
+ * 2px ring, which they can do with a box-shadow because a square is not
+ * clipped.
+ */
+function sealMarkHTML(done: boolean, extra = ""): string {
+  return `<span class="mark mark--seal${done ? " is-done" : ""}${extra ? ` ${extra}` : ""}"><i class="mark__pip"></i></span>`;
+}
+function checkMarkHTML(done: boolean, extra = ""): string {
+  return `<span class="mark mark--chk${done ? " is-done" : ""}${extra ? ` ${extra}` : ""}"></span>`;
+}
+
+/** One daily Contract as a play-now CARD for the hub — the name, the reward,
+ *  and a button that starts it (data-action "contract", the slot its index —
+ *  the same handler the full board's cards use).
+ *
+ *  THE GOAL NUMBER IS OFF THE FACE. It used to be the card's headline ("6
+ *  lines", in 15px accent mono) and it was the one thing on the card a player
+ *  could not act on: the three cards differ by NAME, the reward is why you
+ *  pick one, and the ask is the first line of the briefing you get the moment
+ *  you tap. Three big numbers in a row read as a comparison the game is not
+ *  offering. It stays in the accessible name, where a control list has no
+ *  briefing to fall through to.
+ *
+ *  The button is the tap target, not the card: a card-shaped button whose
+ *  corner carries a state mark and whose foot carries a reward reads as three
+ *  things to press, and only one of them does anything. */
+function contractCardHTML(
   card: ContractCard, slot: number, done: boolean, capped: boolean, pays: number | null,
   /** LOCKED BY THE LADDER, not by the day's allowance — a Flight School save that
    *  has not yet reached the Contract rung. Disabled the same way `capped` is, so
    *  the card cannot start the school Contract before the ladder asks for it (the
    *  old Contracts button carried this as `learningBasics ? disabled`). */
   locked = false,
+  /** Practice mode: the Tier's quota is already met, so a clear pays nothing.
+   *  Passed rather than derived from `pays === null` so the button's own label
+   *  can say which of the two silent states it is in. */
+  practice = false,
+  /** THIS CARD IS ONE OF THE HALVES THE TIER IS STILL WAITING ON. Pressing the
+   *  locked Unlock blinks every owed half (main.ts selects
+   *  `.tierhub__actions .is-owed`), which is how that button answers "why not"
+   *  — it points at the controls instead of printing a sentence. Only while a
+   *  claim is actually pending: nothing is owed on a finished ladder. */
+  owed = false,
+  /** THE GUIDE IS POINTING AT THIS ROW (meta.ts's nextStep is "contracts").
+   *  The warm border lands on every card still worth playing — clearing any of
+   *  them advances the step — and `mark` is true on exactly ONE of them, the
+   *  first still open, because A3 allows the screen one directive and three
+   *  identical marks would be a row shouting rather than a next step. */
+  next = false,
+  mark = "",
 ): string {
   const kindLabel = card.kind === "pattern" ? "Pattern" : card.kind === "setpiece" ? "Set Piece" : "Lines";
   const unit = card.kind === "setpiece" ? "in a row" : card.goal === 1 ? "line" : "lines";
-  const state = done
-    ? `<span class="contract-chip__state is-done">${icon("check", 12)} Cleared</span>`
+  const reward = done
+    ? `<span class="tierhub__pay is-done">Cleared</span>`
     : locked
-    ? `<span class="contract-chip__state is-locked">Locked</span>`
+    ? `<span class="tierhub__pay is-locked">Locked</span>`
     : pays !== null
-    ? `<span class="contract-chip__state is-pays">${salvageHTML(`+${pays}`, 10)}</span>`
-    : `<span class="contract-chip__state">Practice</span>`;
+    ? `<span class="tierhub__pay">${salvageHTML(`+${pays}`, 13)}</span>`
+    : `<span class="tierhub__pay is-practice">Practice</span>`;
   const shut = capped || locked;
-  return `<button class="contract-chip${done ? " is-done" : ""}${capped ? " is-capped" : ""}${locked ? " is-locked" : ""}" data-action="contract" data-slot="${slot}"${
-    shut ? " disabled" : ""
-  } aria-label="${kindLabel} Contract, ${card.name}: ${card.goal} ${unit}${done ? ", cleared" : locked ? ", locked" : capped ? ", daily limit reached" : ""}">
-    <span class="contract-chip__kind">${kindLabel}</span>
-    <span class="contract-chip__goal"><b>${card.goal}</b> ${unit}</span>
-    ${state}
-  </button>`;
+  const label = locked ? "Locked" : done ? "Play again" : practice ? "Practice" : "Play";
+  return `<div class="tierhub__card tierhub__contract${done ? " is-done" : ""}${
+    shut ? " is-shut" : ""
+  }${owed ? " is-owed" : ""}">
+    <span class="tierhub__contract-name">${card.name}</span>
+    ${checkMarkHTML(done, "mark--corner")}
+    ${reward}
+    <button class="btn ${done || practice || locked ? "btn--secondary" : "btn--primary"} tierhub__go${
+    next ? " btn--next" : ""
+  }" data-action="contract" data-slot="${slot}"${
+    shut ? " disabled aria-disabled=\"true\"" : ""
+  } aria-label="${kindLabel} Contract, ${card.name}: ${card.goal} ${unit}${done ? ", cleared" : locked ? ", locked" : capped ? ", daily limit reached" : ""}">${
+    locked ? "" : icon("play", 10)
+  }${label}${mark}</button>
+  </div>`;
 }
 
 /**
@@ -1857,6 +1954,16 @@ export function tierHubScreen(
     step: NextStepId;
     install: { name: string; cost: number } | null;
     firstLaunch: boolean;
+    /** IS THE DIRECTIVE STILL NEWS? The alert mino marks the one control the
+     *  guide is pointing at, and a mark that never goes away stops being a
+     *  mark — a rail wearing the same amber square every time the player walks
+     *  past it is decoration, not a directive. main.ts acknowledges a step once
+     *  the player has been shown it and passes `false` from then on, which
+     *  leaves the WARM BORDER on the control (the step is still the step) and
+     *  takes only the square. Optional, and absent reads as fresh: every
+     *  caller that predates the acknowledgement — the sim pins, the uifit
+     *  fixtures — keeps showing the mark it always did. */
+    fresh?: boolean;
   },
   /** Which floor the car is parked on and which floors are open. Absent only
    *  where `progress` is (a caller with no meta state at all), and the screen
@@ -1996,84 +2103,176 @@ export function tierHubScreen(
   const contractsNext = !firstLaunch && guide?.step === "contracts";
   const workshopNext = !firstLaunch && guide?.step === "workshop";
   const badged = menuPlayBadged(guide?.step, sel, selSealed, firstLaunch);
-  // THE OBJECTIVE BANNER — the one thing this screen exists to say: what opens
-  // the next Tier. The title names the goal (the next locked Mark, or the
-  // ladder/seal gates at the ends) and the sub says the single next step, taken
-  // off the same guide.step the NEXT STEP badge below reads. Derived, never
-  // typed: a screen that read the clock or hand-counted floors would drift from
-  // the buttons under it.
+  // THE OBJECTIVE ROW — the one thing this screen exists to say, sharing its
+  // row with the two ways off the screen (the leaderboard, and Back).
+  //
+  // On the ladder that thing is a CLAIM, so it is a button rather than a
+  // headline: the Unlock legend below. Only the states with no Tier left to
+  // open — the roof, a finished ladder — fall back to a line of text, because
+  // in those there is nothing to press.
   const unlockedMark = twr.unlocked;
-  const nextTier = unlockedMark >= 1 && unlockedMark < MARK_COUNT ? unlockedMark + 1 : null;
+  const runDone = progress?.runDone === true;
+  const contractsHave = Math.min(progress?.contracts ?? 0, progress?.needed ?? TIER_CONTRACTS_REQUIRED);
+  const contractsNeed = progress?.needed ?? TIER_CONTRACTS_REQUIRED;
+  const contractsDone = contractsHave >= contractsNeed;
+  // THE TOP TIER'S CLAIM USED TO BE UNPRESSABLE, and this is the fix.
+  //
+  // The old derivation was `unlocked < MARK_COUNT ? unlocked + 1 : null`, and
+  // it hid the whole unlock card at the top of the ladder. But meta.ts's
+  // tierReady allows a claim while `mark < MARK_COUNT`, and at that point
+  // markUnlocked — which is what `twr.unlocked` is — already reads MARK_COUNT.
+  // So the last claim on the ladder, the one that closes it and opens the seal
+  // phase, rendered no button at all: both halves landed, nextStep returned
+  // "unlock", and the screen the badge points at had nowhere to put it.
+  //
+  // WHY THE TOP IS ASKED OF THE GUIDE AND NOT OF THE COUNT. `markUnlocked` is
+  // `min(MARK_COUNT, mark + 1)`, so a save at mark 9 (the top tier in
+  // progress) and a save at mark 10 (the ladder finished) hand this screen the
+  // SAME number, and the halves cannot break the tie either — a post-ladder run
+  // still ticks tierRunDone and a post-ladder Contract still ticks
+  // tierContracts, they just no longer open anything. The one input that knows
+  // the difference is the step, because nextStep asks tierUnlockReady, which
+  // asks `mark < MARK_COUNT` directly. So below the top the legend renders
+  // always (locked or ready, as before); AT the top it renders exactly when the
+  // claim is live. A hidden-but-pressable state is the bug; a claim shown one
+  // visit early is not worth a new field on the tower to buy.
+  const ladderTop = unlockedMark >= MARK_COUNT;
+  const claimStep = guide?.step === "unlock";
+  const claimable = unlockedMark >= 1 && (!ladderTop || claimStep);
+  const unlockReady = claimable && runDone && contractsDone;
+  // WHAT THE CLAIM OPENS, in its own words. Below the top it is the next rung;
+  // at the top there is no Tier 11 — the Mark it advances is what opens the
+  // Skydeck (meta.ts's skydeckOpen), so the button says that instead of
+  // counting to a floor the building does not have.
+  const claimTitle = ladderTop ? "Open the Skydeck" : `Unlock Tier ${unlockedMark + 1}`;
+  // The sub is the legend in words, for the reader who cannot see the marks:
+  // which half is done, and how many Contracts of how many.
+  const claimSub =
+    `${runDone ? "Run cleared" : "Clear a run"} · Contracts ${contractsHave}/${contractsNeed}`;
+  // THE PLAIN OBJECTIVE, for the two states with no claim on offer. Same two
+  // lines it always was, minus the branch the legend now owns.
   const hubObjTitle = licence !== null
     ? "Finish Flight School"
-    : nextTier !== null
-    ? `Unlock Tier ${nextTier}`
     : sealsOwed > 0
     ? "Seal every Tier"
     : "Every Tier cleared";
   const hubObjSub = licence !== null
     ? "Clear the lessons to open the Tier ladder"
-    : guide?.step === "contracts"
-    ? "Clear this Tier's Contracts to open the next"
-    : guide?.step === "workshop"
-    ? "Install a system in the Workshop to go on"
     : guide?.step === "seal"
     ? "Seal every Tier from the Skydeck"
-    : nextTier !== null
-    ? "Clear the run and its Contracts to open the next Tier"
     : "Fly any Tier, or seal the ones you've cleared";
-  // THE UNLOCK CARD — the objective as a gated button (meta.ts's deferred
-  // claim). The tier opens when both halves are done: a won run and the tier's
-  // Contracts. The two conditions are drawn as a checklist off the parked
-  // floor's TierProgress, and the button lights and unlocks (data-action
-  // "claim-tier") only when both are met — the same rule tierUnlockReady enforces
-  // in the handler. Shown only on the ladder (nextTier !== null); the roof and a
-  // finished ladder keep the plain objective line above.
-  const runDone = progress?.runDone === true;
-  const contractsHave = Math.min(progress?.contracts ?? 0, progress?.needed ?? TIER_CONTRACTS_REQUIRED);
-  const contractsNeed = progress?.needed ?? TIER_CONTRACTS_REQUIRED;
-  const contractsDone = contractsHave >= contractsNeed;
-  const unlockReady = nextTier !== null && runDone && contractsDone;
-  // The one directive lands on the Unlock button while the claim is owed
-  // (meta.ts's nextStep returns "unlock"). It outranks the New Run / Earn badges
-  // for the same reason the step does: claiming is the only thing left to do.
+  // THE ONE DIRECTIVE, AS A MARK. `fresh` is main.ts's acknowledgement — once
+  // the player has been shown a step the square goes and the warm border
+  // stays (see the guide argument's own note). Absent reads as fresh.
+  const stepFresh = guide?.fresh !== false;
+  const mino = (on: boolean): string => (on && stepFresh ? alertMinoHTML() : "");
   const unlockNext = !firstLaunch && guide?.step === "unlock";
-  const reqRow = (done: boolean, ico: IconName, label: string): string =>
-    `<li class="tierhub__req${done ? " is-done" : ""}">${
-      icon(done ? "check" : ico, 13)
-    }<span>${label}</span></li>`;
-  // THE EARN ROW — the parked tier's Contracts, playable inline instead of
-  // behind a button. A won Contract pays the tier's milestone share while the
-  // quota is open (contractsHave < contractsNeed) and nothing after; the daily
-  // allowance caps the uncleared ones for a trial save. Each card's slot is its
-  // index in the board main.ts handed us, which is todaysContracts' own order,
-  // so the tap starts the right Contract. Absent when no board was passed.
+  // THE LEGEND — one seal for the run, three checks for the Contracts, in the
+  // same glyphs the controls below wear (see sealMarkHTML's note). It is the
+  // whole of what the Unlock button used to say in a two-row checklist.
+  const legend = `<span class="tierhub__legend" aria-hidden="true">${
+    sealMarkHTML(runDone)
+  }${
+    Array.from({ length: contractsNeed }, (_, i) => checkMarkHTML(i < contractsHave)).join("")
+  }</span>`;
+  // THE CEREMONY — ten pixel sparkles at fixed positions, twinkling out of
+  // phase. Authored as a list rather than generated from a seed because they
+  // are a COMPOSITION: they sit in the gaps between the title, the sub and the
+  // legend, and a random scatter puts half of them under the type. The delays
+  // are the index times a tenth of the 2.4s cycle, so no two ever flash
+  // together and the button never looks like it is blinking.
+  const SPARKS: ReadonlyArray<readonly [number, number, boolean]> = [
+    [8, 22, false], [22, 70, true], [38, 18, true], [47, 62, false], [58, 30, true],
+    [71, 74, false], [84, 20, true], [93, 58, false], [30, 45, true], [64, 48, true],
+  ];
+  const sparks = unlockReady
+    ? SPARKS.map(([x, y, dot], i) =>
+      `<i class="tierhub__spark${dot ? " tierhub__spark--dot" : ""}" style="left:${x}%;top:${y}%;animation-delay:${
+        (i * 0.24).toFixed(2)
+      }s"></i>`).join("")
+    : "";
+  // PRESSABLE WHILE LOCKED, and that is the point. A disabled Unlock answers
+  // "why not" with nothing; this one is a real button that main.ts blinks the
+  // owed halves of (data-ready says which face it is wearing, so the handler
+  // does not have to read a class list). The ready face is the primary, wrapped
+  // in the ceremony ring.
+  const unlockBtn = `<button class="btn ${
+    unlockReady ? "btn--primary" : "btn--secondary"
+  } tierhub__unlock-btn${unlockReady ? " is-ceremony" : ""}${
+    unlockNext ? " btn--next" : ""
+  }" data-action="claim-tier" data-ready="${unlockReady}" aria-label="${claimTitle} — ${claimSub}">${sparks}<span class="btn__txt"><span>${
+    claimTitle
+  }</span><span class="btn__sub">${claimSub}</span></span>${legend}${
+    // THE MARK GOES INSIDE the control it names on the locked face, and on the
+    // wrapper below on the ready one — main.ts's acknowledgement walks from the
+    // pressed control outwards looking for it, and both places are on that walk.
+    unlockReady ? "" : mino(unlockNext)
+  }</button>`;
+  // The halo is a WRAPPER, not a border: the conic ring has to sit outside the
+  // button's own edge (3px of padding, pulled back by an equal negative margin
+  // so the row's arithmetic is unchanged), and the mark rides the wrapper's
+  // corner rather than the button's so the ring never cuts it. It carries
+  // `.tierhub__card` for the acknowledgement walk — see the CSS.
+  const unlockCard = unlockReady
+    ? `<div class="tierhub__halo tierhub__card">${unlockBtn}${mino(unlockNext)}</div>`
+    : unlockBtn;
+  const objective = claimable
+    ? unlockCard
+    : `<div class="tierhub__lead-txt"><span class="tierhub__obj-ttl">${hubObjTitle}</span><span class="tierhub__obj-sub">${hubObjSub}</span></div>`;
+  // THE RUN CARD'S SECOND LINE — the terms of the floor the car is parked on,
+  // on the ordinary Marks, and menuPlaySub's own sentence everywhere it has
+  // something more urgent to say (a locked floor's reason, the lobby's rung,
+  // the seal count, the roof, the sandbox). The terms replaced "Clear 10 bays ·
+  // opens Tier N" because the legend one row up now states exactly what this
+  // run opens, twice over — in words and in the seal glyph sitting on this very
+  // card — and a card that repeats the row above it is a card saying nothing.
+  const playSub = menuPlaySub(
+    sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null, licence,
+    tierOpenedBy(sel, twr), twr.rigged !== false,
+  );
+  // Every case menuPlaySub has a SENTENCE for keeps it: the lobby and the
+  // sandbox (which are not bays of this shape at all), a licence still owed,
+  // the seal count, the roof, and the on-ramp's rig nudge. What is left is the
+  // branch the terms replace — "Clear 10 bays · opens Tier N".
+  const ordinaryFloor = sel >= 1 && sel <= MARK_COUNT
+    && licence === null && !sealStep && twr.rigged !== false;
+  const runSub = ordinaryFloor ? hubRunTerms(sel, best) : playSub;
+  const runTitle = licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "New Run";
+  const runLabel = licSel ? "Start lesson" : sbxSel ? "Open sandbox" : skySel ? "Fly the Skydeck" : "Start new run";
+  // THE EARN ROW — the parked tier's Contracts, playable inline. A won Contract
+  // pays the tier's milestone share while the quota is open (contractsHave <
+  // contractsNeed) and nothing after; the daily allowance caps the uncleared
+  // ones for a trial save. Each card's slot is its index in the board main.ts
+  // handed us, which is todaysContracts' own order, so the tap starts the right
+  // Contract. Absent when no board was passed.
   const earnPays = contractsHave < contractsNeed ? (progress?.milestone ?? null) : null;
-  // The "clear Contracts" directive (meta.ts's nextStep) has no single button to
-  // badge any more, so it lands on the row: exactly one NEXT STEP on the screen,
-  // as before.
   // …and the whole row is LOCKED while Flight School is still on its basics, the
   // same gate the old Contracts button carried (`learningBasics ? disabled`):
   // the school's one card cannot start before the ladder reaches its Contract
   // rung, and `canStartContract` gates the day's allowance, not the ladder.
+  const cardOpen = (c: ContractCard): boolean =>
+    !board!.cleared.includes(c.id)
+    && !learningBasics
+    && !(board!.allowance?.fullGame === false && (board!.allowance.remaining ?? 0) <= 0);
+  // The ONE mark on the row is the first card a tap can still act on — see
+  // contractCardHTML's `mark`. -1 when the row has none, which is a row that
+  // cannot advance the step and so has nothing to point at.
+  const markSlot = board ? board.cards.findIndex(cardOpen) : -1;
   const earnRow = board && board.cards.length > 0
-    ? `<div class="tierhub__earn${contractsNext ? " tierhub__earn--next" : ""}${learningBasics ? " tierhub__earn--locked" : ""}" role="group" aria-label="Today's Contracts">${
+    ? `<div class="tierhub__cards" role="group" aria-label="Today's Contracts">${
       board.cards.map((c, i) => {
         const done = board.cleared.includes(c.id);
         const capped = !done && board.allowance?.fullGame === false
           && (board.allowance.remaining ?? 0) <= 0;
-        return contractChipHTML(c, i, done, capped, done ? null : earnPays, learningBasics && !done);
+        return contractCardHTML(
+          c, i, done, capped, done ? null : earnPays, learningBasics && !done,
+          earnPays === null, claimable && !contractsDone && !done,
+          contractsNext && cardOpen(c),
+          contractsNext && i === markSlot ? mino(true) : "",
+        );
       }).join("")
-    }${contractsNext ? nextBadgeHTML() : ""}</div>`
+    }</div>`
     : "";
-  // NOTHING rides the recap's footnote row any more, and it took both of these
-  // branches to empty it. #86 moved the entitlement entries onto the demo
-  // panel, which the demo taking How to Play's job had just freed a row on.
-  // #90 then deleted the sandbox chip, because a second entry to one screen on
-  // one screen is how a menu stops feeling owned — and the entry that survived
-  // has since become the tower's top floor rather than a plate under it. The
-  // panel keeps its optional `extras` slot for the next thing that genuinely
-  // has nowhere else to go.
   return `<div class="screen neon-backdrop">
     <div class="menu split menu--hub">
       <!-- TWO COLUMNS: the tierlevator on the LEFT, every control on the RIGHT.
@@ -2081,118 +2280,70 @@ export function tierHubScreen(
            screen is reached by pressing Play there, so it opens on the ladder
            and the loop rather than on the pitch. -->
       ${tierTowerHTML(twr)}
+      <!-- THE RAIL IS THE TOWER'S HEIGHT, exactly — four rows, and the
+           Contracts row takes whatever slack the other three leave (app.css).
+           The two columns are one picture: a building, and the four things you
+           can do with the floor the car is parked on. -->
       <div class="menu__actions tierhub__actions">
-        <!-- The header: Back to the front door on the left, the leaderboard as a
-             single icon on the right. The parked floor is already named by the
-             tower, the New Run plate and the objective, so no eyebrow repeats it;
-             the Full Game purchase lives on the front door, not here. -->
-        <div class="tierhub__hd">
-          <button class="icon-btn tierhub__back" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+        <!-- 1. THE OBJECTIVE, and the two ways off this screen. Back is the
+             LAST thing in the row rather than the first: the claim is what the
+             player came for, and a rail that opens with an exit reads as a
+             dialog. -->
+        <div class="tierhub__obj">
+          ${objective}
           <button class="icon-btn tierhub__lead" data-action="leaderboard" aria-label="Leaderboard">${icon("leaderboard", 18)}</button>
+          <button class="icon-btn tierhub__back" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
-        <!-- THE OBJECTIVE. On the ladder it is the UNLOCK CARD: the goal, a
-             two-item checklist (a won run and the tier's Contracts), and the
-             gated Unlock button that lights and advances the Mark only when both
-             are met (meta.ts's deferred claim). The roof and a finished ladder,
-             which have no tier to unlock, keep the plain objective line. -->
-        ${
-          nextTier !== null
-            ? `<div class="tierhub__obj tierhub__unlock">
-          <h1 class="display neon-text brand-gradient tierhub__obj-ttl">Unlock Tier ${nextTier}</h1>
-          <ul class="tierhub__reqs">
-            ${reqRow(runDone, "play", "Clear a run")}
-            ${reqRow(contractsDone, "contracts", `Clear ${contractsNeed} Contracts · ${contractsHave}/${contractsNeed}`)}
-          </ul>
-          <button class="btn btn--primary btn--block btn--menu tierhub__unlock-btn${unlockNext ? " btn--next" : ""}" data-action="claim-tier"${
-              unlockReady ? "" : " disabled aria-disabled=\"true\""
-            }>${icon(unlockReady ? "up" : "workshop")}<span class="btn__txt"><span>${
-              unlockReady ? `Unlock Tier ${nextTier}` : "Locked"
-            }</span><span class="btn__sub">${
-              unlockReady
-                ? "Both halves cleared — claim it"
-                : runDone
-                ? "Clear the Contracts to unlock"
-                : contractsDone
-                ? "Clear a run to unlock"
-                : "Clear a run and the Contracts"
-            }</span></span>${unlockNext ? nextBadgeHTML() : ""}</button>
-        </div>`
-            : `<div class="tierhub__obj">
-          <h1 class="display neon-text brand-gradient tierhub__obj-ttl">${hubObjTitle}</h1>
-          <p class="tierhub__obj-sub">${hubObjSub}</p>
-        </div>`
-        }
-        <!-- The recap sits ON the column it describes. It answers "what is
-             this floor like to fly", and the button that flies it is the next
-             thing under it. -->
-        ${baseBayPanelHTML({
-          tier: sel, best,
-          // The parked floor's seal, stated beside the floor's other terms. The
-          // tower is stamping the same floor one column over and both read the
-          // one rule (floorSealState), so the panel cannot claim a stamp the
-          // building is not drawing.
-          seal: floorSealState(twr, sel),
-          // The panel wants the LADDER, not the "still owed" flag `licence` is
-          // — see baseBayPanelHTML's note.
-          licence: {
-            done: twr.licenceDone ?? 0,
-            total: twr.licenceTotal ?? SCHOOL_STEPS,
-            gate: twr.gate ?? null,
-          },
-        })}
-        <!-- Plain-language subtitles under the thematic names (playtest
-             feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
-             a new player until each is explained). The subtitles state the
-             offer in LIVE numbers (A3), the Deep Run button carries the tier
-             plate (A1 — the plate takes the icon slot), and exactly one
-             button ever wears the NEXT STEP badge (meta.ts's nextStep). -->
-        <!-- ONE button, two faces. With Tier S parked it says Sandbox and opens
-             the level select; on every other floor it says Deep Run and flies
-             it. Not a second button that appears beside this one: the column is
-             three rows in every build and at every entitlement state (see
-             below), and the whole point of putting S in the tower is that the
-             floor you park on is what the primary action does. main.ts rewrites
-             the label in place while the car travels, so both faces carry ids
-             rather than being found by shape. -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play"${playLocked ? " disabled aria-disabled=\"true\"" : ""}>${
-          tierPlateHTML(sel, "menu")
-        }<span class="btn__txt"><span id="menu-play-ttl">${
-          licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "New Run"
-        }</span><span class="btn__sub" id="menu-play-sub">${
-          // The rule lives in menuPlaySub, because the ride rewrites this exact
-          // node by id and two copies of it would drift — see the note there.
-          menuPlaySub(
-            sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null, licence,
-            tierOpenedBy(sel, twr), twr.rigged !== false,
-          )
-        }</span></span>${badged ? nextBadgeHTML() : ""}</button>
-        <!-- EARN — the parked tier's Contracts, playable inline. The old
-             Contracts button led to a separate board; the three cards ARE the
-             board now, each one a tap away from the bay it deals. -->
+        <!-- 2. THE RUN. A PANEL, not a button: the plate, the terms and the
+             seal glyph are readouts, and the one thing that starts a run is
+             the button inside it. The ride (main.ts's setSelectedTier) still
+             patches the title and the subtitle by id while the car travels. -->
+        <div class="tierhub__card tierhub__run${sbxSel ? " is-sbx" : ""}${
+          claimable && !runDone ? " is-owed" : ""
+        }">
+          ${tierPlateHTML(sel, "menu")}
+          <span class="tierhub__card-txt">
+            <span class="tierhub__card-ttl" id="menu-play-ttl">${runTitle}</span>
+            <span class="tierhub__card-sub" id="menu-play-sub">${runSub}</span>
+          </span>
+          <button class="btn ${
+            unlockReady ? "btn--secondary" : "btn--primary"
+          } tierhub__go tierhub__go--run${badged ? " btn--next" : ""}" data-action="play" id="menu-play"${
+            playLocked ? " disabled aria-disabled=\"true\"" : ""
+          }>${icon("play", 10)}${runLabel}${mino(badged)}</button>
+          ${sealMarkHTML(runDone, "mark--corner")}
+        </div>
+        <!-- 3. THE CONTRACTS, three cards, each a tap away from the bay it
+             deals. The row grows into whatever the rail has left, so the cards
+             are the one thing on this screen that gets bigger on a tablet. -->
         ${earnRow}
-        <button class="btn btn--secondary btn--block btn--menu${workshopNext ? " btn--next" : ""}" data-action="workshop"${workshopShut ? " disabled aria-disabled=\"true\"" : ""}>${icon("workshop")}<span class="btn__txt">Upgrades<span class="btn__sub">${
-          learningBasics
-            ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
-            // NAMES THE RUNG IN THE WAY OUT, like the line above it and like
-            // the lobby's own primary ("Clear one Contract to go on"). A
-            // disabled button whose subtitle still quoted a salvage balance
-            // would be answering a question the player cannot act on.
-            : workshopShut
-            ? `Opens after one Contract`
-            : guide
-            ? guide.install
-              ? salvage >= guide.install.cost
-                // WHAT THE PURCHASE DOES, on the one purchase that opens a
-                // door. Everywhere else the shelf's price is the whole story;
-                // here the price is already met and the thing worth saying is
-                // that this is the button that unlocks the exam.
-                ? twr.rigged === false
-                  ? `${guide.install.name} for ${salvageHTML(guide.install.cost, 10)} — opens the Tier run`
-                  : `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
-                : `${salvageHTML(salvage, 10)} — Contracts pay salvage`
-              : `${salvageHTML(salvage, 10)} banked`
-            : "Spend Salvage on permanent unlocks"
-        }</span></span>${workshopNext ? nextBadgeHTML() : ""}</button>
+        <!-- 4. THE WORKSHOP, the run card's twin: the same panel, the same
+             title/readout stack, the same button on the right. Its readout is
+             the bank, because what a shop is worth knowing about from outside
+             is what you can afford in it. -->
+        <div class="tierhub__card tierhub__shop">
+          ${icon("workshop", 22)}
+          <span class="tierhub__card-txt">
+            <span class="tierhub__card-ttl">Workshop</span>
+            <span class="tierhub__bank">${salvageHTML(salvage, 16)}</span>
+          </span>
+          <button class="btn btn--secondary tierhub__go tierhub__go--shop${
+            workshopNext ? " btn--next" : ""
+          }" data-action="workshop"${
+            workshopShut ? " disabled aria-disabled=\"true\"" : ""
+          } aria-label="Workshop · ${
+            // THE RUNG IN THE WAY, verbatim — the same sentence the shut
+            // button's subtitle used to print on its face. The face has no
+            // room for it any more (the card's readout is the bank, and the
+            // button is a 44px label beside it), and a control list read
+            // without the card is exactly where "why not" has to survive.
+            learningBasics
+              ? `Opens after lesson ${LICENCE_LESSON_COUNT}`
+              : workshopShut
+              ? "Opens after one Contract"
+              : "Buy upgrades"
+          }">${icon("workshop", 12)}Buy upgrades${mino(workshopNext)}</button>
+        </div>
       </div>
     </div>
     <div class="build-tag" aria-hidden="true">${
@@ -2233,15 +2384,35 @@ export function menuScreen(
     step: NextStepId;
     install: { name: string; cost: number } | null;
     firstLaunch: boolean;
+    /** IS THE DIRECTIVE STILL NEWS? The alert mino marks the one control the
+     *  guide is pointing at, and a mark that never goes away stops being a
+     *  mark — a rail wearing the same amber square every time the player walks
+     *  past it is decoration, not a directive. main.ts acknowledges a step once
+     *  the player has been shown it and passes `false` from then on, which
+     *  leaves the WARM BORDER on the control (the step is still the step) and
+     *  takes only the square. Optional, and absent reads as fresh: every
+     *  caller that predates the acknowledgement — the sim pins, the uifit
+     *  fixtures — keeps showing the mark it always did. */
+    fresh?: boolean;
   },
   _tower?: TowerState,
   _standingClauses = 0,
 ): string {
-  // ONE DIRECTIVE ON THE SCREEN (A3): on first launch it is the tutorial's
-  // "Start here". Every other next step lives on the hub, on the button that
-  // actually performs it — so Play here never carries a badge, and the front
-  // door shows at most the one chip.
+  // ONE DIRECTIVE ON THE SCREEN (A3): on first launch it is the tutorial's,
+  // and Play is the door it is offered behind. Every other next step lives on
+  // the hub, on the button that actually performs it — so Play here never
+  // carries a badge, and the front door shows at most the one mark.
+  //
+  // A MINO, not the "Start here" chip (alertMinoHTML). The front door and the
+  // hub are the two screens a player walks through rather than reads, and they
+  // now use the same mark for the same claim; the chip keeps the surfaces where
+  // the badge sits inside prose. The subtitle under Play already says the
+  // words the chip was saying ("Start with the tutorial"), one line down and in
+  // a face meant for reading.
   const firstLaunch = guide?.firstLaunch === true;
+  // Acknowledgement takes the square and leaves the warm border, exactly as on
+  // the hub — see the guide argument's `fresh` note in tierHubScreen.
+  const firstMark = firstLaunch && guide?.fresh !== false;
   return `<div class="screen neon-backdrop">
     <div class="menu split menu--home">
       <!-- TWO COLUMNS, mirroring the hub (screens.ts's tierHubScreen): the demo
@@ -2278,7 +2449,7 @@ export function menuScreen(
           // Play carries the one first-launch directive now, because Play is
           // the door the tutorial is offered behind (main.ts's tutorial-offer).
           firstLaunch ? "Start with the tutorial" : "Fly the Tiers"
-        }</span></span>${firstLaunch ? nextBadgeHTML("Start here") : ""}</button>
+        }</span></span>${firstMark ? alertMinoHTML() : ""}</button>
         <button class="btn btn--secondary btn--block" data-action="howto">${
           icon("howto")
         }How to Play</button>
@@ -3287,7 +3458,7 @@ export function leaderboardScreen(rows: string, opts?: {
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div style="text-align:left"><div class="eyebrow">${
-          // #88: under the tier ladder "Deep Run" does not name a board on its
+          // #88: under the tier ladder the run does not name a board on its
           // own — a Tier 10 run banks more lines against a heavier target than
           // a Tier 1 run can, so each tier keeps its own list and the heading
           // has to say which one is on screen. Tier S and the Skydeck are the
@@ -3296,7 +3467,7 @@ export function leaderboardScreen(rows: string, opts?: {
           // that is the half that changes under the player.
           sky
             ? `${boardText(board)} · ${dayText(opts?.day ?? 0)}`
-            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · Deep Run`
+            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · New Run`
         }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="tiers" aria-label="Back">${icon("close", 18)}</button>
