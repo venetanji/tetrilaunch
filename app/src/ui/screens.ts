@@ -2331,8 +2331,13 @@ export function previewLines(): { icon: IconName; text: string }[] {
   return [
     {
       // The ladder itself: how much of the tower is behind the entitlement.
+      // Tiers 4–10 are INCLUDED; the Skydeck above them is EARNED, not bought
+      // (meta.ts's skydeckOpen — the ladder finished and all ten sealed), which
+      // is what terms.html and support.html say too. So the line qualifies it
+      // as "earned above them" rather than listing it as bought alongside the
+      // Tiers — the sheet that takes the money must not promise it outright.
       icon: "up",
-      text: `Tiers ${FREE_TIER_LIMIT + 1}–${MARK_COUNT} and the Skydeck above them.`,
+      text: `Tiers ${FREE_TIER_LIMIT + 1}–${MARK_COUNT} and the Skydeck earned above them.`,
     },
     {
       // What those Tiers put on the belt. The material-only draft bays are

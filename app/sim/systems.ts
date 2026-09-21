@@ -31701,9 +31701,11 @@ section("The Full Game preview says what the entitlement opens, and shows it (sc
     lines[0].includes(`Tiers ${FREE_TIER_LIMIT + 1}\u2013${MARK_COUNT}`),
     lines[0],
   );
-  // The roof is part of what is bought and is not a numbered Tier, so it cannot
-  // come out of the range above — it has to be named (docs/COPY_AUDIT.md's
-  // Skydeck exception).
+  // The roof is not a numbered Tier, so it cannot come out of the range above —
+  // it has to be named (docs/COPY_AUDIT.md's Skydeck exception). But it is
+  // EARNED, not bought (meta.ts's skydeckOpen; terms.html/support.html say the
+  // same), so the line names it as "earned above them" rather than listing it
+  // alongside the Tiers as included.
   check("...and the Skydeck, which the range cannot cover", lines[0].includes("Skydeck"));
 
   // The materials are the HAZARDS rows whose Mark opens past the free ladder,
