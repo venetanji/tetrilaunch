@@ -30,7 +30,7 @@ import { lessonPictogramHTML } from "./lessonart";
 
 /** Lessons past the licence — the practice bays that stay open once Tier 1
  *  does. Derived, so the copy quoting it cannot drift from the ladder. */
-import { DAILY_COUNT, FREE_DAILY_CONTRACTS } from "../game/contracts";
+import { DAILY_COUNT, FREE_DAILY_CONTRACTS, RACK_PIECE } from "../game/contracts";
 import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
 } from "../game/guide";
@@ -40,7 +40,7 @@ import {
   BOARD_SANDBOX, BOARD_SKYDECK, isLadderBoard, type BoardId, type ScoreEntry,
 } from "../lib/api";
 import type { BeltPreview } from "../game/game";
-import type { PieceSize, PieceType } from "../game/theme";
+import type { Material, PieceSize, PieceType } from "../game/theme";
 import {
   HAZARDS, MATERIAL_DRAFT_BAYS, picksPerBay, totalNotches,
   type HazardDef, type HazardId, type Ratchets,
@@ -1931,11 +1931,26 @@ function contractCardHTML(
     : `<span class="tierhub__pay is-practice">Practice</span>`;
   const shut = capped || locked;
   const label = locked ? "Locked" : done ? "Play again" : practice ? "Practice" : "Play";
+  // THE PREVIEW — what the bay will deal, as the belt's own miniatures: a
+  // pattern Contract's exact inventory, the one shape a set piece rigs, the
+  // material a lines Contract carries, or the cleared-line mark when it
+  // carries none. Rendered always, drawn only where the card has a middle
+  // (app.css's roomy rail): on a phone the name, the reward and the button
+  // are the whole card. No numbers on purpose — the count of shapes IS the
+  // row of miniatures, and the ask stays the first line of the briefing.
+  const preview = card.kind === "pattern"
+    ? card.queue.map((t) => pieceMiniHTML(t, 16)).join("")
+    : card.kind === "setpiece"
+    ? pieceMiniHTML(RACK_PIECE, 16)
+    : card.material
+    ? materialIconHTML(card.material, 26)
+    : icon("line", 28);
   return `<div class="tierhub__card tierhub__contract${done ? " is-done" : ""}${
     shut ? " is-shut" : ""
   }${owed ? " is-owed" : ""}">
     <span class="tierhub__contract-name">${card.name}</span>
     ${checkMarkHTML(done, "mark--corner")}
+    <span class="tierhub__preview" aria-hidden="true">${preview}</span>
     ${reward}
     <button class="btn ${done || practice || locked ? "btn--secondary" : "btn--primary"} tierhub__go${
     next ? " btn--next" : ""
@@ -2163,11 +2178,11 @@ export function tierHubScreen(
   // at the top there is no Tier 11 — the Mark it advances is what opens the
   // Skydeck (meta.ts's skydeckOpen), so the button says that instead of
   // counting to a floor the building does not have.
-  const claimTitle = ladderTop ? "Open the Skydeck" : `Open Tier ${unlockedMark + 1}`;
+  const claimTitle = ladderTop ? "Open the Skydeck" : `Unlock Tier ${unlockedMark + 1}`;
   // The sub is the legend in words, for the reader who cannot see the marks:
   // which half is done, and how many Contracts of how many.
   const claimSub =
-    `${runDone ? "Deep Run cleared" : "Clear the Deep Run"} · Contracts ${contractsHave}/${contractsNeed}`;
+    `${runDone ? "Run cleared" : "Clear a run"} · Contracts ${contractsHave}/${contractsNeed}`;
   // THE PLAIN OBJECTIVE, for the two states with no claim on offer — minus the
   // branch the legend now owns.
   const hubObjTitle = licence !== null
@@ -2263,8 +2278,8 @@ export function tierHubScreen(
   const ordinaryFloor = sel >= 1 && sel <= MARK_COUNT
     && licence === null && !sealStep && twr.rigged !== false;
   const runSub = ordinaryFloor ? hubRunTerms(sel, best) : playSub;
-  const runTitle = licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run";
-  const runLabel = licSel ? "Start lesson" : sbxSel ? "Open Sandbox" : skySel ? "Fly the Skydeck" : "Start Deep Run";
+  const runTitle = licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "New Run";
+  const runLabel = licSel ? "Start lesson" : sbxSel ? "Open Sandbox" : skySel ? "Fly the Skydeck" : "Start new run";
   // THE EARN ROW — the parked tier's Contracts, playable inline. A won Contract
   // pays the tier's milestone share while the quota is open (contractsHave <
   // contractsNeed) and nothing after; the daily allowance caps the uncleared
@@ -3494,7 +3509,7 @@ export function leaderboardScreen(rows: string, opts?: {
           // that is the half that changes under the player.
           sky
             ? `${boardText(board)} · ${dayText(opts?.day ?? 0)}`
-            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · Deep Run`
+            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · New Run`
         }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="tiers" aria-label="Back">${icon("close", 18)}</button>
@@ -8373,6 +8388,10 @@ export interface ContractCard {
   launches: number;
   /** The exact inventory, for a pattern Contract. Empty otherwise. */
   queue: PieceType[];
+  /** The special material a lines Contract's belt carries, for the hub card's
+   *  preview strip (contractCardHTML). Optional because the older callers of
+   *  this shape (the standalone board's fixtures) never carried it. */
+  material?: Material | null;
   brief: string;
 }
 

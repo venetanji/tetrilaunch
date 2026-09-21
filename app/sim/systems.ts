@@ -1469,7 +1469,7 @@ section("Installs — what salvage buys (meta.ts)");
         && unlockBtnOf(topClaim).includes('data-ready="true"'));
     check("...titled for what it actually opens, not a Tier 11",
       topClaim.includes(">Open the Skydeck<")
-        && !topClaim.includes(`Open Tier ${MARK_COUNT + 1}`));
+        && !topClaim.includes(`Unlock Tier ${MARK_COUNT + 1}`));
     const topDone = hubAt({ tier: MARK_COUNT, runDone: true, contracts: 3 }, "seal", top);
     check("...and a finished ladder shows the plain objective instead",
       !topDone.includes('data-action="claim-tier"')
@@ -1478,7 +1478,7 @@ section("Installs — what salvage buys (meta.ts)");
     // never broke and the half a fix here could break.
     check("...while below the top it is there locked as well as ready",
       owed.includes('data-action="claim-tier"')
-        && owed.includes(">Open Tier 2<"));
+        && owed.includes(">Unlock Tier 2<"));
 
     /* ---- THE CONTRACT CARDS' FOUR FACES ------------------------------- */
     const cardBtns = (html: string): string[] =>
@@ -17013,7 +17013,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   const menuAt = (t: S.TowerState): string =>
     S.tierHubScreen(0, 0, undefined, undefined, undefined, t);
   check("the primary button flies the ladder from a Mark",
-    menuAt(open).includes(">Deep Run<") && !menuAt(open).includes(">Sandbox<"));
+    menuAt(open).includes(">New Run<") && !menuAt(open).includes(">Sandbox<"));
   check("the primary button becomes Sandbox on the roof",
     menuAt(parked).includes(">Sandbox<"));
   // …AND THE CARD UNDER IT WITHHOLDS ITS TERMS THERE. The hub's run card prints

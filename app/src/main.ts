@@ -3529,9 +3529,23 @@ class App {
     if (ttl) {
       ttl.textContent = tier === S.LICENCE_TIER
         ? "Flight School"
-        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
+        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "New Run";
     }
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
+    // THE BUTTON'S OWN LABEL RIDES TOO. The title above it was patched per
+    // floor and the label was not, so riding from a Tier onto the roof left
+    // "Start new run" under a "Skydeck" title, and "Fly the Skydeck" under
+    // "New Run" on the way back. The label is the button's one text node
+    // (screens.ts renders icon, text, mark), so it is written by node rather
+    // than by textContent, which would take the icon and the mark with it.
+    // Same four faces as screens.ts's runLabel, in the same order.
+    if (btn) {
+      const label = tier === S.LICENCE_TIER
+        ? "Start lesson"
+        : sbx ? "Open Sandbox" : tier === S.SKYDECK_TIER ? "Fly the Skydeck" : "Start new run";
+      const text = Array.from(btn.childNodes).find((n) => n.nodeType === Node.TEXT_NODE);
+      if (text) text.nodeValue = label;
+    }
     btn?.classList.toggle("btn--sbx", sbx);
     // THE BADGE IS PER-FLOOR, so the ride has to carry it rather than only
     // strip it on the way to Tier S. The seal step is what made it per-floor
