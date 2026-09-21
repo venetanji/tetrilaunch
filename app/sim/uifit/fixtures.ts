@@ -1546,6 +1546,14 @@ export const SCREENS: Record<string, () => string> = {
   // deal, some of them stacked. One notch per bay over ten bays is the cap, so
   // this is the deepest run's line and the case that decides whether the row
   // scrolls its tail (see components.ts's runNotchTallyHTML).
+  // THE WIND NOTCH under the bay banner (screens.ts's windNotchHTML): a gust
+  // pushing right at 60% of the bay's cap with the Weather Survey's average
+  // tick at 40%, and — on a Contract banner — a stabilised bay blowing left,
+  // so both the STAB word and the mirrored fill are measured.
+  "hud-wind": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null, wind: { now: 0.6, avg: 0.4, assist: 0 } }),
+  "hud-wind-stab": () =>
+    S.hudHTML({ ...HUD_BASE, wind: { now: -0.35, avg: null, assist: 0.3 } }),
   "hud-notched": () =>
     S.hudHTML({
       ...HUD_BASE,
@@ -2571,6 +2579,13 @@ export function railLoadoutFor(
     // …and "hud-t10", which is `hud` at the top of the ladder: same three
     // ability buttons, same seven-slot rail, different numbers.
     || id === "hud-t10"
+    // …and the two wind-notch fixtures, which are `hud` with the bay banner's
+    // notch hung under it and therefore render `hud`'s three ability buttons.
+    // Reproduced before it was fixed, exactly as the entries above describe:
+    // 32 `offscreen` / `safearea` / `tap` findings on `#demo-btn` and
+    // `#auto-btn` across the handsets, none of them anything to do with the
+    // notch — the harness had sized a bare rail under a full one.
+    || id === "hud-wind" || id === "hud-wind-stab"
     || id === "pause" || id === "pause-pad"
     // …and "pause-armed", which is `pause` with one more row on the card and
     // the SAME HUD behind it. It reproduced the identical eleven `offscreen`

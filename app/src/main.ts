@@ -949,6 +949,12 @@ class App {
    *  bay's first frame. */
   private strokeCueHalf = -1;
 
+  /** The `--wind-ink` string last written to the bay banner's wind fill, so a
+   *  drifting wind only touches the style when its colour actually moves.
+   *  windInk rounds to whole percent, so this caches for runs of frames
+   *  rather than being a new string every one. Empty before the first write. */
+  private windInkLast = "";
+
   /** What the Contract just finished did to tier progress — whether this
    *  attempt was the first clear, and whether it completed the tier (see
    *  meta.ts's recordContractClear). Null until one resolves. */
@@ -2388,6 +2394,16 @@ class App {
       // bay stays the Deep Run's, because everything else about the bay IS the
       // Deep Run's.
       exam: this.graduation,
+      // THE WEATHER for the banner's notch (screens.ts's windNotchHTML): ratios of
+      // the bay's windMax, null on a calm bay so no notch is drawn. The steady
+      // average is only revealed with the Weather Survey unlock (game/meta.ts).
+      wind: g.level.windMax > 0
+        ? {
+          now: g.windNow / g.level.windMax,
+          avg: this.meta.unlocks.includes("survey") ? g.windAverage / g.level.windMax : null,
+          assist: g.level.windAssist,
+        }
+        : null,
       bayGoal: this.lessonBayGoal(g),
       contract: this.lesson
         ? // A Flight School bay fills the Contract block for the reason a drill
@@ -7757,11 +7773,6 @@ class App {
         cubes: g.cubes, constraints: g.constraints, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
-        windNow: g.windNow,
-        // The bay's steady prevailing wind is only revealed with the Weather
-        // Survey unlock (see game/meta.ts) — otherwise null and the gauge
-        // shows only the live reading, as before.
-        windAverage: this.meta.unlocks.includes("survey") ? g.windAverage : null,
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
         // The bay has been resolved and the canvas is now backdrop to a result
@@ -8406,6 +8417,30 @@ class App {
     // never <= 0, so those are unaffected.
     if (g.status !== "playing" || g.timeLeftMs <= 0) stopWind();
     else setWind(g.level.windMax > 0 ? Math.abs(g.windNow) / g.level.windMax : 0);
+    // …and as the banner's notch (screens.ts's windNotchHTML). The fill is a
+    // signed scale about the centre tick — barFill's transform write, the
+    // same one the PWR meter takes, so a windy bay costs the layout engine
+    // nothing per frame. The status word only moves on a bay with no
+    // stabiliser (a fitted one says STAB, statically); CALM within 5% of
+    // zero, else nothing, and the text write is skipped when unchanged.
+    if (g.level.windMax > 0) {
+      const ratio = Math.max(-1, Math.min(1, g.windNow / g.level.windMax));
+      this.barFill("#hud-wind-fill", ratio);
+      // ...and the INK beside the scale, from the same magnitude. The scale
+      // alone cannot carry strength: it scales the fill's paint, so a gradient
+      // would squash rather than reveal and a breeze would render the red stop
+      // (see app.css). windInk is screens.ts's, the one windNotchHTML mounted
+      // with, so the first live frame agrees with the markup it is patching
+      // instead of stepping to a different ramp. Rounded to whole percent
+      // there, which is what makes the string-equality cache below hit at all
+      // while the wind drifts.
+      const ink = S.windInk(ratio);
+      if (this.windInkLast !== ink) {
+        this.windInkLast = ink;
+        (this.hudEl("#hud-wind-fill") as HTMLElement | null)?.style.setProperty("--wind-ink", ink);
+      }
+      if (g.level.windAssist <= 0) set("#hud-wind-stat", Math.abs(ratio) < S.CALM_WIND ? "CALM" : "");
+    }
 
     const comp = g.compactor;
     if (comp.dir === 1 && this.strokeCueHalf !== comp.halfCycles) {
