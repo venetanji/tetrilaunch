@@ -603,7 +603,18 @@ interface BeatJson {
   beat: string;
   card: string;
   fps: number;
+  /** DEVICE pixels — what the PNGs on disk actually measure, which is what
+   *  assemble.ts sizes a cut from and what a store upload is checked against. */
   size: string;
+  /** CSS pixels — the viewport the page was laid out at, `size` divided by
+   *  `dpr`. The two came apart when the store set moved to device-pixel
+   *  capture: an App Store preview is filmed at 960x443 @2 so the layout is
+   *  the one a phone renders, and lands as 1920x886. Recorded because the
+   *  manifest is the only place that pairing survives — from the frames alone
+   *  a 1920-wide phone preview and a 1920-wide desktop one are the same file. */
+  css: string;
+  /** The scale factor the two above differ by. */
+  dpr: number;
   frames: number;
   phases: Array<{
     index: number; kind: string; startFrame: number; endFrame: number;
