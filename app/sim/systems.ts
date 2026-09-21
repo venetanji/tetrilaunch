@@ -15016,7 +15016,7 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     globExts.has((declaredExt ?? ".mp3").slice(1)),
     `glob offers {${[...globExts].join(",")}}`,
   );
-  const wanted = new Set([
+  const roles = new Set([
     ...SCREEN_BEDS, ...beds, ...std, ...bulk,
     // Every bed any tier's window can reach, asked for on the Contract board's
     // own account rather than left to overlap the run ladder — the two tables
@@ -15024,6 +15024,50 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     ...TIERS.flatMap(windowOf),
     "contract-rare",
   ]);
+
+  // A ROLE WITH MORE THAN ONE SONG. audio.ts's MUSIC_TAKES lists, per role,
+  // the shipped files playMusic may pick between when that role starts — the
+  // 1.0.6 alternates for the lounge and bays 1-2. Read from source for the
+  // reason SCREEN_BEDS is a literal: the module cannot load in Node. Comments
+  // are stripped first so an essay about a take never reads as one.
+  const takesSrc = /const MUSIC_TAKES[^=]*=\s*\{([^}]*)\}/.exec(
+    audioSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""),
+  )?.[1] ?? "";
+  const takes = new Map<string, string[]>();
+  for (const m of takesSrc.matchAll(/"([^"]+)":\s*\[([^\]]*)\]/g)) {
+    takes.set(m[1], [...m[2].matchAll(/"([^"]+)"/g)].map((t) => t[1]));
+  }
+  // Proven to have been found, for the reason the effect census states: an
+  // empty map here would pass every check below and quietly ship three beds
+  // nothing plays.
+  check("audio.ts declares MUSIC_TAKES and this pin can still read it",
+    takes.size > 0, [...takes.keys()].join(", "));
+  // The alternates this release decided: the lounge and the first two bays
+  // each carry a second song. Pinned by ROLE so a re-score that drops one is
+  // a deliberate edit here, not a silent loss of half the lobby.
+  for (const role of ["menu", "bay-1", "bay-2"]) {
+    check(`${role} has a second take`, (takes.get(role)?.length ?? 0) >= 2,
+      (takes.get(role) ?? []).join(", ") || "(none)");
+  }
+  // Every take belongs to a role the game can ask for — a key that is not a
+  // bed is a list nothing will ever pick from — and each role's own name is
+  // one of its takes, because the role IS the default file (audio/README.md's
+  // "the role is the shipped filename") and a role whose takes exclude it
+  // would ship a file under a name nothing plays.
+  const strayRoles = [...takes.keys()].filter((r) => !roles.has(r));
+  check("every MUSIC_TAKES key is a bed the game asks for", strayRoles.length === 0,
+    strayRoles.join(", "));
+  const selfless = [...takes].filter(([role, files]) => !files.includes(role)).map(([r]) => r);
+  check("a role's own name is among its takes", selfless.length === 0, selfless.join(", "));
+  // No file serves two roles and no role lists a file twice: a coin flip over
+  // [x, x] is not a coin flip, and a file two roles share would make the
+  // orphan check below unable to say which of them stopped asking for it.
+  const allTakes = [...takes.values()].flat();
+  const dupTakes = allTakes.filter((f, i) => allTakes.indexOf(f) !== i);
+  check("no take file is listed twice, within or across roles", dupTakes.length === 0,
+    dupTakes.join(", "));
+
+  const wanted = new Set([...roles, ...allTakes]);
   const absent = [...wanted].filter((n) => !shipped.has(n));
   const orphaned = [...shipped].filter((n) => !wanted.has(n));
   check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));
@@ -15870,7 +15914,9 @@ section("Bay restart vs the mid-bay stingers");
   // stay a PLAY and nothing else: a bed that is playing at gain 0 is one a
   // keepBed stinger deliberately muted, and touching its level here would
   // overturn that decision from outside the piece that made it.
-  const repeat = /export function playMusic\(track: MusicName \| null\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
+  // The signature carries an optional salt since 1.0.6 (the take pick for a
+  // role with two songs); the branch this pin reads is the same one.
+  const repeat = /export function playMusic\(track: MusicName \| null(?:, salt\?: number)?\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
     .exec(audioCode)?.[1] ?? "";
   check("playMusic's repeat-track branch is still where this pin looks for it",
     repeat.length > 0);
