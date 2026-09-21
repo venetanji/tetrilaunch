@@ -1546,6 +1546,14 @@ export const SCREENS: Record<string, () => string> = {
   // deal, some of them stacked. One notch per bay over ten bays is the cap, so
   // this is the deepest run's line and the case that decides whether the row
   // scrolls its tail (see components.ts's runNotchTallyHTML).
+  // THE WIND NOTCH under the bay banner (screens.ts's windNotchHTML): a gust
+  // pushing right at 60% of the bay's cap with the Weather Survey's average
+  // tick at 40%, and — on a Contract banner — a stabilised bay blowing left,
+  // so both the STAB word and the mirrored fill are measured.
+  "hud-wind": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null, wind: { now: 0.6, avg: 0.4, assist: 0 } }),
+  "hud-wind-stab": () =>
+    S.hudHTML({ ...HUD_BASE, wind: { now: -0.35, avg: null, assist: 0.3 } }),
   "hud-notched": () =>
     S.hudHTML({
       ...HUD_BASE,

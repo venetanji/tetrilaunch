@@ -11808,6 +11808,92 @@ button.panel { color: var(--text); }
 .bay-banner__pips i.done { background: var(--accent); }
 .bay-banner__pips i.cur { background: var(--warn); box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
 .bay-banner--contract { font-size: max(8px, calc(10 * var(--fpx))); color: var(--text); }
+/* ---------- THE WIND NOTCH (screens.ts's windNotchHTML) ----------
+   A tab hung UNDER the banner, the mirror of the PWR meter's tab above the
+   plant: same face, same border, the top edge open onto the banner it hangs
+   from. Centred and narrower than the banner so it reads as an attachment
+   rather than a second row. Absolutely positioned, so the banner's own box —
+   which the layout's top clearance and the aim gesture's dead zone are sized
+   to — does not grow by it; the notch hangs into the field's top margin the
+   same way the old gauge sat there, only 14px tall where the pill was 52.
+   pointer-events come from `.hud > .bay-banner` (none), so a high lob's drag
+   crosses it exactly as it crossed the banner. */
+.bay-banner__wind {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 64%;
+  min-width: 120px;
+  --wind-h: max(13px, calc(16 * var(--fpx)));
+  height: var(--wind-h);
+  display: flex; align-items: center; gap: max(5px, calc(8 * var(--fpx)));
+  padding: 0 max(7px, calc(10 * var(--fpx)));
+  margin-top: calc(-1 * var(--bw));
+  background: rgba(10, 10, 20, 0.78);
+  border: var(--bw) solid var(--line-strong);
+  border-top: none;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  box-shadow: var(--shadow-hard-sm);
+}
+.bay-banner__wind .lbl {
+  font-family: var(--font-pixel); font-size: max(7px, calc(7 * var(--fpx)));
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); flex: none;
+}
+/* THE TRACK is the calm reference: a dim rail with a centre tick, the fill
+   reaching left or right of it. */
+.bay-banner__wind-track {
+  position: relative; flex: 1; min-width: 0;
+  height: max(4px, calc(5 * var(--fpx)));
+  background: var(--surface-3);
+  overflow: visible;
+}
+.bay-banner__wind-track::before {
+  content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px;
+  margin-left: -1px; background: var(--text-dim); opacity: 0.7;
+}
+/* THE FILL is half the track wide — the full reach — anchored at the centre
+   tick and scaled by the wind ratio (main.ts's barFill). A negative ratio
+   mirrors it leftward, arrowhead included. One gradient from calm cyan at the
+   tick to hot red at full reach, so the colour the player sees is decided by
+   how far the bar got — the canvas gauge's lerp, free. */
+.bay-banner__wind-fill {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 50%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent) 0%, #ffb020 60%, var(--danger) 100%);
+  box-shadow: 0 0 6px rgba(0, 240, 255, 0.35);
+  will-change: transform;
+}
+/* The arrowhead: a small triangle on the fill's outer end, pointing the way
+   the wind pushes. Drawn in the fill's own coordinate space so the mirror
+   carries it. Hidden near zero by the fill being too short to show it —
+   at scaleX(0.02) the triangle is squashed into nothing. */
+.bay-banner__wind-fill::after {
+  content: ""; position: absolute; right: -5px; top: 50%;
+  width: 0; height: 0; margin-top: -4px;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--danger);
+}
+/* The Weather Survey's steady-average tick: a dashed hairline at the bay's
+   prevailing wind, so the live bar reads as drifting around a known point. */
+.bay-banner__wind-avg {
+  position: absolute; top: -3px; bottom: -3px; width: 0; margin-left: -1px;
+  border-left: 2px dashed var(--text); opacity: 0.6;
+}
+.bay-banner__wind-avg[hidden] { display: none; }
+/* The status word: STAB when the launcher cancels a share of the wind (the
+   bar is already showing the post-stabiliser number, and without the word
+   the upgrade would look like the weather getting easier), CALM when the
+   live reading is near zero and nothing is fitted. A word, never a number. */
+.bay-banner__wind-stat {
+  font-family: var(--font-pixel); font-size: max(7px, calc(7 * var(--fpx)));
+  letter-spacing: 0.1em; color: var(--text-dim); flex: none;
+  min-width: 4ch; text-align: right;
+}
+.bay-banner__wind--stab .bay-banner__wind-stat { color: var(--success); text-shadow: 0 0 6px rgba(0, 255, 156, 0.4); }
+@media (prefers-reduced-motion: reduce) {
+  .bay-banner__wind-fill { box-shadow: none; }
+}
 /* The `@media (max-height: 480px)` step-down that used to live here is gone: on
    any viewport that short the field is at most 480*16/9 ≈ 853px wide, so --fpx
    is always < 0.67 and every calc() above falls to its floor — and those floors
