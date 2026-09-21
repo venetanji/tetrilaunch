@@ -156,7 +156,7 @@ import {
   lockLandscape, isPortrait, isNative, isDesktop, tapHaptic, successHaptic, impactHaptic,
   readyHaptic, hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
-  shellFullscreenKeys, applySafeAreaInsets, purgeNativeServiceWorker,
+  fullscreenButtonShown, shellFullscreenKeys, applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
@@ -1324,7 +1324,7 @@ class App {
     // bottom-strip layout on a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({
       bond: false, demo: false, thaw: false, auto: false,
-      fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenButtonShown(),
     }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
     // first solve too — snug mode reserves the band on the rail's side.
@@ -1942,7 +1942,7 @@ class App {
     this.railSlotsLatch = RAIL_SLOTS_BASE;
     const slots = railSlotsFor({
       bond: false, demo: false, thaw: false, auto: false,
-      fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenButtonShown(),
     });
     if (slots !== getRailSlots()) {
       setRailSlots(slots);
@@ -2197,7 +2197,7 @@ class App {
       // steady across that disappearance.
       thaw: (tiers?.thaw ?? 0) > 0 || g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
-      fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenButtonShown(),
     });
     const key: object = this.run ?? g;
     if (key !== this.railKey) {
@@ -2312,9 +2312,12 @@ class App {
       // rig from sandbox.ts rather than from the loadout, so its rack is as
       // wide as the rig it was handed and the slot economy is not in the room.
       slots: this.run?.sandbox ? SLOT_CAP : slotsFor(this.meta),
-      // False in the native shells and on iPhone Safari — no fullscreen
-      // button is rendered there at all (see screens.ts / platform.ts).
-      fullscreenSupported: fullscreenSupported(),
+      // The in-game fullscreen BUTTON: web only. False in the native shells and
+      // on iPhone Safari (no working API) AND in the Electron desktop shell,
+      // which uses F11 / ⌃⌘F and the Settings toggle instead — see platform.ts's
+      // fullscreenButtonShown. hudHTML's param keeps its name; only the value
+      // narrows.
+      fullscreenSupported: fullscreenButtonShown(),
       // THE DIAL COLLAPSE (screens.ts's collapsingDial): the readout that ran
       // out crunches on every HUD render that follows the loss, which is what
       // makes it survive the re-render the run-end transition performs.
@@ -4030,7 +4033,14 @@ class App {
         }
         break;
       case "settings":
-        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
+        // The Fullscreen row mounts wherever the API can act (desktop included,
+        // unlike the web-only in-game button) and MIRRORS the live window state
+        // rather than a saved setting — so it is handed isFullscreen(), and a
+        // fullscreen entered by F11 shows as on the moment Settings opens.
+        this.overlay.innerHTML = S.settingsScreen(
+          this.settings, this.storeState(), hapticsSupported(),
+          fullscreenSupported(), isFullscreen(),
+        );
         break;
       case "account":
         this.overlay.innerHTML = S.accountScreen(
@@ -4105,7 +4115,7 @@ class App {
         if (g) {
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
-            S.pauseModal(fullscreenSupported(), this.profile, {
+            S.pauseModal(fullscreenButtonShown(), this.profile, {
               bond: g.bondCharges > 0,
               demo: g.level.bombCharges > 0,
               thaw: g.level.thawCharges > 0,
@@ -4334,7 +4344,7 @@ class App {
     // player's own navigation gets the last word over the default.
     this.parkTowerView();
     this.syncPadFocus();
-    this.syncFullscreenButtons();
+    this.syncFullscreenControls();
     this.syncAttract();
     this.syncPlantRoof();
   }
@@ -4663,24 +4673,32 @@ class App {
   }
 
   /** Reflects fullscreen STATE onto every fullscreen control currently
-   *  mounted (the HUD icon button and/or the pause modal's row —
-   *  renderOverlay() recreates both from scratch on every state change, so
-   *  this needs to re-run each time, not just once at startup). Availability
-   *  is decided earlier than this: where no Fullscreen API can do anything
-   *  (the native shells, iPhone Safari), screens.ts renders no control at
-   *  all — see platform.ts's fullscreenSupported — so there is nothing here
-   *  to hide, only labels to keep honest. */
-  private syncFullscreenButtons(): void {
+   *  mounted: the web-only in-game buttons (the HUD icon and the pause modal's
+   *  row) AND the Settings switch. renderOverlay() recreates them from scratch
+   *  on every state change, so this re-runs each time, not just at startup.
+   *  Availability is decided earlier: where no Fullscreen API can do anything
+   *  (the native shells, iPhone Safari), screens.ts renders no control at all —
+   *  see platform.ts's fullscreenSupported/fullscreenButtonShown — so there is
+   *  nothing here to hide, only state to keep honest.
+   *
+   *  The Settings switch is the reason this exists beyond labels: it is a LIVE
+   *  mirror (onToggle writes no setting), so its aria-checked must follow the
+   *  window — an F11 while Settings is open, or a rejected request — rather than
+   *  the click that was aimed at it. */
+  private syncFullscreenControls(): void {
     const fs = isFullscreen();
     this.overlay.querySelectorAll<HTMLElement>('[data-action="fullscreen"]').forEach((btn) => {
       btn.setAttribute("aria-label", fs ? "Exit fullscreen" : "Fullscreen");
       const label = btn.querySelector<HTMLElement>(".fs-label");
       if (label) label.textContent = fs ? "Exit Fullscreen" : "Fullscreen";
     });
+    this.overlay.querySelectorAll<HTMLElement>('[data-toggle="fullscreen"]').forEach((row) => {
+      row.setAttribute("aria-checked", String(fs));
+    });
   }
 
   private onFullscreenChange = (): void => {
-    this.syncFullscreenButtons();
+    this.syncFullscreenControls();
     // LEAVING FULLSCREEN MID-BAY IS A PAUSE, the same pause as ⏸ or the
     // portrait guard (onResize), and for the same reason: the viewport just
     // changed under a live bay and the layout is re-solving beneath it. It is
@@ -6283,7 +6301,7 @@ class App {
       // late: a pad player needs focus to land on the modal's primary action,
       // and the fullscreen control inside a pause-style scrim needs its label.
       this.syncPadFocus();
-      this.syncFullscreenButtons();
+      this.syncFullscreenControls();
     }, S.DIAL_COLLAPSE_HOLD_MS);
   }
 
@@ -9042,7 +9060,7 @@ class App {
       case "quit-run": this.requestQuitRun(); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
-      case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
+      case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenControls()); break;
       // "Play Again" / "Fly it again". A Tier S run re-flies the SAME
       // configuration rather than dropping into a ladder run — the whole
       // reason to be in the mode is that the bay you just lost is one tap
@@ -9676,6 +9694,19 @@ class App {
   }
 
   private onToggle(key: string, el: HTMLElement): void {
+    // Fullscreen is a LIVE window control wearing a switch, not a persisted
+    // setting: it writes no Settings field and never saves. Flip the window and
+    // let the fullscreenchange handler (and this reconcile) write the switch's
+    // aria-checked from the REAL state — so this row and the shell's F11 can
+    // never disagree, and a rejected request leaves the switch telling the
+    // truth. The tone predicts the flip the way the persisted rows sound theirs.
+    if (key === "fullscreen") {
+      const entering = !isFullscreen();
+      void toggleFullscreen().then(() => this.syncFullscreenControls());
+      void tapHaptic();
+      playUiClick(entering ? 1.08 : 0.92);
+      return;
+    }
     const cur = el.getAttribute("aria-checked") === "true";
     const next = !cur;
     el.setAttribute("aria-checked", String(next));
