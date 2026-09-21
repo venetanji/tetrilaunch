@@ -26645,8 +26645,8 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // what this visit is FOR rather than how salvage is paid.
     const wsShut = workshopScreen(licensed);
     const wsRig = workshopScreen({ ...licensed, loadout: { ...newTiers(), reactor: 1 } });
-    check("the Workshop's first visit names the door the purchase opens",
-      wsShut.includes("the Tier run opens with it"));
+    check("the Workshop's first visit asks for the first system",
+      wsShut.includes("Install your first system"));
     check("...and refuses the run it cannot yet fly",
       wsShut.includes(`data-action="play" disabled`));
     check("...while a rigged shop offers it",

@@ -6342,7 +6342,7 @@ export function workshopScreen(
                 : `One system, and it is the last thing between you and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT}. A system is permanent — bought once, flown in every run after — so nothing here is spent twice.`
               : rigStarted(meta)
                 ? "Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before."
-                : "Install your first system — the Tier run opens with it. Every system is permanent: bought once, flown in every run after."
+                : "Install your first system. Every system is permanent: bought once, flown in every run after."
           }</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
@@ -8327,7 +8327,7 @@ export function contractsScreen(opts: {
         opts.nextInstall
           ? ` — enough for ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)})`
           : " — enough for your first system"
-      }, and the Tier run opens the moment one is installed. Fail free, retry free.${
+      }. Fail free, retry free.${
         allowance ? ` ${allowance}.` : ""
       }</p>`
     : opts.progress

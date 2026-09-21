@@ -727,7 +727,7 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, end to end. Each has`
       + ` its own target and countdown; go broke or run out of clock and the run ends — no lives.`
       + ` Between bays you ratchet an axis, and three times you refit — which is why`
-      + ` <b>it opens only once you own a system</b>: a refit raises what you carry, never`
+      + ` <b>a system aboard matters</b>: a refit raises what you carry, never`
       + ` installs. Every Tier has a board, and only this raises your Tier.`,
   },
   {
