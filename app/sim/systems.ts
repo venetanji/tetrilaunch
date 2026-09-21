@@ -28195,6 +28195,42 @@ section("Flight School — the authored geometry holds (game/school.ts)");
         > mainSrc.indexOf("licenceDone(this.meta)", mainSrc.lastIndexOf("if (firstInstall", at)));
   }
 
+  // ...AND THE PRACTICE BAY IS NEVER THE CARD'S DEFAULT ANSWER.
+  //
+  // Owner's device pass: a player who had just bought their first system
+  // pressed the loudest button on the "Try it?" card and landed in a bay they
+  // had not chosen and could not read a finish condition on. The offer is
+  // still an offer — nothing here argues for dropping it — but the button a
+  // stray press finds must be the one that keeps the player in the shop.
+  //
+  // Asserted on the PRIMARY's data-action, not on a label, for the reason the
+  // end card's next-step block gives: the face is copy and will be rewritten,
+  // the action is the promise the button makes. padnav's focusInitial parks a
+  // pad on `.btn--primary`, so this is also what a controller's next A does.
+  {
+    const offer = S.systemDrillOfferModal({
+      name: "Reactor Output",
+      drill: DRILLS["sys-reactor"].name,
+      brief: DRILLS["sys-reactor"].brief,
+    });
+    const primary = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(offer)?.[1];
+    check("the purchase card's main button keeps the player in the shop",
+      primary === "sys-drill-skip", primary ?? "no primary");
+    check("...and the drill is on the card, demoted rather than dropped",
+      offer.includes('data-action="sys-drill-go"')
+        && /class="btn btn--secondary"[^>]*data-action="sys-drill-go"/.test(offer), offer);
+    // THE REACTOR IS THE ONE THIS WAS FOUND ON, and the reason is structural
+    // rather than bad luck: the offer fires on a FIRST install, the Reactor is
+    // what a Tier 1 refit sells, and its drill is an economy drill — no line
+    // goal and no launch budget, so the bay ends on the funding target or an
+    // empty purse and nothing on screen quotes either. Pinned so a later edit
+    // that gives it a goal, or moves it out of ECONOMY_DRILLS, is a decision
+    // somebody took rather than a silent change of what this card offers.
+    check("the reactor's practice bay still has no stated finish",
+      DRILLS["sys-reactor"].goal === 0 && DRILLS["sys-reactor"].launches === 0,
+      `goal ${DRILLS["sys-reactor"].goal}, launches ${DRILLS["sys-reactor"].launches}`);
+  }
+
   // ---- WHAT FLYING A FLOOR OPENS ----------------------------------------
   // The ladder's whole shape — every tier flown to open the next — was stated
   // on no surface a player reads before pressing the button that does it.
