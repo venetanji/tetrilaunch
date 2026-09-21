@@ -671,7 +671,7 @@ class App {
    * onAccountSignIn on success — the same field is the flag and the
    * destination, on the sealBreakBack pattern above. An AppState here rather
    * than a hardcoded "menu": the gate also fires from the settings store row
-   * and from the run-end card's Play Again (startGame), and the honest resume
+   * and from the run-end card's Play again (startGame), and the honest resume
    * is the screen the player was actually on.
    *
    * SET BEFORE setState("account"), which is what makes the clear in setState
@@ -1910,7 +1910,7 @@ class App {
     // the profile flips is the moment that screen needs a focus to steer. The
     // flag makes that same press SPEND itself on the landing (onPadUiButton):
     // the press that woke the pad on the end modal must not also press the
-    // freshly-focused Play Again.
+    // freshly-focused Play again.
     if (p === "gamepad") {
       this.padWokeAt = performance.now();
       this.syncPadFocus();
@@ -2512,7 +2512,7 @@ class App {
             // reads moves underneath the panel: recordContractClear advances
             // the tier BEFORE contract-end mounts its fresh HUD, so a clear
             // that completed a tier left the row advertising tier N+1's count
-            // and salvage on a bay that is still tier N, and Play Again
+            // and salvage on a bay that is still tier N, and Play again
             // re-rendered that same wrong deal on every replay. Null here
             // makes the row say Practice instead (screens.ts).
             progress: (() => {
@@ -5127,7 +5127,7 @@ class App {
   }
 
   // ---------------- game lifecycle ----------------
-  /** "Play"/"Play Again": starts a brand-new 10-bay run. Called synchronously
+  /** "Play"/"Play again": starts a brand-new 10-bay run. Called synchronously
    *  from the Play/Start button's click handler (see onClick) — that's the
    *  one user gesture this auto-requests fullscreen from; browsers ignore
    *  fullscreen requests made outside a direct user-activation event, and
@@ -9433,7 +9433,7 @@ class App {
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenControls()); break;
-      // "Play Again" / "Fly it again". A Tier S run re-flies the SAME
+      // "Play again" / "Fly it again". A Tier S run re-flies the SAME
       // configuration rather than dropping into a ladder run — the whole
       // reason to be in the mode is that the bay you just lost is one tap
       // away, and startGame() would silently hand back a different one.
