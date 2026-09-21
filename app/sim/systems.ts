@@ -272,6 +272,10 @@ import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
 import { pieceMiniHTML, runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
 import {
+  PROMO_EPOCH, SCENES as PROMO_SCENES, SETUPS as PROMO_SETUPS,
+  STORE_SIZES as PROMO_STORE_SIZES,
+} from "./promo/beats";
+import {
   BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForRun, boardDayForView,
   boardForRun, boardForView, DAY_NONE,
   fetchLeaderboard, isLadderBoard, submitScore, type BoardView, type ScoreEntry,
@@ -32947,6 +32951,85 @@ section("The desktop monetization boundary (docs/STEAM.md)");
   check("...and no installer target was traded away for it",
     ["- target: nsis", "- target: dmg", "- target: AppImage"]
       .every((t) => builderYml.includes(t)));
+}
+
+// ===========================================================================
+// THE PROMO CAPTURE MATRIX (sim/promo/beats.ts)
+//
+// The store shots are photographs of the shipped App, and a photograph taken
+// at the wrong size is worth nothing: Play and Apple both reject a PNG whose
+// dimensions are off by a pixel, and a FRACTIONAL css viewport is half a pixel
+// of layout the shipped app never has. run.ts asserts px = css x dpr before it
+// opens a page, which fails a capture eight minutes in; these fail it here, in
+// a second, with the offending row named.
+//
+// The rest of the block is the same argument about names: a scene that points
+// at a setup nobody defined, or restricts itself to a size label that was
+// renamed, silently produces NOTHING at all — a matrix quietly one shot short
+// is the failure mode a store listing notices last.
+// ===========================================================================
+{
+  section("Promo capture matrix");
+
+  for (const size of PROMO_STORE_SIZES) {
+    for (const family of ["menu", "game"] as const) {
+      const css = size.css[family];
+      const dpr = size.px.w / css.w;
+      const label = `${size.store}/${size.label}/${family}`;
+      check(`${label}: an integer css viewport`,
+        Number.isInteger(css.w) && Number.isInteger(css.h), `${css.w}x${css.h}`);
+      check(`${label}: ${css.w}x${css.h} @${dpr} is exactly ${size.px.w}x${size.px.h}`,
+        Math.abs(css.h * dpr - size.px.h) < 1e-9, `${css.w}x${css.h} @${dpr} -> ${css.w * dpr}x${css.h * dpr}`);
+    }
+  }
+
+  const sizeLabels = new Set(PROMO_STORE_SIZES.map((s) => s.label));
+  const sceneIds = new Set(PROMO_SCENES.map((s) => s.id));
+  check("every store size label is unique",
+    sizeLabels.size === PROMO_STORE_SIZES.length);
+  check("every scene id is unique", sceneIds.size === PROMO_SCENES.length);
+
+  for (const scene of PROMO_SCENES) {
+    check(`scene "${scene.id}" names a setup that exists`,
+      !scene.setup || scene.setup in PROMO_SETUPS, String(scene.setup));
+    for (const only of scene.only ?? []) {
+      check(`scene "${scene.id}" is restricted to a size that exists: ${only}`,
+        sizeLabels.has(only));
+    }
+  }
+  for (const size of PROMO_STORE_SIZES) {
+    for (const only of size.only ?? []) {
+      check(`size "${size.label}" is restricted to a scene that exists: ${only}`,
+        sceneIds.has(only));
+    }
+  }
+
+  // A size whose `only` list and a scene's `only` list do not intersect
+  // produces an EMPTY directory — the store row nobody notices is missing
+  // until the listing is half uploaded.
+  for (const size of PROMO_STORE_SIZES) {
+    const shot = PROMO_SCENES.filter((sc) =>
+      (!size.only || size.only.includes(sc.id)) && (!sc.only || sc.only.includes(size.label)));
+    check(`size "${size.store}/${size.label}" captures at least one scene`,
+      shot.length > 0);
+  }
+
+  // The seven screens a listing is actually built from carry no `only`, so
+  // they are shot at EVERY size. Stated as a pin rather than a comment because
+  // pinning one of them to the reference sizes is a one-word edit that would
+  // silently empty the tablet and iPad rows.
+  for (const id of ["menu", "tier-hub", "workshop", "contracts", "leaderboard", "mid-bay-launch", "stacked-bay"]) {
+    const scene = PROMO_SCENES.find((s) => s.id === id);
+    check(`the listing scene "${id}" is shot at every size`, !!scene && !scene.only);
+  }
+
+  // PROMO_EPOCH is what the page's Date reads (run.ts's clock shim), and the
+  // dated screens deal from it. It is pinned to a stated instant because
+  // changing it re-deals the Contract board and the Skydeck, which means every
+  // store shot has to be re-taken — not a thing to discover from a diff.
+  check("the capture epoch is 2026-03-14T12:00:00Z",
+    new Date(PROMO_EPOCH).toISOString() === "2026-03-14T12:00:00.000Z",
+    new Date(PROMO_EPOCH).toISOString());
 }
 
 console.log(

@@ -2,7 +2,7 @@
   "name": "tetrilaunch",
   "version": "1.0.5",
   "private": true,
-  "description": "Tetrilaunch \u2014 a neon-arcade physics cannon puzzle. Capacitor port (web / Android / iOS).",
+  "description": "Tetrilaunch — a neon-arcade physics cannon puzzle. Capacitor port (web / Android / iOS).",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -63,7 +63,12 @@
     "android:sync:sandbox": "npm run build:sandbox && node scripts/verify-store-bundle.mjs --allow-sandbox && cap sync android && npm run patch:android",
     "android:apk:sandbox": "npm run android:sync:sandbox && node scripts/gradle.mjs assembleDebug",
     "android:run:sandbox": "npm run android:sync:sandbox && cap run android",
-    "audio:prepare": "node scripts/prepare-audio.mjs"
+    "audio:prepare": "node scripts/prepare-audio.mjs",
+    "promo": "tsx sim/promo/run.ts",
+    "promo:beats": "tsx sim/promo/run.ts --all",
+    "promo:shots": "tsx sim/promo/run.ts --shots --store=all",
+    "promo:verify": "tsx sim/promo/verify.ts",
+    "promo:assemble": "tsx sim/promo/assemble.ts"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",
