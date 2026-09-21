@@ -9321,6 +9321,15 @@ class App {
       // the tutorial on every back-to-hub would turn a one-time welcome into a
       // toll gate. So the flag alone does not decide; the door does.
       case "tiers":
+        // THE FIRST PLAY PRESS IS THE FULLSCREEN GESTURE on a phone's browser.
+        // The request has to come from inside a user activation, and the front
+        // door's Play is the first press a web player makes — so the chrome
+        // goes away here rather than a screen and a half later when a run
+        // starts (startGame still asks, for the player who has since backed
+        // out). The helper already declines a fine pointer, a standalone or
+        // native shell and a page already fullscreen, and a refused request is
+        // swallowed, so this line costs nothing where it cannot act.
+        if (this.state === "menu") void autoEnterFullscreenForRun();
         if (this.state === "menu" && !this.settings.seenTutorial) this.setState("tutorial-offer");
         else this.toHub();
         break;
