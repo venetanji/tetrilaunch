@@ -4,7 +4,7 @@ import { baseBayFor, CHAIN_RUNGS_MAX, payoutMult } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
 import type { GradeTally } from "../game/grades";
 import {
-  toggleHTML, pieceCellsHTML, pieceMiniHTML, formatMMSS, beltPieceHTML, beltBombHTML,
+  toggleHTML, pieceCellsHTML, pieceMiniHTML, formatMMSS, num, beltPieceHTML, beltBombHTML,
   beltSealedHTML, runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph,
   axisIconHTML, railLegendHTML,
 } from "./components";
@@ -1395,7 +1395,7 @@ function unknownBayPanelHTML(best: number, extras: string): string {
     statCellHTML(name, label, `<span class="bay-stat__q">?</span>`, tint);
   return `<div class="panel base-bay base-bay--unknown" aria-label="Tier S — set on the sandbox setup screen">
     <div class="base-bay__head">
-      <div class="base-bay__best">Best ${best || "—"}</div>
+      <div class="base-bay__best">Best ${best ? num(best) : "—"}</div>
     </div>
     <div class="base-bay__grid">
       ${cell("reactor", "Target", "var(--accent)")}
@@ -1525,7 +1525,7 @@ export function baseBayPanelHTML(opts: {
   return `<div class="panel base-bay" aria-label="Selected tier \u2014 base bay">
     <div class="base-bay__head">
       ${sealLine}
-      <div class="base-bay__best">Best ${opts.best}</div>
+      <div class="base-bay__best">Best ${num(opts.best)}</div>
     </div>
     <div class="base-bay__grid">
       ${statCellHTML("reactor", "Target", `$${bay.targetFrom}→${bay.targetTo}`, "var(--accent)")}
@@ -1559,7 +1559,7 @@ export function baseBayPanelHTML(opts: {
  */
 export function hubRunTerms(tier: number, best: number): string {
   const bay = baseBayFor(Math.max(1, Math.min(MARK_COUNT, tier)));
-  return `${bay.bays} bays · ${formatMMSS(bay.timeLimitSec * 1000)} · best ${best}`;
+  return `${bay.bays} bays · ${formatMMSS(bay.timeLimitSec * 1000)} · best ${num(best)}`;
 }
 
 /**
@@ -3473,8 +3473,8 @@ export function leaderboardRowsHTML(
       <div class="lb__row${me ? " lb__row--me" : ""}">
         <span class="lb__rank">${medals[rank - 1] ?? rank}</span>
         <span class="lb__name">${e.name}</span>
-        <span class="lb__lines">${e.lines} lines</span>
-        <span class="lb__score">${e.score}</span>
+        <span class="lb__lines">${num(e.lines)} lines</span>
+        <span class="lb__score">${num(e.score)}</span>
       </div>`;
     })
     .join("")}</div>`;
@@ -7628,24 +7628,21 @@ export function endModal(opts: {
    * and the mode's own answer to a loss is another run (the long note on Retry
    * Bay below argues all three). Tier S has no next rung to offer at all.
    * --------------------------------------------------------------------- */
-  // What the TIER still owes, which is the count that makes Contracts the step
-  // — not `contracts.remaining`, which is how many of TODAY'S cards are
-  // unclaimed. The tier's quota is what the menu's pips draw and what nextStep
-  // actually reads, and a primary quoting the other number would be the two
-  // surfaces disagreeing about the same debt.
-  const contractsOwed = Math.max(0, opts.progress.needed - opts.progress.contracts);
-  // …but the ROUTE still needs a card behind it. A tier can owe Contracts while
-  // today's board is fully claimed, and a primary that opens a board of three
-  // ticks is a main button that leads nowhere. That card falls through to the
-  // run, which is the other half of the same tier and always flyable.
-  const stepRoute: "contracts" | "workshop" | "run" =
-    !opts.sandbox && opts.runComplete
-      ? opts.step === "contracts" && contractsOwed > 0 && (opts.contracts?.remaining ?? 0) > 0
-        ? "contracts"
-        : opts.step === "workshop"
-          ? "workshop"
-          : "run"
-      : "run";
+  // THE END CARD HAS NO CONTRACTS DOOR (owner's ruling, closing the last of
+  // #223's copy items). It had one for a release: a primary reading
+  // "Contracts · N to go" whose action was `tiers`, because a tier's Contracts
+  // are three cards on the hub's rail and not a board of their own any more.
+  // That made it the SECOND button on this card opening the hub — the Tower
+  // ghost below is the first — differing only in which of the hub's rows it
+  // was advertising. A card that offers one screen through two doors is a card
+  // asking the player to pick between synonyms.
+  //
+  // So the debt is said the way a directive is meant to be said here: by the
+  // badge the Tower ghost carries (`contractsNext`), which is A3's one-badge
+  // rule doing exactly its job — the door is the door, and the badge is what
+  // is behind it. Nothing is lost but the duplicate.
+  const stepRoute: "workshop" | "run" =
+    !opts.sandbox && opts.runComplete && opts.step === "workshop" ? "workshop" : "run";
   // THE CARDS BEHIND THE TOWER DOOR ARE THE STEP: today's board still has an
   // uncleared card and meta.ts's nextStep says Contracts. What the retired
   // secondary Contracts button used to be badged on, moved to the ghost that
@@ -7666,53 +7663,42 @@ export function endModal(opts: {
   // being `restart`, and a face that can disagree with the door it opens is
   // precisely the bug this change exists to remove.
   //
-  // The COUNT on the Contracts face is what the TIER still owes, which is the
-  // same figure the hub's unlock checklist draws (tierProgressFor) — the two
-  // doors into the same board must not name two different numbers. It is not
-  // `contracts.remaining`: that is how many of TODAY'S three cards are still
-  // unclaimed, which answers "is there anything behind this door" (the route
-  // guard above) and not "how much of the tier is left to pay".
-  //
   // No NEXT STEP badge on it. The badge is a directive pointing at a control
   // that is not the main one (A3 allows exactly one on a screen); a primary
   // that IS the step is already the loudest thing on the card, and badging it
   // would be the screen saying the same thing twice.
   const primary: { action: string; face: string } =
-    stepRoute === "contracts"
-      // ON THE HUB, not the standalone board: a tier's Contracts are three
-      // cards on the hub's rail now, and the board screen is the Skydeck's and
-      // the school's alone (main.ts's "contracts" action refuses a tier).
-      ? { action: "tiers", face: `${icon("contracts")}Contracts · ${contractsOwed} to go` }
-      : stepRoute === "workshop"
-        ? { action: "workshop", face: `${icon("workshop")}Workshop` }
-        : {
-          action: "restart",
-          // A15: the bay-10 primary carries the tier plate (the button size of
-          // the one component — a row chip, not the menu's stacked badge) and
-          // names the rung it flies next.
-          //
-          // A sandbox run's primary re-flies the SAME configuration, which is
-          // what practice is: main.ts's restart routes on RunState.sandbox, so
-          // this button never has to know which mode it is in.
-          //
-          // "Retry Run" rather than "Play Again" on a loss with the bay retry
-          // beside it: the two are now a PAIR and the pair only reads if both
-          // halves say what they hand back. It stays the primary on a loss, and
-          // that is a decision rather than an inheritance — see the retry button
-          // below, and the step note above for why no loss is ever re-routed.
-          face: opts.sandbox
-            ? "Fly it again"
-            : opts.runComplete
-              ? runFace
-              : opts.retryBay
-                ? "Retry Run"
-                : "Play Again",
-        };
+    stepRoute === "workshop"
+      ? { action: "workshop", face: `${icon("workshop")}Workshop` }
+      : {
+        action: "restart",
+        // A15: the bay-10 primary carries the tier plate (the button size of
+        // the one component — a row chip, not the menu's stacked badge) and
+        // names the rung it flies next.
+        //
+        // A sandbox run's primary re-flies the SAME configuration, which is
+        // what practice is: main.ts's restart routes on RunState.sandbox, so
+        // this button never has to know which mode it is in.
+        //
+        // "Retry Run" rather than "Play again" on a loss with the bay retry
+        // beside it: the two are now a PAIR and the pair only reads if both
+        // halves say what they hand back. It stays the primary on a loss, and
+        // that is a decision rather than an inheritance — see the retry button
+        // below, and the step note above for why no loss is ever re-routed.
+        face: opts.sandbox
+          ? "Fly it again"
+          : opts.runComplete
+            ? runFace
+            : opts.retryBay
+              ? "Retry Run"
+              : "Play again",
+      };
   // Demolition recovery, appended to whichever foot line the branch below
   // renders. Suppressed at zero rather than printed as "$0": a charge is a
   // draft pick most runs never make, so the line would be dead weight on the
   // majority of end screens — and the foot is already the densest row here.
-  const demoFoot = opts.salvagedFunds > 0 ? ` · $${opts.salvagedFunds} recovered by demolition` : "";
+  const demoFoot = opts.salvagedFunds > 0
+    ? ` · $${num(opts.salvagedFunds)} recovered by demolition` : "";
   // What volatile took, on the run's own tally row. Suppressed at zero for the
   // same reason demoFoot is — most runs never ratchet the axis, and the
   // breakdown is not a place to print a $0 for a hazard the player never met.
@@ -7725,7 +7711,7 @@ export function endModal(opts: {
   // relief (lineClear.ts's volatileLossFor). The breakdown is already the row
   // that reconciles the run's money, and this belongs beside "$N left".
   const volatileFoot = opts.volatileLosses > 0
-    ? ` · $${opts.volatileLosses} lost to detonations` : "";
+    ? ` · $${num(opts.volatileLosses)} lost to detonations` : "";
   // What the hood saved, beside what the bay lost, and suppressed at zero on
   // the same rule as its two neighbours. It sits AFTER volatileFoot rather than
   // before it because the order is the order the money moved: the bill first,
@@ -7733,7 +7719,7 @@ export function endModal(opts: {
   // the number is money that stayed in the bankroll, and the breakdown row's
   // whole job is reconciling the bankroll.
   const incinFoot = opts.incineratedFunds > 0
-    ? ` · $${opts.incineratedFunds} saved by the Incinerator` : "";
+    ? ` · $${num(opts.incineratedFunds)} saved by the Incinerator` : "";
   // HOW THE ROWS WERE SOLD (grades.ts), on the breakdown row that already
   // reconciles the run rather than as a fifth stat tile.
   //
@@ -7802,14 +7788,14 @@ export function endModal(opts: {
           : ""
       }
       <div class="stat-row">
-        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Score</span></div>
-        <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
-        <div class="stat"><b style="color:var(--piece-o)">${opts.best}</b><span>Best</span></div>
+        <div class="stat"><b style="color:var(--accent)">${num(opts.score)}</b><span>Score</span></div>
+        <div class="stat"><b>${num(opts.lines)}</b><span>Lines</span></div>
+        <div class="stat"><b style="color:var(--piece-o)">${num(opts.best)}</b><span>Best</span></div>
       </div>
       <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
-        · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
-        · $${Math.max(0, opts.funds)} left${gradeFoot}${volatileFoot}${incinFoot}
+        · ${num(opts.lines)} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
+        · $${num(Math.max(0, opts.funds))} left${gradeFoot}${volatileFoot}${incinFoot}
       </div>
       <!-- AWARDS ONLY. The "Tier N progress" banner that used to sit here —
            ✓/○ pips in prose, "finish both to open Tier N+1", a foot of scrap
@@ -7834,7 +7820,7 @@ export function endModal(opts: {
             // be the one that lands second, so both cards can be the one that
             // announces the ladder's last rung.
             tierOpenedClause(opts.tierCompleted)
-          }. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
+          }. <b>${num(opts.salvageTotal)} salvage banked</b>, yours to keep.</span>
         </div>
         ${showRowWorkshop ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>` : ""}
       </div>`
@@ -7843,7 +7829,7 @@ export function endModal(opts: {
         <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16, true)}</div>
         <div class="salvage-row__body">
           <b>Salvage banked</b>
-          <span class="muted">First run win at Tier ${opts.progress.tier} — ${opts.salvageTotal} salvage total.</span>
+          <span class="muted">First run win at Tier ${opts.progress.tier} — ${num(opts.salvageTotal)} salvage total.</span>
         </div>
         ${showRowWorkshop ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>` : ""}
       </div>`
@@ -8003,34 +7989,6 @@ export function endModal(opts: {
             ? `<button class="btn btn--secondary" data-action="sandbox">Tier S</button>`
             : ""
         }
-        ${
-          // THE CONTRACTS ROUTE (playtest feedback: the end card is where a
-          // player decides what to do next, and the only thing it offered was
-          // the run again or the menu).
-          //
-          // Drawn when today's board still has an uncleared card, which is the
-          // honest reading of "there is something here to do" — a board of
-          // three ticks is a door onto free practice, and the end of a run is
-          // not where to advertise that.
-          //
-          // The BADGE is meta.ts's nextStep and nothing else, so the rule that
-          // exactly one surface carries it holds across the screen boundary
-          // too: the badge appears here only when the loop's one next step
-          // really is Contracts, which is precisely when the tier still owes
-          // them and salvage cannot yet buy anything. When salvage CAN buy
-          // something the Workshop is the next step, and it already has a
-          // button on this modal — the primary itself on a completed run, or
-          // the salvage row that just paid out on every other card. Two badges
-          // on one card would be the screen arguing with itself.
-          //
-          // …and NOT when the primary has already become this door (see
-          // `stepRoute`): two Contracts buttons on one card is the card arguing
-          // with itself about which of them to press.
-          // THE SECONDARY CONTRACTS DOOR IS GONE with the board it opened: the
-          // ghost below already lands on the hub, where the cards are, and two
-          // buttons to one screen is the row arguing with itself.
-          ""
-        }
         <!-- Back to the tier hub (not the front door): the tierlevator's unlock
              ceremony rides there, and the loop continues from it. Named the way
              every other door to it is — the lesson cards' "the tower" — but bare,
@@ -8040,14 +7998,19 @@ export function endModal(opts: {
              button in a shorter row, with the room for it. -->
         ${
           // …and it carries the step's badge when the cards behind it are the
-          // step — the secondary Contracts button used to, and the hub's cards
-          // are behind this door now. Never beside a Contracts primary, which
-          // is the same door and is not drawn twice.
-          stepRoute === "contracts"
-            ? ""
-            : `<button class="btn btn--ghost${contractsNext ? " btn--next" : ""}" data-action="tiers">Tower${
-              contractsNext ? nextBadgeHTML() : ""
-            }</button>`
+          // step. This is now the card's ONLY door to the hub, which is what
+          // makes the badge unambiguous: it used to be possible for the primary
+          // to be a second door onto the same screen, and the ghost had to
+          // stand down when it was. The badge is meta.ts's nextStep and nothing
+          // else, so it appears exactly when the loop's one next step really is
+          // Contracts — which is when the tier still owes them and salvage
+          // cannot yet buy anything. When salvage CAN buy something the
+          // Workshop is the step, and it already has a button on this card (the
+          // primary on a completed run, the salvage row on every other), so the
+          // one-badge rule holds across the screen boundary too.
+          `<button class="btn btn--ghost${contractsNext ? " btn--next" : ""}" data-action="tiers">Tower${
+            contractsNext ? nextBadgeHTML() : ""
+          }</button>`
         }
       </div>
     </div>
@@ -9304,7 +9267,7 @@ export function contractEndModal(opts: {
             // just finished flying as the one that had opened, which is how
             // "all completed but not unlocked" gets reported.
             tierOpenedClause(opts.award.completedTier)
-          }. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
+          }. <b>${num(opts.salvageTotal)} salvage banked.</b>${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
@@ -9315,7 +9278,7 @@ export function contractEndModal(opts: {
           <b>Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</b>
           <span class="muted">${
             opts.award.salvage > 0
-              ? `<b>${salvageHTML(`+${opts.award.salvage}`)} banked</b> — ${opts.salvageTotal} salvage total.`
+              ? `<b>${salvageHTML(`+${opts.award.salvage}`)} banked</b> — ${num(opts.salvageTotal)} salvage total.`
               : ""
           } ${
             p.contracts >= p.needed
@@ -9385,7 +9348,7 @@ export function contractEndModal(opts: {
                 ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
                 : `<button class="btn btn--primary" data-action="${boardAction}">${boardLabel} →</button>`
         }
-        <button class="btn btn--secondary" data-action="contract-retry">${icon("retry", 12)}Play Again</button>
+        <button class="btn btn--secondary" data-action="contract-retry">${icon("retry", 12)}Play again</button>
         ${
           opts.sandbox || primaryIsBoard
             ? ""

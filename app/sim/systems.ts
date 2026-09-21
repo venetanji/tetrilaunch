@@ -273,7 +273,7 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
-import { pieceMiniHTML, runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
+import { num, pieceMiniHTML, runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
 import {
   PROMO_EPOCH, SCENES as PROMO_SCENES, SETUPS as PROMO_SETUPS,
   STORE_SIZES as PROMO_STORE_SIZES,
@@ -18409,31 +18409,36 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     const doors = (html: string, action: string): number =>
       html.split(`data-action="${action}"`).length - 1;
 
-    // CONTRACTS. The reported card, and the one the rule was written for.
+    // CONTRACTS — the card the rule was written for, and the one place the
+    // rule has since been OVERRULED, deliberately.
+    //
+    // For one release the primary here read "Contracts · N to go" and opened
+    // `tiers`, because a tier's Contracts stopped being a board of their own
+    // and became three cards on the hub's rail. That satisfied "the main button
+    // is the next step" and broke something quieter: the Tower ghost in the
+    // same row also opens `tiers`, so the card offered ONE screen through TWO
+    // buttons, differing only in which of the hub's rows each was advertising.
+    // The owner ruled the door out (the last of #223's copy items).
+    //
+    // What replaces it is not silence. The debt is said by the badge the Tower
+    // ghost carries, which is A3's one-badge rule doing its job — the door
+    // names the screen, the badge says there is something on it. So the pins
+    // below assert the ABSENCE of the second door as hard as they used to
+    // assert its presence, because "two doors to one screen" is exactly the
+    // regression a future next-step rule would reintroduce.
     const owed = done({ step: "contracts" });
-    // The main button opens the HUB — a tier's Contracts are its three cards
-    // there, and the standalone board is the Skydeck's and the school's alone.
-    check("a win whose tier still owes Contracts makes the hub's cards the main button",
-      primaryAction(owed) === "tiers", primaryAction(owed));
-    // The COUNT is what the TIER owes (progress.needed - progress.contracts),
-    // which is the same figure the menu's Contracts pips draw — the two doors
-    // into the same board must not name two different numbers. It is NOT
-    // `contracts.remaining`, which answers "is there a card behind this door".
-    check("...and the primary quotes what the tier still owes",
-      owed.includes("Contracts · 3 to go"));
-    check("...counting down as the tier's quota fills, not with today's board",
-      done({
-        step: "contracts",
-        progress: { ...tierProgressFor(newMeta()), contracts: 2 },
-        contracts: { remaining: 3 },
-      }).includes("Contracts · 1 to go"));
-    // The run is DEMOTED, never dropped: a player who has just cleared the
-    // tier's run may want it again for a better board or a clean seal, and the
-    // step is a recommendation rather than a gate.
-    check("...with the run demoted to a secondary and still on the card",
-      doors(owed, "restart") === 1 && owed.includes("Run Tier 1 →"));
-    check("...and the hub exit drawn once, not beside itself",
+    check("a win whose tier still owes Contracts keeps the run on the primary",
+      primaryAction(owed) === "restart", primaryAction(owed));
+    check("...and offers no Contracts door of its own",
+      !owed.includes("Contracts ·"));
+    check("...reaching the hub's cards through the Tower ghost, drawn once",
       doors(owed, "tiers") === 1, String(doors(owed, "tiers")));
+    check("...and that one door carries the step's badge",
+      owed.includes("btn--next") && owed.includes("next-badge"));
+    // The run is the primary here, so it is on the card by definition — but
+    // exactly once, which is the half of the old pin that still has teeth.
+    check("...with the run named and drawn once",
+      doors(owed, "restart") === 1 && owed.includes("Run Tier 1 →"));
 
     // WORKSHOP. The other shop the loop can point at, and the card already had
     // a button for it inside the salvage row that just paid out.
@@ -18459,6 +18464,12 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // always flyable.
     check("...and so does an owed tier whose board is already claimed out",
       primaryAction(done({ step: "contracts", contracts: { remaining: 0 } })) === "restart");
+    // …and THAT card's Tower ghost wears no badge: a board of three ticks is a
+    // door onto free practice, and the end of a run is not where to advertise
+    // it. The badge tracks whether there is a card to play, the primary no
+    // longer tracks anything about Contracts at all.
+    check("...and its hub door stops claiming there is a card to play",
+      !done({ step: "contracts", contracts: { remaining: 0 } }).includes("next-badge"));
 
     // THE LOSS CARD IS NOT RE-ROUTED, and that is a hard rule rather than an
     // omission. padnav's focusInitial lands the pad on `.btn--primary`; the
@@ -18560,7 +18571,10 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3 }, step: "contracts" });
   check("a lost ladder run offers the bay back", lost.includes('data-action="retry-bay"'));
   check("...and the fresh start beside it, named", lost.includes(">Retry Run<"));
-  check("...and never as one button", !lost.includes(">Play Again<"));
+  // Case-insensitive on purpose: the label is sentence case now ("Play again"),
+  // and a pin that only spelled the old casing would have gone on passing while
+  // the very button it forbids came back under the new one.
+  check("...and never as one button", !/>Play [Aa]gain</.test(lost));
   // NOT THE PRIMARY, and this is the pin that matters most on this screen.
   // padnav's focusInitial lands a pad on the primary button, so whichever
   // button wears it is what a stray A after a loss presses — and Retry Bay is
@@ -18601,6 +18615,98 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // it is the opposite news, and it is news the player can act on.
   check("the spent state says retries are free now",
     /costs nothing now/.test(spent) && !/breaks this run's seal/.test(spent));
+
+  /* -------------------------------------------------------------------------
+   * ---- A SCORE IS A NUMBER, NOT A DIGIT STRING ----------------------------
+   *
+   * Owner's ruling, from the #223 review: scores printed with no thousands
+   * separator. A cleared Deep Run is ten bays at SCORE_PER_BAY plus a line
+   * count at SCORE_PER_LINE, so the end card and the board land in five
+   * digits — and "12345" is a string the player has to COUNT before they know
+   * whether they beat "9870". The end card gets one glance; counting is not
+   * something it has time for.
+   *
+   * THE LINE IS THE SURFACE, NOT THE QUANTITY. The cards a player reads
+   * standing still group everything on them that reaches four digits — the
+   * run-end card's funds, detonation losses and salvage bank as much as its
+   * score, because "98,760" and "$10240" one line apart read as a typo. The
+   * LIVE HUD stays bare: its funds figure is rewritten every frame, and a
+   * separator that appears as the total crosses 1,000 is a width change under
+   * a number the player is watching move.
+   * ----------------------------------------------------------------------- */
+  {
+    check("a four-digit score is grouped", num(1000) === "1,000", num(1000));
+    check("...and a five-digit one", num(12345) === "12,345", num(12345));
+    check("...and a seven-digit one, at every third digit",
+      num(1234567) === "1,234,567", num(1234567));
+    // The boundary in both directions: 999 is the largest number that must be
+    // left alone, and a separator on it would be the bug this pin exists for.
+    check("...while three digits are left alone", num(999) === "999", num(999));
+    check("...and zero is zero", num(0) === "0", num(0));
+    // Not a locale call. The capture browser the store shots are filmed in is
+    // not the CI runner, and a German locale rendering "12.345" would make the
+    // baselined string and the shipped string disagree for reasons no one
+    // would think to look for.
+    check("the separator is a comma whatever the host's locale is",
+      num(12345) === "12,345" && !num(12345).includes("."));
+    // A readout that prints NaN at the player is worse than one that prints a
+    // wrong zero: the zero is a number they can disbelieve.
+    check("a non-finite readout degrades to a number", num(NaN) === "0" && num(Infinity) === "0");
+
+    // …and the surfaces that carry a score actually call it.
+    const big = end({ score: 12345, best: 23456, lines: 41 });
+    check("the run-end card groups the score it just banked", big.includes(">12,345<"));
+    check("...and the best beside it", big.includes(">23,456<"));
+    const board = S.leaderboardRowsHTML(
+      [{
+        entry: { name: "ACE", score: 98765, lines: 1200, mark: 1, level: 10, created_at: 0 },
+        rank: 1,
+        gapBefore: false,
+      }],
+      undefined,
+      1,
+    );
+    check("the leaderboard groups its rows", board.includes(">98,765<"), board);
+    check("...including the line count beside them", board.includes(">1,200 lines<"), board);
+    // THE WHOLE CARD OR NONE OF IT. A grouped score above a bare five-digit
+    // dollar figure is the state this pin exists to forbid — it reads as a
+    // typo in one of the two, and the player cannot tell which.
+    const rich = end({ score: 98760, lines: 240, funds: 1820, volatileLosses: 10240 });
+    check("the end card's breakdown groups its money too",
+      rich.includes("$1,820 left") && rich.includes("$10,240 lost to detonations"), rich);
+  }
+
+  /* -------------------------------------------------------------------------
+   * ---- ONE CASING FOR ONE LABEL -------------------------------------------
+   *
+   * Owner's ruling, same review: the hub's contract cards said "Play again"
+   * and the two end cards said "Play Again" — one label, two casings, three
+   * screens apart. Sentence case wins because it is what the rest of the game
+   * already does ("Retry Run" and "Tier S" are proper nouns of a sort; "Play
+   * again" is a sentence).
+   *
+   * PINNED ON THE SOURCE, not on a rendered string, because the failure mode is
+   * a SEVENTH occurrence appearing somewhere none of these fixtures render. The
+   * comment text is stripped first — the file explains the old casing in prose
+   * in several places, and a pin that could not tell prose from a button face
+   * would forbid the explanation along with the bug.
+   * ----------------------------------------------------------------------- */
+  {
+    const stripComments = (code: string): string =>
+      code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+    for (const rel of ["ui/screens.ts", "ui/components.ts", "main.ts"]) {
+      const code = stripComments(fs.readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", rel),
+        "utf8",
+      ));
+      check(`${rel} spells the label one way`,
+        !/Play Again/.test(code), `Title Case "Play Again" is back in ${rel}`);
+    }
+    // And the three surfaces that draw it agree, which is the half a source
+    // grep cannot prove.
+    check("the run-end card says it in sentence case",
+      end({}).includes(">Play again<"), end({}).match(/>Play [Aa]gain</)?.[0] ?? "(absent)");
+  }
 
   // ---- THE THIRD FACE: A MARK ALREADY STAMPED ----------------------------
   // Found in review (codex, PR #135). A re-fly of a sealed Mark was drawn as an
