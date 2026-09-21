@@ -409,6 +409,23 @@ async function openDriver(
     localStorage.setItem("tetrilaunch.settings", s.settings);
     localStorage.setItem("tetrilaunch.name", s.name);
   }, save);
+  // THE DENSITY IS PINNED, because the shutter lies about it. A scaled
+  // captureScreenshot (Driver.shot's clip) re-emulates the device for the
+  // duration of the capture, and the page sees that as a `resize` at
+  // devicePixelRatio 1 — measured: a 200x100 @2 context logs "resize 200x100
+  // dpr1" from inside the capture. main.ts's sizeCanvas answers a density
+  // change by re-allocating the canvas, and a re-allocated canvas is a
+  // cleared one; with the clock paused nothing redraws it before the raster,
+  // so every gameplay shot came back with its field black and only the DOM
+  // painted (12 of 12, first device-pixel run). The App reading a constant
+  // ratio keeps the backing store it has, which is already at the capture's
+  // density and lands in the PNG 1:1. The accessor is configurable on
+  // Window, so this is a define rather than a patch of the App. Source text
+  // rather than a function: tsx hands a function through esbuild, whose
+  // keep-names helper (`__name`) is not defined in the page.
+  await ctx.addInitScript(
+    `Object.defineProperty(window, "devicePixelRatio", { get: () => ${view.dpr}, configurable: true });`,
+  );
   await ctx.addInitScript(clockShim, { epoch: PROMO_EPOCH, rngSeed: PROMO_RNG_SEED });
   // No network but the dev server's own. The leaderboard's fetch is answered
   // with a fixed board; everything else off-origin is refused quietly.
@@ -469,7 +486,18 @@ async function openDriver(
       // waking the compositor up at all; several small nudges recover cases a
       // single one does not.
       for (let attempt = 0; ; attempt++) {
-        const capture = cdp.send("Page.captureScreenshot", { format: "png", optimizeForSpeed: true });
+        // THE CLIP IS WHAT MAKES THE PNG DEVICE PIXELS. A bare captureScreenshot
+        // answers in CSS pixels on the bundled headless Chromium — a
+        // 2868x1320 store shot came back 1434x660, which App Store Connect
+        // refuses — while a clip carries its own `scale`, and a clip of the
+        // whole viewport at the context's deviceScaleFactor is the same
+        // frame at the size the manifest's `px` promises. (Playwright's own
+        // page.screenshot passes a clip for the same reason.) Measured:
+        // 200x100 @2 -> 200x100 without the clip, 400x200 with it.
+        const capture = cdp.send("Page.captureScreenshot", {
+          format: "png", optimizeForSpeed: true,
+          clip: { x: 0, y: 0, width: view.w, height: view.h, scale: view.dpr },
+        });
         const r = await Promise.race([capture, sleep(waitMs).then(() => null)]);
         if (r !== null) {
           if (attempt > 0) console.log(`  · capture completed on retry ${attempt}`);
@@ -1005,6 +1033,10 @@ interface ShotRecord {
   setup: string;
   /** The App state the shutter actually found (read back, never assumed). */
   state: string;
+  /** The plant crest's state classes present at the shutter (syncHud). */
+  hud: string[];
+  /** Live cubes in the bay at the shutter (0 on a DOM screen). */
+  cubes: number;
   /** What quiesce() had to settle: finished transitions, pinned loops. */
   animations: { finished: number; pinned: number };
 }
@@ -1069,6 +1101,9 @@ async function captureScene(browser: Browser, base: string, size: StoreSize, sce
       if (show.waitFor) await waitForSelector(d, show.waitFor, label);
       await settle();
     } else if (show.kind === "tower") {
+      // The screen the tower is on (the hub, "tiers", since #223): pickTier
+      // does nothing on a screen without a shaft, so render it first.
+      if (show.from) await d.page.evaluate((st) => window.__promo.setState(st), show.from);
       await skip(d, Math.round(show.warmSec * FPS));
       await d.page.evaluate((t) => window.__promo.pickTier(t), show.tier);
       // The car's ride is a timed DOM animation (screens.ts's towerTravelMs),
@@ -1088,7 +1123,14 @@ async function captureScene(browser: Browser, base: string, size: StoreSize, sce
       // Un-filmed, so batched; polled every few frames for `until` and for the
       // scripted hand's cue.
       while (ms < show.warmSec * 1000) {
-        await d.tick(4); ms += DT * 4;
+        // ONE FRAME AT A TIME WHILE A HAND IS PENDING, four otherwise. The
+        // beat runner (runBeat) cues its scripted hands every frame, and
+        // fireBomb needs the cannon OFF COOLDOWN at the instant it is asked
+        // — a pilot that fires the moment the cannon is ready leaves no
+        // four-frame window in which that is ever true, so at this loop's
+        // batched cadence the `blast` scene's bomb never fired in 45s.
+        const step = fired ? 4 : 1;
+        await d.tick(step); ms += DT * step;
         const snap = await d.snapshot();
         seen.push(...snap.events);
         if (!fired && show.fire && (!show.fireWhen || show.fireWhen(snap.status, seen))) {
@@ -1099,10 +1141,20 @@ async function captureScene(browser: Browser, base: string, size: StoreSize, sce
         }
         if (fired && show.until && show.until(snap.status, seen)) break;
       }
-      if (!fired) throw new Error(`${label}: the scripted ${show.fire} never fired inside ${show.warmSec}s`);
+      if (!fired) {
+        const last = (await d.snapshot()).status;
+        throw new Error(`${label}: the scripted ${show.fire} never fired inside ${show.warmSec}s `
+          + `(status ${last.status}, ${last.cubes} cubes, bombs ${last.bombs}, thaw ${last.thaw}, ready ${last.ready}, ${Math.round(last.elapsedMs)}ms)`);
+      }
+      // A scene that names its settleFrames has said how long after its
+      // moment the shutter goes — the half-second `settle()` on top of them
+      // put every effect scene 30 frames past its effect: the blast's 600ms
+      // ring gone, the row flash faded, the bond snaps finished (measured on
+      // the first 1.0.6 store probe: a bomb "in frame" as amber embers and an
+      // emptied pile). Scenes without them keep the settle.
       for (let f = 0; f < (show.settleFrames ?? 0); f++) await d.frame();
       if (show.aiming) await d.page.evaluate(() => window.__promo.setAiming(true));
-      await settle();
+      if (show.settleFrames === undefined) await settle();
     }
     // THE SHUTTER'S LAST TWO CHECKS, in this order.
     //
@@ -1118,6 +1170,14 @@ async function captureScene(browser: Browser, base: string, size: StoreSize, sce
     // photographs the screen behind it — this is the line that catches that.
     const anim = await d.page.evaluate(() => window.__promo.quiesce());
     const state = await d.page.evaluate(() => window.__promo.state());
+    // WHAT THE HUD WAS SAYING at the shutter — the plant crest's states
+    // (syncHud's congestion tiers, the strand warning, the loaded material)
+    // and the live cube count — so a scene ABOUT a state (congestion) can be
+    // checked against the App's own classes rather than read off a colour.
+    const hud = await d.page.evaluate(() =>
+      ["plant--congest-warn", "plant--congest-danger", "plant--maw", "plant--mat"]
+        .filter((c) => window.__promo.present(`.${c}`)));
+    const cubes = (await d.snapshot()).status.cubes;
     // One more frame so the finished animations are composited before the
     // shutter, and the canvas draws once under the settled DOM.
     await d.frame();
@@ -1128,7 +1188,7 @@ async function captureScene(browser: Browser, base: string, size: StoreSize, sce
     const png = await d.shot(2, 8_000);
     await writeFile(file, png);
     return {
-      file, scene: scene.id, store: size.store, size: size.label, px: size.px, css, dpr,
+      file, scene: scene.id, store: size.store, size: size.label, px: size.px, css, dpr, hud, cubes,
       family: scene.family, setup, state, animations: anim,
       config: show.kind === "bay" ? { config: show.config, bot: show.bot } : { meta },
       note: scene.note ?? size.note,
@@ -1158,7 +1218,10 @@ async function runShots(browser: Browser, base: string): Promise<void> {
   /** Scenes that would not capture at all, named in the exit. */
   const missed: string[] = [];
   for (const size of sizes) {
-    const dir = resolve(OUT, "store", size.store, size.label);
+    // `dir` over `label`, so the App Store rows file themselves by device
+    // class and inches (beats.ts's StoreSize.dir); every other store keeps the
+    // pixel size as its folder. The `/` in a dir is a real level of nesting.
+    const dir = resolve(OUT, "store", size.store, ...(size.dir ?? size.label).split("/"));
     await mkdir(dir, { recursive: true });
     console.log(`▶ store ${size.store}/${size.label}${size.note ? ` — ${size.note}` : ""}`);
     for (let i = 0; i < SCENES.length; i++) {
