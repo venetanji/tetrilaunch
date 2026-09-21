@@ -79,7 +79,7 @@ import {
   pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
-  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
+  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, slotPrice, uprateCost, installById, toggleMount, isMounted, SLOT_CAP,
   FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding,
   tierUnlockReady, claimTierUnlock,
   type MetaState, type TierResult,
@@ -158,7 +158,7 @@ import {
   lockLandscape, isPortrait, isNative, isDesktop, tapHaptic, successHaptic, impactHaptic,
   readyHaptic, hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
-  shellFullscreenKeys, applySafeAreaInsets, purgeNativeServiceWorker,
+  fullscreenButtonShown, shellFullscreenKeys, applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
@@ -191,8 +191,13 @@ type AppState =
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
+  // THE SHORTFALL CARD (screens.ts's salvageShortModal) — the Workshop's
+  // answer to a price the player cannot pay, drawn over the shop exactly as
+  // the drill offer is. A state for the same reason: the shop is re-rendered
+  // under it, and the escape/back map has to know what "back" closes.
+  | "ws-short"
   // THE FULL GAME PREVIEW (screens.ts's previewScreen) — the sheet that opens
-  // where every "Unlock Full Game" used to open the store's own. A state rather
+  // where every "Buy Full Game" used to open the store's own. A state rather
   // than a modal over whatever asked for it, because it is reachable from the
   // menu, from Settings and from a tower floor, it runs a live physics demo of
   // its own, and it has to hand the player back to whichever of those they came
@@ -1104,6 +1109,9 @@ class App {
    *  (screens.ts's systemDrillOfferModal). Held rather than re-derived because
    *  the modal outlives the click that opened it. */
   private drillOffer: UpgradeId | null = null;
+  /** What the shortfall card is about (state "ws-short"): the price that was
+   *  pressed and could not be paid. */
+  private shortfall: { name: string; cost: number } | null = null;
   /** The system drill on screen was launched from the WORKSHOP's offer rather
    *  than from the guide, so its exit belongs back on the shop (see
    *  `drill-exit`). Cleared by that exit; false for every guide-launched
@@ -1336,7 +1344,7 @@ class App {
     // bottom-strip layout on a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({
       bond: false, demo: false, thaw: false, auto: false,
-      fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenButtonShown(),
     }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
     // first solve too — snug mode reserves the band on the rail's side.
@@ -1564,7 +1572,10 @@ class App {
     // offer (sys-drill-offer) draws the shop UNDER its modal, so leaving it
     // counts as an entry and the shop re-opens on what to buy next, which is
     // the question a player who just bought a system is holding.
-    if (s === "workshop" && this.state !== s) {
+    // …except from the shortfall card, which is the shop with a question over
+    // it: "not now" has to land on the plate that was pressed, not the
+    // recommendation.
+    if (s === "workshop" && this.state !== s && this.state !== "ws-short") {
       this.workshopSelected = S.workshopDefaultSelection(this.meta);
     }
     this.state = s;
@@ -1675,7 +1686,11 @@ class App {
         // is exactly as it left it.
         if (resumeMidBayStinger()) return;
         stopStinger();
-        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0));
+        // Salted with the bay's own seed so a role with two songs (audio.ts's
+        // MUSIC_TAKES) keeps the one it opened on across pause, resume and a
+        // Restart Bay, and re-flips only when the seed does — a new run, a new
+        // Contract, a new drill.
+        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0), this.game?.seed);
         return;
 
       // Pausing drops to the lounge bed: the driving track under a paused game
@@ -1961,7 +1976,7 @@ class App {
     this.railSlotsLatch = RAIL_SLOTS_BASE;
     const slots = railSlotsFor({
       bond: false, demo: false, thaw: false, auto: false,
-      fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenButtonShown(),
     });
     if (slots !== getRailSlots()) {
       setRailSlots(slots);
@@ -2216,7 +2231,7 @@ class App {
       // steady across that disappearance.
       thaw: (tiers?.thaw ?? 0) > 0 || g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
-      fullscreen: fullscreenSupported(),
+      fullscreen: fullscreenButtonShown(),
     });
     const key: object = this.run ?? g;
     if (key !== this.railKey) {
@@ -2331,9 +2346,12 @@ class App {
       // rig from sandbox.ts rather than from the loadout, so its rack is as
       // wide as the rig it was handed and the slot economy is not in the room.
       slots: this.run?.sandbox ? SLOT_CAP : slotsFor(this.meta),
-      // False in the native shells and on iPhone Safari — no fullscreen
-      // button is rendered there at all (see screens.ts / platform.ts).
-      fullscreenSupported: fullscreenSupported(),
+      // The in-game fullscreen BUTTON: web only. False in the native shells and
+      // on iPhone Safari (no working API) AND in the Electron desktop shell,
+      // which uses F11 / ⌃⌘F and the Settings toggle instead — see platform.ts's
+      // fullscreenButtonShown. hudHTML's param keeps its name; only the value
+      // narrows.
+      fullscreenSupported: fullscreenButtonShown(),
       // THE DIAL COLLAPSE (screens.ts's collapsingDial): the readout that ran
       // out crunches on every HUD render that follows the loss, which is what
       // makes it survive the re-render the run-end transition performs.
@@ -3532,6 +3550,20 @@ class App {
         : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "New Run";
     }
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
+    // THE BUTTON'S OWN LABEL RIDES TOO. The title above it was patched per
+    // floor and the label was not, so riding from a Tier onto the roof left
+    // "Start new run" under a "Skydeck" title, and "Fly the Skydeck" under
+    // "New Run" on the way back. The label is the button's one text node
+    // (screens.ts renders icon, text, mark), so it is written by node rather
+    // than by textContent, which would take the icon and the mark with it.
+    // Same four faces as screens.ts's runLabel, in the same order.
+    if (btn) {
+      const label = tier === S.LICENCE_TIER
+        ? "Start lesson"
+        : sbx ? "Open Sandbox" : tier === S.SKYDECK_TIER ? "Fly the Skydeck" : "Start new run";
+      const text = Array.from(btn.childNodes).find((n) => n.nodeType === Node.TEXT_NODE);
+      if (text) text.nodeValue = label;
+    }
     btn?.classList.toggle("btn--sbx", sbx);
     // THE BADGE IS PER-FLOOR, so the ride has to carry it rather than only
     // strip it on the way to Tier S. The seal step is what made it per-floor
@@ -3979,6 +4011,21 @@ class App {
         }
         break;
       }
+      // The shortfall card, over the shop it was pressed in — same placement
+      // as the drill offer, for the same reason: "not now" returns the player
+      // to the shelf they were still shopping on.
+      case "ws-short": {
+        const sf = this.shortfall;
+        if (sf) {
+          this.overlay.innerHTML =
+            S.workshopScreen(this.meta, this.profile, this.workshopSelected)
+            + S.salvageShortModal({
+              name: sf.name, cost: sf.cost, have: this.meta.salvage,
+              ...this.shortfallOffers(),
+            });
+        }
+        break;
+      }
       case "lesson-end":
         if (g && this.lesson) {
           this.overlay.innerHTML =
@@ -4085,7 +4132,14 @@ class App {
         }
         break;
       case "settings":
-        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
+        // The Fullscreen row mounts wherever the API can act (desktop included,
+        // unlike the web-only in-game button) and MIRRORS the live window state
+        // rather than a saved setting — so it is handed isFullscreen(), and a
+        // fullscreen entered by F11 shows as on the moment Settings opens.
+        this.overlay.innerHTML = S.settingsScreen(
+          this.settings, this.storeState(), hapticsSupported(),
+          fullscreenSupported(), isFullscreen(),
+        );
         break;
       case "account":
         this.overlay.innerHTML = S.accountScreen(
@@ -4160,7 +4214,7 @@ class App {
         if (g) {
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
-            S.pauseModal(fullscreenSupported(), this.profile, {
+            S.pauseModal(fullscreenButtonShown(), this.profile, {
               bond: g.bondCharges > 0,
               demo: g.level.bombCharges > 0,
               thaw: g.level.thawCharges > 0,
@@ -4389,7 +4443,7 @@ class App {
     // player's own navigation gets the last word over the default.
     this.parkTowerView();
     this.syncPadFocus();
-    this.syncFullscreenButtons();
+    this.syncFullscreenControls();
     this.syncAttract();
     this.syncPlantRoof();
   }
@@ -4718,24 +4772,32 @@ class App {
   }
 
   /** Reflects fullscreen STATE onto every fullscreen control currently
-   *  mounted (the HUD icon button and/or the pause modal's row —
-   *  renderOverlay() recreates both from scratch on every state change, so
-   *  this needs to re-run each time, not just once at startup). Availability
-   *  is decided earlier than this: where no Fullscreen API can do anything
-   *  (the native shells, iPhone Safari), screens.ts renders no control at
-   *  all — see platform.ts's fullscreenSupported — so there is nothing here
-   *  to hide, only labels to keep honest. */
-  private syncFullscreenButtons(): void {
+   *  mounted: the web-only in-game buttons (the HUD icon and the pause modal's
+   *  row) AND the Settings switch. renderOverlay() recreates them from scratch
+   *  on every state change, so this re-runs each time, not just at startup.
+   *  Availability is decided earlier: where no Fullscreen API can do anything
+   *  (the native shells, iPhone Safari), screens.ts renders no control at all —
+   *  see platform.ts's fullscreenSupported/fullscreenButtonShown — so there is
+   *  nothing here to hide, only state to keep honest.
+   *
+   *  The Settings switch is the reason this exists beyond labels: it is a LIVE
+   *  mirror (onToggle writes no setting), so its aria-checked must follow the
+   *  window — an F11 while Settings is open, or a rejected request — rather than
+   *  the click that was aimed at it. */
+  private syncFullscreenControls(): void {
     const fs = isFullscreen();
     this.overlay.querySelectorAll<HTMLElement>('[data-action="fullscreen"]').forEach((btn) => {
       btn.setAttribute("aria-label", fs ? "Exit fullscreen" : "Fullscreen");
       const label = btn.querySelector<HTMLElement>(".fs-label");
       if (label) label.textContent = fs ? "Exit Fullscreen" : "Fullscreen";
     });
+    this.overlay.querySelectorAll<HTMLElement>('[data-toggle="fullscreen"]').forEach((row) => {
+      row.setAttribute("aria-checked", String(fs));
+    });
   }
 
   private onFullscreenChange = (): void => {
-    this.syncFullscreenButtons();
+    this.syncFullscreenControls();
     // LEAVING FULLSCREEN MID-BAY IS A PAUSE, the same pause as ⏸ or the
     // portrait guard (onResize), and for the same reason: the viewport just
     // changed under a live bay and the layout is re-solving beneath it. It is
@@ -5984,7 +6046,10 @@ class App {
   private startContract(c: Contract, fromSandbox = false): void {
     if (!fromSandbox
       && !canStartContract(c, this.meta.claimedContracts, this.fullGame(), dailySeed())) {
-      this.setState("contracts");
+      // Back to wherever this tier's cards live: the board for the roof and
+      // the school, the hub for a tier (see the "contracts" action).
+      if (isSkydeckBoard(c.tier) || !licenceDone(this.meta)) this.setState("contracts");
+      else this.toHub();
       return;
     }
     this.game?.destroy();
@@ -6345,7 +6410,7 @@ class App {
       // late: a pad player needs focus to land on the modal's primary action,
       // and the fullscreen control inside a pause-style scrim needs its label.
       this.syncPadFocus();
-      this.syncFullscreenButtons();
+      this.syncFullscreenControls();
     }, S.DIAL_COLLAPSE_HOLD_MS);
   }
 
@@ -6691,7 +6756,10 @@ class App {
     // is the purchase path, so it is where the gate has to actually hold: the
     // Workshop's disabled button is presentation, this is enforcement.
     if (!unlockAvailable(def, this.meta.unlocks, this.meta.mark)) return;
-    if (this.meta.salvage < def.cost) return;
+    if (this.meta.salvage < def.cost) {
+      this.refuseShort(def.name, def.cost);
+      return;
+    }
     this.meta = {
       ...this.meta,
       salvage: this.meta.salvage - def.cost,
@@ -6742,6 +6810,14 @@ class App {
     // A FIRST INSTALL, not an uprate — asked BEFORE the purchase, because
     // afterwards the track is owned either way and the two are indistinguishable.
     const firstInstall = (this.meta.loadout[track] ?? 0) === 0;
+    // SHORT, and the button is pressable on purpose (screens.ts's shortAttrs):
+    // the answer to the press is the card, not silence. Asked with the same
+    // price the button printed, so the card can never name a different one.
+    const inst = installById(track);
+    if (inst && this.meta.salvage < uprateCost(inst)) {
+      this.refuseShort(upgradeById(track)?.name ?? track, uprateCost(inst));
+      return;
+    }
     const next = buyInstall(this.meta, track);
     if (!next) return;
     this.meta = next;
@@ -6777,12 +6853,56 @@ class App {
     this.renderKeepingScroll();
   }
 
+  /**
+   * A PRICE THE PLAYER CANNOT PAY, answered. The bankroll's own cue (`broke`
+   * is the run's "you are out of money", and this is the shop's), a tap's
+   * haptic, and the shortfall card over the shop — see screens.ts's
+   * salvageShortModal for what it says and offers. The shop is redrawn under
+   * the card rather than left as it was so the pressed price is still the one
+   * on screen when the card names it.
+   */
+  private refuseShort(name: string, cost: number): void {
+    playFx("broke", { gain: 0.6 });
+    void tapHaptic();
+    this.shortfall = { name, cost };
+    this.setState("ws-short");
+  }
+
+  /**
+   * WHAT THE SHORTFALL CARD CAN OFFER — the day's Contracts that would bank
+   * something on a tap, and the tier's run while it still pays. The same three
+   * readings the hub's earn row makes (todaysContracts, the claimed list, the
+   * day's allowance, the tier's quota), so the card and the rail can never
+   * disagree about which Contract is worth playing.
+   */
+  private shortfallOffers(): {
+    cards: { slot: number; name: string; pays: number }[];
+    runPays: number | null;
+  } {
+    const p = tierProgressFor(this.meta);
+    const quotaOpen = p.contracts < p.needed;
+    const allowance = this.contractAllowance();
+    const cards = quotaOpen && licenceDone(this.meta)
+      ? this.todaysContracts().flatMap((c, slot) =>
+        !this.meta.claimedContracts.includes(c.id)
+          && (allowance.fullGame || allowance.remaining > 0)
+          ? [{ slot, name: c.name, pays: p.milestone }]
+          : [])
+      : [];
+    return { cards, runPays: p.runDone ? null : p.milestone };
+  }
+
   /** Workshop: buy one more rack slot (meta.ts's buySlot). Same three lines as
    *  every other purchase on this screen, and the same silent return on a
    *  refusal — the button is already disabled when the salvage is short, so
    *  reaching here with too little means a stale DOM attribute rather than a
    *  player decision. */
   private onBuySlot(): void {
+    const price = slotPrice(slotsFor(this.meta));
+    if (price !== null && this.meta.salvage < price) {
+      this.refuseShort("A rack slot", price);
+      return;
+    }
     const next = buySlot(this.meta);
     if (!next) return;
     this.meta = next;
@@ -8587,6 +8707,8 @@ class App {
       case "workshop": case "contracts":
       case "leaderboard": case "sandbox":
         return '[data-action="tiers"]';
+      case "ws-short":
+        return '[data-action="ws-short-close"]';
       default: return null;
     }
   }
@@ -9135,8 +9257,22 @@ class App {
         break;
       }
       case "workshop": this.setState("workshop"); break;
+      // THE BOARD SCREEN IS THE SKYDECK'S AND THE SCHOOL'S. A tier's Contracts
+      // are on the hub's rail, and the standalone board they used to open is
+      // retired for tiers — so a tier asking for it lands on the hub, whatever
+      // markup asked. The guard is here rather than at each door because a
+      // door nobody has thought of yet must still not open the old room.
       case "contracts":
-        this.setState("contracts");
+        if (this.contractsTier() === SKYDECK_CONTRACT_TIER || !licenceDone(this.meta)) {
+          this.setState("contracts");
+        } else {
+          this.toHub();
+        }
+        break;
+      // "Not now" on the shortfall card: back to the shelf, same plate.
+      case "ws-short-close":
+        this.shortfall = null;
+        this.setState("workshop");
         break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
@@ -9185,6 +9321,15 @@ class App {
       // the tutorial on every back-to-hub would turn a one-time welcome into a
       // toll gate. So the flag alone does not decide; the door does.
       case "tiers":
+        // THE FIRST PLAY PRESS IS THE FULLSCREEN GESTURE on a phone's browser.
+        // The request has to come from inside a user activation, and the front
+        // door's Play is the first press a web player makes — so the chrome
+        // goes away here rather than a screen and a half later when a run
+        // starts (startGame still asks, for the player who has since backed
+        // out). The helper already declines a fine pointer, a standalone or
+        // native shell and a page already fullscreen, and a refused request is
+        // swallowed, so this line costs nothing where it cannot act.
+        if (this.state === "menu") void autoEnterFullscreenForRun();
         if (this.state === "menu" && !this.settings.seenTutorial) this.setState("tutorial-offer");
         else this.toHub();
         break;
@@ -9252,7 +9397,7 @@ class App {
       case "quit-run": this.requestQuitRun(); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
-      case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
+      case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenControls()); break;
       // "Play Again" / "Fly it again". A Tier S run re-flies the SAME
       // configuration rather than dropping into a ladder run — the whole
       // reason to be in the mode is that the bay you just lost is one tap
@@ -9886,6 +10031,19 @@ class App {
   }
 
   private onToggle(key: string, el: HTMLElement): void {
+    // Fullscreen is a LIVE window control wearing a switch, not a persisted
+    // setting: it writes no Settings field and never saves. Flip the window and
+    // let the fullscreenchange handler (and this reconcile) write the switch's
+    // aria-checked from the REAL state — so this row and the shell's F11 can
+    // never disagree, and a rejected request leaves the switch telling the
+    // truth. The tone predicts the flip the way the persisted rows sound theirs.
+    if (key === "fullscreen") {
+      const entering = !isFullscreen();
+      void toggleFullscreen().then(() => this.syncFullscreenControls());
+      void tapHaptic();
+      playUiClick(entering ? 1.08 : 0.92);
+      return;
+    }
     const cur = el.getAttribute("aria-checked") === "true";
     const next = !cur;
     el.setAttribute("aria-checked", String(next));
@@ -10268,7 +10426,7 @@ class App {
   /**
    * THE OFFER, WHICH IS NOT THE STORE.
    *
-   * Every "Unlock Full Game" in the game comes through here now — the menu
+   * Every "Buy Full Game" in the game comes through here now — the menu
    * chip, the Settings row, a tap on a paywalled tower floor, the Contracts
    * cap's door — and what it opens is screens.ts's previewScreen, not
    * RevenueCat's sheet. That sheet is configured in a dashboard and can say

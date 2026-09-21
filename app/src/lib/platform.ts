@@ -134,6 +134,20 @@ export function fullscreenSupported(): boolean {
   return !!(el.requestFullscreen || el.webkitRequestFullscreen);
 }
 
+/** Whether to render the in-game fullscreen BUTTON — the HUD rail icon and the
+ *  pause card's row. Web only: it is `fullscreenSupported()` everywhere EXCEPT
+ *  the Electron desktop shell, which has its own F11 / ⌃⌘F keys and a Settings
+ *  toggle, so a third fullscreen control on the field and the pause card is
+ *  clutter there. On the web there is no shell key (the browser's own F11 is the
+ *  browser's fullscreen, not the page's), so the button is the useful control
+ *  and stays. The Settings toggle, by contrast, mounts wherever
+ *  fullscreenSupported() is true — desktop included. Callers must pass THIS to
+ *  hudHTML/pauseModal and to layout.ts's rail budget, so the reserved slot
+ *  matches the button that is actually there. */
+export function fullscreenButtonShown(): boolean {
+  return fullscreenSupported() && !isDesktop;
+}
+
 /** True for an installed/standalone context — PWA "Add to Home Screen"
  *  (display-mode: standalone), legacy iOS `navigator.standalone`, or the
  *  Capacitor native shell — where there's no browser chrome to hide, so

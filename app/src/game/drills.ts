@@ -175,7 +175,7 @@ export const DRILLS: Record<string, DrillSpec> = {
   /* ---- MONEY ----------------------------------------------------------- */
   funds: {
     name: "Bankroll",
-    brief: "A Deep Run bay's money, without its clock. Reach the target before the funds run out.",
+    brief: "A run's money, without its clock. Reach the target before the funds run out.",
     conditions: "Bay 1's money, no clock",
     goal: 0, launches: 0,
   },
@@ -310,7 +310,7 @@ export const DRILLS: Record<string, DrillSpec> = {
   },
   "sys-reactor": {
     name: "Reactor Output",
-    brief: "A Deep Run bay's money with a maxed reactor: a bigger float and a better rate.",
+    brief: "A run's money with a maxed reactor: a bigger float and a better rate.",
     conditions: "Maxed reactor · bay 1 money",
     goal: 0, launches: 0, tiers: { reactor: 3 },
   },

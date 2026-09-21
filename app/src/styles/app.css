@@ -924,7 +924,11 @@ body.crt-off #app::after { display: none; }
    instead of the column, an `8.5cqw` headline printed at 60-100px instead of
    20-30, which is what an early pass of this screen actually shipped. */
 .tierhub__actions {
-  container-type: inline-size;
+  /* `size`, not `inline-size`: the roomy block at the end of this section keys
+     off the rail's HEIGHT. Safe because the rail's height never came from its
+     content — the grid stretches it to the row — so size containment takes
+     nothing the layout was using. */
+  container: rail / size;
   /* Not `space-between`: with the Contracts row growing there is never any
      leftover to distribute, and the gap is then a stated number rather than
      whatever six rows happened to leave. */
@@ -1176,6 +1180,13 @@ body.crt-off #app::after { display: none; }
   .tierhub__spark { animation: none; opacity: 0.6; }
 }
 
+/* THE TYPE RIDES OVER THE SPARKLES. Their percentages were picked for the
+   phone's proportions; on a desktop window the button is twice as wide and a
+   spark landed on the N of UNLOCK. A stacking layer for the two text blocks
+   costs nothing and makes the placement a matter of taste, never of legibility. */
+.tierhub__unlock-btn.is-ceremony > .btn__txt,
+.tierhub__unlock-btn.is-ceremony > .tierhub__legend { position: relative; z-index: 1; }
+
 /* ---------- 2 & 4. THE RUN CARD AND THE WORKSHOP CARD ----------
    One component, two contents. A readout stack on the left (a plate or a glyph,
    a title, a live number), the button on the right, and — on the run — the seal
@@ -1295,6 +1306,18 @@ body.crt-off #app::after { display: none; }
   color: var(--text);
   padding-right: 22px;
 }
+/* THE PREVIEW — what the bay will deal, as the belt's own miniatures: the
+   exact inventory of a pattern Contract, the one shape a set piece rigs, the
+   material a lines Contract carries (or the cleared-line mark when it carries
+   none). It is the middle of the card, and on a phone there is no middle: the
+   name, the reward and the button take the 150px the card has, so the strip is
+   drawn away here and switched on by the roomy block below, where a 250px
+   card without it was a name over a hole. No numbers — the count of shapes is
+   the count of miniatures, which is the one form of it a player can read at a
+   glance, and the ask itself stays where it was: the first line of the
+   briefing the tap opens. */
+.tierhub__preview { display: none; }
+
 /* THE REWARD, pinned to the foot by the auto margin so all three read level
    however many lines their names ran to. Green pixel type for a figure and the
    reading face for a word — "Cleared" and "Practice" are states, not amounts,
@@ -1337,6 +1360,61 @@ body.crt-off #app::after { display: none; }
    the rack's price button already wear. */
 .tierhub__contract.is-shut { filter: grayscale(0.7) brightness(0.6); }
 .tierhub__contract.is-shut .tierhub__go { cursor: default; }
+
+/* ---------- THE ROOMY RAIL — a desktop window, a tablet ----------
+   The rail is the tower's height, and on a phone that is the whole argument:
+   every row at its floor and the Contracts row taking the 60-120px left. On a
+   1280x720 window the rail is 544px (every desktop is this layout — .screen's
+   --chrome-zoom magnifies it rather than re-laying it out), the three fixed
+   rows still measure 51 + 68 + 60, and the 329px left over held a 190px card
+   with a 70px hole above it and another below. Owner screenshot, a MacBook.
+
+   So the slack is SPENT ON EVERY ROW rather than dropped into one: the gaps
+   open from 10 to 14, the objective row, the run card and the Workshop card
+   each take a little more air, and the Contracts row is then close enough to
+   its cards' cap that the centring reads as breathing rather than as a hole.
+   The card's cap follows the row it is in (88cqh of the Contracts row, which
+   is a size container of its own) up to 250px, so a taller window grows the
+   cards a little further before it grows the air around them.
+
+   Keyed on the RAIL'S height, not the window's: the same 720px-tall CSS
+   viewport is a laptop at zoom 1 and a 1920x1080 desktop at 1.5, and the rail
+   is what actually has the room. 470px is above every phone in the fleet
+   (a Pixel 7 gives the rail 393px) and below every desktop window (800x600
+   gives it 501). */
+/* NAMED, because the Contracts row below is a size container of its own (the
+   card's cap is a fraction of it), and an unnamed query from inside a card
+   would measure that row — 296px, and the whole block would go dark exactly
+   where it was written for. */
+@container rail (min-height: 470px) {
+  .tierhub__actions { gap: 14px; }
+  .tierhub__unlock-btn { min-height: 60px; }
+  .tierhub__lead-txt { min-height: 60px; justify-content: center; }
+  .tierhub__card { min-height: 80px; padding: 10px 16px; gap: 14px; }
+  .tierhub__run { padding-right: 42px; }
+  .tierhub__shop { min-height: 72px; }
+  .tierhub__cards { container-type: size; gap: 14px; }
+  .tierhub__contract {
+    max-height: clamp(190px, 88cqh, 250px);
+    padding: 12px 12px 12px;
+    gap: 8px;
+  }
+  .tierhub__contract-name { font-size: 15px; }
+  .tierhub__contract .tierhub__go { margin-top: 8px; }
+  .tierhub__preview {
+    display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
+    gap: 6px 5px;
+    flex: 1 1 auto; min-height: 0;
+    padding: 6px 4px;
+    opacity: 0.85;
+  }
+  /* The miniatures are sized here in px rather than taking pieceMiniHTML's
+     em-tracking default: the strip is a picture, not a tally beside type. */
+  .tierhub__preview .piece-mini { height: 20px; width: calc(20px * var(--mini-cols) / 2); }
+  .tierhub__preview .ico { width: 32px; height: 32px; color: var(--text-muted); }
+  .tierhub__preview .mat-icon { width: 30px; height: 30px; }
+  .tierhub__contract.is-shut .tierhub__preview { opacity: 0.5; }
+}
 
 /* ---------- THE ALERT MINO (screens.ts's alertMinoHTML) ----------
    The one directive, as a single amber cell in the corner of the control that
@@ -3704,7 +3782,7 @@ body.crt-off #app::after { display: none; }
 .bond-btn__count {
   position: absolute; top: -6px; right: -6px;
   min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: #ffd23f; color: #1a1400;
   font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
   text-align: center;
@@ -3817,7 +3895,7 @@ body.crt-off #app::after { display: none; }
 .demo-btn__count {
   position: absolute; top: -6px; right: -6px;
   min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: var(--danger); color: #1a0008;
   font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
   text-align: center;
@@ -3859,7 +3937,7 @@ body.crt-off #app::after { display: none; }
 .thaw-btn__count {
   position: absolute; top: -6px; right: -6px;
   min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: #9fe8ff; color: #04222b;
   font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
   text-align: center;
@@ -7572,7 +7650,7 @@ body.crt-off #app::after { display: none; }
 
    The ratio itself is stated ONCE, here. A surface that borrows the pips says
    how wide its slot is; it does not restate what a pip is. */
-.ship-plate__pips i { width: max(3px, calc(var(--plate-w, 40px) / 8)); height: max(3px, calc(var(--plate-w, 40px) / 8)); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.ship-plate__pips i { width: max(3px, calc(var(--plate-w, 40px) / 8)); height: max(3px, calc(var(--plate-w, 40px) / 8)); border-radius: 0; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
 
 /* AN OPEN SLOT: the same box, drained of the cyan that means "built", and
@@ -7600,7 +7678,7 @@ body.crt-off #app::after { display: none; }
   box-shadow: none;
 }
 .ship-plate--open::after {
-  content: ""; width: 28%; aspect-ratio: 1; border-radius: 50%;
+  content: ""; width: 28%; aspect-ratio: 1; border-radius: 0;
   border: 1px solid var(--line-strong);
 }
 
@@ -9572,7 +9650,7 @@ button.panel { color: var(--text); }
 }
 .settle-note.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .settle-note__dot {
-  width: max(6px, calc(8 * var(--fpx))); height: max(6px, calc(8 * var(--fpx))); border-radius: 50%;
+  width: max(6px, calc(8 * var(--fpx))); height: max(6px, calc(8 * var(--fpx))); border-radius: 0;
   background: var(--success); box-shadow: 0 0 8px var(--success);
   animation: pulse-danger 900ms var(--ease) infinite;
 }
@@ -9909,7 +9987,7 @@ button.panel { color: var(--text); }
    phone a name as long as "Press Hydraulics" pushed them onto a second line of
    the name row, i.e. a line per card of the shelf to say what three dots say. */
 .refit-card__pips { display: inline-flex; gap: 3px; flex: none; align-self: center; }
-.refit-card__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.refit-card__pips i { width: 8px; height: 8px; border-radius: 0; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .refit-card__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
 /* A QUEUED rung is a third state, not a lit one: it is paid for by an order
    that has not been placed, so it reads as an outline the commit fills in. */
@@ -10363,7 +10441,7 @@ button.panel { color: var(--text); }
   box-shadow: none;
 }
 .rack-slot--open::after {
-  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  content: ""; width: 12px; height: 12px; border-radius: 0;
   border: 1px solid var(--line-strong);
 }
 .rack-slot__g { display: flex; }
@@ -10538,15 +10616,54 @@ button.panel { color: var(--text); }
   flex: 1 1 auto;
   min-height: 0;
 }
-/* THE FOOT — two doors out of the shop, centred as one block. This was a lone
-   `align-self:center` on the Start Run button; a row of two needs a row, and
-   the row keeps the pair centred so the screen's exit stays where the eye has
-   always found it rather than sliding left as the second button appears.
-   flex: none so it cannot be squeezed by the panels above it. */
+/* THE FOOT — one door, and only mid-school (screens.ts's workshopScreen: the
+   "continue" primary on a completed rung). It held Contracts and Start Run;
+   both went, the first with the standalone board it opened and the second
+   because the hub's run card is the same door one tap away, and a phone's
+   shelf was scrolling to pay for the row. flex: none so, when it is drawn, it
+   cannot be squeezed by the panels above it. */
 .workshop__go {
   display: flex; flex: none; gap: var(--sp-3);
   justify-content: center; align-items: center; flex-wrap: wrap;
 }
+/* A PRICE THE PLAYER CANNOT PAY is dimmed, not dead (screens.ts's shortAttrs):
+   it stays a real button so a press gets an answer — main.ts's refuseShort and
+   the shortfall card below — where `disabled` answered with nothing. The
+   costume is the app's one dead-control recipe (the Contract cards' is-shut),
+   lighter, because this control still does something. */
+.btn.is-short { filter: grayscale(0.5) brightness(0.72); }
+.btn.is-short:hover { filter: grayscale(0.3) brightness(0.85); }
+.rack-slot--short { filter: grayscale(0.5) brightness(0.72); }
+/* THE SHORTFALL CARD (screens.ts's salvageShortModal): the end-card skeleton
+   with today's Contracts as a row of pressable cards between the lede and the
+   actions. Each card is a name, its pay and the play mark, on one line, so
+   three of them fit the modal's width on a phone and read as the hub's own
+   Contract cards would. */
+.ws-short__cards {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-top: 4px;
+}
+.ws-short__card {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--tap-min);
+  padding: 0 10px 0 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ws-short__name {
+  font-family: var(--font-ui); font-weight: 600; font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; text-align: left;
+}
+.ws-short__pay {
+  font-family: var(--font-pixel); font-size: 10px; color: var(--success);
+  text-shadow: 0 0 6px rgba(0, 255, 156, 0.4);
+  flex: none;
+}
+.ws-short__card .ico { width: 10px; height: 10px; flex: none; }
+
 /* The budget, not the price, is what usually refuses a purchase here — which is
    why it moved out of the deleted aside and into a header that is always on
    screen. Bare numbers, with the words in the title and the accessible name:
@@ -12060,7 +12177,7 @@ button.panel { color: var(--text); }
 .coach__dots { display: flex; gap: calc(4 * var(--coach-px)); }
 .coach__dots i {
   width: calc(8 * var(--coach-px)); height: calc(8 * var(--coach-px));
-  border-radius: 50%; background: var(--surface-3); display: block;
+  border-radius: 0; background: var(--surface-3); display: block;
 }
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }

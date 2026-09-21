@@ -679,6 +679,12 @@ export function baysUntilRefit(levelIndex: number): number | null {
  * an earlier bay's bed is a legitimate state to be in while one is being
  * written (bays 2-4 were, until they weren't). Deriving the name from the index
  * instead would delete the only place that distinction can be expressed.
+ *
+ * A row names ONE role even where two songs fill it. Bays 1 and 2 each have an
+ * alternate since 1.0.6, and which plays is decided when the bed starts, by
+ * lib/audio.ts's MUSIC_TAKES from the run's seed — so this table, and every
+ * caller of bayMusic, still reads one bed per bay. The arc is the arc; the
+ * flip is playback.
  */
 export type BayTrack =
   | "bay-1" | "bay-2" | "bay-3" | "bay-4" | "bay-5"
@@ -688,8 +694,8 @@ export type BayTrack =
  *  because the arc is a thing you read, and a wrong assignment should be
  *  noticeable here instead of twenty minutes into a run. */
 const BAY_TRACKS: readonly BayTrack[] = [
-  "bay-1",  // 1   chill beginning (Remastered)
-  "bay-2",  // 2   2 chill
+  "bay-1",  // 1   chill beginning (Remastered), or Ecstasy of the senses (1.0.6)
+  "bay-2",  // 2   2 chill, or Oasis in Paradise (1.0.6)
   "bay-3",  // 3   Threes
   "bay-4",  // 4   Level Four on the floor
   "bay-5",  // 5   written in 5/4, which is why it is pinned to this bay NUMBER

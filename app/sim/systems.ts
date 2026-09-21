@@ -1340,7 +1340,7 @@ section("Installs — what salvage buys (meta.ts)");
   }
 
   // …and the hub renders exactly the one badge the rule picked (A3), the
-  // tier plate in the New Run button (A1). The front door (menuScreen)
+  // tier plate in the Deep Run button (A1). The front door (menuScreen)
   // carries no badge at all once seen — on first launch only, Play itself
   // wears the "Start here" badge, with its subtitle swapped to name the
   // tutorial it opens (main.ts's "tutorial-offer" screen, behind Play).
@@ -1372,7 +1372,7 @@ section("Installs — what salvage buys (meta.ts)");
     `${hubCardBtns.length} cards`);
   check("...and the warm border lands on every card that can advance the step",
     hubCardBtns.length === 3 && hubCardBtns.every((b) => b.includes("btn--next")));
-  check("the New Run card carries the tier plate", hubMid.includes("tier-plate--menu"));
+  check("the Deep Run card carries the tier plate", hubMid.includes("tier-plate--menu"));
 
   /* -----------------------------------------------------------------------
    * THE UNLOCK LEGEND — the hub's objective, as marks rather than a checklist.
@@ -1829,8 +1829,13 @@ section("Installs — what salvage buys (meta.ts)");
       shedPlate ?? "plate absent");
   }
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
-  check("an install the player cannot afford is offered but disabled",
-    brokeShop.includes(`data-action="buy-install"`) && brokeShop.includes("disabled"));
+  // OFFERED AND PRESSABLE, marked short rather than disabled: a dead button
+  // answered the tap with nothing (owner), and main.ts's buy handlers now
+  // answer a short press with the shortfall card. The price is still drawn.
+  check("an install the player cannot afford is offered, marked short, never disabled",
+    brokeShop.includes(`data-action="buy-install"`)
+      && /data-action="buy-install"[^>]*data-short="true"/.test(brokeShop)
+      && !/data-action="buy-install"[^>]*disabled/.test(brokeShop));
   const installedShop = workshopScreen(
     freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: 1 } }), "touch", "reactor");
   check("an owned track still offers its next tier",
@@ -1961,9 +1966,8 @@ section("Installs — what salvage buys (meta.ts)");
       String((html.match(/aria-pressed="true"/g) ?? []).length));
     check("...and every other plate says it is not",
       /data-select="reactor"[^>]*aria-pressed="false"/.test(html));
-    // The pad's landing is the SELECTED plate, not the screen's primary — which
-    // on this screen is Start Run, pinned at the foot, one press from leaving
-    // the shop (padnav's focusInitial).
+    // The pad's landing is the SELECTED plate, not some other control
+    // (padnav's focusInitial).
     check("the pad opens the shop on the selected plate",
       /data-select="launcher"[^>]*data-pad-initial/.test(html) &&
         (html.match(/data-pad-initial/g) ?? []).length === 1,
@@ -15318,7 +15322,7 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     globExts.has((declaredExt ?? ".mp3").slice(1)),
     `glob offers {${[...globExts].join(",")}}`,
   );
-  const wanted = new Set([
+  const roles = new Set([
     ...SCREEN_BEDS, ...beds, ...std, ...bulk,
     // Every bed any tier's window can reach, asked for on the Contract board's
     // own account rather than left to overlap the run ladder — the two tables
@@ -15326,6 +15330,50 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     ...TIERS.flatMap(windowOf),
     "contract-rare",
   ]);
+
+  // A ROLE WITH MORE THAN ONE SONG. audio.ts's MUSIC_TAKES lists, per role,
+  // the shipped files playMusic may pick between when that role starts — the
+  // 1.0.6 alternates for the lounge and bays 1-2. Read from source for the
+  // reason SCREEN_BEDS is a literal: the module cannot load in Node. Comments
+  // are stripped first so an essay about a take never reads as one.
+  const takesSrc = /const MUSIC_TAKES[^=]*=\s*\{([^}]*)\}/.exec(
+    audioSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""),
+  )?.[1] ?? "";
+  const takes = new Map<string, string[]>();
+  for (const m of takesSrc.matchAll(/"([^"]+)":\s*\[([^\]]*)\]/g)) {
+    takes.set(m[1], [...m[2].matchAll(/"([^"]+)"/g)].map((t) => t[1]));
+  }
+  // Proven to have been found, for the reason the effect census states: an
+  // empty map here would pass every check below and quietly ship three beds
+  // nothing plays.
+  check("audio.ts declares MUSIC_TAKES and this pin can still read it",
+    takes.size > 0, [...takes.keys()].join(", "));
+  // The alternates this release decided: the lounge and the first two bays
+  // each carry a second song. Pinned by ROLE so a re-score that drops one is
+  // a deliberate edit here, not a silent loss of half the lobby.
+  for (const role of ["menu", "bay-1", "bay-2"]) {
+    check(`${role} has a second take`, (takes.get(role)?.length ?? 0) >= 2,
+      (takes.get(role) ?? []).join(", ") || "(none)");
+  }
+  // Every take belongs to a role the game can ask for — a key that is not a
+  // bed is a list nothing will ever pick from — and each role's own name is
+  // one of its takes, because the role IS the default file (audio/README.md's
+  // "the role is the shipped filename") and a role whose takes exclude it
+  // would ship a file under a name nothing plays.
+  const strayRoles = [...takes.keys()].filter((r) => !roles.has(r));
+  check("every MUSIC_TAKES key is a bed the game asks for", strayRoles.length === 0,
+    strayRoles.join(", "));
+  const selfless = [...takes].filter(([role, files]) => !files.includes(role)).map(([r]) => r);
+  check("a role's own name is among its takes", selfless.length === 0, selfless.join(", "));
+  // No file serves two roles and no role lists a file twice: a coin flip over
+  // [x, x] is not a coin flip, and a file two roles share would make the
+  // orphan check below unable to say which of them stopped asking for it.
+  const allTakes = [...takes.values()].flat();
+  const dupTakes = allTakes.filter((f, i) => allTakes.indexOf(f) !== i);
+  check("no take file is listed twice, within or across roles", dupTakes.length === 0,
+    dupTakes.join(", "));
+
+  const wanted = new Set([...roles, ...allTakes]);
   const absent = [...wanted].filter((n) => !shipped.has(n));
   const orphaned = [...shipped].filter((n) => !wanted.has(n));
   check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));
@@ -16172,7 +16220,9 @@ section("Bay restart vs the mid-bay stingers");
   // stay a PLAY and nothing else: a bed that is playing at gain 0 is one a
   // keepBed stinger deliberately muted, and touching its level here would
   // overturn that decision from outside the piece that made it.
-  const repeat = /export function playMusic\(track: MusicName \| null\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
+  // The signature carries an optional salt since 1.0.6 (the take pick for a
+  // role with two songs); the branch this pin reads is the same one.
+  const repeat = /export function playMusic\(track: MusicName \| null(?:, salt\?: number)?\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
     .exec(audioCode)?.[1] ?? "";
   check("playMusic's repeat-track branch is still where this pin looks for it",
     repeat.length > 0);
@@ -17017,7 +17067,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   const menuAt = (t: S.TowerState): string =>
     S.tierHubScreen(0, 0, undefined, undefined, undefined, t);
   check("the primary button flies the ladder from a Mark",
-    menuAt(open).includes("New Run") && !menuAt(open).includes(">Sandbox<"));
+    menuAt(open).includes(">New Run<") && !menuAt(open).includes(">Sandbox<"));
   check("the primary button becomes Sandbox on the roof",
     menuAt(parked).includes(">Sandbox<"));
   // …AND THE CARD UNDER IT WITHHOLDS ITS TERMS THERE. The hub's run card prints
@@ -18293,17 +18343,24 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // wants, so the door belongs here — but only while there is something behind
   // it: a board of three ticks is a door onto free practice, which is not what
   // to advertise on the way out of a lost run.
-  check("a board with cards left offers the route",
-    end({ contracts: { remaining: 2 } }).includes('data-action="contracts"'));
-  check("...and a fully cleared board does not",
+  // …and the door is the HUB'S now, not the retired standalone board's: a
+  // tier's Contracts are three cards on the hub's rail, so every end card
+  // lands there (the "Tower" ghost, or the Contracts primary when that is the
+  // step) and none of them opens the board screen.
+  check("a board with cards left offers the tower, never the board screen",
+    end({ contracts: { remaining: 2 } }).includes('data-action="tiers"')
+      && !end({ contracts: { remaining: 2 } }).includes('data-action="contracts"'));
+  check("...and a fully cleared board does not open it either",
     !end({ contracts: { remaining: 0 }, step: "contracts" }).includes('data-action="contracts"'));
-  check("...and a caller that knows nothing about the board draws nothing",
+  check("...and a caller that knows nothing about the board draws no board door",
     !end().includes('data-action="contracts"'));
   // THE BADGE IS meta.ts's nextStep AND NOTHING ELSE, which is what keeps "one
   // surface carries it" true across the screen boundary. Available is not the
   // same question as next: a player whose salvage already covers an install is
   // being sent to the Workshop, and this card has a Workshop button of its own
   // in the salvage row.
+  // The badge rides the Tower door now (the hub's cards are behind it), and
+  // only while there is a card left to play and Contracts are the step.
   check("the route is badged only when Contracts are the next step",
     end({ contracts: { remaining: 3 }, step: "contracts" }).includes("Next step"));
   check("...and merely being available earns no badge",
@@ -18351,8 +18408,10 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
 
     // CONTRACTS. The reported card, and the one the rule was written for.
     const owed = done({ step: "contracts" });
-    check("a win whose tier still owes Contracts makes the board the main button",
-      primaryAction(owed) === "contracts", primaryAction(owed));
+    // The main button opens the HUB — a tier's Contracts are its three cards
+    // there, and the standalone board is the Skydeck's and the school's alone.
+    check("a win whose tier still owes Contracts makes the hub's cards the main button",
+      primaryAction(owed) === "tiers", primaryAction(owed));
     // The COUNT is what the TIER owes (progress.needed - progress.contracts),
     // which is the same figure the menu's Contracts pips draw — the two doors
     // into the same board must not name two different numbers. It is NOT
@@ -18370,8 +18429,8 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // step is a recommendation rather than a gate.
     check("...with the run demoted to a secondary and still on the card",
       doors(owed, "restart") === 1 && owed.includes("Run Tier 1 →"));
-    check("...and the board exit drawn once, not beside itself",
-      doors(owed, "contracts") === 1, String(doors(owed, "contracts")));
+    check("...and the hub exit drawn once, not beside itself",
+      doors(owed, "tiers") === 1, String(doors(owed, "tiers")));
 
     // WORKSHOP. The other shop the loop can point at, and the card already had
     // a button for it inside the salvage row that just paid out.
@@ -19401,30 +19460,36 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   }
 
   // ---- THE WORKSHOP'S OTHER DOOR ------------------------------------------
-  // The Workshop is where a player finds out they are short of salvage — every
-  // greyed price on its shelf says so — and the thing that pays salvage was a
-  // trip through the home screen away.
+  // The Workshop is where a player finds out they are short of salvage — and
+  // the answer is now given where the want is created: a short price is
+  // pressable, and the press opens the shortfall card with the day's paying
+  // Contracts on it (screens.ts's salvageShortModal, main.ts's refuseShort).
+  // The foot's Contracts button went with the standalone board it opened, and
+  // Start Run went with it: the hub's run card is the same door one tap away.
   {
-    /** Just the Contracts button, so a badge counted here is that button's and
-     *  not the shelf card's — the two live on the same screen and `includes`
-     *  cannot tell them apart. */
-    const route = (h: string): string =>
-      /<button[^>]*data-action="contracts"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
-    // Licensed, for the reason above: the badge on this screen is nextStep's,
-    // and an unlicensed save is being pointed at the ground floor rather than
-    // at either door this block is about.
     const shop = S.workshopScreen({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1 });
-    check("the Workshop routes to Contracts", route(shop).length > 0);
-    check("...without giving up its own primary",
-      /<button class="btn btn--primary btn--lg" data-action="play"/.test(shop));
-    // A fresh save owes Contracts and can afford nothing, so the badge is here;
-    // a save holding salvage is being sent to the shelf instead, and the two
-    // badges on this screen can never both light.
-    check("...badged when Contracts are the next step", route(shop).includes("next-badge"));
-    const rich = S.workshopScreen({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, salvage: 1_000, mark: 3 });
-    check("...and not when the shelf is the next step",
-      route(rich).length > 0 && !route(rich).includes("next-badge")
-        && rich.includes("rack-slot__badge--next"));
+    check("the Workshop has no door onto the retired board",
+      !shop.includes('data-action="contracts"'));
+    check("...and no run door of its own — the hub's is one tap away",
+      !shop.includes('data-action="play"'));
+    const short = S.salvageShortModal({
+      name: "Reactor Output", cost: 15, have: 0,
+      cards: [{ slot: 0, name: "Sorting Floor", pays: 15 }, { slot: 2, name: "Transfer Yard", pays: 15 }],
+      runPays: 15,
+    });
+    check("the shortfall card names the price and the shortfall",
+      short.includes("Not enough salvage") && short.includes("Reactor Output") && short.includes("15 short"));
+    check("...and offers every paying Contract by its own slot",
+      short.includes('data-action="contract" data-slot="0"') && short.includes('data-action="contract" data-slot="2"')
+        && short.includes("Sorting Floor") && short.includes("Transfer Yard"));
+    check("...never the retired board", !short.includes('data-action="contracts"'));
+    check("...and closes back to the shelf", short.includes('data-action="ws-short-close"'));
+    const spent = S.salvageShortModal({ name: "A rack slot", cost: 30, have: 4, cards: [], runPays: 15 });
+    check("with no paying Contract left it offers the run",
+      spent.includes('data-action="play"') && !spent.includes('data-action="contract"') && spent.includes("Win the run"));
+    const paidOut = S.salvageShortModal({ name: "A rack slot", cost: 30, have: 4, cards: [], runPays: null });
+    check("...and once the tier has paid out it says so and offers nothing false",
+      paidOut.includes("next Tier") && !paidOut.includes('data-action="play"'));
   }
 
   // ---- THE RECORDER FOLLOWS THE RUN BACK ----------------------------------
@@ -26463,8 +26528,10 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const bought = S.workshopScreen(buyInstall({ ...mid, salvage: 15 }, SCHOOL_INSTALL)!);
     const primary = (h: string): string =>
       h.slice(h.lastIndexOf('data-action="play"') - 220, h.lastIndexOf('data-action="play"') + 320);
-    check("the Workshop refuses to fly while the Reactor is unbought",
-      primary(owes).includes("disabled"), primary(owes).slice(0, 160));
+    // No door at all while the rung is owed — the foot's disabled primary is
+    // gone with the foot, and the hub's run card already says what is owed.
+    check("the Workshop draws no run door while the Reactor is unbought",
+      !owes.includes('data-action="play"'));
     check("...and hands the ladder back the moment it is bought",
       !primary(bought).includes("disabled")
         && bought.includes("Continue Flight School"),
@@ -26649,12 +26716,13 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // what this visit is FOR rather than how salvage is paid.
     const wsShut = workshopScreen(licensed);
     const wsRig = workshopScreen({ ...licensed, loadout: { ...newTiers(), reactor: 1 } });
-    check("the Workshop's first visit names the door the purchase opens",
-      wsShut.includes("the Deep Run opens with it"));
-    check("...and refuses the run it cannot yet fly",
-      wsShut.includes(`data-action="play" disabled`));
-    check("...while a rigged shop offers it",
-      wsRig.includes("Start Run") && !wsRig.includes(`data-action="play" disabled`));
+    check("the Workshop's first visit asks for the first system",
+      wsShut.includes("Install your first system"));
+    // No foot on either: the hub's run card is the door, one tap away.
+    check("...and draws no run door of its own",
+      !wsShut.includes('data-action="play"'));
+    check("...rigged or not",
+      !wsRig.includes('data-action="play"') && !wsRig.includes("Install a system to fly"));
   }
 
   /* -------------------------------------------------------------------------
@@ -26916,9 +26984,10 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       `${upgradeById(SCHOOL_INSTALL)!.name} to go on`);
     // …and the Workshop's OWN primary, which is the third surface that sends a
     // player to this purchase. Three sites, one name.
-    check("...and the shop's own button names the same card",
-      workshopScreen(paid).includes(`Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`),
-      workshopScreen(paid).slice(workshopScreen(paid).lastIndexOf("btn--lg"), workshopScreen(paid).lastIndexOf("btn--lg") + 220));
+    // The shop's foot is gone; its blurb is the third surface now, and it
+    // says the one purchase is what stands between the player and the lessons.
+    check("...and the shop's own blurb names the same purchase",
+      workshopScreen(paid).includes("One system, and it is the last thing between you and lessons"));
     const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
@@ -29038,6 +29107,24 @@ section("The CRT comb repeats on whole device pixels, and can be switched off");
   check("...reporting the state it was handed, both ways round",
     /data-toggle="scanlines" aria-checked="true"/.test(paneOn)
       && /data-toggle="scanlines" aria-checked="false"/.test(paneOff));
+
+  // ---- THE FULLSCREEN ROW ----
+  // Fullscreen moved off the HUD/pause card (desktop) into Settings, where it is
+  // a LIVE mirror of the window state, not a persisted setting — so the row is
+  // handed availability and the current fullscreen state rather than reading a
+  // Settings field. Where the Fullscreen API can do nothing (native shells,
+  // iPhone Safari — platform.ts's fullscreenSupported) it renders no row at all,
+  // the same "no dead switch" rule the Haptics and Scanlines rows follow.
+  const fsAvailOff = S.settingsScreen(paneSettings, undefined, true, true, false);
+  const fsAvailOn = S.settingsScreen(paneSettings, undefined, true, true, true);
+  const fsUnavail = S.settingsScreen(paneSettings, undefined, true, false, false);
+  check("Settings carries a Fullscreen row where fullscreen is available",
+    fsAvailOff.includes('data-toggle="fullscreen"'));
+  check("...mirroring the live window state, both ways round",
+    /data-toggle="fullscreen" aria-checked="true"/.test(fsAvailOn)
+      && /data-toggle="fullscreen" aria-checked="false"/.test(fsAvailOff));
+  check("...and NO Fullscreen row where the API can do nothing",
+    !fsUnavail.includes('data-toggle="fullscreen"'));
 
   // ---- THE DEFAULT IS ASKED OF THE DEVICE, AND A SAVE BEATS IT ----
   {
@@ -32621,7 +32708,7 @@ section("The Full Game preview says what the entitlement opens, and shows it (sc
   // OTHER surface uses to reach this sheet (main.ts's offerFullGame), so a copy
   // of it on the primary would re-open the preview from inside the preview.
   check("the primary reaches the store", sheet.includes('data-action="preview-buy"'));
-  check("...and says what it buys", sheet.includes("Unlock Full Game"));
+  check("...and says what it buys", sheet.includes("Buy Full Game"));
   check(
     "both reversible controls back out — the \u2715 and \"Not now\"",
     (sheet.match(/data-action="preview-back"/g) ?? []).length === 2,

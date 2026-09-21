@@ -162,6 +162,15 @@ const MUSIC = {
   "Neon Circuit.mp3": "bay-8",
   "Neon Static.mp3": "bay-9",
   "Neon Pixel Pulse.mp3": "bay-10",
+  // THE 1.0.6 ALTERNATES. A second song under a role the game already asks
+  // for: lib/audio.ts's MUSIC_TAKES lists them and playMusic flips between the
+  // role's file and its `-alt` when the role starts. The role stays the job's
+  // name; the suffix is a file nothing but that table knows about, and
+  // sim/systems.ts pins that every take listed there ships and nothing else
+  // does.
+  "Fire inside.mp3": "menu-alt",
+  "Ecstasy of the senses.mp3": "bay-1-alt",
+  "Oasis in Paradise.mp3": "bay-2-alt",
 };
 
 /** Two hits closer than this are one sound, not two — a double-tick reload
