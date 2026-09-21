@@ -373,13 +373,37 @@ export function loadMeta(): MetaState {
     // AND had walked the old on-ramp — a system installed, or a run filed — has
     // done everything the new ladder asks and more, so it graduates.
     //
-    // The two terms are the two halves of the old door: `rigStarted` is the
-    // predicate tierOpen has always asked for the ship, and a filed run is
-    // proof the door was open at the time. A save with the old licence and
-    // NEITHER never got past the on-ramp either, and it keeps its count — the
-    // new ladder puts it on exactly the rung it was already stuck on, which is
-    // the Contract board.
-    const walkedOn = meta.runs > 0 || meta.mark > 0 || ownedTracks(meta).length > 0;
+    // A FILED RUN, AND NOTHING ELSE. This read `|| ownedTracks(meta).length > 0`
+    // until it was measured, and that third term made the rule fire on the
+    // players it was written to protect.
+    //
+    // The heuristic has no way to tell an OLD save from a current one, so it
+    // infers "this player is past the on-ramp" from live game state — and the
+    // ladder the on-ramp became puts the Workshop rung between lesson 4 and
+    // lesson 5. Owning a system therefore stopped being evidence of having
+    // finished the school and became evidence of being in the MIDDLE of it.
+    // Every mid-school save satisfied both terms: `held >= LICENCE_LESSON_COUNT`
+    // the moment lesson 4 landed, and `ownedTracks` the moment the very next
+    // rung was cleared. Measured against `staging`: a save at licence 4 that
+    // had cleared the school Contract and bought the Reactor came back from
+    // loadMeta at 10 — force-graduated on reload, lessons 5 to 9 gone, with no
+    // screen having said anything. It needed a RESTART to show, which is why a
+    // sitting at the device never caught it.
+    //
+    // A FILED RUN CANNOT MEAN THAT. `runs` and `mark` are written only by
+    // recordRunEnd (game/meta.ts), and the ladder does not let a player file a
+    // Deep Run before graduating — so either term is proof the save is past the
+    // school rather than inside it. That is the whole claim this rule needs.
+    //
+    // WHAT THE NARROWING COSTS, stated rather than hoped: a genuine 1.0.5 save
+    // that held the old licence and bought a system but never filed a run keeps
+    // its count instead of graduating. It is not stranded — the new ladder puts
+    // it on the Contract rung, `schoolContractDone` reads the clear it already
+    // has, and the Workshop rung reads the system it already owns, so the
+    // ladder carries it forward on its own. A few lessons re-offered to a
+    // returning player is a smaller harm than lessons deleted from a current
+    // one, and only one of the two is silent.
+    const walkedOn = meta.runs > 0 || meta.mark > 0;
     meta.licence = typeof rawLicence === "number" && Number.isFinite(rawLicence)
       ? (() => {
         const held = Math.min(SCHOOL_FLIGHTS, Math.max(0, Math.floor(rawLicence)));
