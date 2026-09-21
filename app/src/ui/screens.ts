@@ -2163,23 +2163,30 @@ export function tierHubScreen(
   // at the top there is no Tier 11 — the Mark it advances is what opens the
   // Skydeck (meta.ts's skydeckOpen), so the button says that instead of
   // counting to a floor the building does not have.
-  const claimTitle = ladderTop ? "Open the Skydeck" : `Unlock Tier ${unlockedMark + 1}`;
+  const claimTitle = ladderTop ? "Open the Skydeck" : `Open Tier ${unlockedMark + 1}`;
   // The sub is the legend in words, for the reader who cannot see the marks:
   // which half is done, and how many Contracts of how many.
   const claimSub =
-    `${runDone ? "Run cleared" : "Clear a run"} · Contracts ${contractsHave}/${contractsNeed}`;
-  // THE PLAIN OBJECTIVE, for the two states with no claim on offer. Same two
-  // lines it always was, minus the branch the legend now owns.
+    `${runDone ? "Deep Run cleared" : "Clear the Deep Run"} · Contracts ${contractsHave}/${contractsNeed}`;
+  // THE PLAIN OBJECTIVE, for the two states with no claim on offer — minus the
+  // branch the legend now owns.
   const hubObjTitle = licence !== null
     ? "Finish Flight School"
     : sealsOwed > 0
     ? "Seal every Tier"
     : "Every Tier cleared";
+  // ONE CONDITION FOR BOTH LINES. The sub used to branch on the STEP while the
+  // title branched on the count, so the two could disagree: the seal step drew
+  // "Seal every Tier" over "Seal every Tier from the Skydeck" (the title again,
+  // with a preposition that named the wrong place), and a fully sealed save
+  // still offered to seal what it had cleared. Branching both on `sealsOwed`
+  // makes the sub the title's second half — what to DO about it — in every
+  // state the objective renders.
   const hubObjSub = licence !== null
-    ? "Clear the lessons to open the Tier ladder"
-    : guide?.step === "seal"
-    ? "Seal every Tier from the Skydeck"
-    : "Fly any Tier, or seal the ones you've cleared";
+    ? "Clear the lessons to open Tier 1"
+    : sealsOwed > 0
+    ? "Win a Tier with no bay retried to seal it"
+    : "Fly any Tier, or the Skydeck";
   // THE ONE DIRECTIVE, AS A MARK. `fresh` is main.ts's acknowledgement — once
   // the player has been shown a step the square goes and the warm border
   // stays (see the guide argument's own note). Absent reads as fresh.
@@ -2256,8 +2263,8 @@ export function tierHubScreen(
   const ordinaryFloor = sel >= 1 && sel <= MARK_COUNT
     && licence === null && !sealStep && twr.rigged !== false;
   const runSub = ordinaryFloor ? hubRunTerms(sel, best) : playSub;
-  const runTitle = licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "New Run";
-  const runLabel = licSel ? "Start lesson" : sbxSel ? "Open sandbox" : skySel ? "Fly the Skydeck" : "Start new run";
+  const runTitle = licSel ? "Flight School" : sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run";
+  const runLabel = licSel ? "Start lesson" : sbxSel ? "Open Sandbox" : skySel ? "Fly the Skydeck" : "Start Deep Run";
   // THE EARN ROW — the parked tier's Contracts, playable inline. A won Contract
   // pays the tier's milestone share while the quota is open (contractsHave <
   // contractsNeed) and nothing after; the daily allowance caps the uncleared
@@ -2491,10 +2498,11 @@ export function menuScreen(
  *
  * Onboarding is optional: the first time a player presses Play on the front
  * door, this asks whether to walk through Flight School or drop straight into
- * the game. Skip is the ghost button, not a scold — the tutorial is a few short
- * lessons and How to Play keeps it for later — and Play the tutorial is the
- * primary, because a first-timer who wants teaching should not have to hunt for
- * it. Either answer marks the tutorial seen (so this never returns) and lands
+ * the game. Skip is the ghost button, not a scold — the lessons are short and
+ * How to Play keeps them for later — and Start Flight School is the primary,
+ * because a first-timer who wants teaching should not have to hunt for it. It
+ * is named for the mode it starts, the same words the guide's own card uses
+ * (game/guide.ts's "tutorial" article), rather than for the offer. Either answer marks the tutorial seen (so this never returns) and lands
  * the player in the tier hub with Tier 1 open (meta.ts's completeOnboarding).
  */
 export function tutorialOfferModal(): string {
@@ -2507,7 +2515,7 @@ export function tutorialOfferModal(): string {
         piece across the bay, clear a row. Skip straight to playing if you'd rather; it's
         always in How to Play.</p>
         <div class="offer__actions">
-          <button class="btn btn--primary btn--lg btn--block" data-action="offer-tutorial">${icon("howto")}Play Tutorial</button>
+          <button class="btn btn--primary btn--lg btn--block" data-action="offer-tutorial">${icon("howto")}Start Flight School</button>
           <button class="btn btn--ghost btn--block" data-action="offer-skip">Skip — just play</button>
         </div>
       </div>
@@ -2586,7 +2594,7 @@ function unlockChipHTML(): string {
  * THE FULL GAME PREVIEW — what the entitlement opens, before the store is asked
  * for money.
  *
- * Every "Unlock Full Game" in the game used to go straight to RevenueCat's own
+ * Every "Buy Full Game" in the game used to go straight to RevenueCat's own
  * sheet: the menu chip, the Settings row, the tap on a paywalled tower floor.
  * That sheet is configured in a dashboard and knows nothing about this game — it
  * can print a price and a title and no more — so the entire pitch for seven
@@ -2720,7 +2728,7 @@ export function previewScreen(opts: PreviewOpts = {}): string {
         <div class="fullgame__side">
           <ul class="fullgame__list">${rows}</ul>
           <div class="fullgame__actions">
-            <button class="btn btn--primary btn--block" data-action="preview-buy">${icon("star", 13)}Unlock Full Game</button>
+            <button class="btn btn--primary btn--block" data-action="preview-buy">${icon("star", 13)}Buy Full Game</button>
             <button class="btn btn--ghost btn--block" data-action="preview-back">Not now</button>
           </div>
           ${opts.note ? `<p class="fullgame__note" role="status">${opts.note}</p>` : ""}
@@ -3193,7 +3201,7 @@ function purchaseRowsHTML(store: StoreState): string {
   return `${
     store.unlimited
       ? `<div class="btn btn--secondary btn--block settings__store-status" role="status">★ Full Game owned</div>`
-      : `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Full Game</button>`
+      : `<button class="btn btn--secondary btn--block" data-action="paywall">★ Buy Full Game</button>`
   }
   ${store.restorable === false ? "" : `<button class="btn btn--ghost btn--block" data-action="restore" id="restore-btn">Restore Purchases</button>`}`;
 }
@@ -3224,7 +3232,7 @@ export function accountScreen(
       //
       // "not configured in this build" was the whole of this branch, and on
       // the web it is where the tier gate sends a signed-out player who just
-      // pressed Unlock Full Game. When the sign-in chunk fails to load — a
+      // pressed Buy Full Game. When the sign-in chunk fails to load — a
       // dropped connection, most often — that sentence tells them the app
       // cannot do this at all, which is false, and leaves them on a screen
       // with nothing on it to press. A build genuinely shipped without client
@@ -3477,7 +3485,7 @@ export function leaderboardScreen(rows: string, opts?: {
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div style="text-align:left"><div class="eyebrow">${
-          // #88: under the tier ladder the run does not name a board on its
+          // #88: under the tier ladder "Deep Run" does not name a board on its
           // own — a Tier 10 run banks more lines against a heavier target than
           // a Tier 1 run can, so each tier keeps its own list and the heading
           // has to say which one is on screen. Tier S and the Skydeck are the
@@ -3486,7 +3494,7 @@ export function leaderboardScreen(rows: string, opts?: {
           // that is the half that changes under the player.
           sky
             ? `${boardText(board)} · ${dayText(opts?.day ?? 0)}`
-            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · New Run`
+            : sandbox ? "Tier S · Sandbox" : `${boardText(board)} · Deep Run`
         }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="tiers" aria-label="Back">${icon("close", 18)}</button>
@@ -5402,7 +5410,7 @@ export function coachFailHTML(
           <div class="row coach__foot-row">
             <button class="btn btn--secondary" data-action="contracts">View Contracts</button>
             <button class="btn btn--ghost" data-action="coach-skip-run">Skip tutorial</button>
-            <button class="btn btn--ghost" data-action="menu">Menu</button>
+            <button class="btn btn--ghost" data-action="menu">Quit</button>
           </div>
         </div>
       </div>
@@ -7923,8 +7931,9 @@ export function endModal(opts: {
             : ""
         }
         <!-- Back to the tier hub (not the front door): the tierlevator's unlock
-             ceremony rides there, and the loop continues from it. -->
-        <button class="btn btn--ghost" data-action="tiers">Tiers</button>
+             ceremony rides there, and the loop continues from it. Named the way
+             every other door to it is — the lesson cards' "the tower". -->
+        <button class="btn btn--ghost" data-action="tiers">To the tower</button>
       </div>
     </div>
   </div>`;
@@ -8246,7 +8255,7 @@ export function contractsScreen(opts: {
   // left is refusing nothing, and an offer there would be an advertisement on a
   // screen the player came to play.
   const unlockDoor = spent && opts.allowance?.store
-    ? `<button class="btn btn--ghost" data-action="paywall">${icon("star", 11)}Unlock Full Game</button>`
+    ? `<button class="btn btn--ghost" data-action="paywall">${icon("star", 11)}Buy Full Game</button>`
     : "";
   // …AND IT LEADS (owner report). It was a bold TAIL on the salvage sentence —
   // the strip answering "what is this board for" first and "why can it not be
@@ -9152,7 +9161,7 @@ export function contractEndModal(opts: {
   // tier clear hands the player back to the hub rather than to a screen the tier
   // no longer has.
   const boardAction = opts.skydeck ? "contracts" : "tiers";
-  const boardLabel = opts.skydeck ? "Contract Board" : "Back to Tiers";
+  const boardLabel = opts.skydeck ? "Contract Board" : "To the tower";
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal end end--contract pop">
       <div class="end__main">

@@ -192,7 +192,7 @@ type AppState =
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
   // THE FULL GAME PREVIEW (screens.ts's previewScreen) — the sheet that opens
-  // where every "Unlock Full Game" used to open the store's own. A state rather
+  // where every "Buy Full Game" used to open the store's own. A state rather
   // than a modal over whatever asked for it, because it is reachable from the
   // menu, from Settings and from a tower floor, it runs a live physics demo of
   // its own, and it has to hand the player back to whichever of those they came
@@ -3529,7 +3529,7 @@ class App {
     if (ttl) {
       ttl.textContent = tier === S.LICENCE_TIER
         ? "Flight School"
-        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "New Run";
+        : sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
     }
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
     btn?.classList.toggle("btn--sbx", sbx);
@@ -10268,7 +10268,7 @@ class App {
   /**
    * THE OFFER, WHICH IS NOT THE STORE.
    *
-   * Every "Unlock Full Game" in the game comes through here now — the menu
+   * Every "Buy Full Game" in the game comes through here now — the menu
    * chip, the Settings row, a tap on a paywalled tower floor, the Contracts
    * cap's door — and what it opens is screens.ts's previewScreen, not
    * RevenueCat's sheet. That sheet is configured in a dashboard and can say

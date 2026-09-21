@@ -1336,7 +1336,7 @@ section("Installs — what salvage buys (meta.ts)");
   }
 
   // …and the hub renders exactly the one badge the rule picked (A3), the
-  // tier plate in the New Run button (A1). The front door (menuScreen)
+  // tier plate in the Deep Run button (A1). The front door (menuScreen)
   // carries no badge at all once seen — on first launch only, Play itself
   // wears the "Start here" badge, with its subtitle swapped to name the
   // tutorial it opens (main.ts's "tutorial-offer" screen, behind Play).
@@ -1368,7 +1368,7 @@ section("Installs — what salvage buys (meta.ts)");
     `${hubCardBtns.length} cards`);
   check("...and the warm border lands on every card that can advance the step",
     hubCardBtns.length === 3 && hubCardBtns.every((b) => b.includes("btn--next")));
-  check("the New Run card carries the tier plate", hubMid.includes("tier-plate--menu"));
+  check("the Deep Run card carries the tier plate", hubMid.includes("tier-plate--menu"));
 
   /* -----------------------------------------------------------------------
    * THE UNLOCK LEGEND — the hub's objective, as marks rather than a checklist.
@@ -1469,7 +1469,7 @@ section("Installs — what salvage buys (meta.ts)");
         && unlockBtnOf(topClaim).includes('data-ready="true"'));
     check("...titled for what it actually opens, not a Tier 11",
       topClaim.includes(">Open the Skydeck<")
-        && !topClaim.includes(`Unlock Tier ${MARK_COUNT + 1}`));
+        && !topClaim.includes(`Open Tier ${MARK_COUNT + 1}`));
     const topDone = hubAt({ tier: MARK_COUNT, runDone: true, contracts: 3 }, "seal", top);
     check("...and a finished ladder shows the plain objective instead",
       !topDone.includes('data-action="claim-tier"')
@@ -1478,7 +1478,7 @@ section("Installs — what salvage buys (meta.ts)");
     // never broke and the half a fix here could break.
     check("...while below the top it is there locked as well as ready",
       owed.includes('data-action="claim-tier"')
-        && owed.includes(">Unlock Tier 2<"));
+        && owed.includes(">Open Tier 2<"));
 
     /* ---- THE CONTRACT CARDS' FOUR FACES ------------------------------- */
     const cardBtns = (html: string): string[] =>
@@ -17013,7 +17013,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   const menuAt = (t: S.TowerState): string =>
     S.tierHubScreen(0, 0, undefined, undefined, undefined, t);
   check("the primary button flies the ladder from a Mark",
-    menuAt(open).includes("New Run") && !menuAt(open).includes(">Sandbox<"));
+    menuAt(open).includes(">Deep Run<") && !menuAt(open).includes(">Sandbox<"));
   check("the primary button becomes Sandbox on the roof",
     menuAt(parked).includes(">Sandbox<"));
   // …AND THE CARD UNDER IT WITHHOLDS ITS TERMS THERE. The hub's run card prints
@@ -32617,7 +32617,7 @@ section("The Full Game preview says what the entitlement opens, and shows it (sc
   // OTHER surface uses to reach this sheet (main.ts's offerFullGame), so a copy
   // of it on the primary would re-open the preview from inside the preview.
   check("the primary reaches the store", sheet.includes('data-action="preview-buy"'));
-  check("...and says what it buys", sheet.includes("Unlock Full Game"));
+  check("...and says what it buys", sheet.includes("Buy Full Game"));
   check(
     "both reversible controls back out — the \u2715 and \"Not now\"",
     (sheet.match(/data-action="preview-back"/g) ?? []).length === 2,
