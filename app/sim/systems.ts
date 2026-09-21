@@ -2757,9 +2757,40 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       check("an old save that held the licence and flew is not sent back to school",
         boot({ licence: LICENCE_LESSON_COUNT, runs: 3 }).licence === SCHOOL_FLIGHTS);
       check("...nor one that held it and bought a system",
-        boot({ licence: LESSON_COUNT, loadout: { reactor: 1 } }).licence === SCHOOL_FLIGHTS);
+        boot({ licence: LESSON_COUNT, runs: 2 }).licence === SCHOOL_FLIGHTS);
       check("...nor one part-way up the old advanced five with a rig",
         boot({ licence: 6, mark: 2 }).licence === SCHOOL_FLIGHTS);
+
+      /* ---- A MID-SCHOOL SAVE SURVIVES BEING CLOSED ----------------------
+       *
+       * The regression this whole block failed to hold, found by measuring
+       * rather than reading: the rule promoted on `ownedTracks`, and the
+       * ladder puts the WORKSHOP RUNG between lesson 4 and lesson 5. So a
+       * player standing at lesson 5 — licence 4, school Contract cleared,
+       * first system bought, exactly as the ladder instructed — satisfied
+       * both halves of "held the old licence AND walked the old on-ramp" and
+       * came back from loadMeta graduated. Lessons 5 to 9 deleted, silently,
+       * with nothing on any screen to say so.
+       *
+       * A ROUND TRIP AND NOT A PREDICATE, because a round trip is the only
+       * shape that can catch it: every surface reads the licence correctly,
+       * the save writes it correctly, and the loss happens in between. It
+       * needed the player to CLOSE THE GAME, which is why the device pass
+       * never met it in a sitting.
+       *
+       * Each rung of the school is walked, so a future promotion rule that
+       * fires on any one of them fails here rather than in somebody's save. */
+      for (let licence = LICENCE_LESSON_COUNT; licence < SCHOOL_FLIGHTS; licence++) {
+        const mid = boot({
+          licence,
+          runs: 0,
+          mark: 0,
+          claimedContracts: ["school-fixed-seed"],
+          loadout: { ...newTiers(), reactor: 1 },
+        });
+        check(`a save standing at flight ${licence} is still there after a reload`,
+          mid.licence === licence, `${licence} -> ${mid.licence}`);
+      }
       // The control, and it is the case the rule is FOR: licensed under the old
       // rules, stock ship, no run filed — the on-ramp's own dead end. It keeps
       // its four flights and the ladder puts it on rung 5, the Contract board.
