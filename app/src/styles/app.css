@@ -11830,7 +11830,14 @@ button.panel { color: var(--text); }
   display: flex; align-items: center; gap: max(5px, calc(8 * var(--fpx)));
   padding: 0 max(7px, calc(10 * var(--fpx)));
   margin-top: calc(-1 * var(--bw));
-  background: rgba(10, 10, 20, 0.78);
+  /* OPAQUE, where the banner above it is 0.78. The notch pulls up by one
+     border width to sit flush under the banner, which puts the banner's own
+     bottom border directly behind it — at 0.78 that line read straight
+     through the notch as a seam across the middle of the wind track. Solid
+     paint covers it, and the colour is the banner's own rgba composited over
+     the field (#04040a), so the two boxes still read as one piece of chrome
+     rather than a lighter tab stuck under a darker one. */
+  background: #090912;
   border: var(--bw) solid var(--line-strong);
   border-top: none;
   border-radius: 0 0 var(--r-md) var(--r-md);

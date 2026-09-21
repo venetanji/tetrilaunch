@@ -2579,6 +2579,13 @@ export function railLoadoutFor(
     // …and "hud-t10", which is `hud` at the top of the ladder: same three
     // ability buttons, same seven-slot rail, different numbers.
     || id === "hud-t10"
+    // …and the two wind-notch fixtures, which are `hud` with the bay banner's
+    // notch hung under it and therefore render `hud`'s three ability buttons.
+    // Reproduced before it was fixed, exactly as the entries above describe:
+    // 32 `offscreen` / `safearea` / `tap` findings on `#demo-btn` and
+    // `#auto-btn` across the handsets, none of them anything to do with the
+    // notch — the harness had sized a bare rail under a full one.
+    || id === "hud-wind" || id === "hud-wind-stab"
     || id === "pause" || id === "pause-pad"
     // …and "pause-armed", which is `pause` with one more row on the card and
     // the SAME HUD behind it. It reproduced the identical eleven `offscreen`

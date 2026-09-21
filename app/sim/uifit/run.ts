@@ -1540,7 +1540,19 @@ function measure(cfg: {
   // shorter bar sitting beside it.
   singleLine.forEach((sel) => {
     document.querySelectorAll(sel).forEach((row) => {
+      // OUT-OF-FLOW CHILDREN ARE NOT PART OF THE LINE. An absolutely
+      // positioned child was taken out of the row's flow before the row was
+      // laid out, so it cannot push a sibling onto a second line no matter
+      // where it lands — and it usually lands deliberately off the line, which
+      // this test's vertical-span measure would read as a wrap. The bay
+      // banner's wind notch hangs at `top: 100%`: 33px of span on a 17px line,
+      // all of it the notch, none of it a wrap. `spill` already skips these
+      // for the same reason.
       const kids = [...row.children]
+        .filter((k) => {
+          const pos = getComputedStyle(k).position;
+          return pos !== "absolute" && pos !== "fixed";
+        })
         .map((k) => k.getBoundingClientRect())
         .filter((r) => r.width > 0 && r.height > 0);
       if (kids.length < 2) return;

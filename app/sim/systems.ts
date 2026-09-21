@@ -211,6 +211,9 @@ import { isBuildable } from "../src/game/buildable";
 // real one is the entire point: a premise restated here could go stale against
 // the matrix it is a premise about.
 import { DEVICES } from "./uifit/devices";
+// The uifit fixture catalogue, read as DATA by the rail-loadout premise check
+// below — the same reason DEVICES is read rather than restated.
+import { railLoadoutFor, SCREENS, SCREEN_IDS } from "./uifit/fixtures";
 import {
   computeLayout,
   getRailSlots,
@@ -26649,6 +26652,43 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("render.ts draws no wind gauge", !renderSrc.includes("drawWindIndicator") && !renderSrc.includes("WIND_HUD_Y"));
     check("...and main.ts feeds the notch every frame",
       src("main.ts").includes('this.barFill("#hud-wind-fill", ratio)'));
+  }
+
+  /* ---- A FIXTURE'S RAIL BUDGET MATCHES THE RAIL IT DRAWS ---------------- */
+  // The uifit harness sizes the control rail from railLoadoutFor(id) and then
+  // renders SCREENS[id](). When a new fixture renders the ability buttons but
+  // is not named in railLoadoutFor, the solver books a bare rail under a full
+  // one and the buttons hang off the bottom of every handset — a pile of
+  // `offscreen` / `safearea` / `tap` findings that belong to the harness and
+  // not to the screen. fixtures.ts's comments record that trap catching five
+  // separate fixtures one at a time (hud-congested, hud-fullchain, pause-armed,
+  // bayclear-clause, seal-break), each found by reading a red fleet run; the
+  // wind notch made six. This is the general statement of it, so the seventh is
+  // a failed check here rather than an afternoon spent reading device rows:
+  // whatever ability button a fixture's markup contains, its loadout must
+  // already have booked the slot for it.
+  {
+    const SLOTS = [
+      ["bond", 'id="bond-btn"'],
+      ["demo", 'id="demo-btn"'],
+      ["thaw", 'id="thaw-btn"'],
+      ["auto", 'id="auto-btn"'],
+    ] as const;
+    const unbooked: string[] = [];
+    for (const id of SCREEN_IDS) {
+      let html: string;
+      try {
+        html = SCREENS[id]();
+      } catch {
+        continue; // a fixture that needs a live document is not ours to price
+      }
+      const booked = railLoadoutFor(id);
+      for (const [slot, marker] of SLOTS) {
+        if (html.includes(marker) && !booked[slot]) unbooked.push(`${id}:${slot}`);
+      }
+    }
+    check("every fixture's rail budget books the ability buttons it draws",
+      unbooked.length === 0, unbooked.join(", "));
   }
 
   // A LOCKED LADDER FLOOR SAYS WHY, while the licence is owed. Contracts and
