@@ -40,6 +40,12 @@ import {
 // a statement about game/school.ts's LESSONS, and a copy of that number here
 // would be a second answer to it the day a lesson is added.
 import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "./school";
+// THE DAY THE CONTRACT BOARD IS DEALT FROM, for nextStepIdentity below. The
+// same function main.ts's todaysContracts hands availableContracts, imported
+// rather than re-derived from the clock, so "a new board" here and "a new
+// board" on the hub roll over at the same instant. contracts.ts does not
+// import this file, so the edge is one-way.
+import { dailySeed } from "./contracts";
 
 export { MARK_COUNT };
 
@@ -791,6 +797,29 @@ export interface MetaState {
    *  every seal, on the first launch after this build. Those are two different
    *  events on two different axes, and one number cannot remember both. */
   skydeckCelebrated: boolean;
+  /** WHICH NEXT STEP THE PLAYER HAS ALREADY BEEN SHOWN — the hub's alert mino
+   *  (screens.ts's nextBadgeHTML), by step, keyed to the IDENTITY of the step
+   *  as it stood when they pressed the control it sat on (nextStepIdentity).
+   *
+   *  A map and not a flag, because the badge is not one announcement but a
+   *  family of them. "Go to the Workshop" is worth lighting again the day a
+   *  DIFFERENT purchase comes within reach, and "clear the Contracts" the
+   *  morning a new board is dealt; but neither is worth lighting on every
+   *  return to the hub in between, which is what a stateless badge did — the
+   *  same mino, over the same button, on every visit, until it read as
+   *  decoration rather than direction. So each step remembers the last
+   *  identity it was acknowledged at, and nextStepIsNew lights it only while
+   *  the current identity differs (ackNextStep is the write).
+   *
+   *  ABSENT READS AS EMPTY, deliberately and by the field being optional: a
+   *  save written before this existed has acknowledged nothing, so every step
+   *  lights once more on its next visit and then settles. That is one badge
+   *  per returning player, which is the cheapest possible price for never
+   *  having to back-fill the map. lib/store.ts's loadMeta only has to keep a
+   *  corrupt value from throwing (a non-object reads as empty, which fails
+   *  LIT rather than dark — the badge is a nudge, never a lock, so the wrong
+   *  answer costs one glance). */
+  acked?: Partial<Record<NextStepId, string>>;
 }
 
 export function newMeta(): MetaState {
@@ -802,6 +831,7 @@ export function newMeta(): MetaState {
     loadout: newTiers(), slots: SLOT_BASE, stowed: [],
     claimedContracts: [], sealedMarks: [],
     celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
+    acked: {},
   };
 }
 
@@ -1236,6 +1266,20 @@ export function recordLesson(meta: MetaState, index: number): MetaState {
   return done > meta.licence ? { ...meta, licence: done } : meta;
 }
 
+/**
+ * ONBOARDING IS OPTIONAL NOW. Flight School moved to the home screen and is
+ * offered — not forced — the first time a player presses Play; skipping it, or
+ * leaving it part-way, lands them in the tier hub with Tier 1 open. This grants
+ * the licence in one write so every existing `licenceDone` pathway (the tier
+ * gate in tierOpen, nextStep, the Contracts board's shape) opens exactly as it
+ * did when the ladder was climbed — the difference is only that the player was
+ * not made to climb it. Idempotent and monotone, like recordLesson: a player
+ * who DID climb the ladder is already at SCHOOL_FLIGHTS and this is a no-op.
+ */
+export function completeOnboarding(meta: MetaState): MetaState {
+  return meta.licence >= SCHOOL_FLIGHTS ? meta : { ...meta, licence: SCHOOL_FLIGHTS };
+}
+
 /** Has this system's practice bay already been offered? */
 export function systemDrillOffered(meta: MetaState, id: UpgradeId): boolean {
   return (meta.systemDrillsSeen ?? []).includes(id);
@@ -1604,6 +1648,34 @@ function advanceTier(meta: MetaState): TierResult {
   };
 }
 
+/** The tier that is DONE but not yet claimed — both halves landed and a Mark is
+ *  still there to advance into — or null. The recorders return this as their
+ *  completedTier (they no longer advance the Mark themselves), the hub lights
+ *  its Unlock button on it, and nextStep points the badge at it. Gated on
+ *  `meta.mark < MARK_COUNT` rather than markUnlocked, so completing the top tier
+ *  (markUnlocked === MARK_COUNT) is still claimable — it is the advance that
+ *  opens the seal phase. */
+function tierReady(meta: MetaState): number | null {
+  return meta.tierRunDone && meta.tierContracts >= TIER_CONTRACTS_REQUIRED && meta.mark < MARK_COUNT
+    ? markUnlocked(meta)
+    : null;
+}
+
+/** True when the hub's Unlock button is live — both halves of the current tier
+ *  are done and there is a Mark left to open. */
+export function tierUnlockReady(meta: MetaState): boolean {
+  return tierReady(meta) !== null;
+}
+
+/** Claim the tier the two halves have earned: advance the Mark, pay the award's
+ *  rounding remainder (the shares were paid as the halves landed) and reset the
+ *  halves for the tier above. A no-op TierResult when nothing is owed, so a
+ *  stray press or a double-fire cannot advance twice — the same guard
+ *  advanceTier has always carried. */
+export function claimTierUnlock(meta: MetaState): TierResult {
+  return advanceTier(meta);
+}
+
 /**
  * Record a finished Deep Run. Every run bumps the lifetime counters; a WON run
  * at the current tier marks the run half of the tier done and banks that
@@ -1650,8 +1722,12 @@ export function recordRunEnd(
     tierRunDone: meta.tierRunDone || newlyDone,
     sealedMarks: sealed,
   };
-  const result = advanceTier(next);
-  return { ...result, salvage: result.salvage + share };
+  // DEFERRED CLAIM: the tier no longer advances the instant its second half
+  // lands. Both halves and their salvage shares are still banked here — the
+  // change is only that the Mark waits for the player to press Unlock on the
+  // hub (claimTierUnlock). completedTier still reports the tier that JUST
+  // became claimable, which is what the end-of-run modal reads.
+  return { meta: next, completedTier: tierReady(next), salvage: share };
 }
 
 /**
@@ -1680,8 +1756,9 @@ export function recordContractClear(
     salvage: meta.salvage + share,
     tierContracts: countsForTier ? meta.tierContracts + 1 : meta.tierContracts,
   };
-  const result = advanceTier(next);
-  return { ...result, salvage: result.salvage + share, firstClear: true };
+  // Deferred like the run half above: bank the share and the tick, but leave the
+  // Mark for the hub's Unlock button (claimTierUnlock).
+  return { meta: next, completedTier: tierReady(next), salvage: share, firstClear: true };
 }
 
 /** Snapshot of the current tier's completion state — one shape for the menu
@@ -1807,7 +1884,7 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * sockets. So the finished ladder gets its own answer, and it names the only
  * objective left: fly a Mark clean.
  * ---------------------------------------------------------------------- */
-export type NextStepId = "licence" | "workshop" | "contracts" | "run" | "seal";
+export type NextStepId = "licence" | "workshop" | "contracts" | "run" | "seal" | "unlock";
 
 /** The cheapest system the player could install right now, or null.
  *
@@ -1937,6 +2014,11 @@ export function nextStep(meta: MetaState): NextStepId {
     if (rung?.kind === "workshop") return "workshop";
     return "licence";
   }
+  // BOTH HALVES DONE, WAITING TO BE CLAIMED. Deferred-claim (meta.ts's
+  // tierUnlockReady): once the tier's run and its Contracts are both behind the
+  // player the one thing left is to press Unlock on the hub, so the badge points
+  // there and nothing below can outrank it.
+  if (tierUnlockReady(meta)) return "unlock";
   // A GRADUATE WHO HAS NOT FLOWN A RUN IS POINTED AT ONE. The whole of the old
   // on-ramp block lived here — earn, spend, then fly — and the school now does
   // all three above, so what is left of it is its last line: the exam is the
@@ -1977,6 +2059,95 @@ export function nextStep(meta: MetaState): NextStepId {
   if (meta.mark >= MARK_COUNT) return unsealedMarks(meta).length > 0 ? "seal" : "run";
   if (meta.tierContracts < TIER_CONTRACTS_REQUIRED) return "contracts";
   return "run";
+}
+
+/* -------------------------------------------------------------------------
+ * THE BADGE'S MEMORY.
+ *
+ * `nextStep` says WHERE the badge goes. These three say whether it should be
+ * LIT when it gets there, and the rule is: a step is new until the player has
+ * pressed the control it sits on, and it becomes new again only when the step
+ * is a different step in substance — not merely the same word on the same
+ * button. What "different in substance" means is per step, and it is written
+ * once, here, as the step's IDENTITY:
+ *
+ *   unlock     the tier it would open, so claiming one and earning the next
+ *              lights again;
+ *   workshop   the purchase the shelf is recommending, kind, track AND price,
+ *              so it re-lights exactly when a different thing becomes
+ *              reachable (a raise, a new system, a slot) and not when the
+ *              player merely banks more toward the same one;
+ *   contracts  the day's board and the tier it is dealt for, so a new
+ *              morning's cards or a new tier's quota re-light it while a
+ *              board already looked at stays quiet;
+ *   run        the Mark being flown at, so every tier's first run is called
+ *              for once;
+ *   licence    the ladder rung that is owed, so each rung of school is
+ *              pointed at once rather than the whole school once;
+ *   seal       the Mark (which at that point is MARK_COUNT and never moves),
+ *              so the endgame's one standing objective is announced once and
+ *              then left to the tower's sockets to itemise.
+ *
+ * WHY AN IDENTITY STRING AND NOT A VERSION COUNTER. A counter would have to be
+ * bumped by every mutator that could change the answer — recordContractClear,
+ * claimTierUnlock, buyInstall, the clock — and the one that forgot would be a
+ * badge that never re-lit, or one that never went out. Deriving the identity
+ * from the same state `nextStep` reads means it cannot be forgotten by a
+ * write, because it is not written; it is asked.
+ *
+ * The identity is the whole of the contract with `acked`: main.ts's press
+ * handler acknowledges (ackNextStep), the screens ask (nextStepIsNew via the
+ * `fresh` flag on their guide object), and neither has to know how any step
+ * spells its identity.
+ * ---------------------------------------------------------------------- */
+
+/** The identity of the step `nextStep` currently names — see the header
+ *  above — or null if it has none, which no step today returns but the
+ *  signature leaves room for, so a step that should never carry a badge can
+ *  say so without a special case at every caller.
+ *
+ *  `day` is the Contract board's day key (contracts.ts's dailySeed), taken as
+ *  a parameter so sim/systems.ts can dial the calendar forward without a
+ *  clock; every live caller takes the default. */
+export function nextStepIdentity(meta: MetaState, day = dailySeed()): string | null {
+  const step = nextStep(meta);
+  switch (step) {
+    case "unlock": return `unlock:${meta.mark + 1}`;
+    case "workshop": {
+      // `nextStep` said Workshop only because this is non-null, so the
+      // fallback is unreachable by construction; it is spelled rather than
+      // asserted so a future re-ordering of nextStep cannot turn the badge's
+      // memory into a thrown error on the hub.
+      const buy = recommendedPurchase(meta);
+      return buy ? `workshop:${buy.kind}:${buy.id ?? "slot"}:${buy.cost}` : "workshop";
+    }
+    case "contracts": return `contracts:${day}:${meta.mark}`;
+    case "run": return `run:${meta.mark}`;
+    case "licence": return `licence:${schoolNextStep(meta)?.step ?? 0}`;
+    case "seal": return `seal:${meta.mark}`;
+  }
+}
+
+/** Should the badge on the current step be LIT: the step has an identity, and
+ *  it is not the one the player last acknowledged for that step. A fresh save
+ *  (and a save from before `acked` existed) has acknowledged nothing, so this
+ *  is true for whatever step it opens on. */
+export function nextStepIsNew(meta: MetaState, day = dailySeed()): boolean {
+  const id = nextStepIdentity(meta, day);
+  return id !== null && meta.acked?.[nextStep(meta)] !== id;
+}
+
+/** Record that the player has pressed the control the current step sits on.
+ *  Pure — a new meta, the old one untouched — like every other mutator in this
+ *  file, so the caller decides when it is saved. Only the CURRENT step's slot
+ *  is written: acknowledging the Workshop says nothing about whether the
+ *  Contracts badge has been seen, and a press must never quietly silence a
+ *  step the player has not been shown yet. A step with no identity writes
+ *  nothing at all. */
+export function ackNextStep(meta: MetaState, day = dailySeed()): MetaState {
+  const id = nextStepIdentity(meta, day);
+  if (id === null) return meta;
+  return { ...meta, acked: { ...(meta.acked ?? {}), [nextStep(meta)]: id } };
 }
 
 /** Draft cards offered before the third slot is earned, and the number of

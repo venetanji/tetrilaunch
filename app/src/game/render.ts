@@ -378,7 +378,6 @@ export function crispFontPx(worldPx: number, deviceScale: number): number {
  */
 let frameDeviceScale = 1;
 
-const HUD_FONT_MONO = "'JetBrains Mono', ui-monospace, monospace";
 const HUD_FONT_UI = "system-ui, sans-serif";
 
 /** A canvas font string whose size lands on a whole device px. Every text site
@@ -422,13 +421,13 @@ export interface Scene {
   /** Whether the NEXT shot fired will be a bomb — swaps the muzzle ghost. */
   nextIsBomb: boolean;
   bombs: Matter.Body[];
-  /** Current signed wind acceleration (game.ts's windNow) — drives the HUD
-   *  wind indicator's length/direction. Already post-stabilizer. */
-  windNow: number;
-  /** The bay's steady prevailing wind, or null to hide it — shown as a ghost
-   *  marker on the gauge only when the Weather Survey unlock is owned (see
-   *  meta.ts), so a headwind bay can be planned for rather than discovered. */
-  windAverage: number | null;
+  /** THE WEATHER IS NOT THE CANVAS'S ANY MORE. The wind gauge moved into the
+   *  DOM bay banner (screens.ts's windNotchHTML, fed by main.ts's syncHud), so
+   *  nothing here reads these. Kept optional rather than deleted because the
+   *  sim's scene literals (systems.ts, the uifit shot scripts) state them, and
+   *  a field a literal may still name costs nothing to accept. */
+  windNow?: number;
+  windAverage?: number | null;
   /** 0..1 reload progress (cannon.reloadRatio) — drives the muzzle ring. */
   reload: number;
   /** True while the bay's settle window is running (game.ts's Game.settling):
@@ -935,7 +934,6 @@ export function render(
   drawLandingTarget(ctx,
     landingHint(scene.level, scene.cubes, scene.settling || scene.bayOver === true),
     scene.now);
-  drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor, alpha);
   drawPistons(ctx, scene.compactor, alpha);
   // The world transform's three numbers, handed to the cube loop so each stamp
@@ -1550,43 +1548,6 @@ function drawWalls(ctx: CanvasRenderingContext2D, top: number): void {
   ctx.restore();
 }
 
-/** Linear-interpolate between two "#rrggbb" hex colors (t clamped 0..1) —
- *  used by the wind gauge to shift calm→dangerous with strength. */
-function lerpHex(a: string, b: string, t: number): string {
-  const k = Math.max(0, Math.min(1, t));
-  const na = parseInt(a.slice(1), 16);
-  const nb = parseInt(b.slice(1), 16);
-  const lerp = (sh: number) => {
-    const ca = (na >> sh) & 255;
-    const cb = (nb >> sh) & 255;
-    return Math.round(ca + (cb - ca) * k);
-  };
-  return `rgb(${lerp(16)},${lerp(8)},${lerp(0)})`;
-}
-
-/**
- * HUD wind gauge: a bold, glowing directional bar drawn on a translucent pill
- * just below the top HUD strip (the old thin arrow sat at world-y 34, behind
- * the DOM HUD, and was effectively invisible — see the wind-rework PR). Its
- * length and direction track windNow / level.windMax (signed, so it points the
- * way the wind is actually pushing airborne pieces — see game.ts's
- * windNow/applyWind), and its color ramps calm-cyan → hot-red as the gust
- * strengthens so a strong wind reads as an obvious hazard at a glance. Inert
- * (no draw) when level.windMax is 0 (the calm early bays), matching the
- * mechanic itself.
- */
-const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
-/** The gauge's three type sizes, in world px — the authored ladder, named so
- *  the snap (crispFontPx) is visibly applied TO a size rather than replacing
- *  one. Label over readout over tag: the word "WIND" is the thing to find at a
- *  glance, the percentage is what is read once found, and the stabiliser tag is
- *  a footnote on a gauge that is already saying something else. */
-const WIND_LABEL_PX = 13;
-const WIND_READOUT_PX = 12;
-const WIND_STAB_PX = 11;
-const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
-const WIND_HUD_HEAD = 15;
-
 /**
  * THE IMPACT CUSHION'S LINER, drawn on the floor it lines.
  *
@@ -2067,118 +2028,6 @@ function drawLandingTarget(
     ctx.drawImage(getHintSprite(cols, rows), x, y,
       cols * CELL + HINT_PAD * 2, rows * CELL + HINT_HEAD + HINT_PAD * 2);
   }
-  ctx.restore();
-}
-
-function drawWindIndicator(
-  ctx: CanvasRenderingContext2D,
-  level: LevelConfig,
-  windNow: number,
-  windAverage: number | null,
-): void {
-  if (level.windMax <= 0) return;
-  const ratio = Math.max(-1, Math.min(1, windNow / level.windMax));
-  const mag = Math.abs(ratio);
-  const dir = ratio >= 0 ? 1 : -1;
-  const cx = WORLD.width / 2;
-  const y = WIND_HUD_Y;
-  const len = ratio * WIND_HUD_HALF_LEN;
-  const col = lerpHex(COLORS.aim, COLORS.compactor, mag);
-
-  ctx.save();
-  ctx.textAlign = "center";
-
-  // Translucent backing pill so the gauge stays legible over any field state.
-  const padX = WIND_HUD_HALF_LEN + 34;
-  const pillTop = y - 30;
-  const pillH = 52;
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(7,7,15,0.55)";
-  roundRect(ctx, cx - padX, pillTop, padX * 2, pillH, 12);
-  ctx.fill();
-
-  // "WIND" label.
-  ctx.font = hudFont(WIND_LABEL_PX, HUD_FONT_MONO);
-  ctx.fillStyle = COLORS.textDim;
-  ctx.globalAlpha = 0.9;
-  ctx.fillText("WIND", cx, y - 14);
-
-  // Baseline track + center tick (the calm/zero reference).
-  ctx.globalAlpha = 0.4;
-  ctx.strokeStyle = COLORS.textDim;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(cx - WIND_HUD_HALF_LEN, y);
-  ctx.lineTo(cx + WIND_HUD_HALF_LEN, y);
-  ctx.moveTo(cx, y - 8);
-  ctx.lineTo(cx, y + 8);
-  ctx.stroke();
-
-  // Glowing strength bar. Same double-stroke halo as drawReloadRing and for
-  // the same reason: the bar's length tracks the live wind every frame, so
-  // its glow can't be a baked sprite, and shadowBlur here was a per-frame
-  // Gaussian pass for the whole windy half of a run.
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(cx, y);
-  ctx.lineTo(cx + len, y);
-  ctx.globalAlpha = 0.2 + 0.18 * mag;
-  ctx.strokeStyle = col;
-  ctx.lineWidth = 15;
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 6;
-  ctx.stroke();
-  ctx.fillStyle = col;
-
-  // Arrowhead pointing the way the wind pushes.
-  if (mag > 0.02) {
-    const tipX = cx + len;
-    ctx.beginPath();
-    ctx.moveTo(tipX + dir * WIND_HUD_HEAD, y);
-    ctx.lineTo(tipX, y - WIND_HUD_HEAD * 0.72);
-    ctx.lineTo(tipX, y + WIND_HUD_HEAD * 0.72);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Weather Survey (meta unlock): a dim tick at the bay's STEADY average, so
-  // the live gust reads as "drifting around a known baseline" instead of an
-  // unknowable number. Drawn behind the numeric readout, in the neutral track
-  // color, so it never competes with the live bar for attention.
-  if (windAverage !== null) {
-    const avgRatio = Math.max(-1, Math.min(1, windAverage / level.windMax));
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 0.55;
-    ctx.strokeStyle = COLORS.text;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(cx + avgRatio * WIND_HUD_HALF_LEN, y - 11);
-    ctx.lineTo(cx + avgRatio * WIND_HUD_HALF_LEN, y + 11);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // Stabilizer tag: when the launcher cancels part of the wind, say so — the
-  // gauge is showing the POST-assist number (game.ts's windNow), and without
-  // this the upgrade would silently look like "the weather got easier".
-  if (level.windAssist > 0) {
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = COLORS.trajectory;
-    ctx.font = hudFont(WIND_STAB_PX, HUD_FONT_MONO);
-    ctx.fillText(`STAB −${Math.round(level.windAssist * 100)}%`, cx + padX - 44, y - 14);
-  }
-
-  // Numeric strength readout under the bar, on the pushing side.
-  ctx.shadowBlur = 0;
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = col;
-  ctx.font = hudFont(WIND_READOUT_PX, HUD_FONT_MONO);
-  const pct = Math.round(mag * 100);
-  const glyph = dir >= 0 ? "▶" : "◀";
-  ctx.fillText(mag < 0.02 ? "CALM" : `${glyph} ${pct}%`, cx, y + 22);
   ctx.restore();
 }
 
@@ -3246,7 +3095,13 @@ function drawLoadedPiece(
 }
 
 /** The material badge stamped beside the muzzle ghost. Baked and cached like
- *  every other repeated glow here — it is on screen for the whole aim. */
+ *  every other repeated glow here — it is on screen for the whole aim.
+ *
+ *  A SQUARE, like every badge in the game (the ability charge counts, the
+ *  alert mino, the belt tile's own copy of this mark in components.ts): the
+ *  pieces are made of squares and a disc among them read as belonging to a
+ *  different game. `r` is kept as the half-side so the callers' arithmetic
+ *  and the sprite key are unchanged. */
 function drawMuzzleBadge(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -3263,7 +3118,7 @@ function drawMuzzleBadge(
     c.shadowBlur = 8;
     c.fillStyle = fill;
     c.beginPath();
-    c.arc(pad + r, pad + r, r, 0, Math.PI * 2);
+    c.rect(pad, pad, r * 2, r * 2);
     c.fill();
     c.shadowBlur = 0;
     c.lineWidth = 2;

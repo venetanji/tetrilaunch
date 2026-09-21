@@ -802,6 +802,11 @@ export class Game {
   effects: FxEvent[] = [];
 
   readonly level: LevelConfig;
+  /** The seed this bay was dealt from (the run's, a Contract's, a drill's).
+   *  Exposed so main.ts can key per-bay choices that must survive a pause and
+   *  a Restart Bay — which of a role's two songs plays (audio.ts's
+   *  MUSIC_TAKES) — on the same number the bay itself was built from. */
+  readonly seed: number;
   private gAccel: number;
   private events: GameEvents;
   /** Game.stepCount at which the player first went "stuck broke" (see
@@ -1161,6 +1166,7 @@ export class Game {
   constructor(level: LevelConfig, events: GameEvents = {}, seed: number = level.id) {
     this.level = level;
     this.events = events;
+    this.seed = seed;
     // Combine seed with the bay id so consecutive bays of one run roll
     // different prevailing winds instead of all sharing the run seed's roll.
     this.windRng = mulberry32((seed ^ (level.id * 0x9e3779b9)) >>> 0);

@@ -12,7 +12,13 @@ August ones and are hints, not addresses.
 ## Recommended terminology contract
 
 - **Tier N** is the player-facing name for a numbered tower floor, difficulty,
-  Deep Run, leaderboard, progression step, and seal.
+  run, leaderboard, progression step, and seal.
+- **Run** is the player-facing name of the ten-bay mode: “Run” in a title,
+  eyebrow or selector slot, and “the run” / “a run” in prose (“beat the run to
+  complete the tier”). Say “the Tier run” only where a plain “run” could be
+  read as a Contract attempt. **Deep Run** / `deeprun` is implementation
+  vocabulary — module names, `runDeepRun`, sim check names and code comments
+  keep it; no player-facing string does.
 - **Mark** / `mark` is implementation vocabulary for the persisted high-water
   state, run difficulty, and API/leaderboard key. Developer documentation may
   use it when naming a code symbol or wire field, but should map it to the Tier

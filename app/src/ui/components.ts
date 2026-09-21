@@ -160,8 +160,15 @@ const BADGE_GLYPH = 12.6;
 function materialBadgeSVG(type: PieceType, material: Material): string {
   const fill = shipmentAura(type, material);
   const o = BADGE_C - BADGE_GLYPH / 2;
-  return `<circle cx="${BADGE_C}" cy="${BADGE_C}" r="${BADGE_R}" fill="${fill}"/>`
-    + `<circle cx="${BADGE_C}" cy="${BADGE_C}" r="${BADGE_R}" fill="none"`
+  // A SQUARE, like every badge in the game — the charge counts on the rail,
+  // the alert mino, the stack counts on the notch marks, and render.ts's copy
+  // of this same mark beside the muzzle ghost. The pieces are squares and a
+  // disc riding one read as a token from a different game. BADGE_R stays the
+  // half-side so BADGE_C and the glyph's inset are the same arithmetic.
+  const b = BADGE_C - BADGE_R;
+  const side = BADGE_R * 2;
+  return `<rect x="${b}" y="${b}" width="${side}" height="${side}" fill="${fill}"/>`
+    + `<rect x="${b}" y="${b}" width="${side}" height="${side}" fill="none"`
     + ` stroke="#07070f" stroke-width="1.4"/>`
     + glyphSVG(material, o, BADGE_GLYPH, glyphInk(fill));
 }
