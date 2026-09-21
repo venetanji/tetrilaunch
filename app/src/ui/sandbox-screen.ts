@@ -161,7 +161,7 @@ function bayBriefing(s: SandboxState, meta: MetaState): string {
       ${factHTML("Bonds", cfg.jointBreakStretch === Infinity ? "∞" : `×${cfg.jointBreakStretch.toFixed(1)}`)}
     </div>
     <p class="sbx-brief__note">The run continues from here — clear the bay and it drafts,
-      refits and rolls on to bay ${RUN_LEVELS} exactly as a Deep Run does. Nothing it earns
+      refits and rolls on to bay ${RUN_LEVELS} exactly as a Tier run does. Nothing it earns
       leaves Tier S.</p>
   </div>`;
 }
@@ -275,7 +275,7 @@ function inspectionRow(s: SandboxState, isBay: boolean): string {
   const pair = sandboxFinals(s.tier);
   const onBay10 = s.target.kind === "bay" && s.target.bay === SANDBOX_FINAL_BAY;
   const hint = !isBay
-    ? "Deep Run only"
+    ? "Run only"
     : onBay10
       ? `bay ${SANDBOX_FINAL_BAY}'s clause`
       : `sends you to bay ${SANDBOX_FINAL_BAY}`;
@@ -308,7 +308,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
 
   // The three modes, as one row — the choice everything below hangs off.
   const modes = [
-    { value: "bay", text: "Deep Run", on: isBay,
+    { value: "bay", text: "Run", on: isBay,
       title: "A real run, started at the bay you pick, on the rig you pick" },
     { value: "pattern", text: "Contract", on: s.target.kind === "pattern",
       title: "A generated pattern Contract — a fixed queue that tiles the goal" },
@@ -377,7 +377,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
 
         <section class="sbx-col" aria-label="How hard">
           <h3 class="sbx-col__ttl">How hard</h3>
-          ${rowHTML("Rig", isBay ? `${tiersCost(s.tiers)} pts installed` : "Deep Run only", rigHTML(s.tiers))}
+          ${rowHTML("Rig", isBay ? `${tiersCost(s.tiers)} pts installed` : "Run only", rigHTML(s.tiers))}
           ${chipRow("Belt", "what the cannon ships", "sbx-material", "material", [
             { value: "mix", text: "Ladder mix", on: s.material === "mix",
               title: "Exactly what the Tier deals" },
@@ -393,7 +393,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
             "Axes",
             isBay
               ? `pre-ratcheted · ${notches}/${axes.length * SANDBOX_RATCHET_MAX}`
-              : "Deep Run only",
+              : "Run only",
             "sbx-axis", "axis",
             axes.map((h) => ({
               value: h.id,

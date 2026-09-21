@@ -389,7 +389,7 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `A row pays when <b>every one of its ${lv.compactorMinLineCells} slots</b> holds a cube that has`
       + ` settled and squared up on the grid. Nearly-aligned is not aligned — which is what the press`
       + ` is for: its stroke grinds close cubes onto the slots and closes rows you could not close by hand.`
-      + ` Cargo that stops <b>short of the compactor</b> never counts, and in a Deep Run it fines you.`,
+      + ` Cargo that stops <b>short of the compactor</b> never counts, and in a Tier run it fines you.`,
     drill: DRILLS.row,
   },
   {
@@ -447,8 +447,8 @@ function buildTopics(mark: number): GuideTopic[] {
   {
     id: "clock", chapter: "economy", tier: 1,
     name: "The clock",
-    summary: `Deep Run bays run on a countdown — ${lv.timeLimitSec}s in bay 1. Contracts have none.`,
-    body: `A Deep Run bay gives you <b>${lv.timeLimitSec} seconds</b> in bay 1, and the readout goes red`
+    summary: `A run's bays have a countdown — ${lv.timeLimitSec}s in bay 1. Contracts have none.`,
+    body: `Bay 1 of a run gives you <b>${lv.timeLimitSec} seconds</b>, and the readout goes red`
       + ` and pulses in the last 20.`
       + ` Time pressure is what makes aiming a skill rather than a puzzle you can grind — so it is`
       + ` the exam's, and Contracts deliberately have <b>no clock at all</b>.`
@@ -722,7 +722,7 @@ function buildTopics(mark: number): GuideTopic[] {
   /* ---- MODES ----------------------------------------------------------- */
   {
     id: "deeprun", chapter: "modes", tier: 1,
-    name: "Deep Run",
+    name: "Run",
     summary: `${RUN_LEVELS} bays, permadeath, a clock and a bankroll. The exam.`,
     body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, end to end. Each has`
       + ` its own target and countdown; go broke or run out of clock and the run ends — no lives.`
@@ -794,8 +794,8 @@ function buildTopics(mark: number): GuideTopic[] {
   {
     id: "tiers", chapter: "modes", tier: 1,
     name: "Tiers & the build budget",
-    summary: `A tier is won by one Deep Run clear plus ${TIER_CONTRACTS_REQUIRED} first-clear Contracts.`,
-    body: `A tier completes when you have cleared its Deep Run <b>and</b>`
+    summary: `A tier is won by one run clear plus ${TIER_CONTRACTS_REQUIRED} first-clear Contracts.`,
+    body: `A tier completes when you have cleared its run <b>and</b>`
       + ` <b>${TIER_CONTRACTS_REQUIRED}</b> of its Contracts for the first time. It pays a`
       + ` salvage milestone, opens the next tier, and hands you a larger <b>build budget</b>.`
       + ` Nothing purchasable raises a tier — which is what keeps "cleared tier 7" worth the`

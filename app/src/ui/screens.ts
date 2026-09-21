@@ -6342,7 +6342,7 @@ export function workshopScreen(
                 : `One system, and it is the last thing between you and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT}. A system is permanent — bought once, flown in every run after — so nothing here is spent twice.`
               : rigStarted(meta)
                 ? "Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before."
-                : "Install your first system — the Deep Run opens with it. Every system is permanent: bought once, flown in every run after."
+                : "Install your first system — the Tier run opens with it. Every system is permanent: bought once, flown in every run after."
           }</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
@@ -6362,7 +6362,7 @@ export function workshopScreen(
           : `${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"} · ${
             (() => {
               const p = tierProgressFor(meta);
-              return `Tier ${p.tier} — Deep Run ${p.runDone ? "✓" : "○"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
+              return `Tier ${p.tier} — Run ${p.runDone ? "✓" : "○"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
             })()
           }`
       }</div>
@@ -7947,8 +7947,12 @@ export function endModal(opts: {
         }
         <!-- Back to the tier hub (not the front door): the tierlevator's unlock
              ceremony rides there, and the loop continues from it. Named the way
-             every other door to it is — the lesson cards' "the tower". -->
-        <button class="btn btn--ghost" data-action="tiers">To the tower</button>
+             every other door to it is — the lesson cards' "the tower" — but bare,
+             because this row already carries up to three siblings and the
+             preposition wrapped it onto a second line on a 640x360 window
+             (sim/uifit). The contract card's twin keeps "To the tower": one
+             button in a shorter row, with the room for it. -->
+        <button class="btn btn--ghost" data-action="tiers">Tower</button>
       </div>
     </div>
   </div>`;
@@ -8323,7 +8327,7 @@ export function contractsScreen(opts: {
         opts.nextInstall
           ? ` — enough for ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)})`
           : " — enough for your first system"
-      }, and the Deep Run opens the moment one is installed. Fail free, retry free.${
+      }, and the Tier run opens the moment one is installed. Fail free, retry free.${
         allowance ? ` ${allowance}.` : ""
       }</p>`
     : opts.progress
@@ -8645,7 +8649,7 @@ export function contractsIntroModal(opts: {
         </p>
         <p class="muted">
           A <b>first clear</b> pays ${salvageHTML(opts.milestone, 11)} and ticks the tier.
-          Clear <b>${opts.needed}</b> of them and win the Tier's Deep Run, and the next Tier opens.
+          Clear <b>${opts.needed}</b> of them and win the Tier's run, and the next Tier opens.
         </p>
       </div>
       <div class="row end__actions">
@@ -9157,8 +9161,8 @@ export function contractEndModal(opts: {
               : ""
           } ${
             p.contracts >= p.needed
-              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (${salvageHTML(p.award)} total per tier).`
-              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (${salvageHTML(p.award)} total per tier).`
+              ? `Contracts done — ${p.runDone ? "" : "beat the run to "}complete the tier (${salvageHTML(p.award)} total per tier).`
+              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the run"} to complete the tier (${salvageHTML(p.award)} total per tier).`
           }${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
