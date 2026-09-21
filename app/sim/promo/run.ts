@@ -34,7 +34,7 @@
 import { createServer } from "vite";
 import { mkdir, writeFile, readFile, access } from "node:fs/promises";
 import { execFileSync, spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdirSync, existsSync } from "node:fs";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
@@ -66,6 +66,23 @@ const DT = 1000 / FPS;
  *  is applied to that frame, for the same reason. */
 const CLOCK_DT = FPS === 60 ? PROMO_DT : 1000 / FPS + 2 ** -36;
 const [SIZE_W, SIZE_H] = (opt("size") ?? "1920x1080").split("x").map(Number);
+/**
+ * THE BEAT FRAMES' DENSITY, and the reason it is not always 1.
+ *
+ * A beat renders at SIZE_W x SIZE_H of CSS, and the PNG is that times this —
+ * the same clip{scale} the store shots use. The trailer is filmed at 1920x1080
+ * @1 because the cut IS 1920x1080 and the layout wanted is the desktop one.
+ *
+ * An APP PREVIEW is not: Apple's iPhone slot is a phone-shaped frame, and a
+ * 1920x886 CSS viewport would draw the desktop layout at a letterbox. So a
+ * preview is filmed at the phone's own points with the density on top —
+ * `--size=960x443 --dpr=2 --touch` is 1920x886 of the layout a phone actually
+ * shows, rail and all, which is the same trick the store shots play.
+ */
+const SIZE_DPR = Number(opt("dpr") ?? 1);
+/** Film with `(pointer: coarse)` on — the phone's rail rather than the
+ *  desktop keycaps. On for a preview, off for the trailer. */
+const TOUCH = flag("touch");
 const OUT = resolve(opt("out") ?? resolve(HERE, "..", "results", "promo"));
 const SHOTS = flag("shots");
 const STORE = opt("store") ?? "all";
@@ -99,9 +116,15 @@ for (const id of BEAT_IDS) {
 
 function findFfmpeg(): string | null {
   if (process.env.PROMO_FFMPEG && existsSync(process.env.PROMO_FFMPEG)) return process.env.PROMO_FFMPEG;
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    const p = resolve(dir, "ffmpeg");
-    if (dir && existsSync(p)) return p;
+  // `delimiter`, not ":" — Windows separates PATH with ";" and names the
+  // binary ffmpeg.exe, so a hard-coded POSIX pair found nothing there and the
+  // run reported "ffmpeg: none" on a box that had one on PATH all along.
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    for (const name of ["ffmpeg", "ffmpeg.exe"]) {
+      const p = resolve(dir, name);
+      if (existsSync(p)) return p;
+    }
   }
   const roots = [process.env.PLAYWRIGHT_BROWSERS_PATH, "/opt/pw-browsers", resolve(process.env.HOME ?? "", ".cache/ms-playwright")]
     .filter((r): r is string => !!r && existsSync(r));
@@ -877,11 +900,11 @@ async function runBeat(browser: Browser, base: string, beat: BeatDef): Promise<v
   console.log(`▶ ${beat.id} — "${beat.card}"`);
   trace("opening the page");
   const json: BeatJson = {
-    beat: beat.id, card: beat.card, fps: FPS, size: `${SIZE_W}x${SIZE_H}`,
+    beat: beat.id, card: beat.card, fps: FPS, size: `${SIZE_W * SIZE_DPR}x${SIZE_H * SIZE_DPR}`, css: `${SIZE_W}x${SIZE_H}`, dpr: SIZE_DPR,
     frames: 0, phases: [], events: [], notable: {},
   };
 
-  const d = await openDriver(browser, base, { w: SIZE_W, h: SIZE_H, dpr: 1 }, STORE_META);
+  const d = await openDriver(browser, base, { w: SIZE_W, h: SIZE_H, dpr: SIZE_DPR, touch: TOUCH }, STORE_META);
   trace("page open, on the menu");
 
   // Seed search and lead-in timing: headless flights, but IN THE PAGE

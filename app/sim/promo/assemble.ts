@@ -30,7 +30,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -73,16 +73,33 @@ interface BeatJson {
   notable: Record<string, number[]>;
 }
 
-const timeline = JSON.parse(readFileSync(resolve(HERE, "timeline.json"), "utf8")) as Timeline;
+/**
+ * WHICH TIMELINE, and why there is more than one.
+ *
+ * `fps` and `size` are read once and drive every frame sum in this file, so a
+ * cut that wants a different shape or cadence cannot be a `cuts` entry — it
+ * has to be its own file. `previews.json` is exactly that: App Store previews
+ * are phone-shaped (1920x886, filmed at 960x443 @2 so the layout is the one a
+ * phone renders) and 30fps, where the trailer is 1920x1080 @1 at 60. The beats
+ * behind each file are captured into their own `--out`, at the matching
+ * `--size/--dpr/--fps`, and the two never share frames.
+ */
+const TIMELINE = resolve(HERE, opt("timeline") ?? "timeline.json");
+const timeline = JSON.parse(readFileSync(TIMELINE, "utf8")) as Timeline;
 const FPS = timeline.fps;
 const [W, H] = timeline.size.split("x").map(Number);
 const FONT = resolve(APP, opt("font") ?? timeline.font.file);
 
 function findFfmpeg(): string | null {
   if (opt("ffmpeg")) return opt("ffmpeg");
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    const p = resolve(dir, "ffmpeg");
-    if (dir && existsSync(p)) return p;
+  // See run.ts's findFfmpeg: `delimiter` and the .exe name, or a Windows box
+  // with ffmpeg on PATH reports none.
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    for (const name of ["ffmpeg", "ffmpeg.exe"]) {
+      const p = resolve(dir, name);
+      if (existsSync(p)) return p;
+    }
   }
   return null;
 }
