@@ -12,16 +12,16 @@ clears them away.
 
 ## 🎮 How it plays
 
-**Two halves.** *Deep Run* is the exam — long, permadeath, it can beat you.
+**Two halves.** *The run* is the exam — long, permadeath, it can beat you.
 *Contracts* are the opposite by design: short, free to fail, endlessly retryable.
 
-- **Deep Run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
+- **A run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
   compactor, a heavier **funding target** every bay. The **countdown** and the
   price of a shot are the **Tier's** knobs, not the bay's: both are set before
   you launch and stay flat all ten bays (only a difficulty axis you ratchet
   yourself moves them mid-run). Bank each bay's target before the clock or the
   bankroll runs out.
-- **Ten Tiers** are the difficulty ladder over Deep Run. Each one states harder
+- **Ten Tiers** are the difficulty ladder over the run. Each one states harder
   terms — the opening bay's funding target climbs from **$600 to $780** (and the
   per-bay climb steepens with it, so a run ends at **$1500** at Tier 1 and
   **$1842** at Tier 10), the shift shortens **180s → 144s**, a shot costs
@@ -42,7 +42,7 @@ clears them away.
   - **Funds `$`** last one bay. They pay for launches and *are* the bay's target.
   - **Scrap `♻`** lasts one run (2/line, 10/bay). Spent on the **ship**.
   - **Salvage** is forever, banked in equal **15-salvage milestones** — each of
-    the current tier's first three Contract clears, plus that tier's Deep Run
+    the current tier's first three Contract clears, plus that tier's run
     win, a flat **60 per tier** — and spent in the **Workshop** on permanent
     unlocks.
 - **The compactor is your ship.** After bays **3, 6 and 9** you dock at a
@@ -352,7 +352,7 @@ hazard ratchet, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   after bays 3/6/9 (`upgrades.ts`). Launcher Coils are the sanctioned answer to
   an unwinnable headwind bay; Bay Extension makes "extend to 18" earned capital.
 - **Meta-progression** — salvage arrives in tier milestones (three at-tier
-  Contract first-clears plus the tier's Deep Run win, 15 each), spent in the
+  Contract first-clears plus the tier's run win, 15 each), spent in the
   Workshop on installs and unlocks that add *options* rather than stat bumps
   (`meta.ts`).
 - **Bombs with an economic argument** — armed consumables that cost a launch
@@ -370,7 +370,7 @@ hazard ratchet, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   Contracts** hand you an exact inventory and demand zero waste; a backtracking
   tiler (`tiling.ts`) *proves* the queue fills the goal before the Contract ships,
   because the one failure this mode can't survive is an unwinnable puzzle.
-- **The Tier ladder** — ten difficulty steps over Deep Run, each with its own
+- **The Tier ladder** — ten difficulty steps over the run, each with its own
   bay terms (target, clock, launch cost), its own build budget and its own
   leaderboard, each raised only by beating the one below. Calibrated with a
   headless harness (`sim/`), which is also how we learned the ladder's original
@@ -409,7 +409,7 @@ Next steps:
    [docs/DESIGN.md](docs/DESIGN.md#materials--the-content-engine); the older
    wishlist here (gravity flips, a second mini-compactor, golden cubes) is
    superseded by it.
-4. **Daily seed for Deep Run** — Contracts already share one, and the run itself
+4. **Daily seed for the run** — Contracts already share one, and the run itself
    already carries a `RunState.seed` (`run.ts`, set by `newRun`). What is left is
    deriving that seed from a shared daily value so everyone is dealt the same
    ratchet hand, with a per-seed board.
