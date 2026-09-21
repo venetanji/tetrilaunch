@@ -1,0 +1,74 @@
+{
+  "$comment": "The trailer's edit, as data. run.ts captures the beats; assemble.ts reads this and each beat's beat.json to cut, card, score and mux. Durations are seconds of the finished cut; a beat captured longer is trimmed from its end unless `align` says otherwise. Audio file names are relative to app/public/audio. Frame cues (`stingers[].on`) name a `notable` key in beat.json.",
+  "fps": 60,
+  "size": "1920x1080",
+  "font": {
+    "family": "Orbitron",
+    "file": "public/fonts/orbitron-variable.woff2",
+    "$comment": "The game's display face (public/fonts/fonts.css). ffmpeg's drawtext needs a font file freetype can open; if the variable woff2 is refused, pass --font=/path/to/Orbitron-Bold.ttf to assemble.ts."
+  },
+  "card": {
+    "sizePx": 72,
+    "color": "#f2f0ff",
+    "wash": "black@0.55",
+    "washPad": 48,
+    "inSec": 0.25,
+    "holdSec": 1.6,
+    "outSec": 0.25,
+    "$comment": "Cards burn over the first seconds of their beat: a black wash behind Orbitron, faded in and out. Vibe, not explanation."
+  },
+  "stingerFiles": {
+    "bayClear": "audio/stingers/bayClear.mp3",
+    "gameOver": "audio/stingers/gameOver.mp3",
+    "explosion": "audio/fx/explosion.mp3",
+    "buzzer": "audio/fx/timeUp.mp3",
+    "excellent": "audio/fx/excellentClear.mp3",
+    "lineClear": "audio/fx/lineClear.mp3"
+  },
+  "cuts": {
+    "promo": {
+      "output": "promo-1920x1080.mp4",
+      "targetSec": 60,
+      "order": [
+        { "kind": "title", "sec": 3.0, "card": "TETRILAUNCH — TETROMINOES, BUT YOU HAVE TO AIM.", "music": "audio/music/menu.mp3" },
+        { "beat": "plan", "sec": 8.0, "card": "YOU HAVE A PLAN.", "music": "audio/music/bay-2.mp3", "align": "end",
+          "stingers": [ { "on": "lineClear", "file": "lineClear", "gain": 0.7 } ] },
+        { "beat": "precision", "sec": 8.0, "card": "IT TAKES SKILL.", "music": "audio/music/bay-5.mp3", "align": "end",
+          "stingers": [ { "on": "excellent", "file": "excellent", "gain": 0.8 }, { "on": "lineClear", "file": "lineClear", "gain": 0.6 } ] },
+        { "beat": "slip", "sec": 8.0, "card": "IT WON'T ALWAYS WORK.", "music": "audio/music/bay-5.mp3", "align": "end",
+          "stingers": [] },
+        { "beat": "improvise", "sec": 10.0, "card": "FORTUNE FAVOURS THE BRAVE.", "music": "audio/music/bay-8.mp3", "align": "end",
+          "stingers": [ { "on": "bomb", "file": "explosion", "gain": 0.9 }, { "on": "lineClear", "file": "lineClear", "gain": 0.6 } ] },
+        { "beat": "loss", "sec": 5.0, "card": "", "music": "audio/music/bay-9.mp3", "align": "end",
+          "stingers": [ { "on": "loss", "file": "gameOver", "gain": 0.9 } ] },
+        { "beat": "luck", "sec": 8.0, "card": "…OR THE LUCKY.", "music": "audio/music/bay-9.mp3", "align": "end",
+          "stingers": [ { "on": "buzzer", "file": "buzzer", "gain": 0.9 }, { "on": "lucky", "file": "lineClear", "gain": 0.7 } ] },
+        { "beat": "climb", "sec": 7.0, "card": "RETRY. RETRY. RETRY.", "music": "audio/music/bay-9.mp3", "align": "start",
+          "stingers": [ { "on": "phase:1", "file": "bayClear", "gain": 0.8 } ] },
+        { "kind": "title", "sec": 3.0, "card": "TETRILAUNCH — TETROMINOES, BUT YOU HAVE TO AIM.", "music": "audio/music/menu.mp3" }
+      ],
+      "$comment": "60s: 3 + 8 + 8 + 8 + 10 + 5 + 8 + 7 + 3. `loss` is the cut before `luck`, as briefed. `align: end` keeps the last N seconds of the capture — the beats are captured with a lead-in ending on their event, so the tail is where the event is. `phase:1` cues on the first frame of the beat's phase 1 (the Contract clear salvage banner)."
+    },
+    "materials": {
+      "output": "materials-1920x1080.mp4",
+      "targetSec": 20,
+      "order": [
+        { "beat": "materials-slag", "sec": 4.25, "card": "", "music": "audio/music/bay-8.mp3", "align": "start",
+          "stingers": [ { "on": "bomb", "file": "explosion", "gain": 0.9 } ] },
+        { "beat": "materials-cryo", "sec": 4.25, "card": "", "music": "audio/music/bay-8.mp3", "align": "start", "stingers": [] },
+        { "beat": "materials-volatile", "sec": 4.25, "card": "", "music": "audio/music/bay-8.mp3", "align": "start",
+          "stingers": [ { "on": "blast", "file": "explosion", "gain": 0.8 } ] },
+        { "beat": "materials-rebar", "sec": 4.25, "card": "", "music": "audio/music/bay-8.mp3", "align": "start", "stingers": [] },
+        { "kind": "title", "sec": 1.6, "card": "FOUR MATERIALS. NONE OF THEM PLAY FAIR.", "music": "audio/music/bay-8.mp3" },
+        { "kind": "title", "sec": 1.4, "card": "FULL GAME.", "music": "audio/music/bay-8.mp3" }
+      ],
+      "$comment": "20s: 4 x 4.25 + 1.6 + 1.4. Each materials beat is captured at 5s (2.5s problem, 2.5s answer) and trimmed to 4.25 from its end so the answer stays whole."
+    }
+  },
+  "vertical": {
+    "$comment": "9:16 recipe for the finished 1920x1080 cut: centre-crop to 608x1080 (the bay's compaction zone sits centre-right; shift with --crop-x), then scale to 1080x1920. See assemble.ts --vertical.",
+    "cropW": 608,
+    "cropXOffset": 120,
+    "output": "promo-1080x1920.mp4"
+  }
+}
