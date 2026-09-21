@@ -211,6 +211,9 @@ import { isBuildable } from "../src/game/buildable";
 // real one is the entire point: a premise restated here could go stale against
 // the matrix it is a premise about.
 import { DEVICES } from "./uifit/devices";
+// The uifit fixture catalogue, read as DATA by the rail-loadout premise check
+// below — the same reason DEVICES is read rather than restated.
+import { railLoadoutFor, SCREENS, SCREEN_IDS } from "./uifit/fixtures";
 import {
   computeLayout,
   getRailSlots,
@@ -25665,7 +25668,7 @@ section("The timing grade — through the real clear check (lineClear.ts / game.
 // frame is painted three times — bare, with cargo, with cargo and joints — and
 // each layer is the difference between two of them. Counting a whole frame's
 // `stroke` calls and hoping they are the seams would be measuring the cannon,
-// the chute and the wind gauge as well.
+// the chute as well.
 //
 // The stub is deliberately thin: it records method names and property writes
 // and nothing else. It is not a rasteriser and cannot say what the frame LOOKS
@@ -26600,6 +26603,130 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...while a real Deep Run bay still shows BAY 1/10",
       bay1.includes("bay-banner__pips") && bay1.includes(`/${RUN_LEVELS}`));
     check("...and the exam keeps its tier plate", exam.includes("tier-plate"));
+  }
+
+  /* ---- THE WIND IS A NOTCH UNDER THE BANNER, not a gauge on the field ---- */
+  // screens.ts's windNotchHTML replaced render.ts's canvas gauge: the same
+  // facts (direction, strength, the stabiliser, the survey's average) as a
+  // 14px tab hung off the bay banner, with no number on it. The owner's report
+  // was that the mid-field arrow bothered them; the pins below hold the shape
+  // of the replacement so a later pass cannot quietly grow it back into one.
+  {
+    const calm = S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, bayNum: 1 });
+    const gust = S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, bayNum: 1, wind: { now: 0.6, avg: 0.4, assist: 0 } });
+    const stab = S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, bayNum: 1, wind: { now: -0.35, avg: null, assist: 0.3 } });
+    check("a calm bay draws no wind notch", !calm.includes("bay-banner__wind"));
+    check("a windy bay hangs the notch inside its banner",
+      /class="bay-banner"[\s\S]*bay-banner__wind[\s\S]*<\/div>\s*<\/div>/.test(gust)
+        && gust.indexOf("bay-banner__wind") > gust.indexOf("bay-banner__pips"));
+    check("...the fill is a signed scale about the centre tick, never a width",
+      gust.includes('style="transform:scaleX(0.6000);') && stab.includes('style="transform:scaleX(-0.3500);')
+        && !/hud-wind-fill[^>]*width:/.test(gust));
+    // THE COLOUR IS CHOSEN, NOT REVEALED. The first shape of this painted the
+    // fill with a cyan→amber→red gradient and scaled it, which inverted the
+    // cue it was there to carry: `transform: scaleX()` scales an element's
+    // PAINT, so the bar squashed the whole ramp — red stop included — into
+    // whatever width the wind gave it, and a 5% breeze rendered a smear that
+    // was already red at its tip while every strength drew the same picture.
+    // A flat ink picked from the magnitude is what the canvas gauge did
+    // (render.ts's deleted lerpHex) and what screens.ts's windInk does now.
+    check("...the fill is one flat ink, never a gradient the scale would squash",
+      !gust.includes("linear-gradient") && !stab.includes("linear-gradient")
+        && /id="hud-wind-fill"[^>]*--wind-ink:/.test(gust));
+    check("...and that ink reads weak apart from dangerous",
+      S.windInk(0.08) !== S.windInk(0.9)
+        // A breeze never wears the danger end, at either sign...
+        && !S.windInk(0.08).includes("var(--danger) 100%")
+        && !S.windInk(-0.08).includes("var(--danger) 100%")
+        // ...a gale does, and the ramp is monotone between them.
+        && S.windInk(1).includes("var(--danger) 100%")
+        && S.windInk(0.3) !== S.windInk(0.6) && S.windInk(0.6) !== S.windInk(0.9));
+    check("...with no green leg, because green is this HUD's success colour",
+      // A cyan→red ramp reads green across its lower third, four pixels from
+      // the green STAB word. Every wind above CALM mixes amber into danger
+      // and nothing else, so no reading of the bar can wear --success.
+      [0.06, 0.2, 0.35, 0.5, 0.75, 1].every((m) => S.windInk(m).startsWith("color-mix(in srgb, #ffb020, var(--danger)")));
+    check("...and CALM is the one reading that wears the neutral accent",
+      S.windInk(0.02) === "var(--accent)" && S.windInk(-0.02) === "var(--accent)"
+        // The word and the ink share a threshold, so they can never disagree.
+        && S.windInk(S.CALM_WIND - 0.001) === "var(--accent)"
+        && S.windInk(S.CALM_WIND) !== "var(--accent)"
+        && S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, wind: { now: 0.02, avg: null, assist: 0 } }).includes(">CALM<"));
+    check("...and the mount's ink is windInk's own, not a second ramp",
+      gust.includes(`--wind-ink:${S.windInk(0.6)}`));
+    check("...the survey's average is a tick at the same scale, hidden until revealed",
+      gust.includes('id="hud-wind-avg" style="left:70.00%"') && /id="hud-wind-avg" hidden/.test(stab));
+    check("...and the status is a word, never a number",
+      stab.includes(">STAB<") && stab.includes("bay-banner__wind--stab")
+        && !gust.includes("bay-banner__wind--stab") && !/hud-wind[\s\S]{0,400}\d+%<\/span>/.test(gust));
+    check("...CALM only near zero and only without a stabiliser",
+      S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, wind: { now: 0.01, avg: null, assist: 0 } }).includes(">CALM<")
+        && !gust.includes(">CALM<")
+        && !S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, wind: { now: 0.01, avg: null, assist: 0.3 } }).includes(">CALM<"));
+    // Every banner variant carries it: a Contract with a crosswind is the
+    // commonest windy bay a new player meets.
+    const contract = S.hudHTML({
+      ...SCHOOL_HUD, wind: { now: 0.5, avg: null, assist: 0 },
+      contract: {
+        name: "Foundry Overrun", kind: "lines" as const, goal: 6, lines: 2,
+        launchesLeft: 9, remaining: [], lost: 1, conditions: "crosswind", tier: 2,
+        progress: null,
+      },
+    });
+    check("a Contract's banner hangs the same notch",
+      contract.includes("bay-banner--contract") && contract.includes("bay-banner__wind"));
+    // …and the canvas no longer draws one: the frame has no wind gauge to
+    // count strokes for, and the scene's wind fields are optional leftovers.
+    const src = (...seg: string[]): string => fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", ...seg), "utf8",
+    );
+    const renderSrc = src("game", "render.ts");
+    check("render.ts draws no wind gauge", !renderSrc.includes("drawWindIndicator") && !renderSrc.includes("WIND_HUD_Y"));
+    check("...and main.ts feeds the notch every frame",
+      src("main.ts").includes('this.barFill("#hud-wind-fill", ratio)'));
+    check("...the live patch writing the ink with the SAME function as the mount",
+      // Two ramps would mean the first frame after mount stepped the colour,
+      // which is the class of bug that made the old canvas gauge and the DOM
+      // readouts disagree. One exported function, called from both sides.
+      src("main.ts").includes("S.windInk(ratio)")
+        && src("main.ts").includes('setProperty("--wind-ink", ink)'));
+  }
+
+  /* ---- A FIXTURE'S RAIL BUDGET MATCHES THE RAIL IT DRAWS ---------------- */
+  // The uifit harness sizes the control rail from railLoadoutFor(id) and then
+  // renders SCREENS[id](). When a new fixture renders the ability buttons but
+  // is not named in railLoadoutFor, the solver books a bare rail under a full
+  // one and the buttons hang off the bottom of every handset — a pile of
+  // `offscreen` / `safearea` / `tap` findings that belong to the harness and
+  // not to the screen. fixtures.ts's comments record that trap catching five
+  // separate fixtures one at a time (hud-congested, hud-fullchain, pause-armed,
+  // bayclear-clause, seal-break), each found by reading a red fleet run; the
+  // wind notch made six. This is the general statement of it, so the seventh is
+  // a failed check here rather than an afternoon spent reading device rows:
+  // whatever ability button a fixture's markup contains, its loadout must
+  // already have booked the slot for it.
+  {
+    const SLOTS = [
+      ["bond", 'id="bond-btn"'],
+      ["demo", 'id="demo-btn"'],
+      ["thaw", 'id="thaw-btn"'],
+      ["auto", 'id="auto-btn"'],
+    ] as const;
+    const unbooked: string[] = [];
+    for (const id of SCREEN_IDS) {
+      let html: string;
+      try {
+        html = SCREENS[id]();
+      } catch {
+        continue; // a fixture that needs a live document is not ours to price
+      }
+      const booked = railLoadoutFor(id);
+      for (const [slot, marker] of SLOTS) {
+        if (html.includes(marker) && !booked[slot]) unbooked.push(`${id}:${slot}`);
+      }
+    }
+    check("every fixture's rail budget books the ability buttons it draws",
+      unbooked.length === 0, unbooked.join(", "));
   }
 
   // A LOCKED LADDER FLOOR SAYS WHY, while the licence is owed. Contracts and
@@ -28747,9 +28874,11 @@ section("Every canvas text site rasterises on whole device pixels (render.ts)");
   const stubs = installBrowserStubs();
   const g = new Game(makeBaseLevel(0), {}, 41);
   g.status = "playing";
-  // The gauge is inert on a calm bay and the stabiliser tag only draws when the
-  // launcher is cancelling wind, so both are switched on: the frame has to be
-  // able to reach all eight sites or "every site" is not what is being checked.
+  // The wind gauge used to be three of these sites (label, readout, STAB tag)
+  // and was switched on here for the count; it is a DOM notch now (screens.ts's
+  // windNotchHTML) and the canvas draws no text for the weather. windMax stays
+  // set so the scene is a windy bay, which the frame must still not draw type
+  // for.
   g.level.windMax = 6;
   g.level.windAssist = 0.3;
   const rec = newRec();
@@ -28771,8 +28900,8 @@ section("Every canvas text site rasterises on whole device pixels (render.ts)");
   });
 
   const fonts = setValues(rec, "font").map(String);
-  check("the frame really reaches all eight canvas text sites",
-    fonts.length === 8, `${fonts.length} font writes: ${fonts.join(" | ")}`);
+  check("the frame really reaches all five canvas text sites, and none for the weather",
+    fonts.length === 5, `${fonts.length} font writes: ${fonts.join(" | ")}`);
   const sizes = fonts.map((f) => Number(/(\d+(?:\.\d+)?)px/.exec(f)?.[1] ?? Number.NaN));
   const devicePx = sizes.map((s) => s * phoneK);
   check("...and not one of them sets a size that lands between device pixels",
@@ -33014,13 +33143,36 @@ section("The desktop monetization boundary (docs/STEAM.md)");
       shot.length > 0);
   }
 
-  // The seven screens a listing is actually built from carry no `only`, so
-  // they are shot at EVERY size. Stated as a pin rather than a comment because
-  // pinning one of them to the reference sizes is a one-word edit that would
-  // silently empty the tablet and iPad rows.
-  for (const id of ["menu", "tier-hub", "workshop", "contracts", "leaderboard", "mid-bay-launch", "stacked-bay"]) {
+  // The screens a listing is actually built from carry no `only`, so they are
+  // shot at EVERY size. Stated as a pin rather than a comment because pinning
+  // one of them to the reference sizes is a one-word edit that would silently
+  // thin every phone and iPad row down to whatever was left.
+  //
+  // THE SET IS GAMEPLAY-LED, which is a change: it used to be the seven
+  // screens the listing page had slots for, four of them chrome — the shop,
+  // the Contract board, the leaderboard and a stacked bay. Those four are
+  // reference-size studies now and the eight bay scenes took their place, so
+  // a device row is ten shots of the game being played plus the front door
+  // and the hub, rather than three of the game and four of its menus. The
+  // guard is unchanged in kind: whatever the listing is built from may not be
+  // pinned to the reference sizes.
+  for (
+    const id of [
+      "menu", "tier-hub", "mid-bay-launch",
+      "line-clear", "blast", "congestion", "bond-chain", "cryo-thaw",
+      "materials-bay", "hazard-run",
+    ]
+  ) {
     const scene = PROMO_SCENES.find((s) => s.id === id);
     check(`the listing scene "${id}" is shot at every size`, !!scene && !scene.only);
+  }
+  // ...and the four that moved OUT are pinned where they went, so restoring
+  // one to every size is a deliberate edit here rather than a silent doubling
+  // of a shoot that already takes half an hour.
+  for (const id of ["workshop", "contracts", "leaderboard", "stacked-bay"]) {
+    const scene = PROMO_SCENES.find((s) => s.id === id);
+    check(`the study scene "${id}" is shot at the reference sizes only`,
+      !!scene && !!scene.only && scene.only.length === 2);
   }
 
   // PROMO_EPOCH is what the page's Date reads (run.ts's clock shim), and the

@@ -11839,6 +11839,102 @@ button.panel { color: var(--text); }
 .bay-banner__pips i.done { background: var(--accent); }
 .bay-banner__pips i.cur { background: var(--warn); box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
 .bay-banner--contract { font-size: max(8px, calc(10 * var(--fpx))); color: var(--text); }
+/* ---------- THE WIND NOTCH (screens.ts's windNotchHTML) ----------
+   A tab hung UNDER the banner, the mirror of the PWR meter's tab above the
+   plant: same face, same border, the top edge open onto the banner it hangs
+   from. Centred and narrower than the banner so it reads as an attachment
+   rather than a second row. Absolutely positioned, so the banner's own box —
+   which the layout's top clearance and the aim gesture's dead zone are sized
+   to — does not grow by it; the notch hangs into the field's top margin the
+   same way the old gauge sat there, only 14px tall where the pill was 52.
+   pointer-events come from `.hud > .bay-banner` (none), so a high lob's drag
+   crosses it exactly as it crossed the banner. */
+.bay-banner__wind {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 64%;
+  min-width: 120px;
+  --wind-h: max(13px, calc(16 * var(--fpx)));
+  height: var(--wind-h);
+  display: flex; align-items: center; gap: max(5px, calc(8 * var(--fpx)));
+  padding: 0 max(7px, calc(10 * var(--fpx)));
+  margin-top: calc(-1 * var(--bw));
+  /* OPAQUE, where the banner above it is 0.78. The notch pulls up by one
+     border width to sit flush under the banner, which puts the banner's own
+     bottom border directly behind it — at 0.78 that line read straight
+     through the notch as a seam across the middle of the wind track. Solid
+     paint covers it, and the colour is the banner's own rgba composited over
+     the field (#04040a), so the two boxes still read as one piece of chrome
+     rather than a lighter tab stuck under a darker one. */
+  background: #090912;
+  border: var(--bw) solid var(--line-strong);
+  border-top: none;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  box-shadow: var(--shadow-hard-sm);
+}
+.bay-banner__wind .lbl {
+  font-family: var(--font-pixel); font-size: max(7px, calc(7 * var(--fpx)));
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); flex: none;
+}
+/* THE TRACK is the calm reference: a dim rail with a centre tick, the fill
+   reaching left or right of it. */
+.bay-banner__wind-track {
+  position: relative; flex: 1; min-width: 0;
+  height: max(4px, calc(5 * var(--fpx)));
+  background: var(--surface-3);
+  overflow: visible;
+}
+.bay-banner__wind-track::before {
+  content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px;
+  margin-left: -1px; background: var(--text-dim); opacity: 0.7;
+}
+/* THE FILL is half the track wide — the full reach — anchored at the centre
+   tick and scaled by the wind ratio (main.ts's barFill). A negative ratio
+   mirrors it leftward.
+
+   ONE FLAT COLOUR, picked from the magnitude by screens.ts's windInk, NOT a
+   gradient the length reveals. A gradient was the first shape of this and it
+   was wrong in a way that inverted the whole cue: `transform: scaleX()` scales
+   an element's PAINT, so the fill did not reveal a cyan-to-here prefix of the
+   ramp — it squashed the entire ramp, red stop included, into whatever width
+   the wind gave it. A 5% breeze rendered a two-pixel smear that was already
+   cyan-amber-red at its tip, and every strength from a breeze to a gale drew
+   the identical picture, just narrower. Reading the colour told the player
+   nothing.
+
+   So the colour is chosen, not revealed, which is also what the canvas gauge
+   this replaced actually did (render.ts's deleted `lerpHex` picked ONE colour
+   from the magnitude). `--wind-ink` is written by whoever writes the scale —
+   windNotchHTML at mount, syncHud per frame — and the fallback is the calm
+   end, so a notch that somehow renders without one is cyan rather than
+   invisible. There is no arrowhead: it lived in the fill's own coordinate
+   space and so was squashed by the same scale, and the bar sitting left or
+   right of the centre tick already says which way the wind pushes. */
+.bay-banner__wind-fill {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 50%;
+  transform-origin: left center;
+  background: var(--wind-ink, var(--accent));
+  will-change: transform;
+}
+/* The Weather Survey's steady-average tick: a dashed hairline at the bay's
+   prevailing wind, so the live bar reads as drifting around a known point. */
+.bay-banner__wind-avg {
+  position: absolute; top: -3px; bottom: -3px; width: 0; margin-left: -1px;
+  border-left: 2px dashed var(--text); opacity: 0.6;
+}
+.bay-banner__wind-avg[hidden] { display: none; }
+/* The status word: STAB when the launcher cancels a share of the wind (the
+   bar is already showing the post-stabiliser number, and without the word
+   the upgrade would look like the weather getting easier), CALM when the
+   live reading is near zero and nothing is fitted. A word, never a number. */
+.bay-banner__wind-stat {
+  font-family: var(--font-pixel); font-size: max(7px, calc(7 * var(--fpx)));
+  letter-spacing: 0.1em; color: var(--text-dim); flex: none;
+  min-width: 4ch; text-align: right;
+}
+.bay-banner__wind--stab .bay-banner__wind-stat { color: var(--success); text-shadow: 0 0 6px rgba(0, 255, 156, 0.4); }
 /* The `@media (max-height: 480px)` step-down that used to live here is gone: on
    any viewport that short the field is at most 480*16/9 ≈ 853px wide, so --fpx
    is always < 0.67 and every calc() above falls to its floor — and those floors

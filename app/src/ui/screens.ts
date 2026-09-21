@@ -3846,6 +3846,64 @@ export const CHAIN_AT_REST: ChainState = {
 };
 
 /**
+ * THE WIND NOTCH — the weather, hung under the bay banner the way the PWR
+ * meter rides above the plant panel: a tab off the panel that already names
+ * the bay, not a pill floating on the field.
+ *
+ * It replaced the canvas gauge (render.ts's drawWindIndicator, gone): a
+ * 300px bar with a "WIND" label, a percentage readout, an arrowhead and a
+ * stabiliser tag, drawn mid-field at world-y 108 — the loudest thing on a
+ * windy bay, over the very airspace the arcs fly through, and the owner's
+ * report was exactly that it bothered them. This says the same things
+ * smaller and in the frame: the direction and the strength as a bar that
+ * grows from a centre tick toward the side the wind pushes, ramping cyan to
+ * red as it reaches (the fill is one gradient, so the colour IS the length —
+ * no per-frame colour maths), and the stabiliser as a word. NO NUMBER: the
+ * percentage was a figure read once and never again, and the bar's reach is
+ * the same fact in the form a glance can take.
+ *
+ * `now` and `avg` are ratios of the bay's windMax (-1..1). The fill is a
+ * full-reach element scaled about the centre tick by `now` — negative scales
+ * mirror it leftward, arrowhead and all — which is main.ts's barFill, the
+ * same transform-not-width write the PWR meter uses. The Weather Survey's
+ * steady-average tick sits at the same scale. Absent entirely on a calm bay.
+ */
+/** Below this share of the bay's windMax the notch says CALM and the fill
+ *  wears the neutral accent. One constant, because a colour that disagreed
+ *  with the word beside it would be worse than either alone. */
+export const CALM_WIND = 0.05;
+
+export function windInk(ratio: number): string {
+  const m = Math.min(1, Math.abs(ratio));
+  // CALM is the accent — the same neutral the notch's own word means, and the
+  // same threshold it uses, so the colour and the word never disagree.
+  if (m < CALM_WIND) return "var(--accent)";
+  // Every wind above it ramps amber to red, with NO GREEN LEG. A cyan→red ramp
+  // reads green across its lower third, and green is --success in this HUD —
+  // it is the STAB word sitting a few pixels away in the same 13px row. A wind
+  // wearing the "you are fine" colour is the misread worth designing out, and
+  // overstating a breeze as amber is the milder error of the two.
+  return `color-mix(in srgb, #ffb020, var(--danger) ${Math.round(((m - CALM_WIND) / (1 - CALM_WIND)) * 100)}%)`;
+}
+
+export function windNotchHTML(wind: { now: number; avg: number | null; assist: number } | null): string {
+  if (!wind) return "";
+  const now = Math.max(-1, Math.min(1, wind.now));
+  const stab = wind.assist > 0;
+  const status = stab ? "STAB" : Math.abs(now) < CALM_WIND ? "CALM" : "";
+  return `<div class="bay-banner__wind${stab ? " bay-banner__wind--stab" : ""}" id="hud-wind" aria-hidden="true">
+    <span class="lbl">Wind</span>
+    <div class="bay-banner__wind-track">
+      <i class="bay-banner__wind-fill" id="hud-wind-fill" style="transform:scaleX(${now.toFixed(4)});--wind-ink:${windInk(now)}"></i>
+      <i class="bay-banner__wind-avg" id="hud-wind-avg"${
+        wind.avg === null ? ' hidden' : ` style="left:${(50 + Math.max(-1, Math.min(1, wind.avg)) * 50).toFixed(2)}%"`
+      }></i>
+    </div>
+    <span class="bay-banner__wind-stat" id="hud-wind-stat">${status}</span>
+  </div>`;
+}
+
+/**
  * The ladder, in whatever state the caller's numbers put it.
  *
  * PURE, and shared by the mount render below and main.ts's syncHud, which is
@@ -4073,6 +4131,15 @@ export function hudHTML(opts: {
    *  with no bay 2 to walk to (owner screenshot). So the banner names the exam
    *  and drops the strip, and nothing else about the bay moves. */
   exam?: boolean;
+  /** THE WEATHER, as a notch under the bay banner (windNotchHTML). Null or
+   *  absent on a calm bay (level.windMax 0), which draws no notch at all — the
+   *  same rule the old canvas gauge kept. `now` and `avg` are RATIOS of the
+   *  bay's windMax, signed the way the wind pushes (-1..1); `avg` is the bay's
+   *  steady prevailing wind and null until the Weather Survey reveals it;
+   *  `assist` is the launcher's stabiliser share (level.windAssist). main.ts's
+   *  syncHud rewrites the live parts every frame; these seed the first paint
+   *  and let a fixture state a gust. */
+  wind?: { now: number; avg: number | null; assist: number } | null;
   /** THE BAY'S OWN ONE-LINE ASK, on a bay that renders the Deep Run readout and
    *  has something to state there.
    *
@@ -4175,7 +4242,7 @@ export function hudHTML(opts: {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
     thawOwned, thawCharges, tier, loaded, contract, drill, fullscreenSupported = true,
-    slots = 0, exam = false, bayGoal = null,
+    slots = 0, exam = false, bayGoal = null, wind = null,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -4341,9 +4408,10 @@ export function hudHTML(opts: {
   // lit, current pip amber) so progress is readable at a glance without
   // parsing any numbers. Contract mode shows the contract's name instead —
   // there is no run position to report.
+  const windNotch = windNotchHTML(wind);
   const bayBanner = drill
     ? `<div class="bay-banner bay-banner--contract" role="status">
-        <span class="bay-banner__mode">${drill.kind ?? "Drill"}</span> ${drill.name}
+        <span class="bay-banner__mode">${drill.kind ?? "Drill"}</span> ${drill.name}${windNotch}
       </div>`
     : exam
     ? // THE EXAM WEARS THE TIER PLATE AND NOTHING ELSE OFF THE RUN'S BANNER.
@@ -4356,11 +4424,11 @@ export function hudHTML(opts: {
       `<div class="bay-banner bay-banner--contract" role="status"
         aria-label="Flight School, Final Exam — Tier 1, bay 1">
         ${tier ? tierPlateHTML(tier, "banner") : ""}
-        <span class="bay-banner__mode">Flight School</span> ${FINAL_EXAM}
+        <span class="bay-banner__mode">Flight School</span> ${FINAL_EXAM}${windNotch}
       </div>`
     : contract
     ? `<div class="bay-banner bay-banner--contract" role="status">
-        <span class="bay-banner__mode">Contract</span> ${contract.name}
+        <span class="bay-banner__mode">Contract</span> ${contract.name}${windNotch}
       </div>`
     : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, ${tier === SKYDECK_TIER ? "Skydeck" : tierText(tier)}` : ""}">
         ${tier ? tierPlateHTML(tier, "banner") : ""}
@@ -4369,7 +4437,7 @@ export function hudHTML(opts: {
         <span class="bay-banner__pips" aria-hidden="true">${Array.from(
           { length: RUN_LEVELS },
           (_, i) => `<i class="${i + 1 < bayNum ? "done" : i + 1 === bayNum ? "cur" : ""}"></i>`,
-        ).join("")}</span>
+        ).join("")}</span>${windNotch}
       </div>`;
   return `<div class="hud${contract ? " hud--contract" : ""}" id="hud">
     <!-- button rail: ONE same-width column of the base buttons — fullscreen

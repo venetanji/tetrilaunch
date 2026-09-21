@@ -213,7 +213,7 @@ slot's ≥1080px floor:
 - gameplay: 1280×720 at 1.875 → 2400×1350, after dismissing whatever teaching
   card is up and hiding the desktop-only `.kbd-hint` strip. A fresh profile now
   starts in **Flight School**, whose lesson card dismisses with
-  `[data-action="coach-done"]`; the four-card Deep Run coach it replaced is
+  `[data-action="coach-done"]`; the four-card run coach it replaced is
   still reachable from Play → Guided Tutorial and dismisses with
   `[data-action="coach-skip"]`. Click whichever is present. Either way the shot
   wants a real pile in it, so fire a few shipments before capturing — a bay on
@@ -334,8 +334,8 @@ Short, sharp challenges with fixed objectives. Retry as often as you like —
 these are for learning a technique, not for grinding.
 
 WORKSHOP
-Salvage from clearing a Tier's Contracts and beating its Deep Run buys permanent
-unlocks. Rig strength is capped per Tier. Completing a Tier — its Deep Run plus
+Salvage from clearing a Tier's Contracts and beating its run buys permanent
+unlocks. Rig strength is capped per Tier. Completing a Tier — its run plus
 the required Contracts — unlocks the next Tier and raises the build-budget
 ceiling, so the leaderboard stays honest.
 
