@@ -8733,6 +8733,30 @@ export function contractsIntroModal(opts: {
  * the shop: a player mid-spend usually has a second thing to buy. Declining is
  * an answer and is remembered (meta.ts's systemDrillsSeen records the OFFER),
  * so the shop never asks twice about the same track.
+ *
+ * THE DRILL IS THE SECONDARY, AND STAYING IS THE PRIMARY. It was the other way
+ * round for a release, and the owner's device pass is what settled it: a player
+ * who had just bought their first system pressed the loudest button on the card
+ * and landed in a bay they had not chosen, with no idea what they were meant to
+ * do in it. Three things made that worse than a mis-press usually is.
+ *
+ * One, padnav's focusInitial parks a pad on `.btn--primary`, so on a controller
+ * the drill was not merely the suggested answer — it was what the NEXT PRESS
+ * did, and the press that dismisses a card and the press that launches a bay
+ * are the same button.
+ *
+ * Two, the offer fires on a FIRST install, which for most players is the
+ * Reactor — and `sys-reactor` is an economy drill (drills.ts's ECONOMY_DRILLS):
+ * `goal: 0, launches: 0`, bay 1's bankroll kept whole. It ends when the funding
+ * target is reached or the purse runs dry, and it is flown with a MAXED
+ * reactor, so neither comes quickly. There is a way out — the pause card's Quit
+ * is ungated on a drill — but nothing on screen says so, and a bay with no
+ * stated finish is a bay a player reads as a trap.
+ *
+ * Three, the question is "Try it?", and the honest default answer to an
+ * optional detour is no. A dialog whose default takes you somewhere is a dialog
+ * that has to be read to be survived; this one can now be dismissed without
+ * being read, which is what a player mid-spend will do anyway.
  */
 export function systemDrillOfferModal(opts: {
   /** The system just installed. */
@@ -8749,8 +8773,12 @@ export function systemDrillOfferModal(opts: {
         <p class="muted end__lede">${opts.brief}</p>
       </div>
       <div class="row end__actions">
-        <button class="btn btn--primary" data-action="sys-drill-go">${opts.drill} →</button>
-        <button class="btn btn--ghost" data-action="sys-drill-skip">Not now</button>
+        <!-- Named for where it lands rather than "Not now": this is the primary
+             now, and a primary that answers a question without saying what it
+             does leaves the player guessing which of the two buttons keeps them
+             where they are. The shop is directly behind this card. -->
+        <button class="btn btn--primary" data-action="sys-drill-skip">Back to the shop</button>
+        <button class="btn btn--secondary" data-action="sys-drill-go">${opts.drill} →</button>
       </div>
     </div>
   </div>`;

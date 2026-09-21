@@ -2757,9 +2757,40 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       check("an old save that held the licence and flew is not sent back to school",
         boot({ licence: LICENCE_LESSON_COUNT, runs: 3 }).licence === SCHOOL_FLIGHTS);
       check("...nor one that held it and bought a system",
-        boot({ licence: LESSON_COUNT, loadout: { reactor: 1 } }).licence === SCHOOL_FLIGHTS);
+        boot({ licence: LESSON_COUNT, runs: 2 }).licence === SCHOOL_FLIGHTS);
       check("...nor one part-way up the old advanced five with a rig",
         boot({ licence: 6, mark: 2 }).licence === SCHOOL_FLIGHTS);
+
+      /* ---- A MID-SCHOOL SAVE SURVIVES BEING CLOSED ----------------------
+       *
+       * The regression this whole block failed to hold, found by measuring
+       * rather than reading: the rule promoted on `ownedTracks`, and the
+       * ladder puts the WORKSHOP RUNG between lesson 4 and lesson 5. So a
+       * player standing at lesson 5 — licence 4, school Contract cleared,
+       * first system bought, exactly as the ladder instructed — satisfied
+       * both halves of "held the old licence AND walked the old on-ramp" and
+       * came back from loadMeta graduated. Lessons 5 to 9 deleted, silently,
+       * with nothing on any screen to say so.
+       *
+       * A ROUND TRIP AND NOT A PREDICATE, because a round trip is the only
+       * shape that can catch it: every surface reads the licence correctly,
+       * the save writes it correctly, and the loss happens in between. It
+       * needed the player to CLOSE THE GAME, which is why the device pass
+       * never met it in a sitting.
+       *
+       * Each rung of the school is walked, so a future promotion rule that
+       * fires on any one of them fails here rather than in somebody's save. */
+      for (let licence = LICENCE_LESSON_COUNT; licence < SCHOOL_FLIGHTS; licence++) {
+        const mid = boot({
+          licence,
+          runs: 0,
+          mark: 0,
+          claimedContracts: ["school-fixed-seed"],
+          loadout: { ...newTiers(), reactor: 1 },
+        });
+        check(`a save standing at flight ${licence} is still there after a reload`,
+          mid.licence === licence, `${licence} -> ${mid.licence}`);
+      }
       // The control, and it is the case the rule is FOR: licensed under the old
       // rules, stock ship, no run filed — the on-ramp's own dead end. It keeps
       // its four flights and the ladder puts it on rung 5, the Contract board.
@@ -28193,6 +28224,42 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("...and the offer is recorded only where it is made",
       mainSrc.indexOf("recordSystemDrillOffer(this.meta, track)")
         > mainSrc.indexOf("licenceDone(this.meta)", mainSrc.lastIndexOf("if (firstInstall", at)));
+  }
+
+  // ...AND THE PRACTICE BAY IS NEVER THE CARD'S DEFAULT ANSWER.
+  //
+  // Owner's device pass: a player who had just bought their first system
+  // pressed the loudest button on the "Try it?" card and landed in a bay they
+  // had not chosen and could not read a finish condition on. The offer is
+  // still an offer — nothing here argues for dropping it — but the button a
+  // stray press finds must be the one that keeps the player in the shop.
+  //
+  // Asserted on the PRIMARY's data-action, not on a label, for the reason the
+  // end card's next-step block gives: the face is copy and will be rewritten,
+  // the action is the promise the button makes. padnav's focusInitial parks a
+  // pad on `.btn--primary`, so this is also what a controller's next A does.
+  {
+    const offer = S.systemDrillOfferModal({
+      name: "Reactor Output",
+      drill: DRILLS["sys-reactor"].name,
+      brief: DRILLS["sys-reactor"].brief,
+    });
+    const primary = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(offer)?.[1];
+    check("the purchase card's main button keeps the player in the shop",
+      primary === "sys-drill-skip", primary ?? "no primary");
+    check("...and the drill is on the card, demoted rather than dropped",
+      offer.includes('data-action="sys-drill-go"')
+        && /class="btn btn--secondary"[^>]*data-action="sys-drill-go"/.test(offer), offer);
+    // THE REACTOR IS THE ONE THIS WAS FOUND ON, and the reason is structural
+    // rather than bad luck: the offer fires on a FIRST install, the Reactor is
+    // what a Tier 1 refit sells, and its drill is an economy drill — no line
+    // goal and no launch budget, so the bay ends on the funding target or an
+    // empty purse and nothing on screen quotes either. Pinned so a later edit
+    // that gives it a goal, or moves it out of ECONOMY_DRILLS, is a decision
+    // somebody took rather than a silent change of what this card offers.
+    check("the reactor's practice bay still has no stated finish",
+      DRILLS["sys-reactor"].goal === 0 && DRILLS["sys-reactor"].launches === 0,
+      `goal ${DRILLS["sys-reactor"].goal}, launches ${DRILLS["sys-reactor"].launches}`);
   }
 
   // ---- WHAT FLYING A FLOOR OPENS ----------------------------------------
