@@ -75,8 +75,11 @@ in difficulty instead of restarting the arc at bay 1 every day.
 | role     | song                | plays over            |
 | -------- | ------------------- | --------------------- |
 | `menu`   | lounge-menu-pause   | menus, pause, tutorial fail |
+| `menu-alt` | Fire inside       | the other half of `menu`'s coin (see below) |
 | `bay-1`  | chill beginning (Remastered) | bay 1, and a tier-1 board's first Contract |
+| `bay-1-alt` | Ecstasy of the senses | the other half of `bay-1`'s coin |
 | `bay-2`  | 2 chill             | bay 2, and a Contract in tiers 1-2's window |
+| `bay-2-alt` | Oasis in Paradise | the other half of `bay-2`'s coin |
 | `bay-3`  | Threes              | bay 3, and a Contract in tiers 1-3's window |
 | `bay-4`  | Level Four on the floor | bay 4, and a Contract in tiers 2-4's window |
 | `bay-5`  | level 5             | bay 5 — it is in 5/4, which is why it is pinned to the NUMBER — any pentomino Contract, and tiers 3-5's window |
@@ -86,6 +89,16 @@ in difficulty instead of restarting the arc at bay 1 every day.
 | `bay-9`  | Neon Static         | bay 9, and a Contract in tiers 7-10's window |
 | `bay-10` | Neon Pixel Pulse    | bay 10, the closer, and a Contract in tiers 8-10's window |
 | `contract-rare` | Whale Circuit | 5% of Contract attempts, beating both rules |
+
+### Roles with two songs
+
+`menu`, `bay-1` and `bay-2` each carry an alternate since 1.0.6. The role is
+still the only name the game asks for; `lib/audio.ts`'s `MUSIC_TAKES` lists the
+files a role may play, and `playMusic` picks one when the role STARTS. A bay's
+pick is keyed on the run's seed, so pausing, backgrounding, toggling music or
+restarting the bay keeps the song and a new run flips the coin again; the
+lounge has no seed and flips every time it comes back. Nothing else in the game
+can tell which take it got.
 
 ## Adding a track
 
@@ -99,6 +112,11 @@ Two steps, because a bed has both a sound and a job:
    role. Every bay has its own song today, so this only moves if you are adding
    a bay; a role outside `bay-1`…`bay-10` also needs adding to the `BayTrack`
    union above the table.
+
+Adding a SECOND song to a role that exists is step 1 with a `-alt` suffix on
+the role (`"Your Song.mp3": "bay-N-alt"`) plus a row in `MUSIC_TAKES`; the
+harness fails on a take that is listed but not shipped and on one that ships
+unlisted, the same two directions as below.
 
 Then `npm run audio:prepare` and `npm run sim:systems`. The harness asserts the
 beds the game can ask for and the shipped `app/public/audio/music/` are the SAME

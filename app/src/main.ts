@@ -1686,7 +1686,11 @@ class App {
         // is exactly as it left it.
         if (resumeMidBayStinger()) return;
         stopStinger();
-        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0));
+        // Salted with the bay's own seed so a role with two songs (audio.ts's
+        // MUSIC_TAKES) keeps the one it opened on across pause, resume and a
+        // Restart Bay, and re-flips only when the seed does — a new run, a new
+        // Contract, a new drill.
+        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0), this.game?.seed);
         return;
 
       // Pausing drops to the lounge bed: the driving track under a paused game
