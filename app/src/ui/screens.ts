@@ -3868,15 +3868,33 @@ export const CHAIN_AT_REST: ChainState = {
  * same transform-not-width write the PWR meter uses. The Weather Survey's
  * steady-average tick sits at the same scale. Absent entirely on a calm bay.
  */
+/** Below this share of the bay's windMax the notch says CALM and the fill
+ *  wears the neutral accent. One constant, because a colour that disagreed
+ *  with the word beside it would be worse than either alone. */
+export const CALM_WIND = 0.05;
+
+export function windInk(ratio: number): string {
+  const m = Math.min(1, Math.abs(ratio));
+  // CALM is the accent — the same neutral the notch's own word means, and the
+  // same threshold it uses, so the colour and the word never disagree.
+  if (m < CALM_WIND) return "var(--accent)";
+  // Every wind above it ramps amber to red, with NO GREEN LEG. A cyan→red ramp
+  // reads green across its lower third, and green is --success in this HUD —
+  // it is the STAB word sitting a few pixels away in the same 13px row. A wind
+  // wearing the "you are fine" colour is the misread worth designing out, and
+  // overstating a breeze as amber is the milder error of the two.
+  return `color-mix(in srgb, #ffb020, var(--danger) ${Math.round(((m - CALM_WIND) / (1 - CALM_WIND)) * 100)}%)`;
+}
+
 export function windNotchHTML(wind: { now: number; avg: number | null; assist: number } | null): string {
   if (!wind) return "";
   const now = Math.max(-1, Math.min(1, wind.now));
   const stab = wind.assist > 0;
-  const status = stab ? "STAB" : Math.abs(now) < 0.05 ? "CALM" : "";
+  const status = stab ? "STAB" : Math.abs(now) < CALM_WIND ? "CALM" : "";
   return `<div class="bay-banner__wind${stab ? " bay-banner__wind--stab" : ""}" id="hud-wind" aria-hidden="true">
     <span class="lbl">Wind</span>
     <div class="bay-banner__wind-track">
-      <i class="bay-banner__wind-fill" id="hud-wind-fill" style="transform:scaleX(${now.toFixed(4)})"></i>
+      <i class="bay-banner__wind-fill" id="hud-wind-fill" style="transform:scaleX(${now.toFixed(4)});--wind-ink:${windInk(now)}"></i>
       <i class="bay-banner__wind-avg" id="hud-wind-avg"${
         wind.avg === null ? ' hidden' : ` style="left:${(50 + Math.max(-1, Math.min(1, wind.avg)) * 50).toFixed(2)}%"`
       }></i>

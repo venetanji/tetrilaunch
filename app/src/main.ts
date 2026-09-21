@@ -949,6 +949,12 @@ class App {
    *  bay's first frame. */
   private strokeCueHalf = -1;
 
+  /** The `--wind-ink` string last written to the bay banner's wind fill, so a
+   *  drifting wind only touches the style when its colour actually moves.
+   *  windInk rounds to whole percent, so this caches for runs of frames
+   *  rather than being a new string every one. Empty before the first write. */
+  private windInkLast = "";
+
   /** What the Contract just finished did to tier progress — whether this
    *  attempt was the first clear, and whether it completed the tier (see
    *  meta.ts's recordContractClear). Null until one resolves. */
@@ -8420,7 +8426,20 @@ class App {
     if (g.level.windMax > 0) {
       const ratio = Math.max(-1, Math.min(1, g.windNow / g.level.windMax));
       this.barFill("#hud-wind-fill", ratio);
-      if (g.level.windAssist <= 0) set("#hud-wind-stat", Math.abs(ratio) < 0.05 ? "CALM" : "");
+      // ...and the INK beside the scale, from the same magnitude. The scale
+      // alone cannot carry strength: it scales the fill's paint, so a gradient
+      // would squash rather than reveal and a breeze would render the red stop
+      // (see app.css). windInk is screens.ts's, the one windNotchHTML mounted
+      // with, so the first live frame agrees with the markup it is patching
+      // instead of stepping to a different ramp. Rounded to whole percent
+      // there, which is what makes the string-equality cache below hit at all
+      // while the wind drifts.
+      const ink = S.windInk(ratio);
+      if (this.windInkLast !== ink) {
+        this.windInkLast = ink;
+        (this.hudEl("#hud-wind-fill") as HTMLElement | null)?.style.setProperty("--wind-ink", ink);
+      }
+      if (g.level.windAssist <= 0) set("#hud-wind-stat", Math.abs(ratio) < S.CALM_WIND ? "CALM" : "");
     }
 
     const comp = g.compactor;

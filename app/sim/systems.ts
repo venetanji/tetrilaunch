@@ -26620,8 +26620,40 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       /class="bay-banner"[\s\S]*bay-banner__wind[\s\S]*<\/div>\s*<\/div>/.test(gust)
         && gust.indexOf("bay-banner__wind") > gust.indexOf("bay-banner__pips"));
     check("...the fill is a signed scale about the centre tick, never a width",
-      gust.includes('style="transform:scaleX(0.6000)"') && stab.includes('style="transform:scaleX(-0.3500)"')
+      gust.includes('style="transform:scaleX(0.6000);') && stab.includes('style="transform:scaleX(-0.3500);')
         && !/hud-wind-fill[^>]*width:/.test(gust));
+    // THE COLOUR IS CHOSEN, NOT REVEALED. The first shape of this painted the
+    // fill with a cyan→amber→red gradient and scaled it, which inverted the
+    // cue it was there to carry: `transform: scaleX()` scales an element's
+    // PAINT, so the bar squashed the whole ramp — red stop included — into
+    // whatever width the wind gave it, and a 5% breeze rendered a smear that
+    // was already red at its tip while every strength drew the same picture.
+    // A flat ink picked from the magnitude is what the canvas gauge did
+    // (render.ts's deleted lerpHex) and what screens.ts's windInk does now.
+    check("...the fill is one flat ink, never a gradient the scale would squash",
+      !gust.includes("linear-gradient") && !stab.includes("linear-gradient")
+        && /id="hud-wind-fill"[^>]*--wind-ink:/.test(gust));
+    check("...and that ink reads weak apart from dangerous",
+      S.windInk(0.08) !== S.windInk(0.9)
+        // A breeze never wears the danger end, at either sign...
+        && !S.windInk(0.08).includes("var(--danger) 100%")
+        && !S.windInk(-0.08).includes("var(--danger) 100%")
+        // ...a gale does, and the ramp is monotone between them.
+        && S.windInk(1).includes("var(--danger) 100%")
+        && S.windInk(0.3) !== S.windInk(0.6) && S.windInk(0.6) !== S.windInk(0.9));
+    check("...with no green leg, because green is this HUD's success colour",
+      // A cyan→red ramp reads green across its lower third, four pixels from
+      // the green STAB word. Every wind above CALM mixes amber into danger
+      // and nothing else, so no reading of the bar can wear --success.
+      [0.06, 0.2, 0.35, 0.5, 0.75, 1].every((m) => S.windInk(m).startsWith("color-mix(in srgb, #ffb020, var(--danger)")));
+    check("...and CALM is the one reading that wears the neutral accent",
+      S.windInk(0.02) === "var(--accent)" && S.windInk(-0.02) === "var(--accent)"
+        // The word and the ink share a threshold, so they can never disagree.
+        && S.windInk(S.CALM_WIND - 0.001) === "var(--accent)"
+        && S.windInk(S.CALM_WIND) !== "var(--accent)"
+        && S.hudHTML({ ...SCHOOL_HUD, contract: null, tier: 1, wind: { now: 0.02, avg: null, assist: 0 } }).includes(">CALM<"));
+    check("...and the mount's ink is windInk's own, not a second ramp",
+      gust.includes(`--wind-ink:${S.windInk(0.6)}`));
     check("...the survey's average is a tick at the same scale, hidden until revealed",
       gust.includes('id="hud-wind-avg" style="left:70.00%"') && /id="hud-wind-avg" hidden/.test(stab));
     check("...and the status is a word, never a number",
@@ -26652,6 +26684,12 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     check("render.ts draws no wind gauge", !renderSrc.includes("drawWindIndicator") && !renderSrc.includes("WIND_HUD_Y"));
     check("...and main.ts feeds the notch every frame",
       src("main.ts").includes('this.barFill("#hud-wind-fill", ratio)'));
+    check("...the live patch writing the ink with the SAME function as the mount",
+      // Two ramps would mean the first frame after mount stepped the colour,
+      // which is the class of bug that made the old canvas gauge and the DOM
+      // readouts disagree. One exported function, called from both sides.
+      src("main.ts").includes("S.windInk(ratio)")
+        && src("main.ts").includes('setProperty("--wind-ink", ink)'));
   }
 
   /* ---- A FIXTURE'S RAIL BUDGET MATCHES THE RAIL IT DRAWS ---------------- */
