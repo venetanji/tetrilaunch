@@ -789,6 +789,691 @@ body.crt-off #app::after { display: none; }
    equation exists to remove, and the exact behaviour iOS 15 had. */
 @media (max-height: 620px) { .menu__brand { --brand-cap: 360px; } }
 @media (min-height: 700px) { .menu__brand { --brand-cap: 640px; } }
+
+/* ---------- One front door, one component (screens.ts's menuScreen) ----------
+   .menu__brand was built for exactly one job: hold a 16:9 demo panel and
+   solve its width from the row's height, leaving just enough of that height
+   for the shelf under it. The double-gameplay split gave the class a second
+   job it was never built for — Home's shelf IS the whole menu now (four
+   stacked actions, no tower or loop column beside it) — which is what the
+   override below is for. It is UNCONDITIONAL — no @media or @supports of its
+   own — so it wins over every one of --brand-cap's height-keyed steps and the
+   cqh equation by SPECIFICITY alone (two classes beats one, regardless of
+   which rule comes later in the file), which is what lets it sit here beside
+   the rule it overrides instead of chasing it down the cascade.
+
+   THE HUB NO LONGER USES THIS CLASS AT ALL. It used to carry a third column —
+   a `.menu__brand`-classed side column holding the back header, the objective
+   banner and a shelf, sized by a `--brand-cap` override of its own — until the
+   hub went from three columns to two (tierHubScreen): the tower took the left
+   column outright and everything else, header through shelf, moved into the
+   action rail on the right. `.menu--hub`'s own grid override is with the
+   tower block below, beside `.tierhub__actions`, which is where its objective
+   banner and shelf rules already lived. */
+
+/* HOME IS TWO COLUMNS NOW, mirroring the hub (screens.ts's menuScreen): the
+   16:9 demo on the LEFT as the centrepiece, the four front-door actions as a
+   calm rail on the RIGHT. It used to be ONE column — the demo stacked over the
+   four actions — which is why `.menu__brand` wrapped both; the split moved the
+   actions out into their own grid column beside the demo, so `.menu__brand`
+   holds only the demo now and IS the demo's own column.
+
+   Built on `.split` exactly as `.menu--hub` is: this rule only names the two
+   tracks (`--split-cols`) and the vertical alignment (`--split-align`), and
+   `.split` supplies the grid, the gap (`--split-gap`, the base `.menu`'s own
+   --sp-4 / --sp-3-under-700 token) and — the reason to build on `.split` at all
+   — the portrait collapse to one column (`@media (max-aspect-ratio: 1/1)`,
+   beside `.split` itself). Demo track is the same `minmax(0, max-content)` the
+   base three-column `.menu` uses, so it measures the panel's own capped width
+   and the grid shrinks it below the cap only where a narrow window lacks the
+   room; the rail track reuses `--rail-w` (300px, 232px under 700px), the same
+   token every other action rail in this file is measured at. 360 (phone demo) +
+   300 rail + a --sp-4 gap + `.menu`'s clamp padding comes to ~738px, inside the
+   780px an iPhone 13 mini gives in landscape.
+
+   `--split-align: center`, NOT the base `.menu`'s `stretch`: the demo is 16:9
+   with a width-derived height, so stretching it to the row would distort it,
+   and the whole point of the right column is a rail that reads BALANCED —
+   centred as a group against the taller demo — rather than a stack pinned to
+   the row's full height. */
+.menu--home {
+  --split-cols: minmax(0, max-content) var(--rail-w);
+  --split-align: center;
+}
+/* THE DEMO NO LONGER RESERVES SHELF HEIGHT. In the old one-column home the
+   panel's width equation (--brand-cap, up in the @supports block) had to leave
+   the four stacked actions their own height below it — that is what
+   --brand-reserve bought. The actions are a separate column now, so the demo
+   owes the height budget nothing and the reserve goes to zero; the panel is
+   then free to grow with the column's height (capped, see the @supports block)
+   instead of being held short to make room under itself. `0px`, not `0`, so the
+   `calc(100cqh - var(--brand-reserve))` in the solver stays a length. */
+.menu--home .menu__brand {
+  --brand-reserve: 0px;
+}
+/* The rail fills its own 300px/232px track (not the old `.menu__nav` width of
+   var(--brand-w), which was the demo's width back when the rail sat under the
+   demo in the same column) and centres its four buttons as a group, so a short
+   rail reads as a calm column beside the demo rather than a stack hung off one
+   edge. The grid's own `--split-align: center` already centres the whole rail
+   against the demo; this centres the buttons WITHIN it for the case a tall
+   window lets the rail outgrow its content. */
+.menu--home .menu__home-actions {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ---------- THE HUB IS TWO COLUMNS (screens.ts's tierHubScreen) ----------
+   The tierlevator on the left, everything a player can DO on the right — no
+   third column holding a demo or a brand stack any more (menuScreen owns
+   that, on the front door). `.split`'s own default (a wide primary column
+   plus a narrow one) is built for a column that reflows; this row is two
+   FIXED-ish widths instead, because the left one is a drawing of a building
+   that must not stretch to fill whatever a window leaves over (the same
+   argument the base `.menu` rule makes for --tower-w) and the right one is a
+   column of full-width buttons and a recap panel that stops looking like a
+   control surface and starts looking like a poster past a certain width.
+
+   --tower-w is the base rule's own token (118px, 92px under 700px width) —
+   reused rather than restated, since the drawing does not care how many
+   columns share the row with it. The action rail gets a RANGE, not a second
+   fixed width: `var(--rail-w)` (300px/232px, the same token and the same
+   700px step the old three-column rail used) as its floor, so nothing here
+   shrinks a button rail that already earned its size, and 460px as its
+   ceiling — wide enough to give `.tierhub__obj-sub`'s longest sentence and
+   the recap panel's four stats room to breathe on a tablet or a windowed
+   desktop, capped well short of the reading-width a `.btn--block` stops
+   looking like a button past. Grid hands a `minmax()` track exactly that
+   much room and no more: it grows to 460px where the row has it, and shrinks
+   toward 300/232 where it does not — the base `.menu` rule's own
+   `justify-content: center` then centres whatever the two columns come to
+   inside the row, precisely as it already does for the (now unused, see the
+   note beside .menu__brand above) three-column case it was written for. */
+.menu--hub {
+  --split-cols: var(--tower-w) minmax(var(--rail-w), 460px);
+}
+
+/* ---------------------------------------------------------------------------
+   THE HUB'S RAIL (screens.ts's tierHubScreen) — FOUR CARDS, THE TOWER'S HEIGHT.
+
+   It was seven rows: a header, an objective banner, a two-item checklist under
+   a claim button, a four-cell recap panel, and three loop buttons. Measured on
+   an iPhone 13 mini that column wanted 511px of a 326px row, and the whole of
+   the compact pass further down this file was the bill — a recap dropped to one
+   row of four unlabelled stats, an objective sub deleted outright, a headline
+   at 10px, every gap at 1px. Seven rows of chrome to say four things.
+
+   So it is four things. The OBJECTIVE (one row, sharing it with the leaderboard
+   and Back), the RUN, the CONTRACTS and the WORKSHOP — and the last three are
+   the same card: a readout stack on the left, one button on the right, a state
+   mark in the corner. Nothing in the rail is a control except the buttons, so
+   nothing in it is ambiguous to a thumb.
+
+   THE RAIL IS EXACTLY THE TOWER'S HEIGHT, which is what makes the two columns
+   read as one picture rather than as a drawing beside a list. The grid already
+   stretches both (`.menu`'s --split-align), the three fixed rows measure their
+   own content, and the Contracts row takes the slack — so the cards are the one
+   thing on this screen that grows on a tablet, which is right: they are the
+   part a player is choosing between.
+   ------------------------------------------------------------------------ */
+/* THE ACTION RAIL IS ITS OWN CONTAINER, standing in for `.menu__brand`'s old
+   role: anything in it that sizes off `cqw` reads the nearest inline-size
+   container, and without this the nearest one left is `.menu` itself
+   (`container-type: size`, up in the base rule) — the WHOLE row, tower column
+   included, not the ~300-460px the rail actually gets. Measured against the row
+   instead of the column, an `8.5cqw` headline printed at 60-100px instead of
+   20-30, which is what an early pass of this screen actually shipped. */
+.tierhub__actions {
+  /* `size`, not `inline-size`: the roomy block at the end of this section keys
+     off the rail's HEIGHT. Safe because the rail's height never came from its
+     content — the grid stretches it to the row — so size containment takes
+     nothing the layout was using. */
+  container: rail / size;
+  /* Not `space-between`: with the Contracts row growing there is never any
+     leftover to distribute, and the gap is then a stated number rather than
+     whatever six rows happened to leave. */
+  justify-content: stretch;
+  gap: 10px;
+}
+/* The three fixed rows are sized by what is IN them; the Contracts row is the
+   only thing here that grows or shrinks, so the rail always lands exactly on
+   the tower's last floor. `min-height: 0` because a grid-stretched flex column
+   otherwise refuses to let its growing child shrink below content. */
+.tierhub__actions > .tierhub__obj,
+.tierhub__actions > .tierhub__card { flex: none; }
+.tierhub__cards { flex: 1 1 auto; min-height: 0; }
+
+/* ---------- 1. THE OBJECTIVE ROW ----------
+   The claim takes the width, the two icon buttons take their own squares. Back
+   is LAST rather than first: the claim is what the player came for, and a rail
+   that opens with an exit reads as a dialog. Both icons keep the 44px floor —
+   they are the only way off this screen and off to the boards. */
+.tierhub__obj {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  position: relative;
+}
+.tierhub__obj > .icon-btn {
+  flex: none;
+  width: var(--tap-min); height: var(--tap-min);
+  min-width: 0;
+}
+/* The plain objective, for the two states with no claim to press (the roof, a
+   finished ladder). A line of text where the button would be, taking the same
+   width so the two icons never move between states. */
+.tierhub__lead-txt {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.tierhub__obj-ttl {
+  font-family: var(--font-display);
+  font-size: clamp(15px, 2vw, 22px);
+  font-size: clamp(15px, 6cqw, 22px);
+  line-height: 1.05;
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.35);
+}
+.tierhub__obj-sub {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------- THE UNLOCK BUTTON IS THE LEGEND ----------
+   Title, sub, and on the right the marks for the two halves the Tier is waiting
+   on. It replaced a headline + a two-row checklist + a disabled button: three
+   rows saying one thing, in two vocabularies, where the button at the bottom
+   could not be pressed and so could not explain itself.
+
+   NOT DISABLED while locked. A dead Unlock answers "why not" with nothing;
+   this one is a real button and main.ts blinks whichever halves are still
+   owed — the legend is where the answer already is, so the press points at it
+   rather than at a sentence. `data-ready` is what the handler branches on, so
+   it never has to read a class list. */
+.tierhub__unlock-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--tap-min);
+  position: relative;
+  justify-content: flex-start;
+  text-align: left;
+  gap: 10px;
+  padding: 6px 14px;
+}
+.tierhub__unlock-btn .btn__txt { align-items: flex-start; flex: 0 1 auto; min-width: 0; }
+/* The locked face is a SECONDARY that still shouts its title. The button is the
+   objective as well as the control, so the goal keeps the accent and the glow
+   the old display headline had; the sub drops to the rail's reading face. */
+.tierhub__unlock-btn.btn--secondary .btn__txt > span:first-child {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(25, 242, 255, 0.45);
+}
+.tierhub__unlock-btn.btn--secondary .btn__sub { color: var(--text-muted); }
+
+/* ---------- THE MARKS (screens.ts's sealMarkHTML / checkMarkHTML) ----------
+   One seal for the run, one check per Contract — the same two glyphs on the
+   legend and on the control that fills each one. Sized by the box they sit in
+   and never by their own type, so the vocabulary survives every compact step
+   below. */
+.mark { display: inline-block; flex: none; box-sizing: border-box; }
+/* THE SEAL IS TWO ELEMENTS: a socket and the stamp inside it. `clip-path`
+   clips after filters and shadows, so an octagon cannot carry a ring of its
+   own — anything outside the polygon is cut away with the corners. The socket
+   is that ring, a second octagon 4px larger filled with near-black. On the dark
+   rail it reads as a hairline; on the ceremony button's bright sweep it is the
+   only reason the cyan stamp is still visible. */
+.mark--seal {
+  width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+}
+.mark--seal .mark__pip {
+  width: 14px; height: 14px;
+  background: var(--text);
+  opacity: 0.18;
+  clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+}
+.mark--seal.is-done .mark__pip { background: var(--accent); opacity: 1; }
+/* A square IS a mino, which is what a Contract deals — and a square is not
+   clipped, so its ring is an ordinary box-shadow. */
+.mark--chk {
+  width: 14px; height: 14px;
+  border: 2px solid var(--text);
+  opacity: 0.35;
+}
+.mark--chk.is-done {
+  border-color: var(--success);
+  background: var(--success);
+  opacity: 1;
+}
+/* THE LEGEND — the seal, a beat, then the three checks. The beat is what says
+   these are two different conditions rather than four of one kind. */
+.tierhub__legend {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: auto; flex: none;
+}
+.tierhub__legend .mark--seal { margin-right: 6px; }
+/* ON THE READY BUTTON the marks keep their own colours — a legend that went
+   monochrome on the fill would stop being the same legend — and take a dark
+   ring for contrast, the check's box-shadow doing what the seal's socket does
+   by construction. */
+.is-ceremony .mark--chk.is-done {
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4), 0 0 6px rgba(0, 255, 156, 0.6);
+}
+/* THE CORNER MARK on the run card: the same seal, vertically centred against
+   the card's right edge, standing for the half that card clears. */
+.mark--corner {
+  position: absolute;
+  top: 50%; right: 10px;
+  transform: translateY(-50%);
+}
+.tierhub__contract > .mark--corner {
+  top: 9px; right: 9px;
+  transform: none;
+  width: 16px; height: 16px;
+}
+
+/* ---------- THE CEREMONY (the claim is live) ----------
+   The one moment on this screen worth a party: both halves landed and a Tier
+   is waiting to be opened. Three things happen at once and none of them moves
+   the button — a ring OUTSIDE its edge, a sweep ACROSS its fill, and ten pixel
+   sparkles over the top.
+
+   THE RING IS A WRAPPER, not a border. A conic-gradient border would be cut by
+   the button's own radius and a box-shadow ring cannot hold a gradient at all,
+   so the ring is a padded parent: 3px of padding around the button, which the
+   objective row absorbs by growing 6px (the Contracts row below gives it back —
+   see `.tierhub__cards`). It was a negative margin for a while, to keep the
+   row's arithmetic identical; sim/uifit's `spill` assertion is right to refuse
+   that — a box drawn outside the cell that lays it out is exactly what that
+   check exists to catch, and "it is only the ring" is the argument every such
+   overflow makes. The button's hard offset shadow comes off inside the ring —
+   an offset shadow under a ring reads as the ring being broken. */
+/* `.tierhub__halo.tierhub__card`, at two classes, because it carries BOTH and
+   the card's own rule is later in this file — see the reset note below. */
+.tierhub__halo.tierhub__card {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  /* It also carries `.tierhub__card`, and not for the look: main.ts's
+     acknowledgement walks up from the pressed control to the nearest card and
+     asks whether it holds an alert mino, and on the ceremony button the mino
+     is on this wrapper rather than inside the button (the ring would cut it).
+     So the four card properties that would show through are reset here — this
+     rule comes later in the file at equal specificity, which is the whole of
+     why it can. */
+  border: 0; min-height: 0; gap: 0; align-items: stretch;
+  padding: 3px;
+  border-radius: calc(var(--r-md) + 3px);
+  background: conic-gradient(from var(--halo-a, 0deg),
+    #ff2d55, #ffb020, #00ff9c, #00f0ff, #7b5cff, #ff2d55);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.18), 0 0 26px rgba(0, 240, 255, 0.35);
+  animation: halo-spin 3s linear infinite;
+}
+/* A registered custom property, because an angle cannot be interpolated as a
+   bare custom property — an unregistered `--halo-a` animates as a string and
+   the ring simply snaps at the end of each cycle. */
+@property --halo-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes halo-spin { to { --halo-a: 360deg; } }
+.tierhub__halo > .btn { border-color: transparent; box-shadow: none; }
+/* The mino rides the WRAPPER's corner, not the button's, so the ring never
+   cuts it. */
+.tierhub__halo > .alert-mino { top: -8px; right: -8px; }
+/* THE SWEEP — the fill is a 200%-wide gradient sliding back and forth over its
+   own box. Background-position only: nothing about the button's geometry
+   changes, which is the rule every animated instrument in this file keeps. */
+.tierhub__unlock-btn.is-ceremony {
+  overflow: hidden;
+  background: linear-gradient(100deg, #00f0ff 0%, #5fdcff 30%, #9a8bff 62%, #ff7ad9 100%);
+  background-size: 200% 100%;
+  animation: unlock-sweep 6s ease-in-out infinite;
+}
+.tierhub__unlock-btn.is-ceremony .btn__txt > span:first-child,
+.tierhub__unlock-btn.is-ceremony .btn__sub {
+  color: var(--accent-ink);
+  text-shadow: none;
+}
+.tierhub__unlock-btn.is-ceremony .btn__sub { opacity: 0.85; }
+@keyframes unlock-sweep {
+  0%, 100% { background-position: 0% 0; }
+  50% { background-position: 100% 0; }
+}
+/* TEN PIXEL SPARKLES, at fixed percentages so they sit in the gaps between the
+   title, the sub and the legend rather than over the type. A plus-star drawn in
+   box-shadow arms (3px) and a plain dot (2px) — two sizes, because ten
+   identical specks read as a texture. They twinkle out of phase on a 2.4s
+   cycle, each one a tenth of it behind the last (screens.ts sets the delay), so
+   the button never looks like it is blinking. */
+.tierhub__spark {
+  position: absolute;
+  width: 3px; height: 3px;
+  background: #fff;
+  pointer-events: none;
+  box-shadow: 0 -3px 0 #fff, 0 3px 0 #fff, -3px 0 0 #fff, 3px 0 0 #fff;
+  animation: spark-twinkle 2.4s steps(1, end) infinite;
+}
+.tierhub__spark--dot { width: 2px; height: 2px; box-shadow: none; }
+@keyframes spark-twinkle {
+  0% { opacity: 1; }
+  33% { opacity: 0.45; }
+  66%, 100% { opacity: 0.1; }
+}
+/* THE THEATRE GOES, THE TEACHING STAYS. The ring keeps its colours at a fixed
+   angle, the fill keeps its sweep at its resting position, and the sparkles
+   hold at a steady glint — the button still reads as the loudest thing on the
+   screen, which is the whole of what the ceremony is FOR. Nothing here was
+   carrying information motion had to hand back: the claim is already stated in
+   words, in the legend's filled marks, and in the button being primary. */
+@media (prefers-reduced-motion: reduce) {
+  .tierhub__halo { animation: none; }
+  .tierhub__unlock-btn.is-ceremony { animation: none; background-position: 30% 0; }
+  .tierhub__spark { animation: none; opacity: 0.6; }
+}
+
+/* THE TYPE RIDES OVER THE SPARKLES. Their percentages were picked for the
+   phone's proportions; on a desktop window the button is twice as wide and a
+   spark landed on the N of UNLOCK. A stacking layer for the two text blocks
+   costs nothing and makes the placement a matter of taste, never of legibility. */
+.tierhub__unlock-btn.is-ceremony > .btn__txt,
+.tierhub__unlock-btn.is-ceremony > .tierhub__legend { position: relative; z-index: 1; }
+
+/* ---------- 2 & 4. THE RUN CARD AND THE WORKSHOP CARD ----------
+   One component, two contents. A readout stack on the left (a plate or a glyph,
+   a title, a live number), the button on the right, and — on the run — the seal
+   in the corner. Deliberately NOT `.panel`'s gradient + hard shadow: that is
+   modal weight, and this rail carries four of these in ~310px. */
+.tierhub__card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 12px;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.03);
+}
+/* The seal hangs in the run card's right gutter, so that card alone reserves
+   the width for it. */
+.tierhub__run { padding-right: 38px; }
+.tierhub__card-txt {
+  display: flex; flex-direction: column; gap: 4px;
+  line-height: 1;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* The line-heights are explicit BECAUSE the stack sets `line-height: 1`: a 1em
+   line box is shorter than the face's own ascent + descent, and with
+   `overflow: hidden` on for the ellipsis that clips the tops and tails of the
+   type rather than wrapping it (caught by sim/uifit's `textclip` on the wide
+   desktop rows, where the sub is long enough to trip the rule). The stack's 1
+   is still what keeps the two lines tight against each other; these say what
+   each line actually needs. */
+.tierhub__card-ttl {
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The reading face for the terms line, not the pixel one: it is a SENTENCE of
+   numbers ("10 bays · 3:00 · best 98760") and the pixel face turns that into
+   a texture at any size a rail can afford. */
+.tierhub__card-sub {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tierhub__shop > .ico { flex: none; color: var(--text-muted); margin: 0 2px; }
+/* THE BANK, in the same green pixel face the Contract cards quote their reward
+   in — one number, one costume, wherever salvage appears on this screen. */
+.tierhub__bank .currency--salvage {
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  gap: 6px;
+  text-shadow: 0 0 8px rgba(0, 255, 156, 0.45);
+}
+/* THE CARD'S BUTTON — the only thing in a card a tap does anything to, at the
+   tap floor like every other control in the app. `flex: none` so a long label
+   never squeezes the readout, `white-space: nowrap` so it never wraps to two
+   lines and grows the card. */
+.tierhub__go {
+  flex: none;
+  min-height: var(--tap-min);
+  padding: 0 14px;
+  font-size: 9px;
+  gap: 6px;
+  white-space: nowrap;
+  position: relative;
+}
+.tierhub__go .ico { width: 11px; height: 11px; margin: 0; transform: translateY(-1px); }
+/* THE TRIANGLE RIDES 1px HIGH ON PURPOSE. The pixel face has no descenders and
+   its ink sits a pixel above its own em box, so a glyph centred on the LINE
+   box lands a pixel and a half below the label's visual centre — measured on
+   the card button at 4x, where "▸ PLAY" read as a triangle sitting low. A
+   transform rather than a margin so the button's layout box is untouched. */
+
+/* ---------- 3. THE CONTRACT CARDS ----------
+   Three cards in a row that takes the rail's slack. Name at the top with its
+   state mark in the corner, the reward pinned to the foot, the button under it.
+
+   THE ASK IS NOT ON THE FACE. It was the headline — "6 lines" in accent mono —
+   and it is the one thing on the card a player cannot act on: they choose by
+   NAME, they are paid by the reward, and the ask is the first line of the
+   briefing the tap opens. Three large numbers side by side read as a
+   comparison the game is not offering. */
+.tierhub__cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  position: relative;
+}
+/* THE CARD IS CAPPED AND CENTRED IN THE ROW. The row takes the rail's slack —
+   that is what makes the rail the tower's height — but a card is a name, a
+   reward and a button, and past about 170px the auto margin between them stops
+   being air and starts being a hole (measured on an 800x600 window, where the
+   row is 286px). So the card fills the row up to the cap and centres in
+   whatever is left, which reads as the row breathing rather than as three
+   posters with nothing on them. */
+.tierhub__contract {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 5px;
+  min-height: 0;
+  height: 100%;
+  max-height: 190px;
+  align-self: center;
+  padding: 8px 9px 9px;
+}
+.tierhub__contract-name {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.1;
+  color: var(--text);
+  padding-right: 22px;
+}
+/* THE PREVIEW — what the bay will deal, as the belt's own miniatures: the
+   exact inventory of a pattern Contract, the one shape a set piece rigs, the
+   material a lines Contract carries (or the cleared-line mark when it carries
+   none). It is the middle of the card, and on a phone there is no middle: the
+   name, the reward and the button take the 150px the card has, so the strip is
+   drawn away here and switched on by the roomy block below, where a 250px
+   card without it was a name over a hole. No numbers — the count of shapes is
+   the count of miniatures, which is the one form of it a player can read at a
+   glance, and the ask itself stays where it was: the first line of the
+   briefing the tap opens. */
+.tierhub__preview { display: none; }
+
+/* THE REWARD, pinned to the foot by the auto margin so all three read level
+   however many lines their names ran to. Green pixel type for a figure and the
+   reading face for a word — "Cleared" and "Practice" are states, not amounts,
+   and setting them in the money face would price them. */
+.tierhub__pay {
+  margin-top: auto;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--success);
+  /* Same argument as the card readouts above: the ellipsis wants
+     `overflow: hidden`, and a 1em line box then clips the word variants' own
+     descenders ("Practice", "Cleared"). */
+  line-height: 1.3;
+  text-shadow: 0 0 8px rgba(0, 255, 156, 0.45);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tierhub__pay .currency--salvage { gap: 5px; }
+.tierhub__pay.is-cleared, .tierhub__pay.is-done, .tierhub__pay.is-practice,
+.tierhub__pay.is-locked {
+  font-family: var(--font-ui);
+  font-weight: var(--fw-medium);
+  font-size: 13px;
+  text-shadow: none;
+}
+.tierhub__pay.is-practice, .tierhub__pay.is-locked { color: var(--text-muted); }
+.tierhub__contract .tierhub__go {
+  flex: none;
+  width: 100%;
+  margin-top: 6px;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 8px;
+}
+/* Cleared today — dim, not dead: a cleared Contract stays replayable, so the
+   card reads "already banked" rather than "can't tap this". */
+.tierhub__contract.is-done { border-color: rgba(0, 255, 156, 0.4); }
+.tierhub__contract.is-done .tierhub__contract-name { opacity: 0.6; }
+/* SHUT — the day's allowance spent, or the ladder not yet at its Contract rung.
+   The app's one dead-control costume, the same recipe the shop cards' BUY and
+   the rack's price button already wear. */
+.tierhub__contract.is-shut { filter: grayscale(0.7) brightness(0.6); }
+.tierhub__contract.is-shut .tierhub__go { cursor: default; }
+
+/* ---------- THE ROOMY RAIL — a desktop window, a tablet ----------
+   The rail is the tower's height, and on a phone that is the whole argument:
+   every row at its floor and the Contracts row taking the 60-120px left. On a
+   1280x720 window the rail is 544px (every desktop is this layout — .screen's
+   --chrome-zoom magnifies it rather than re-laying it out), the three fixed
+   rows still measure 51 + 68 + 60, and the 329px left over held a 190px card
+   with a 70px hole above it and another below. Owner screenshot, a MacBook.
+
+   So the slack is SPENT ON EVERY ROW rather than dropped into one: the gaps
+   open from 10 to 14, the objective row, the run card and the Workshop card
+   each take a little more air, and the Contracts row is then close enough to
+   its cards' cap that the centring reads as breathing rather than as a hole.
+   The card's cap follows the row it is in (88cqh of the Contracts row, which
+   is a size container of its own) up to 250px, so a taller window grows the
+   cards a little further before it grows the air around them.
+
+   Keyed on the RAIL'S height, not the window's: the same 720px-tall CSS
+   viewport is a laptop at zoom 1 and a 1920x1080 desktop at 1.5, and the rail
+   is what actually has the room. 470px is above every phone in the fleet
+   (a Pixel 7 gives the rail 393px) and below every desktop window (800x600
+   gives it 501). */
+/* NAMED, because the Contracts row below is a size container of its own (the
+   card's cap is a fraction of it), and an unnamed query from inside a card
+   would measure that row — 296px, and the whole block would go dark exactly
+   where it was written for. */
+@container rail (min-height: 470px) {
+  .tierhub__actions { gap: 14px; }
+  .tierhub__unlock-btn { min-height: 60px; }
+  .tierhub__lead-txt { min-height: 60px; justify-content: center; }
+  .tierhub__card { min-height: 80px; padding: 10px 16px; gap: 14px; }
+  .tierhub__run { padding-right: 42px; }
+  .tierhub__shop { min-height: 72px; }
+  .tierhub__cards { container-type: size; gap: 14px; }
+  .tierhub__contract {
+    max-height: clamp(190px, 88cqh, 250px);
+    padding: 12px 12px 12px;
+    gap: 8px;
+  }
+  .tierhub__contract-name { font-size: 15px; }
+  .tierhub__contract .tierhub__go { margin-top: 8px; }
+  .tierhub__preview {
+    display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
+    gap: 6px 5px;
+    flex: 1 1 auto; min-height: 0;
+    padding: 6px 4px;
+    opacity: 0.85;
+  }
+  /* The miniatures are sized here in px rather than taking pieceMiniHTML's
+     em-tracking default: the strip is a picture, not a tally beside type. */
+  .tierhub__preview .piece-mini { height: 20px; width: calc(20px * var(--mini-cols) / 2); }
+  .tierhub__preview .ico { width: 32px; height: 32px; color: var(--text-muted); }
+  .tierhub__preview .mat-icon { width: 30px; height: 30px; }
+  .tierhub__contract.is-shut .tierhub__preview { opacity: 0.5; }
+}
+
+/* ---------- THE ALERT MINO (screens.ts's alertMinoHTML) ----------
+   The one directive, as a single amber cell in the corner of the control that
+   performs it. The carrying control also takes the warm border (`.btn--next`),
+   so the mark is the pointer and the border is the state: acknowledging a step
+   takes the square and leaves the border. */
+.alert-mino {
+  position: absolute;
+  top: -5px; right: -5px;
+  width: 14px; height: 14px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  line-height: 14px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg), 0 2px 8px rgba(255, 176, 32, 0.5);
+  animation: mino-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes mino-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alert-mino { animation: none; }
+}
+
+/* ---------- THE BLINK — the locked Unlock's answer ----------
+   Pressing the locked Unlock flashes whichever halves are still owed
+   (`.is-owed`, set by screens.ts; main.ts adds `.is-blink` for ~900ms). It is
+   the button pointing at the controls instead of printing a sentence: the
+   legend on the Unlock and the marks on the cards are the same two glyphs, so
+   the flash reads as "these ones" with nothing to read.
+
+   The owed MARKS go warn with the card, because a border alone on a rail of
+   bordered cards is a subtle change, and the mark is the thing the legend is
+   actually about. Two pulses over 0.9s — one reads as a glitch, three reads as
+   an error state — and `steps`-free easing so it breathes rather than strobes.
+   Re-adding the class replays it: main.ts removes it on the way in, which is
+   what makes a second impatient press answer again. */
+.tierhub__actions .is-blink {
+  border-color: var(--warn);
+  animation: owed-blink 0.9s var(--ease) 2;
+}
+.is-blink .mark--chk { border-color: var(--warn); opacity: 1; }
+.is-blink .mark--seal .mark__pip { background: var(--warn); opacity: 1; }
+@keyframes owed-blink {
+  0%, 100% { box-shadow: none; }
+  40% { box-shadow: 0 0 0 2px rgba(255, 176, 32, 0.35), 0 0 18px rgba(255, 176, 32, 0.45); }
+}
+/* The teaching survives without the pulse: the warn border and the warn marks
+   are the answer, and they are colour rather than motion. */
+@media (prefers-reduced-motion: reduce) {
+  .tierhub__actions .is-blink {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(255, 176, 32, 0.35);
+  }
+}
+
 /* ...and the enhancement, for engines that can measure the column. Scoped away
    from the stacked branch because `100cqh` is the whole .menu row, and the row
    is the brand column ONLY while the grid has one row — which is the landscape
@@ -806,6 +1491,24 @@ body.crt-off #app::after { display: none; }
        what the phones already draw, and it is what the base step above gives
        them too — so this pin only has to exist inside the enhancement. */
     @media (max-height: 460px) { .menu__brand { --brand-cap: 360px; } }
+    /* HOME'S PANEL IS CAPPED, because its reserve is zero (the actions moved
+       into a column of their own — see `.menu--home .menu__brand` above). With
+       the reserve gone the equation is (100cqh * 16/9), which on a tall window
+       would balloon the demo to 900px+ and swamp the 300px rail beside it. So
+       home clamps it to the authored 640 — wide enough to be the centrepiece,
+       short enough to stay a panel next to a calm rail — and the grid's own
+       `minmax(0, max-content)` track shrinks it below the cap wherever a
+       narrow-but-tall window (an 800x600 desktop drag) lacks the width. Two
+       classes, so it wins over the unconditional `.menu__brand` solver above;
+       it sits INSIDE this @supports because it uses `100cqh`, and the stepped
+       fallback governs an engine without container units exactly as before. */
+    .menu--home .menu__brand {
+      --brand-cap: min(calc((100cqh - var(--brand-reserve)) * 16 / 9), 640px);
+    }
+    /* ...and the phone keeps its 360, a two-class pin placed AFTER the home cap
+       so it wins the tie on source order — the cap alone would hand a 348px-tall
+       phone column a ~618px panel that does not fit beside the rail. */
+    @media (max-height: 460px) { .menu--home .menu__brand { --brand-cap: 360px; } }
   }
 }
 .menu__title {
@@ -2193,65 +2896,42 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ============================================================================
-   THE BUILDING ON A PHONE — eleven rungs at the tap floor, in a column that
-   fits six.
+   THE BUILDING ON A PHONE — all eleven rungs, no scroll.
 
-   THE ARITHMETIC THIS REPLACES. A 360px-tall phone gives the shaft ~313px;
-   eleven floors, two 3px paddings and ten 2px gaps divide that to 26px a
-   floor, and the plinth under them is 22px. sim/uifit recorded exactly that —
-   `.tower__floor 82x22` through `108x30`, `.tower__base 92x22`, across 662
-   baselined `tap` findings, the largest single block of them in the file — and
-   the note that used to stand here called it settled: "eleven floors cannot
-   each be 44px in a 313px shaft by arithmetic". That is true of a shaft that
-   must show all eleven at once, and that was the assumption, never a
-   requirement. The ladder is a LIST — eleven named floors, read one at a time,
-   with one of them parked on — and a list longer than its column is the one
-   case the product rule has always had an answer for: it scrolls, and the
-   answer is written down in sim/uifit/run.ts's allowlist beside the workshop's
-   stock and the guide's index.
+   A 360px-tall phone gives the shaft ~313px; eleven floors, two 3px paddings
+   and ten 2px gaps divide that to about 26px a floor. So compact density does
+   what every taller density already does — the rungs DIVIDE the column, share
+   its height, and all eleven sit on screen at once with nothing below a fold.
+   sim/uifit records them the way it always did while they divided: `.tower__floor
+   82x22` through `108x30`, a band of `tap` findings under the 44px floor, which
+   is the accepted cost of a building read at a glance.
 
-   So at compact density the run of floors becomes an allowlisted scroller and
-   every rung takes the 44px floor: 11 x 44 + 10 x 2 + 6 = 510px of building
-   behind a ~291px window, which the player moves through by drag
-   — and which main.ts parks on the selected floor on every render and every
-   ride (its parkTowerView, off ui/scrollkeep's centreScroll), so the floor the
-   rest of the screen is describing is never the one below the fold.
+   IT USED TO SCROLL HERE. Each rung took the full 44px tap floor (11 x 44 +
+   gaps = 510px of building behind a ~291px window) and the run became an
+   allowlisted scroller that main.ts parked on the selected floor. Two things
+   changed the call. The Flight School lobby left the shaft — onboarding moved
+   to the front door — giving its ~22-44px of plinth back to the rungs; and the
+   owner's read is that a ten-floor ladder you take in at a glance beats one you
+   drag past a fold. Under 44px on the shortest phones is the price, and it is
+   the price this ladder paid before the scroller and pays again now.
 
-   WHAT DOES NOT CHANGE, and both halves are load-bearing:
+   WHAT DOES NOT CHANGE:
 
-     - EVERY OTHER DENSITY. Regular and roomy still divide the column between
-       eleven rungs, because there the answer to "does a floor clear 44px" is
-       arithmetic about a column that has the height (a 1280x720 laptop gets
-       42px, a 1920x1080 desktop 44.7) rather than a hard no. Nothing above
-       this block is touched, so no desktop or tablet row in the baseline
-       moves — the condition this whole change is held to.
-     - THE CEREMONY. Not one property here is a thing the ride animates: the
-       ride writes `top` on the car and paint on the plates, and the car is
-       absolutely positioned INSIDE the scroller, so it rides the shaft's own
-       floor-plus-gap step — read from the same token the floors are, 46px
-       here against roomy's 28 — and the scroll offset simply carries it. The
-       destination floor is pinned into view before the ride starts (it is the
-       selected floor, and that is what parkTowerView reveals on the mount
-       that starts the ceremony), so the car climbs into a window that is
-       already showing where it is going.
+     - EVERY OTHER DENSITY. Regular and roomy already divide the column; nothing
+       above this block moves, so no desktop or tablet baseline row shifts.
+     - THE CEREMONY. The ride writes `top` on the car and paint on the plates,
+       both off --tower-floor-h and --tower-run-h — and with the column divided
+       the run IS the box (100%), the same resting geometry every other density
+       measures. The car rides the shared floor-plus-gap step with no scroll
+       offset to carry it, and the selected floor is already on screen.
 
-   THE HEADHOUSE IS STILL 22px HERE, and that is a measurement rather than an
-   omission. It is drawn in the 19px band ABOVE the shaft, and on the budget
-   phone that band is the whole distance to the top of the glass — the tower's
-   box starts 19px down a 360px viewport. Growing the roof to 44px sends it 25px
-   off the screen; growing it downward puts it over the Skydeck's own rung,
-   which is the mis-tap .tower__head--floor's note rejects it for. The only fit
-   that works is the roof becoming a row INSIDE this scroller, which is a
-   restructure of the beacon (and of where the Tier S gesture lives) rather
-   than a size, so it is left for the owner's call and its 24 baseline entries
-   stand.
+   THE HEADHOUSE stays in the 19px band ABOVE the shaft (the Tier S beacon), so
+   it takes no height from the eleven rungs below it.
    ========================================================================== */
-[data-density="compact"] .tower {
-  /* THE TAP FLOOR, as a floor rather than a quotient. 44px is WCAG 2.5.5 /
-     iOS HIG, the same number every button on this screen is built to and the
-     one the rail's own buttons cannot go under. */
-  --tower-floor-h: 44px;
-}
+/* NO 44px OVERRIDE ANY MORE. Compact keeps the divided --tower-floor-h every
+   other density uses, so all eleven rungs share the shaft and the run is the
+   box — see the block header above for why fitting beat scrolling once the
+   lobby left the shaft. */
 /* …AND THE PLINTH WITH THEM. The earned ground floor is furniture — it took
    22px on the argument that it should share the rungs' trade (see
    .tower__base--floor) — and with the rungs off that trade there is nothing
@@ -2262,45 +2942,13 @@ body.crt-off #app::after { display: none; }
    and 47.5px on a 412px-tall phone — writing 44 here would make the door
    SMALLER on half the fleet. */
 [data-density="compact"] .tower:not(.tower--lobby) { --tower-lobby-h: 44px; }
-[data-density="compact"] .tower__floors {
-  overflow-y: auto;
-  /* A rubber-band at the top of the shaft must not propagate to the WebView
-     and drag the whole app — the same containment every [data-scroll] region
-     takes, spelled here because this box is not one of them (see below). */
-  overscroll-behavior: contain;
-  /* THE FADE, so a floor cut by the window's edge reads as a building
-     continuing rather than as a plate drawn wrong. 12px is half a rung: enough
-     that the clipped plate is visibly dissolving, small enough that the floor
-     under the fold is still identifiable as a numbered floor rather than a
-     smudge. Symmetric, because both ends are cut at every offset except the
-     two extremes.
-     `mask-image` and its -webkit- twin, in that order: iOS 15's WKWebView —
-     which this app ships to — knows only the prefixed property, and a browser
-     that knows both takes the last one it understands. */
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px,
-    #000 calc(100% - 12px), transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 12px,
-    #000 calc(100% - 12px), transparent 100%);
-}
-/* NO SCROLLBAR IN THE SHAFT, on the one pointer that would draw one. The
-   building is 92-118px wide and 22 of those are the car's lane, so the 10px
-   the fine-pointer rule gives every scroller (see "The scrollbar, on the
-   engines that draw one") would come off the floors' own number column. A
-   compact viewport with a fine pointer is a desktop window dragged under
-   518px tall; the mask above is the affordance there as much as on a phone. */
-[data-density="compact"] .tower__floors::-webkit-scrollbar { width: 0; height: 0; }
-/* The rungs stop dividing the column and start stacking in it. */
-[data-density="compact"] .tower__floor { flex: none; height: var(--tower-floor-h); }
-/* The guide rail spans the RUN, not the window. `bottom` resolves against the
-   scrollport (the padding box, i.e. the ~291px on screen) for an absolutely
-   positioned child of a scroller, so a rail written as top/bottom would end
-   two hundred pixels short of the building it is a rail for and scroll away
-   from the car. Same 6px inset at each end as the roomy rule, taken off the
-   run instead. */
-[data-density="compact"] .tower__rail {
-  bottom: auto;
-  height: calc(var(--tower-run-h) - 12px);
-}
+/* The run of floors no longer scrolls at compact density — all eleven divide
+   the shaft and fit on screen — so it keeps the base .tower__floors box: no
+   overflow, no edge fade, no scroll containment, and .tower__floor keeps the
+   base `flex: 1 1 0` that shares the column between the eleven rungs. */
+/* The guide rail keeps the base rule (top/bottom 6px): the shaft no longer
+   scrolls at compact density, so the run IS the box and top/bottom spans the
+   whole building exactly as it does on every other density. */
 
 /* ============================================================================
    THE UNLOCK RIDE (screens.ts's TowerState.celebrate) — a new tier, celebrated.
@@ -2542,53 +3190,23 @@ body.crt-off #app::after { display: none; }
    generous rather than absurd because it is nearly the proportion the phone
    already gives these rows: 89 of a 544px column is 16%, against 44 of 317. */
 .menu__nav > .btn { flex: 1 1 auto; min-height: 44px; max-height: 96px; }
+/* PLAY IS DOMINANT ON THE FRONT DOOR — it is the one primary action the
+   streamlined home screen carries, and a quarter more growth with roughly a
+   third more ceiling than its plain siblings is what says so. (The hub's own
+   rail settles this differently now: nothing there grows at all except the
+   Contracts row — see `.tierhub__actions`.)
+   Without this, `.menu__nav > .btn`'s equal `flex: 1 1 auto` above hands
+   Play and Settings the same share of whatever leftover height the column
+   has, and a tall window erodes exactly the size difference that says
+   "press this one first". */
+.menu__home-actions > .btn--menu { flex-grow: 1.4; max-height: 140px; }
 
-/* ---------- The manual's door, docked in the demo panel ----------
-   IT USED TO BE THE WHOLE PANEL: `.menu__demo-hit`, `inset: 0`, transparent,
-   no border, labelled by a 6px-inset corner tag in 8px pixel type. That made
-   the reference manual the largest hit area and the first tab stop on the home
-   screen — out-weighing Flight School, which is the tutorial now — while
-   carrying nothing that reads as a control. Its only affordance was a border
-   on hover, which no touch device ever shows.
-
-   So it is the app's own secondary button instead, at the app's own button
-   height, docked in the corner the attract bay never fills: the cannon fires
-   from bottom-left, the pile builds bottom-right, and the wordmark owns the
-   lower-left plate, so the upper-right is the one corner that is always empty.
-   Absolute ONLY while the demo is live — in the reduced-motion fallback the
-   panel is a real column of text (title, paragraph) and a docked button would
-   sit on the last line of it, so there it is simply the column's last row.
-
-   `flex: none` because .menu__demo:not(.is-live) is a flex column whose other
-   children are allowed to grow; the button is the one thing in it that has a
-   height of its own. */
-.menu__howto {
-  position: relative;
-  flex: none; align-self: flex-end;
-  min-height: 44px; padding: 0 12px; gap: 6px;
-}
-.menu__demo.is-live .menu__howto {
-  position: absolute; top: 6px; right: 6px; z-index: 3;
-  /* Over live artwork rather than over the page's own ground, so it needs a
-     background dense enough to read the label against a moving bay. The .btn
-     face is already opaque; this only stops the panel's grid showing through
-     the secondary's translucent fill. */
-  background-color: rgba(4, 4, 10, 0.82);
-}
-/* First launch puts the START HERE badge on this button, since this button is
-   the guided tutorial's door in that state (screens.ts's menuScreen). It rides
-   the button's own corner, at .btn--menu's placement and for .btn--menu's
-   reason: as a flex member it is 76px of a control that has 164px of column to
-   live in on the narrowest brand cap in the fleet (iPhone 13 mini, where the
-   panel is sized off the column's HEIGHT — see --brand-cap), and it pushed the
-   icon 10px out through the button's own left edge. Out of flow it costs the
-   row nothing.
-
-   The offsets are small enough to stay inside the panel it sits over: the
-   button is docked 6px in from the live panel's top-right, so a badge 6px above
-   and 4px right of it lands flush with that panel's padding box rather than
-   under its clip. */
-.menu__howto .next-badge { position: absolute; top: -6px; right: -4px; }
+/* The manual's door used to dock INSIDE the demo panel (`.menu__howto`, an
+   absolutely-positioned secondary over the live canvas, with the START HERE
+   chip on its corner). The front door's rail made it an ordinary shelf button
+   like the other three, and the first-launch directive moved onto Play — as
+   the alert mino, not a chip — so the class renders nowhere and its rules are
+   gone with it.
 
 /* ---------- The entitlement row (screens.ts's menuScreen) ----------
    A full-size shelf button. It has now been three things: a 23px footnote in
@@ -2626,51 +3244,25 @@ body.crt-off #app::after { display: none; }
 @media (prefers-reduced-motion: reduce) { .menu__unlock { animation: none; } }
 .menu__demo { position: relative; }
 
-/* The rail fills its column now that the row stretches. The three primary
-   entries take a quarter more than the three plain ones — they are the ones
-   carrying two lines of text — which is the ratio the buttons already had at
-   their natural heights, just held against the column instead of against
-   their own content. The max-heights are what stop a tablet from stretching
-   six buttons into six panels. */
+/* THE HUB'S RAIL, as a flex column. What it holds and how the four rows share
+   the height is `.tierhub__actions`'s own block, up beside the tower; this is
+   only the column itself, which is `.menu__actions`'s whole remaining job —
+   the hub is the only screen that renders the class.
+
+   The rail used to spend its leftover as EVEN GAPS (`space-between`, six rows
+   of chrome and a 1px gap on a phone), and before that it let two loop buttons
+   grow into it (`flex-grow: 1.25`), which put 114px of New Run on an 800x600
+   window against a recap pinned tight underneath — one button carrying the
+   whole slack is a lump, not a rhythm. Neither question exists any more: the
+   Contracts row takes the slack by name, so there is never any left to
+   distribute and the gap is a stated 10px at every size. The max-height cap
+   stays as the safety ceiling it always was. */
 .menu__actions {
   display: flex; flex-direction: column; gap: var(--sp-3);
   width: 100%; justify-self: end;
   justify-content: center;
 }
-/* `min-height` is the load-bearing half. Without it the rail's own flex
-   distribution SHRANK the plain buttons to 38-42px on every 360px phone —
-   under the 44px tap floor the whole rail is built to clear — because
-   `flex-shrink` defaults to 1 and the six natural heights plus five gaps come
-   out just over the column. Six 44px rows and five sp-2 gaps is 304px against
-   the 325px the column gets at compact, so the floor fits with room to spare
-   and the grow below spends only what is actually left over. */
-/* The caps, like the shelf's above, are a ceiling on GROWTH and not a height:
-   the phone's rows measure 59-64px against them and never reach either, so
-   these numbers are inert on every handset in the matrix and only decide what
-   the rail does with height a bigger window leaves over.
-   64/84 was that ceiling for a 360px-tall phone read as if it were the whole
-   story. In the authored box the rail gets 544px, its recap takes 116 and the
-   gaps 32, which leaves 132px per row for the three the loop is made of — so
-   the old cap stopped the column 144px short and printed the difference as
-   empty space under WORKSHOP. 132/100 is that arithmetic, and it keeps the
-   1.3125 ratio the pair already had, so a mixed rail still reads as two
-   weights rather than one. Past the zoom cap (a 4K panel, a very tall narrow
-   window) they go on doing the job they were written for: stopping three
-   buttons from becoming three panels. */
-/* space-between, not flex-start: the three buttons are capped (below), and on
-   a window where the caps bind — 1280x720, the authored box un-zoomed — the
-   last button stopped 6px above the cell's bottom while the tower beside it
-   ran to the line. The tower, the shelf and this rail are read as one row of
-   controls sharing one bottom line, so the leftover goes into the gaps
-   between the rail's rows (2px each there) rather than under the last one.
-   Where nothing is capped there is no leftover and this is flex-start. */
-.menu__actions { justify-content: space-between; gap: var(--sp-2); }
-.menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 100px; }
-.menu__actions > .btn--menu { flex-grow: 1.25; max-height: 132px; }
-/* The recap is the column's fixed head; the three buttons share what is left.
-   `flex: none` on it rather than a height, so it stays exactly as tall as its
-   own content and the loop gets every remaining pixel. */
-.menu__actions > .base-bay { flex: none; margin-bottom: var(--sp-2); }
+.menu__actions > .btn { flex: 0 1 auto; min-height: 44px; max-height: 100px; }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -3190,7 +3782,7 @@ body.crt-off #app::after { display: none; }
 .bond-btn__count {
   position: absolute; top: -6px; right: -6px;
   min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: #ffd23f; color: #1a1400;
   font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
   text-align: center;
@@ -3303,7 +3895,7 @@ body.crt-off #app::after { display: none; }
 .demo-btn__count {
   position: absolute; top: -6px; right: -6px;
   min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: var(--danger); color: #1a0008;
   font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
   text-align: center;
@@ -3345,7 +3937,7 @@ body.crt-off #app::after { display: none; }
 .thaw-btn__count {
   position: absolute; top: -6px; right: -6px;
   min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   background: #9fe8ff; color: #04222b;
   font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
   text-align: center;
@@ -7058,7 +7650,7 @@ body.crt-off #app::after { display: none; }
 
    The ratio itself is stated ONCE, here. A surface that borrows the pips says
    how wide its slot is; it does not restate what a pip is. */
-.ship-plate__pips i { width: max(3px, calc(var(--plate-w, 40px) / 8)); height: max(3px, calc(var(--plate-w, 40px) / 8)); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.ship-plate__pips i { width: max(3px, calc(var(--plate-w, 40px) / 8)); height: max(3px, calc(var(--plate-w, 40px) / 8)); border-radius: 0; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
 
 /* AN OPEN SLOT: the same box, drained of the cyan that means "built", and
@@ -7086,7 +7678,7 @@ body.crt-off #app::after { display: none; }
   box-shadow: none;
 }
 .ship-plate--open::after {
-  content: ""; width: 28%; aspect-ratio: 1; border-radius: 50%;
+  content: ""; width: 28%; aspect-ratio: 1; border-radius: 0;
   border: 1px solid var(--line-strong);
 }
 
@@ -7548,6 +8140,77 @@ body.crt-off #app::after { display: none; }
 
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
+
+/* ---------- The tutorial offer (screens.ts's tutorialOfferModal) ----------
+   One question, asked once (main.ts's "tutorial-offer" state, on the way from
+   the front door's Play into the hub). It is not a `.modal`: there is no scrim
+   over live content to dismiss back to, no #lb-body-shaped unbounded list to
+   fence off, and nothing behind it worth blurring — the whole screen IS the
+   question, so it is laid out straight in `.screen` rather than through the
+   modal pair's own centring dance.
+
+   `.offer` fills the screen and centres the one card it holds, the same
+   split of jobs `.center`'s own comment argues for a `.modal`'s `margin:
+   auto`: the container never clips the card's top edge on a short landscape
+   phone, it only ever adds air around it. `flex: 1; min-height: 0` is what
+   lets `.screen`'s own flex column actually hand this element the row's
+   height to centre within, rather than the height of its own content — the
+   same reason `[data-scroll]` needs it elsewhere in this file. `overflow-y:
+   auto` is the backstop `.coach__body` and `.guide__body` already keep for
+   exactly this reason (their own comments call it out by name): the two
+   short sentences and two buttons below fit every device in the matrix at
+   their authored size, so the valve should never open, and it staying
+   unlisted in sim/uifit/run.ts's ALLOWED_SCROLLERS is what makes needing it
+   a CI failure rather than a silent fallback. */
+.offer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* THE CARD, in the app's own panel vocabulary — the same near-black vertical
+   gradient, hairline border and hard shadow the demo panel's plate
+   (`.menu__demo.is-live::before`) and the tower's shaft (`.tower__shaft`)
+   already wear, rather than a new material invented for one screen. `min(440px,
+   92vw)` is `.modal`'s own two-cap shape (see the long note on it above) at a
+   narrower design width: a yes/no with two sentences of copy does not want a
+   520px reading measure, and 440px is what `.offer__sub`'s longest sentence
+   ("Flight School is a few short lessons…") sits at without the ragged short
+   last line a wider card would give it. `92vw` is the same floor `.modal`
+   uses for the same reason — a window narrower than ~478px would otherwise be
+   asked for more card than it has. */
+.offer__card {
+  width: min(440px, 92vw);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: clamp(20px, 4vw, 40px);
+  text-align: center;
+  background: linear-gradient(180deg, rgba(22, 22, 37, 0.95), rgba(9, 9, 18, 0.96));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-hard-lg);
+}
+.offer__ttl { font-size: clamp(22px, 5vw, 34px); }
+.offer__sub { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
+/* Stacked, not `.modal .row`'s wrapped row — a first-launch fork wants an
+   obvious ranking (the tutorial primary above the skip) rather than two equal
+   options side by side, and `.btn--block` on both already commits to full
+   width. */
+.offer__actions { display: flex; flex-direction: column; gap: var(--sp-2); }
+@media (max-height: 460px) {
+  /* The phone tier's own pin, on the same query the menu's short-viewport
+     block above uses and for the same reason: a landscape phone's binding
+     constraint is height, not width, and desktop-authored padding is what
+     overflows first. */
+  .offer__card { padding: 12px clamp(16px, 4vw, 32px); gap: var(--sp-3); }
+  .offer__ttl { font-size: clamp(18px, 4.2vw, 26px); }
+}
+
 .stat-row { display: flex; justify-content: center; gap: var(--sp-6); margin: var(--sp-2) 0; }
 /* align-items: center, not the default stretch. Each .stat is a mono figure
    over a pixel-font label, and those two have very different intrinsic
@@ -8877,7 +9540,42 @@ button.panel { color: var(--text); }
      read as three readouts and a mistake. */
   .bay-stat__val { font-size: 10px; }
   .menu__sub { font-size: var(--fs-sm); max-width: 44ch; }
-  .menu__actions { gap: var(--sp-2); }
+  /* THE HUB'S RAIL ON A LANDSCAPE PHONE — and this block used to be the whole
+     bill for it. The rail carried SEVEN rows (a header, an objective banner, a
+     checklist under a claim button, a four-cell recap panel, three loop
+     buttons): measured at 780x360, 511px of column against the 326px row an
+     iPhone 13 mini gives it, 185 over. Closing that took deleting a sentence,
+     hiding a recap's labels, a 10px headline and every gap at 1px — and the
+     ladder view STILL landed 18px inside the home indicator until the panel's
+     seal line went too.
+
+     It carries FOUR now, and the arithmetic comes out with room to spare:
+     44 (the objective row) + 56 (the run) + 56 (the Workshop) + three 8px gaps
+     is 180 of ~310, which leaves the Contracts row ~130 — a two-line name, a
+     reward and a 44px button, measured. So the only structural thing this tier
+     still buys back is the gap; everything else is one notch of type inside a
+     card, and nothing on this list goes near a tap floor. The icon buttons and
+     every card button stay at 44px, here as everywhere.
+
+     `.tierhub__actions` rather than `.menu__actions` for the gap: the rows are
+     bordered cards, and the front door's compact `gap: 0` would weld them into
+     one plate. */
+  .tierhub__actions { gap: 8px; }
+  .tierhub__card { min-height: 48px; padding: 5px 10px; gap: 9px; }
+  .tierhub__run { padding-right: 34px; }
+  .tierhub__card-ttl { font-size: 10px; }
+  .tierhub__card-sub { font-size: 11px; }
+  .tierhub__bank .currency--salvage { font-size: 12px; }
+  .tierhub__contract { padding: 6px 8px 7px; gap: 4px; }
+  .tierhub__contract-name { font-size: 12px; padding-right: 20px; }
+  .tierhub__pay { font-size: 10px; }
+  .tierhub__pay.is-cleared, .tierhub__pay.is-done, .tierhub__pay.is-practice,
+  .tierhub__pay.is-locked { font-size: 11px; }
+  .tierhub__contract .tierhub__go { margin-top: 4px; }
+  .tierhub__unlock-btn { padding: 4px 10px; gap: 6px; }
+  .tierhub__legend { gap: 4px; }
+  .tierhub__legend .mark--seal { margin-right: 4px; }
+  .menu__actions .btn--lg { padding: 6px 18px; }
   /* Sized down again once the options carried icons: a glyph does some of the
      label's identifying work, so the button no longer has to be the only thing
      making the option findable. The rail is six buttons tall on a 360px-high
@@ -8897,6 +9595,28 @@ button.panel { color: var(--text); }
      227 of 240 glyphs mis-sized, against 35 — all of them deliberate — one
      pixel above this query. Same trap as the `.refit-card__buy` note below. */
   .menu .ico { width: 13px; height: 13px; }
+}
+
+/* THE UNLOCK CARD'S MEDIUM-HEIGHT PASS IS GONE WITH THE CARD. A windowed
+   desktop browser between 461 and 700px tall used to need its own band: the
+   ladder view's seven rows ran 43-77px over the window at full size on the two
+   fleet rows that sit there (`Web · 1269x663 windowed`, `Web · 800x600
+   window`), so the recap's stat cells went label-beside-value and the card's
+   own paddings and clamps were re-tuned a second time. Four rows, with the
+   Contracts row absorbing whatever the window has spare, fit that band at full
+   size — the rail simply gets taller cards. */
+
+/* Home's own compact pin. It used to SHRINK the demo — 172px, down from the
+   phone's own 360 — because the four actions were STACKED under the panel in
+   the same column and the panel had to give up width to leave them height.
+   The two-column split ended that: the demo and the rail are side by side now
+   (`.menu--home`, up in the menu block), so the demo keeps the fleet's 360 pin
+   (the @supports block above) and the rail lives in its own 300px track. What
+   is left here is the RAIL'S gap, stepped down to --sp-2 like every other phone
+   control — four buttons in a 360px-tall column want the tighter rhythm even
+   though they no longer share the demo's height. */
+@media (max-height: 460px) {
+  .menu--home .menu__nav { gap: var(--sp-2); }
 }
 
 /* ============================================================================
@@ -8930,7 +9650,7 @@ button.panel { color: var(--text); }
 }
 .settle-note.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .settle-note__dot {
-  width: max(6px, calc(8 * var(--fpx))); height: max(6px, calc(8 * var(--fpx))); border-radius: 50%;
+  width: max(6px, calc(8 * var(--fpx))); height: max(6px, calc(8 * var(--fpx))); border-radius: 0;
   background: var(--success); box-shadow: 0 0 8px var(--success);
   animation: pulse-danger 900ms var(--ease) infinite;
 }
@@ -9267,7 +9987,7 @@ button.panel { color: var(--text); }
    phone a name as long as "Press Hydraulics" pushed them onto a second line of
    the name row, i.e. a line per card of the shelf to say what three dots say. */
 .refit-card__pips { display: inline-flex; gap: 3px; flex: none; align-self: center; }
-.refit-card__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.refit-card__pips i { width: 8px; height: 8px; border-radius: 0; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .refit-card__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
 /* A QUEUED rung is a third state, not a lit one: it is paid for by an order
    that has not been placed, so it reads as an outline the commit fills in. */
@@ -9721,7 +10441,7 @@ button.panel { color: var(--text); }
   box-shadow: none;
 }
 .rack-slot--open::after {
-  content: ""; width: 12px; height: 12px; border-radius: 50%;
+  content: ""; width: 12px; height: 12px; border-radius: 0;
   border: 1px solid var(--line-strong);
 }
 .rack-slot__g { display: flex; }
@@ -9896,15 +10616,54 @@ button.panel { color: var(--text); }
   flex: 1 1 auto;
   min-height: 0;
 }
-/* THE FOOT — two doors out of the shop, centred as one block. This was a lone
-   `align-self:center` on the Start Run button; a row of two needs a row, and
-   the row keeps the pair centred so the screen's exit stays where the eye has
-   always found it rather than sliding left as the second button appears.
-   flex: none so it cannot be squeezed by the panels above it. */
+/* THE FOOT — one door, and only mid-school (screens.ts's workshopScreen: the
+   "continue" primary on a completed rung). It held Contracts and Start Run;
+   both went, the first with the standalone board it opened and the second
+   because the hub's run card is the same door one tap away, and a phone's
+   shelf was scrolling to pay for the row. flex: none so, when it is drawn, it
+   cannot be squeezed by the panels above it. */
 .workshop__go {
   display: flex; flex: none; gap: var(--sp-3);
   justify-content: center; align-items: center; flex-wrap: wrap;
 }
+/* A PRICE THE PLAYER CANNOT PAY is dimmed, not dead (screens.ts's shortAttrs):
+   it stays a real button so a press gets an answer — main.ts's refuseShort and
+   the shortfall card below — where `disabled` answered with nothing. The
+   costume is the app's one dead-control recipe (the Contract cards' is-shut),
+   lighter, because this control still does something. */
+.btn.is-short { filter: grayscale(0.5) brightness(0.72); }
+.btn.is-short:hover { filter: grayscale(0.3) brightness(0.85); }
+.rack-slot--short { filter: grayscale(0.5) brightness(0.72); }
+/* THE SHORTFALL CARD (screens.ts's salvageShortModal): the end-card skeleton
+   with today's Contracts as a row of pressable cards between the lede and the
+   actions. Each card is a name, its pay and the play mark, on one line, so
+   three of them fit the modal's width on a phone and read as the hub's own
+   Contract cards would. */
+.ws-short__cards {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-top: 4px;
+}
+.ws-short__card {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--tap-min);
+  padding: 0 10px 0 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ws-short__name {
+  font-family: var(--font-ui); font-weight: 600; font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; text-align: left;
+}
+.ws-short__pay {
+  font-family: var(--font-pixel); font-size: 10px; color: var(--success);
+  text-shadow: 0 0 6px rgba(0, 255, 156, 0.4);
+  flex: none;
+}
+.ws-short__card .ico { width: 10px; height: 10px; flex: none; }
+
 /* The budget, not the price, is what usually refuses a purchase here — which is
    why it moved out of the deleted aside and into a header that is always on
    screen. Bare numbers, with the words in the title and the accessible name:
@@ -10274,6 +11033,15 @@ button.panel { color: var(--text); }
    identical copy of the terms, where they were the widest run on the card. */
 .contracts__foot { margin: 0; font-size: var(--fs-sm); line-height: 1.4; }
 .contracts__foot .next-badge { margin-right: 4px; vertical-align: 1px; }
+
+/* THE HUB'S EARN ROW USED TO LIVE HERE — `.tierhub__earn` and a
+   `.contract-chip` family: three compact plates carrying a kind badge, the ask
+   as a big accent number, and a state line. The redesign made them real cards
+   with a button of their own (`.tierhub__contract`, up in the hub's rail
+   block), because a chip that was itself the tap target put three 40px
+   controls on the tightest row in the fleet and still had to say "Locked" in
+   8px type to explain when one would not answer. Nothing renders either class
+   now, so the rules are gone with them.
 
 /* Short (landscape-phone) viewports — 792x360 is the measured target, 640x360
    the tightest in the matrix. The card keeps every slot and gives up size,
@@ -10839,6 +11607,17 @@ button.panel { color: var(--text); }
    which is why this rule is one line and not a theme. */
 .btn--sbx { border-color: var(--warn); }
 .btn--next.btn--secondary:hover { border-color: var(--warn); }
+/* THE CONTRACTS ROW'S OWN NEXT-STEP FACE (screens.ts's `contractsNext` — the
+   tier's quota is still open and meta.ts's nextStep names clearing it as the
+   one thing left to do). The row is not one button, so the warm border lands
+   on every card still worth playing rather than on the row: `.is-done` keeps
+   its own quiet success tint and a shut card stays greyed regardless, so the
+   directive only lights the doors still open. No mino here — a mark that
+   appeared three times at once would stop being the ONE next step (A3); the
+   border is the whole of what this state says. */
+/* Nothing extra: the warm border lands on `.btn--next`, which is the app's own
+   directive face, and screens.ts puts that class on the button of every card
+   the step can still be advanced by. The mark goes on exactly one of them. */
 /* A8: the fail card's block — the chain out of the wall the player just hit. */
 .coach__next {
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
@@ -10907,39 +11686,13 @@ button.panel { color: var(--text); }
    landscape phone the plain three kept a 44px floor the subtitled three had
    lost, and the upsell chip was explicitly shrunk to 32px. */
 .btn__txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-/* A button title that carries inline furniture (the Contracts pips) — without
-   this the pips would become their own row of the column flex above. */
-.btn__ttl { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
-/* THE TIER'S CONTRACT PIPS — one square per first-clear the tier asks for,
-   on the button that leads to them. They replaced the run-end "Tier N
-   progress" banner (screens.ts's endModal note). Salvage amber, because a
-   first clear banks salvage and the button's own sub quotes that price in
-   the same colour.
-
-   The unfilled pips FLICKER while the tier still owes clears — the nudge is
-   the whole job — and hold still once the set is complete. Staggered delays
-   so three pips read as three sockets, not one blinking cursor (the same
-   call .bay-stat__q makes). Under prefers-reduced-motion they hold still and
-   the fill alone carries the fact — colour is information, motion is not. */
-.tier-pips { display: inline-flex; gap: 4px; flex: none; }
-.tier-pip {
-  width: 7px; height: 7px;
-  border: 1px solid var(--warn);
-  border-radius: 1px;
-  opacity: 0.45;
-}
-.tier-pip--done { background: var(--warn); opacity: 1; }
-.tier-pips--live .tier-pip:not(.tier-pip--done) { animation: pip-flicker 1.8s steps(2, end) infinite; }
-.tier-pips--live .tier-pip:nth-child(2) { animation-delay: 0.4s; }
-.tier-pips--live .tier-pip:nth-child(3) { animation-delay: 0.8s; }
-@keyframes pip-flicker {
-  0%, 55% { opacity: 0.45; box-shadow: none; }
-  65%, 85% { opacity: 1; box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
-  100% { opacity: 0.45; box-shadow: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tier-pips--live .tier-pip { animation: none; }
-}
+/* `.btn__ttl` and the TIER'S CONTRACT PIPS used to sit here: a row of amber
+   sockets inline in a button's title, one per first clear the tier asked for,
+   flickering while any were still owed. Both are gone with the Contracts
+   button they hung off. The hub states that same fact in the Unlock button's
+   legend now — three check squares, filled as each Contract lands — and it
+   states it beside the seal for the run, which is the half the pips never
+   had a glyph for. `.btn__ttl` had no other caller. */
 .btn__sub {
   font-family: var(--font-ui);
   font-size: 12px;
@@ -10999,8 +11752,13 @@ button.panel { color: var(--text); }
   .btn__txt { gap: 2px; }
   .btn--menu { line-height: 1.2; }
   /* The icon shrinks with the label it sits beside; the BUTTON does not shrink
-     with either (see the note by .btn--menu). */
-  .menu__actions .btn--menu .ico { width: 13px; height: 13px; margin-inline: 0; }
+     with either (see the note by .btn--menu). Scoped to `.menu__actions`
+     AND `.menu__home-actions` — the hub's action rail is where this rule was
+     first written (a tier plate lives there, not a plain icon), but Home's
+     Play button carries the same `.btn--lg.btn--menu` shape with a plain
+     icon in the same slot, and a rule tuned for one occupant of a shared
+     slot has to cover the other or the slot has two behaviours. */
+  :is(.menu__actions, .menu__home-actions) .btn--menu .ico { width: 13px; height: 13px; margin-inline: 0; }
 }
 
 /* ---------- Bay-progress banner ----------
@@ -11419,7 +12177,7 @@ button.panel { color: var(--text); }
 .coach__dots { display: flex; gap: calc(4 * var(--coach-px)); }
 .coach__dots i {
   width: calc(8 * var(--coach-px)); height: calc(8 * var(--coach-px));
-  border-radius: 50%; background: var(--surface-3); display: block;
+  border-radius: 0; background: var(--surface-3); display: block;
 }
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
@@ -12804,15 +13562,6 @@ button.panel { color: var(--text); }
    would take away the feedback rather than the motion, which is the opposite
    of what this preference asks for. */
 @media (prefers-reduced-motion: reduce) {
-  /* The tier plate's live pips. The guard beside them reads
-     `.tier-pips--live .tier-pip` (0,2,0) while the flicker is written on
-     `.tier-pips--live .tier-pip:not(.tier-pip--done)` (0,3,0) — `:not()` takes
-     its argument's specificity — so the guard lost and up to three pips per
-     plate kept blinking: 34 of them across the menu's fixtures on one device.
-     Same selector here, so the weights match and the position decides. No end
-     state needed: the pips' resting look is the rule above the flicker
-     (opacity 0.45, no glow), which is the keyframe's own 0% frame. */
-  .tier-pips--live .tier-pip:not(.tier-pip--done) { animation: none; }
   /* The splash loader's indeterminate sweep — the one infinite loop that IS
      the whole element. `animation: none` alone would park the bar at the
      keyframe's start, `translateX(-100%)`, i.e. off its own track and

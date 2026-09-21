@@ -457,6 +457,19 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+// The parked tier's daily board, handed to the hub the way main.ts hands
+// todaysContracts for the "tiers" state — three chips in place of the old
+// Contracts button. The 20260815 seed at tier 3 is the board's WIDEST deal
+// (Lines / Set Piece / Pattern: three different kind labels and the longest
+// unit string), the same worst case the full `contracts` fixture is pinned on,
+// now measured at chip size too. `cleared` empty, so with PROGRESS's quota
+// still open every chip carries the milestone pay — the row's tallest state.
+const HUB_BOARD: S.HubBoard = { cards: dailyContracts(3, 20_260_815), cleared: [] };
+// The school's one-card board (contracts.ts's schoolBoard), for the lobby
+// fixtures — a Flight School save deals this, not the daily three, and it is
+// LOCKED as a chip until the ladder reaches its Contract rung (tower.basics).
+const SCHOOL_HUB_BOARD: S.HubBoard = { cards: schoolBoard(), cleared: [] };
+
 /** Tier S set to the WIDEST bay it can describe: the capstone Mark (every
  *  hazard axis open, so the axis row is at its longest), the last bay, a maxed
  *  rig, the material parade, and four axes already notched. Every one of those
@@ -592,13 +605,15 @@ const TOWER_EXAM: S.TowerState = {
 
 /** THE STEP AFTER THAT ONE — licensed, and no system installed yet.
  *
- *  The tower a player meets between Flight School and their first Deep Run: the
- *  car parked on Tier 1, every Mark still locked (this time by the rig gate,
- *  meta.ts's rigStarted), and the primary DISABLED under the longest sentence
- *  it ever carries in that state. It is a distinct layout from `menu-licence`
- *  and not a re-skin of it — the parked floor is a Mark, so the recap panel
- *  draws Tier 1's bay rather than the lobby's lesson track, and the primary is
- *  a disabled Deep Run rather than a live Flight School.
+ *  The tower a player meets between Flight School and their first Deep Run:
+ *  the car parked on Tier 1, which optional onboarding now leaves OPEN and its
+ *  primary LIVE (screens.ts's tierOpen no longer gates the ladder on the rig —
+ *  it is a soft nudge instead: the primary's subtitle still names the first
+ *  system to buy, and the Workshop button still wears the NEXT STEP badge).
+ *  It is a distinct layout from `menu-licence` and not a re-skin of it — the
+ *  parked floor is a Mark, so the recap panel draws Tier 1's bay rather than
+ *  the lobby's lesson track, and the primary is a live Deep Run naming the
+ *  nudge rather than a live Flight School.
  *
  *  Worth its own fixture on the same argument menu-licence makes: it is a
  *  screen every single player passes through exactly once, in the session
@@ -1000,15 +1015,114 @@ export const SCREENS: Record<string, () => string> = {
     live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts", install: null, firstLaunch: false,
     }, TOWER_LOBBY_HELD)),
-  // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
-  // the upsell chip — the tallest menu the app can produce, which is exactly
-  // why it is its own fixture.
+  // A2's first launch: Play badged "Start here" with its subtitle swapped to
+  // "Start with the tutorial", plus the upsell chip — the home's own worst
+  // case, which is exactly why it is its own fixture.
   "menu-first": () =>
     S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
       step: "contracts",
       install: { name: "Reactor Output", cost: 15 },
       firstLaunch: true,
     }),
+
+  // THE TUTORIAL OFFER (main.ts's "tutorial-offer" state, opened behind the
+  // front door's Play button on a first launch) — a centered card with no
+  // arguments of its own, so this is its whole surface.
+  "tutorial-offer": () => S.tutorialOfferModal(),
+
+  // ---- THE TIER HUB (screens.ts's tierHubScreen) ---------------------------
+  //
+  // The double-gameplay UX split the old menu in two: the front door above
+  // (menuScreen) is now just Play/Tutorial/Settings/Buy, and everything that
+  // moved off it — the objective banner, the tier tower, the bay recap and the
+  // three loop actions (the tier run, Contracts and the Workshop) — landed
+  // here. Same signature as menuScreen, so each hub fixture below is the SAME
+  // argument set as the menu fixture it pairs with, just handed to the other
+  // screen — this is what used to be measured on the menu fixtures above and
+  // still has to be.
+  //
+  // No `live()` pairing here: `is-live` only ever touched the menu's demo
+  // canvas (.menu__demo), which the hub does not render — its brand column is
+  // the objective banner, not the attract bay — so a "hub-live" fixture would
+  // be byte-identical to "hub" and buy the matrix nothing.
+  hub: () => S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, undefined, 0, HUB_BOARD),
+  // The unlock card in its READY state: both halves done, so the Unlock button
+  // is live and badged. The default `hub` fixture above is the LOCKED state
+  // (a Mark-0 save, no run cleared, 0/3 Contracts). The quota is met here, so
+  // the earn row's chips read Practice rather than a pay.
+  "hub-unlock-ready": () =>
+    S.tierHubScreen(98_760, 1_480, STORE,
+      { tier: 1, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
+      { step: "unlock", install: null, firstLaunch: false }, undefined, 0, HUB_BOARD),
+  // THE TOP TIER'S CLAIM — the state the old derivation could not render at
+  // all (screens.ts walks the arithmetic). Unlocked sits at MARK_COUNT and the
+  // step says "unlock", so the legend is there and its title reads "Open the
+  // Skydeck" rather than counting to a Tier 11 the building does not have.
+  // Ceremony on, which is also this fixture's second job: the halo ring is the
+  // one thing on this screen drawn OUTSIDE a row's own box.
+  "hub-top-claim": () =>
+    S.tierHubScreen(98_760, 1_480, STORE,
+      { tier: MARK_COUNT, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
+      { step: "unlock", install: null, firstLaunch: false },
+      { unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, contracts: 3 },
+      0, HUB_BOARD),
+  // EVERY CONTRACT CLEARED — the cards' longest button label ("Play again"),
+  // their word-shaped reward ("Cleared") and three filled checks in the legend.
+  // The locked `hub` fixture measures the other end of the same row.
+  "hub-cleared": () =>
+    S.tierHubScreen(98_760, 1_480, STORE,
+      { tier: 3, runDone: false, contracts: 3, needed: 3, award: 60, milestone: 15 },
+      { step: "run", install: null, firstLaunch: false }, undefined, 0,
+      { cards: HUB_BOARD.cards, cleared: HUB_BOARD.cards.map((c) => c.id) }),
+  "hub-skydeck": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length, HUB_BOARD),
+  "hub-unlimited": () =>
+    S.tierHubScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE,
+      undefined, 0, HUB_BOARD),
+  "hub-nostore": () =>
+    S.tierHubScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE,
+      undefined, 0, HUB_BOARD),
+  "hub-tower-top": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP, 0, HUB_BOARD),
+  "hub-seals": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SEALS, 0, HUB_BOARD),
+  "hub-tier-s": () =>
+    S.tierHubScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX, 0, HUB_BOARD),
+  "hub-licence": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_LICENCE, 0, SCHOOL_HUB_BOARD),
+  "hub-unrigged": () =>
+    S.tierHubScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
+      step: "workshop",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: false,
+    }, TOWER_UNRIGGED, 0, SCHOOL_HUB_BOARD),
+  "hub-school-shop": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
+    }, TOWER_LADDER_SHOP, 0, SCHOOL_HUB_BOARD),
+  "hub-school-buy": () =>
+    S.tierHubScreen(0, 15, STORE, tierProgressFor({ ...newMeta(), tierContracts: 1 }), {
+      step: "workshop", install: { name: "Reactor Output", cost: 15 }, firstLaunch: false,
+    }, TOWER_LADDER_SHOP2, 0, SCHOOL_HUB_BOARD),
+  "hub-school-exam": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "licence", install: null, firstLaunch: false,
+    }, TOWER_EXAM, 0, SCHOOL_HUB_BOARD),
+  "hub-lobby-held": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts", install: null, firstLaunch: false,
+    }, TOWER_LOBBY_HELD, 0, SCHOOL_HUB_BOARD),
+  // The NEXT STEP badge now lives on the hub rather than on the front door's
+  // tutorial chip, so this is the hub's own worst case for the same fresh save
+  // "menu-first" measures on the front door.
+  "hub-first": () =>
+    S.tierHubScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: true,
+    }, undefined, 0, SCHOOL_HUB_BOARD),
 
   // THE GUIDE (How to Play). Seven fixtures, because the pane has seven shapes
   // and the screen it replaces had ONE fixture — a single argument-less call —
@@ -1173,6 +1287,17 @@ export const SCREENS: Record<string, () => string> = {
    * --------------------------------------------------------------------- */
   workshop: () => S.workshopScreen(graduated(midMeta())),
   "workshop-owned": () => S.workshopScreen(graduated(ownedMeta())),
+  // THE SHORTFALL CARD over the shop (main.ts's refuseShort): a price pressed
+  // with nothing in the bank, three open Contracts to offer.
+  "workshop-short": () => S.workshopScreen(graduated({ ...newMeta(), salvage: 0, runs: 3, bestBay: 4, mark: 1 }))
+    + S.salvageShortModal({
+      name: "Reactor Output", cost: 15, have: 0,
+      cards: HUB_BOARD.cards.map((c, slot) => ({ slot, name: c.name, pays: 15 })),
+      runPays: 15,
+    }),
+  // …and with nothing left to offer but the run.
+  "workshop-short-run": () => S.workshopScreen(graduated({ ...newMeta(), salvage: 4, runs: 3, bestBay: 4, mark: 1 }))
+    + S.salvageShortModal({ name: "A rack slot", cost: 30, have: 4, cards: [], runPays: 15 }),
   // THE TALLEST SHELF. One system owned against a stock four-slot rack: the
   // rack row draws one plate, three open slots and the +1 plate (five, i.e.
   // exactly one row at the roomy column width), and the shelf draws the other

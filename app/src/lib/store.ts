@@ -474,6 +474,24 @@ export function loadMeta(): MetaState {
     if (!Array.isArray(meta.stowed)) meta.stowed = [];
     meta.stowed = meta.stowed.filter((s): s is UpgradeId =>
       typeof s === "string" && s in meta.loadout);
+    /* THE BADGE'S MEMORY (meta.ts's `acked`) needs no migration either, and
+     * for the same reason as `stowed`: absent reads as "nothing acknowledged",
+     * which is exactly what a save from before the field existed has done.
+     * Every step lights once more for that player and then settles, which is
+     * one glance per step and no back-fill. What this does have to do is keep
+     * a corrupt value from throwing — `acked?.[step]` on a string or an array
+     * is a read that would not throw but would compare wrongly, and on null
+     * it would — so anything that is not a plain object of strings is dropped
+     * to empty, one key at a time. Failing LIT rather than dark is the right
+     * side: the badge is a nudge and never a lock, so the wrong answer here
+     * costs one extra glance at a button rather than a hidden door. */
+    const rawAcked = (raw as Record<string, unknown>).acked;
+    meta.acked = {};
+    if (rawAcked && typeof rawAcked === "object" && !Array.isArray(rawAcked)) {
+      for (const [k, v] of Object.entries(rawAcked as Record<string, unknown>)) {
+        if (typeof v === "string") (meta.acked as Record<string, string>)[k] = v;
+      }
+    }
     // Last: hand back the salvage any RETIRED unlock took (meta.ts's note on
     // UnlockDef.retired — the mod-pool cards sold no-ops once the hazard
     // ratchet replaced the modifier draft). Pure and idempotent, so a save

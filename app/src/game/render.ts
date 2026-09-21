@@ -3246,7 +3246,13 @@ function drawLoadedPiece(
 }
 
 /** The material badge stamped beside the muzzle ghost. Baked and cached like
- *  every other repeated glow here — it is on screen for the whole aim. */
+ *  every other repeated glow here — it is on screen for the whole aim.
+ *
+ *  A SQUARE, like every badge in the game (the ability charge counts, the
+ *  alert mino, the belt tile's own copy of this mark in components.ts): the
+ *  pieces are made of squares and a disc among them read as belonging to a
+ *  different game. `r` is kept as the half-side so the callers' arithmetic
+ *  and the sprite key are unchanged. */
 function drawMuzzleBadge(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -3263,7 +3269,7 @@ function drawMuzzleBadge(
     c.shadowBlur = 8;
     c.fillStyle = fill;
     c.beginPath();
-    c.arc(pad + r, pad + r, r, 0, Math.PI * 2);
+    c.rect(pad, pad, r * 2, r * 2);
     c.fill();
     c.shadowBlur = 0;
     c.lineWidth = 2;
