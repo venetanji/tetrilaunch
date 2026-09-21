@@ -563,6 +563,53 @@ export function formatMMSS(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * Group a whole number's digits — 12345 -> "12,345".
+ *
+ * WHY A COMMA AND NOT toLocaleString's LOCALE. The game's numbers are printed
+ * beside "$", "Score" and "Best" in one hard-coded English HUD; letting the
+ * device's locale pick the separator would mean a German phone rendering
+ * "12.345" next to English labels, and — worse — the promo harness shooting a
+ * different string than the one the fleet baselined, because the capture
+ * browser's locale is not the CI runner's. One separator, chosen here, is the
+ * only version that is reproducible.
+ *
+ * WHY IT IS NEEDED AT ALL. A cleared Deep Run scores ten bays at SCORE_PER_BAY
+ * plus a line count at SCORE_PER_LINE, which lands the end card and the board
+ * in five digits. "12345" is a digit string a player has to count; "12,345" is
+ * a number they can read at a glance, and the glance is all the end card gets.
+ *
+ * WHERE IT IS APPLIED, and the line is the SURFACE rather than the quantity.
+ * Cards the player reads standing still — the run-end card, the leaderboard —
+ * group every figure on them that can reach four digits: score, best, lines,
+ * funds left, what detonations took, what the Incinerator saved, the salvage
+ * bank. Grouping only the score there would have been worse than grouping
+ * nothing, because "98,760" and "$10240" one line apart read as a typo.
+ *
+ * The LIVE HUD is deliberately left bare. Its funds readout is rewritten every
+ * frame, and a separator that appears and vanishes as the total crosses 1,000
+ * is a width change under a number the player is watching move. Unit prices
+ * (a launch, a line's pay, a penalty) stay bare too: they are two digits and
+ * will not reach a separator in any balance this game ships.
+ *
+ * Non-finite input returns "0" rather than "NaN": every caller is a readout,
+ * and a readout that prints NaN at the player is worse than one that prints a
+ * wrong zero — the zero is at least a number they can disbelieve.
+ */
+export function num(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  const neg = n < 0;
+  const digits = String(Math.abs(Math.round(n)));
+  let out = "";
+  for (let i = 0; i < digits.length; i++) {
+    // Commas fall at every third digit counted from the RIGHT, which is what
+    // the remainder against the tail length gives.
+    if (i > 0 && (digits.length - i) % 3 === 0) out += ",";
+    out += digits[i];
+  }
+  return neg ? `-${out}` : out;
+}
+
 export function toggleHTML(id: string, label: string, desc: string, on: boolean): string {
   // The ROW carries the switch semantics, not the 56x30 pill inside it. The
   // pill is under the 44px tap floor and cannot grow without becoming a
