@@ -18,7 +18,7 @@ import {
   UNLOCKS, unlockAvailable, unlockGates, UPRATE_MAX_TIER, installAvailable,
   installShelf, recommendedPurchase,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
-  tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
+  tierProgressFor, tierOpenedByCompleting, uprateCost, TIER_CONTRACTS_REQUIRED,
   maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor, tierIncluded, rigStarted,
   FREE_TIER_LIMIT,
   SCHOOL_INSTALL, SCHOOL_LADDER, SCHOOL_STEPS, FINAL_EXAM, licenceDone, schoolProgress,
@@ -234,6 +234,15 @@ export function scrapHTML(amount: string | number = "", size = 12, earn = false)
  * Not needed where the visible label already names its object: the Workshop's
  * "+1 slot" button is one per screen and says what it buys.
  */
+/** THE ATTRIBUTES OF A PRICE THE PLAYER CANNOT PAY. Not `disabled`: a dead
+ *  button answers a tap with nothing, and "i can tap on upgrade but 0 salvage
+ *  has no feedback" (owner) is exactly that nothing. The control stays a real
+ *  button, dimmed by the class, and main.ts's buy handlers answer the press
+ *  with the shortfall card (salvageShortModal) instead of the purchase. The
+ *  enforcement is theirs and meta.ts's — this is presentation, as the old
+ *  `disabled` was. */
+const shortAttrs = ' data-short="true"';
+
 function priceAria(system: string, verb: string, label: string, currency: "scrap" | "salvage"): string {
   return `${system} — ${verb} ${label} ${currency}`;
 }
@@ -5423,7 +5432,6 @@ export function coachFailHTML(
         <div class="coach__foot coach__foot--fail">
           <button class="btn btn--primary btn--lg btn--block" data-action="coach-retry">${icon("retry", 13)}Try this bay again</button>
           <div class="row coach__foot-row">
-            <button class="btn btn--secondary" data-action="contracts">View Contracts</button>
             <button class="btn btn--ghost" data-action="coach-skip-run">Skip tutorial</button>
             <button class="btn btn--ghost" data-action="menu">Quit</button>
           </div>
@@ -6010,10 +6018,11 @@ function workshopRack(
   // control at all on this screen.
   const slotPlateHTML = nextSlot === null
     ? `<span class="rack__full">every slot bought</span>`
-    : `<button class="rack-slot rack-slot--unowned rack-slot--plus"
-      data-action="buy-slot"${meta.salvage >= nextSlot ? "" : " disabled"}
+    : `<button class="rack-slot rack-slot--unowned rack-slot--plus${nextSlot !== null && meta.salvage < nextSlot ? " rack-slot--short" : ""}"
+      data-action="buy-slot"${meta.salvage >= nextSlot ? "" : shortAttrs}
       title="One more rack slot — ${nextSlot} salvage; ${press} to buy."
-      aria-label="${priceAria("Rack slot", "buy for", String(nextSlot), "salvage")}">+1<small>${
+      aria-label="${priceAria("Rack slot", "buy for", String(nextSlot), "salvage")}${
+        meta.salvage >= nextSlot ? "" : " — not enough salvage"}">+1<small>${
         icon("salvage", 8)}${nextSlot}</small>${
         rec?.kind === "slot" ? `<span class="rack-slot__badge rack-slot__badge--next">${icon("play", 9)}</span>` : ""
       }</button>`;
@@ -6166,9 +6175,10 @@ function workshopDetail(
     const buy = owned >= UPRATE_MAX_TIER
       ? `<span class="shop-card__tag">Workshop max</span>`
       : available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${id}"
-            aria-label="${priceAria(def.name, owned === 0 ? "install" : "uprate to", `T${next} · ${cost}`, "salvage")}"${
-              meta.salvage >= cost ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
+        ? `<button class="btn btn--primary${meta.salvage >= cost ? "" : " is-short"}" data-action="buy-install" data-install="${id}"
+            aria-label="${priceAria(def.name, owned === 0 ? "install" : "uprate to", `T${next} · ${cost}`, "salvage")}${
+              meta.salvage >= cost ? "" : " — not enough salvage"}"${
+              meta.salvage >= cost ? "" : shortAttrs}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
     // MOUNT IS A BUTTON NOW, and it is the only control that used to be the
     // plate. A full rack REFUSES a mount (meta.ts's toggleMount will not evict
@@ -6226,9 +6236,10 @@ function workshopDetail(
     const buy = owned
       ? `<span class="shop-card__tag">✓ Owned</span>`
       : available
-        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"
-            aria-label="${priceAria(u.name, "unlock for", String(u.cost), "salvage")}"${
-              meta.salvage >= u.cost ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
+        ? `<button class="btn btn--primary${meta.salvage >= u.cost ? "" : " is-short"}" data-action="buy-unlock" data-unlock="${u.id}"
+            aria-label="${priceAria(u.name, "unlock for", String(u.cost), "salvage")}${
+              meta.salvage >= u.cost ? "" : " — not enough salvage"}"${
+              meta.salvage >= u.cost ? "" : shortAttrs}>${icon("salvage", 11)}${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
     return `<div class="shop-card workshop__detail">
       <div class="workshop__detail-hdr">
@@ -6370,54 +6381,24 @@ export function workshopScreen(
         ${rackPanel}
         ${detail}
       </div>
-      <div class="row workshop__go">
-        <!-- THE SHOP'S OTHER DOOR (playtest feedback). The Workshop is where a
-             player finds out they are short of salvage — every dead price in the
-             detail says so — and until now the only way out of that discovery
-             was back through the home screen. Contracts are what pay salvage
-             (the blurb at the top says so in the same breath), so the door
-             belongs on the screen that creates the want.
-
-             SECONDARY, beside the primary rather than replacing it: Start Run is
-             still what the Workshop is FOR, and a shop whose loudest button
-             sends you shopping somewhere else has lost the plot. The badge is
-             meta.ts's nextStep, exactly as on the home screen and the run-end
-             card — and it can never collide with this screen's OTHER badge, the
-             recommended plate, because those two states are the same rule's two
-             branches: an affordable install makes the Workshop the next step,
-             and nothing else makes Contracts it. -->
-        <button class="btn btn--secondary btn--lg${nextStep(meta) === "contracts" ? " btn--next" : ""}" data-action="contracts">${
-          icon("contracts")
-        }Contracts${nextStep(meta) === "contracts" ? nextBadgeHTML() : ""}</button>
-        <!-- THE WAY BACK ONTO THE LADDER, and it is this button.
-             The Workshop is a RUNG of Flight School (meta.ts's schoolLadder),
-             and once the Reactor is bought that rung is done — but the screen
-             said nothing about it. Its primary read "Finish Flight School to
-             fly", disabled, which is true of the Deep Run and useless as an
-             instruction: the owner's report is exact — *"i was not able to
-             continue from the workshop onto the next lesson"*. The only exit
-             was the ✕ and then finding Flight School on the menu.
-
-             SAME DOOR AS THE LOBBY'S. The play action on this screen means what
-             it means everywhere: fly the parked floor. Mid-school the car is
-             parked in the lobby (main.ts's towerState), so main.ts already
-             resolves it to the next flight the ladder owes — this button was
-             disabled in front of a route that was correct all along. Routing it
-             anywhere else would be a second answer to "what is next", which is
-             the drift meta.ts's ladder exists to prevent. -->
-        <button class="btn btn--primary btn--lg${schoolGo ? " btn--next" : ""}" data-action="play"${
-          schoolGo || (licenceDone(meta) && rigStarted(meta)) ? "" : " disabled aria-disabled=\"true\""
-        }>${icon("play")}${
-          // THE LABEL SAYS WHAT IS MISSING, and while the school is unfinished
-          // what is missing is the school — not a system. This button is a
-          // second entrance to the exam (main.ts's startGame), and a shop that
-          // could launch a run the tower refuses would be the laxer of two doors
-          // into one room.
-          schoolGo ? "Continue Flight School →"
-            : !licenceDone(meta) ? `Buy ${upgradeById(SCHOOL_INSTALL)!.name} to go on`
-            : rigStarted(meta) ? "Start Run" : "Install a system to fly"
-        }</button>
-      </div>
+      ${
+        // THE FOOT IS GONE, and the one door that survives is the school's.
+        // It held Contracts and Start Run: the first opened the standalone
+        // Contract board this branch retired (a tier's Contracts are on the
+        // hub, and the shortfall card below offers them where the want is
+        // created), the second duplicated the hub's own run card one tap away
+        // through the ✕. Both cost a 44px row on a phone whose shelf was
+        // already scrolling for it (owner). The school's rung is the one state
+        // where this screen is a step just COMPLETED rather than a shop, and
+        // a completed rung has to say what comes next: same door as the
+        // lobby's — the play action flies the parked floor, which mid-school
+        // main.ts resolves to the next flight the ladder owes.
+        schoolGo
+          ? `<div class="row workshop__go">
+        <button class="btn btn--primary btn--lg btn--next" data-action="play">${icon("play")}Continue Flight School →</button>
+      </div>`
+          : ""
+      }
     </div>
   </div>`;
 }
@@ -7567,6 +7548,11 @@ export function endModal(opts: {
           ? "workshop"
           : "run"
       : "run";
+  // THE CARDS BEHIND THE TOWER DOOR ARE THE STEP: today's board still has an
+  // uncleared card and meta.ts's nextStep says Contracts. What the retired
+  // secondary Contracts button used to be badged on, moved to the ghost that
+  // now opens the screen the cards are on.
+  const contractsNext = opts.step === "contracts" && (opts.contracts?.remaining ?? 0) > 0;
   // The salvage row's Workshop button, kept unless the primary has become that
   // same door. Two Workshop buttons on one card is the card arguing with
   // itself, and the one that goes is the quieter one.
@@ -7595,7 +7581,10 @@ export function endModal(opts: {
   // would be the screen saying the same thing twice.
   const primary: { action: string; face: string } =
     stepRoute === "contracts"
-      ? { action: "contracts", face: `${icon("contracts")}Contracts · ${contractsOwed} to go` }
+      // ON THE HUB, not the standalone board: a tier's Contracts are three
+      // cards on the hub's rail now, and the board screen is the Skydeck's and
+      // the school's alone (main.ts's "contracts" action refuses a tier).
+      ? { action: "tiers", face: `${icon("contracts")}Contracts · ${contractsOwed} to go` }
       : stepRoute === "workshop"
         ? { action: "workshop", face: `${icon("workshop")}Workshop` }
         : {
@@ -7939,11 +7928,10 @@ export function endModal(opts: {
           // …and NOT when the primary has already become this door (see
           // `stepRoute`): two Contracts buttons on one card is the card arguing
           // with itself about which of them to press.
-          opts.contracts && opts.contracts.remaining > 0 && stepRoute !== "contracts"
-            ? `<button class="btn btn--secondary${opts.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${
-                icon("contracts")
-              }Contracts${opts.step === "contracts" ? nextBadgeHTML() : ""}</button>`
-            : ""
+          // THE SECONDARY CONTRACTS DOOR IS GONE with the board it opened: the
+          // ghost below already lands on the hub, where the cards are, and two
+          // buttons to one screen is the row arguing with itself.
+          ""
         }
         <!-- Back to the tier hub (not the front door): the tierlevator's unlock
              ceremony rides there, and the loop continues from it. Named the way
@@ -7952,7 +7940,17 @@ export function endModal(opts: {
              preposition wrapped it onto a second line on a 640x360 window
              (sim/uifit). The contract card's twin keeps "To the tower": one
              button in a shorter row, with the room for it. -->
-        <button class="btn btn--ghost" data-action="tiers">Tower</button>
+        ${
+          // …and it carries the step's badge when the cards behind it are the
+          // step — the secondary Contracts button used to, and the hub's cards
+          // are behind this door now. Never beside a Contracts primary, which
+          // is the same door and is not drawn twice.
+          stepRoute === "contracts"
+            ? ""
+            : `<button class="btn btn--ghost${contractsNext ? " btn--next" : ""}" data-action="tiers">Tower${
+              contractsNext ? nextBadgeHTML() : ""
+            }</button>`
+        }
       </div>
     </div>
   </div>`;
@@ -8698,6 +8696,68 @@ export function systemDrillOfferModal(opts: {
 }
 
 /**
+ * THE SHORTFALL CARD — the Workshop's answer to a price the player cannot pay.
+ *
+ * Over the shop, on the end-card skeleton the drill offer uses. It says the
+ * three things a refused purchase has to say: what it costs, how short the
+ * player is, and WHERE SALVAGE COMES FROM — with the day's open Contracts as
+ * pressable rows, because Contracts are what pay it and the shop is the
+ * screen that creates the want (this replaced the foot's Contracts door, which
+ * opened the retired standalone board). A run row when the tier's run still
+ * pays; when nothing on this tier pays any more, it says so and offers the
+ * next Tier's run instead of a board of free practice.
+ *
+ * `cards` are today's Contracts that would actually bank something on a tap —
+ * open, uncleared, inside the day's allowance, quota not yet met — in the
+ * board's own slot order, so `data-slot` is what main.ts's "contract" action
+ * already reads.
+ */
+export function salvageShortModal(opts: {
+  /** What was pressed, and its price. */
+  name: string;
+  cost: number;
+  /** The bank. */
+  have: number;
+  /** Today's Contracts that still pay, in board order. */
+  cards: { slot: number; name: string; pays: number }[];
+  /** What the tier's run banks on a win, or null once it has. */
+  runPays: number | null;
+}): string {
+  const short = Math.max(0, opts.cost - opts.have);
+  const cards = opts.cards.length
+    ? `<div class="ws-short__cards" role="group" aria-label="Today's Contracts">${
+      opts.cards.map((c) =>
+        `<button class="btn btn--secondary ws-short__card" data-action="contract" data-slot="${c.slot}" aria-label="Play ${c.name}, pays ${c.pays} salvage">
+          <span class="ws-short__name">${c.name}</span>
+          <span class="ws-short__pay">${salvageHTML(`+${c.pays}`, 12)}</span>
+          ${icon("play", 10)}
+        </button>`).join("")
+    }</div>`
+    : "";
+  const earn = opts.cards.length
+    ? `Clear a Contract to bank ${salvageHTML(`+${opts.cards[0].pays}`)}.`
+    : opts.runPays !== null
+      ? `Win the run to bank ${salvageHTML(`+${opts.runPays}`)}.`
+      : "This Tier has paid out — the next Tier's Contracts and run pay again.";
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop ws-short">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--warn)">Workshop · ${salvageHTML(opts.have, 12)}</div>
+        <h2 class="display">Not enough salvage</h2>
+        <p class="muted end__lede">${opts.name} costs ${salvageHTML(opts.cost)} — ${short} short. ${earn}</p>
+        ${cards}
+      </div>
+      <div class="row end__actions">
+        ${opts.runPays !== null && !opts.cards.length
+          ? `<button class="btn btn--primary" data-action="play">${icon("play", 10)}Start new run</button>`
+          : ""}
+        <button class="btn btn--ghost" data-action="ws-short-close">Not now</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
  * End-of-lesson modal (game/school.ts) — drillEndModal's sibling, on the same
  * end-screen skeleton every other way out of a bay uses.
  *
@@ -8828,7 +8888,7 @@ export function lessonEndModal(opts: {
   // starts the graduation flight when that is the answer — so this card does
   // not need to know it is the ninth; it needs to know what is next.
   const forward = opts.won && opts.next === "contract"
-    ? `<button class="btn btn--primary" data-action="contracts">${icon("contracts", 12)}Contract board →</button>`
+    ? `<button class="btn btn--primary" data-action="tiers">${icon("contracts", 12)}To the tower →</button>`
     : opts.won && opts.next === "workshop"
       ? `<button class="btn btn--primary" data-action="workshop">${icon("workshop", 12)}Workshop →</button>`
     : opts.won && opts.next === "exam"
@@ -9063,8 +9123,8 @@ export function contractEndModal(opts: {
         </div>
         <div class="row end__actions">
           <button class="btn btn--primary" data-action="contract-retry">${icon("retry", 12)}Try Again</button>
-          <button class="btn btn--ghost" data-action="${opts.sandbox ? "sandbox" : "contracts"}">${
-            opts.sandbox ? "Tier S" : "Contract Board"
+          <button class="btn btn--ghost" data-action="${opts.sandbox ? "sandbox" : opts.skydeck ? "contracts" : "tiers"}">${
+            opts.sandbox ? "Tier S" : opts.skydeck ? "Contract Board" : "Tower"
           }</button>
         </div>
       </div>

@@ -10616,15 +10616,54 @@ button.panel { color: var(--text); }
   flex: 1 1 auto;
   min-height: 0;
 }
-/* THE FOOT — two doors out of the shop, centred as one block. This was a lone
-   `align-self:center` on the Start Run button; a row of two needs a row, and
-   the row keeps the pair centred so the screen's exit stays where the eye has
-   always found it rather than sliding left as the second button appears.
-   flex: none so it cannot be squeezed by the panels above it. */
+/* THE FOOT — one door, and only mid-school (screens.ts's workshopScreen: the
+   "continue" primary on a completed rung). It held Contracts and Start Run;
+   both went, the first with the standalone board it opened and the second
+   because the hub's run card is the same door one tap away, and a phone's
+   shelf was scrolling to pay for the row. flex: none so, when it is drawn, it
+   cannot be squeezed by the panels above it. */
 .workshop__go {
   display: flex; flex: none; gap: var(--sp-3);
   justify-content: center; align-items: center; flex-wrap: wrap;
 }
+/* A PRICE THE PLAYER CANNOT PAY is dimmed, not dead (screens.ts's shortAttrs):
+   it stays a real button so a press gets an answer — main.ts's refuseShort and
+   the shortfall card below — where `disabled` answered with nothing. The
+   costume is the app's one dead-control recipe (the Contract cards' is-shut),
+   lighter, because this control still does something. */
+.btn.is-short { filter: grayscale(0.5) brightness(0.72); }
+.btn.is-short:hover { filter: grayscale(0.3) brightness(0.85); }
+.rack-slot--short { filter: grayscale(0.5) brightness(0.72); }
+/* THE SHORTFALL CARD (screens.ts's salvageShortModal): the end-card skeleton
+   with today's Contracts as a row of pressable cards between the lede and the
+   actions. Each card is a name, its pay and the play mark, on one line, so
+   three of them fit the modal's width on a phone and read as the hub's own
+   Contract cards would. */
+.ws-short__cards {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-top: 4px;
+}
+.ws-short__card {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--tap-min);
+  padding: 0 10px 0 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ws-short__name {
+  font-family: var(--font-ui); font-weight: 600; font-size: 13px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; text-align: left;
+}
+.ws-short__pay {
+  font-family: var(--font-pixel); font-size: 10px; color: var(--success);
+  text-shadow: 0 0 6px rgba(0, 255, 156, 0.4);
+  flex: none;
+}
+.ws-short__card .ico { width: 10px; height: 10px; flex: none; }
+
 /* The budget, not the price, is what usually refuses a purchase here — which is
    why it moved out of the deleted aside and into a header that is always on
    screen. Bare numbers, with the words in the title and the accessible name:

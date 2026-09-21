@@ -79,7 +79,7 @@ import {
   pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
-  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, toggleMount, isMounted, SLOT_CAP,
+  unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, slotPrice, uprateCost, installById, toggleMount, isMounted, SLOT_CAP,
   FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding,
   tierUnlockReady, claimTierUnlock,
   type MetaState, type TierResult,
@@ -191,6 +191,11 @@ type AppState =
   | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail" | "lesson-end" | "sys-drill-offer"
+  // THE SHORTFALL CARD (screens.ts's salvageShortModal) — the Workshop's
+  // answer to a price the player cannot pay, drawn over the shop exactly as
+  // the drill offer is. A state for the same reason: the shop is re-rendered
+  // under it, and the escape/back map has to know what "back" closes.
+  | "ws-short"
   // THE FULL GAME PREVIEW (screens.ts's previewScreen) — the sheet that opens
   // where every "Buy Full Game" used to open the store's own. A state rather
   // than a modal over whatever asked for it, because it is reachable from the
@@ -1104,6 +1109,9 @@ class App {
    *  (screens.ts's systemDrillOfferModal). Held rather than re-derived because
    *  the modal outlives the click that opened it. */
   private drillOffer: UpgradeId | null = null;
+  /** What the shortfall card is about (state "ws-short"): the price that was
+   *  pressed and could not be paid. */
+  private shortfall: { name: string; cost: number } | null = null;
   /** The system drill on screen was launched from the WORKSHOP's offer rather
    *  than from the guide, so its exit belongs back on the shop (see
    *  `drill-exit`). Cleared by that exit; false for every guide-launched
@@ -1564,7 +1572,10 @@ class App {
     // offer (sys-drill-offer) draws the shop UNDER its modal, so leaving it
     // counts as an entry and the shop re-opens on what to buy next, which is
     // the question a player who just bought a system is holding.
-    if (s === "workshop" && this.state !== s) {
+    // …except from the shortfall card, which is the shop with a question over
+    // it: "not now" has to land on the plate that was pressed, not the
+    // recommendation.
+    if (s === "workshop" && this.state !== s && this.state !== "ws-short") {
       this.workshopSelected = S.workshopDefaultSelection(this.meta);
     }
     this.state = s;
@@ -3993,6 +4004,21 @@ class App {
         }
         break;
       }
+      // The shortfall card, over the shop it was pressed in — same placement
+      // as the drill offer, for the same reason: "not now" returns the player
+      // to the shelf they were still shopping on.
+      case "ws-short": {
+        const sf = this.shortfall;
+        if (sf) {
+          this.overlay.innerHTML =
+            S.workshopScreen(this.meta, this.profile, this.workshopSelected)
+            + S.salvageShortModal({
+              name: sf.name, cost: sf.cost, have: this.meta.salvage,
+              ...this.shortfallOffers(),
+            });
+        }
+        break;
+      }
       case "lesson-end":
         if (g && this.lesson) {
           this.overlay.innerHTML =
@@ -5998,7 +6024,10 @@ class App {
   private startContract(c: Contract, fromSandbox = false): void {
     if (!fromSandbox
       && !canStartContract(c, this.meta.claimedContracts, this.fullGame(), dailySeed())) {
-      this.setState("contracts");
+      // Back to wherever this tier's cards live: the board for the roof and
+      // the school, the hub for a tier (see the "contracts" action).
+      if (isSkydeckBoard(c.tier) || !licenceDone(this.meta)) this.setState("contracts");
+      else this.toHub();
       return;
     }
     this.game?.destroy();
@@ -6705,7 +6734,10 @@ class App {
     // is the purchase path, so it is where the gate has to actually hold: the
     // Workshop's disabled button is presentation, this is enforcement.
     if (!unlockAvailable(def, this.meta.unlocks, this.meta.mark)) return;
-    if (this.meta.salvage < def.cost) return;
+    if (this.meta.salvage < def.cost) {
+      this.refuseShort(def.name, def.cost);
+      return;
+    }
     this.meta = {
       ...this.meta,
       salvage: this.meta.salvage - def.cost,
@@ -6756,6 +6788,14 @@ class App {
     // A FIRST INSTALL, not an uprate — asked BEFORE the purchase, because
     // afterwards the track is owned either way and the two are indistinguishable.
     const firstInstall = (this.meta.loadout[track] ?? 0) === 0;
+    // SHORT, and the button is pressable on purpose (screens.ts's shortAttrs):
+    // the answer to the press is the card, not silence. Asked with the same
+    // price the button printed, so the card can never name a different one.
+    const inst = installById(track);
+    if (inst && this.meta.salvage < uprateCost(inst)) {
+      this.refuseShort(upgradeById(track)?.name ?? track, uprateCost(inst));
+      return;
+    }
     const next = buyInstall(this.meta, track);
     if (!next) return;
     this.meta = next;
@@ -6791,12 +6831,56 @@ class App {
     this.renderKeepingScroll();
   }
 
+  /**
+   * A PRICE THE PLAYER CANNOT PAY, answered. The bankroll's own cue (`broke`
+   * is the run's "you are out of money", and this is the shop's), a tap's
+   * haptic, and the shortfall card over the shop — see screens.ts's
+   * salvageShortModal for what it says and offers. The shop is redrawn under
+   * the card rather than left as it was so the pressed price is still the one
+   * on screen when the card names it.
+   */
+  private refuseShort(name: string, cost: number): void {
+    playFx("broke", { gain: 0.6 });
+    void tapHaptic();
+    this.shortfall = { name, cost };
+    this.setState("ws-short");
+  }
+
+  /**
+   * WHAT THE SHORTFALL CARD CAN OFFER — the day's Contracts that would bank
+   * something on a tap, and the tier's run while it still pays. The same three
+   * readings the hub's earn row makes (todaysContracts, the claimed list, the
+   * day's allowance, the tier's quota), so the card and the rail can never
+   * disagree about which Contract is worth playing.
+   */
+  private shortfallOffers(): {
+    cards: { slot: number; name: string; pays: number }[];
+    runPays: number | null;
+  } {
+    const p = tierProgressFor(this.meta);
+    const quotaOpen = p.contracts < p.needed;
+    const allowance = this.contractAllowance();
+    const cards = quotaOpen && licenceDone(this.meta)
+      ? this.todaysContracts().flatMap((c, slot) =>
+        !this.meta.claimedContracts.includes(c.id)
+          && (allowance.fullGame || allowance.remaining > 0)
+          ? [{ slot, name: c.name, pays: p.milestone }]
+          : [])
+      : [];
+    return { cards, runPays: p.runDone ? null : p.milestone };
+  }
+
   /** Workshop: buy one more rack slot (meta.ts's buySlot). Same three lines as
    *  every other purchase on this screen, and the same silent return on a
    *  refusal — the button is already disabled when the salvage is short, so
    *  reaching here with too little means a stale DOM attribute rather than a
    *  player decision. */
   private onBuySlot(): void {
+    const price = slotPrice(slotsFor(this.meta));
+    if (price !== null && this.meta.salvage < price) {
+      this.refuseShort("A rack slot", price);
+      return;
+    }
     const next = buySlot(this.meta);
     if (!next) return;
     this.meta = next;
@@ -8601,6 +8685,8 @@ class App {
       case "workshop": case "contracts":
       case "leaderboard": case "sandbox":
         return '[data-action="tiers"]';
+      case "ws-short":
+        return '[data-action="ws-short-close"]';
       default: return null;
     }
   }
@@ -9149,8 +9235,22 @@ class App {
         break;
       }
       case "workshop": this.setState("workshop"); break;
+      // THE BOARD SCREEN IS THE SKYDECK'S AND THE SCHOOL'S. A tier's Contracts
+      // are on the hub's rail, and the standalone board they used to open is
+      // retired for tiers — so a tier asking for it lands on the hub, whatever
+      // markup asked. The guard is here rather than at each door because a
+      // door nobody has thought of yet must still not open the old room.
       case "contracts":
-        this.setState("contracts");
+        if (this.contractsTier() === SKYDECK_CONTRACT_TIER || !licenceDone(this.meta)) {
+          this.setState("contracts");
+        } else {
+          this.toHub();
+        }
+        break;
+      // "Not now" on the shortfall card: back to the shelf, same plate.
+      case "ws-short-close":
+        this.shortfall = null;
+        this.setState("workshop");
         break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");

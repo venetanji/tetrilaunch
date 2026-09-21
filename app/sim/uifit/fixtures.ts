@@ -1287,6 +1287,17 @@ export const SCREENS: Record<string, () => string> = {
    * --------------------------------------------------------------------- */
   workshop: () => S.workshopScreen(graduated(midMeta())),
   "workshop-owned": () => S.workshopScreen(graduated(ownedMeta())),
+  // THE SHORTFALL CARD over the shop (main.ts's refuseShort): a price pressed
+  // with nothing in the bank, three open Contracts to offer.
+  "workshop-short": () => S.workshopScreen(graduated({ ...newMeta(), salvage: 0, runs: 3, bestBay: 4, mark: 1 }))
+    + S.salvageShortModal({
+      name: "Reactor Output", cost: 15, have: 0,
+      cards: HUB_BOARD.cards.map((c, slot) => ({ slot, name: c.name, pays: 15 })),
+      runPays: 15,
+    }),
+  // …and with nothing left to offer but the run.
+  "workshop-short-run": () => S.workshopScreen(graduated({ ...newMeta(), salvage: 4, runs: 3, bestBay: 4, mark: 1 }))
+    + S.salvageShortModal({ name: "A rack slot", cost: 30, have: 4, cards: [], runPays: 15 }),
   // THE TALLEST SHELF. One system owned against a stock four-slot rack: the
   // rack row draws one plate, three open slots and the +1 plate (five, i.e.
   // exactly one row at the roomy column width), and the shelf draws the other
