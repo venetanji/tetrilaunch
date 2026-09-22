@@ -120,17 +120,18 @@ import {
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
   THAW_CHARGES_PER_TIER, CUSHION_TIERS, cushionThreshold, type UpgradeId,
-  INCINERATOR_TIERS, incineratorRelief,
+  INCINERATOR_TIERS, incineratorRelief, STOCK_TIERS, stockTiers,
 } from "../src/game/upgrades";
 import {
-  contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
+  boughtTracks, contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
+  schoolRescueOwed,
   tierUnlockReady, claimTierUnlock,
   recordContractClear, recordRunEnd, recordSystemDrillOffer, safeLoadout, schoolLength,
   systemDrillOffered,
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
-  buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
+  buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER, uprateCost,
   installShelf, recommendedPurchase,
   nextStepIdentity, nextStepIsNew, ackNextStep,
   recordLesson, rigStarted, licenceDone, basicsDone, arriveAtHub, schoolStarted,
@@ -990,21 +991,36 @@ section("Installs — what salvage buys (meta.ts)");
     JSON.stringify(greedy.loadout));
 
   // An install grants tier 1 and charges salvage.
-  const bought = buyInstall(freshMeta({ salvage: 100 }), "reactor");
-  check("an install grants exactly tier 1", bought?.loadout.reactor === 1);
+  //
+  // LAUNCHER AND NOT REACTOR, which these three read for a long time. Reactor
+  // Output tier 1 is the stock rig now (upgrades.ts's STOCK_TIERS), so buying
+  // it from a fresh save is an UPRATE to tier 2 and tests the wrong rung — the
+  // same substitution the pins below make, and the reason `launcher` is the
+  // right stand-in is that installShelf prices it identically (rank 2, 15
+  // salvage), so not one number in these assertions had to move.
+  const bought = buyInstall(freshMeta({ salvage: 100 }), "launcher");
+  check("an install grants exactly tier 1", bought?.loadout.launcher === 1);
   check("an install charges its salvage price",
-    bought?.salvage === 100 - installById("reactor")!.cost, String(bought?.salvage));
+    bought?.salvage === 100 - installById("launcher")!.cost, String(bought?.salvage));
   check("an install the player cannot afford is refused",
-    buyInstall(freshMeta({ salvage: 5 }), "reactor") === null);
+    buyInstall(freshMeta({ salvage: 5 }), "launcher") === null);
   // The Workshop sells TWO rungs now (meta.ts's UPRATE_MAX_TIER). This check
   // used to assert that a second purchase was refused; that refusal is exactly
   // what made budgetForMark inert, so what is pinned instead is the new cap.
-  const uprated = buyInstall({ ...bought!, salvage: 100 }, "reactor");
-  check("the Workshop uprates an owned track to tier 2", uprated?.loadout.reactor === 2);
+  const uprated = buyInstall({ ...bought!, salvage: 100 }, "launcher");
+  check("the Workshop uprates an owned track to tier 2", uprated?.loadout.launcher === 2);
   check("an uprate costs the same as the install",
-    uprated?.salvage === 100 - installById("reactor")!.cost, String(uprated?.salvage));
+    uprated?.salvage === 100 - installById("launcher")!.cost, String(uprated?.salvage));
   check("a third rung is refused — tier 3 is the refit stop's scrap",
-    buyInstall({ ...uprated!, salvage: 1000 }, "reactor") === null);
+    buyInstall({ ...uprated!, salvage: 1000 }, "launcher") === null);
+  // …and the stock track takes the SAME two rungs from where it starts: a
+  // reactor is stock at tier 1, so the shop's first sale on it is tier 2 and
+  // its second is refused. Pinned because "stock" must mean the first rung is
+  // already paid for, never that the track is retired.
+  const rct = buyInstall(freshMeta({ salvage: 100 }), "reactor");
+  check("the stock track's first sale is its second rung", rct?.loadout.reactor === 2,
+    String(rct?.loadout.reactor));
+  check("...and the shop will not sell it a third", buyInstall(rct!, "reactor") === null);
   // The rule the whole loadout system rests on: salvage may not buy a rig the
   // Mark does not pay for. Seven tracks at tier 2 is 385 points; a Mark-1
   // budget is 77, so the seventh uprate must be refused for BUDGET, not price.
@@ -1023,10 +1039,16 @@ section("Installs — what salvage buys (meta.ts)");
     check("...and the budget, not the price, is what stopped it", bought7 < 14);
     check("a Mark never moves on a purchase", m.mark === rich.mark);
   }
+  // LAUNCHER, for the reason the three checks above switched to it: the claim
+  // is "an untouched track stays at zero", and the reactor's floor is not zero
+  // any more (upgrades.ts's STOCK_TIERS). The stock track is asserted here too,
+  // because immutability means the purchase moved NOTHING the caller handed in
+  // — including the rung it was given for free.
   const before = freshMeta({ salvage: 100 });
-  buyInstall(before, "reactor");
+  buyInstall(before, "launcher");
   check("buyInstall never mutates its input",
-    before.loadout.reactor === 0 && before.salvage === 100);
+    before.loadout.launcher === 0 && before.salvage === 100
+      && JSON.stringify(before.loadout) === JSON.stringify(stockTiers()));
 
   // The locked copy the Workshop prints must name the gate the purchase path
   // actually applies — one function, so the two can never drift. Rendered in
@@ -1486,6 +1508,18 @@ section("Installs — what salvage buys (meta.ts)");
     check("...while below the top it is there locked as well as ready",
       owed.includes('data-action="claim-tier"')
         && owed.includes(">Unlock Tier 2<"));
+    // ONE AUTHOR FOR THE CLAIM'S WORDS (screens.ts's tierClaimTitle). The hub
+    // wrote this sentence itself while it was the only surface offering the
+    // claim; both end cards now offer the same press as their forward move
+    // (the deferred claim made a completed tier earned rather than open), so
+    // the three buttons read one string from one input — and the two strings
+    // it can be are the two the ladder has: a floor to name, or the advance
+    // that ends the ladder and opens the seal phase.
+    check("the hub's claim and the end cards' wear the same title",
+      owed.includes(`>${S.tierClaimTitle(1)}<`)
+        && S.tierClaimTitle(1) === "Unlock Tier 2"
+        && S.tierClaimTitle(MARK_COUNT) === "Open the Skydeck",
+      `${S.tierClaimTitle(1)} / ${S.tierClaimTitle(MARK_COUNT)}`);
 
     /* ---- THE CONTRACT CARDS' FOUR FACES ------------------------------- */
     const cardBtns = (html: string): string[] =>
@@ -2069,10 +2103,18 @@ section("Installs — what salvage buys (meta.ts)");
     (() => {
       // The SHELF ROW, read plate by plate: `data-install` now appears once
       // per screen (the detail's buy button), so the order lives on the panel.
-      const open = workshopScreen(freshMeta({ salvage: 400, mark: MARK_COUNT }));
+      const rig = freshMeta({ salvage: 400, mark: MARK_COUNT });
+      const open = workshopScreen(rig);
       const row = /class="rack__group-label">shelf<[\s\S]*?<\/div>\s*<\/div>/.exec(open)?.[0] ?? "";
       const drawn = [...row.matchAll(/data-select="([a-z]+)"/g)].map((m) => m[1]);
-      return drawn.join(",") === shelfIds.join(",");
+      // The shelf is what is NOT ABOARD — screens.ts moves an owned track to
+      // the rack row — and one track is aboard from the save's first frame now
+      // (upgrades.ts's STOCK_TIERS). So the expectation is the shelf minus this
+      // rig's own systems, in shelf order, and the count clause is what stops
+      // the assertion passing on an empty row the day the selector rots.
+      const expected = shelfIds.filter((id) => (rig.loadout[id] ?? 0) === 0);
+      return drawn.join(",") === expected.join(",")
+        && drawn.length === shelfIds.length - Object.keys(STOCK_TIERS).length;
     })());
 
   // ---- A NEW SYSTEM BEATS A SECOND UPRATE, WHILE A SLOT IS FREE ----------
@@ -2707,6 +2749,49 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
       // A fresh save is the base rack, never a grandfathered one.
       localStorage.removeItem("tetrilaunch.meta");
       check("a brand new save starts on the base rack", slotsFor(loadMeta()) === SLOT_BASE);
+
+      /* ---- THE STOCK RIG IS A FLOOR, on the same shim ------------------
+       * The second thing this file hands out (store.ts's loadMeta), and it is
+       * a FLOOR rather than a write: Reactor Output tier 1 ships with the ship
+       * (upgrades.ts's STOCK_TIERS), so a save written before that is raised to
+       * it while a save that paid for more keeps what it paid for. Read through
+       * the real loadMeta because the whole rule is a `Math.max` inside it, and
+       * a floor asserted anywhere else is a floor that can drift from the one
+       * the game boots with. */
+      const loadoutOf = (over: Record<string, unknown>): UpgradeTiers => {
+        localStorage.setItem("tetrilaunch.meta", JSON.stringify({ runs: 3, ...over }));
+        return loadMeta().loadout;
+      };
+      check("a fresh save carries the stock rig",
+        JSON.stringify(newMeta().loadout) === JSON.stringify(stockTiers()),
+        JSON.stringify(newMeta().loadout));
+      check("...a save written before the grant is raised to it",
+        JSON.stringify(loadoutOf({ loadout: newTiers() })) === JSON.stringify(stockTiers()),
+        JSON.stringify(loadoutOf({ loadout: newTiers() })));
+      check("...a rung the player bought is never demoted to it",
+        loadoutOf({ loadout: { ...newTiers(), reactor: MAX_TIER, bay: 2 } }).reactor === MAX_TIER
+          && loadoutOf({ loadout: { ...newTiers(), reactor: MAX_TIER, bay: 2 } }).bay === 2);
+      check("...and a loadout thrown away whole comes back stocked, not bare",
+        JSON.stringify(loadoutOf({ loadout: "nonsense" })) === JSON.stringify(stockTiers()));
+      // …AND THE SHAPE THAT USED TO TAKE THE WHOLE SAVE WITH IT (review P1-B):
+      // a null loadout on a save with no filed run. The licence rule used to
+      // read `ownedTracks` 56 lines before the loadout was validated, so this
+      // threw and the blanket catch returned newMeta() — 250 salvage, a bought
+      // unlock and two claimed Contracts, gone with no notice. The rule reads
+      // `runs`/`mark` only now, and this is the assertion that keeps it that
+      // way: the save must come back whole, with the floor applied.
+      const nulled = (() => {
+        localStorage.setItem("tetrilaunch.meta", JSON.stringify({
+          salvage: 250, licence: SCHOOL_FLIGHTS, unlocks: ["survey"],
+          claimedContracts: ["c1", "c2"], runs: 0, loadout: null,
+        }));
+        return loadMeta();
+      })();
+      check("a null loadout cannot wipe a save that never filed a run",
+        nulled.salvage === 250 && nulled.claimedContracts.length === 2
+          && nulled.unlocks.length === 1
+          && JSON.stringify(nulled.loadout) === JSON.stringify(stockTiers()),
+        `${nulled.salvage} ${nulled.unlocks.join("/")} ${nulled.claimedContracts.length}`);
 
       // ---- THE LICENCE GRANDFATHER, on the same shim ---------------------
       // A returning player must not be sent back to school, and the evidence of
@@ -3839,6 +3924,42 @@ section("Pattern variants (contracts.ts VARIANTS)");
   const untouched = contractsScreen({ contracts: board, tier: 1, cleared: [] });
   check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
 
+  // …AND THE SCHOOL'S SPENT CARD PRICES ITSELF WHEN IT WILL PAY AGAIN
+  // (meta.ts's schoolRescueOwed, screens.ts's `rescue`). The rescue that keeps
+  // the ground floor from deadlocking lives in recordContractClear and is
+  // pinned there; this is the other half of it, and the half that is only a
+  // screen: the player it exists for is looking at one spent card and a shelf
+  // they cannot afford, so a tick reading "✓ Cleared" tells them the last
+  // thing they can press is finished business. The guarantee held and said
+  // nothing, which is the shape of a feature nobody finds.
+  const schoolBoardCard = schoolBoard();
+  const spentCard = { contracts: schoolBoardCard, tier: 1, cleared: [schoolBoardCard[0].id],
+    school: true, progress: tierProgressFor(newMeta()) };
+  const owedRescue = contractsScreen({ ...spentCard, rescue: true });
+  const noRescue = contractsScreen({ ...spentCard, rescue: false });
+  const share = salvageHTML(`+${tierMilestoneSalvage(1)}`);
+  check(
+    "a spent school card that will pay again shows the price, not the tick",
+    owedRescue.includes(`contract-card__state--pays">${share}<`) && !owedRescue.includes("✓ Cleared"),
+  );
+  check(
+    "...and one that will not still reads as spent",
+    noRescue.includes("✓ Cleared") && !noRescue.includes(`contract-card__state--pays">${share}<`),
+  );
+  check(
+    // NARROWNESS FROM THE SCREEN'S OWN SIDE, and the reason the screen re-asks
+    // a question its caller already answered: handed this flag without
+    // `school`, a tier's board would price whichever of its three cards was
+    // cleared — a "+15" on a card that banks nothing. The flag is the school
+    // card's exception, so the screen holds that line itself rather than
+    // trusting every future caller to know which board it is drawing.
+    "...and a tier's board handed the same flag still reads as spent",
+    contractsScreen({
+      contracts: board, tier: 1, cleared: [board[1].id],
+      progress: tierProgressFor(newMeta()), rescue: true,
+    }).includes("✓ Cleared"),
+  );
+
   // What one clear banks NOW (the milestone share, not the old completion-only
   // award) is stated on the card that would bank it, as a value rather than
   // inside a sentence. It used to be a ~120-character status line above the
@@ -4070,23 +4191,65 @@ section("Pattern variants (contracts.ts VARIANTS)");
   check("...for every rung in between",
     Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
       .every((t) => tierOpenedByCompleting(t) === (t < MARK_COUNT ? t + 1 : null)));
+  /* -------------------------------------------------------------------------
+   * …AND THE SNAPSHOT IS THE TIER JUST FLOWN NOW, which is why these two
+   * fixtures pair `completedTier: 3` with `progress.tier: 3` where they used
+   * to pair it with 4. Under 1.0.5 advanceTier had already bumped the Mark by
+   * the time a card was rendered, so markUnlocked — which is what
+   * `progress.tier` is — read as the tier that had just OPENED. The deferred
+   * claim (#223) stopped the recorders advancing anything, so the same field
+   * now reads as the tier just COMPLETED. A card that reaches for it to name a
+   * floor is therefore off by one on every rung rather than only on the last,
+   * and the fixture says so: if either card ever prints `progress.tier` as the
+   * opened floor again, these checks read "Tier 3" and fail.
+   * ---------------------------------------------------------------------- */
   const ceMid = contractEndModal({
     ...endOpts, won: true,
     award: { salvage: 15, firstClear: true, completedTier: 3 },
-    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+    progress: { tier: 3, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
   });
   check("the award card names the floor the completion opened",
-    ceMid.includes("Tier 4 is open"));
+    ceMid.includes("Tier 4 is ready to unlock on the tower"),
+    ceMid.slice(ceMid.indexOf("Tier 3 complete"), ceMid.indexOf("Tier 3 complete") + 260));
+  // AND CALLS IT CLAIMABLE, NOT OPEN, which is the deferred claim's own
+  // consequence and the release's headline feature telling the truth. Until
+  // Unlock is pressed the Mark has not moved: screens.ts's tierOpen refuses
+  // the floor above and the tower draws it shut, so a card saying "Tier 4 is
+  // open" was promising something the very next screen would not allow.
+  check("...without claiming the player may already fly it",
+    !ceMid.includes("is open"), "the award card still says a tier is open");
+  check("...and its forward move is the claim, not the next card",
+    /class="btn btn--primary" data-action="claim-tier">Unlock Tier 4 →/.test(ceMid),
+    ceMid.slice(ceMid.indexOf("end__actions"), ceMid.indexOf("end__actions") + 300));
   const ceTop = contractEndModal({
     ...endOpts, won: true,
     award: { salvage: 15, firstClear: true, completedTier: MARK_COUNT },
     progress: {
-      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+      tier: MARK_COUNT, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15,
     },
   });
   check("...and announces no unlock when the ladder simply ended",
     !ceTop.includes("is open"), "the top-of-ladder card still names a floor");
   check("...saying what did happen instead", ceTop.includes("ladder is finished"));
+  // THE LAST RUNG IS STILL A CLAIM. meta.ts's tierReady allows it while
+  // `mark < MARK_COUNT`, and that advance is what ends the ladder and opens
+  // the seal phase — which the tower has always called "Open the Skydeck", so
+  // the card says it in the tower's words (screens.ts's tierClaimTitle).
+  check("...and still offers the press the last rung is owed",
+    ceTop.includes("Claim the last rung on the tower")
+      && /class="btn btn--primary" data-action="claim-tier">Open the Skydeck →/.test(ceTop));
+  // The three clears that CANNOT leave a claim pending keep the exits they
+  // had: Tier S banks nothing, a Skydeck clear moves no quota, and the
+  // school's board ticks a rung rather than a tier.
+  for (const off of [{ sandbox: true }, { skydeck: true }, { school: true }] as const) {
+    const html = contractEndModal({
+      ...endOpts, won: true, ...off,
+      award: { salvage: 15, firstClear: true, completedTier: 3 },
+      progress: { tier: 3, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
+    });
+    check(`a clear off the ladder (${Object.keys(off)[0]}) offers no claim`,
+      !html.includes('data-action="claim-tier"'));
+  }
   // AND WHAT IS STILL OPEN. The tier-10 Contract loop keeps paying (the owner's
   // ruling: keep the faucet, the endgame is maxing the systems out), and the
   // seals are what the roof is waiting for — so the card names both rather
@@ -5797,6 +5960,169 @@ section("Tier milestones pay the salvage (meta.ts)");
     "beating an old Mark ticks and pays nothing",
     !stale.meta.tierRunDone && stale.salvage === 0,
   );
+
+  // ---- THE FINISHED LADDER STILL PAYS (meta.ts's rollOverTopTier) ---------
+  // THE PIN THAT WAS MISSING, and the shape of the defect says why it has to
+  // be this one. Between the deferred claim landing and this block, lifetime
+  // salvage income was capped at 660 — the ten-tier climb plus exactly one
+  // post-ladder cycle — because at MARK_COUNT tierReady answers null, so the
+  // halves that used to be reset by the recorders' advanceTier call latched at
+  // true/3 and nothing ever cleared them again. Every unit assertion above
+  // still passed: no constant moved, no function changed its answer for any
+  // single event, and the diff that did it deleted a call rather than a rule.
+  // The delta lived in CALL-SITE TIMING and could only be seen by playing the
+  // same day twice, so that is what this pins — N ordinary Mark-10 days, and
+  // the bank afterwards.
+  {
+    /** One ordinary day on a finished ladder: three at-tier first-clear
+     *  Contracts off that morning's board, then a won Mark-10 Deep Run. Ids are
+     *  keyed by day because the once-ever rule (claimedContracts) is real — a
+     *  cycle that replayed yesterday's cards would bank nothing and the pin
+     *  would be measuring the wrong thing. */
+    const cycle = (meta: ReturnType<typeof newMeta>, day: number) => {
+      let m = meta;
+      for (let i = 0; i < TIER_CONTRACTS_REQUIRED; i++) {
+        m = recordContractClear(m, { id: `d${day}-c${i}`, tier: markUnlocked(m) }).meta;
+      }
+      return recordRunEnd(m, markUnlocked(m), true, RUN_LEVELS, 1).meta;
+    };
+    /** The whole ladder, walked the way a player walks it: a full cycle per
+     *  tier, then the hub's Unlock press. Ends at mark MARK_COUNT. */
+    const climb = (() => {
+      let m = newMeta();
+      for (let tier = 1; tier <= MARK_COUNT; tier++) {
+        m = cycle(m, tier);
+        m = claimTierUnlock(m).meta;
+      }
+      return m;
+    })();
+    const ladderTotal = Array.from({ length: MARK_COUNT }, (_, i) => tierSalvage(i + 1))
+      .reduce((a, b) => a + b, 0);
+    check(`the ten-tier climb banks the ladder (${climb.salvage})`,
+      climb.mark === MARK_COUNT && climb.salvage === ladderTotal, String(ladderTotal));
+
+    // FIVE MORE ORDINARY DAYS. Each is worth one full tier award, because each
+    // is four at-tier milestones — the same four the climb paid for, at the
+    // tier markUnlocked saturates onto.
+    const CYCLES = 5;
+    const after = Array.from({ length: CYCLES }, (_, i) => i + MARK_COUNT + 1)
+      .reduce((m, day) => cycle(m, day), climb);
+    const perCycle = tierSalvage(MARK_COUNT);
+    check(
+      `${CYCLES} post-ladder cycles pay ${CYCLES * perCycle} more salvage (${after.salvage})`,
+      after.salvage === ladderTotal + CYCLES * perCycle,
+      `${after.salvage} vs ${ladderTotal + CYCLES * perCycle}`,
+    );
+    // The latch, stated as itself: the halves must come back open, or the
+    // milestones above are unreachable tomorrow however much the day paid.
+    check("...and the milestones re-open for the next day",
+      !after.tierRunDone && after.tierContracts === 0);
+
+    // WHAT THE ROLL-OVER MAY NOT DO. The deferred claim removed exactly two
+    // things — the recorders' Mark advance and their false→true completion edge
+    // — and restoring the faucet may not smuggle either one back in. Asked
+    // after EVERY event of every day rather than at each day's end, because a
+    // spurious Unlock card or a stray Mark would appear mid-cycle, on the
+    // milestone that completed it.
+    const events = (() => {
+      const out: { mark: number; claimed: number | null; lit: boolean }[] = [];
+      let m = climb;
+      for (let day = MARK_COUNT + 1; day <= MARK_COUNT + CYCLES; day++) {
+        const file = (r: { meta: typeof m; completedTier: number | null }) => {
+          m = r.meta;
+          out.push({ mark: m.mark, claimed: r.completedTier, lit: tierUnlockReady(m) });
+        };
+        for (let i = 0; i < TIER_CONTRACTS_REQUIRED; i++) {
+          file(recordContractClear(m, { id: `probe${day}-c${i}`, tier: markUnlocked(m) }));
+        }
+        file(recordRunEnd(m, markUnlocked(m), true, RUN_LEVELS, 1));
+      }
+      return out;
+    })();
+    check(`no post-ladder event claims a tier (${events.length} events)`,
+      events.every((e) => e.claimed === null && !e.lit));
+    check("...and the Mark never moves on a finished ladder",
+      events.every((e) => e.mark === MARK_COUNT));
+
+    // THE BOUNDARY, which is the half of this that protects the climb: the top
+    // TIER is still the player's to claim. Tier 10 is flown at mark 9, so the
+    // roll-over's own guard (mark < MARK_COUNT) cannot fire during it — the
+    // Unlock press that opens the seal phase is untouched.
+    const atTierTen = cycle(
+      (() => {
+        let m = newMeta();
+        for (let tier = 1; tier <= MARK_COUNT - 1; tier++) m = claimTierUnlock(cycle(m, tier)).meta;
+        return m;
+      })(),
+      MARK_COUNT,
+    );
+    check("completing the top TIER still readies a claim rather than settling",
+      atTierTen.mark === MARK_COUNT - 1 && tierUnlockReady(atTierTen)
+        && atTierTen.tierRunDone && atTierTen.tierContracts === TIER_CONTRACTS_REQUIRED);
+    check("...and only the claim raises the Mark to the top",
+      claimTierUnlock(atTierTen).meta.mark === MARK_COUNT);
+
+    /* WHY THE FAUCET IS LOAD-BEARING rather than generous, in the numbers the
+     * prices were derived from — and there are TWO shelf numbers, which is the
+     * thing to read before concluding anything about this economy:
+     *
+     *   the SHIPPED shelf   entry prices + the live unlocks. What a player has
+     *                       to buy to own one of everything. The ladder covers
+     *                       it inside the climb, at 1.0-1.6x — the bound the
+     *                       unlocks section pins, and the reason the base
+     *                       economy is NOT broken.
+     *   the MAXED shelf     every install raised to UPRATE_MAX_TIER, plus the
+     *                       six rack slots, plus the live unlocks. What a
+     *                       finished save is still spending on, and nearly
+     *                       three times what the climb pays.
+     *
+     * Comparing 600 against the maxed figure alone reads as a shortfall in the
+     * ladder; the shortfall is deliberate and it is the ENDGAME's to fund, which
+     * is what this faucet is. SLOT_PRICES' note prices the back half of the rack
+     * at "thirteen cycles for the whole thing" of exactly this income. Both
+     * numbers are printed so the next reader gets them together. */
+    const rack = SLOT_PRICES.reduce((a, b) => a + b, 0);
+    const liveUnlockCost = UNLOCKS.filter((u) => !u.retired).reduce((a, u) => a + u.cost, 0);
+    const shippedShelf = INSTALLS.reduce((a, i) => a + i.cost, 0) + liveUnlockCost;
+    const shelf = INSTALLS.reduce((a, i) => a + i.cost + uprateCost(i) * (UPRATE_MAX_TIER - 1), 0)
+      + rack + liveUnlockCost;
+    check(`the climb covers the shipped shelf (${ladderTotal} vs ${shippedShelf})`,
+      ladderTotal >= shippedShelf, `${(ladderTotal / shippedShelf).toFixed(2)}x`);
+    check(`...and the maxed shelf (${shelf}) is the endgame's to fund, not the climb's`,
+      shelf > ladderTotal, `${(shelf / ladderTotal).toFixed(2)}x of the climb`);
+    check(`the rack costs thirteen post-ladder cycles (${rack}/${perCycle})`,
+      Math.ceil(rack / perCycle) === 13, String(Math.ceil(rack / perCycle)));
+
+    // THE ROOF IS NOT A CYCLE, and it is main.ts's finishRun that keeps it out:
+    // the Skydeck's early return sits ABOVE the recordRunEnd call, so a roof run
+    // never files. That ordering is the whole guard now — before the roll-over
+    // existed, a Skydeck win could at worst tick a half that was already
+    // latched; it could now COMPLETE a cycle every day, which is the salvage
+    // faucet the guard's own comment refuses. A source property, because there
+    // is no Game and no DOM in this process, anchored on the function body by
+    // brace matching so it cannot span half the file.
+    const finish = (() => {
+      const src = fs.readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+        "utf8",
+      );
+      const at = src.indexOf("private finishRun(");
+      if (at < 0) return "";
+      let depth = 0;
+      const start = src.indexOf("{", at);
+      for (let i = start; i < src.length; i++) {
+        if (src[i] === "{") depth++;
+        else if (src[i] === "}" && --depth === 0) return src.slice(at, i + 1);
+      }
+      return "";
+    })();
+    check("finishRun exists to be checked", finish.length > 0 && finish.length < 12_000,
+      `${finish.length} chars`);
+    const roofGate = finish.indexOf("!tracksLadder(");
+    const filing = finish.indexOf("recordRunEnd(");
+    check("the roof's exclusion still precedes the run filing",
+      roofGate > 0 && filing > 0 && roofGate < filing, `${roofGate} < ${filing}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -8722,8 +9048,13 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
       "utf8",
     );
+    // The listener took a second statement when the keyboard started getting a
+    // focus landing of its own (a pointer press is the end of keyboard
+    // DRIVING — see landsFocus's section), so the pattern is the call rather
+    // than the whole one-line arrow it used to be.
     check("the pointerdown that sets the profile asks profileForPointer",
-      /"pointerdown",\s*\(e\) => this\.setProfile\(profileForPointer\(e\.pointerType\)\)/.test(mainSrc));
+      /"pointerdown",[\s\S]{0,800}?this\.setProfile\(profileForPointer\(e\.pointerType\)\)/
+        .test(mainSrc));
   }
   const desktopCoach = coachSteps(makeBaseLevel(0), "keyboard");
   check("the desktop coach teaches keys, not hidden buttons",
@@ -8922,6 +9253,61 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   check("both exits lead back through that same door",
     (controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "leaderboard" })
       .match(/data-action="leaderboard"/g) ?? []).length === 2);
+
+  /* -------------------------------------------------------------------------
+   * ---- THE DOOR LIST, AND THE ONE IT WAS MISSING --------------------------
+   *
+   * main.ts's PAD_CONTROLS_DOORS is the other half of ControlsDoor: every
+   * screen the pad's Controls button may be pressed on, mapped to the action
+   * that comes back to it. The double-gameplay split moved the tower off the
+   * front door onto a hub of its own ("tiers") and the list was never extended
+   * with it — while its own docstring went on naming "the tower" among the
+   * screens it covered. So the shortcut was dead on the screen a pad player
+   * lands on after every Play press and every quit-from-bay, which under 1.0.5
+   * was `menu` and worked. Three review lanes found it independently.
+   *
+   * READ OFF main.ts's SOURCE, because main.ts needs a DOM to instantiate —
+   * the same treatment the dial-collapse guards get.
+   * ---------------------------------------------------------------------- */
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    const table = mainSrc.slice(
+      mainSrc.indexOf("const PAD_CONTROLS_DOORS"),
+      mainSrc.indexOf("};", mainSrc.indexOf("const PAD_CONTROLS_DOORS")),
+    );
+    const doors = Array.from(table.matchAll(/^\s*"?([a-z-]+)"?: "([a-z-]+)",/gm))
+      .map((m) => [m[1], m[2]] as const);
+    check("the pad's Controls shortcut opens from the tier hub",
+      doors.some(([state]) => state === "tiers"),
+      doors.map(([s2]) => s2).join(" "));
+    // THE ROUND TRIP IS THE PROMISE: "press it on the Workshop, press B, and
+    // the Workshop is what comes back" (the table's own docstring). Every
+    // entry is therefore an IDENTITY, and the plausible way to add a screen
+    // wrongly is to point it at a neighbouring door — a hub entry reading
+    // `tiers: "menu"` would take a Deck player to the front door on the way
+    // out of a settings screen they opened from the hub.
+    check("...and every door it lists returns to the screen it was pressed on",
+      doors.every(([state, door]) => state === door),
+      doors.filter(([state, door]) => state !== door).map((d) => d.join("->")).join(" "));
+    // …and each of them is a door the Controls screen can actually draw: a
+    // label for its eyebrow (CONTROLS_DOOR_LABELS is exhaustive over the type,
+    // so a missing one is a type error rather than a check) and the action on
+    // both of its exits. This is what makes the pair a list of two halves that
+    // cannot drift: a state named here that the screen cannot render back
+    // through would strand the player on Controls.
+    check("...and the Controls screen can draw its way back through each one",
+      doors.every(([, door]) => {
+        const html = controlsScreen({
+          tab: "touch", settings: ctrlSettings, padName: null, rebinding: null,
+          back: door as S.ControlsDoor,
+        });
+        return (html.match(new RegExp(`data-action="${door}"`, "g")) ?? []).length === 2
+          && !/class="eyebrow"><\/div>/.test(html);
+      }));
+  }
 
   // The left-handed mirror is solver state, not just CSS: snug mode reserves
   // its band on the rail's side, so the field shifts the other way.
@@ -17333,9 +17719,13 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("granting salvage touches neither the rack nor the shed",
     slotsFor(applyCheat("sbx-grant-salvage", cheated, 1)!) === SLOT_CAP
       && applyCheat("sbx-grant-salvage", newMeta(), 1)!.stowed.length === 0);
+  // Compared against the SAVE'S OWN loadout rather than against newTiers(): the
+  // claim is that the cheat writes no rig, and "no rig" is the stock one now
+  // (upgrades.ts's STOCK_TIERS). Asking the input keeps the assertion true of
+  // whatever a ship leaves the yard with.
   check("granting a Mark grants a budget, never a rig",
     JSON.stringify(applyCheat("sbx-grant-mark", newMeta(), 9)!.loadout)
-      === JSON.stringify(newTiers()));
+      === JSON.stringify(newMeta().loadout));
 
   // The end modal has to say what the run did NOT do, or a player will assume
   // it did.
@@ -18584,19 +18974,130 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // — what the new rung changes — and that one is doubly false at the top,
   // since Mark 10 opens no hazard axis and the build budget it quotes is the
   // budget the player already had.
-  const endMid = end({ runComplete: true, tierCompleted: 3, tierSalvage: 15,
-    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 } });
+  /** What the card's PRIMARY opens — the same read the next-step block above
+   *  makes, re-declared here because that one is scoped to its own block. It is
+   *  also what a stray pad A press does: padnav's focusInitial lands on exactly
+   *  this element. */
+  const primaryAction = (html: string): string =>
+    html.match(/class="btn btn--primary"[^>]*data-action="([a-z-]+)"/)?.[1] ?? "(none)";
+  /* -------------------------------------------------------------------------
+   * …AND `progress` IS THE TIER JUST FLOWN, on this card as on the Contract's
+   * (see that section for the whole of why). Both fixtures below pair
+   * `tierCompleted` with the SAME number in `progress.tier`, which is what a
+   * 1.0.6 save actually hands the card: the recorders leave the Mark alone, so
+   * markUnlocked still reads as the rung whose halves were just completed.
+   * Every floor number in these checks is therefore one the card had to derive
+   * from the completion rather than read off the snapshot.
+   * ---------------------------------------------------------------------- */
+  // `won` AS WELL AS `runComplete`, which these two fixtures did not carry
+  // before and could not have: the one caller passes `this.state === "won"` to
+  // both, because a Deep Run is won by clearing its last bay and by nothing
+  // else. It matters now that the completion banner is gated on it — a loss
+  // completes no tier, and the card refuses to celebrate one (see the loss
+  // check below) — so a bay-10 win has to say it is one.
+  const endMid = end({ won: true, runComplete: true, tierCompleted: 3, tierSalvage: 15,
+    step: "unlock",
+    progress: { tier: 3, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 } });
   check("the run-end card names the floor the completion opened",
-    endMid.includes("Tier 4 is open"));
-  const endTop = end({ runComplete: true, tierCompleted: MARK_COUNT, tierSalvage: 15,
+    endMid.includes("Tier 4 is ready to unlock on the tower"),
+    endMid.slice(endMid.indexOf("Tier 3 complete"), endMid.indexOf("Tier 3 complete") + 260));
+  check("...without claiming the player may already fly it",
+    !endMid.includes("is open"), "the run-end card still says a tier is open");
+  /* -------------------------------------------------------------------------
+   * WHAT THE NEXT RUNG CHANGES IS THE NEXT RUNG'S, and this is the check that
+   * would have caught it. The line read `progress.tier` three times — for its
+   * heading, its hazard lookup and its budget — so on a 1.0.6 save it
+   * announced as NEWS the axis that had been in the draft all run and the
+   * budget the player had just spent ten bays under. Pinned against
+   * budgetForMark of both rungs, because the wrong one is a plausible number
+   * rather than an obviously missing one.
+   * ---------------------------------------------------------------------- */
+  check("...and what unlocking it will change, at the rung being unlocked",
+    endMid.includes(`Unlock Tier 4: `) && endMid.includes(`rises to ${budgetForMark(4)}.`),
+    endMid.slice(endMid.indexOf("end__next"), endMid.indexOf("end__next") + 200));
+  check("...never the budget the run just played under",
+    !endMid.includes(`rises to ${budgetForMark(3)}.`));
+  const axis4 = HAZARDS.find((h) => h.mark === 4);
+  check("...and the axis that joins at that rung, if one does",
+    axis4 ? endMid.includes(`${axis4.name} joins the draft`) : true, axis4?.name ?? "none at 4");
+  /* -------------------------------------------------------------------------
+   * THE PRIMARY POINTS FORWARD. It was `Run Tier ${progress.tier} →` — the
+   * rung just finished — and padnav's focusInitial parks the pad on
+   * `.btn--primary`, so the loudest button on the highest-stakes card in the
+   * game and the pad's default both re-flew content the player had this second
+   * completed. The forward move is the CLAIM (the hub's own `claim-tier`,
+   * gated there on tierUnlockReady), and the re-fly stays on the card as a
+   * secondary, where a repeat belongs.
+   * ---------------------------------------------------------------------- */
+  check("...and its primary offers the claim rather than the rung just beaten",
+    primaryAction(endMid) === "claim-tier", primaryAction(endMid));
+  check("...with the re-fly demoted, still naming the tier it would actually fly",
+    endMid.includes('class="btn btn--secondary" data-action="restart"')
+      && endMid.includes("Run Tier 3 →"));
+  const endTop = end({ won: true, runComplete: true, tierCompleted: MARK_COUNT, tierSalvage: 15,
+    step: "unlock",
     progress: {
-      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+      tier: MARK_COUNT, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15,
     } });
   check("...and announces no unlock when the ladder simply ended",
     !endTop.includes("is open"), "the top-of-ladder run card still names a floor");
   check("...saying what did happen instead", endTop.includes("ladder is finished"));
   check("...and promises no budget rise that cannot happen",
     !endTop.includes("build budget rises"));
+  // …while still offering the press the last rung is owed, in the tower's own
+  // words (screens.ts's tierClaimTitle: there is no Tier 11 to name, and the
+  // Mark this advances is what opens the seal phase).
+  check("...and the last rung's claim is still the forward move",
+    primaryAction(endTop) === "claim-tier" && endTop.includes("Open the Skydeck →"));
+  /* -------------------------------------------------------------------------
+   * THE DOOR IS BADGED WHEREVER THE PRIMARY IS NOT IT — which is every LOSS,
+   * because no loss is ever re-routed (the rule above, pinned three ways).
+   * A player who lost a re-fly with both halves of the tier already banked
+   * would otherwise have the one press that moves the ladder named nowhere on
+   * the screen.
+   * ---------------------------------------------------------------------- */
+  const lostPending = end({ step: "unlock", contracts: { remaining: 0 } });
+  check("a loss with a claim waiting keeps its own primary",
+    primaryAction(lostPending) === "restart", primaryAction(lostPending));
+  check("...and badges the hub door the claim is behind",
+    lostPending.includes("btn--next") && lostPending.includes("next-badge"));
+  /* -------------------------------------------------------------------------
+   * …AND CELEBRATES NOTHING WHILE IT IS AT IT. `tierCompleted` is tierReady's
+   * answer since the deferred claim — a STATE ("a claim is pending"), not the
+   * event of one landing — and meta.ts's recordRunEnd returns it on every
+   * ladder run end, won or lost. So a player who banked both halves, flew the
+   * tier again and died was handed "Tier N complete!" over a +0 payout on a
+   * game-over screen. The run half only ever ticks on a win (recordRunEnd's
+   * `newlyDone`), so the card can refuse that banner on `won` alone and lose
+   * nothing true — and the loss still says what is pending, through the badge
+   * above.
+   * ---------------------------------------------------------------------- */
+  const lostMidClaim = end({
+    step: "unlock", tierCompleted: 3, tierSalvage: 0,
+    progress: { tier: 3, runDone: true, contracts: 3, needed: 3, award: 60, milestone: 15 },
+  });
+  check("a loss does not celebrate a tier it did not complete",
+    !lostMidClaim.includes("complete!") && !lostMidClaim.includes("ready to unlock"),
+    lostMidClaim.includes("complete!") ? "the loss card still announces a completion" : "");
+  check("...while the win that did complete it still says so",
+    endMid.includes("Tier 3 complete!"));
+  // ONE BADGE, still: nextStep returns exactly one id, so the two branches
+  // that can light the ghost are two answers to one question and can never
+  // both be true. The card with the claim on its primary draws no badge at
+  // all, for the reason the primary's own note gives — a directive on the
+  // loudest control is the screen saying the same thing twice.
+  check("...and the card that already offers the claim badges nothing",
+    !endMid.includes("next-badge"));
+  // AND A CARD THAT CANNOT NAME THE CLAIM DOES NOT OFFER IT. The face is built
+  // from `tierCompleted`; a win handed the unlock step with no completion to
+  // name falls back to the run rather than to a button reading "Unlock Tier
+  // undefined".
+  const endNameless = end({
+    won: true, runComplete: true, bayNum: 10, baysCleared: 10, step: "unlock",
+    tierCompleted: null, tierSalvage: 0,
+  });
+  check("a completed run with no completion to name keeps the run on the primary",
+    primaryAction(endNameless) === "restart", primaryAction(endNameless));
 
   // ---- RETRY BAY vs RETRY RUN --------------------------------------------
   // They were one button ("Play Again") that only ever meant the fresh start.
@@ -26394,11 +26895,23 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       // SCHOOL_INSTALL now, so the day the school sells something else they
       // rename together.
       const shelfName = upgradeById(SCHOOL_INSTALL)!.name;
+      // …AND IT CARRIES NO VERB, which is the half the stock rig settled. The
+      // line read "Install Reactor Output" while Reactor Output tier 1 ships
+      // with the ship (upgrades.ts's STOCK_TIERS), so what the school's one
+      // plate sells is that track's next rung — an uprate, priced "T2 · 15" by
+      // the shop's own button. Naming the transaction here would put a second
+      // author on it and be wrong for whichever rig the note is not looking at
+      // (it is handed no loadout at all). So what is pinned is the pair the
+      // player has to act on, the MERCHANDISE and the DOOR, and the absence of
+      // a verb that only the shop can price.
+      const workshopNote = strip0(S.baseBayPanelHTML({
+        tier: S.LICENCE_TIER, best: 0,
+        licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate: "workshop" },
+      }));
       check("...and the note says which door, not how many steps are left",
-        strip0(S.baseBayPanelHTML({
-          tier: S.LICENCE_TIER, best: 0,
-          licence: { done: LICENCE_LESSON_COUNT, total: SCHOOL_STEPS, gate: "workshop" },
-        })).includes(`Install ${shelfName}`));
+        workshopNote.includes(shelfName) && workshopNote.includes("in the Workshop")
+          && !/\bInstall\b/.test(workshopNote),
+        workshopNote.slice(workshopNote.indexOf(shelfName) - 20, workshopNote.indexOf(shelfName) + 80));
       check("...by the name the shelf itself puts on the card",
         workshopScreen({ ...newMeta(), licence: LICENCE_LESSON_COUNT, salvage: 15 })
           .includes(shelfName));
@@ -26721,9 +27234,15 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // MID-SCHOOL AN UNDONE RUNG WINS. A player replaying lesson 2 with lesson 5
     // next is sent to lesson 5 — not to lesson 3, which the ladder is not
     // asking for.
+    // The Workshop rung is cleared by a PURCHASE, not by carrying the stock
+    // reactor (meta.ts's boughtTracks vs upgrades.ts's STOCK_TIERS), so the
+    // fixture buys the school's card rather than naming its tier — otherwise
+    // this save is still ON the Workshop rung and the check below would be
+    // asking a different question than its name.
     const mid: MetaState = {
       ...newMeta(), licence: LICENCE_LESSON_COUNT,
-      claimedContracts: ["school"], loadout: { ...newTiers(), reactor: 1 },
+      claimedContracts: ["school"],
+      loadout: buyInstall({ ...newMeta(), salvage: 999 }, SCHOOL_INSTALL)!.loadout,
     };
     check("mid-school the ladder's own rung wins over the bay just flown",
       nextFlightAfter(mid, 1) === LICENCE_LESSON_COUNT,
@@ -27008,6 +27527,183 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     const graduate = (over: Partial<MetaState> = {}): MetaState =>
       ({ ...newMeta(), licence: SCHOOL_FLIGHTS, runs: 1, ...over });
 
+    /* ---- WHAT "THE WORKSHOP RUNG IS DONE" LOOKS LIKE IN A SAVE ----------
+     * These fixtures used to write `reactor: 1` and mean "this player has been
+     * to the shop". That stopped being true when the Reactor's first rung
+     * became the stock rig (upgrades.ts's STOCK_TIERS): tier 1 is what every
+     * save carries from its first frame, and the rung is cleared by a PURCHASE
+     * (meta.ts's boughtTracks, which compares against the stock rig rather than
+     * against zero). A fixture naming tier 1 would assert the rung clears
+     * itself — the exact silent pass this whole block exists to prevent.
+     *
+     * So the fixture is MADE BY BUYING, not by naming a tier. The shop is asked
+     * to sell the school's one card to a stock rig, and whatever it hands back
+     * is what a mid-school save looks like. The rung and the merchandise then
+     * cannot disagree: if the school's card ever became unsellable from stock —
+     * STOCK_TIERS reaching UPRATE_MAX_TIER would do it — the ladder would have
+     * a rung nobody can clear, and this is the assertion that says so instead
+     * of eleven screens quietly reading "not yet". */
+    const soldOnce = buyInstall({ ...newMeta(), salvage: 999 }, SCHOOL_INSTALL);
+    check("the school's one card is still a real purchase on a stock rig",
+      !!soldOnce && boughtTracks(soldOnce).includes(SCHOOL_INSTALL),
+      JSON.stringify(soldOnce?.loadout));
+    // …and the on-ramp's arithmetic survives the grant: the school's board is
+    // ONE card, so whatever that card banks has to cover whatever this rung
+    // costs. An uprate is priced like the install it uprates (meta.ts's
+    // uprateCost), which is why moving the rung up a tier moved no number.
+    const paidForIt = 999 - (soldOnce?.salvage ?? 0);
+    check(`...at a price one Contract milestone still covers (${paidForIt})`,
+      paidForIt > 0 && paidForIt <= tierMilestoneSalvage(1), String(paidForIt));
+    const rigBought = soldOnce!.loadout;
+
+    /* ---- THE RETURNING SAVE WHOSE PURCHASE THE GRANT ABSORBED -----------
+     * The cost of the stock rig, stated as a path rather than as a hope. A
+     * v1.0.5 save could hold Reactor Output tier 1 only by BUYING it, and the
+     * grant makes that tier free — so boughtTracks reads their purchase as
+     * stock and the Workshop rung they had cleared asks again. What this pins
+     * is that the second ask is a DETOUR and not a wall: the school's card is
+     * 1.0.6's own (contracts.ts's SCHOOL_CONTRACT_SEED), so no older save can
+     * have claimed it, and one clear of it banks exactly what the rung costs.
+     * Mid-school is the only place this bites, because past graduation every
+     * rung reads done whatever the rig says (schoolLadder). */
+    const returning = onLadder({
+      claimedContracts: ["daily-2026-01-01-0"], salvage: 0, loadout: stockTiers(),
+    });
+    check("a returning save's absorbed purchase leaves the Workshop rung owed",
+      !rigStarted(returning) && schoolNextStep(returning)?.kind === "workshop",
+      String(schoolNextStep(returning)?.kind));
+    const reEarned = recordContractClear(returning, schoolContract());
+    check("...and the school's own card is still unclaimed to pay for it",
+      reEarned.firstClear && reEarned.salvage === tierMilestoneSalvage(1),
+      `${reEarned.firstClear} ${reEarned.salvage}`);
+    const reBought = buyInstall(reEarned.meta, SCHOOL_INSTALL);
+    check("...so one clear puts them back on the ladder, at lesson 5",
+      !!reBought && rigStarted(reBought)
+        && schoolNextStep(reBought)?.flight === LICENCE_LESSON_COUNT,
+      String(schoolNextStep(reBought ?? returning)?.flight));
+
+    /* ---- THE GROUND FLOOR CANNOT DEADLOCK -------------------------------
+     * THE INVARIANT, swept rather than instanced: no save can be mid-school
+     * with the Workshop rung owed, no install it can afford, and no way to earn
+     * one. The returning save above is ONE way in and it is not the only one —
+     * a tutorial skipped and taken later, a save whose salvage went elsewhere,
+     * a hand-edited one — so a check written against that instance would pass
+     * while the guarantee failed. The owner's words are the guarantee: a
+     * tutorial taken after a skip must always be completable.
+     *
+     * Every mid-school shape the save fields can hold: five licence counts
+     * (the Workshop rung's own, two above it, the last lesson, graduated), the
+     * four claim ledgers that matter (nothing, the school's card, the school's
+     * card plus a daily, a daily alone), five wallets across the install's
+     * price, and three rigs (stock, a bare pre-grant loadout, a rig that has
+     * bought the rung). For each one the demand is the same two-sided rule:
+     *
+     *   stuck      -> one clear of the school's card banks a share, says so
+     *                 (firstClear, which is what main.ts persists on) and
+     *                 leaves the shop with something affordable
+     *   not stuck  -> a re-clear of that same card banks NOTHING
+     *
+     * The stuck COUNT is printed and asserted non-zero, because the cheap way
+     * for this pin to rot is for the matrix to stop containing a deadlock. */
+    {
+      const rescueShapes: { label: string; meta: MetaState }[] = [];
+      const boughtRig = buyInstall({ ...newMeta(), salvage: 999 }, SCHOOL_INSTALL)!.loadout;
+      for (const licence of [LICENCE_LESSON_COUNT, LICENCE_LESSON_COUNT + 1, LESSON_COUNT - 1,
+        LESSON_COUNT, SCHOOL_FLIGHTS]) {
+        for (const claimed of [[], [schoolContract().id],
+          [schoolContract().id, "20260101-1-0"], ["20260101-1-0"]]) {
+          for (const salvage of [0, Math.floor(tierMilestoneSalvage(1) / 2),
+            tierMilestoneSalvage(1) - 1, tierMilestoneSalvage(1), tierMilestoneSalvage(1) * 3]) {
+            for (const [rig, loadout] of [["stock", stockTiers()], ["pre-grant", newTiers()],
+              ["bought", boughtRig]] as const) {
+              rescueShapes.push({
+                label: `lic${licence} claims${claimed.length} salvage${salvage} ${rig}`,
+                meta: { ...newMeta(), licence, claimedContracts: [...claimed], salvage, loadout },
+              });
+            }
+          }
+        }
+      }
+      const stuck = rescueShapes.filter(({ meta }) => schoolRescueOwed(meta));
+      check(`the sweep contains deadlocks to escape (${stuck.length} of ${rescueShapes.length})`,
+        stuck.length > 0 && stuck.length < rescueShapes.length, String(stuck.length));
+      const notFreed = stuck.filter(({ meta }) => {
+        const r = recordContractClear(meta, schoolContract());
+        return !(r.salvage > 0 && r.firstClear && recommendedPurchase(r.meta) !== null);
+      });
+      check("no mid-school save is ever stuck on the Workshop rung",
+        notFreed.length === 0, notFreed.map((x) => x.label).join(" | "));
+      // …AND NOBODY ELSE IS PAID. The other side of the ruling: a school card
+      // that simply paid on repeat would be a faucet on the ground floor, which
+      // is the one floor whose income the whole on-ramp arithmetic is sized
+      // against.
+      const overpaid = rescueShapes.filter(({ meta }) =>
+        !schoolRescueOwed(meta) && meta.claimedContracts.includes(schoolContract().id)
+        && recordContractClear(meta, schoolContract()).salvage > 0);
+      check("...and a re-clear pays nobody who is not stuck",
+        overpaid.length === 0, overpaid.map((x) => x.label).join(" | "));
+      // THE COUPLING TO THE CALLER, as a property of every result this function
+      // can return over the whole sweep: main.ts keeps the meta only when
+      // firstClear is set while showing the award either way, so a banked share
+      // with a false flag would print a payout the save never kept.
+      const lying = rescueShapes.filter(({ meta }) => {
+        const r = recordContractClear(meta, schoolContract());
+        return r.salvage > 0 && !r.firstClear;
+      });
+      check("a clear that banks salvage always says it changed the save",
+        lying.length === 0, lying.map((x) => x.label).join(" | "));
+      // …and the OTHER end of that coupling, read off the source because there
+      // is no App in this process: main.ts keeps the recorder's meta behind
+      // `if (result.firstClear)`. The property is the pair — the gate exists
+      // AND the award is set outside it — so whichever side a future edit moves,
+      // one of these two clauses fails and says why.
+      {
+        const mainSrc = fs.readFileSync(
+          path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+          "utf8",
+        );
+        const at = mainSrc.indexOf("recordContractClear(this.meta");
+        const window = at < 0 ? "" : mainSrc.slice(at, at + 800);
+        check("the clear's caller persists on firstClear and awards regardless",
+          /if \(result\.firstClear\) \{[\s\S]*?saveMeta\(this\.meta\);/.test(window)
+            && /this\.contractAward = result;/.test(window),
+          `${window.length} chars`);
+      }
+
+      /* ---- AND IT IS A RESCUE, NOT A TAP -------------------------------- */
+      const onFoot: MetaState = onLadder({
+        salvage: 0, claimedContracts: [schoolContract().id], loadout: stockTiers(),
+      });
+      check("a stuck save's second clear of the school card pays the share",
+        schoolRescueOwed(onFoot)
+          && recordContractClear(onFoot, schoolContract()).salvage === tierMilestoneSalvage(1));
+      const freed = recordContractClear(onFoot, schoolContract()).meta;
+      check("...once, because the share is exactly what unsticks it",
+        !schoolRescueOwed(freed)
+          && recordContractClear(freed, schoolContract()).salvage === 0,
+        `${freed.salvage} salvage`);
+      check("...and the purchase shuts the door for good",
+        !schoolRescueOwed(buyInstall(freed, SCHOOL_INSTALL)!));
+      // It is a RUNG'S PRICE and not a milestone: the tier's Contract half was
+      // banked by the first clear, the id is already logged, and a Mark is not
+      // something a Contract can move at all.
+      check("...paying it moves no quota, no ledger and no Mark",
+        freed.tierContracts === onFoot.tierContracts
+          && freed.claimedContracts.length === onFoot.claimedContracts.length
+          && freed.mark === onFoot.mark);
+      // NARROWNESS. The exception is the school's own card, by id
+      // (contracts.ts's isSchoolContract) — never a tier-1 card that happens to
+      // sit in slot 0, and never the roof's board.
+      const tierCard = dailyContracts(1, 20260101)[0];
+      const roofCard = dailyContracts(SKYDECK_CONTRACT_TIER, 20260101)[0];
+      for (const [what, card] of [["a tier card", tierCard], ["the roof's card", roofCard]] as const) {
+        const held = { ...onFoot, claimedContracts: [...onFoot.claimedContracts, card.id] };
+        check(`...and a stuck save re-clearing ${what} banks nothing`,
+          recordContractClear(held, card).salvage === 0 && schoolRescueOwed(held),
+          `${recordContractClear(held, card).salvage}`);
+      }
+    }
+
     // ---- THE BOARD ------------------------------------------------------
     const card = schoolContract();
     check("the school's card is generated by the same function every card is",
@@ -27112,8 +27808,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // asked for — with 0 salvage to answer it with, since the school's board is
     // one card and it has been claimed.
     const shopBought = workshopScreen(onLadder({
-      licence: LESSON_COUNT, claimedContracts: ["x"],
-      loadout: { ...newTiers(), [SCHOOL_INSTALL]: 1 },
+      licence: LESSON_COUNT, claimedContracts: ["x"], loadout: rigBought,
     }));
     check("...and mid-school it is still one card after the Reactor is bought",
       cards(shopBought).join(",") === SCHOOL_INSTALL, cards(shopBought).join(","));
@@ -27190,7 +27885,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // A SAVE THAT ALREADY OWNS A SYSTEM keeps it open whatever the Contract
     // rung says — the ladder's own rule that a cleared rung stays open, which
     // is the half `rigged === false` carries in the menu's gate.
-    const rigged = onLadder({ loadout: { ...newTiers(), reactor: 1 } });
+    const rigged = onLadder({ loadout: rigBought });
     check("...and a rigged save is never shut out of the shop it already used",
       !btn(menuAt(rigged, towerAt(rigged)), "workshop").includes("disabled"),
       btn(menuAt(rigged, towerAt(rigged)), "workshop"));
@@ -27215,11 +27910,10 @@ section("Flight School — the authored geometry holds (game/school.ts)");
       ["the fourth basic", onLadder()],
       ["a cleared Contract", onLadder({ claimedContracts: ["x"], salvage: 15 })],
       ["the Reactor installed", onLadder({
-        claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 },
+        claimedContracts: ["x"], loadout: rigBought,
       })],
       ["every lesson flown", onLadder({
-        licence: LESSON_COUNT, claimedContracts: ["x"],
-        loadout: { ...newTiers(), reactor: 1 },
+        licence: LESSON_COUNT, claimedContracts: ["x"], loadout: rigBought,
       })],
     ] as [string, MetaState][]) {
       check(`the Deep Run is disabled at ${label}`,
@@ -27233,7 +27927,7 @@ section("Flight School — the authored geometry holds (game/school.ts)");
           && !/Finish Flight School/.test(deepRunAt(m)),
         /Flight School · \d+\/\d+/.exec(deepRunAt(m))?.[0]);
     }
-    const grad = graduate({ loadout: { ...newTiers(), reactor: 1 } });
+    const grad = graduate({ loadout: rigBought });
     check("...and it comes alive on the last step",
       !deepRunAt(grad).includes("disabled"));
     // The lobby's own two shut states.
@@ -27254,15 +27948,15 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // The shop's foot is gone; its blurb is the third surface now, and it
     // says the one purchase is what stands between the player and the lessons.
     check("...and the shop's own blurb names the same purchase",
-      workshopScreen(paid).includes("One system, and it is the last thing between you and lessons"));
-    const flying = onLadder({ claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 } });
+      workshopScreen(paid).includes("One purchase, and it is the last thing between you and lessons"));
+    const flying = onLadder({ claimedContracts: ["x"], loadout: rigBought });
     check("...and live again on every rung that IS a bay",
       !primaryOf(menuAt(flying, towerAt(flying))).includes("disabled")
         && primaryOf(menuAt(flying, towerAt(flying)))
           .includes(`Step ${LICENCE_LESSON_COUNT + 1} of ${SCHOOL_STEPS}`),
       primaryOf(menuAt(flying, towerAt(flying))).slice(0, 200));
     const examOwed = onLadder({
-      licence: LESSON_COUNT, claimedContracts: ["x"], loadout: { ...newTiers(), reactor: 1 },
+      licence: LESSON_COUNT, claimedContracts: ["x"], loadout: rigBought,
     });
     check("...and the last rung says what it actually is",
       primaryOf(menuAt(examOwed, towerAt(examOwed)))
@@ -32626,6 +33320,135 @@ section("\"Not configured\" and \"couldn't start\" are different answers (F6)");
 }
 
 // ---------------------------------------------------------------------------
+section("An opaque screen stops the field drawing behind it (main.ts's COVERS_CANVAS)");
+// ---------------------------------------------------------------------------
+// THE SET'S OWN DOCSTRING SAYS MEMBERSHIP "IS A FACT ABOUT THE MARKUP, NOT A
+// PREFERENCE" — and for a release nothing checked it, so the fact went stale
+// in silence. The double-gameplay split added two states, `tiers` and
+// `tutorial-offer`, and added neither: both render the same
+// `.screen.neon-backdrop` every other entry does, `this.game` is never nulled,
+// and toHub() is both the quit-from-bay door and the end cards' door — so the
+// hub was drawing a full pile, every frame, behind an opaque panel.
+//
+// MEASURED IN THE REAL APP (1280x720 at dpr 2, drawImage counted on the 2D
+// prototype, 150 rAF frames per state): 37.2 drawImage a frame and an rAF p95
+// of 50.0ms on `tiers` and `tutorial-offer`, against 0 and 16.7ms on
+// `workshop`, `contracts`, `leaderboard` and `settings`. 37.2 is the EMPTY-bay
+// floor — the scripted shots landed no cubes — and sim/renderperf puts a real
+// pile's frame at a p95 of 63.8ms with 100% of frames over budget. On the one
+// screen a player sits on between every run.
+//
+// SO THE FACT IS DERIVED HERE, from the two sources that hold it, rather than
+// re-stated as a list this file would then have to remember to update:
+// renderOverlay says which screen function each state mounts, and screens.ts
+// says which of those functions returns a full-bleed opaque panel. A new state
+// that renders one and forgets the set fails this check on the day it is
+// written — which is the only arrangement that could have caught #223's.
+//
+// BOTH DIRECTIONS. A missing member is the bug above; a member with no opaque
+// screen behind it any more is a state that has been rewritten or deleted
+// while the set kept its name, and a set that quietly stops meaning what it
+// says is how this got here in the first place.
+{
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const mainSrc = fs.readFileSync(path.resolve(here, "..", "src", "main.ts"), "utf8");
+  // Both screen modules, concatenated: `sandbox` is the one state whose panel
+  // lives outside ui/screens.ts, and a lookup that could not see it would
+  // silently call Tier S transparent.
+  const screensSrc = ["screens.ts", "sandbox-screen.ts"]
+    .map((f) => fs.readFileSync(path.resolve(here, "..", "src", "ui", f), "utf8"))
+    .join("\n");
+
+  const setSrc = mainSrc.slice(
+    mainSrc.indexOf("const COVERS_CANVAS"),
+    mainSrc.indexOf("]);", mainSrc.indexOf("const COVERS_CANVAS")),
+  );
+  const members = new Set(Array.from(setSrc.matchAll(/"([a-z-]+)"/g)).map((m) => m[1]));
+  check("the set was read off main.ts at all", members.size > 6, String(members.size));
+
+  /** Does this screen function return a full-bleed panel that bottoms out
+   *  opaque — i.e. one that nothing behind it can be seen through. */
+  const opaquePanel = (fn: string): boolean => {
+    const at = screensSrc.indexOf(`\nexport function ${fn}(`);
+    if (at < 0) return false;
+    const next = screensSrc.indexOf("\nexport function ", at + 1);
+    return screensSrc.slice(at, next < 0 ? undefined : next)
+      .includes('class="screen neon-backdrop');
+  };
+  // The premise those two class names carry, pinned where it lives: `.screen`
+  // is the full-bleed box and `.neon-backdrop` ends its background stack on a
+  // flat `var(--bg)`, which is a six-digit hex and therefore has no alpha to
+  // let a canvas through. If either of those ever gains transparency the whole
+  // set is wrong, and it would be wrong invisibly — the field would simply
+  // stop being there.
+  const appCss = fs.readFileSync(path.resolve(here, "..", "src", "styles", "app.css"), "utf8");
+  const tokensCss = fs.readFileSync(path.resolve(here, "..", "src", "styles", "tokens.css"), "utf8");
+  check("a `.screen` covers the viewport",
+    /\n\.screen \{\s*\n\s*position: absolute; inset: 0;/.test(appCss));
+  check("...and the neon backdrop ends on a flat, opaque --bg",
+    /\.neon-backdrop \{[^}]*\bvar\(--bg\);/.test(tokensCss)
+      && /--bg:\s*#[0-9a-f]{6};/.test(tokensCss));
+
+  // WHICH SCREEN EACH STATE MOUNTS, read off renderOverlay's arms. `S.<name>`
+  // without a trailing paren on purpose: the menu/hub arm picks its renderer
+  // into a local (`const render = this.state === "menu" ? S.menuScreen : ...`)
+  // and a paren-hungry pattern would see neither of them.
+  const render = mainSrc.slice(
+    mainSrc.indexOf("private renderOverlay("), mainSrc.indexOf("private syncPlantRoof"),
+  );
+  const labels = Array.from(render.matchAll(/\n      case "([a-z-]+)":/g));
+  check("renderOverlay's arms were found", labels.length > 20, String(labels.length));
+  const arms = labels.map((m, i) => ({
+    state: m[1],
+    text: render.slice(
+      (m.index ?? 0) + m[0].length,
+      i + 1 < labels.length ? labels[i + 1].index ?? render.length : render.length,
+    ),
+  }));
+  // A LABEL WITH NO BODY IS A FALLTHROUGH and mounts whatever the next one
+  // does — `case "menu": case "tiers":` is one arm serving two states, which
+  // is exactly the pair that went missing.
+  const mounted: Set<string>[] = new Array(arms.length);
+  for (let i = arms.length - 1; i >= 0; i--) {
+    mounted[i] = arms[i].text.trim() === "" && i + 1 < arms.length
+      ? mounted[i + 1]
+      : new Set([
+        ...Array.from(arms[i].text.matchAll(/\bS\.(\w+)/g)).map((m) => m[1]),
+        ...Array.from(arms[i].text.matchAll(/\b(\w+Screen)\(/g)).map((m) => m[1]),
+      ]);
+  }
+  const opaqueStates = arms
+    .filter((_, i) => Array.from(mounted[i]).some(opaquePanel))
+    .map((a) => a.state);
+  check("the opaque states were derived, not assumed",
+    opaqueStates.length > 10, opaqueStates.join(" "));
+  const missing = opaqueStates.filter((st) => !members.has(st));
+  check("every state that draws an opaque panel skips the field behind it",
+    missing.length === 0, `not in COVERS_CANVAS: ${missing.join(" ")}`);
+  const stale = Array.from(members).filter((st) => !opaqueStates.includes(st));
+  check("...and every member is a state that still draws one",
+    stale.length === 0, `no opaque panel behind: ${stale.join(" ")}`);
+  // THE HUB AND ITS DOOR BY NAME, because they are the two the release
+  // shipped without and a derived check is only as loud as its own inputs: if
+  // the arm parsing above ever stops finding them it should say so here rather
+  // than pass with an empty list.
+  for (const st of ["tiers", "tutorial-offer"]) {
+    check(`...including "${st}", which #223 added and did not list`,
+      opaqueStates.includes(st) && members.has(st));
+  }
+  // …AND THE MODAL STATES ARE STILL OUT, which is the other half of the
+  // docstring: `.modal-scrim` is a 72% wash over a blur, so the bay really is
+  // visible through a pause card, a draft or a run-end panel and skipping the
+  // draw there would empty the canvas behind them. The pin is that they are
+  // not members; the reason they are not opaque is that a HUD is not a
+  // `.screen`, which is the same rule sealBehindScrim states from the other
+  // side.
+  for (const st of ["paused", "draft", "refit", "won", "lost", "bayclear"]) {
+    check(`the bay stays visible behind "${st}"`, !members.has(st));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("A scrim seals what it covers from Tab (F7 — ui/padnav's sealBehindScrim)");
 // ---------------------------------------------------------------------------
 // POINTER-EVENTS IS NOT A FOCUS TRAP. Both notices render as a SIBLING of the
@@ -32679,20 +33502,179 @@ section("A scrim seals what it covers from Tab (F7 — ui/padnav's sealBehindScr
   sealBehindScrim({ children: [hud, scrim] });
   check("a HUD behind a scrim is sealed on the same rule", hud.inert() && !scrim.inert());
 
+  /* -------------------------------------------------------------------------
+   * TWO SCRIMS, AND THE LAST ONE IS THE LIVE ONE.
+   *
+   * The refit yard and the draft are THEMSELVES scrims, so a first-encounter
+   * card over either (refitIntroModal, draftIntroModal) puts two in the
+   * overlay — and taking the FIRST, which this function used to do, seals the
+   * explanation and leaves the yard live underneath it. That is not a
+   * hypothetical: `refit-done` is one of the controls it would have left
+   * reachable, and that button spends the staged scrap and undocks the ship.
+   * main.ts's padNavRoot reached the same conclusion from the pad side, in the
+   * same words, about the same two screens.
+   * ---------------------------------------------------------------------- */
+  const yard = fake("modal-scrim");
+  const intro = fake("modal-scrim");
+  sealBehindScrim({ children: [hud, yard, intro] });
+  check("the card on top of a scrim seals the scrim under it",
+    yard.inert() && hud.inert() && !intro.inert(),
+    `yard ${yard.inert()} hud ${hud.inert()} intro ${intro.inert()}`);
+  // …and dismissing the card gives the yard back, on the same clearing pass
+  // that gives a plain screen back above.
+  sealBehindScrim({ children: [hud, yard] });
+  check("...and the yard comes back when the card goes",
+    !yard.inert() && hud.inert());
+
   const mainSrc = fs.readFileSync(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
     "utf8",
   );
-  // Called AFTER the innerHTML write in each case — before it there would be
-  // nothing mounted to seal.
-  check("the deletion notice seals the account screen behind it",
-    /case "account-delete":[\s\S]{0,300}?this\.overlay\.innerHTML =[\s\S]{0,400}?sealBehindScrim\(this\.overlay\);/
-      .test(mainSrc));
-  check("the seal notice seals the HUD behind it",
-    /case "seal-break":\s*\n\s*if \(g && this\.run\) \{[\s\S]{0,2600}?sealBehindScrim\(this\.overlay\);/
-      .test(mainSrc));
+  /* -------------------------------------------------------------------------
+   * ONE CALL, AT THE TAIL OF EVERY RENDER — pinned as the tail rather than as
+   * a list of arms, because the list was the bug.
+   *
+   * The seal shipped called from the two arms that mounted the two panels it
+   * was written for (`account-delete`, `seal-break`) and eleven other scrim
+   * states never got it. Counted at 1280x720, tabbable controls reachable
+   * BEHIND the top scrim: 6 on `refit-intro` (including `refit-done`), 15 on
+   * `sys-drill-offer` and `ws-short` (including `buy-slot`), 9 on `pause`, 4
+   * on `contracts-intro` (three of them `contract`, which launches one), 2 on
+   * `draft-intro`. Spending currency, undocking a ship and starting a Contract
+   * — all under a question the player had not answered, all by Tab.
+   *
+   * So "is a scrim up" is answered once, off the markup the render just wrote,
+   * where COVERS_CANVAS's membership is answered — and the pin is the position:
+   * after the switch (so there is something mounted to seal), before the focus
+   * landing (inert blurs what it covers, so a landing placed first would be
+   * thrown away). A future modal state is sealed by nobody remembering
+   * anything, which is the only way this stays true.
+   * ---------------------------------------------------------------------- */
+  const render = mainSrc.slice(
+    mainSrc.indexOf("private renderOverlay("), mainSrc.indexOf("private syncPlantRoof"),
+  );
+  // Asserted as POSITION rather than as adjacency: the tail of this method is
+  // four separate pieces of housekeeping and a regex spanning them would be
+  // pinned to the order of things this check does not care about. What it does
+  // care about is that the call is outside the switch (after the last `case`,
+  // so every arm is covered by it and nothing has to remember it) and ahead of
+  // the focus landing (inert blurs what it covers).
+  const sealAt = render.indexOf("sealBehindScrim(this.overlay);");
+  check("every render seals whatever its own scrim covers",
+    sealAt > render.lastIndexOf('\n      case "')
+      && sealAt < render.indexOf("this.parkTowerView();")
+      && render.indexOf("this.parkTowerView();") < render.indexOf("this.syncPadFocus();"),
+    `seal ${sealAt} lastCase ${render.lastIndexOf('\n      case "')} park ${
+      render.indexOf("this.parkTowerView();")
+    } focus ${render.indexOf("this.syncPadFocus();")}`);
+  check("...once, at the tail, rather than arm by arm",
+    (render.match(/sealBehindScrim\(/g) ?? []).length === 1);
+  // …AND NO LIVE ENTER IS LEFT UNDER IT. Measured in Chromium (Playwright
+  // 1194): `inert` does not blur a descendant that already holds focus — it
+  // only takes the subtree out of the tab order — and a real Enter or Space on
+  // that retained focus still activates the button. Unreachable today, because
+  // every seal follows a wholesale innerHTML rewrite that has already
+  // destroyed the focused element; pinned because the first in-place patch
+  // that mounts a panel over a live screen makes it reachable, and what it
+  // would reach is whatever the scrim is covering.
+  check("...and focus a render leaves under the seal is dropped",
+    /sealBehindScrim\(this\.overlay\);\n\s*const sealedFocus[\s\S]{0,160}?closest\("\[inert\]"\)\) sealedFocus\.blur\(\);/
+      .test(render));
+  // THE HALF THAT ARRIVES LATE. A run-end scrim is held back a beat so the
+  // dial collapse can be seen (mountEndScrim), so at renderOverlay's tail
+  // there is no scrim yet and the seal correctly finds nothing — the bay is
+  // still the live screen, and it should be. The mount that follows the hold
+  // is the one that has to seal it, beside the syncPadFocus it already runs
+  // for the same reason.
+  const late = mainSrc.slice(
+    mainSrc.indexOf("private mountEndScrim("), mainSrc.indexOf("private clearEndScrimHold("),
+  );
+  const lateSeal = late.indexOf("sealBehindScrim(this.overlay);");
+  check("the held run-end scrim seals the dead bay when it finally lands",
+    lateSeal > late.indexOf("window.setTimeout(")
+      && lateSeal < late.indexOf("this.syncPadFocus();"),
+    `seal ${lateSeal} timer ${late.indexOf("window.setTimeout(")} focus ${
+      late.indexOf("this.syncPadFocus();")
+    }`);
 }
 
+section("A screen lands focus for the device driving it (main.ts's landsFocus)");
+// ---------------------------------------------------------------------------
+// THE OTHER HALF OF F7. Sealing what a scrim covers takes the controls
+// underneath out of the tab order; it does not put focus anywhere. Every
+// renderOverlay rewrites innerHTML wholesale, so on a full screen transition a
+// keyboard player's focus falls to <body> and nothing re-landed it — press P
+// and the pause card arrives with focus nowhere, and Resume is a Tab walk
+// away. The in-place patches restored focus already (renderOverlay's
+// data-bind and data-toggle restores), so the gap was exactly the transitions,
+// which is to say every modal in the game.
+//
+// AND THE MOUSE MUST NOT GET A RING. D2 puts the mouse and the keyboard in ONE
+// profile — deliberately, because they are one set of hints and one set of
+// visible controls — so "profile === keyboard" is true from boot for every
+// fine pointer and a profile test alone would paint a focus ring on every
+// screen a mouse-only desktop player opens. `keyDriven` is the distinction the
+// profile does not draw: the last input was a KEY, so the ring answers
+// something the player did.
+//
+// READ OFF main.ts's SOURCE, because main.ts needs a DOM to instantiate. What
+// is being pinned is not a rendering but a policy, and the policy is four
+// lines in three handlers that each have to stay in agreement.
+{
+  const mainSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  check("the pad always gets a landing, and the keyboard gets one once it is driving",
+    /private landsFocus\(\): boolean \{\s*\n\s*return this\.profile === "gamepad"\s*\|\| \(this\.profile === "keyboard" && this\.keyDriven\);/
+      .test(mainSrc));
+  // ONE PREDICATE, TWO CALLERS. reseatPadSelection exists because a render
+  // that lands a selection and then restores a shelf's scroll offset can leave
+  // the ring off screen (ui/scrollkeep's section below); whoever gets a
+  // landing is therefore exactly whoever can be stranded by one, and the two
+  // gates reading different rules is how a keyboard player would get the
+  // landing without the rescue.
+  check("...and the same rule decides who gets re-seated after a scroll restore",
+    /private syncPadFocus\(\): void \{\s*\n\s*if \(!this\.landsFocus\(\)/.test(mainSrc)
+      && /private reseatPadSelection\(held: string\): void \{\s*\n\s*if \(!this\.landsFocus\(\)\) return;/
+        .test(mainSrc));
+  // A KEYPRESS ARMS IT, A POINTER PRESS DISARMS IT — and the pointer half is
+  // what keeps a mouse player's screens ringless. It is on the profile
+  // listener rather than on a click handler because a mouse press does not
+  // change the profile at all (mouse and keyboard are one), so there would be
+  // nothing else to hang it on.
+  check("a keypress says the keyboard is driving",
+    /this\.setProfile\("keyboard"\);[\s\S]{0,600}?this\.keyDriven = true;/.test(mainSrc));
+  check("...and any pointer press says it is not",
+    /"pointerdown",\s*\n\s*\(e\) => \{[\s\S]{0,400}?this\.keyDriven = false;/.test(mainSrc));
+  /* -------------------------------------------------------------------------
+   * THE AUTOREPEAT GUARD, which is the hazard the landing itself creates.
+   *
+   * Activation is the browser's for a keyboard: a focused button is clicked by
+   * Enter, and a HELD Enter repeats at the OS rate. A render that lands focus
+   * on the next screen's primary therefore puts a fresh target under a finger
+   * that has not lifted — so one long press on Play could walk the front door,
+   * the hub, and whatever the hub's primary opens. The pad cannot do this
+   * (game/gamepad.ts emits press edges only, and arms autorepeat for
+   * directions alone), which is why the pad's equivalent is padWokeAt and this
+   * one lives in the key handler.
+   *
+   * preventDefault IS the fix rather than a guard on some handler of ours:
+   * nothing in this app clicks that button, the browser does, and cancelling
+   * the keydown is what cancels it. A genuine second press clears the latch on
+   * its way through — a non-repeat keydown is by definition a finger that
+   * lifted.
+   * ---------------------------------------------------------------------- */
+  const key = mainSrc.slice(mainSrc.indexOf("private onGlobalKey = "));
+  check("a repeat that lands on freshly placed focus is swallowed whole",
+    /if \(e\.repeat && this\.keyLandedFocus\) \{ e\.preventDefault\(\); return; \}/.test(key));
+  check("...and a real second press clears the latch",
+    /if \(!e\.repeat\) this\.keyLandedFocus = false;/.test(key));
+  check("...and only a landing that actually happened arms it",
+    /if \(focusInitial\(root\)\) this\.keyLandedFocus = true;/.test(mainSrc));
+}
+
+// ---------------------------------------------------------------------------
 section("The projection header is one line on EVERY device (app.css .projection__hd)");
 // ---------------------------------------------------------------------------
 // A TABLET REPORT, and the thing that makes it worth a source pin: the header

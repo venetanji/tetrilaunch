@@ -1376,7 +1376,10 @@ function licencePanelHTML(
       // a count that goes stale the day a rung is added — the same rule the
       // rest of this file follows for every price it quotes.
       ladder.gate === "contract"
-        ? `<b>Clear one Contract</b> to go on — it pays for your first system.`
+        // "your first system" until the stock rig arrived: the ship already
+        // carries one, so what the clear pays for is the plate the next rung is
+        // holding — which is also the only thing the school's shop will sell.
+        ? `<b>Clear one Contract</b> to go on — it pays for the Workshop's one card.`
       : ladder.gate === "workshop"
         // THE INSTRUCTION AND THE MERCHANDISE ARE ONE STRING. This said "the
         // Reactor" while the shelf it points at shows a card headed "Reactor
@@ -1387,7 +1390,19 @@ function licencePanelHTML(
         // SCHOOL_INSTALL)!.name`); so do the three lines that send people
         // there. SCHOOL_INSTALL is the rung's own constant, so the day the
         // school sells something else, every one of them renames itself.
-        ? `<b>Install ${upgradeById(SCHOOL_INSTALL)!.name}</b> in the Workshop to go on. Lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} open with it.`
+        //
+        // AND THE VERB WENT, which is the half the stock rig made wrong. This
+        // read "Install Reactor Output" while Reactor Output tier 1 now ships
+        // with the ship (upgrades.ts's STOCK_TIERS): what the school's one
+        // plate sells is that track's NEXT rung, which the shop itself calls an
+        // uprate and prices "T2 · 15". "Install" named the wrong transaction,
+        // and hard-coding "Uprate" would name the wrong one for a pre-grant
+        // save whose reactor is still at zero. So the line does what the lobby's
+        // own subtitle two functions down already argues for and what this file
+        // does with every price it quotes: it names the MERCHANDISE and lets the
+        // verb be the one the shop's button prints. The rung stays true whatever
+        // the stock rig becomes.
+        ? `<b>${upgradeById(SCHOOL_INSTALL)!.name}</b> in the Workshop to go on. Lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} open with it.`
       : owed
         ? `<b>${total} flights open Tier 1</b>: ${LESSON_COUNT} lessons and the ${FINAL_EXAM}.`
           + ` ${left} to go, and nothing here can be lost.`
@@ -2194,7 +2209,14 @@ export function tierHubScreen(
   // at the top there is no Tier 11 — the Mark it advances is what opens the
   // Skydeck (meta.ts's skydeckOpen), so the button says that instead of
   // counting to a floor the building does not have.
-  const claimTitle = ladderTop ? "Open the Skydeck" : `Unlock Tier ${unlockedMark + 1}`;
+  //
+  // THE SENTENCE MOVED OUT (tierClaimTitle) rather than being copied to the
+  // end cards, which now offer the same claim as their forward move. It was
+  // `ladderTop ? "Open the Skydeck" : \`Unlock Tier ${unlockedMark + 1}\``
+  // here, and that is exactly what the helper returns for `unlockedMark`:
+  // tierOpenedByCompleting is null on precisely the rungs `ladderTop` is true
+  // for. Same string, one author.
+  const claimTitle = tierClaimTitle(unlockedMark);
   // The sub is the legend in words, for the reader who cannot see the marks:
   // which half is done, and how many Contracts of how many.
   const claimSub =
@@ -3070,7 +3092,7 @@ const CONTROLS_TAB_LABELS: Record<ControlsTab, string> = {
  * shortcut may be pressed on (main.ts's PAD_CONTROLS_DOORS holds that half).
  */
 export type ControlsDoor =
-  | "settings" | "howto" | "menu" | "leaderboard" | "workshop" | "contracts" | "sandbox";
+  | "settings" | "howto" | "menu" | "tiers" | "leaderboard" | "workshop" | "contracts" | "sandbox";
 
 /** What the eyebrow calls each door — the screen's own name as the player
  *  reads it on the way in, so the header says where Done will land. */
@@ -3078,6 +3100,13 @@ const CONTROLS_DOOR_LABELS: Record<ControlsDoor, string> = {
   settings: "Settings",
   howto: "How to Play",
   menu: "Main Menu",
+  // THE HUB, and it is the door the pad's shortcut is pressed on most: Play
+  // lands here, every quit-from-bay lands here, and both end cards' Tower
+  // button lands here (main.ts's toHub). The double-gameplay split created
+  // this screen and the door list was never extended with it, so the one
+  // screen a pad player sits on between every run was the one screen the
+  // Controls shortcut did nothing on.
+  tiers: "The Tower",
   leaderboard: "Leaderboard",
   workshop: "Workshop",
   contracts: "Contracts",
@@ -6460,7 +6489,12 @@ export function workshopScreen(
             school
               ? rigStarted(meta)
                 ? `${upgradeById(SCHOOL_INSTALL)!.name} is installed and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT} are open — carry on below. A system is permanent: bought once, flown in every bay after.`
-                : `One system, and it is the last thing between you and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT}. A system is permanent — bought once, flown in every run after — so nothing here is spent twice.`
+                // "One system" was true while the ship started bare. It ships
+                // with Reactor Output tier 1 now (upgrades.ts's STOCK_TIERS), so
+                // the one thing standing between this player and the lessons is
+                // a PURCHASE — the plate's next rung — and the permanence
+                // sentence after it is what that purchase is worth either way.
+                : `One purchase, and it is the last thing between you and lessons ${LICENCE_LESSON_COUNT + 1} to ${LESSON_COUNT}. A system is permanent — bought once, flown in every run after — so nothing here is spent twice.`
               : rigStarted(meta)
                 ? "Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before."
                 : "Install your first system. Every system is permanent: bought once, flown in every run after."
@@ -7409,8 +7443,8 @@ function sandboxEndRowHTML(
 }
 
 /**
- * What completing `tier` OPENED, as the clause both end cards drop into the
- * same sentence.
+ * What completing `tier` has made CLAIMABLE, as the clause both end cards drop
+ * into the same sentence.
  *
  * The floor comes from meta.ts (tierOpenedByCompleting) rather than from the
  * progress snapshot each card already holds, because that snapshot is
@@ -7419,20 +7453,59 @@ function sandboxEndRowHTML(
  * spent the tier flying, which is how an owner came to report a finished
  * ladder as "all completed but not unlocked".
  *
+ * AND IT NO LONGER SAYS "IS OPEN", because since the deferred claim that is a
+ * lie on every rung rather than only on the last one. The recorders bank both
+ * halves and stop there — the Mark waits for the player to press Unlock on the
+ * hub (meta.ts's tierReady / claimTierUnlock) — so at the moment this sentence
+ * is read the next floor is EARNED and still locked: screens.ts's own tierOpen
+ * refuses it, and the tower draws it shut. A card that says a tier is open
+ * about a tier the very next screen will not let the player fly is the
+ * release's headline feature telling them they own something they do not, on
+ * the screen they were most looking forward to.
+ *
+ * So the clause states the claim and names the door that honours it. The floor
+ * is not diminished by being claimable rather than open — it is the same news
+ * one press earlier — and the press is the ceremony the feature exists for.
+ *
  * The null branch is not a hole to fill with silence. The ladder ending is
  * genuinely the biggest thing that happens on the save, and what is still open
  * there is two things the player CAN act on: the Workshop shelf, which the
  * tier-10 Contract loop keeps paying toward, and the seals the Skydeck asks
  * for (meta.ts's skydeckOpen). Naming them is the difference between an
- * endgame and a screen that has run out of things to say.
+ * endgame and a screen that has run out of things to say. It carries the claim
+ * too: the last rung has no Tier 11 to open, but its Mark is still the advance
+ * that ends the ladder (meta.ts's tierReady allows the claim while
+ * `mark < MARK_COUNT`), so there is still a press owed up there.
  */
-function tierOpenedClause(tier: number): string {
+function tierClaimableClause(tier: number): string {
   const opened = tierOpenedByCompleting(tier);
   return opened !== null
-    ? `Tier ${opened} is open`
+    ? `Tier ${opened} is ready to unlock on the tower`
     // One dash, not two: the caller has already spent the sentence's dash on
     // "cleared — ", so the second half is a sentence of its own.
-    : "the ladder is finished. Contracts still pay, and what's left is a maxed rig and every Tier sealed";
+    : "the ladder is finished. Claim the last rung on the tower; Contracts still pay, and what's left is a maxed rig and every Tier sealed";
+}
+
+/**
+ * THE FACE OF THE CLAIM, in one place for the three buttons that offer it.
+ *
+ * The hub's Unlock legend wrote this sentence itself (tierHubScreen's
+ * claimTitle) while both end cards had no claim button at all. Now that they
+ * do, the wording is a fact about the ladder rather than about a screen: a
+ * claim below the top opens the next floor and says which, and the last one
+ * has no floor to name — it is the advance that ends the ladder and opens the
+ * seal phase, which is what the tower has always called "Open the Skydeck".
+ *
+ * A FUNCTION OF THE COMPLETED TIER, on the same rule tierClaimableClause
+ * follows: `tierOpenedByCompleting` is the one place that knows the last rung
+ * has no successor, and a fourth site can only get the answer by asking it.
+ * The hub hands it `twr.unlocked` — which at claim time IS the completed tier
+ * (markUnlocked, the tier the halves were flown at) — so all three buttons
+ * read the same string from the same input.
+ */
+export function tierClaimTitle(tier: number): string {
+  const opened = tierOpenedByCompleting(tier);
+  return opened !== null ? `Unlock Tier ${opened}` : "Open the Skydeck";
 }
 
 /**
@@ -7653,22 +7726,72 @@ export function endModal(opts: {
   // badge the Tower ghost carries (`contractsNext`), which is A3's one-badge
   // rule doing exactly its job — the door is the door, and the badge is what
   // is behind it. Nothing is lost but the duplicate.
-  const stepRoute: "workshop" | "run" =
-    !opts.sandbox && opts.runComplete && opts.step === "workshop" ? "workshop" : "run";
+  /* ------------------------------------------------------------------------
+   * THE CLAIM IS THE FORWARD MOVE, and it is the whole of what the deferred
+   * claim broke on this card.
+   *
+   * #223 stopped the recorders advancing the Mark, so `progress.tier` is the
+   * tier just FINISHED where it used to be the tier just opened — and the
+   * primary on a completed run was `Run Tier ${progress.tier} →`, i.e. the
+   * rung the player had this second finished flying. padnav's focusInitial
+   * parks the pad on `.btn--primary`, so the loudest button on the
+   * highest-stakes screen in the game AND the pad's default both re-flew
+   * finished content, on a card whose own headline had just announced a
+   * completion.
+   *
+   * It is not re-pointed at "the next tier" either, because there is no next
+   * tier yet: until Unlock is pressed the Mark has not moved, tierOpen refuses
+   * the floor above and the run that button starts is a re-fly of the tier
+   * just beaten. The one forward move that exists is the CLAIM, and the card
+   * carries it — `claim-tier`, the hub's own action (main.ts gates it on
+   * tierUnlockReady, so a stale card cannot advance anything), which claims
+   * and hands the player to the tower where the ceremony rides.
+   *
+   * ASKED OF THE STEP, not of the completion. nextStep answers "unlock"
+   * exactly when tierUnlockReady is true (meta.ts), which is the same rule the
+   * hub lights its Unlock legend on — so this card cannot offer a claim the
+   * hub would refuse, and the two cannot disagree about whether one is owed.
+   * `tierCompleted` is then what NAMES it: a card handed a claim it cannot
+   * name falls through to the run, because a button reading "Unlock Tier
+   * undefined" is worse than a button pointing backwards.
+   * --------------------------------------------------------------------- */
+  const claimTier =
+    !opts.sandbox && opts.runComplete && opts.step === "unlock" ? opts.tierCompleted : null;
+  const stepRoute: "workshop" | "unlock" | "run" =
+    claimTier !== null
+      ? "unlock"
+      : !opts.sandbox && opts.runComplete && opts.step === "workshop" ? "workshop" : "run";
   // THE CARDS BEHIND THE TOWER DOOR ARE THE STEP: today's board still has an
   // uncleared card and meta.ts's nextStep says Contracts. What the retired
   // secondary Contracts button used to be badged on, moved to the ghost that
   // now opens the screen the cards are on.
   const contractsNext = opts.step === "contracts" && (opts.contracts?.remaining ?? 0) > 0;
+  // …AND SO IS THE CLAIM, on every card that does not already carry it as its
+  // primary — which is every LOSS. A loss is never re-routed (the long note
+  // above, and the retry button's own three reasons), so a player who lost a
+  // re-fly with both halves of the tier already banked would have had the one
+  // press that moves the ladder named nowhere on the screen. The badge is the
+  // A3 directive doing exactly its job: the door is the door, the badge says
+  // what is behind it. One badge still, because the two branches are two
+  // answers to one question — nextStep returns exactly one id.
+  const unlockNext = opts.step === "unlock" && stepRoute !== "unlock";
+  const towerNext = contractsNext || unlockNext;
   // The salvage row's Workshop button, kept unless the primary has become that
   // same door. Two Workshop buttons on one card is the card arguing with
   // itself, and the one that goes is the quieter one.
   const showRowWorkshop = stepRoute !== "workshop";
   // "Run Tier N →" — the primary's face when the run IS the step, and a
-  // secondary on the two cards where it is not. It never leaves the card: a
+  // secondary on the three cards where it is not. It never leaves the card: a
   // player who has just cleared a tier's run may want to re-fly it for a
   // better board or a clean seal, and the step is a recommendation rather than
   // a gate. One string, so the two slots cannot drift apart.
+  //
+  // THE TIER IT NAMES IS THE ONE THIS BUTTON WOULD ACTUALLY FLY, which since
+  // the deferred claim is the tier just beaten: `progress.tier` is markUnlocked
+  // and the Mark has not moved yet, so `restart` re-deals this same rung until
+  // Unlock is pressed. That makes the label honest and the PROMOTION wrong,
+  // which is why an unclaimed tier takes the primary away from it (claimTier
+  // above) and leaves the re-fly here, where a repeat belongs.
   const runFace = `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`;
   // THE PRIMARY, resolved as ONE action/face pair rather than as two ternaries
   // inside the markup. The button carries a data-action now instead of always
@@ -7679,8 +7802,27 @@ export function endModal(opts: {
   // that is not the main one (A3 allows exactly one on a screen); a primary
   // that IS the step is already the loudest thing on the card, and badging it
   // would be the screen saying the same thing twice.
+  // THE CLAIM'S BUTTON, built where `claimTier` is known to be a tier so the
+  // two strings it needs can be read off it without a cast. The floor being
+  // OPENED carries the plate, on the same rule the run button's plate follows:
+  // the chip names the rung the press is about. The last rung plates nothing —
+  // that claim opens the seal phase rather than a floor, and tierClaimTitle
+  // says so in words.
+  const claimPrimary = claimTier !== null
+    ? (() => {
+      const opens = tierOpenedByCompleting(claimTier);
+      return {
+        action: "claim-tier",
+        face: `${opens !== null ? tierPlateHTML(opens, "button") : ""}${
+          tierClaimTitle(claimTier)
+        } →`,
+      };
+    })()
+    : null;
   const primary: { action: string; face: string } =
-    stepRoute === "workshop"
+    claimPrimary
+      ? claimPrimary
+      : stepRoute === "workshop"
       ? { action: "workshop", face: `${icon("workshop")}Workshop` }
       : {
         action: "restart",
@@ -7821,7 +7963,21 @@ export function endModal(opts: {
       ${
         opts.sandbox
           ? sandboxEndRowHTML(opts.sandboxSetup ?? "", opts.scrapEarned, opts.tiers, demoFoot)
-          : opts.tierCompleted !== null
+          // A LOSS COMPLETES NO TIER, and the guard is `won` because
+          // `tierCompleted` cannot say so. Since the deferred claim it is
+          // tierReady's answer — a STATE ("a claim is pending"), not the event
+          // of one landing (meta.ts's recordRunEnd returns it on every ladder
+          // run end, won or lost). So a player who banks both halves, flies the
+          // tier again and DIES got "Tier 9 complete!" over a +0 payout on a
+          // game-over screen: the third time in this repo that the celebration
+          // has outrun the state it was celebrating, and the one shape of it
+          // this card can refuse on its own. The run half only ever ticks on a
+          // win (recordRunEnd's `newlyDone`), so on this card a genuine
+          // completion is a win by construction and nothing true is lost. What
+          // that loss card says about the pending claim instead is what every
+          // other loss card says about the next step: the badge on the hub
+          // door (towerNext).
+          : opts.won && opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">
         <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16, true)}</div>
         <div class="salvage-row__body">
@@ -7831,7 +7987,7 @@ export function endModal(opts: {
             // the same place — see tierOpenedClause. Either half of a tier can
             // be the one that lands second, so both cards can be the one that
             // announces the ladder's last rung.
-            tierOpenedClause(opts.tierCompleted)
+            tierClaimableClause(opts.tierCompleted)
           }. <b>${num(opts.salvageTotal)} salvage banked</b>, yours to keep.</span>
         </div>
         ${showRowWorkshop ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>` : ""}
@@ -7857,15 +8013,33 @@ export function endModal(opts: {
         // no floor, so this promised a hazard axis Mark 10 does not have and a
         // budget rise that had already happened — the same saturation the
         // salvage row above just stopped printing.
-        !opts.sandbox && opts.runComplete && opts.tierCompleted !== null
-          && tierOpenedByCompleting(opts.tierCompleted) !== null
-          ? `<p class="muted end__next">Tier ${opts.progress.tier}: ${
-              (() => {
-                const opened = HAZARDS.find((h) => h.mark === opts.progress.tier);
-                return opened ? `${opened.name} joins the draft, and ` : "";
-              })()
-            }the build budget rises to ${budgetForMark(opts.progress.tier)}.</p>`
-          : ""
+        //
+        // THE RUNG IT DESCRIBES IS THE ONE BEING OPENED, and that is the whole
+        // of what the deferred claim got wrong here. It read `progress.tier`
+        // for all three of its facts — the heading, the hazard lookup and the
+        // budget — and `progress.tier` is markUnlocked, which since #223 is the
+        // tier just FLOWN. So the line announced as news the axis that had been
+        // in the draft all run and the budget the player had just spent ten
+        // bays under: every word of it was true one tier too late. Asked of
+        // tierOpenedByCompleting instead, which the guard above already asked
+        // and which is the one function that knows the last rung has no
+        // successor.
+        //
+        // …AND IT IS PHRASED AS THE CLAIM'S CONSEQUENCE rather than as a fact
+        // about the save, because until Unlock is pressed none of it is true
+        // yet (tierOpen refuses the floor; the draft and the budget are still
+        // this tier's). "Unlock Tier N:" is the same sentence one press early,
+        // which is exactly what the card's primary now offers.
+        (() => {
+          const opens = !opts.sandbox && opts.runComplete && opts.tierCompleted !== null
+            ? tierOpenedByCompleting(opts.tierCompleted)
+            : null;
+          if (opens === null) return "";
+          const axis = HAZARDS.find((h) => h.mark === opens);
+          return `<p class="muted end__next">Unlock Tier ${opens}: ${
+            axis ? `${axis.name} joins the draft, and ` : ""
+          }the build budget rises to ${budgetForMark(opens)}.</p>`;
+        })()
       }
       </div>
       <div class="end__side">
@@ -7937,8 +8111,9 @@ export function endModal(opts: {
         }
         <button class="btn btn--primary" data-action="${primary.action}">${primary.face}</button>
         ${
-          // THE RUN, DEMOTED BUT NEVER DROPPED. On the two cards where the step
-          // is a shop rather than a flight, "Run Tier N →" moves down one rank
+          // THE RUN, DEMOTED BUT NEVER DROPPED. On the three cards where the
+          // step is a shop or a claim rather than a flight, "Run Tier N →"
+          // moves down one rank
           // and stays on the screen: a player who has just cleared the tier's
           // run may well want it again for a better board or a clean seal, and
           // the step is a recommendation, not a gate. Same string in both slots
@@ -8020,8 +8195,8 @@ export function endModal(opts: {
           // Workshop is the step, and it already has a button on this card (the
           // primary on a completed run, the salvage row on every other), so the
           // one-badge rule holds across the screen boundary too.
-          `<button class="btn btn--ghost${contractsNext ? " btn--next" : ""}" data-action="tiers">Tower${
-            contractsNext ? nextBadgeHTML() : ""
+          `<button class="btn btn--ghost${towerNext ? " btn--next" : ""}" data-action="tiers">Tower${
+            towerNext ? nextBadgeHTML() : ""
           }</button>`
         }
       </div>
@@ -8200,6 +8375,27 @@ export function contractsScreen(opts: {
    *  the ladder cannot say "Tier N", and saying nothing at all would leave the
    *  player no way to tell the roof's board from the tier-10 one. */
   floor?: string;
+  /** True while the school's own card WILL PAY AGAIN — the ground floor is
+   *  held at the Workshop rung with nothing affordable on the shelf, so
+   *  meta.ts's schoolRescueOwed has re-opened the one card's milestone.
+   *
+   *  THE GUARANTEE WAS SILENT WITHOUT THIS. The rescue works whether or not
+   *  anything says so — press the cleared card and it pays — but a card
+   *  reading "✓ Cleared" is the app telling the player, in the one place they
+   *  can act, that pressing it is finished business. A player who cannot
+   *  afford the rung they are held at and is looking at a board of one spent
+   *  card has been shown a dead end that is not there. So the tick gives way
+   *  to the price: the same `--pays` badge every unclaimed card wears, because
+   *  it means the same thing here and the player has already learnt to read
+   *  it.
+   *
+   *  GATED ON `school` HERE TOO, though main.ts already asks it. The exception
+   *  belongs to the school's one card, and a board of three tier cards handed
+   *  this flag would price whichever of them happened to be cleared — a "+15"
+   *  on a card that banks nothing. One `&&` is cheaper than trusting every
+   *  future caller to remember which board it is drawing. Absent on every
+   *  caller that predates the rescue. */
+  rescue?: boolean;
   /** One allowance across every Tier for this UTC day. Full Game owners have
    * no cap; already-cleared cards remain replayable after it reaches zero.
    *
@@ -8219,7 +8415,17 @@ export function contractsScreen(opts: {
   const cards = opts.contracts
     .map((c, i) => {
       const done = opts.cleared.includes(c.id);
-      const capped = !done && opts.allowance?.fullGame === false && opts.allowance.remaining <= 0;
+      // `!opts.school`, MATCHING THE `spent` LINE BELOW, and it was missing
+      // here. The school's card carries a fixed seed rather than the day's, so
+      // clearing it spends none of a free account's three — which is exactly
+      // why the banner exempts this board from the allowance. The CARD did not,
+      // so a mid-school player who had cleared three tier Contracts today met
+      // the school's one card disabled, with the line that would have explained
+      // it suppressed by the very exemption the card was ignoring: a dead
+      // control and no reason given. A board that cannot spend the allowance
+      // must not be refused by it.
+      const capped = !done && !opts.school
+        && opts.allowance?.fullGame === false && opts.allowance.remaining <= 0;
       // A pattern Contract advertises its exact inventory, because the whole
       // offer is "here is what you get — can you place it?". Knowing the set
       // before you accept is the planning the mode is made of. A lines Contract
@@ -8233,7 +8439,14 @@ export function contractsScreen(opts: {
       // slot goes empty rather than asserting "Practice", which would be wrong
       // for a player whose tier quota is in fact still open.
       const state = done
-        ? `<span class="contract-card__state contract-card__state--done">✓ Cleared</span>`
+        ? (opts.school && opts.rescue && opts.progress
+          // SPENT, EXCEPT IT IS NOT. See `rescue` above: this is the school's
+          // one card re-opened because the floor cannot afford the rung it is
+          // held at, and the badge says the thing the player needs — that
+          // pressing it pays — in the vocabulary the unclaimed cards taught
+          // them two screens ago.
+          ? `<span class="contract-card__state contract-card__state--pays">${salvageHTML(`+${opts.progress.milestone}`)}</span>`
+          : `<span class="contract-card__state contract-card__state--done">✓ Cleared</span>`)
         : !opts.progress
           ? ""
           : paying
@@ -8952,10 +9165,18 @@ export function lessonEndModal(opts: {
       // and they are the two the old copy could not describe: it promised Tier
       // 1 on lesson 4 (the on-ramp had already made that false) and said
       // nothing at all on lesson 9.
+      // …AND NEITHER OF THE SHOP RUNGS SELLS A FIRST SYSTEM ANY MORE. Both of
+      // these read "your first system" while the Reactor was the thing the
+      // school sold; it is stocked now (upgrades.ts's STOCK_TIERS), so the
+      // ship arrives carrying one and what the rung is holding is the plate
+      // ABOVE it. Named off SCHOOL_INSTALL like the three lines on the tower
+      // and in the shop, so the day the school sells something else these
+      // rename themselves — and with no verb, for the same reason those have
+      // none: "install" is wrong for a rung that uprates what is aboard.
       : opts.next === "contract"
-        ? `That is the four basics. <b>The Contract board is open</b> — clear one card and it pays for your first system.`
+        ? `That is the four basics. <b>The Contract board is open</b> — clear one card and it pays for the Workshop's one card.`
       : opts.next === "workshop"
-        ? `<b>Salvage banked.</b> Spend it in the Workshop on your first system — it opens the rest of the school.`
+        ? `<b>Salvage banked.</b> Spend it in the Workshop on <b>${upgradeById(SCHOOL_INSTALL)!.name}</b> — it opens the rest of the school.`
       : opts.next === "exam"
         // …AND THE CLOCK IS WHAT "FOR REAL" WAS HIDING. Every lesson bay is
         // built with `timeLimitSec = 0` on both branches of levelForLesson —
@@ -9317,7 +9538,7 @@ export function contractEndModal(opts: {
             // saturates: on the last rung it named the floor the player had
             // just finished flying as the one that had opened, which is how
             // "all completed but not unlocked" gets reported.
-            tierOpenedClause(opts.award.completedTier)
+            tierClaimableClause(opts.award.completedTier)
           }. <b>${num(opts.salvageTotal)} salvage banked.</b>${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
@@ -9347,10 +9568,34 @@ export function contractEndModal(opts: {
         </div>
       </div>`;
 
+  /* ------------------------------------------------------------------------
+   * THE CLAIM OUTRANKS THE BOARD, for the reason the run-end card's own note
+   * gives at length: since #223 a completed tier is EARNED and not yet open,
+   * and the one press that moves it is Unlock on the hub. This is the other
+   * door into that moment — a tier completes on whichever half lands second,
+   * and either half can be a Contract — so this card has to make the same
+   * forward move, or half the players who complete a tier meet a card that
+   * announces a completion and then offers them the next daily card.
+   *
+   * ASKED OF THE AWARD, which is this card's own tierReady answer (meta.ts's
+   * recordContractClear returns it as `completedTier`), rather than of a step
+   * this modal is not handed. The two agree by construction: nextStep answers
+   * "unlock" exactly when tierReady is non-null.
+   *
+   * NEVER OFF THE LADDER. A Tier S clear banks nothing, a Skydeck clear moves
+   * no quota, and the school's board ticks a rung rather than a tier — all
+   * three already have their own salvage row, and none of them can leave a
+   * claim pending. The guard is the same three the row above branches on, so
+   * the banner and the button cannot describe different clears.
+   * --------------------------------------------------------------------- */
+  const claimTier = opts.sandbox || opts.skydeck || opts.school
+    ? null
+    : opts.award?.completedTier ?? null;
   // One primary (B2): the forward move. The ghost board link only renders
   // when the primary is routing somewhere ELSE — a primary that already goes
   // to the board does not need a quieter twin.
-  const primaryIsBoard = !opts.firstSystem && !opts.boardComplete && !opts.nextContract;
+  const primaryIsBoard = claimTier === null
+    && !opts.firstSystem && !opts.boardComplete && !opts.nextContract;
   // WHERE "THE BOARD" IS. The Skydeck keeps its own Contract screen, but a
   // tier's Contracts live inline on the hub now (tierHubScreen's earn row), so a
   // tier clear hands the player back to the hub rather than to a screen the tier
@@ -9387,6 +9632,14 @@ export function contractEndModal(opts: {
           // what a practice clear makes you want, not a daily card.
           opts.sandbox
             ? `<button class="btn btn--primary" data-action="sandbox">Tier S →</button>`
+            // AHEAD OF EVERYTHING ELSE ON THE LADDER: a tier the player has
+            // just finished paying for, waiting on one press (see claimTier).
+            // The action is the hub's own, gated there on tierUnlockReady, so
+            // this button cannot advance a tier whose halves are not both in.
+            : claimTier !== null
+              ? `<button class="btn btn--primary" data-action="claim-tier">${
+                tierClaimTitle(claimTier)
+              } →</button>`
             // AHEAD OF THE BOARD, because the board is no longer the forward
             // move: the clear that pays for the first system is the moment the
             // on-ramp hands over to the shop, and the next card would be a

@@ -1916,6 +1916,25 @@ export function schoolContract(): Contract {
   return { ...card, brief: SCHOOL_CONTRACT_BRIEF, conditions: SCHOOL_CONTRACT_BRIEF };
 }
 
+/**
+ * Is this id the school's own card?
+ *
+ * ANSWERED BY GENERATING THE CARD, not by re-spelling its id. The id format is
+ * `${seed}-${tier}-${slot}` in three places in this file and the Contract type
+ * says why that is not a fourth: "reading it back out of a string is how an id
+ * format change becomes a silent behaviour change". A caller that needs to
+ * recognise this one card therefore asks the generator, which costs one
+ * mulberry32 walk (schoolContract is pure and memo-free by construction).
+ *
+ * It exists because meta.ts needs the question: the school's card is the only
+ * Contract in the game whose clear can pay TWICE (meta.ts's schoolRescueOwed —
+ * the ground floor's one rescue), and a rule that identified it by tier or by
+ * slot would hand that exception to every tier-1 card in slot 0.
+ */
+export function isSchoolContract(id: string): boolean {
+  return id === schoolContract().id;
+}
+
 /** The school's whole board. A one-element array rather than a Contract,
  *  because every caller downstream — the screen, the card index main.ts routes
  *  a tap through, the "next uncleared" walk on the end card — is written
