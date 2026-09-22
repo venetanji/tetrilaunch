@@ -1585,13 +1585,22 @@ export function maskLoadout(tiers: UpgradeTiers, aboard: readonly UpgradeId[]): 
  *  Cheating the budget is the one thing that would make a Mark clear mean
  *  nothing, so it's checked at the point of use.
  *
+ *  STOCK MEANS THE STOCK RIG (upgrades.ts's stockTiers), not a bare ship. The
+ *  fallback predates STOCK_TIERS and returned newTiers(), which was the same
+ *  thing until Reactor Output tier 1 became stock; after that it was strictly
+ *  worse than a new save — a legitimately owned loadout made over-budget by a
+ *  later re-price (loadMeta keeps those on purpose, for this fallback to
+ *  judge) would have flown with no reactor and so no refittable track at all.
+ *  Found in review (codex, on #234). The stock rig is legal at every Mark by
+ *  construction: it is what newMeta() writes.
+ *
  *  Legality is asked of the OWNED loadout, not of the masked one, and that
  *  ordering is deliberate: masking only ever removes tiers, so a masked rig is
  *  never more expensive than the rig it came from. Asking the mask would let a
  *  hand-edited over-budget save fly, simply by stowing enough of itself to duck
  *  under the cap. */
 export function safeLoadout(meta: MetaState): UpgradeTiers {
-  if (!loadoutLegal(meta.loadout, markUnlocked(meta))) return newTiers();
+  if (!loadoutLegal(meta.loadout, markUnlocked(meta))) return stockTiers();
   return maskLoadout(meta.loadout, mountedIds(meta));
 }
 

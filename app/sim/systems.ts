@@ -597,7 +597,16 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
 
   // safeLoadout is the gate that stops a hand-edited save flying an illegal rig.
   const cheat = { ...newMeta(), mark: 0, loadout: { ...newTiers(), reactor: MAX_TIER, bay: MAX_TIER } };
-  check("safeLoadout drops an over-budget loadout to stock", tiersCost(safeLoadout(cheat)) === 0);
+  check("safeLoadout drops an over-budget loadout to stock",
+    tiersCost(safeLoadout(cheat)) === tiersCost(stockTiers()));
+  // STOCK, NOT BARE. The fallback returned newTiers() from before the Reactor
+  // was stock, so an illegal save flew a ship poorer than a new one — no
+  // reactor, so no track a refit stop could raise (codex, on #234). Asserted
+  // on the reactor by name and on the whole rig by value, because a fallback
+  // that granted the reactor and something else would pass the first alone.
+  check("...and stock is the stock rig, reactor aboard",
+    safeLoadout(cheat).reactor === STOCK_TIERS.reactor
+      && JSON.stringify(safeLoadout(cheat)) === JSON.stringify(stockTiers()));
   const honest = { ...newMeta(), mark: 0, loadout: { ...newTiers(), bay: 1 } };
   check("safeLoadout keeps a legal loadout", safeLoadout(honest).bay === 1);
   check("safeLoadout copies rather than aliases", safeLoadout(honest) !== honest.loadout);
@@ -2666,7 +2675,7 @@ section("System slots — the rack (meta.ts, store.ts, components.ts)");
     tiersCost(safeLoadout({
       ...withLoadout({ reactor: MAX_TIER, bay: MAX_TIER }, { mark: 0 }),
       stowed: ["bay"],
-    })) === 0);
+    })) === tiersCost(stockTiers()));
 
   // --- claim 2: a stowed system is tier 0 everywhere ----------------------
   // THE ONE THE REFIT STOP TURNS ON. Scrap rungs on a system that is not
@@ -3030,6 +3039,16 @@ section("Contracts (contracts.ts)");
     canStartContract(dailyContracts(1, allowanceDay)[0], threeAcrossTiers, false, allowanceDay));
   check("Full Game removes the daily Contract cap",
     canStartContract(fourth, threeAcrossTiers, true, allowanceDay));
+  // THE SCHOOL'S CARD IS NOT ON THE ALLOWANCE, at the gate and not only on the
+  // board. Its id carries a fixed seed, so clearing it never spends the day's
+  // three — screens.ts drew it enabled on that argument while canStartContract
+  // still refused it, and a free player mid-school with three tier clears
+  // logged pressed a live card that did nothing (codex, on #234). Asked with
+  // the allowance exactly spent and the card unclaimed, which is the one shape
+  // where the two readings disagreed.
+  check("the school's card launches with the day's allowance spent",
+    canStartContract(schoolContract(), threeAcrossTiers, false, allowanceDay)
+      && !threeAcrossTiers.includes(schoolContract().id));
 
   const ownedFirst = availableContracts(3, [], true, allowanceDay);
   const ownedNext = availableContracts(3, [ownedFirst[0].id], true, allowanceDay);
@@ -17705,7 +17724,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // the rack: the rig is fully mounted and simply unaffordable.
   const cheapCheat = applyCheat("sbx-unlock-all", newMeta(), 1)!;
   check("...while a cheated rig the MARK cannot afford is still refused",
-    tiersCost(safeLoadout(cheapCheat)) === 0
+    tiersCost(safeLoadout(cheapCheat)) === tiersCost(stockTiers())
       && mountedIds(cheapCheat).length === UPGRADES.length);
   // THE OTHER THREE ARE NOT THE SAME CLASS, and each is checked rather than
   // asserted in prose. `sbx-wipe` is newMeta() whole, so its rack is the base

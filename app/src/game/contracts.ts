@@ -1972,13 +1972,29 @@ export function claimedContractsOnDay(claimed: readonly string[], seed = dailySe
   return new Set(claimed.filter((id) => id.startsWith(prefix))).size;
 }
 
+/**
+ * Whether `contract` may be launched: a replay, an owner, or a free player with
+ * allowance left today.
+ *
+ * THE SCHOOL'S CARD IS EXEMPT, HERE, at the one gate every launch passes. Its
+ * id carries a fixed seed rather than the day's, so clearing it can never
+ * spend a free account's three (claimedContractsOnDay counts by the day's
+ * prefix) — and a card that cannot spend the allowance must not be refused by
+ * it. The board already drew it enabled on that argument (screens.ts's
+ * `capped`), but the launch side did not know: the "contract" action and
+ * startContract both asked this function, which answered no, so a free player
+ * standing mid-school with three tier clears logged today pressed an enabled
+ * card and nothing happened, until the UTC rollover. Found in review (codex,
+ * on #234). Exempted at the root rather than at either caller so the card
+ * cannot be enabled by one reading of the rule and refused by another.
+ */
 export function canStartContract(
   contract: Pick<Contract, "id">,
   claimed: readonly string[],
   fullGame: boolean,
   seed = dailySeed(),
 ): boolean {
-  return claimed.includes(contract.id) || fullGame ||
+  return claimed.includes(contract.id) || fullGame || isSchoolContract(contract.id) ||
     claimedContractsOnDay(claimed, seed) < FREE_DAILY_CONTRACTS;
 }
 
