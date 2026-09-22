@@ -1,0 +1,220 @@
+{
+  "$comment": "APP STORE PREVIEWS. Three cuts, 15-30s each, which is the slot's own limit; App Store Connect takes up to three per localisation per device size and requires none. Phone-shaped and 30fps, which is why this is a file of its own and not three more entries in timeline.json - `fps` and `size` there are read once and drive every frame sum in assemble.ts. Film the beats behind it with: npx tsx sim/promo/run.ts --beats --size=960x443 --dpr=2 --touch --fps=30 --out=sim/results/preview",
+  "fps": 30,
+  "size": "1920x886",
+  "font": {
+    "family": "Orbitron",
+    "file": "public/fonts/orbitron-variable.woff2",
+    "$comment": "The game's display face (public/fonts/fonts.css). ffmpeg's drawtext needs a font file freetype can open; if the variable woff2 is refused, pass --font=/path/to/Orbitron-Bold.ttf to assemble.ts."
+  },
+  "card": {
+    "sizePx": 72,
+    "color": "#f2f0ff",
+    "wash": "black@0.55",
+    "washPad": 48,
+    "inSec": 0.25,
+    "holdSec": 1.6,
+    "outSec": 0.25,
+    "$comment": "Cards burn over the first seconds of their beat: a black wash behind Orbitron, faded in and out. Vibe, not explanation."
+  },
+  "stingerFiles": {
+    "bayClear": "audio/stingers/bayClear.mp3",
+    "gameOver": "audio/stingers/gameOver.mp3",
+    "explosion": "audio/fx/explosion.mp3",
+    "buzzer": "audio/fx/timeUp.mp3",
+    "excellent": "audio/fx/excellentClear.mp3",
+    "lineClear": "audio/fx/lineClear.mp3"
+  },
+  "cuts": {
+    "aim": {
+      "output": "preview-aim-1920x886.mp4",
+      "targetSec": 25,
+      "$comment": "25s: 8 + 8 + 6 + 3. The pitch, in order: there is a plan, it takes skill, it does not always work.",
+      "order": [
+        {
+          "beat": "plan",
+          "sec": 8.0,
+          "card": "YOU HAVE A PLAN.",
+          "music": "audio/music/bay-2.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "lineClear",
+              "file": "lineClear",
+              "gain": 0.6
+            }
+          ]
+        },
+        {
+          "beat": "precision",
+          "sec": 8.0,
+          "card": "IT TAKES SKILL.",
+          "music": "audio/music/bay-5.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "excellent",
+              "file": "excellent",
+              "gain": 0.8
+            },
+            {
+              "on": "lineClear",
+              "file": "lineClear",
+              "gain": 0.6
+            }
+          ]
+        },
+        {
+          "beat": "slip",
+          "sec": 6.0,
+          "card": "IT WON'T ALWAYS WORK.",
+          "music": "audio/music/bay-5.mp3",
+          "align": "end",
+          "stingers": []
+        },
+        {
+          "kind": "title",
+          "sec": 3.0,
+          "card": "TETROMINOES, BUT YOU HAVE TO AIM.",
+          "music": "audio/music/menu.mp3"
+        }
+      ]
+    },
+    "blowup": {
+      "output": "preview-blowup-1920x886.mp4",
+      "targetSec": 26,
+      "$comment": "26s: 10 + 5 + 8 + 3. The loud one - a charge, a loss, a buzzer-beater.",
+      "order": [
+        {
+          "beat": "improvise",
+          "sec": 10.0,
+          "card": "FORTUNE FAVOURS THE BRAVE.",
+          "music": "audio/music/bay-8.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "bomb",
+              "file": "explosion",
+              "gain": 0.9
+            },
+            {
+              "on": "lineClear",
+              "file": "lineClear",
+              "gain": 0.6
+            }
+          ]
+        },
+        {
+          "beat": "loss",
+          "sec": 5.0,
+          "card": "",
+          "music": "audio/music/bay-9.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "loss",
+              "file": "gameOver",
+              "gain": 0.9
+            }
+          ]
+        },
+        {
+          "beat": "luck",
+          "sec": 8.0,
+          "card": "…OR THE LUCKY.",
+          "music": "audio/music/bay-9.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "buzzer",
+              "file": "buzzer",
+              "gain": 0.9
+            },
+            {
+              "on": "lucky",
+              "file": "lineClear",
+              "gain": 0.7
+            }
+          ]
+        },
+        {
+          "kind": "title",
+          "sec": 3.0,
+          "card": "TETROMINOES, BUT YOU HAVE TO AIM.",
+          "music": "audio/music/menu.mp3"
+        }
+      ]
+    },
+    "ladder": {
+      "output": "preview-ladder-1920x886.mp4",
+      "targetSec": 26,
+      "$comment": "26s: 7 + 8 + 8 + 3. The run, not the shot - a bay banked, the skill it took, the charge that saved it.",
+      "order": [
+        {
+          "beat": "climb",
+          "sec": 7.0,
+          "card": "RETRY. RETRY. RETRY.",
+          "music": "audio/music/bay-9.mp3",
+          "align": "start",
+          "stingers": [
+            {
+              "on": "phase:1",
+              "file": "bayClear",
+              "gain": 0.8
+            }
+          ]
+        },
+        {
+          "beat": "precision",
+          "sec": 8.0,
+          "card": "TEN BAYS. ONE RIG.",
+          "music": "audio/music/bay-5.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "excellent",
+              "file": "excellent",
+              "gain": 0.8
+            },
+            {
+              "on": "lineClear",
+              "file": "lineClear",
+              "gain": 0.6
+            }
+          ]
+        },
+        {
+          "beat": "improvise",
+          "sec": 8.0,
+          "card": "SPEND IT OR LOSE IT.",
+          "music": "audio/music/bay-8.mp3",
+          "align": "end",
+          "stingers": [
+            {
+              "on": "bomb",
+              "file": "explosion",
+              "gain": 0.9
+            },
+            {
+              "on": "lineClear",
+              "file": "lineClear",
+              "gain": 0.6
+            }
+          ]
+        },
+        {
+          "kind": "title",
+          "sec": 3.0,
+          "card": "TETROMINOES, BUT YOU HAVE TO AIM.",
+          "music": "audio/music/menu.mp3"
+        }
+      ]
+    }
+  },
+  "vertical": {
+    "$comment": "9:16 recipe for the finished 1920x1080 cut: centre-crop to 608x1080 (the bay's compaction zone sits centre-right; shift with --crop-x), then scale to 1080x1920. See assemble.ts --vertical.",
+    "cropW": 608,
+    "cropXOffset": 120,
+    "output": "promo-1080x1920.mp4"
+  }
+}

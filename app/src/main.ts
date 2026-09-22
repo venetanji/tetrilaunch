@@ -3684,9 +3684,26 @@ class App {
         !this.settings.seenTutorial,
       );
       btn.classList.toggle("btn--next", badged);
-      const chip = btn.querySelector(".next-badge");
-      if (badged && !chip) btn.insertAdjacentHTML("beforeend", S.nextBadgeHTML());
-      else if (!badged && chip) chip.remove();
+      // A MINO, NOT A CHIP — the same mark tierHubScreen renders this very
+      // button with. The two paths had drifted: the screen draws `mino(badged)`
+      // (alertMinoHTML) and this ride re-badged with nextBadgeHTML, so any
+      // player who arrived here by riding the tower got BOTH — an amber square
+      // in the corner and a "Next step" plate inside the label. screens.ts's
+      // note on alertMinoHTML is the rule ("chips label, minos mark", and the
+      // hub is a screen passed through rather than read); the plate is also
+      // ~90px of a ~460px rail, which is what took the run card's title down to
+      // "Skyd…" on every phone. Caught by the 1.0.6 App Store shots — no uifit
+      // fixture reaches this state, because only a ride can put the badge back.
+      //
+      // `fresh` gates it exactly as the render does: the mark lights only while
+      // the step is still new to this player (meta.ts's nextStepIsNew), so a
+      // ride cannot restore a mark the player has already pressed through.
+      const marked = badged && nextStepIsNew(this.meta);
+      const mark = btn.querySelector(".alert-mino");
+      if (marked && !mark) btn.insertAdjacentHTML("beforeend", S.alertMinoHTML());
+      else if (!marked && mark) mark.remove();
+      // The chip this used to insert, removed wherever an older render left one.
+      btn.querySelector(".next-badge")?.remove();
       // THE DOOR IS PER-FLOOR TOO, and this is the ride that crosses it. While
       // the on-ramp's lock is shut every Mark is locked and the lobby is not,
       // so riding down to Flight School has to hand the primary back — a

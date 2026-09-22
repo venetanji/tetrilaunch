@@ -1447,6 +1447,37 @@ body.crt-off #app::after { display: none; }
    card's cap is a fraction of it), and an unnamed query from inside a card
    would measure that row — 296px, and the whole block would go dark exactly
    where it was written for. */
+/* THE PREVIEW COMES BACK EARLY, at a rail a phone actually has.
+   The rule above switches the strip off "because on a phone there is no
+   middle: the name, the reward and the button take the 150px the card has".
+   That arithmetic was right when the card was 150px, and the cap above it is
+   now 190. At 190 there IS a middle — measured on a 956x440 phone (the 6.9"
+   store row and uifit's iPhone 16 Pro Max), where name + reward + button +
+   padding come to ~112px and the card spent the other ~78 on nothing. Every
+   Contract card was a name over a hole, which is the exact failure the roomy
+   block below cites as its own reason for existing; the compact path had
+   simply grown into it without anyone re-reading the number.
+
+   Keyed at 360px of RAIL, not 470: the split has to fall between the phones
+   that have the room (440px-tall viewports and up) and the short store rows
+   that genuinely do not (the 4" and 3.5" slots at 320px), and the rail is the
+   tower's height, so it tracks the viewport. Sized one notch under the roomy
+   block's miniatures, which override these below 470px+ by source order. */
+@container rail (min-height: 360px) {
+  .tierhub__preview {
+    display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
+    gap: 5px 4px;
+    flex: 1 1 auto; min-height: 0;
+    padding: 4px 3px;
+    opacity: 0.85;
+    overflow: hidden;
+  }
+  .tierhub__preview .piece-mini { height: 16px; width: calc(16px * var(--mini-cols) / 2); }
+  .tierhub__preview .ico { width: 26px; height: 26px; color: var(--text-muted); }
+  .tierhub__preview .mat-icon { width: 24px; height: 24px; }
+  .tierhub__contract.is-shut .tierhub__preview { opacity: 0.5; }
+}
+
 @container rail (min-height: 470px) {
   .tierhub__actions { gap: 14px; }
   .tierhub__unlock-btn { min-height: 60px; }

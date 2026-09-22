@@ -34526,13 +34526,36 @@ section("The desktop monetization boundary (docs/STEAM.md)");
       shot.length > 0);
   }
 
-  // The seven screens a listing is actually built from carry no `only`, so
-  // they are shot at EVERY size. Stated as a pin rather than a comment because
-  // pinning one of them to the reference sizes is a one-word edit that would
-  // silently empty the tablet and iPad rows.
-  for (const id of ["menu", "tier-hub", "workshop", "contracts", "leaderboard", "mid-bay-launch", "stacked-bay"]) {
+  // The screens a listing is actually built from carry no `only`, so they are
+  // shot at EVERY size. Stated as a pin rather than a comment because pinning
+  // one of them to the reference sizes is a one-word edit that would silently
+  // thin every phone and iPad row down to whatever was left.
+  //
+  // THE SET IS GAMEPLAY-LED, which is a change: it used to be the seven
+  // screens the listing page had slots for, four of them chrome — the shop,
+  // the Contract board, the leaderboard and a stacked bay. Those four are
+  // reference-size studies now and the eight bay scenes took their place, so
+  // a device row is ten shots of the game being played plus the front door
+  // and the hub, rather than three of the game and four of its menus. The
+  // guard is unchanged in kind: whatever the listing is built from may not be
+  // pinned to the reference sizes.
+  for (
+    const id of [
+      "menu", "tier-hub", "mid-bay-launch",
+      "line-clear", "blast", "congestion", "bond-chain", "cryo-thaw",
+      "materials-bay", "hazard-run",
+    ]
+  ) {
     const scene = PROMO_SCENES.find((s) => s.id === id);
     check(`the listing scene "${id}" is shot at every size`, !!scene && !scene.only);
+  }
+  // ...and the four that moved OUT are pinned where they went, so restoring
+  // one to every size is a deliberate edit here rather than a silent doubling
+  // of a shoot that already takes half an hour.
+  for (const id of ["workshop", "contracts", "leaderboard", "stacked-bay"]) {
+    const scene = PROMO_SCENES.find((s) => s.id === id);
+    check(`the study scene "${id}" is shot at the reference sizes only`,
+      !!scene && !!scene.only && scene.only.length === 2);
   }
 
   // PROMO_EPOCH is what the page's Date reads (run.ts's clock shim), and the

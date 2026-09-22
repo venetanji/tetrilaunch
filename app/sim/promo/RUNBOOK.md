@@ -34,7 +34,7 @@ App state the shutter actually found, and what the freeze had to settle. A
 `--scene`/`--store-size` run MERGES into that manifest rather than replacing
 it, so re-shooting one PNG does not invalidate the other eighty.
 
-A full matrix is 85 PNGs. Budget half an hour: every scene gets its own
+A full matrix is ten PNGs per size plus the six reference-only scenes on the two reference sizes — 140 for the App Store's fourteen rows alone. Budget half an hour: every scene gets its own
 browser context and flies its own bay, which is 20–40 seconds a shot on a
 quiet machine and considerably more on a busy one.
 
@@ -42,27 +42,78 @@ quiet machine and considerably more on a busy one.
 
 | # | scene | setup | what it is |
 |---|---|---|---|
-| 1 | `menu` | ladder | front door: tower, play plate, attract bay |
-| 2 | `tier-hub` | sealed | the tower sealed to the roof, car on the Skydeck |
-| 3 | `workshop` | ladder | the rig shop mid-ladder |
-| 4 | `contracts` | contracts | the Contract board with work logged |
-| 5 | `leaderboard` | ladder | the all-time board, rows fetched |
-| 6 | `mid-bay-launch` | ladder | a launch being aimed, arc over a working pile |
-| 7 | `stacked-bay` | ladder | a tall Mark 9 bay under wind and sweeps |
-| 8 | `menu-fresh` | fresh | the front door of a new install (Flight School) |
-| 9 | `workshop-full` | rigged | every system owned, every slot bought |
-| 10 | `line-clear` | ladder | the moment a row pays |
-| 11 | `bond-chain` | ladder | the Bond Breaker shattering a rebar pile |
-| 12 | `hazard-run` | ladder | Tier 8 under wind, a tighter clock and a sweeper |
-| 13 | `materials-bay` | ladder | the cargo materials on the belt |
+| 1 | `mid-bay-launch` | ladder | a launch being aimed, arc over a working pile |
+| 2 | `line-clear` | ladder | the moment a row pays |
+| 3 | `blast` | ladder | a Demolition charge going off in a live pile |
+| 4 | `congestion` | ladder | the bay tipped past the second congestion tier, the crest red |
+| 5 | `bond-chain` | ladder | the Bond Breaker shattering a rebar pile |
+| 6 | `cryo-thaw` | ladder | frozen cargo, and the Thaw Lance on it |
+| 7 | `materials-bay` | ladder | every cargo material on the belt and in the pile |
+| 8 | `hazard-run` | ladder | Tier 8 under wind, a tighter clock and a sweeper |
+| 9 | `tier-hub` | sealed | the #223 hub: tower sealed to the roof, car on the Skydeck |
+| 10 | `menu` | ladder | front door: wordmark, play plate, attract bay |
+| 11 | `workshop` | ladder | the rig shop mid-ladder |
+| 12 | `contracts` | contracts | the Contract board with work logged |
+| 13 | `leaderboard` | ladder | the all-time board, rows fetched |
+| 14 | `stacked-bay` | ladder | a tall Mark 9 bay under wind and sweeps |
+| 15 | `menu-fresh` | fresh | the front door of a new install (Flight School) |
+| 16 | `workshop-full` | rigged | every system owned, every slot bought |
 
-1–7 are shot at **every** size. 8–13 are setup studies and are pinned to the
-two reference sizes (Play `2400x1350`, Steam `1920x1080`); widen them by
-editing `only:` on the scene in `beats.ts`.
+1–10 are shot at **every** size, gameplay first (the 1.0.6 owner's note:
+"too many UI shots, not enough gameplay" — Apple caps a slot at ten). 11–16
+are the boards and the setup studies, pinned to the two reference sizes (Play
+`2400x1350`, Steam `1920x1080`); widen one by dropping its `only:` in
+`beats.ts`.
+
+Every gameplay scene that is ABOUT a moment (`blast`, `line-clear`,
+`bond-chain`, `cryo-thaw`, `congestion`) names `settleFrames`, and those
+frames are the whole settle: the shutter goes that many frames after the
+engine's own event (an `explosion` of kind `bomb`, a `clear`, a `congestion`
+of tier 2). The manifest records the plant crest's state classes (`hud`) and
+the live cube count at the shutter, which is how a congestion shot is checked
+— `plant--congest-danger` present — rather than by its colour.
 
 The SETUPS (`beats.ts`) are the different saves: `ladder` (mid-ladder, the
 default), `fresh` (a new install), `contracts` (a board with work against it),
 `rigged` (everything owned), `sealed` (every Mark sealed, roof open).
+
+### The rig each gameplay bay flies
+
+One rig per rung, not one for all of them (the 1.0.6 owner's note: "show a
+progression of systems, not all full, something believable from an in game
+tier that is shown"). `RIG_T2` … `RIG_T8_REFIT` in `beats.ts`; the rack grows
+four plates → ten across the set, and the pips fill in behind it:
+
+| shot | tier | plates | pips | priced at |
+|---|---|---|---|---|
+| `line-clear` | 2 | 4 | 7 | 185 / 220 |
+| `mid-bay-launch` | 3 | 5 | 9 | 240 / 330 |
+| `congestion` | 5 | 6 | 11 | 295 / 550 |
+| `bond-chain` | 6 | 7 | 13 | 350 / 660 |
+| `cryo-thaw` | 6 | 7 | 13 | 350 / 660 |
+| `blast` | 7 | 8 | 15 | 405 / 770 |
+| `materials-bay` | 8 | 9 | 16 | 425 / 880 |
+| `hazard-run` | 8 (bay 5) | 10 | 20 | 480 / 880 + a refit |
+
+"Priced at" is `tiersCost` against `budgetForMark(tier)` (upgrades.ts, 110 ×
+mark) — the test of whether a player at the tier the HUD prints could be
+holding that rack. THE THIRD PIP IS NOT FOR SALE at bay 1: the Workshop sells
+to `UPRATE_MAX_TIER` (2) and tier 3 is fitted at a refit stop, which opens
+after bays 3, 6 and 9 (`isRefitBay`). `hazard-run` is the one bay flown past
+bay 1 — at `bay: 5`, one refit behind it — and so the only rack in the set
+with a full pip row. Its four ratchet notches were never honest at bay 1
+anyway: each one is a between-bay draft.
+
+Two knock-on retunes the smaller rigs forced, both in `beats.ts`:
+`blast`'s till went 1000 → 500 (a bay-track-2 field is narrower, rows close
+sooner, and the bay was WON at 29.6s with the pile still at 17 cubes, so the
+charge never had a pile to go off in) and its cue went `PILE_FOR_BOMB` → 16
+for the same reason. `mid-bay-launch` went 900 → 400 funds and 8s/12 cubes →
+16s/22 cubes so the arc has a pile to be drawn over.
+
+The narrower early bay also FIXED `line-clear`: at `FULL_RIG` the pile sat
+flush against the right field edge and the SWEPT payout stamp landed outside
+it at every phone size (five cues tried). At `RIG_T2` it is in frame.
 
 ### The sizes, and what each store requires
 
@@ -80,14 +131,30 @@ required for the tablet listings.
 **App Store** — 6.9" and 6.5" iPhone plus the 13" iPad are the required sets;
 Apple up-scales the rest.
 
-| dir | upload as | required |
-|---|---|---|
-| `appstore/2868x1320` | iPhone 6.9" | yes |
-| `appstore/2688x1242` | iPhone 6.5" | yes |
-| `appstore/2752x2064` | iPad 13" | yes |
-| `appstore/2796x1290` | iPhone 6.7" | optional |
-| `appstore/2208x1242` | iPhone 5.5" | older listings only |
-| `appstore/2732x2048` | iPad 12.9" | optional |
+THE APP STORE ROWS FILE THEMSELVES BY DEVICE, not by resolution: `--store-size=`
+still takes the pixel size (that is the row's identity and cannot drift), but
+the PNGs land under `appstore/iPhone/…` and `appstore/iPad/…` in folders named
+for the slot App Store Connect actually offers, because the upload page is a
+list of device classes and nobody should have to read a resolution off a folder
+to drag a set onto it (`StoreSize.dir` in `beats.ts`; the resolution stays on
+the tail because two slots can share the same inches).
+
+| `--store-size=` | lands in | upload as | required |
+|---|---|---|---|
+| `2868x1320` | `appstore/iPhone/6.9-inch-2868x1320-required` | iPhone 6.9" | yes |
+| `2688x1242` | `appstore/iPhone/6.5-inch-2688x1242-required` | iPhone 6.5" | yes |
+| `2752x2064` | `appstore/iPad/13-inch-2752x2064-required` | iPad 13" | yes |
+| `2796x1290` | `appstore/iPhone/6.7-inch-2796x1290` | iPhone 6.7" | optional |
+| `2208x1242` | `appstore/iPhone/5.5-inch-2208x1242` | iPhone 5.5" | older listings only |
+| `2732x2048` | `appstore/iPad/12.9-inch-2732x2048` | iPad 12.9" | optional |
+| `2622x1206` | `appstore/iPhone/6.3-inch-2622x1206` | iPhone 6.3" (6.1"/6.3" slot) | optional — Apple scales the 6.9" set otherwise |
+| `2532x1170` | `appstore/iPhone/6.1-inch-2532x1170` | iPhone 6.1" (5.4"/5.8"/6.1" slot) | optional — Apple scales the 6.9" set otherwise |
+| `1334x750` | `appstore/iPhone/4.7-inch-1334x750` | iPhone 4.7" | optional — Apple scales the 6.9" set otherwise |
+| `1136x640` | `appstore/iPhone/4-inch-1136x640` | iPhone 4" | optional — Apple scales the 6.9" set otherwise |
+| `960x640` | `appstore/iPhone/3.5-inch-960x640` | iPhone 3.5" (3:2) | optional — Apple scales the 6.9" set otherwise |
+| `2420x1668` | `appstore/iPad/11-inch-2420x1668` | iPad 11" (8.3"/11" slot) | optional — Apple scales the 13" set otherwise |
+| `2224x1668` | `appstore/iPad/10.5-inch-2224x1668` | iPad 10.5" | optional — Apple scales the 13" set otherwise |
+| `2048x1536` | `appstore/iPad/9.7-inch-2048x1536` | iPad 9.7" (4:3) | optional — Apple scales the 13" set otherwise |
 
 **Steam** (docs/steam-store-and-achievements-plan.md §1b)
 
@@ -104,7 +171,7 @@ screenshots — they come from `app/resources/` via `scripts/store-graphics.mjs`
 
 ```sh
 cp sim/results/promo/store/play/2400x1350/0*.png        ../store/play/screenshots-16x9/
-cp sim/results/promo/store/appstore/2868x1320/0*.png    ../store/appstore/screenshots-6.9/
+cp "sim/results/promo/store/appstore/iPhone/6.9-inch-2868x1320-required"/0*.png ../store/appstore/screenshots-6.9/
 ```
 
 Look at every PNG before it goes in. `store/` is committed art; the harness
@@ -181,6 +248,14 @@ npm run promo:assemble -- --run --vertical   # adds the 9:16 crop
 ```
 
 ## 4. After #223 (the hub redesign) merges
+
+*Done on the 1.0.6 store tree:* the Leaderboard button and the tower now live
+on the hub (`AppState` `"tiers"`), not the front door, so `leaderboard` and
+`tier-hub` carry `from: "tiers"` in `beats.ts` — the `tower` show kind gained a
+`from` for it. Without that, `leaderboard` cannot find its button and
+`tier-hub` quietly photographs the front door (pickTier is a no-op on a screen
+with no shaft).
+
 
 `claude/double-gameplay-ux-refactor-rd54vn` rebuilds the hub around a legend
 Unlock button and run / Contract / Workshop cards. The harness selects screens
