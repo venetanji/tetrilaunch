@@ -30,7 +30,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -73,16 +73,48 @@ interface BeatJson {
   notable: Record<string, number[]>;
 }
 
-const timeline = JSON.parse(readFileSync(resolve(HERE, "timeline.json"), "utf8")) as Timeline;
+/**
+ * WHICH TIMELINE, and why there is more than one.
+ *
+ * `fps` and `size` are read once and drive every frame sum in this file, so a
+ * cut that wants a different shape or cadence cannot be a `cuts` entry — it
+ * has to be its own file. `previews.json` is exactly that: App Store previews
+ * are phone-shaped (1920x886, filmed at 960x443 @2 so the layout is the one a
+ * phone renders) and 30fps, where the trailer is 1920x1080 @1 at 60. The beats
+ * behind each file are captured into their own `--out`, at the matching
+ * `--size/--dpr/--fps`, and the two never share frames.
+ */
+const TIMELINE = resolve(HERE, opt("timeline") ?? "timeline.json");
+const timeline = JSON.parse(readFileSync(TIMELINE, "utf8")) as Timeline;
 const FPS = timeline.fps;
 const [W, H] = timeline.size.split("x").map(Number);
-const FONT = resolve(APP, opt("font") ?? timeline.font.file);
+/**
+ * THE FONT GOES INTO THE FILTER GRAPH AS A RELATIVE PATH, and the script cds
+ * to `app/` so it resolves.
+ *
+ * An absolute Windows path cannot be made to work here. drawtext's fontfile
+ * sits inside a filtergraph, which unescapes once for the graph and once for
+ * the option, and a drive letter's colon is the separator both levels use:
+ * `C\:/Users/…` and `C\:/Users/…` were both answered with "No option name
+ * near '/Users/…'". A path with no colon in it has nothing to escape.
+ *
+ * `--font=` may still be given an absolute path; it is used as-is, which is
+ * the right behaviour on a POSIX box and the documented escape hatch when
+ * freetype refuses the variable woff2.
+ */
+const FONT_ABS = resolve(APP, opt("font") ?? timeline.font.file);
+const FONT = (opt("font") ?? timeline.font.file).split("\\").join("/");
 
 function findFfmpeg(): string | null {
   if (opt("ffmpeg")) return opt("ffmpeg");
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    const p = resolve(dir, "ffmpeg");
-    if (dir && existsSync(p)) return p;
+  // See run.ts's findFfmpeg: `delimiter` and the .exe name, or a Windows box
+  // with ffmpeg on PATH reports none.
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    for (const name of ["ffmpeg", "ffmpeg.exe"]) {
+      const p = resolve(dir, name);
+      if (existsSync(p)) return p;
+    }
   }
   return null;
 }
@@ -101,8 +133,24 @@ function capabilities(ff: string): { filters: Set<string>; encoders: Set<string>
 const NEEDED_FILTERS = ["drawtext", "concat", "amix", "adelay", "fade", "afade", "atrim", "crop", "scale", "format"];
 const NEEDED_ENCODERS = ["libx264", "aac"];
 
-/** Shell-quote one argument. */
+/** Shell-quote one argument, verbatim. Never rewrites what it is given. */
 const q = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+/**
+ * Quote a PATH for that script, with the separator normalised to "/" first.
+ *
+ * Node's `resolve` hands back backslashes on Windows and this script is run
+ * through bash (Git Bash), where a backslash inside single quotes stays
+ * literal — so `mkdir -p 'C:\…'` made one directory with a very strange name
+ * in the current folder and ffmpeg answered "Error opening output files:
+ * Invalid argument". Both bash and a Windows ffmpeg take a forward-slash drive
+ * path. A POSIX path has no backslash, so this is a no-op everywhere else.
+ *
+ * SEPARATE FROM `q` because only a path may be rewritten. A FILTER GRAPH must
+ * never come through here: `dt` escapes the font path inside the graph, and
+ * rewriting those backslashes turned it into `C/://Users//…`, which ffmpeg
+ * rejects with "No option name near". Two quoters, on purpose.
+ */
+const qp = (s: string): string => q(s.split("\\").join("/"));
 /** drawtext wants its own escaping on top: \ : ' % and commas inside the filter graph. */
 const dt = (s: string): string => s.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\\\\\'").replace(/%/g, "%%").replace(/,/g, "\\,");
 
@@ -132,7 +180,7 @@ function buildCut(name: string, cut: Timeline["cuts"][string]): { cmds: string[]
   const missing: string[] = [];
   const clips: Clip[] = [];
   const work = resolve(OUT, "work", name);
-  cmds.push(`mkdir -p ${q(work)}`);
+  cmds.push(`mkdir -p ${qp(work)}`);
 
   cut.order.forEach((item, i) => {
     const frames = Math.round(item.sec * FPS);
@@ -144,7 +192,7 @@ function buildCut(name: string, cut: Timeline["cuts"][string]): { cmds: string[]
         cardFilter(item.card, 0.2),
         `format=yuv420p`,
       ].filter(Boolean).join(",");
-      cmds.push(`${q(FFMPEG ?? "ffmpeg")} -y -f lavfi -i ${q(vf)} -c:v libx264 -preset medium -crf 18 -r ${FPS} ${q(clipFile)}`);
+      cmds.push(`${q(FFMPEG ?? "ffmpeg")} -y -f lavfi -i ${q(vf)} -c:v libx264 -preset medium -crf 18 -r ${FPS} ${qp(clipFile)}`);
       clips.push({ file: clipFile, sec: item.sec, item, beat: null, startFrame: 0 });
       return;
     }
@@ -158,8 +206,8 @@ function buildCut(name: string, cut: Timeline["cuts"][string]): { cmds: string[]
     if (take < frames) missing.push(`${item.beat}: only ${(available / FPS).toFixed(1)}s captured for a ${item.sec}s slot`);
     const vf = [cardFilter(item.card, 0.15), "format=yuv420p"].filter(Boolean).join(",");
     cmds.push(
-      `${q(FFMPEG ?? "ffmpeg")} -y -framerate ${FPS} -start_number ${startFrame} -i ${q(resolve(framesDir, "%06d.png"))} ` +
-      `-frames:v ${take} -vf ${q(vf)} -c:v libx264 -preset medium -crf 18 -r ${FPS} ${q(clipFile)}`,
+      `${q(FFMPEG ?? "ffmpeg")} -y -framerate ${FPS} -start_number ${startFrame} -i ${qp(resolve(framesDir, "%06d.png"))} ` +
+      `-frames:v ${take} -vf ${q(vf)} -c:v libx264 -preset medium -crf 18 -r ${FPS} ${qp(clipFile)}`,
     );
     clips.push({ file: clipFile, sec: take / FPS, item, beat, startFrame });
   });
@@ -167,17 +215,26 @@ function buildCut(name: string, cut: Timeline["cuts"][string]): { cmds: string[]
   // Video concat through the demuxer: every clip is the same size, fps and
   // codec, so a stream copy is exact and cheap.
   const listFile = resolve(work, "concat.txt");
-  cmds.push(`printf '%s\\n' ${clips.map((c) => q(`file '${c.file}'`)).join(" ")} > ${q(listFile)}`);
+  // The concat list's entries are `file '<path>'` — a path inside a quoted
+  // argument, so it needs qp's normalisation without qp's own quoting.
+  cmds.push(`printf '%s\\n' ${clips.map((c) => q(`file '${c.file.split("\\").join("/")}'`)).join(" ")} > ${qp(listFile)}`);
   const videoFile = resolve(work, "video.mp4");
-  cmds.push(`${q(FFMPEG ?? "ffmpeg")} -y -f concat -safe 0 -i ${q(listFile)} -c copy ${q(videoFile)}`);
+  cmds.push(`${q(FFMPEG ?? "ffmpeg")} -y -f concat -safe 0 -i ${qp(listFile)} -c copy ${qp(videoFile)}`);
 
   // Audio: one bed per clip, trimmed to the clip and delayed to its offset,
   // each stinger delayed to its cue, all mixed once.
   const inputs: string[] = [];
   const chains: string[] = [];
   let offset = 0;
-  let idx = 0;
-  const addInput = (file: string): number => { inputs.push(`-i ${q(resolve(APP, "public", file))}`); return idx++; };
+  // FROM 1, NOT 0: the mux command below is `ffmpeg -i <video> <audio inputs>`,
+  // so the concatenated video is input 0 and the first bed is input 1. Counting
+  // the beds from 0 pointed the whole graph one input to the left, and ffmpeg
+  // answered "Stream specifier ':a' in filtergraph description … matches no
+  // streams" — the video it landed on has no audio track to take. Never seen
+  // before now because --run needs a full ffmpeg and findFfmpeg could not spot
+  // one on Windows, so this path had only ever been dry-run.
+  let idx = 1;
+  const addInput = (file: string): number => { inputs.push(`-i ${qp(resolve(APP, "public", file))}`); return idx++; };
   for (const clip of clips) {
     const it = clip.item;
     if (it.music) {
@@ -213,25 +270,33 @@ function buildCut(name: string, cut: Timeline["cuts"][string]): { cmds: string[]
     const labels = chains.map((c) => c.slice(c.lastIndexOf("["))).join("");
     const graph = `${chains.join(";")};${labels}amix=inputs=${chains.length}:normalize=0:dropout_transition=0,alimiter=limit=0.95[mix]`;
     cmds.push(
-      `${q(FFMPEG ?? "ffmpeg")} -y -i ${q(videoFile)} ${inputs.join(" ")} -filter_complex ${q(graph)} ` +
-      `-map 0:v -map "[mix]" -c:v copy -c:a aac -b:a 192k -shortest ${q(outFile)}`,
+      `${q(FFMPEG ?? "ffmpeg")} -y -i ${qp(videoFile)} ${inputs.join(" ")} -filter_complex ${q(graph)} ` +
+      `-map 0:v -map "[mix]" -c:v copy -c:a aac -b:a 192k -shortest ${qp(outFile)}`,
     );
   } else {
-    cmds.push(`cp ${q(videoFile)} ${q(outFile)}`);
+    cmds.push(`cp ${qp(videoFile)} ${qp(outFile)}`);
   }
   if (VERTICAL && name === "promo") {
     const v = timeline.vertical;
     const x = Math.round((W - v.cropW) / 2 + v.cropXOffset);
     cmds.push(
-      `${q(FFMPEG ?? "ffmpeg")} -y -i ${q(outFile)} -vf ${q(`crop=${v.cropW}:${H}:${x}:0,scale=1080:1920:flags=lanczos`)} ` +
-      `-c:v libx264 -preset medium -crf 18 -c:a copy ${q(resolve(OUT, v.output))}`,
+      `${q(FFMPEG ?? "ffmpeg")} -y -i ${qp(outFile)} -vf ${q(`crop=${v.cropW}:${H}:${x}:0,scale=1080:1920:flags=lanczos`)} ` +
+      `-c:v libx264 -preset medium -crf 18 -c:a copy ${qp(resolve(OUT, v.output))}`,
     );
   }
   return { cmds, missing };
 }
 
 await mkdir(OUT, { recursive: true });
-const script: string[] = ["#!/usr/bin/env bash", "# Generated by sim/promo/assemble.ts — run where a full ffmpeg exists.", "set -euo pipefail", ""];
+const script: string[] = [
+  "#!/usr/bin/env bash",
+  "# Generated by sim/promo/assemble.ts — run where a full ffmpeg exists.",
+  "set -euo pipefail",
+  // Every other path in here is absolute; this one is for drawtext's fontfile,
+  // which cannot carry a drive letter (see FONT above).
+  `cd ${qp(APP)}`,
+  "",
+];
 const problems: string[] = [];
 for (const [name, cut] of Object.entries(timeline.cuts)) {
   if (CUT !== "all" && CUT !== name) continue;
@@ -244,7 +309,7 @@ await writeFile(muxPath, script.join("\n"));
 console.log(script.join("\n"));
 console.log(`\n→ ${muxPath}`);
 for (const p of problems) console.log(`⚠ ${p}`);
-if (!existsSync(FONT)) console.log(`⚠ font file not found: ${FONT} (pass --font=…)`);
+if (!existsSync(FONT_ABS)) console.log(`⚠ font file not found: ${FONT_ABS} (pass --font=…)`);
 
 if (RUN) {
   if (!FFMPEG) { console.error("✗ no ffmpeg on PATH (or --ffmpeg=)"); process.exit(1); }
