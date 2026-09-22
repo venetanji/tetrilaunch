@@ -164,7 +164,7 @@ import {
   FINALS, FINAL_MATERIAL_CAP, applyFinal, applyFinals, finalById, finalsForTier, type FinalId,
 } from "../src/game/finals";
 import {
-  dailyContracts, dailySeed, dealPatternQueue, generateContract, levelForContract, contractBed,
+  type Contract, dailyContracts, dailySeed, dealPatternQueue, generateContract, levelForContract, contractBed,
   availableContracts, canStartContract, claimedContractsOnDay, FREE_DAILY_CONTRACTS,
   contractSlotBed, CONTRACT_BED_TOP_BASE,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
@@ -3050,11 +3050,33 @@ section("Contracts (contracts.ts)");
     canStartContract(schoolContract(), threeAcrossTiers, false, allowanceDay)
       && !threeAcrossTiers.includes(schoolContract().id));
 
+  // THE OWNER'S BOARD TURNS BY THE PAGE, not by the card. It used to deal "the
+  // next three uncleared slots", which swapped a cleared card for a new one on
+  // the next render — so the hub's corner check box never filled for an owner,
+  // and a rail of three unticked cards sat under a header counting 2/3. The
+  // daily three now stay put, ticked, until all three are cleared; then the
+  // next three are dealt at once. (Playtest, 1.0.6.)
   const ownedFirst = availableContracts(3, [], true, allowanceDay);
-  const ownedNext = availableContracts(3, [ownedFirst[0].id], true, allowanceDay);
-  check("Full Game always deals three uncleared Contracts", ownedNext.length === DAILY_COUNT);
-  check("Full Game rolls the cleared slot forward",
-    !ownedNext.some((c) => c.id === ownedFirst[0].id) && ownedNext[0].id === ownedFirst[1].id);
+  const pageIds = (b: readonly Contract[]) => b.map((c) => c.id).join(",");
+  check("Full Game deals the shared daily three first",
+    pageIds(ownedFirst) === pageIds(dailyContracts(3, allowanceDay)));
+  check("an owner's cleared card stays on the board, ticked, while the page is open",
+    pageIds(availableContracts(3, [ownedFirst[1].id], true, allowanceDay)) === pageIds(ownedFirst)
+      && pageIds(availableContracts(3, [ownedFirst[0].id, ownedFirst[2].id], true, allowanceDay))
+        === pageIds(ownedFirst));
+  const ownedNext = availableContracts(3, ownedFirst.map((c) => c.id), true, allowanceDay);
+  check("...and the page turns only when all three are cleared: three fresh cards, at once",
+    ownedNext.length === DAILY_COUNT
+      && !ownedNext.some((c) => ownedFirst.some((o) => o.id === c.id))
+      && pageIds(ownedNext) === `${allowanceDay}-3-3,${allowanceDay}-3-4,${allowanceDay}-3-5`);
+  check("the second page holds the same way",
+    pageIds(availableContracts(3, [...ownedFirst.map((c) => c.id), ownedNext[0].id], true, allowanceDay))
+      === pageIds(ownedNext));
+  check("every page carries one pattern card, like the free board",
+    ownedNext.filter((c) => c.kind === "pattern").length === 1);
+  check("another tier's clears do not turn the page",
+    pageIds(availableContracts(3, dailyContracts(2, allowanceDay).map((c) => c.id), true, allowanceDay))
+      === pageIds(ownedFirst));
   check("the free board remains the fixed daily set",
     JSON.stringify(availableContracts(3, [ownedFirst[0].id], false, allowanceDay))
       === JSON.stringify(dailyContracts(3, allowanceDay)));
