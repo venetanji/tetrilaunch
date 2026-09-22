@@ -306,32 +306,29 @@ fonts were self-hosted there is no third-party request during play either.
   and not here. The two are different questions and the answer to this one is
   still no.
 
-### Account creation: the one answer still open
+### Account creation: declared as OAuth
 
-`PSL_ACM_NONE` ("My app does not allow users to create an account") is `true` in
-`store/play/data-safety.csv`, and the app now ships Google and Apple OAuth with
-a `DELETE /api/account` endpoint behind it. Both readings are defensible and
-this is the owner's call, not a cleanup:
+`PSL_ACM_OAUTH` is `true`, `PSL_ACM_NONE` is cleared, and
+`PSL_ACCOUNT_DELETION_URL` points at `https://tetrilaunch.com/privacy` — the
+same page `PSL_DATA_DELETION_URL` uses. **The three rows move together**: Play
+makes the deletion URL required the moment an account-creation method is
+declared, so clearing one without filling the other is a rejected form.
 
-- **Keep `PSL_ACM_NONE`.** It is literally true of the architecture: `lib/auth.ts`
-  opens with "There is no server session and no account database anywhere", no
-  credential is ever created, and signing out leaves nothing behind. Nothing to
-  create means nothing to delete, and `PSL_ACCOUNT_DELETION_URL` stays empty
-  because there is no account to link a deletion form to.
-- **Flip to `PSL_ACM_OAUTH`.** It is what a reviewer sees: two OAuth buttons, a
-  screen that says "Player Account" and "Sign In", an endpoint with `account` in
-  its path, and a privacy page of our own with a section headed *Optional player
-  accounts* that tells players they can "sign out or delete the account from
-  Settings → Player Account". Answering the question the way the app's own
-  vocabulary answers it costs one row: `PSL_ACCOUNT_DELETION_URL` becomes
-  REQUIRED and is blank today. It is satisfiable without new work —
-  `https://tetrilaunch.com/privacy` already documents the in-app deletion path,
-  the same URL `PSL_DATA_DELETION_URL` uses — but the two rows have to move
-  together, or the form is rejected for a missing required field.
+THE OTHER READING WAS DEFENSIBLE AND LOST ON AUDIENCE. `lib/auth.ts` opens with
+"There is no server session and no account database anywhere": no credential is
+ever created, signing out leaves nothing behind, and on the architecture
+`PSL_ACM_NONE` was literally true. But the declaration is read by a reviewer,
+not by the architecture, and everything that reviewer can see says the opposite
+— two OAuth buttons, a screen headed "Player Account" with "Sign In" under it,
+an endpoint with `account` in its path, and a privacy page of our own with a
+section called *Optional player accounts* telling players they can "sign out or
+delete the account from Settings → Player Account". A defence that requires
+reading `auth.ts` is not available at review time, and the cost of the honest
+answer turned out to be zero: the page the required URL wants already existed
+and already documented the in-app deletion path.
 
-Whichever way it goes, the two rows move together. Nothing about it changes the
-data types above: those are declared from what the app transmits, and the app
-transmits the same bytes under either answer.
+Nothing about this changes the data types above. Those are declared from what
+the app transmits, and the app transmits the same bytes under either answer.
 
 ### Security section
 
