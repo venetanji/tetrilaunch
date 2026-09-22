@@ -52,8 +52,8 @@ const NATIVE_MODES = new Set(["native", "teststore", "sandbox"]);
 // WEB-ONLY files under public/: the /about landing page and its gallery. They
 // are served by the Pages deploy and by nothing else — a phone that installed
 // the app, a desktop that ran the installer and a Steam depot all already HAVE
-// the game, and a promo page for it is dead weight there (~2 MB of PNG, or
-// about 6% of the bundle, for a route no native shell can even navigate to).
+// the game, and a promo page for it is dead weight there (~1.6 MB of PNG, or
+// about 4% of the bundle, for a route no native shell can even navigate to).
 //
 // Two mechanisms, because there are two consumers of public/:
 //   - the service worker's precache, which is told to skip them below
@@ -134,11 +134,13 @@ export default defineConfig(({ mode }) => ({
         // must see the real page.
         navigateFallbackDenylist: [/^\/privacy/, /^\/support/, /^\/about/],
         // mp3 included so the PWA still has sound offline. It is by a wide
-        // margin the biggest thing in the precache — ~30.3 MB of a ~30.7 MB
-        // total, and 29 of that is music, because the Deep Run gives each of
-        // its ten bays a full-length bed of its own (game/run.ts's bayMusic)
-        // rather than looping one, and Contracts add a rare special on top
-        // (contracts.ts's contractBed).
+        // margin the biggest thing in the precache — about 95% of a ~42 MiB
+        // total across 92 entries (measured for 1.0.6; the three alternate
+        // takes added 7.8 MiB), because the Deep Run gives each of its ten
+        // bays a full-length bed of its own (game/run.ts's bayMusic) rather
+        // than looping one, Contracts add a rare special on top
+        // (contracts.ts's contractBed), and menu, bay-1 and bay-2 each carry
+        // a second take.
         // That is the price of the listing claiming the game plays offline:
         // dropping audio/music/ from this glob would cut the web install by
         // ~95% and break the claim, so it is a product decision, not a build
