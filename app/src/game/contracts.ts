@@ -2015,18 +2015,41 @@ export function canStartContract(
 const DAILY_CACHE = new Map<string, Contract[]>();
 
 export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
-  const key = `${seed}:${tier}`;
+  return dailyPage(tier, seed, 0);
+}
+
+/** One PAGE of the day's deterministic slots — page 0 is the shared daily
+ *  board, page 1 is slots 3–5, and so on. Memoised per page for the reason
+ *  above: an owner's second page costs what the first did. `slot % DAILY_COUNT`
+ *  is what picks the pattern card (generateContract), so every page carries one
+ *  of each flavour, the same shape the free board has. */
+function dailyPage(tier: number, seed: number, page: number): Contract[] {
+  const key = `${seed}:${tier}:${page}`;
   const hit = DAILY_CACHE.get(key);
   if (hit) return hit;
-  const board = Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, i));
+  const first = page * DAILY_COUNT;
+  const board = Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, first + i));
   DAILY_CACHE.set(key, board);
   return board;
 }
 
-/** The three cards currently offered. Free players keep the shared daily
- * board. Full-game owners receive the next three uncleared deterministic slots,
- * so clearing a card makes another available without turning retries into a
- * reroll. */
+/**
+ * The three cards currently offered. Free players keep the shared daily board.
+ * Full-game owners keep it too, ticks and all, until ALL THREE are cleared —
+ * then the next three slots are dealt at once, as a fresh page.
+ *
+ * THIS USED TO ROLL ONE CARD AT A TIME: an owner's board was "the next three
+ * uncleared slots", so a cleared card was swapped for a new one on the very
+ * next render and the hub's corner check box could never fill. The owner
+ * played two of the day's three, came back to a rail that showed two cards
+ * they had never seen and one they had not cleared, all unticked, while the
+ * header above counted 2/3 — the same fact told two ways. A page turns when
+ * it is finished, so what the cards say and what the pips say is one thing,
+ * and the owner still gets more than three a day, which is what Unlimited
+ * sells (docs/DESIGN.md). Retries are still not a reroll: a page is a pure
+ * function of (seed, tier, page), and a clear is what turns it. (Playtest,
+ * 1.0.6.)
+ */
 export function availableContracts(
   tier: number,
   claimed: readonly string[],
@@ -2035,12 +2058,10 @@ export function availableContracts(
 ): Contract[] {
   if (!fullGame) return dailyContracts(tier, seed);
   const done = new Set(claimed);
-  const board: Contract[] = [];
-  for (let slot = 0; board.length < DAILY_COUNT; slot++) {
-    const contract = generateContract(seed, tier, slot);
-    if (!done.has(contract.id)) board.push(contract);
+  for (let page = 0; ; page++) {
+    const board = dailyPage(tier, seed, page);
+    if (!board.every((c) => done.has(c.id))) return board;
   }
-  return board;
 }
 
 /**
