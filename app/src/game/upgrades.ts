@@ -516,6 +516,45 @@ export function newTiers(): UpgradeTiers {
 }
 
 /**
+ * THE STOCK RIG — what a ship carries before anybody buys anything.
+ *
+ * Reactor Output tier 1, and the reason is a hole optional onboarding opened.
+ * Before #223 the tutorial was mandatory, so EVERY player reached Tier 1 having
+ * bought the Reactor at the Workshop rung between lessons 4 and 5 — the ladder
+ * forced it, and lessons 5-9 are calibrated flying it. #223 made the tutorial
+ * skippable and `completeOnboarding` writes only the licence, so a skipping
+ * player arrived at Tier 1 on a stock ship with no salvage, facing a shop whose
+ * cheapest plate they could not afford. Two players, the same tier, different
+ * ships.
+ *
+ * Granting it closes that by levelling the skip path UP to where every 1.0.5
+ * player already stood. It buffs nobody: a player who takes the tutorial owned
+ * this tier by lesson 5 anyway, so no calibrated bay moves and Tier 1 scores
+ * stay comparable across the version. What it removes is a purchase that was
+ * never really a choice — the ladder's own first rung, priced so the school's
+ * one Contract covered it exactly.
+ *
+ * THE TRACK IS NOT RETIRED. Tiers 2 and 3 are still bought, and the shop still
+ * sells them; what is stock is the first rung of the ladder, not the ladder.
+ * `installShelf` ranks `launcher` at the same 15 salvage the Reactor cost, so
+ * the on-ramp's "clear a Contract, bank 15, buy your first system" beat lands
+ * on the next plate along with its arithmetic untouched.
+ *
+ * NOT FOLDED INTO newTiers(). That function means "nothing installed" and has
+ * callers who need it to keep meaning that — drills.ts and school.ts build
+ * authored bays from it and write the tiers the lesson is about, and a stock
+ * reactor leaking into a bay teaching the press would be an economy nobody
+ * asked that bay to have.
+ */
+export const STOCK_TIERS: Readonly<Partial<UpgradeTiers>> = { reactor: 1 };
+
+/** `newTiers()` with the stock rig aboard — what a new save's loadout is, and
+ *  the floor a loaded save's loadout is raised to. */
+export function stockTiers(): UpgradeTiers {
+  return { ...newTiers(), ...STOCK_TIERS };
+}
+
+/**
  * Which tracks a REFIT stop offers at `mark`.
  *
  * Mark 1 offers ONLY Reactor Output. Tier 1 is the tier the game teaches its

@@ -80,7 +80,7 @@ import {
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, slotPrice, uprateCost, installById, toggleMount, isMounted, SLOT_CAP,
-  FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding,
+  FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding, arriveAtHub, schoolStarted, schoolRescueOwed,
   tierUnlockReady, claimTierUnlock,
   type MetaState, type TierResult,
 } from "./game/meta";
@@ -340,6 +340,36 @@ const COVERS_CANVAS = new Set<AppState>([
   // one that nothing can see through would be two simulations painting for one
   // viewer.
   "leaderboard", "workshop", "contracts", "sandbox", "preview",
+  // THE HUB AND ITS DOOR, and they are the reason the docstring above now has
+  // a pin behind it (sim/systems.ts). The double-gameplay split added both
+  // states and neither was added here, so for a release the set was a
+  // statement about 1.0.5's markup: `tierHubScreen` and `tutorialOfferModal`
+  // each render the same `.screen.neon-backdrop` every other entry does, and
+  // both were drawing a full bay underneath it.
+  //
+  // MEASURED by the 1.0.6 render lane in the real app (1280x720 at dpr 2,
+  // drawImage counted on the 2D prototype, 150 rAF frames per state):
+  // `tiers` and `tutorial-offer` both
+  // 37.2 drawImage per frame and an rAF p95 of 50.0ms, against 0 and 16.7 for
+  // `workshop` / `contracts` / `leaderboard` / `settings`. 37.2 is the
+  // EMPTY-BAY floor — the shots landed no cubes — and a real pile adds a stamp
+  // per cube, which sim/renderperf puts at a p95 of 63.8ms with every frame
+  // over budget. `this.game` is never nulled and toHub() is both the
+  // quit-from-bay door and the end cards' door, so the hub is normally entered
+  // with a full pile in memory: the worst case is the common one.
+  "tiers", "tutorial-offer",
+  // THE ACCOUNT PANEL, pre-existing and the same fact: accountScreen is a
+  // `.screen.neon-backdrop` too, and the deletion notice renders that screen
+  // with a scrim on top of it — a scrim being translucent does not matter
+  // when what it is translucent OVER is opaque. The same lane measured both
+  // at the same 37.2 drawImage per frame.
+  "account", "account-delete",
+  // …AND THE TWO QUESTIONS ASKED OVER THE SHOP, on that same rule: both
+  // render `workshopScreen` (already in this list) and append a scrim, so the
+  // opaque shelf is still what every pixel behind the card resolves to. These
+  // are the states a player reads a price on, which is not a moment to be
+  // spending 22ms a frame on an invisible bay.
+  "ws-short", "sys-drill-offer",
 ]);
 
 /** How long the misfire guide stays up. One pass of the corrective animation
@@ -539,9 +569,19 @@ function inScroller(el: HTMLElement): boolean {
  * bay held still and has no door that re-opens it, so the card points at
  * Settings → Controls instead (pauseKeysHTML's note) and a pad player who
  * wants the screen mid-run quits to the menu and presses the button there.
+ *
+ * THE TOWER IS THE HUB, and the sentence above said so for a release while
+ * this table did not. The double-gameplay split moved the building off the
+ * front door onto a screen of its own ("tiers"), and the list kept the front
+ * door alone — so the shortcut was dead on the screen a pad player lands on
+ * after every Play press and every quit-from-bay, the one screen in the app
+ * they sit on between runs. Under 1.0.5 that screen WAS `menu` and the
+ * shortcut worked; this is the split's omission rather than a decision, and
+ * it lands squarely on the platform the fixed nav buttons were written for.
  */
 const PAD_CONTROLS_DOORS: Partial<Record<AppState, S.ControlsDoor>> = {
   menu: "menu",
+  tiers: "tiers",
   howto: "howto",
   settings: "settings",
   leaderboard: "leaderboard",
@@ -1157,6 +1197,41 @@ class App {
   /** Unsubscribe for the RevenueCat entitlement listener. */
   private offUnlimitedChange: (() => void) | null = null;
 
+  /**
+   * IS THIS PLAYER DRIVING WITH THE KEYBOARD — the flag landsFocus reads, and
+   * the distinction `profile` deliberately does not draw.
+   *
+   * D2 puts the mouse and the keyboard in ONE input profile, because they are
+   * one set of hints ("click", "press Space") and one set of visible controls;
+   * that is right for every surface that renders from the profile and wrong
+   * for exactly one question, which is whether to place a focus ring. So this
+   * is a fact about the last input EVENT rather than about the device family:
+   * a keypress sets it, any mouse press takes it back off (both in the
+   * listeners set up in start()), and it starts false because a page that has
+   * been given no input has been given no reason to ring anything.
+   *
+   * It is not persisted and it is not a setting. A player who reaches for the
+   * keyboard gets landings from that moment; a player who reaches back for the
+   * mouse stops getting them, on the next press, with nothing to configure.
+   */
+  private keyDriven = false;
+
+  /**
+   * DID THE LAST RENDER LAND FOCUS SOMEWHERE — armed by syncPadFocus, read and
+   * cleared by onGlobalKey's autorepeat guard.
+   *
+   * The hazard it exists for is the keyboard's version of the one padWokeAt
+   * answers for the pad. Native activation is the browser's: a focused button
+   * is clicked by Enter, and a HELD Enter repeats at the OS rate. So without
+   * this, holding Enter on the front door would press Play, land focus on the
+   * hub's own primary in the same frame, and press THAT on the next repeat —
+   * a key that cascades through screens because each render hands the next one
+   * a fresh target under the finger. The pad cannot do this (game/gamepad.ts
+   * emits press edges only, and autorepeat is armed for directions alone),
+   * which is why the guard is here and not in onPadUiButton.
+   */
+  private keyLandedFocus = false;
+
   /** Pointer currently holding the Autoloader trigger, or null. Tracked by id
    *  because the release can land anywhere — a thumb that slides off the button
    *  still has to stop the burst, so the listener is on window, not the
@@ -1381,7 +1456,15 @@ class App {
     // instead of outliving the session.
     window.addEventListener(
       "pointerdown",
-      (e) => this.setProfile(profileForPointer(e.pointerType)),
+      (e) => {
+        // …and a pointer press is the end of keyboard DRIVING, whether or not
+        // it changes the profile (a mouse press keeps "keyboard"). See
+        // landsFocus: from here on, screens open with focus where the browser
+        // leaves it rather than on their primary, because a player who is
+        // clicking has not asked for a ring.
+        this.keyDriven = false;
+        this.setProfile(profileForPointer(e.pointerType));
+      },
       { capture: true },
     );
 
@@ -3919,6 +4002,16 @@ class App {
           // on the roof: the Skydeck's Contracts bank no milestone, so a board
           // there cannot buy anything, first system or otherwise.
           firstSystem: !sky && licenceDone(this.meta) && !rigStarted(this.meta),
+          // …AND THE SCHOOL'S BOARD SAYS WHEN ITS ONE CARD PAYS AGAIN
+          // (meta.ts's schoolRescueOwed, screens.ts's `rescue`). The rescue
+          // that keeps the ground floor from deadlocking is answered in
+          // recordContractClear, so it works whether or not a screen mentions
+          // it — but the player it exists for is looking at a spent card and a
+          // shelf they cannot afford, and a tick reading "✓ Cleared" is this
+          // app telling them the only thing left to press is finished. Asked
+          // here because the predicate is the save's and this screen is handed
+          // no meta.
+          rescue: school && schoolRescueOwed(this.meta),
           allowance: this.contractAllowance(),
         });
         // THE BOARD INTRODUCES ITSELF, once. This is where a Tier is actually
@@ -4187,9 +4280,6 @@ class App {
         this.overlay.innerHTML =
           S.accountScreen(this.storeState().account!, this.storeState().restorable === true)
           + S.accountDeleteModal(this.storeState().restorable === true);
-        // F7: Tab used to reach Sign Out behind this question, and Enter there
-        // answered a different one. See ui/padnav's sealBehindScrim.
-        sealBehindScrim(this.overlay);
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({
@@ -4347,10 +4437,6 @@ class App {
               // already burned the watermark by now (see sealBreakExplain).
               explain: this.sealBreakExplain,
             });
-          // F7: the rail behind this notice is a column of live buttons, and
-          // Tab reached every one of them under the scrim. Same seal the
-          // deletion notice takes — ui/padnav's sealBehindScrim.
-          sealBehindScrim(this.overlay);
         }
         break;
       case "won":
@@ -4451,6 +4537,62 @@ class App {
         }
         break;
     }
+    /* ------------------------------------------------------------------------
+     * WHAT A SCRIM COVERS, IT ALSO SEALS — for the KEYBOARD, once, here.
+     *
+     * padnav's sealBehindScrim went in for two panels and was called from the
+     * two arms that mounted them: `account-delete` ("three presses from 'Delete
+     * this player account?' reached Sign Out behind it") and `seal-break`. The
+     * other eleven scrim states never got the call, and `.modal-scrim` stops a
+     * mouse rather than a keyboard, so Tab walked under every one of them.
+     * Tabbable controls reachable BEHIND the top scrim, counted by the 1.0.6
+     * accessibility lane at 1280x720 over sim/uifit's own fixtures:
+     *
+     *    6  refit-intro — including `refit-done`, which spends the staged
+     *       scrap and undocks the ship
+     *   15  sys-drill-offer, workshop-short — including `buy-slot`, which
+     *       spends salvage, and eight `select-system`
+     *    9  pause, pause-armed — including the rail's fullscreen toggle,
+     *       which re-solves the whole layout, and ⏸
+     *    4  contracts-intro — three of them `contract`, which launches one
+     *    2  draft-intro — two `pick-hazard`, which ratchets an axis
+     *
+     * What this file can check is the CALL, and sim/systems.ts checks it.
+     *
+     * The pad has been safe from all of it since padNavRoot shipped, which
+     * scopes its roaming to the last scrim; this is the same bug in the other
+     * modality, and it is worse there because Tab needs no aim — the player
+     * cannot see the control their Enter is about to press.
+     *
+     * ONE CALL AT THE TAIL, not a call per arm, and that is the whole point.
+     * "Is a scrim up" is a fact about the markup this render just wrote, the
+     * same kind of fact COVERS_CANVAS is about; a per-arm call is a fact about
+     * whoever last edited that arm, which is exactly how eleven states came to
+     * be missing one. sealBehindScrim clears the attribute when no scrim is
+     * mounted, so the states with no panel pay one children walk and answer
+     * "nothing to seal" — and a new modal state is sealed the day it is
+     * written, by nobody remembering anything.
+     *
+     * BEFORE THE FOCUS LANDING BELOW, because the landing is the half that
+     * actually MOVES focus and it should read a screen that has already been
+     * sealed. Measured in Chromium (Playwright 1194, a focused button under a
+     * freshly-inert parent): `inert` does NOT blur what it covers — it takes
+     * the subtree out of the tab order, Tab correctly steps to the panel, and a
+     * real Enter or Space on focus the element still HOLDS activates it
+     * anyway. Which is also why the blur below is here: today every seal
+     * follows a wholesale innerHTML rewrite, so the focused element has been
+     * destroyed and `activeElement` is <body> by the time this runs, but a
+     * function that seals without checking is one in-place patch away from
+     * leaving a live Enter on a control the player cannot see — the same
+     * argument sealBehindScrim makes for clearing the attribute rather than
+     * only setting it.
+     *
+     * The half of the screen that arrives LATE has its own call (mountEndScrim's
+     * timer), for the same reason it has its own syncPadFocus.
+     * --------------------------------------------------------------------- */
+    sealBehindScrim(this.overlay);
+    const sealedFocus = document.activeElement as HTMLElement | null;
+    if (sealedFocus?.closest("[inert]")) sealedFocus.blur();
     // A scrim that replaced another scrim starts at full strength rather than
     // fading up from the live field: the field behind it was never bright.
     if (hadScrim) {
@@ -4650,11 +4792,15 @@ class App {
    * an item the player never saw, and the next D-pad press teleports the shelf
    * back to the top to show them what they just bought.
    *
-   * GAMEPAD ONLY. It is the one profile that lands a selection after a render
-   * at all (syncPadFocus), so it is the one profile that can strand one. A
-   * mouse player's focus falls to <body> — no ring, nothing to press blind —
-   * and re-seating it there would paint a focus ring on a screen nobody
-   * navigated with a key.
+   * THE PROFILES THAT GET A LANDING AT ALL, which is landsFocus's question and
+   * not a second one: a render only strands a selection if it placed one, so
+   * whoever syncPadFocus lands focus for is exactly whoever this has to
+   * re-seat. It was "gamepad only" while the pad was the only profile that got
+   * a landing; a key-driven keyboard player now buys from the same shelf
+   * through the same re-render and can be stranded by the same two pixels of
+   * arithmetic. A mouse player's focus still falls to <body> — no ring,
+   * nothing to press blind — and re-seating it there would paint a focus ring
+   * on a screen nobody navigated with a key.
    *
    * TWO ANSWERS, in the order the player would want them:
    *
@@ -4684,7 +4830,7 @@ class App {
    * of this existed.
    */
   private reseatPadSelection(held: string): void {
-    if (this.profile !== "gamepad") return;
+    if (!this.landsFocus()) return;
     const back = held ? this.overlay.querySelector<HTMLElement>(held) : null;
     // A control that came back DISABLED is not a selection: the purchase can
     // spend the last affordable salvage, and a disabled button cannot take
@@ -4713,13 +4859,49 @@ class App {
     focusOn(idx >= 0 ? targets[idx] : el);
   }
 
+  /**
+   * DOES THIS PLAYER'S DEVICE WANT FOCUS LANDED FOR THEM — the one predicate
+   * behind both the landing (syncPadFocus) and the re-seat after a scroll
+   * restore (reseatPadSelection), so the two can never disagree about who
+   * gets a ring.
+   *
+   * THE PAD, ALWAYS: it has no other way in. A stick cannot move focus that
+   * does not exist, so every fresh screen has to be given some (focusInitial),
+   * and a pad is never held by accident.
+   *
+   * THE KEYBOARD, ONCE IT IS BEING USED — and the second clause is the whole
+   * of the care here. `profile` is "keyboard" for every fine pointer from boot
+   * (see the setProfile at startup: mouse and keyboard are ONE profile,
+   * deliberately, because D2's hint table has one rendering for them), so a
+   * profile test alone would paint a focus ring on every screen a mouse-only
+   * desktop player opens — which is exactly what the old comment here refused
+   * to do, in the same words, and rightly. `keyDriven` is the missing half:
+   * the last input this player gave was a KEY, so a ring is the answer to
+   * something they did rather than a decoration they never asked for. A mouse
+   * press takes it straight back off (the pointerdown capture listener).
+   *
+   * WHAT IT FIXES. Every renderOverlay rewrites innerHTML wholesale, so on a
+   * full screen transition a keyboard player's focus falls to <body> and
+   * nothing re-landed it: press P and the pause card arrives with focus
+   * nowhere, so reaching Resume meant Tab-walking nine controls that were
+   * UNDER the scrim (the seal in renderOverlay's tail has since taken those
+   * out of the order, which is what makes this landing land somewhere useful
+   * rather than merely somewhere). In-place patches restored focus already —
+   * the data-bind and data-toggle restores in renderOverlay — so the gap was
+   * only ever the transitions, which is to say every modal in the game.
+   */
+  private landsFocus(): boolean {
+    return this.profile === "gamepad" || (this.profile === "keyboard" && this.keyDriven);
+  }
+
   /** A pad player needs focus to EXIST before the D-pad can move it: land it
-   *  on each fresh screen's primary action (ui/padnav.ts's focusInitial).
-   *  Gamepad profile only — a mouse player's screens should not open with a
-   *  focus ring they never asked for — and never over focus that survived the
-   *  render (the data-bind restore above, a browser-preserved input). */
+   *  on each fresh screen's primary action (ui/padnav.ts's focusInitial) — and
+   *  so does a keyboard player, who would otherwise start every screen at
+   *  <body> and Tab in from the top (see landsFocus for which profiles and
+   *  why). Never over focus that survived the render (the data-bind restore
+   *  above, a browser-preserved input). */
   private syncPadFocus(): void {
-    if (this.profile !== "gamepad" || this.state === "playing") return;
+    if (!this.landsFocus() || this.state === "playing") return;
     // Nothing to land on yet while a run-end scrim is held back for the dial
     // collapse: padNavRoot falls back to the whole overlay when no scrim is
     // up, so focusing now would put the ring on the dead bay's rail. The
@@ -4728,7 +4910,12 @@ class App {
     const root = this.padNavRoot();
     const el = document.activeElement as HTMLElement | null;
     if (el && root.contains(el)) return;
-    focusInitial(root);
+    // Remembered, because a landing this render placed is what an AUTOREPEAT
+    // of the key that caused the render would press next (onGlobalKey's
+    // repeat guard). The pad needs no such guard — game/gamepad.ts emits
+    // edges only, so a held A cannot fire two screens — and the keyboard's
+    // repeat is the browser's.
+    if (focusInitial(root)) this.keyLandedFocus = true;
   }
 
   /** The subtree pad navigation may roam. The modal states render the HUD
@@ -5984,10 +6171,19 @@ class App {
     // Back to the hub, where the tower shows the ladder that just opened and the
     // unlock ceremony rides — not the front door, which has no tower. Through
     // toHub rather than setState so the arrival is the same arrival as every
-    // other: a tutorial quit half-way (lesson-exit) still lands licensed with
-    // Tier 1 open (completeOnboarding), and the pick stamped above survives
-    // it — toHub clears the run/lesson transients, which this method has
-    // already cleared, and touches neither pickedTier nor pickedAtMark.
+    // other, and the pick stamped above survives it: toHub clears the
+    // run/lesson transients, which this method has already cleared, and touches
+    // neither pickedTier nor pickedAtMark.
+    //
+    // A BAY LEFT HALF-WAY IS STILL A LADDER PART-WAY CLIMBED. This is the door
+    // every card on the ground floor shares — the lesson result's quiet exit,
+    // the exam failure's "Back to the tower" — which made it the widest of the
+    // force-graduation paths the hub used to take: walking out of lesson 5
+    // granted the licence for lesson 5 and every rung above it, and walking out
+    // of the exam granted the one the player had just failed to earn. The hub no
+    // longer reads an exit as a decision about the school (meta.ts's
+    // arriveAtHub), so what the player finds there is the ladder where they left
+    // it, with the lobby back on the tower and its Play pointed at the owed rung.
     this.toHub();
   }
 
@@ -6440,8 +6636,13 @@ class App {
       // The tutorial's failure card has no #lb-body at all and no-ops.
       this.renderBoardRows(loadName() || undefined);
       // The tail of renderOverlay, for the half of the screen that arrives
-      // late: a pad player needs focus to land on the modal's primary action,
-      // and the fullscreen control inside a pause-style scrim needs its label.
+      // late: the bay underneath has to leave the tab order now that there is
+      // a panel over it, a pad player needs focus to land on the modal's
+      // primary action, and the fullscreen control inside a pause-style scrim
+      // needs its label. The seal goes first for the reason renderOverlay's own
+      // tail states — inert blurs what it covers, so a landing placed before it
+      // would be thrown away.
+      sealBehindScrim(this.overlay);
       this.syncPadFocus();
       this.syncFullscreenControls();
     }, S.DIAL_COLLAPSE_HOLD_MS);
@@ -7494,13 +7695,26 @@ class App {
   private toHub(): void {
     this.contract = null; this.contractMusic = null; this.drill = null;
     this.lesson = null; this.lessonCard = null;
-    // ONBOARDING IS OPTIONAL, so the hub is the one place that guarantees it is
-    // behind the player: whatever door they came through — a skipped tutorial, a
-    // tutorial quit half-way, or a grandfathered save that never had one — they
-    // arrive licensed, with Tier 1 open (meta.ts's completeOnboarding). The
-    // tower therefore never has to draw the old Flight School lobby.
-    if (!licenceDone(this.meta)) {
-      this.meta = completeOnboarding(this.meta);
+    // ONBOARDING IS OPTIONAL, so the hub is where a DECLINED school stops being
+    // owed: a player who never took the offer — or a grandfathered save that
+    // never had one — arrives licensed with Tier 1 open, and the tower never has
+    // to draw the old Flight School lobby at them.
+    //
+    // …AND A SCHOOL PART-WAY CLIMBED IS NOT A DECLINED ONE. This used to grant
+    // the licence to anyone who was not already licensed, which made every door
+    // out of the ground floor a graduation: the lesson-4 card's forward primary,
+    // a bay quit half-way (leaveSchool), and the Final Exam's own failure card,
+    // whose quiet way out handed the player the licence they had just failed to
+    // earn. Nothing said anything, nothing needed a reload, and afterwards
+    // schoolProgress reported ten of ten for four bays flown. The rule that
+    // tells the two apart is meta.ts's arriveAtHub, and it lives there rather
+    // than here because it is a fact about the ladder and sim/systems.ts pins
+    // it. Written only when it actually granted something — the rule hands back
+    // the same object otherwise, and a save touched on every trip to the hub is
+    // a save whose write is doing nothing but risk.
+    const arrived = arriveAtHub(this.meta);
+    if (arrived !== this.meta) {
+      this.meta = arrived;
       saveMeta(this.meta);
     }
     this.setState("tiers");
@@ -7785,6 +7999,11 @@ class App {
     // drawing, and the Workshop, the Contracts board and the leaderboard are
     // exactly the screens a player sits on. Every one of them was paying it
     // to paint pixels that an opaque `.screen.neon-backdrop` covers.
+    //
+    // …and the hub is the worst of them, which is why it was the omission that
+    // mattered when the split added it (see COVERS_CANVAS): it is not A screen
+    // a player sits on, it is THE screen they sit on, between every run,
+    // holding the pile of the run they just left.
     if (g && !COVERS_CANVAS.has(this.state)) {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
         cubes: g.cubes, constraints: g.constraints, compactor: g.compactor, cannon: g.cannon,
@@ -8668,6 +8887,23 @@ class App {
     // nothing here that wanted it (bindings.ts's fullscreenKeys are labels,
     // not a route).
     this.setProfile("keyboard");
+    // …AND THIS PLAYER IS NOW DRIVING WITH IT, which is what earns their
+    // screens a landed focus (landsFocus). Set before the chord bail below:
+    // ⌘S is not a binding and must not pause anything, but it is still a
+    // human at a keyboard, and the ring they get on the next screen is the
+    // one thing they will want after it.
+    this.keyDriven = true;
+    // THE AUTOREPEAT GUARD (keyLandedFocus). A held Enter repeats at the OS
+    // rate, activation is the browser's, and a render now hands the next
+    // screen's primary a focus ring under the same finger — so one long press
+    // on Play could walk the front door, the hub and whatever the hub's
+    // primary opens. A REPEAT that arrives on focus this app placed is
+    // swallowed whole, preventDefault included (that is what cancels the
+    // browser's own click on a focused button); any genuine second press
+    // clears the latch on its way through, because a non-repeat keydown is by
+    // definition a finger that lifted.
+    if (e.repeat && this.keyLandedFocus) { e.preventDefault(); return; }
+    if (!e.repeat) this.keyLandedFocus = false;
     if (isShortcutChord(e)) return;
     // The pause binding from the rebindable table (P by default), OR the
     // Escape alias — bindings.ts's isPauseKey, which is what the pause card
@@ -9372,6 +9608,28 @@ class App {
       // Workshop's back button — still has seenTutorial false, and re-offering
       // the tutorial on every back-to-hub would turn a one-time welcome into a
       // toll gate. So the flag alone does not decide; the door does.
+      //
+      // …AND NEITHER DOES THE FLAG ONCE THE LADDER HAS BEEN STARTED. The flag
+      // lands on the fourth lesson, so a player who flew one or two and left
+      // still had it false and met the offer again on their next Play — the
+      // wrong question twice over: they have already answered it (they started),
+      // and its two answers are a restart of a ladder they are part-way up and a
+      // decline that is the app's one licence grant, sitting on the control the
+      // pad and Escape reach for (padBackTarget maps the offer's back to
+      // "offer-skip", because dismissing a question the player has not answered
+      // should cost them nothing). A dismiss must not be able to delete six
+      // rungs. So the offer is asked only of a save with nothing on the ladder,
+      // which is also what makes the grant behind Skip unconditionally safe
+      // (meta.ts's schoolStarted, and see "offer-skip" below).
+      //
+      // WHAT THIS COSTS, stated rather than hoped: a player who flew two lessons
+      // and wants out of the school no longer has a button that says so — front
+      // door Play lands them on the hub with the lobby parked and the ladder
+      // owed. That is the ladder's own rule for everyone who is on it — Tier 1
+      // opens at the top of it — and the rungs between are the shortest bays in
+      // the game, none of which costs anything to fail. Optional onboarding is
+      // an offer made ONCE, at the door, not a standing exit from a course in
+      // progress.
       case "tiers":
         // THE FIRST PLAY PRESS IS THE FULLSCREEN GESTURE on a phone's browser.
         // The request has to come from inside a user activation, and the front
@@ -9382,8 +9640,9 @@ class App {
         // native shell and a page already fullscreen, and a refused request is
         // swallowed, so this line costs nothing where it cannot act.
         if (this.state === "menu") void autoEnterFullscreenForRun();
-        if (this.state === "menu" && !this.settings.seenTutorial) this.setState("tutorial-offer");
-        else this.toHub();
+        if (this.state === "menu" && !this.settings.seenTutorial && !schoolStarted(this.meta)) {
+          this.setState("tutorial-offer");
+        } else this.toHub();
         break;
       // CLAIM THE TIER (screens.ts's unlock card, meta.ts's claimTierUnlock).
       // Deferred-claim: both halves of the tier are done and the player presses
@@ -9430,18 +9689,43 @@ class App {
         }
         break;
       // The offer's two answers. "Skip" marks the tutorial seen (so the offer
-      // never returns) and drops into the hub, where toHub completes onboarding.
-      // "Play" runs Flight School from lesson 1 — the lesson flow sets
-      // seenTutorial at graduation, and toHub completes onboarding on the way
-      // back — so seenTutorial is deliberately NOT pre-set here (the coach reveal
-      // on lesson 1 reads it).
+      // never returns) and drops into the hub. "Play" runs the ladder — the
+      // lesson flow sets seenTutorial when the fourth lesson lands, so
+      // seenTutorial is deliberately NOT pre-set here (the coach reveal on
+      // lesson 1 reads it).
+      //
+      // THE DECLINE IS THE ONE PRESS IN THE APP THAT GRANTS THE LICENCE, and it
+      // says so here rather than leaning on the hub to infer it. "Skip — just
+      // play" is a player choosing the game over the school in as many words,
+      // and the button has to be able to keep that promise — the hub's own rule
+      // is deliberately narrower (meta.ts's arriveAtHub grants nothing to a save
+      // that is part-way up the ladder), and a decline routed through it alone
+      // would be a Skip that landed on a locked Tier 1 the day the offer's gate
+      // moved. The gate above is what keeps the two in agreement: nobody with a
+      // rung behind them is ever asked this question, so the grant here can be
+      // unconditional and still cannot delete a rung. Nothing else in the app
+      // reaches for completeOnboarding on the player's behalf.
       case "offer-skip":
         this.finishTutorial();
+        this.meta = completeOnboarding(this.meta);
+        saveMeta(this.meta);
         this.toHub();
         break;
-      case "offer-tutorial":
-        this.startLesson(0);
+      // …AND "START" ASKS THE LADDER WHICH BAY THAT IS, rather than naming one.
+      // It resolves to lesson 1 for every save that can see this offer, which is
+      // the gate above doing its job — so this is the same question answered the
+      // same way rather than a second answer to it, and the two doors into the
+      // school (this one and the lobby's Play, meta.ts's nextFlightAfter) cannot
+      // point at different rungs on any save, including one a gate change or a
+      // hand-edited licence puts somewhere the offer was not expecting. The
+      // `?? 0` is the two rungs that carry no flight, where lesson 1 is the
+      // harmless answer: a re-flown bay banks nothing either way.
+      case "offer-tutorial": {
+        const flight = this.nextFlightIndex() ?? 0;
+        if (flight === GRADUATION_FLIGHT) this.startGraduation();
+        else this.startLesson(flight);
         break;
+      }
       // The pause card's Quit on a run with bays behind it — its own action
       // rather than a branch on "menu", so the eight other back buttons that
       // carry that action cannot accidentally inherit (or route around) the

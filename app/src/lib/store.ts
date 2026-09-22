@@ -4,7 +4,7 @@ import {
   newMeta, ownedTracks, refundRetiredUnlocks, SCHOOL_FLIGHTS, SLOT_BASE, SLOT_CAP,
   type MetaState,
 } from "../game/meta";
-import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
+import { stockTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
 import { LICENCE_LESSON_COUNT } from "../game/school";
 
 export interface Settings {
@@ -457,14 +457,23 @@ export function loadMeta(): MetaState {
     // Whether it fits the Mark's budget is checked separately at the point of
     // use (meta.ts's safeLoadout) — that rule can change between builds, and a
     // save written under the old one shouldn't be silently rewritten on load.
+    //
+    // THE STOCK RIG IS THE FLOOR, and this is the second migration in this file
+    // that hands something out. Reactor Output tier 1 ships with the ship now
+    // (upgrades.ts's STOCK_TIERS), so a save written before that — or one whose
+    // loadout was just dropped back to stock by the read above — is raised to
+    // it rather than being left on a ship the current build cannot produce. The
+    // grant is a `Math.max`, so a player who had already bought the track keeps
+    // whatever tier they paid for; nobody is demoted and nobody is refunded.
     const rawLoadout = meta.loadout as unknown;
     if (!rawLoadout || typeof rawLoadout !== "object" || Array.isArray(rawLoadout)) {
-      meta.loadout = newTiers();
+      meta.loadout = stockTiers();
     } else {
-      const tiers = newTiers();
+      const tiers = stockTiers();
       for (const key of Object.keys(tiers) as (keyof UpgradeTiers & string)[]) {
         const v = (rawLoadout as Record<string, unknown>)[key];
-        tiers[key] = typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+        const read = typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+        tiers[key] = Math.max(tiers[key], read);
       }
       meta.loadout = tiers;
     }

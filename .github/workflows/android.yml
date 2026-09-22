@@ -16,10 +16,11 @@ name: Android build & release
 # a red check nobody can act on teaches people to ignore red checks.
 #
 # So the expensive half now runs only where an actual APK is deliberately
-# wanted: a published release, or a hand-triggered dispatch. Staging pushes
-# and pull requests still run every cheap gate — typecheck, the systems smoke
-# test, the store-bundle check — because those need no network beyond npm and
-# catch nearly everything the APK step would. `push` is also branch-filtered
+# wanted: a hand-triggered dispatch. (A tag builds the signed bundle below
+# instead, which is the artifact a tag is for.) Staging pushes and pull
+# requests still run every cheap gate — typecheck, the systems smoke test, the
+# store-bundle check — because those need no network beyond npm and catch
+# nearly everything the APK step would. `push` is also branch-filtered
 # so a PR stops being built twice, and `main` is not in the filter at all:
 # main only ever moves by fast-forward from staging, so its sha was already
 # gated when staging built it — a second run on the same commit under a
@@ -29,46 +30,109 @@ name: Android build & release
 #
 # If you want an APK for a branch, dispatch it by hand; that is what the button
 # is for.
+#
+# THE TAG IS THIS WORKFLOW'S OWN TRIGGER, and it is the only thing that can
+# publish to Play.
+#
+# It used to arrive second-hand. desktop.yml's release job ran
+# `gh workflow run android.yml --ref <tag> -f publish=true` after it had created
+# the GitHub Release, because GitHub suppresses workflow runs for events raised
+# by GITHUB_TOKEN — so the `release: published` that our own `gh release create`
+# emits reaches nobody, and this workflow's `push` trigger was branch-filtered
+# with no tags. That worked, and it made the whole Android release a dependent
+# of a three-runner packaging matrix: the dispatch sat inside a job that is
+# `needs: package` with no `always()`, so one failed leg skipped the dispatch
+# and Android was never built at all — while ios.yml shipped the same tag to
+# TestFlight and nothing anywhere reported that Play had been left out. That is
+# not a hypothetical failure mode for this matrix: eleven of desktop.yml's
+# eighteen runs have failed, the last three of them (13, 14, 17) on macOS
+# signing and notarization, and run 18 only went green on its third attempt.
+#
+# So the tag comes straight here now, the way ios.yml and desktop.yml have
+# always taken it, and desktop.yml dispatches nothing. Packaging and publishing
+# are independent: either can fail without taking the other with it.
+#
+# EXACTLY ONE RUN PER TAG is the property that has to hold — `versionCode` is
+# `run_number` and Play never gives a burned code back — so exactly one trigger
+# can reach the `bundle` job with a tag ref. That is also why `release:
+# published` is gone, and the run history is what settles it rather than a
+# reading of the docs:
+#
+#   * A UI publish emits BOTH events. desktop.yml's runs 11 and 12 are one
+#     v1.0.4 release, one `push` and one `release`, created one second apart —
+#     the tag the publish created, and the publish. This workflow's own six
+#     `release` runs (through v1.0.4) are the other side of those same pairs.
+#   * A `git push` of the tag emits only `push`. v1.0.5 is the clean case:
+#     desktop.yml run 16, `push`, with no paired `release` run anywhere,
+#     because the release it then created came from GITHUB_TOKEN.
+#
+# So `push: tags` covers both ways in, once each, and adding `release:
+# published` on top of it would make every UI publish two runs of this workflow
+# for one release — two versionCodes of one versionName, the second of them
+# burned for nothing. The tag is the thing both entry points have in common: a
+# release cannot exist without one.
+#
+# NO `paths` FILTER ON `push` ANY MORE, and that is what the tag trigger costs.
+# A paths filter is answered from a diff, and a newly created ref has no
+# previous commit to diff against, so `tags:` plus `paths:` is at best
+# version-dependent and at worst silently never runs — not a bet to take on the
+# one event that carries a release. (ios.yml and desktop.yml both carry a bare
+# `tags: ["v*"]` for the same reason.) The branch filter still stops a PR being
+# built twice, `pull_request` keeps its paths filter, and the Gradle half is
+# still rationed by BUILD_APK below — so the bill is the cheap gates running on
+# a docs-only push to staging, which is minutes of ubuntu and no Maven traffic.
 on:
   push:
     branches: [staging]
-    paths:
-      - "app/**"
-      - ".github/workflows/android.yml"
+    tags: ["v*"]
   pull_request:
     paths:
       - "app/**"
       - ".github/workflows/android.yml"
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       # A dispatch is a rehearsal unless whoever starts it says otherwise. The
       # Actions UI lets a human pick an existing v* tag as the ref, and the
       # publish gate below reads the ref — so without this input, choosing a
-      # tag to rehearse against would turn the rehearsal into a release.
-      # desktop.yml's release job passes it explicitly; a human has to tick it.
+      # tag to rehearse against would turn the rehearsal into a release. The
+      # tag path does not go through here at all any more, so this box is for
+      # one case only: a human deliberately re-publishing a tag whose own run
+      # died after the bundle was built. That is a second versionCode, which is
+      # exactly why it is a box and not a default.
       publish:
         description: "Publish the bundle to the Play internal track (tag refs only)"
         type: boolean
         default: false
 
 # A newer push to the same ref supersedes the running gate of a commit that
-# will never ship — same rationing as ui-fit.yml. Dispatches and releases get
-# distinct refs, so nothing deliberate is ever cancelled.
+# will never ship — same rationing as ui-fit.yml.
+#
+# NEVER ON A TAG. Cancelling the gate run of a commit that will never ship
+# costs nothing; cancelling a tag run can land between the Play upload and the
+# artifact upload, and from the outside there is no telling which side of that
+# line it died on. A tag ref and a dispatch pinned to the same tag now share
+# this group, so the second one queues behind the first instead of killing it
+# half-published.
 concurrency:
   group: android-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   apk:
     runs-on: ubuntu-latest
+    # Not on a tag. The `bundle` job below re-runs every one of these gates
+    # against the same commit before it signs anything, so on the one event
+    # that costs a versionCode this job is a duplicate — and a duplicate whose
+    # failure would say nothing the release job had not already said.
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     env:
       # Whether this run goes all the way to an APK, or stops after the cheap
       # gates. Computed once here so the steps below read as a single decision
       # rather than five copies of the same condition drifting apart. See the
-      # rationing note at the top of the file.
-      BUILD_APK: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' }}
+      # rationing note at the top of the file. A dispatch is the only event
+      # left that wants a debug APK: tags build the signed bundle instead, and
+      # pushes and pull requests stop at the cheap gates.
+      BUILD_APK: ${{ github.event_name == 'workflow_dispatch' }}
     defaults:
       run:
         working-directory: app
@@ -198,6 +262,30 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
 
+      # THE TAG AND THE COMMITTED VERSION HAVE TO AGREE, and on Android that is
+      # not a formality — it is the only cross-check there is. `versionName`
+      # comes from the tag (see the bundle step below), so a tag that disagrees
+      # with app/package.json does not fail: it publishes the tag's number to
+      # Play against a tree that says something else, and the versionCode it
+      # burns doing so never comes back. That is the v1.0.3 shape recorded in
+      # app/desktop/README.md's Versioning section, where the guard was added to
+      # desktop.yml alone and the other two workflows were left to disagree by
+      # construction — iOS taking its number from app/package.json, Android from
+      # the tag, neither of them looking at the other.
+      #
+      # It is the desktop package's script because that is where the version
+      # pair already lives, and the question it answers ("does this tag name the
+      # version this tree carries?") is the same question for all three
+      # platforms. It reads two package.json files with node builtins, so it
+      # needs no install and runs before `npm ci` — a mismatched tag costs
+      # seconds here instead of a signed bundle later. RELEASE_TAG is empty on a
+      # dispatch, which makes the script check only that the two committed
+      # versions agree.
+      - name: Check the version against the tag
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: npm --prefix desktop run check:version
+
       - name: Install dependencies
         run: npm ci
 
@@ -306,9 +394,9 @@ jobs:
       # The gate needs BOTH halves. The ref alone is not enough: the Actions UI
       # lets a dispatch pick an existing v* tag as its ref, and "a dispatch is
       # a rehearsal" must survive that — so a dispatch publishes only when its
-      # publish input was ticked. desktop.yml's release job ticks it; its
-      # tag-pinned dispatch is the automated path this gate exists to keep.
-      # A release event arrives with the tag ref and no inputs, and publishes.
+      # publish input was ticked. A tag push arrives with the tag ref and no
+      # inputs, and publishes; that is the automated path, and since the tag
+      # trigger moved into this file it is the only one.
       - name: Require the Play service account
         if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.publish)
         env:

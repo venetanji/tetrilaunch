@@ -20,11 +20,27 @@ name: Desktop build & release
 # THERE ARE TWO WAYS A RELEASE STARTS and both have to end in the same place.
 # Someone pushes a v* tag from git and this workflow creates the release; or
 # someone publishes a release from the GitHub UI, which creates the tag on the
-# way. Those are different events — `push` and `release` — and which of them a
-# UI publish emits is not something to bet a release on, so both are listed.
-# Listing both can run this workflow twice for one release; that costs minutes,
-# not correctness, because the publish step below is idempotent. Missing the
-# only event that fires would cost a release its desktop artifacts.
+# way. Those are different events — `push` and `release` — and both are listed,
+# which is why one release can run this workflow twice: the run history says a
+# UI publish emits both (runs 11 and 12 are one v1.0.4 release, `push` and
+# `release`, one second apart), while a git tag push emits only `push` (run 16,
+# v1.0.5, unpaired). The duplicate costs minutes, not correctness, because the
+# publish step below is create-or-upload. Missing the only event that fires
+# would cost a release its desktop artifacts, which is the worse way to be
+# wrong.
+#
+# THIS WORKFLOW NO LONGER STARTS THE ANDROID RELEASE. It used to: the release
+# job ran `gh workflow run android.yml` at the tag, because android.yml had no
+# tag trigger of its own. That put the entire Play upload downstream of this
+# matrix — the dispatch step sat in a job that is `needs: package` with no
+# `always()`, so one failed leg meant no release, no artifacts and no Android
+# build at all, with nothing anywhere saying Android had been dropped. Eleven
+# of this file's eighteen runs have failed, most recently on macOS signing and
+# notarization, and run 18 needed three attempts. android.yml now takes
+# the tag itself. Tolerating a duplicate run here is still fine for the reason
+# above; over there it would be two versionCodes for one release, which is why
+# the trigger could not simply be copied into both files and left at that —
+# read the header of android.yml before changing either.
 on:
   push:
     tags: ["v*"]
@@ -340,13 +356,12 @@ jobs:
     if: github.event_name != 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The one place in this workflow that can write anything.
+    # The one place in this workflow that can write anything, and all it can
+    # write is a release. The `actions: write` this job used to carry was for
+    # `gh workflow run android.yml`; android.yml triggers on the tag itself now,
+    # so the permission went with the step.
     permissions:
       contents: write
-      # For `gh workflow run` against android.yml — see the dispatch step. This
-      # grant is the price of the tag-first path working at all; it is scoped to
-      # this job, so the packaging matrix still cannot start a workflow.
-      actions: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -363,15 +378,13 @@ jobs:
       # in this file.
       #
       # Create-or-upload rather than plain create, because the release may
-      # already exist. android.yml builds its signed bundle on `release:
-      # published`, so the normal path for a real release is a human publishing
-      # one — and by the time the matrix finishes, `gh release create` would
-      # fail on a release that is already there.
-      #
-      # `created` is not bookkeeping. It is the difference between the two entry
-      # points, and the next step needs it: see the dispatch below.
+      # already exist: a human may have published it from the UI, and this
+      # workflow may be running for the second time on one release (see the two
+      # events in the header). By the time a 45-minute matrix finishes, `gh
+      # release create` would fail on a release that is already there — and a
+      # tag build whose only fault is that the release exists must still attach
+      # its installers.
       - name: Publish the desktop artifacts
-        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -380,7 +393,6 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "release $TAG exists; uploading assets into it"
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
-            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             echo "creating release $TAG"
             gh release create "$TAG" assets/* \
@@ -388,43 +400,7 @@ jobs:
               --title "Tetrilaunch ${TAG#v}" \
               --generate-notes \
               --verify-tag
-            echo "created=true" >> "$GITHUB_OUTPUT"
           fi
-
-      # THE RELEASE WE JUST CREATED DOES NOT TRIGGER ANYTHING.
-      #
-      # GitHub suppresses workflow runs for events raised by GITHUB_TOKEN, so
-      # the `release: published` that `gh release create` above emits reaches
-      # nobody — and android.yml's signed .aab hangs off exactly that event, its
-      # `push` trigger being branch-filtered to main/staging with no tags. So on
-      # the tag-first path the desktop artifacts would ship and the Android
-      # bundle would silently never be built. It has to be asked for explicitly.
-      #
-      # workflow_dispatch is the one thing that survives the suppression — it
-      # and repository_dispatch are the documented exceptions to it — which is
-      # why this is a dispatch and not, say, a second release event. Pinning
-      # --ref to the tag is what makes ANDROID_VERSION_NAME resolve to the
-      # right version, and publish=true is what carries the Play publish
-      # through: android.yml treats a dispatch as a rehearsal unless the
-      # dispatcher says otherwise, so a human picking a tag ref in the Actions
-      # UI cannot ship to Play by accident — this automated path says so.
-      #
-      # Only when we created the release. If a human published it, android.yml
-      # already ran on the real `release: published` event and dispatching here
-      # would build the same bundle twice — burning a second versionCode, which
-      # is a one-way ratchet Play will not give back.
-      - name: Ask android.yml for the signed bundle
-        if: steps.publish.outputs.created == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if ! gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f publish=true; then
-            echo "::error::could not dispatch android.yml for $TAG. The desktop artifacts are published, but the signed Android bundle is NOT built — run android.yml by hand from the Actions tab with ref $TAG and the publish box ticked."
-            exit 1
-          fi
-          echo "dispatched android.yml at $TAG"
 
   # A DELIBERATE, DISPATCH-ONLY UPLOAD. Never on a tag or a published release —
   # so a normal release ships the direct-download installers and touches Steam
@@ -494,6 +470,27 @@ jobs:
       # Flip the committed dry-run VDF to a real upload over a COPY — never the
       # tracked file, whose safe default is Preview "1". SetLive "playtest" in the
       # VDF puts the build on the beta branch.
+      #
+      # BOTH SUBSTITUTIONS ARE ASSERTED, because a sed that stops matching does
+      # not fail — it copies the file through unchanged. With Preview left at
+      # "1" steamcmd chunks and validates the content, uploads NOTHING, and
+      # exits 0: a green job, a build that does not exist, and no line in the
+      # log that reads as an error. The VDF is a hand-maintained file with
+      # hand-aligned columns, so "the quoting changed" is a realistic Tuesday.
+      # grep -q after each flip is the whole guard.
+      #
+      # The Desc is written here because store/steam/app_build_5270760.vdf says
+      # CI writes it, and an unlabelled build ("Tetrilaunch depot build", every
+      # time) is indistinguishable from every other build in App Admin's list,
+      # which is where a bad build has to be identified before it can be rolled
+      # back. Steam allows 255 characters.
+      #
+      # THE CHARACTER WHITELIST IS NOT DECORATION. The description is
+      # interpolated into a sed replacement, so `&`, `\` and the delimiter have
+      # to be impossible rather than unlikely — and a git ref name can legally
+      # carry all sorts of things. Anything outside the set becomes a dash; `|`
+      # is deliberately outside it, which is what makes `|` safe as the
+      # delimiter for a value that contains the branch's own slashes.
       - name: Upload to the playtest branch
         env:
           STEAM_BUILD_ACCOUNT: ${{ secrets.STEAM_BUILD_ACCOUNT }}
@@ -503,10 +500,26 @@ jobs:
             echo "::error::STEAM_BUILD_ACCOUNT is not set in the desktop-build environment."
             exit 1
           fi
-          sed -E 's/("Preview"[[:space:]]+)"1"/\1"0"/' \
-            store/steam/app_build_5270760.vdf > store/steam/app_build_ci.vdf
-          echo "Preview line after flip:"; grep -E '"Preview"' store/steam/app_build_ci.vdf
+
+          src=store/steam/app_build_5270760.vdf
+          out=store/steam/app_build_ci.vdf
+          desc=$(printf '%s' "$GITHUB_REF_NAME @ ${GITHUB_SHA:0:7} (run $GITHUB_RUN_NUMBER)" \
+            | tr -c 'A-Za-z0-9 ._@#()/-' '-')
+
+          sed -E "s|(\"Preview\"[[:space:]]+)\"1\"|\\1\"0\"|; s|(\"Desc\"[[:space:]]+)\"[^\"]*\"|\\1\"$desc\"|" \
+            "$src" > "$out"
+
+          echo "Header after substitution:"; grep -E '"(Preview|Desc)"' "$out"
+          if ! grep -Eq '"Preview"[[:space:]]+"0"' "$out"; then
+            echo "::error::the Preview flip did not take — $out still asks for a dry run, so steamcmd would validate the content and upload nothing while this job went green. Check the \"Preview\" line's quoting in $src."
+            exit 1
+          fi
+          if ! grep -Fq "$desc" "$out"; then
+            echo "::error::the Desc substitution did not take — the build would upload as an unlabelled one. Check the \"Desc\" line's quoting in $src."
+            exit 1
+          fi
+
           "$RUNNER_TEMP/steamcmd.sh" \
             +login "$STEAM_BUILD_ACCOUNT" \
-            +run_app_build "$(pwd)/store/steam/app_build_ci.vdf" \
+            +run_app_build "$(pwd)/$out" \
             +quit
