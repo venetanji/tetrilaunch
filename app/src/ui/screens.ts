@@ -1169,12 +1169,19 @@ export function tierTowerHTML(state: TowerState): string {
         ${floors.join("")}
       </div>
     </div>
-    <!-- THE FLIGHT SCHOOL LOBBY ONLY WHILE THE LICENCE IS OWED. Onboarding moved
-         to the front door (the first-Play tutorial offer), and the hub the tower
-         lives on is always licensed by the time it renders — so the ground-floor
-         "LS" plinth is drawn only for the unlicensed states the fixtures still
-         exercise, never on the player's tower. Off it, the shaft ends at Tier 1,
-         which is the ladder's real ground floor now. -->
+    <!-- THE FLIGHT SCHOOL LOBBY ONLY WHILE THE LICENCE IS OWED. Off it the shaft
+         ends at Tier 1, which is the ladder's real ground floor.
+
+         AND IT IS THE DOOR BACK INTO THE SCHOOL, which is a load-bearing job
+         and did not look like one while this comment claimed "the hub the tower
+         lives on is always licensed by the time it renders". That was true only
+         because every exit from the ground floor force-graduated the player on
+         the way out (meta.ts's arriveAtHub, which no longer does) — so the
+         plinth was drawn for fixtures and never for a real save, and a player
+         who left mid-ladder had nothing on this screen to walk back in through.
+         A save part-way up the ladder is now an ordinary state of the hub: the
+         plinth is that save's ground floor, pick-tier parks the car on it and
+         the primary flies the flight the ladder owes (main.ts's "play" arm). -->
     ${entrance ? towerLobbyHTML(state) : ""}
   </div>`;
 }
@@ -2526,8 +2533,13 @@ export function menuScreen(
  * How to Play keeps them for later — and Start Flight School is the primary,
  * because a first-timer who wants teaching should not have to hunt for it. It
  * is named for the mode it starts, the same words the guide's own card uses
- * (game/guide.ts's "tutorial" article), rather than for the offer. Either answer marks the tutorial seen (so this never returns) and lands
- * the player in the tier hub with Tier 1 open (meta.ts's completeOnboarding).
+ * (game/guide.ts's "tutorial" article), rather than for the offer.
+ *
+ * SKIP IS THE PRESS THAT MAKES ONBOARDING OPTIONAL, and the only one: it marks
+ * the tutorial seen and lands the player in the tier hub with Tier 1 open
+ * (meta.ts's completeOnboarding, from main.ts's "offer-skip"). Start marks
+ * nothing and grants nothing — a ladder half-climbed is a ladder still owed,
+ * and the hub reads it that way (meta.ts's arriveAtHub).
  */
 export function tutorialOfferModal(): string {
   return `<div class="screen neon-backdrop">
@@ -8976,8 +8988,19 @@ export function lessonEndModal(opts: {
   // use — main.ts asks the ladder what comes after the bay just flown and
   // starts the graduation flight when that is the answer — so this card does
   // not need to know it is the ninth; it needs to know what is next.
+  //
+  // THE CONTRACT RUNG'S DOOR IS THE BOARD, and it is the board because that is
+  // what the sentence above it just promised ("The Contract board is open —
+  // clear one card"). It was re-pointed at `tiers` for a release on the
+  // reasoning that a tier's Contracts live on the hub now — true of a TIER's
+  // board and not of the school's, which is one fixed card and its own header
+  // (contracts.ts's schoolBoard). main.ts's "contracts" arm is where that
+  // distinction is kept, and it routes an unlicensed save to the school's board
+  // rather than to the hub: the guard was written for exactly this rung, and a
+  // primary that went around it landed the player on a hub whose ground floor
+  // then had to explain the rung they had just been told was open.
   const forward = opts.won && opts.next === "contract"
-    ? `<button class="btn btn--primary" data-action="tiers">${icon("contracts", 12)}To the tower →</button>`
+    ? `<button class="btn btn--primary" data-action="contracts">${icon("contracts", 12)}Contract board →</button>`
     : opts.won && opts.next === "workshop"
       ? `<button class="btn btn--primary" data-action="workshop">${icon("workshop", 12)}Workshop →</button>`
     : opts.won && opts.next === "exam"

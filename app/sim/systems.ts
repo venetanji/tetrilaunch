@@ -133,7 +133,7 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
   installShelf, recommendedPurchase,
   nextStepIdentity, nextStepIsNew, ackNextStep,
-  recordLesson, rigStarted, licenceDone, basicsDone,
+  recordLesson, rigStarted, licenceDone, basicsDone, arriveAtHub, schoolStarted,
   schoolLadder, schoolProgress, schoolStepOfFlight, schoolNextStep, nextFlightAfter,
   SCHOOL_FLIGHTS, SCHOOL_STEPS, SCHOOL_LADDER, SCHOOL_INSTALL, GRADUATION_FLIGHT, FINAL_EXAM,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
@@ -18117,11 +18117,14 @@ section("The ground floor is the door — the lobby's two sizes (screens.ts + ap
   // identifier.
   check("the ground floor's plate reads LS while the licence is owed",
     lobby(1, 4).includes(">LS<"));
-  // ...AND THE LICENSED TOWER HAS NO LOBBY AT ALL. Onboarding moved to the front
-  // door (the first-Play tutorial offer), and the hub the tower lives on is
-  // always licensed by the time it renders — so the "LS" plinth is drawn only
-  // for the unlicensed states these fixtures still exercise, never on the
-  // player's tower (screens.ts's tierTowerHTML gates it on `entrance`).
+  // ...AND THE LICENSED TOWER HAS NO LOBBY AT ALL — the plinth is the ground
+  // floor of a save that still owes the ladder, and furniture on one that does
+  // not (screens.ts's tierTowerHTML gates it on `entrance`). This comment used
+  // to add that the hub is "always licensed by the time it renders", which was
+  // true only because every exit off the ground floor force-graduated the
+  // player on the way out. It no longer does (meta.ts's arriveAtHub), so the
+  // unlicensed tower is a real player's tower and this plinth is their door
+  // back into the school — pinned as that, below the ladder's own pins.
   check("...and the licensed tower drops the lobby entirely", !held.includes(">LS<"));
   check("...and never prints the lesson count as a fraction",
     !lobby(1, 4).includes(">1/4<") && !lobby(3, 9).includes(">3/9<"));
@@ -28202,6 +28205,229 @@ section("Flight School — the authored geometry holds (game/school.ts)");
     // warning belongs to the one rung it is true of.
     check("...and no ordinary rung's card mentions one",
       !/clock/i.test(middle), middle);
+  }
+
+  // ---- NO DOOR OFF THE GROUND FLOOR RAISES THE LICENCE ------------------
+  //
+  // THE SHIPPED BUG THIS PIN IS FOR. The lesson-4 card's forward primary was
+  // re-pointed at `tiers`, and `tiers` off a lesson-end state falls through to
+  // main.ts's toHub — which granted the whole licence to anyone who was not
+  // already licensed. One press on the button the card's own copy calls forward
+  // took a save from four flights to ten: lessons 5 to 9 and the Final Exam
+  // gone, no reload, no confirmation, and schoolProgress afterwards reporting
+  // ten of ten for four bays flown. Every other exit off the floor did it too —
+  // the quiet "Back to the tower", a bay quit half-way, the exam's own failure
+  // card — so the button was the loudest door and not the only one.
+  //
+  // WHICH IS WHY THIS PIN IS NOT ABOUT THE BUTTON. The suite was green through
+  // the whole release because it pinned the cards and never the SAVE the cards'
+  // doors write to: there was no pin on `next: "contract"` at all. So this walks
+  // every rung's result card, collects every door on it, and asks the one
+  // question that matters whatever a door is called — can the press it makes
+  // raise the licence past the flights the player actually flew.
+  //
+  // The doors are checked against a NAMED SET as well, on the same reasoning
+  // main.ts's "contracts" arm gives for guarding centrally ("a door nobody has
+  // thought of yet must still not open the old room"): a card that grows an
+  // action this pin has never heard of fails here, because nobody can say what
+  // that action does to the save until they have looked.
+  //
+  // AND THE HAND-OFF ITSELF, on the two rungs where forward is a SCREEN. The
+  // licence damage is fixed in the save, so pointing the Contract rung at the
+  // tower is no longer destructive — it is merely the card announcing one thing
+  // ("The Contract board is open — clear one card") and its primary doing
+  // another, on a hub whose ground floor then has to explain the rung the player
+  // was just told they had reached. The two gates are symmetrical and were not:
+  // the Workshop rung's door survived the edit that took the Contract rung's.
+  //
+  // MUTATION-PROVEN: restoring `arriveAtHub` to a bare `completeOnboarding`
+  // fails the per-rung licence checks at every rung; re-pointing the Contract
+  // rung's primary at `tiers` fails the hand-off check.
+  {
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    // THE PIN IS ANCHORED TO THE SHIPPED DOOR, not to a restatement of it. Every
+    // exit off the ground floor lands on toHub (the cards' `lesson-exit` through
+    // leaveSchool, `tiers`, the shops' ✕, Escape and pad-B), so toHub's own
+    // onboarding write is the one write any of these presses can perform — and
+    // if it stops asking the ladder, the checks below are measuring a rule the
+    // app no longer runs.
+    const toHub = mainSrc.slice(mainSrc.indexOf("private toHub()"), mainSrc.indexOf("private toHub()") + 1800);
+    check("the hub's arrival asks the ladder before it grants anything",
+      toHub.includes("arriveAtHub(this.meta)") && !toHub.includes("completeOnboarding"),
+      toHub.slice(0, 200));
+    // …and the grant it used to make unconditionally is now made by exactly one
+    // press in the app: the offer's "Skip — just play".
+    const grants = mainSrc.split("completeOnboarding(this.meta)").length - 1;
+    check("...and the only press that grants the licence is the decline",
+      grants === 1
+        && mainSrc.slice(mainSrc.indexOf('case "offer-skip"'), mainSrc.indexOf('case "offer-skip"') + 200)
+          .includes("completeOnboarding(this.meta)"),
+      `${grants} grant site(s)`);
+    // …AND THE PRESS BEHIND IT IS ASKED ONCE, AT THE DOOR. Skip is also the
+    // offer's pad-and-Escape back target (padBackTarget), so an offer that could
+    // reappear part-way up the ladder would put the app's one licence grant on
+    // the dismiss key. Read off the source the way the drill offer's gate is:
+    // the condition lives in one arm of onClick and there is nothing else to
+    // ask.
+    const offerAt = mainSrc.indexOf('this.setState("tutorial-offer")');
+    const offerGate = mainSrc.slice(Math.max(0, offerAt - 300), offerAt);
+    check("the tutorial offer is never re-asked once the ladder has been started",
+      offerAt > 0 && offerGate.includes("!schoolStarted(this.meta)"), offerGate.slice(-200));
+
+    // The save STANDING AT a rung — i.e. the save the result card of the flight
+    // before it is rendered against (main.ts reads the next rung's kind after
+    // recordLesson has landed). Built through the real writes, so a rung whose
+    // done-ness moves is a rung this fixture follows.
+    const rigged = (m: MetaState): MetaState => buyInstall({ ...m, salvage: 15 }, SCHOOL_INSTALL) ?? m;
+    const standingAt = (rung: (typeof SCHOOL_LADDER)[number]): MetaState => {
+      // EVERY RUNG BEFORE IT, CLEARED — walked off the ladder's own order rather
+      // than reconstructed from the flight count, because the count cannot say
+      // which side of the two gates a flight sits on and the day a rung moves
+      // this fixture has to move with it.
+      let m: MetaState = newMeta();
+      let flown = 0;
+      for (const before of SCHOOL_LADDER.slice(0, SCHOOL_LADDER.indexOf(rung))) {
+        if (before.kind === "contract") m = { ...m, claimedContracts: ["school"] };
+        else if (before.kind === "workshop") m = rigged(m);
+        else flown = (before.flight ?? 0) + 1;
+      }
+      return { ...m, licence: flown };
+    };
+    // main.ts's action table, restated as what each door can do to the SAVE —
+    // the sim has no DOM to dispatch into. Every one of these lands on the hub
+    // or stays on the floor; none of them records a flight, because a flight is
+    // recorded by flying it (recordLesson) and no button on a result card
+    // flies anything.
+    const doors: Record<string, (m: MetaState) => MetaState> = {
+      // toHub, by four names: the card's own exit (leaveSchool), the tower, the
+      // two shops the ladder's gates stand in front of. `contracts` and
+      // `workshop` are setState on an unlicensed save rather than toHub at all,
+      // which is strictly less than this.
+      "lesson-exit": arriveAtHub,
+      "tiers": arriveAtHub,
+      "contracts": arriveAtHub,
+      "workshop": arriveAtHub,
+      // Doors that stay on the ground floor: they start a bay, and a bay only
+      // moves the licence by being won.
+      "lesson-next": (m) => m,
+      "lesson-retry": (m) => m,
+      "exam-retry": (m) => m,
+    };
+    const actionsIn = (html: string): string[] =>
+      [...html.matchAll(/data-action="([^"]+)"/g)].map((m) => m[1]);
+    // THE ONE BUTTON THE CARD CALLS FORWARD. Read off `btn--primary` rather
+    // than off position for the reason the end card's own next-step pin gives:
+    // padnav parks a pad on `.btn--primary`, so this is the door a controller's
+    // next A press finds.
+    const primaryAction = (html: string): string => {
+      const at = html.indexOf("btn--primary");
+      return at < 0 ? "" : /data-action="([^"]+)"/.exec(html.slice(at, at + 200))?.[1] ?? "";
+    };
+
+    // EVERY RUNG, from the second — the first has no result card in front of
+    // it. The card is the shipped renderer with the shipped rung kind, so this
+    // walks the ladder rather than a list of cases somebody remembered.
+    for (const rung of SCHOOL_LADDER.slice(1)) {
+      const m = standingAt(rung);
+      const flown = m.licence;
+      const where = `${rung.kind} rung (licence ${flown})`;
+      // The card as main.ts builds it at this rung: the flight just landed is
+      // the last one the save flew, and `next` is this rung's kind — which is
+      // exactly the pair main.ts hands the modal (the lesson index it flew, and
+      // schoolNextStep read AFTER recordLesson).
+      const flew = Math.max(0, flown - 1);
+      const card = S.lessonEndModal({
+        won: true, name: LESSONS[flew].name,
+        step: schoolStepOfFlight(flew), total: SCHOOL_STEPS,
+        brief: LESSONS[flew].brief,
+        lines: 2, shotsUsed: 9, launches: 0, next: rung.kind,
+        lastLesson: flew >= LESSON_COUNT - 1,
+      });
+      const offered = actionsIn(card);
+      check(`the card at the ${where} offers only doors this pin knows`,
+        offered.length > 0 && offered.every((a) => a in doors), offered.join(" "));
+      const raised = offered
+        .filter((a) => a in doors)
+        .filter((a) => doors[a](m).licence > flown);
+      check(`...and none of them can raise the licence past ${flown} flights`,
+        raised.length === 0, `${raised.join(" ")} granted ${doors[raised[0] ?? "tiers"](m).licence}`);
+      // A GATE'S CARD HANDS OFF TO THE GATE'S OWN SCREEN — the rung the copy
+      // above the button has just announced, and main.ts's own door to it (the
+      // "contracts" arm routes an unlicensed save to the school's board).
+      if (rung.kind === "contract" || rung.kind === "workshop") {
+        check(`...and the ${rung.kind} rung's primary opens the screen it announced`,
+          primaryAction(card) === (rung.kind === "contract" ? "contracts" : "workshop"),
+          primaryAction(card));
+      }
+      // Stated the second way too, because the licence is what the player
+      // counts with: the ladder still owes what it owed.
+      check(`...so the ladder still owes the ${rung.kind} rung afterwards`,
+        schoolNextStep(arriveAtHub(m))?.kind === rung.kind
+          && schoolProgress(arriveAtHub(m)) === schoolProgress(m),
+        `${schoolNextStep(arriveAtHub(m))?.kind} / ${schoolProgress(arriveAtHub(m))}`);
+    }
+
+    // ---- THE EXAM'S FAILURE CARD ----------------------------------------
+    //
+    // The worst instance of the bug, and the one with no forward button in it
+    // to blame: the Final Exam is the one flight on the ground floor that can
+    // be FAILED, its card's quiet exit is `lesson-exit`, and pressing it handed
+    // the player the licence they had just failed to earn — nine flights flown,
+    // ten recorded, Tier 1 open, the ladder reporting itself complete.
+    const failed = standingAt(SCHOOL_LADDER[SCHOOL_LADDER.length - 1]);
+    const failCard = S.examFailHTML(null, levelForGraduation(), SCHOOL_STEPS, SCHOOL_STEPS);
+    const failDoors = actionsIn(failCard);
+    check("the exam's failure card offers only doors this pin knows",
+      failDoors.length > 0 && failDoors.every((a) => a in doors), failDoors.join(" "));
+    check("...and failing the exam does not grant the licence it failed to earn",
+      !licenceDone(arriveAtHub(failed)) && arriveAtHub(failed).licence === LESSON_COUNT,
+      `licence ${arriveAtHub(failed).licence} of ${SCHOOL_FLIGHTS}`);
+    check("...so the exam is still the rung the ladder is asking for",
+      schoolNextStep(arriveAtHub(failed))?.kind === "exam",
+      String(schoolNextStep(arriveAtHub(failed))?.kind));
+
+    // ---- AND THE DOOR BACK IN, which is what makes all of the above kind ---
+    //
+    // Not granting the licence on the way out is only defensible if the way
+    // back is on the screen the player lands on. It is the tower's own ground
+    // floor: `licensed: false` draws the "LS" plinth, and the lobby's Play
+    // resolves to the flight the ladder owes rather than to lesson 1.
+    const mid = standingAt(SCHOOL_LADDER[SCHOOL_LADDER.length - 2]);
+    const tower = S.tierTowerHTML({
+      unlocked: 1, selected: S.LICENCE_TIER, skydeck: false, contracts: 0,
+      licensed: licenceDone(mid), licenceDone: schoolProgress(mid),
+      licenceTotal: schoolLength(mid),
+    });
+    check("a save part-way up the ladder still has a ground floor to walk back into",
+      tower.includes(">LS<") && tower.includes(`data-tier="${S.LICENCE_TIER}"`));
+    check("...and it opens at the rung that is owed, not at lesson 1",
+      nextFlightAfter(mid) === LESSON_COUNT - 1, String(nextFlightAfter(mid)));
+
+    // ---- ONBOARDING IS STILL OPTIONAL -----------------------------------
+    //
+    // The other half of the requirement, and the reason the fix is a DISTINCTION
+    // rather than a deletion: a save that never took the offer has to arrive
+    // licensed, or the tower would draw the old lobby at a player who declined
+    // the school — which is the state optional onboarding exists to remove.
+    check("a save that never set foot on the ladder still graduates on arrival",
+      licenceDone(arriveAtHub(newMeta())) && !schoolStarted(newMeta()));
+    check("...and one that flew a single lesson does not",
+      !licenceDone(arriveAtHub({ ...newMeta(), licence: 1 }))
+        && schoolStarted({ ...newMeta(), licence: 1 }),
+      String(arriveAtHub({ ...newMeta(), licence: 1 }).licence));
+    // A cleared GATE is setting foot on the ladder too, which is why the
+    // predicate reads the ladder and not the flight count.
+    check("...nor does one that cleared the school's Contract without flying",
+      schoolStarted({ ...newMeta(), claimedContracts: ["school"] })
+        && !licenceDone(arriveAtHub({ ...newMeta(), claimedContracts: ["school"] })));
+    // Idempotent on the far side: a graduated save is not re-written by a trip
+    // to the hub, which is what lets main.ts save only when the rule granted.
+    const grad: MetaState = { ...newMeta(), licence: SCHOOL_FLIGHTS };
+    check("...and a finished ladder is handed back untouched",
+      arriveAtHub(grad) === grad && arriveAtHub(newMeta()) !== newMeta());
   }
 
   // THE WORKSHOP DOES NOT OFFER A PRACTICE BAY MID-SCHOOL. The Reactor is the

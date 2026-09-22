@@ -1268,16 +1268,66 @@ export function recordLesson(meta: MetaState, index: number): MetaState {
 
 /**
  * ONBOARDING IS OPTIONAL NOW. Flight School moved to the home screen and is
- * offered — not forced — the first time a player presses Play; skipping it, or
- * leaving it part-way, lands them in the tier hub with Tier 1 open. This grants
- * the licence in one write so every existing `licenceDone` pathway (the tier
- * gate in tierOpen, nextStep, the Contracts board's shape) opens exactly as it
- * did when the ladder was climbed — the difference is only that the player was
- * not made to climb it. Idempotent and monotone, like recordLesson: a player
- * who DID climb the ladder is already at SCHOOL_FLIGHTS and this is a no-op.
+ * offered — not forced — the first time a player presses Play; declining it
+ * lands the player in the tier hub with Tier 1 open. This grants the licence in
+ * one write so every existing `licenceDone` pathway (the tier gate in tierOpen,
+ * nextStep, the Contracts board's shape) opens exactly as it did when the
+ * ladder was climbed — the difference is only that the player was not made to
+ * climb it. Idempotent and monotone, like recordLesson: a player who DID climb
+ * the ladder is already at SCHOOL_FLIGHTS and this is a no-op.
+ *
+ * IT IS A GRANT, SO IT IS NOT A DOOR-CLOSING MOVE. Every caller that reaches
+ * for it on the player's behalf has to ask arriveAtHub below first: the write
+ * is monotone in `licence` and therefore destroys nothing a save HOLDS, but on
+ * a save part-way up the ladder it destroys every rung the save was still
+ * OWED — and it does it by claiming, in the one number the school counts with,
+ * that bays were flown which were not.
  */
 export function completeOnboarding(meta: MetaState): MetaState {
   return meta.licence >= SCHOOL_FLIGHTS ? meta : { ...meta, licence: SCHOOL_FLIGHTS };
+}
+
+/** Has this save set foot on the ladder — is ANY rung of the ground floor
+ *  behind it?
+ *
+ *  Asked of schoolLadder rather than of `licence`, because two of the twelve
+ *  rungs are not flights and a player who cleared the school's Contract has
+ *  started the school whatever the flight count says. A graduated save answers
+ *  true (every rung is done), which is correct and also why this is safe to
+ *  ask in front of a grant that would be a no-op there anyway. */
+export function schoolStarted(meta: MetaState): boolean {
+  return schoolLadder(meta).some((rung) => rung.done);
+}
+
+/**
+ * WHAT LANDING ON THE HUB DOES TO THE SAVE — the one rule every door out of the
+ * ground floor obeys (main.ts's toHub).
+ *
+ * TWO PLAYERS ARRIVE HERE AND THE SAVE HAS TO TELL THEM APART. One never took
+ * the offer: no lesson flown, no Contract claimed, nothing on the ladder — and
+ * for them onboarding being optional is the whole feature, so they arrive
+ * licensed with Tier 1 open and the tower never has to draw the old Flight
+ * School lobby at them. The other is PART-WAY UP: they flew lesson 4 and
+ * pressed the card's own forward button, or quit a bay, or failed the Final
+ * Exam and took the quiet door out. Granting them the licence reads as the same
+ * kindness and is the opposite of one — it is the ladder's remaining rungs,
+ * deleted, silently, by a press that said "forward", and afterwards
+ * schoolProgress reports ten of ten for a player who flew four bays.
+ *
+ * `schoolNextStep(meta) !== null` alone cannot separate them: it is true of
+ * both, because both have rungs owed. The distinction is the licence ACTUALLY
+ * EARNED — whether any rung is behind the player at all (schoolStarted) — and
+ * that is the only question this asks. Declined: grant. Started: leave the save
+ * exactly as the player left it, because the rungs they have not flown are
+ * theirs to fly and the hub has the door back (screens.ts's tierTowerHTML
+ * draws the lobby plinth on any tower whose `licensed` is false, and its Play
+ * flies the flight the ladder owes rather than lesson 1).
+ *
+ * Returns the SAME OBJECT when there is nothing to grant, so a caller can ask
+ * whether the save changed by identity rather than by re-deriving the rule.
+ */
+export function arriveAtHub(meta: MetaState): MetaState {
+  return schoolStarted(meta) ? meta : completeOnboarding(meta);
 }
 
 /** Has this system's practice bay already been offered? */

@@ -80,7 +80,7 @@ import {
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
   skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, buySlot, slotsFor, slotPrice, uprateCost, installById, toggleMount, isMounted, SLOT_CAP,
-  FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding,
+  FREE_TIER_LIMIT, tierIncluded, rigStarted, completeOnboarding, arriveAtHub, schoolStarted,
   tierUnlockReady, claimTierUnlock,
   type MetaState, type TierResult,
 } from "./game/meta";
@@ -5967,10 +5967,19 @@ class App {
     // Back to the hub, where the tower shows the ladder that just opened and the
     // unlock ceremony rides — not the front door, which has no tower. Through
     // toHub rather than setState so the arrival is the same arrival as every
-    // other: a tutorial quit half-way (lesson-exit) still lands licensed with
-    // Tier 1 open (completeOnboarding), and the pick stamped above survives
-    // it — toHub clears the run/lesson transients, which this method has
-    // already cleared, and touches neither pickedTier nor pickedAtMark.
+    // other, and the pick stamped above survives it: toHub clears the
+    // run/lesson transients, which this method has already cleared, and touches
+    // neither pickedTier nor pickedAtMark.
+    //
+    // A BAY LEFT HALF-WAY IS STILL A LADDER PART-WAY CLIMBED. This is the door
+    // every card on the ground floor shares — the lesson result's quiet exit,
+    // the exam failure's "Back to the tower" — which made it the widest of the
+    // force-graduation paths the hub used to take: walking out of lesson 5
+    // granted the licence for lesson 5 and every rung above it, and walking out
+    // of the exam granted the one the player had just failed to earn. The hub no
+    // longer reads an exit as a decision about the school (meta.ts's
+    // arriveAtHub), so what the player finds there is the ladder where they left
+    // it, with the lobby back on the tower and its Play pointed at the owed rung.
     this.toHub();
   }
 
@@ -7477,13 +7486,26 @@ class App {
   private toHub(): void {
     this.contract = null; this.contractMusic = null; this.drill = null;
     this.lesson = null; this.lessonCard = null;
-    // ONBOARDING IS OPTIONAL, so the hub is the one place that guarantees it is
-    // behind the player: whatever door they came through — a skipped tutorial, a
-    // tutorial quit half-way, or a grandfathered save that never had one — they
-    // arrive licensed, with Tier 1 open (meta.ts's completeOnboarding). The
-    // tower therefore never has to draw the old Flight School lobby.
-    if (!licenceDone(this.meta)) {
-      this.meta = completeOnboarding(this.meta);
+    // ONBOARDING IS OPTIONAL, so the hub is where a DECLINED school stops being
+    // owed: a player who never took the offer — or a grandfathered save that
+    // never had one — arrives licensed with Tier 1 open, and the tower never has
+    // to draw the old Flight School lobby at them.
+    //
+    // …AND A SCHOOL PART-WAY CLIMBED IS NOT A DECLINED ONE. This used to grant
+    // the licence to anyone who was not already licensed, which made every door
+    // out of the ground floor a graduation: the lesson-4 card's forward primary,
+    // a bay quit half-way (leaveSchool), and the Final Exam's own failure card,
+    // whose quiet way out handed the player the licence they had just failed to
+    // earn. Nothing said anything, nothing needed a reload, and afterwards
+    // schoolProgress reported ten of ten for four bays flown. The rule that
+    // tells the two apart is meta.ts's arriveAtHub, and it lives there rather
+    // than here because it is a fact about the ladder and sim/systems.ts pins
+    // it. Written only when it actually granted something — the rule hands back
+    // the same object otherwise, and a save touched on every trip to the hub is
+    // a save whose write is doing nothing but risk.
+    const arrived = arriveAtHub(this.meta);
+    if (arrived !== this.meta) {
+      this.meta = arrived;
       saveMeta(this.meta);
     }
     this.setState("tiers");
@@ -9355,6 +9377,28 @@ class App {
       // Workshop's back button — still has seenTutorial false, and re-offering
       // the tutorial on every back-to-hub would turn a one-time welcome into a
       // toll gate. So the flag alone does not decide; the door does.
+      //
+      // …AND NEITHER DOES THE FLAG ONCE THE LADDER HAS BEEN STARTED. The flag
+      // lands on the fourth lesson, so a player who flew one or two and left
+      // still had it false and met the offer again on their next Play — the
+      // wrong question twice over: they have already answered it (they started),
+      // and its two answers are a restart of a ladder they are part-way up and a
+      // decline that is the app's one licence grant, sitting on the control the
+      // pad and Escape reach for (padBackTarget maps the offer's back to
+      // "offer-skip", because dismissing a question the player has not answered
+      // should cost them nothing). A dismiss must not be able to delete six
+      // rungs. So the offer is asked only of a save with nothing on the ladder,
+      // which is also what makes the grant behind Skip unconditionally safe
+      // (meta.ts's schoolStarted, and see "offer-skip" below).
+      //
+      // WHAT THIS COSTS, stated rather than hoped: a player who flew two lessons
+      // and wants out of the school no longer has a button that says so — front
+      // door Play lands them on the hub with the lobby parked and the ladder
+      // owed. That is the ladder's own rule for everyone who is on it — Tier 1
+      // opens at the top of it — and the rungs between are the shortest bays in
+      // the game, none of which costs anything to fail. Optional onboarding is
+      // an offer made ONCE, at the door, not a standing exit from a course in
+      // progress.
       case "tiers":
         // THE FIRST PLAY PRESS IS THE FULLSCREEN GESTURE on a phone's browser.
         // The request has to come from inside a user activation, and the front
@@ -9365,8 +9409,9 @@ class App {
         // native shell and a page already fullscreen, and a refused request is
         // swallowed, so this line costs nothing where it cannot act.
         if (this.state === "menu") void autoEnterFullscreenForRun();
-        if (this.state === "menu" && !this.settings.seenTutorial) this.setState("tutorial-offer");
-        else this.toHub();
+        if (this.state === "menu" && !this.settings.seenTutorial && !schoolStarted(this.meta)) {
+          this.setState("tutorial-offer");
+        } else this.toHub();
         break;
       // CLAIM THE TIER (screens.ts's unlock card, meta.ts's claimTierUnlock).
       // Deferred-claim: both halves of the tier are done and the player presses
@@ -9413,18 +9458,43 @@ class App {
         }
         break;
       // The offer's two answers. "Skip" marks the tutorial seen (so the offer
-      // never returns) and drops into the hub, where toHub completes onboarding.
-      // "Play" runs Flight School from lesson 1 — the lesson flow sets
-      // seenTutorial at graduation, and toHub completes onboarding on the way
-      // back — so seenTutorial is deliberately NOT pre-set here (the coach reveal
-      // on lesson 1 reads it).
+      // never returns) and drops into the hub. "Play" runs the ladder — the
+      // lesson flow sets seenTutorial when the fourth lesson lands, so
+      // seenTutorial is deliberately NOT pre-set here (the coach reveal on
+      // lesson 1 reads it).
+      //
+      // THE DECLINE IS THE ONE PRESS IN THE APP THAT GRANTS THE LICENCE, and it
+      // says so here rather than leaning on the hub to infer it. "Skip — just
+      // play" is a player choosing the game over the school in as many words,
+      // and the button has to be able to keep that promise — the hub's own rule
+      // is deliberately narrower (meta.ts's arriveAtHub grants nothing to a save
+      // that is part-way up the ladder), and a decline routed through it alone
+      // would be a Skip that landed on a locked Tier 1 the day the offer's gate
+      // moved. The gate above is what keeps the two in agreement: nobody with a
+      // rung behind them is ever asked this question, so the grant here can be
+      // unconditional and still cannot delete a rung. Nothing else in the app
+      // reaches for completeOnboarding on the player's behalf.
       case "offer-skip":
         this.finishTutorial();
+        this.meta = completeOnboarding(this.meta);
+        saveMeta(this.meta);
         this.toHub();
         break;
-      case "offer-tutorial":
-        this.startLesson(0);
+      // …AND "START" ASKS THE LADDER WHICH BAY THAT IS, rather than naming one.
+      // It resolves to lesson 1 for every save that can see this offer, which is
+      // the gate above doing its job — so this is the same question answered the
+      // same way rather than a second answer to it, and the two doors into the
+      // school (this one and the lobby's Play, meta.ts's nextFlightAfter) cannot
+      // point at different rungs on any save, including one a gate change or a
+      // hand-edited licence puts somewhere the offer was not expecting. The
+      // `?? 0` is the two rungs that carry no flight, where lesson 1 is the
+      // harmless answer: a re-flown bay banks nothing either way.
+      case "offer-tutorial": {
+        const flight = this.nextFlightIndex() ?? 0;
+        if (flight === GRADUATION_FLIGHT) this.startGraduation();
+        else this.startLesson(flight);
         break;
+      }
       // The pause card's Quit on a run with bays behind it — its own action
       // rather than a branch on "menu", so the eight other back buttons that
       // carry that action cannot accidentally inherit (or route around) the
