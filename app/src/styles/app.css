@@ -1458,12 +1458,38 @@ body.crt-off #app::after { display: none; }
    block below cites as its own reason for existing; the compact path had
    simply grown into it without anyone re-reading the number.
 
-   Keyed at 360px of RAIL, not 470: the split has to fall between the phones
+   Keyed at 352px of RAIL, not 470: the split has to fall between the phones
    that have the room (440px-tall viewports and up) and the short store rows
    that genuinely do not (the 4" and 3.5" slots at 320px), and the rail is the
    tower's height, so it tracks the viewport. Sized one notch under the roomy
-   block's miniatures, which override these below 470px+ by source order. */
-@container rail (min-height: 360px) {
+   block's miniatures, which override these below 470px+ by source order.
+
+   352 AND NOT 360, because 360 missed the phone this block is most for BY A
+   QUARTER OF A PIXEL. Measured (.tierhub__actions on the `hub` fixture, whole
+   uifit fleet, Chromium):
+
+     309.84 13 mini · 313.16 OnePlus 12 · 315.47 S8+ · 319.84 640x360 budget
+     324.14 iPhone X · 333.66 SE 3 · 341.27 iPhone 15 · 343.56 Pixel 5
+     359.75 Pixel 7 AND Pixel 7 cutout · 385.94 iPhone 16 Pro Max
+     500.81 and up: every desktop window
+
+   `min-height` is inclusive, so 360 rescued exactly ONE phone row out of ten
+   and left the largest hole in the fleet — 57px, on the two most mainstream
+   Android rows in the matrix — open by 0.25px.
+
+   THE NUMBER IS CHOSEN AS A MARGIN, not as a threshold, which is the part
+   worth keeping. 343.56 and 359.75 are the two rows the split has to fall
+   between, and 352 sits ~8px clear of both. A number that ties a device row
+   to within a pixel does not merely miss it here: WebKit's text metrics
+   differ from Chromium's, so it would land on one engine and not the other,
+   and the fleet has two baselines for that reason. That also rules 340 out
+   despite it catching two more rows — iPhone 15 is 341.27, and 1.27px of
+   margin is the same bug wearing a different number.
+
+   sim/systems.ts pins the margin against both neighbours; re-measure with
+   sim/uifit/rail-probe.mts and re-read that pin the day a device row lands
+   between them. */
+@container rail (min-height: 352px) {
   .tierhub__preview {
     display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
     gap: 5px 4px;

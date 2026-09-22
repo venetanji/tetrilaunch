@@ -33968,6 +33968,45 @@ section("Reduced motion reaches the crest's congestion states and the rotate gua
 // IS an animation. The end state is the teaching there — a phone held
 // landscape — so it is held rather than dropped.
 // ---------------------------------------------------------------------------
+// THE CONTRACT PREVIEW'S BREAKPOINT IS A MARGIN, AND THIS IS THE MARGIN.
+//
+// app.css keys the tier hub's Contract preview on `@container rail
+// (min-height: N)`, and N shipped at 360 while the Pixel 7 pair gives the rail
+// 359.75px — so the block written for phones rescued exactly one phone row out
+// of ten and left a 57px hole on the two most mainstream Android rows in the
+// matrix, open by a quarter of a pixel.
+//
+// THE FLEET COULD NOT SEE IT. uifit reports violations, and a preview that is
+// simply absent breaks no assertion: every row was green the whole time. So
+// the constraint is pinned here as the two measured neighbours it has to fall
+// between, rather than as the number itself — a pin that only echoed N would
+// have passed at 360 too.
+//
+// Heights are .tierhub__actions on the `hub` fixture, Chromium, from
+// sim/uifit/rail-probe.mts. Re-run it and re-read this pin the day a device
+// row lands between them. The margin is 5px because the fleet has two engine
+// baselines: WebKit's text metrics differ, so a threshold within a pixel of a
+// row lands on one engine and not the other.
+// ---------------------------------------------------------------------------
+{
+  const PIXEL_7_RAIL = 359.75;   // Android · Pixel 7 and Pixel 7 cutout — must GET the preview
+  const PIXEL_5_RAIL = 343.56;   // Android · Pixel 5 — the tallest row that must NOT
+  const MARGIN = 5;
+  const m = /@container rail \(min-height:\s*([\d.]+)px\)/.exec(APP_CSS);
+  check("the hub's preview breakpoint is still a container query on the rail", !!m, String(m));
+  const n = Number(m?.[1] ?? NaN);
+  check(
+    "the Contract preview reaches the Pixel 7 pair with room to spare",
+    n <= PIXEL_7_RAIL - MARGIN,
+    `min-height ${n} vs Pixel 7 rail ${PIXEL_7_RAIL}`,
+  );
+  check(
+    "...and still clears the tallest row that must not get it",
+    n >= PIXEL_5_RAIL + MARGIN,
+    `min-height ${n} vs Pixel 5 rail ${PIXEL_5_RAIL}`,
+  );
+}
+
 {
   const reduce = [...APP_CSS.matchAll(/@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g)]
     .map((m) => {
