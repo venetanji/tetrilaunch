@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Apple's privacy manifest for the app target. Referenced by
+  App.xcodeproj/project.pbxproj in the Resources build phase — a .xcprivacy
+  sitting next to Info.plist that nothing copies is a file Apple never sees, and
+  the mail it does not stop arrives the same day either way.
+
+  WHY IT EXISTS: Apple's upload validator answers a missing required-reason API
+  declaration with ITMS-91053 "Missing API declaration" mail after the
+  TestFlight upload, and from spring 2024 that stopped being advisory. The
+  required-reason APIs are a short list (file timestamps, system boot time,
+  disk space, active keyboards, user defaults); an app that touches one and
+  declares nothing gets the mail, and eventually the rejection.
+
+  WHAT THIS APP TOUCHES, established by reading the code rather than by pasting
+  a generic manifest:
+
+    UserDefaults (NSPrivacyAccessedAPICategoryUserDefaults, reason CA92.1).
+    @capgo/capacitor-social-login writes the Apple sign-in payload and its
+    OAuth token store into UserDefaults.standard (AppleProvider.swift,
+    OAuth2Provider.swift). That plugin is a local SPM path dependency of
+    CapApp-SPM, so its code links into THIS binary and ships no .xcprivacy of
+    its own — meaning nobody declares it if this file does not. CA92.1 is the
+    right reason of the four: the keys are this app's own, read back by this
+    app, never shared with an app group or another process.
+
+  And what it does NOT touch, checked the same way: no filesystem plugin and no
+  creation/modification-date reads (C617.1), no systemUptime (35F9.1), no
+  volumeAvailableCapacity (E174.1), no activeInputModes (3EC4.1). The web layer
+  keeps its own state in localStorage, which is WebKit's store and not a
+  required-reason API. Capacitor's own two manifests declare empty arrays;
+  RevenueCat's SPM package ships its own. If a plugin is added, grep its Swift
+  sources for those five API families before assuming the list is unchanged.
+
+  THE COLLECTED-DATA HALF MUST AGREE WITH APP STORE CONNECT. The answers in
+  docs/ios.md §4 are the same three lines as below, and Play's are the same
+  facts in Google's vocabulary (store/play/data-safety.csv, docs/PLAY.md) — one
+  behaviour, three declarations, and a reviewer comparing any two of them
+  should find the same app. Nothing here is used for tracking: there is no
+  advertising identifier, no attribution SDK, and no third-party request during
+  play at all, so NSPrivacyTracking is false and the domain list is empty.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<!-- The leaderboard submission: a player-typed handle with a score,
+		     level and line count, sent only when the player chooses to file a
+		     score, and published on a board that is keyed to no identity. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- Entitlement state through RevenueCat. Linked, because for a
+		     signed-in player it hangs off the app user ID below. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<!-- `provider:sub` (src/lib/auth.ts's appUserIdFor), handed to
+		     Purchases.logIn on every signed-in launch so a purchase survives a
+		     reinstall and a second device. A durable user identifier, so it is
+		     declared as one — not an advertising identifier, and not tracking.
+		     A player who never signs in sends none of it. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

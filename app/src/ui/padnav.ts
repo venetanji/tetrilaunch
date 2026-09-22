@@ -295,10 +295,11 @@ export interface ScrimRoot {
 /**
  * F7: WHAT A SCRIM COVERS, IT ALSO SEALS.
  *
- * Both of this app's question panels render as a SIBLING of the thing they are
+ * Every question panel in this app renders as a SIBLING of the thing it is
  * about — the deletion notice over the account screen, the seal notice over
- * the bay's HUD (main.ts's renderOverlay writes `screen + scrim` in one go) —
- * and `.modal-scrim` stops a mouse, not a keyboard. Tab walked straight
+ * the bay's HUD, the shortfall card over the shop it was pressed in
+ * (main.ts's renderOverlay writes `screen + scrim` in one go) — and
+ * `.modal-scrim` stops a mouse, not a keyboard. Tab walked straight
  * underneath: three presses from "Delete this player account?" reached "Sign
  * Out" behind it, and Enter there signed the player out under a question they
  * had not answered.
@@ -313,15 +314,36 @@ export interface ScrimRoot {
  * sibling is a `.screen` under one notice and a `.hud` under the other, and
  * the next panel's will be whatever it is.
  *
+ * THE LAST SCRIM, NOT THE FIRST, and that difference is a bug this function
+ * used to have rather than a nicety. It is main.ts's padNavRoot's argument
+ * exactly, arriving one modality later: the refit yard and the draft are
+ * THEMSELVES scrims, so a first-encounter card over either (refitIntroModal,
+ * draftIntroModal) puts two in the overlay, every scrim shares one z-index,
+ * and renderOverlay appends the card after the screen — so the one the player
+ * can see is the LAST. Taking the first would have sealed the explanation and
+ * left the yard live underneath it: `refit-done` reachable by Tab, which
+ * spends the staged scrap and undocks the ship, under a card the player has
+ * not answered. That is the same harm padNavRoot documents from the pad side
+ * ("entering the yard for the first time focused refit-done behind the
+ * explanation and A undocked the ship"), and the two now read the overlay the
+ * same way.
+ *
  * AND IT TAKES THE ATTRIBUTE OFF AGAIN when no scrim is mounted. Every close
  * here happens to be a re-render that replaces the children outright, so the
  * clearing pass is belt and braces — but a function that only ever ADDS inert
  * is one in-place patch away from leaving a screen permanently unreachable,
- * and that is not a failure mode worth saving four lines over.
+ * and that is not a failure mode worth saving four lines over. It is also what
+ * makes the function safe to call from the TAIL of every render rather than
+ * from the arms that happen to mount a panel (main.ts): "a scrim is up" and "a
+ * scrim is not up" are both answered here, so no arm has to remember either.
  */
 export function sealBehindScrim(root: ScrimRoot): void {
   const kids = Array.from(root.children);
-  const scrim = kids.find((k) => k.classList.contains("modal-scrim"));
+  // A forward scan whose LAST hit wins, rather than a reversed copy: the loop
+  // below walks the children in document order and a mutating reverse() would
+  // quietly change what it walks.
+  let scrim: (typeof kids)[number] | undefined;
+  for (const kid of kids) if (kid.classList.contains("modal-scrim")) scrim = kid;
   for (const kid of kids) {
     if (scrim && kid !== scrim) kid.setAttribute("inert", "");
     else kid.removeAttribute("inert");

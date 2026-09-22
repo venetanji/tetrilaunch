@@ -4,6 +4,10 @@
 // so an over-long short description ships as a sentence cut off mid-word and
 // nobody notices until it is live. Cheaper to assert here.
 //
+// Four fields, all of them Play's. The App Store's own limits are looser than
+// these for every field the two stores share, so copy that passes here fits
+// there — see the note under docs/PLAY.md's What's new block.
+//
 //   npm run store:copy
 //
 // The copy lives in docs/PLAY.md rather than in a data file on purpose: it is
@@ -22,6 +26,24 @@ const FIELDS = [
   // with CRLF endings, and a fence regex anchored on bare \n never matches.
   ["Short description", /\*\*Short description\*\*\s*\(80 max\):\s*\n+```\r?\n([\s\S]*?)\r?\n```/, 80],
   ["Full description", /\*\*Full description\*\*\s*\(4000 max\):\s*\n+```\r?\n([\s\S]*?)\r?\n```/, 4000],
+  // WHAT'S NEW IS THE FIELD THIS SCRIPT WAS MISSING, and it is the one with the
+  // worst ratio between what a release produces and what the field holds. The
+  // 1.0.6 release page carried a "paste-ready for the store 'what's new'
+  // fields" draft of 5,028 code points against Play's 500 — and because the
+  // Console truncates a long paste rather than refusing it, that ships as a
+  // listing note cut off inside its first subsection. Nothing would have said
+  // so: this script checked three fields and the doc had no fourth.
+  //
+  // Checked against docs/PLAY.md rather than against docs/releases/<v>.md, on
+  // purpose. The release page is a different document with a different job (a
+  // GitHub release body, which is a page someone reads deliberately and where
+  // 5,000 characters is the right size), it lives on the release branch rather
+  // than in every checkout, and a check that can only run where a
+  // version-named file happens to exist is a check that quietly does not run.
+  // Keeping the field beside the other three means one source for the copy, one
+  // limit per field, and a store:copy that means the same thing on any branch.
+  // Missing is a failure here, same as the others — the block is in the doc.
+  ["What's new", /\*\*What's new\*\*\s*\(500 max\):\s*\n+```\r?\n([\s\S]*?)\r?\n```/, 500],
 ];
 
 const doc = await readFile(DOC, "utf8");

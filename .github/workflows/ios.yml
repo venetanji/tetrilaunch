@@ -11,6 +11,22 @@ name: iOS build & TestFlight
 # workflow combined. A dispatch is the rehearsal button; a v* tag is a
 # release, mirroring desktop.yml.
 #
+# AND THE REHEARSAL BUTTON NOW REHEARSES. For its first twenty-odd runs this
+# file said the sentence above and uploaded anyway: the upload step carried no
+# condition at all, so run 21 — a dispatch on `main`, ticked by nobody — put
+# build 21 in front of every TestFlight tester. iOS is the one platform where
+# that cannot be taken back: the build number is spent, and a tester's phone
+# has already offered them the update. So the upload is gated the way
+# android.yml gates its Play publish, with the same `publish` input and the
+# same reasoning — the Actions UI lets a dispatch pin itself to an existing v*
+# tag, so the ref alone cannot be the gate.
+#
+# A rehearsal still does everything but ship: it archives, signs, resolves the
+# App Store profile and EXPORTS, leaving the signed ipa attached to the run. The
+# export is not optional to a rehearsal — it is the half where manual signing is
+# actually exercised, and where run #4 failed. Only `destination` changes, from
+# `upload` to `export`, and only the last stage of the pipeline is withheld.
+#
 # Signing: the runner holds the Apple Distribution certificate in a
 # throwaway keychain and archives with MANUAL distribution signing against
 # the App Store profile named "Tetrilaunch App Store", which
@@ -54,15 +70,37 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      # A dispatch is a rehearsal unless whoever starts it says otherwise —
+      # android.yml's input, word for word, because it is the same decision
+      # about the same kind of irreversible act. Nothing automated ticks this;
+      # it is here for a human re-uploading a tag whose own run died after the
+      # archive, which costs a build number and should therefore be a box.
+      publish:
+        description: "Upload the build to TestFlight (tag refs only)"
+        type: boolean
+        default: false
 
+# NEVER CANCEL A TAG. Superseding a rehearsal is free; cancelling a tag run can
+# land inside the upload, and a build number Apple has begun accepting is spent
+# whichever side of the cancel it died on. A dispatch pinned to a tag shares
+# this group with the tag's own run, so it queues behind it instead of killing
+# it — same reasoning as android.yml, and desktop.yml never cancels at all.
 concurrency:
   group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   testflight:
     runs-on: macos-15
     environment: ios-build
+    env:
+      # WHETHER THIS RUN SHIPS. Computed once, because three steps below ask the
+      # same question and three copies of it would drift — android.yml's
+      # BUILD_APK for the same reason. Both halves are needed: the Actions UI
+      # lets a dispatch pin itself to an existing v* tag, so the ref alone
+      # cannot tell a release from a rehearsal aimed at one.
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     defaults:
       run:
         working-directory: app
@@ -74,6 +112,24 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: app/package-lock.json
+
+      # THE TAG AND THE COMMITTED VERSION HAVE TO AGREE. MARKETING_VERSION is
+      # read out of app/package.json further down, which means a tag naming a
+      # version this tree does not carry does not fail here — it uploads the
+      # tree's version to TestFlight under the tag's name, and the build number
+      # it spends doing so is spent for good. desktop.yml has asserted this
+      # since the v1.0.3 incident (app/desktop/README.md, Versioning); iOS and
+      # Android were left out of the fix, so the three workflows could disagree
+      # about what a tag meant while each of them passed.
+      #
+      # First, and before `npm ci`: the script is two package.json reads with
+      # node builtins, and macOS minutes bill at 10x. RELEASE_TAG is empty on a
+      # dispatch, which reduces it to the check that the two committed versions
+      # agree — worth having on a rehearsal too.
+      - name: Check the version against the tag
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: npm --prefix desktop run check:version
 
       - name: Install dependencies
         run: npm ci
@@ -198,21 +254,52 @@ jobs:
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
 
-      # destination=upload sends the build straight to App Store Connect from
-      # the export step — no ipa artifact, no separate uploader tool.
-      - name: Upload to TestFlight
+      # A PRIVACY MANIFEST THAT IS NOT IN THE BUNDLE IS NOT A PRIVACY MANIFEST,
+      # and the failure is silent in both directions: a .xcprivacy that Xcode
+      # does not copy produces a clean archive and ITMS-91053 mail from Apple
+      # hours later, and a pbxproj that loses the reference (a `cap add ios`
+      # regeneration would, along with the target rename docs/ios.md warns
+      # about) looks like nothing at all. So ask the archive. Same shape as
+      # desktop.yml asserting notarization rather than trusting a step that
+      # warns and returns zero.
+      - name: Verify the privacy manifest is in the bundle
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/Tetrilaunch.xcarchive/Products/Applications/Tetrilaunch.app/PrivacyInfo.xcprivacy"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::PrivacyInfo.xcprivacy is not in the archived app. It exists at app/ios/App/App/PrivacyInfo.xcprivacy — check that project.pbxproj still lists it in the Tetrilaunch target's Resources build phase. Uploading without it invites ITMS-91053 (see docs/ios.md)."
+            exit 1
+          fi
+          plutil -p "$manifest"
+
+      # THE EXPORT RUNS EITHER WAY; ONLY THE UPLOAD IS WITHHELD. `destination`
+      # in the options plist is the whole difference: `upload` hands the build
+      # straight to App Store Connect from the export step (no ipa artifact, no
+      # separate uploader tool), `export` writes the signed ipa to the runner
+      # and sends nothing.
+      #
+      # A rehearsal has to include this half. Export is where manual signing is
+      # actually exercised — resolving the "Tetrilaunch App Store" profile and
+      # signing the payload — and it is where run #4 failed. A rehearsal that
+      # stopped at the archive would prove the cheaper half and leave the
+      # failure that has actually happened to a tag.
+      - name: Export the archive, and upload it on a release
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -euo pipefail
+          if [ "$PUBLISH" = "true" ]; then destination=upload; else destination=export; fi
+          echo "export destination: $destination"
+
           cat > $RUNNER_TEMP/export-options.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>upload</string>
+            <key>destination</key><string>$destination</string>
             <key>teamID</key><string>$APPLE_TEAM_ID</string>
             <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
@@ -224,10 +311,38 @@ jobs:
           </dict>
           </plist>
           EOF
-          xcodebuild -exportArchive \
-            -archivePath $RUNNER_TEMP/Tetrilaunch.xcarchive \
-            -exportOptionsPlist $RUNNER_TEMP/export-options.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8 \
-            -authenticationKeyID "$ASC_API_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+
+          # -exportPath only on the export path: the upload path has nothing to
+          # write there, and the flag set that has been shipping releases is
+          # left exactly as it was.
+          args=(-exportArchive
+            -archivePath "$RUNNER_TEMP/Tetrilaunch.xcarchive"
+            -exportOptionsPlist "$RUNNER_TEMP/export-options.plist"
+            -allowProvisioningUpdates
+            -authenticationKeyPath ~/private_keys/AuthKey_$ASC_API_KEY_ID.p8
+            -authenticationKeyID "$ASC_API_KEY_ID"
+            -authenticationKeyIssuerID "$ASC_API_ISSUER_ID")
+          if [ "$destination" = "export" ]; then
+            args+=(-exportPath "$RUNNER_TEMP/export")
+          fi
+          xcodebuild "${args[@]}"
+
+      # A rehearsal leaves the thing it built, the way android.yml's does: the
+      # signed ipa is the artifact worth inspecting, and it is also the evidence
+      # that the export it just ran produced something.
+      - name: Keep the rehearsal's signed ipa
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: tetrilaunch-ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      # Otherwise a rehearsal ends on a green export and reads like a run that
+      # was cut short of its point. Say which half ran, in the log, where
+      # whoever ticked nothing is looking.
+      - name: Say that nothing was uploaded
+        if: env.PUBLISH != 'true'
+        run: |
+          echo "::notice::Rehearsal: the app archived, signed and exported, and nothing reached TestFlight. The signed ipa is attached to this run. To ship, push a v* tag — or dispatch this workflow against one with the publish box ticked."

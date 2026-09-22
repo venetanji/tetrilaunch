@@ -139,16 +139,24 @@ app/android/app/build/outputs/apk/debug/app-debug.apk
 
 `.github/workflows/android.yml` runs the cheap gates — `npm run build:native`
 (typecheck plus the web bundle), `npm run test` (the systems smoke test) and
-`npm run verify:store` — on every push to `main` or `staging` and on every pull
-request touching `app/`, so a broken build never gets as far as Gradle. It goes
-on through `cap add` to a debug APK, and uploads it as a workflow artifact, only
-on `main`, a published release, or a manual dispatch (`BUILD_APK` in the
-workflow gates every Gradle-side step on that one condition). The Gradle half is
-rationed because every run re-resolves the whole AGP tree from Maven Central,
-which answers a busy repo with 429s — a red check nobody can act on teaches
-people to ignore red checks — and because the cheap gates catch nearly
-everything the APK step would. If you want an APK for a branch, dispatch it by
-hand. Nothing is signed and nothing is published — that's deliberate, see below.
+`npm run verify:store` — on every push to `staging` and on every pull request
+touching `app/`, so a broken build never gets as far as Gradle. It goes on
+through `cap add` to a debug APK, and uploads it as a workflow artifact, only on
+a manual dispatch (`BUILD_APK` in the workflow gates every Gradle-side step on
+that one condition). The Gradle half is rationed because every run re-resolves
+the whole AGP tree from Maven Central, which answers a busy repo with 429s — a
+red check nobody can act on teaches people to ignore red checks — and because
+the cheap gates catch nearly everything the APK step would. If you want an APK
+for a branch, dispatch it by hand. Nothing there is signed and nothing is
+published — that's deliberate, see below.
+
+`main` is not in the push filter: it only ever moves by fast-forward from
+staging, so its sha was already gated when staging built it. A `v*` tag skips
+the gate job outright and goes straight to the `bundle` job below, which re-runs
+every one of those gates itself before it signs anything. The tag reaches this
+workflow directly — it is not dispatched by desktop.yml any more, so a desktop
+packaging failure can no longer take the Play upload with it, and the workflow's
+header argues at length why exactly one event may carry a tag here.
 
 ## What's still needed for the stores
 
