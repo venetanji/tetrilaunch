@@ -22,6 +22,7 @@ import type { Ratchets } from "../../src/game/hazards";
 import type { SandboxMaterial } from "../../src/game/sandbox";
 import type { GradeTally } from "../../src/game/grades";
 import { MARK_COUNT, SCHOOL_STEPS, SLOT_CAP, type MetaState } from "../../src/game/meta";
+import { MAX_TIER, newTiers } from "../../src/game/upgrades";
 import { SKYDECK_TIER } from "../../src/ui/screens";
 
 /** A Tier S launch, exactly the fields game/sandbox.ts's SandboxState carries
@@ -607,8 +608,11 @@ export type SceneShow =
       from?: string; warmSec: number; waitFor?: string;
     }
   /** THE TOWER with the car parked on a floor, through the App's own
-   *  pickTier — the hub, as it exists before #223 rebuilds it. */
-  | { kind: "tower"; tier: number; warmSec: number }
+   *  pickTier. Since #223 the tower lives on the hub ("tiers"), not on the
+   *  front door, so `from` names the state to render first — pickTier is a
+   *  no-op on a screen with no `.tower__shaft`, and the shot would quietly
+   *  photograph the front door instead. */
+  | { kind: "tower"; tier: number; warmSec: number; from?: string }
   | {
       kind: "bay"; config: BayConfig; bot: BotSpec; warmSec: number;
       /** Capture on this condition rather than at warmSec. */
@@ -674,6 +678,90 @@ export const STORE_META: Partial<MetaState> = {
  * that is a screenshot in its own right (and the one every "first run" bug
  * report is about).
  */
+/** EVERY SYSTEM OWNED at the Workshop's own ceiling. Tiers 1-2 are what the
+ *  shop sells (upgrades.ts: tier 3 is fitted at a refit stop, for scrap), so 2
+ *  is "everything bought" as the Workshop can show it; the bays below fly
+ *  MAX_TIER, the in-run ceiling, so the plant panel shows a built rig. */
+export const FULL_LOADOUT: MetaState["loadout"] = {
+  bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
+  bonds: 2, demolition: 2, thaw: 2, cushion: 2, incinerator: 2,
+};
+
+/* ---------------------------------------------------------------------------
+ * THE RIGS THE STORE BAYS FLY — one per rung, not one for all of them.
+ *
+ * The first pass gave every bay every track at MAX_TIER, and the owner's read
+ * of that set is the one this replaces: "show a progression of systems, not
+ * all full, something believable from an in game tier that is shown". So each
+ * bay now flies a rig a player at THAT BAY'S TIER could actually be holding,
+ * and the rack (components.ts's shipPlatesHTML draws a plate per track with
+ * tier > 0, three pips each) grows shot by shot: four plates at Tier 2, ten at
+ * Tier 8, with the pips filling in behind them.
+ *
+ * TWO RULES MAKE A RIG BELIEVABLE, and both are the game's own arithmetic:
+ *
+ *  1. THE BUILD BUDGET. A permanent loadout costs `tiersCost` and may spend
+ *     `budgetForMark(mark)` = 110 x mark (upgrades.ts). Every rig below is
+ *     priced under the budget of the tier its HUD prints — the Tier 2 bay's
+ *     185 against 220, the Tier 8 bay's 425 against 880 — so a player at that
+ *     rung could have bought it.
+ *
+ *  2. THE THIRD PIP IS NOT FOR SALE. The Workshop sells to UPRATE_MAX_TIER
+ *     (meta.ts) = 2; tier 3 is fitted at a REFIT STOP, in-run, for scrap, and
+ *     the stops open after bays 3, 6 and 9 (run.ts's isRefitBay). Every store
+ *     bay launches at bay 1, so no track on it may show three pips — a maxed
+ *     rack on bay 1 is a save-file edit, and it reads as one. The single
+ *     exception is `hazard-run`, which is flown at `bay: 5` precisely so it
+ *     CAN show the top rung: one refit stop is behind it, and the four
+ *     ratchet notches it carries are themselves four between-bay drafts, so
+ *     bay 1 was never an honest number for that shot.
+ *
+ * The happy side effect is that the unlit third pip does the listing a favour:
+ * every rack in the set says there is something left to buy.
+ * ------------------------------------------------------------------------- */
+
+/** Tier 2, 4 slots (SLOT_BASE), 185/220 spent. The stock-adjacent rig. */
+export const RIG_T2: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 1,
+};
+/** Tier 3, 5 slots, 240/330. The Cushion is the fifth thing bought, and it is
+ *  the one the owner asked to be visible. */
+export const RIG_T3: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 2, cushion: 1,
+};
+/** Tier 5, 6 slots, 295/550. */
+export const RIG_T5: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 2, cushion: 2, reactor: 1,
+};
+/** Tier 6, 7 slots, 350/660 — the Bond Emitter build. */
+export const RIG_T6_BOND: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2, bonds: 2, cushion: 1,
+};
+/** Tier 6, 7 slots, 350/660 — the cryo answer: the Lance and the Incinerator
+ *  instead of the Emitter, which is the same money spent a different way and
+ *  the reason two Tier 6 shots are worth having. */
+export const RIG_T6_CRYO: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 2, cushion: 2, thaw: 2, incinerator: 1,
+};
+/** Tier 7, 8 slots, 405/770 — Demolition at the tier the blast beat needs. */
+export const RIG_T7_DEMO: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
+  demolition: 2, cushion: 2, bonds: 1,
+};
+/** Tier 8, 9 slots, 425/880 — nine tracks aboard and one still in the shed. */
+export const RIG_T8: UpgradeTiers = {
+  ...newTiers(), bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
+  cushion: 2, incinerator: 2, thaw: 1, bonds: 1,
+};
+/** Tier 8 at BAY 5, the set's ceiling: ten plates, 480/880 of permanent
+ *  budget, plus the two rungs (bay and launcher to MAX_TIER, 110 scrap) the
+ *  bay-3 refit stop pays for. The only rack in the set with a full pip row,
+ *  and the only bay flown past bay 1 to earn it. */
+export const RIG_T8_REFIT: UpgradeTiers = {
+  ...newTiers(), bay: MAX_TIER, launcher: MAX_TIER, hydraulics: 2, magazine: 2, reactor: 2,
+  cushion: 2, demolition: 2, thaw: 2, bonds: 1, incinerator: 1,
+};
+
 export const SETUPS: Record<string, Partial<MetaState>> = {
   /** Mid-ladder, the listing's default: a Mark in hand, floors sealed. */
   ladder: {},
@@ -692,8 +780,7 @@ export const SETUPS: Record<string, Partial<MetaState>> = {
   rigged: {
     mark: 9, salvage: 2_360, runs: 118, bestBay: 10, slots: SLOT_CAP,
     unlocks: ["survey", "scrap-cache"],
-    loadout: { bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
-      bonds: 2, demolition: 2, thaw: 2, cushion: 2, incinerator: 2 },
+    loadout: FULL_LOADOUT,
   },
   /** THE SEALED TOWER — every Mark beaten and sealed, which is the Skydeck's
    *  key (meta.ts's skydeckOpen: mark >= MARK_COUNT and nothing unsealed). The
@@ -703,8 +790,9 @@ export const SETUPS: Record<string, Partial<MetaState>> = {
     celebratedMark: MARK_COUNT, skydeckCelebrated: true, sealBreakSeen: true,
     salvage: 4_100, runs: 143, bestBay: 10, slots: SLOT_CAP,
     unlocks: ["survey", "scrap-cache"],
-    loadout: { bay: 2, launcher: 2, hydraulics: 2, magazine: 2, reactor: 2,
-      bonds: 2, demolition: 2, thaw: 1, cushion: 1, incinerator: 1 },
+    // The same full rig as `rigged`: a save that sealed every Mark owns
+    // every system, and the hub is photographed on this save.
+    loadout: FULL_LOADOUT,
   },
 };
 
@@ -714,73 +802,190 @@ export const SETUPS: Record<string, Partial<MetaState>> = {
 const REFERENCE_SIZES = ["2400x1350", "1920x1080"];
 
 export const SCENES: SceneDef[] = [
-  /* --- the seven a store listing actually asks for, at every size --- */
+  /* --- THE EVERY-SIZE SET, gameplay first (the owner's 1.0.6 note: "too
+   *     many UI shots, not enough gameplay"). Ten scenes — Apple caps a slot
+   *     at ten — numbered in this order so the listing opens on a bay. --- */
+  {
+    id: "mid-bay-launch", family: "game",
+    show: {
+      // Funds well under the Tier 3 target (1152): this is the ONE shot whose
+      // subject is the aim arc, so it has to be allowed to run long enough to
+      // build a pile worth aiming at, and at 900 the bay banked its target
+      // before it had one (834/1152 at 8s, 12 cubes, most of the field black).
+      kind: "bay", config: { tier: 3, seed: 20260401, tiers: RIG_T3, funds: 400 },
+      bot: { preset: "aim", strategy: "excellent", seed: 31 }, warmSec: 30, aiming: true,
+      // A pile to aim at, and the cannon reloaded — the arc is only drawn
+      // off cooldown.
+      until: (st) => st.elapsedMs > 16_000 && st.cubes >= 22 && st.ready,
+    },
+    note: "a launch being aimed: the trajectory arc over a working pile",
+  },
+  {
+    id: "line-clear", family: "game",
+    show: {
+      kind: "bay", config: { tier: 2, seed: 20260402, tiers: RIG_T2, funds: 900 },
+      bot: { preset: "aim", strategy: "excellent", seed: 32 }, warmSec: 30,
+      // On the GRADE STAMP (events.ts's onStamp), not the clear: the SWEPT /
+      // EXCELLENT stamp and its payout are what "a row paying" looks like,
+      // and they land well after the engine's "clear" — 7, 14, 26 and 38
+      // frames after the clear all caught the lit row and no stamp on the
+      // phone rows.
+      until: (_st, ev) => ev.some((e) => e.kind === "stamp"), settleFrames: 6,
+    },
+    note: "the moment a row pays",
+  },
+  {
+    // A BOMB GOING OFF, on the `improvise` beat's configuration (cryo and
+    // volatile on the belt, the Demolition track at 2 for the charge) with
+    // a fatter till so the pile the charge lands in is a real one. The hand
+    // is hands.ts's fireBomb, cued exactly as the beat cues it; the shutter
+    // waits for the engine's own "explosion" event and then ten frames so
+    // the 900ms bloom (fx.ts) is drawn mid-flare rather than merely armed.
+    id: "blast", family: "game",
+    show: {
+      kind: "bay",
+      config: {
+        tier: 7, seed: 20260107, tiers: RIG_T7_DEMO,
+        // Under Tier 7's target: a till at or above the target is a bay WON on
+        // the first settle (measured: funds 1500 -> "won" at 2.2s, 1 cube).
+        // RE-TUNED for the tier-appropriate rig (RIG_T7_DEMO). At FULL_RIG and
+        // funds 1000 the bay held; at bay-track 2 the field is narrower, rows
+        // close sooner, and the bay was WON at 29.6s with the pile still at 17
+        // cubes — the charge never had a pile to go off in. Half the till
+        // leaves the target out of reach for the whole 45s window.
+        ratchets: { cryo: 2, volatile: 2 }, funds: 500,
+      },
+      bot: { preset: "demo", strategy: "lance", seed: 13 }, warmSec: 45,
+      fire: "bomb",
+      // PILE_FOR_BOMB is sized for the beat's wider FULL-rig bay; this one is
+      // two bay-tiers narrower and tops out lower, so the cue is the pile this
+      // field can actually hold (measured: 17 at the win).
+      fireWhen: (st) => st.bombs > 0 && st.cubes >= 16 && st.elapsedMs > 5000,
+      // THE BOMB'S explosion, not any: volatile cargo on this belt pops on its
+      // own, and the first probe shuttered on one of those with the charge
+      // still in the air (no bloom in frame).
+      until: (_st, ev) => ev.some((e) => e.kind === "explosion" && e.explosion === "bomb"),
+      // ~4 polled ticks + these + the quiesce frame ≈ 150-180ms into the ring
+      // (render.ts's EXPLOSION_RING_MS 600): three-quarters radius, still
+      // bright, the flash's tail just going.
+      settleFrames: 4,
+    },
+    note: "a Demolition charge going off in a live pile",
+  },
+  {
+    // THE BAY TIPPED INTO CONGESTION: the `slip` beat's configuration (wind
+    // and slag, the impatient spray with a deliberate slip every third shot)
+    // flown until the engine reports congestion tier 1 — more than
+    // PILE_TIERS[0].cubes live cubes — which is when syncHud turns the plant
+    // crest's spark red (.plant--congest-danger) and the launch price on the
+    // panel is taxed.
+    id: "congestion", family: "game",
+    show: {
+      kind: "bay",
+      config: { tier: 5, seed: 20260105, tiers: RIG_T5, ratchets: { wind: 2, slag: 1 }, funds: 1_200 },
+      bot: { preset: "impatient", seed: 5, slip: { every: 3, deg: 12, power: 5 } }, warmSec: 60,
+      until: (_st, ev) => ev.some((e) => e.kind === "congestion" && (e.tier ?? 0) >= 2),
+      settleFrames: 8,
+    },
+    note: "a congested bay: the pile past the first tier, the crest red",
+  },
+  {
+    id: "bond-chain", family: "game",
+    show: {
+      kind: "bay",
+      config: { tier: 6, seed: 20260300, material: "rebar", tiers: RIG_T6_BOND, funds: 900 },
+      bot: { preset: "impatient", seed: 21 }, warmSec: 14,
+      fire: "bond", fireWhen: (st) => st.elapsedMs > 8000 && st.cubes >= 16,
+      settleFrames: 6,
+    },
+    note: "the Bond Breaker shattering a rebar pile",
+  },
+  {
+    // FROZEN CARGO AND THE THAW LANCE: every shipment cryo (sandbox.ts's
+    // material "cryo"), the Thaw track at 2 for the charges, the lance pulled
+    // on a settled pile (fireThaw needs a cold cryo cube ahead of the press)
+    // and the shutter on the engine's own "cryoShatter" — the struck cube
+    // breaking under the press — with a few frames so the shatter is drawn.
+    id: "cryo-thaw", family: "game",
+    show: {
+      kind: "bay",
+      config: { tier: 6, seed: 20260106, material: "cryo", tiers: RIG_T6_CRYO, funds: 1_200 },
+      bot: { preset: "impatient", seed: 61 }, warmSec: 50,
+      fire: "thaw", fireWhen: (st) => st.thaw > 0 && st.elapsedMs > 7000 && st.cubes >= 14,
+      until: (_st, ev) => ev.some((e) => e.kind === "cryoShatter"),
+      settleFrames: 6,
+    },
+    note: "frozen cargo, and the Thaw Lance breaking it",
+  },
+  {
+    id: "materials-bay", family: "game",
+    show: {
+      kind: "bay", config: { tier: 8, seed: 20260408, material: "all", tiers: RIG_T8, ratchets: { wind: 2 }, funds: 1_200 },
+      bot: { preset: "patient", seed: 38 }, warmSec: 30,
+      // Enough shipments down that several materials are in the pile, with
+      // the belt still loaded behind the cannon.
+      until: (st) => st.elapsedMs > 10_000 && st.cubes >= 16,
+    },
+    note: "every cargo material on the belt and in the pile",
+  },
+  {
+    id: "hazard-run", family: "game",
+    show: {
+      kind: "bay",
+      config: { tier: 8, bay: 5, seed: 20260818, tiers: RIG_T8_REFIT, ratchets: { wind: 2, time: 1, sweeper: 1 }, material: "all", funds: 1_200 },
+      bot: { preset: "impatient", seed: 81 }, warmSec: 24,
+      until: (st) => st.elapsedMs > 18_000 && st.cubes >= 24,
+    },
+    note: "a Tier 8 bay under wind, a tighter clock and a sweeper",
+  },
+  {
+    // THE #223 HUB on a save that earned the roof: every Mark sealed is the
+    // Skydeck's key (meta.ts's skydeckOpen), the car riding to screens.ts's
+    // SKYDECK_TIER, the run / Contract / Workshop cards below. The tower
+    // lives on the hub ("tiers") since #223, hence `from`.
+    id: "tier-hub", family: "menu", setup: "sealed",
+    show: { kind: "tower", tier: SKYDECK_TIER, warmSec: 3, from: "tiers" },
+    note: "the #223 hub: the tower sealed to the roof, the car on the Skydeck, the run / Contract / Workshop cards",
+  },
   {
     id: "menu", family: "menu", show: { kind: "menu", warmSec: 7 },
-    note: "the front door: the tower, the play plate and the attract bay",
+    note: "the front door: the wordmark, the play plate and the attract bay",
+  },
+
+  /* --- the reference-size studies: the boards and the other saves, for the
+   *     Play 16:9 and Steam 1080p rows only --- */
+  {
+    id: "workshop", family: "menu", setup: "rigged", only: REFERENCE_SIZES,
+    show: { kind: "state", state: "workshop", warmSec: 0.5 },
+    note: "the rig shop with every system owned",
   },
   {
-    // THE HUB, as it stands today: the front door with the car parked on a
-    // floor the player has earned. #223 (claude/double-gameplay-ux-refactor)
-    // rebuilds this screen around a legend Unlock button and run / Contract /
-    // Workshop cards — when it lands, this scene's `pickTier` stays valid (it
-    // is the App's own entry point) but the shot must be RE-TAKEN, and a
-    // card-level scene can be added here as `{ kind: "action", action: … }`
-    // against whatever data-action the new cards carry. See the runbook.
-    // THE ROOF, on a save that earned it: every Mark beaten and sealed is the
-    // Skydeck's key (meta.ts's skydeckOpen), and the car riding to
-    // screens.ts's SKYDECK_TIER is the one hub state the front-door shot
-    // cannot also be — `menu` above is the same screen with the car parked on
-    // the floor a mid-ladder save is allowed.
-    id: "tier-hub", family: "menu", setup: "sealed",
-    show: { kind: "tower", tier: SKYDECK_TIER, warmSec: 3 },
-    note: "the tower sealed to the roof, the car on the Skydeck — RE-SHOOT after #223",
-  },
-  {
-    id: "workshop", family: "menu", show: { kind: "state", state: "workshop", warmSec: 0.5 },
-    note: "the rig shop on a mid-ladder save",
-  },
-  {
-    id: "contracts", family: "menu", setup: "contracts",
+    id: "contracts", family: "menu", setup: "contracts", only: REFERENCE_SIZES,
     show: { kind: "state", state: "contracts", warmSec: 0.5 },
     note: "the Contract board with work logged against it",
   },
   {
     // Through the App's own button, not setState: the entry is what fetches
     // the board (main.ts's `case "leaderboard"` → openBoard → refreshBoard),
-    // and `waitFor` holds the shutter until a row exists.
-    id: "leaderboard", family: "menu",
-    show: { kind: "action", action: "leaderboard", from: "menu", warmSec: 1, waitFor: ".lb__row" },
+    // and `waitFor` holds the shutter until a row exists. The button is on
+    // the hub ("tiers") since #223.
+    id: "leaderboard", family: "menu", only: REFERENCE_SIZES,
+    show: { kind: "action", action: "leaderboard", from: "tiers", warmSec: 1, waitFor: ".lb__row" },
     note: "the all-time board, rows fetched",
   },
   {
-    id: "mid-bay-launch", family: "game",
+    // A BAY UNDER PRESSURE, on the `loss` beat's own configuration, flown by
+    // the pilot that stands every shipment on end — the shutter goes BEFORE
+    // its ending, on a cube count, so this is a tall bay and not a lost one.
+    id: "stacked-bay", family: "game", only: REFERENCE_SIZES,
     show: {
-      kind: "bay", config: { tier: 3, seed: 20260401, tiers: { bonds: 1 }, funds: 900 },
-      bot: { preset: "aim", strategy: "excellent", seed: 31 }, warmSec: 20, aiming: true,
-      // A pile to aim at, and the cannon reloaded — the arc is only drawn
-      // off cooldown.
-      until: (st) => st.elapsedMs > 8000 && st.cubes >= 12 && st.ready,
-    },
-    note: "a launch being aimed: the trajectory arc over a working pile",
-  },
-  {
-    // A BAY UNDER PRESSURE, on the `loss` beat's own configuration: Mark 9
-    // with the press and the wind notched up, flown by the pilot that stands
-    // every shipment on end (beats.ts's loss phase). That pilot is the only
-    // one in sim/bots.ts that builds a pile worth photographing rather than
-    // one it keeps flattening — but the shutter goes BEFORE its ending, on a
-    // cube count, so this is a tall bay and not a lost one.
-    id: "stacked-bay", family: "game",
-    show: {
-      kind: "bay", config: { tier: 9, seed: 20260109, funds: 600, ratchets: { sweeper: 2, wind: 2 } },
+      kind: "bay",
+      config: { tier: 9, seed: 20260109, funds: 600, ratchets: { sweeper: 2, wind: 2 } },
       bot: { preset: "lob-tall", seed: 9 }, warmSec: 60,
       until: (st) => st.cubes >= 30,
     },
     note: "a tall, loaded bay: the pile a run is fighting to keep down",
   },
-
-  /* --- the setup studies: the same screens on other saves --- */
   {
     id: "menu-fresh", family: "menu", setup: "fresh", only: REFERENCE_SIZES,
     show: { kind: "menu", warmSec: 7 },
@@ -791,62 +996,31 @@ export const SCENES: SceneDef[] = [
     show: { kind: "state", state: "workshop", warmSec: 0.5 },
     note: "the Workshop with every system owned and every slot bought",
   },
-  {
-    id: "line-clear", family: "game", only: REFERENCE_SIZES,
-    show: {
-      kind: "bay", config: { tier: 2, seed: 20260402, funds: 900 },
-      bot: { preset: "aim", strategy: "excellent", seed: 32 }, warmSec: 30,
-      until: (_st, ev) => ev.some((e) => e.kind === "clear"), settleFrames: 7,
-    },
-    note: "the moment a row pays",
-  },
-  {
-    // A BOND CHAIN MID-FLIGHT: the Emitter at tier 2 with a pile to bind, and
-    // the shot taken a few frames after the hand fires so the chain is drawn
-    // rather than merely armed. The hand is hands.ts's, through Game's own
-    // entry points — the same door a thumb uses.
-    // THE BOND BREAKER GOING OFF, on the configuration the `materials-rebar`
-    // beat already proves reaches it: Tier 6, rebar on the belt, the impatient
-    // spray, the Emitter at tier 2, and the hand fired on a settled pile at 8s
-    // (beats.ts's materials-rebar scripted cue, same numbers). Six frames of
-    // settle after the break so the seams are drawn snapping rather than
-    // merely gone.
-    id: "bond-chain", family: "game", only: REFERENCE_SIZES,
-    show: {
-      kind: "bay",
-      config: { tier: 6, seed: 20260300, material: "rebar", tiers: { bonds: 2 }, funds: 900 },
-      bot: { preset: "impatient", seed: 21 }, warmSec: 14,
-      fire: "bond", fireWhen: (st) => st.elapsedMs > 8000 && st.cubes >= 16,
-      settleFrames: 6,
-    },
-    note: "the Bond Breaker shattering a rebar pile",
-  },
-  {
-    id: "hazard-run", family: "game", only: REFERENCE_SIZES,
-    show: {
-      kind: "bay",
-      config: { tier: 8, seed: 20260818, ratchets: { wind: 2, time: 1, sweeper: 1 }, material: "all", funds: 1_200 },
-      bot: { preset: "impatient", seed: 81 }, warmSec: 24,
-      until: (st) => st.elapsedMs > 18_000 && st.cubes >= 24,
-    },
-    note: "a Tier 8 bay under wind, a tighter clock and a sweeper",
-  },
-  {
-    id: "materials-bay", family: "game", only: REFERENCE_SIZES,
-    show: {
-      kind: "bay", config: { tier: 8, seed: 20260408, material: "all", ratchets: { wind: 2 }, funds: 900 },
-      bot: { preset: "patient", seed: 38 }, warmSec: 12,
-    },
-    note: "the cargo materials on the belt",
-  },
 ];
 
 /** A store size: the PNG the store wants, and the CSS viewport x DPR that
  *  produces it exactly. */
 export interface StoreSize {
   store: "play" | "appstore" | "steam";
-  /** Directory name under <out>/store/<store>/. */
+  /** The row's IDENTITY: what `--store-size=` names and what a scene's `only`
+   *  list is written against. Stays the raw pixel size, because that is the
+   *  one name for a slot that cannot drift. */
   label: string;
+  /**
+   * WHERE THE PNGs LAND, under <out>/store/<store>/, when it should not simply
+   * be `label` — a relative path, so a `/` nests.
+   *
+   * The App Store rows use it to file themselves the way the uploader thinks:
+   * `iPhone/6.9-inch-2868x1320-required` rather than a bare `2868x1320`. App
+   * Store Connect's own upload page is a list of DEVICE CLASSES ("iPhone 6.9
+   * inch Display"), not of resolutions, so a folder tree that names the device
+   * and the inches is a tree the owner can drag straight onto it without
+   * reading a pixel size off anything (the 1.0.6 owner note: "organized by
+   * ipad/iphone and size so i can just drag and drop them without having to
+   * read the resolutions"). The resolution stays on the tail because two slots
+   * of the same inches exist and only the number tells them apart.
+   */
+  dir?: string;
   px: { w: number; h: number };
   /** CSS viewport per scene family; the DPR is px / css. */
   css: { menu: { w: number; h: number }; game: { w: number; h: number } };
@@ -871,8 +1045,13 @@ export interface StoreSize {
  * and 6.5" iPhone rows are the two the listing requires, 6.7" and 5.5" are
  * accepted sizes older listings still ask for, and the two iPad rows are 13"
  * and 12.9". docs/ios.md names the device classes only, so the pixel sizes are
- * stated here. Each is rendered at half size @2 — the density those panels
- * actually are.
+ * stated here. The iPhone rows are rendered at the device's REAL CSS points
+ * @3 (956x440 for the 6.9", the uifit harness's "iPhone 16 Pro Max" row), so
+ * the shot is the PHONE layout — a half-size @2 render of the same pixels is
+ * a 1434x660 viewport, which is a tablet-class layout solve and not what the
+ * phone shows (the 1.0.6 owner review caught the Workshop and hub in their
+ * wide forms). The 4.7"/4"/3.5" rows are @2 because those phones are; the
+ * iPad rows are @2 because iPads are.
  *
  * Steam's screenshot size is 1920x1080 (docs/steam-store-and-achievements-plan.md,
  * "Images — produce at Steam's exact dimensions"; five minimum, real
@@ -914,34 +1093,84 @@ export const STORE_SIZES: StoreSize[] = [
 
   /* --- App Store --- */
   {
-    store: "appstore", label: "2868x1320", px: { w: 2868, h: 1320 },
-    css: { menu: { w: 1434, h: 660 }, game: { w: 1434, h: 660 } },
+    store: "appstore", label: "2868x1320", dir: "iPhone/6.9-inch-2868x1320-required", px: { w: 2868, h: 1320 },
+    css: { menu: { w: 956, h: 440 }, game: { w: 956, h: 440 } },
     note: "iPhone 6.9\" — required",
   },
   {
-    store: "appstore", label: "2796x1290", px: { w: 2796, h: 1290 },
-    css: { menu: { w: 1398, h: 645 }, game: { w: 1398, h: 645 } },
+    store: "appstore", label: "2796x1290", dir: "iPhone/6.7-inch-2796x1290", px: { w: 2796, h: 1290 },
+    css: { menu: { w: 932, h: 430 }, game: { w: 932, h: 430 } },
     note: "iPhone 6.7\"",
   },
   {
-    store: "appstore", label: "2688x1242", px: { w: 2688, h: 1242 },
-    css: { menu: { w: 1344, h: 621 }, game: { w: 1344, h: 621 } },
+    store: "appstore", label: "2688x1242", dir: "iPhone/6.5-inch-2688x1242-required", px: { w: 2688, h: 1242 },
+    css: { menu: { w: 896, h: 414 }, game: { w: 896, h: 414 } },
     note: "iPhone 6.5\" — required",
   },
   {
-    store: "appstore", label: "2208x1242", px: { w: 2208, h: 1242 },
-    css: { menu: { w: 1104, h: 621 }, game: { w: 1104, h: 621 } },
+    store: "appstore", label: "2208x1242", dir: "iPhone/5.5-inch-2208x1242", px: { w: 2208, h: 1242 },
+    css: { menu: { w: 736, h: 414 }, game: { w: 736, h: 414 } },
     note: "iPhone 5.5\" — older listings only",
   },
+  // THE OTHER FIVE iPHONE SLOTS App Store Connect offers. Optional: Apple
+  // scales the 6.9" set into any slot left empty, so these exist for a
+  // listing that wants each slot photographed at its own layout rather than
+  // a down-scale — and the three small rows are the only store shots taken
+  // at a PHONE viewport (667x375, 568x320, 480x320 CSS), which is where the
+  // layout solver's tight modes show.
   {
-    store: "appstore", label: "2752x2064", px: { w: 2752, h: 2064 },
+    store: "appstore", label: "2622x1206", dir: "iPhone/6.3-inch-2622x1206", px: { w: 2622, h: 1206 },
+    css: { menu: { w: 874, h: 402 }, game: { w: 874, h: 402 } },
+    note: "iPhone 6.3\" (6.1\"/6.3\" slot)",
+  },
+  {
+    store: "appstore", label: "2532x1170", dir: "iPhone/6.1-inch-2532x1170", px: { w: 2532, h: 1170 },
+    css: { menu: { w: 844, h: 390 }, game: { w: 844, h: 390 } },
+    note: "iPhone 6.1\" (5.4\"/5.8\"/6.1\" slot)",
+  },
+  {
+    store: "appstore", label: "1334x750", dir: "iPhone/4.7-inch-1334x750", px: { w: 1334, h: 750 },
+    css: { menu: { w: 667, h: 375 }, game: { w: 667, h: 375 } },
+    note: "iPhone 4.7\"",
+  },
+  {
+    store: "appstore", label: "1136x640", dir: "iPhone/4-inch-1136x640", px: { w: 1136, h: 640 },
+    css: { menu: { w: 568, h: 320 }, game: { w: 568, h: 320 } },
+    note: "iPhone 4\"",
+  },
+  {
+    store: "appstore", label: "960x640", dir: "iPhone/3.5-inch-960x640", px: { w: 960, h: 640 },
+    css: { menu: { w: 480, h: 320 }, game: { w: 480, h: 320 } },
+    note: "iPhone 3.5\" (3:2)",
+  },
+  {
+    store: "appstore", label: "2752x2064", dir: "iPad/13-inch-2752x2064-required", px: { w: 2752, h: 2064 },
     css: { menu: { w: 1376, h: 1032 }, game: { w: 1376, h: 1032 } },
     note: "iPad 13\" — required",
   },
   {
-    store: "appstore", label: "2732x2048", px: { w: 2732, h: 2048 },
+    store: "appstore", label: "2732x2048", dir: "iPad/12.9-inch-2732x2048", px: { w: 2732, h: 2048 },
     css: { menu: { w: 1366, h: 1024 }, game: { w: 1366, h: 1024 } },
     note: "iPad 12.9\"",
+  },
+  // THE OTHER THREE iPAD SLOTS, optional for the same reason as the extra
+  // iPhone rows. 2048x1536 is 4:3 — the squarest viewport any store shot is
+  // taken at, and the one that shows what the layout solver does with a
+  // field that cannot fill the width.
+  {
+    store: "appstore", label: "2420x1668", dir: "iPad/11-inch-2420x1668", px: { w: 2420, h: 1668 },
+    css: { menu: { w: 1210, h: 834 }, game: { w: 1210, h: 834 } },
+    note: "iPad 11\" (8.3\"/11\" slot)",
+  },
+  {
+    store: "appstore", label: "2224x1668", dir: "iPad/10.5-inch-2224x1668", px: { w: 2224, h: 1668 },
+    css: { menu: { w: 1112, h: 834 }, game: { w: 1112, h: 834 } },
+    note: "iPad 10.5\"",
+  },
+  {
+    store: "appstore", label: "2048x1536", dir: "iPad/9.7-inch-2048x1536", px: { w: 2048, h: 1536 },
+    css: { menu: { w: 1024, h: 768 }, game: { w: 1024, h: 768 } },
+    note: "iPad 9.7\" (4:3)",
   },
 
   /* --- Steam --- */

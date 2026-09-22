@@ -33,8 +33,8 @@
  */
 
 import {
-  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost, UPGRADES,
-  type UpgradeId, type UpgradeTiers,
+  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, STOCK_TIERS, stockTiers,
+  tiersCost, UPGRADES, type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 // The ladder's LENGTH, imported rather than restated: "the licence is done" is
 // a statement about game/school.ts's LESSONS, and a copy of that number here
@@ -45,7 +45,7 @@ import { LESSON_COUNT, LICENCE_LESSON_COUNT } from "./school";
 // rather than re-derived from the clock, so "a new board" here and "a new
 // board" on the hub roll over at the same instant. contracts.ts does not
 // import this file, so the edge is one-way.
-import { dailySeed } from "./contracts";
+import { dailySeed, isSchoolContract } from "./contracts";
 
 export { MARK_COUNT };
 
@@ -828,7 +828,7 @@ export function newMeta(): MetaState {
     licence: 0, systemDrillsSeen: [], seenContractBoard: false,
     seenDraft: false, seenRefit: false,
     tierRunDone: false, tierContracts: 0,
-    loadout: newTiers(), slots: SLOT_BASE, stowed: [],
+    loadout: stockTiers(), slots: SLOT_BASE, stowed: [],
     claimedContracts: [], sealedMarks: [],
     celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
     acked: {},
@@ -1268,16 +1268,66 @@ export function recordLesson(meta: MetaState, index: number): MetaState {
 
 /**
  * ONBOARDING IS OPTIONAL NOW. Flight School moved to the home screen and is
- * offered — not forced — the first time a player presses Play; skipping it, or
- * leaving it part-way, lands them in the tier hub with Tier 1 open. This grants
- * the licence in one write so every existing `licenceDone` pathway (the tier
- * gate in tierOpen, nextStep, the Contracts board's shape) opens exactly as it
- * did when the ladder was climbed — the difference is only that the player was
- * not made to climb it. Idempotent and monotone, like recordLesson: a player
- * who DID climb the ladder is already at SCHOOL_FLIGHTS and this is a no-op.
+ * offered — not forced — the first time a player presses Play; declining it
+ * lands the player in the tier hub with Tier 1 open. This grants the licence in
+ * one write so every existing `licenceDone` pathway (the tier gate in tierOpen,
+ * nextStep, the Contracts board's shape) opens exactly as it did when the
+ * ladder was climbed — the difference is only that the player was not made to
+ * climb it. Idempotent and monotone, like recordLesson: a player who DID climb
+ * the ladder is already at SCHOOL_FLIGHTS and this is a no-op.
+ *
+ * IT IS A GRANT, SO IT IS NOT A DOOR-CLOSING MOVE. Every caller that reaches
+ * for it on the player's behalf has to ask arriveAtHub below first: the write
+ * is monotone in `licence` and therefore destroys nothing a save HOLDS, but on
+ * a save part-way up the ladder it destroys every rung the save was still
+ * OWED — and it does it by claiming, in the one number the school counts with,
+ * that bays were flown which were not.
  */
 export function completeOnboarding(meta: MetaState): MetaState {
   return meta.licence >= SCHOOL_FLIGHTS ? meta : { ...meta, licence: SCHOOL_FLIGHTS };
+}
+
+/** Has this save set foot on the ladder — is ANY rung of the ground floor
+ *  behind it?
+ *
+ *  Asked of schoolLadder rather than of `licence`, because two of the twelve
+ *  rungs are not flights and a player who cleared the school's Contract has
+ *  started the school whatever the flight count says. A graduated save answers
+ *  true (every rung is done), which is correct and also why this is safe to
+ *  ask in front of a grant that would be a no-op there anyway. */
+export function schoolStarted(meta: MetaState): boolean {
+  return schoolLadder(meta).some((rung) => rung.done);
+}
+
+/**
+ * WHAT LANDING ON THE HUB DOES TO THE SAVE — the one rule every door out of the
+ * ground floor obeys (main.ts's toHub).
+ *
+ * TWO PLAYERS ARRIVE HERE AND THE SAVE HAS TO TELL THEM APART. One never took
+ * the offer: no lesson flown, no Contract claimed, nothing on the ladder — and
+ * for them onboarding being optional is the whole feature, so they arrive
+ * licensed with Tier 1 open and the tower never has to draw the old Flight
+ * School lobby at them. The other is PART-WAY UP: they flew lesson 4 and
+ * pressed the card's own forward button, or quit a bay, or failed the Final
+ * Exam and took the quiet door out. Granting them the licence reads as the same
+ * kindness and is the opposite of one — it is the ladder's remaining rungs,
+ * deleted, silently, by a press that said "forward", and afterwards
+ * schoolProgress reports ten of ten for a player who flew four bays.
+ *
+ * `schoolNextStep(meta) !== null` alone cannot separate them: it is true of
+ * both, because both have rungs owed. The distinction is the licence ACTUALLY
+ * EARNED — whether any rung is behind the player at all (schoolStarted) — and
+ * that is the only question this asks. Declined: grant. Started: leave the save
+ * exactly as the player left it, because the rungs they have not flown are
+ * theirs to fly and the hub has the door back (screens.ts's tierTowerHTML
+ * draws the lobby plinth on any tower whose `licensed` is false, and its Play
+ * flies the flight the ladder owes rather than lesson 1).
+ *
+ * Returns the SAME OBJECT when there is nothing to grant, so a caller can ask
+ * whether the save changed by identity rather than by re-deriving the rule.
+ */
+export function arriveAtHub(meta: MetaState): MetaState {
+  return schoolStarted(meta) ? meta : completeOnboarding(meta);
 }
 
 /** Has this system's practice bay already been offered? */
@@ -1418,7 +1468,7 @@ export const SLOT_CAP = 10;
  * asked for". This is the second income's other half: a full rack is NOT
  * affordable inside one climb of the ladder, and it is not meant to be. It is
  * what the endgame faucet — a finished ladder still paying 60 a cycle for three
- * Contracts and a run win (advanceTier at MARK_COUNT) — finally has to buy.
+ * Contracts and a run win (rollOverTopTier, below) — finally has to buy.
  * Thirteen cycles for the whole thing, and the first two slots inside the climb.
  */
 export const SLOT_PRICES: readonly number[] = [50, 70, 100, 140, 180, 240];
@@ -1535,13 +1585,22 @@ export function maskLoadout(tiers: UpgradeTiers, aboard: readonly UpgradeId[]): 
  *  Cheating the budget is the one thing that would make a Mark clear mean
  *  nothing, so it's checked at the point of use.
  *
+ *  STOCK MEANS THE STOCK RIG (upgrades.ts's stockTiers), not a bare ship. The
+ *  fallback predates STOCK_TIERS and returned newTiers(), which was the same
+ *  thing until Reactor Output tier 1 became stock; after that it was strictly
+ *  worse than a new save — a legitimately owned loadout made over-budget by a
+ *  later re-price (loadMeta keeps those on purpose, for this fallback to
+ *  judge) would have flown with no reactor and so no refittable track at all.
+ *  Found in review (codex, on #234). The stock rig is legal at every Mark by
+ *  construction: it is what newMeta() writes.
+ *
  *  Legality is asked of the OWNED loadout, not of the masked one, and that
  *  ordering is deliberate: masking only ever removes tiers, so a masked rig is
  *  never more expensive than the rig it came from. Asking the mask would let a
  *  hand-edited over-budget save fly, simply by stowing enough of itself to duck
  *  under the cap. */
 export function safeLoadout(meta: MetaState): UpgradeTiers {
-  if (!loadoutLegal(meta.loadout, markUnlocked(meta))) return newTiers();
+  if (!loadoutLegal(meta.loadout, markUnlocked(meta))) return stockTiers();
   return maskLoadout(meta.loadout, mountedIds(meta));
 }
 
@@ -1555,6 +1614,13 @@ export function safeLoadout(meta: MetaState): UpgradeTiers {
  * halves done AT THAT TIER) pays only the rounding remainder, raises the
  * Mark, and resets the counters. The per-tier total is exactly
  * tierSalvage(tier) however the milestones are ordered.
+ *
+ * WHO COMPLETES A TIER depends on whether there is a Mark above it. Below the
+ * top the player does, by pressing Unlock (claimTierUnlock → advanceTier); at
+ * MARK_COUNT the recorders do it themselves, because a claim with no Mark to
+ * claim would never be pressed and the milestones would latch shut forever
+ * (rollOverTopTier). Either way the arithmetic is one function's
+ * (tierCompletionRemainder) and the per-tier total is unchanged.
  *
  * Why shares rather than one award at completion (the 2026-08-08 shape):
  * completion-only pay had no entry point. The intended first purchase is a
@@ -1614,6 +1680,18 @@ export function tierMilestoneSalvage(tier: number): number {
   return Math.floor(tierSalvage(tier) / (TIER_CONTRACTS_REQUIRED + 1));
 }
 
+/** The rounding remainder a tier pays when it COMPLETES — whatever the equal
+ *  milestone shares could not divide, so a tier yields exactly
+ *  tierSalvage(tier) however its milestones were ordered. Zero at the shipped
+ *  numbers (60 over four milestones is 15 exactly), and a function anyway
+ *  because two different completions read it now — a claimed tier below the top
+ *  (advanceTier) and the top tier's own roll-over (rollOverTopTier) — and a
+ *  remainder derived twice is a remainder that disagrees with itself the first
+ *  time TIER_SALVAGE_BASE stops being a multiple of four. */
+function tierCompletionRemainder(tier: number): number {
+  return tierSalvage(tier) - tierMilestoneSalvage(tier) * (TIER_CONTRACTS_REQUIRED + 1);
+}
+
 /** What a tier-affecting event did, alongside the updated meta. `completedTier`
  *  is the tier that just finished (null when progress merely ticked), and
  *  `salvage` is what THIS EVENT banked — a milestone share, the completion
@@ -1633,8 +1711,7 @@ function advanceTier(meta: MetaState): TierResult {
     return { meta, completedTier: null, salvage: 0 };
   }
   const tier = markUnlocked(meta);
-  const remainder =
-    tierSalvage(tier) - tierMilestoneSalvage(tier) * (TIER_CONTRACTS_REQUIRED + 1);
+  const remainder = tierCompletionRemainder(tier);
   return {
     meta: {
       ...meta,
@@ -1644,6 +1721,81 @@ function advanceTier(meta: MetaState): TierResult {
       tierContracts: 0,
     },
     completedTier: tier,
+    salvage: remainder,
+  };
+}
+
+/**
+ * THE TOP TIER SETTLES ITSELF — the endgame salvage faucet, and why it is not
+ * a new economy.
+ *
+ * Every tier below the top completes INTO a Mark, so its completion is a thing
+ * the player claims: both halves stay banked and lit until Unlock is pressed
+ * (claimTierUnlock, the deferred claim). The top tier has no Mark to complete
+ * into — `mark` already sits at MARK_COUNT, markUnlocked saturates onto the
+ * tier just flown, and tierReady therefore answers null by construction. So up
+ * there the deferred claim has nothing to defer TO, and once the recorders
+ * stopped routing through advanceTier there was also nothing left to reset:
+ * the halves latched at `tierRunDone: true, tierContracts: 3` and no path in
+ * the game ever cleared them again. A finished ladder paid one last cycle and
+ * then nothing, permanently.
+ *
+ * MEASURED, one play log, both trees, ten tiers then five ordinary Mark-10
+ * cycles of three at-tier Contract first-clears plus a won Deep Run:
+ *
+ *   v1.0.5    climb 600 salvage -> 900 after five cycles (60 a cycle, forever)
+ *   without   climb 600 salvage -> 660 after five cycles, then 0 a cycle
+ *   with      climb 600 salvage -> 900, halves back to false/0 each cycle
+ *
+ * The climb is untouched either way — this function cannot fire below
+ * MARK_COUNT — and the delta it restores is unbounded, against a shelf of 1785
+ * salvage (installs 860, the six rack slots 780, the two live unlocks 145).
+ * SLOT_PRICES' own note already SPENDS this income: the back half of the rack
+ * is priced at "thirteen cycles for the whole thing" of exactly this faucet, so
+ * the 780 rack ladder was derived from a tap that had quietly been shut off.
+ * Restoring the tap is what makes those prices mean what they say.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO, because the deferred claim removed both on
+ * purpose and neither may come back by the side door:
+ *
+ *  - **It does not move the Mark.** v1.0.5 could reuse advanceTier up here only
+ *    because `Math.min(MARK_COUNT, mark + 1)` saturates; this writes no `mark`
+ *    at all, so the one thing that can advance a Mark is still the player
+ *    pressing Unlock. Not writing it is also strictly safer than saturating:
+ *    a hand-edited save parked above MARK_COUNT is left where it is rather than
+ *    walked back down to it.
+ *  - **It lights nothing.** The recorders' `completedTier` is still tierReady's
+ *    answer, still null at the top — so no end card prints tier-completion
+ *    copy, and no hub button lights for a tier that cannot be claimed. The
+ *    cycle pays its four shares and says nothing it has not earned.
+ *
+ * THE ROOF STAYS SHUT, by construction rather than by a flag. A Skydeck run
+ * never reaches recordRunEnd — main.ts's finishRun returns before it whenever
+ * `!tracksLadder(this.run)`, on the argument that "a daily that pays the
+ * ladder's once-per-tier reward on repeat is a salvage faucet" — so the roof
+ * cannot tick the run half here, let alone complete a cycle. What this restores
+ * is the faucet ordinary Mark-10 play always had, and it is not free: a cycle
+ * costs three first-clear Contracts off a NEW daily board (replays and
+ * off-tier clears bank nothing — recordContractClear) and a won Mark-10 Deep
+ * Run, which is the hardest exam in the game.
+ */
+function rollOverTopTier(meta: MetaState): { meta: MetaState; salvage: number } {
+  // Below the top, the claim belongs to the player: leave the halves exactly as
+  // the recorder left them, lit for the hub's Unlock button.
+  if (meta.mark < MARK_COUNT) return { meta, salvage: 0 };
+  // The same completion guard advanceTier carries, asked here because this is a
+  // completion — a half landing on its own settles nothing.
+  if (!meta.tierRunDone || meta.tierContracts < TIER_CONTRACTS_REQUIRED) {
+    return { meta, salvage: 0 };
+  }
+  const remainder = tierCompletionRemainder(markUnlocked(meta));
+  return {
+    meta: {
+      ...meta,
+      salvage: meta.salvage + remainder,
+      tierRunDone: false,
+      tierContracts: 0,
+    },
     salvage: remainder,
   };
 }
@@ -1727,7 +1879,82 @@ export function recordRunEnd(
   // change is only that the Mark waits for the player to press Unlock on the
   // hub (claimTierUnlock). completedTier still reports the tier that JUST
   // became claimable, which is what the end-of-run modal reads.
-  return { meta: next, completedTier: tierReady(next), salvage: share };
+  //
+  // …EXCEPT AT THE TOP, where there is no Mark to wait for and so nothing to
+  // defer: the top tier settles on the spot and re-opens its milestones for
+  // tomorrow (rollOverTopTier, which argues the whole case). Below MARK_COUNT
+  // that call cannot fire, so the climb reads exactly as it did.
+  const settled = rollOverTopTier(next);
+  return {
+    meta: settled.meta,
+    completedTier: tierReady(settled.meta),
+    salvage: share + settled.salvage,
+  };
+}
+
+/**
+ * IS THE GROUND FLOOR STUCK? — the one condition under which the school's
+ * Contract card pays a second time.
+ *
+ * THE INVARIANT THIS EXISTS FOR, stated first because the function is only its
+ * narrowest form: **no save can be mid-school with the Workshop rung owed, no
+ * install it can afford, and no way to earn one.** The owner's framing is a
+ * promise about the optional tutorial — "if one takes the tutorial after
+ * skipping it it can still be completed even if there aren't any contracts
+ * left" — and the promise has to hold for saves nobody predicted, not just for
+ * the ones we can list.
+ *
+ * HOW THE GROUND FLOOR CAN DEADLOCK AT ALL. Both of its two gates are single
+ * cards: the board deals ONE Contract (contracts.ts's schoolBoard) and it pays
+ * once ever (claimedContracts — the grind-proofing the whole salvage economy
+ * rests on), and the shop shows ONE plate (screens.ts's workshopScreen). While
+ * those two are in step the ladder walks itself: clear the card, bank a
+ * milestone share, and the share is exactly what the plate costs (the on-ramp
+ * arithmetic under TIER MILESTONES). They come out of step whenever a save
+ * arrives holding the CLAIM but not the SYSTEM, and there is more than one way
+ * in — a purchase the stock-rig grant absorbed (upgrades.ts's STOCK_TIERS made
+ * Reactor tier 1 free, so a save that had paid for exactly that reads as having
+ * bought nothing), a tutorial skipped and taken later by a save whose salvage
+ * went elsewhere, a hand-edited or half-migrated save. Enumerating them is the
+ * losing game; the deadlock is a STATE, so the rescue is written against the
+ * state.
+ *
+ * WHY IT IS NOT A FAUCET, which is the other half of the ruling — the school
+ * sits on the ground floor and this repo has just finished measuring how much
+ * the shelf's prices depend on which taps are open (SLOT_PRICES, and the
+ * endgame roll-over above). Three things must all hold, and the player's own
+ * progress closes each one:
+ *
+ *  - **The ladder must be HOLDING them at the Workshop rung.** Not "they are in
+ *    school" but schoolLadder's own answer (schoolNextStep), so the basics are
+ *    flown, the Contract rung is cleared, and nothing has been bought. That
+ *    last one is monotone — nothing sells a system back — so one purchase shuts
+ *    this door for the rest of the save's life.
+ *  - **The shop must have nothing they can afford.** Asked of
+ *    recommendedPurchase, which is the same function the shop glows its own
+ *    badge with and is already scoped to the school's one plate — so "cannot
+ *    afford" here can never mean something different from what the player is
+ *    looking at.
+ *  - **The card must already be claimed**, which is not asked here because it
+ *    is the branch this is asked FROM (recordContractClear's once-ever guard).
+ *    An unclaimed card needs no rescue: it pays on its own rule.
+ *
+ * And the payment is self-limiting: one milestone share, which the on-ramp pin
+ * proves covers the cheapest install, so the second condition is false the
+ * instant the first payment lands. The card cannot be farmed while stuck
+ * either, because after the share the player can buy — and buying closes the
+ * first condition permanently. Mid-school there is also nothing else to spend
+ * it on: the shop hides the rack, the slots and every other plate.
+ *
+ * WHAT IT DOES NOT TOUCH. It logs nothing (the id is already in
+ * claimedContracts), ticks no tier quota (the tier's Contract half was banked
+ * by the first clear — a rescue is a rung's price, not a milestone), and cannot
+ * move a Mark. So the ten-tier climb reads the same salvage, event for event,
+ * with this function in the tree as without it.
+ */
+export function schoolRescueOwed(meta: MetaState): boolean {
+  if (schoolNextStep(meta)?.kind !== "workshop") return false;
+  return recommendedPurchase(meta) === null;
 }
 
 /**
@@ -1744,6 +1971,30 @@ export function recordContractClear(
   contract: { id: string; tier: number },
 ): TierResult & { firstClear: boolean } {
   if (meta.claimedContracts.includes(contract.id)) {
+    // THE ONE EXCEPTION TO ONCE-EVER, and it is the school's card alone:
+    // re-clearing it pays a milestone share again while the ground floor is
+    // stuck (schoolRescueOwed, which argues the whole case). Identified by the
+    // card's own id — contracts.ts's isSchoolContract asks the generator — so
+    // the exception cannot spread to every tier-1 card in slot 0, let alone to
+    // the roof's board.
+    //
+    // `firstClear` COMES BACK TRUE, and that is a coupling rather than a
+    // fiction. The flag's caller-visible meaning is the one screens.ts states
+    // for it — "false = cleared before, so it counted for nothing new" — and
+    // this clear counts for something new. It is also load-bearing: main.ts
+    // persists the returned meta only `if (result.firstClear)` while showing
+    // the award either way, so a banked share returned with a false flag would
+    // print a payout the save never kept. The general rule the pins hold this
+    // to is that a result which banks salvage always sets it.
+    if (isSchoolContract(contract.id) && schoolRescueOwed(meta)) {
+      const rescue = tierMilestoneSalvage(markUnlocked(meta));
+      return {
+        meta: { ...meta, salvage: meta.salvage + rescue },
+        completedTier: null,
+        salvage: rescue,
+        firstClear: true,
+      };
+    }
     return { meta, completedTier: null, salvage: 0, firstClear: false };
   }
   const tier = markUnlocked(meta);
@@ -1757,8 +2008,17 @@ export function recordContractClear(
     tierContracts: countsForTier ? meta.tierContracts + 1 : meta.tierContracts,
   };
   // Deferred like the run half above: bank the share and the tick, but leave the
-  // Mark for the hub's Unlock button (claimTierUnlock).
-  return { meta: next, completedTier: tierReady(next), salvage: share, firstClear: true };
+  // Mark for the hub's Unlock button (claimTierUnlock) — and settled on the
+  // spot at the top of the ladder, where there is no Mark left to leave it for
+  // (rollOverTopTier). Either half of a cycle can be the one that completes it,
+  // so both recorders end the same way.
+  const settled = rollOverTopTier(next);
+  return {
+    meta: settled.meta,
+    completedTier: tierReady(settled.meta),
+    salvage: share + settled.salvage,
+    firstClear: true,
+  };
 }
 
 /** Snapshot of the current tier's completion state — one shape for the menu
@@ -1876,8 +2136,9 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * THE SEAL STEP IS WHAT THE ENDGAME WAS MISSING. The Contracts branch reads
  * "this tier still owes clears", which is a live objective for nine tiers
  * because completing a tier MOVES the tier. At MARK_COUNT it moves nothing:
- * markUnlocked saturates onto the tier just finished and advanceTier has
- * cleared its counters, so the rule answered "Contracts" forever and sent a
+ * markUnlocked saturates onto the tier just finished and the top tier's
+ * roll-over has cleared its counters, so the rule answered "Contracts" forever
+ * and sent a
  * player who had beaten the entire ladder back to a board that could no longer
  * open anything. Meanwhile the thing that IS still owed — the seals the
  * Skydeck asks for — was stated on no surface at all outside the tower's
@@ -1994,7 +2255,36 @@ export function recommendedPurchase(meta: MetaState): Purchase | null {
  * never shuts again.
  */
 export function rigStarted(meta: MetaState): boolean {
-  return ownedTracks(meta).length > 0;
+  return boughtTracks(meta).length > 0;
+}
+
+/**
+ * Tracks the player BOUGHT, as opposed to tracks they simply have.
+ *
+ * The distinction did not exist while every track started at zero. It exists
+ * now that Reactor Output tier 1 is stock (upgrades.ts's STOCK_TIERS): every
+ * save owns a reactor from its first frame, so `ownedTracks` is never empty and
+ * any question phrased as "has this player started building a rig" would answer
+ * yes before they had done anything.
+ *
+ * Two of its callers would have broken silently, and they are the ones that
+ * decide whether the on-ramp happens at all: the school ladder's Workshop rung
+ * (schoolLadder) would have read itself cleared before the player opened the
+ * shop, skipping the one rung that teaches what salvage buys; and the Contract
+ * board's `firstSystem` foot (main.ts) would have stopped telling a new player
+ * what their clear is for. The rest read the same question and want the same
+ * answer — the tower's `rigged` plate, the hub's run terms, the system drills'
+ * offer, and nextStep's jump to the Deep Run — so they are all served by
+ * defining it once here rather than by each one learning about STOCK_TIERS.
+ *
+ * ABOVE the stock tier, not merely present: a reactor raised to tier 2 IS a
+ * purchase and counts, which is why this compares against STOCK_TIERS rather
+ * than filtering the reactor out by name.
+ */
+export function boughtTracks(meta: MetaState): UpgradeId[] {
+  return UPGRADES
+    .filter((u) => (meta.loadout[u.id] ?? 0) > (STOCK_TIERS[u.id] ?? 0))
+    .map((u) => u.id);
 }
 
 export function nextStep(meta: MetaState): NextStepId {

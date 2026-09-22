@@ -206,6 +206,25 @@ body.crt-off #app::after { display: none; }
   background: linear-gradient(100deg, #38d6ff, var(--accent));
   box-shadow: var(--shadow-hard), var(--glow-accent);
 }
+/* …AND IT STILL PRESSES IN, which the rule directly above quietly took away.
+   `.btn:active` and `.btn--primary:hover` are both (0,2,0) and the hover comes
+   later, so a MOUSE — which is :hover and :active together for the whole of a
+   click — kept the full hard shadow AND the glow while the button translated
+   its 2px. The box slid down-right with its shadow still under it: nothing
+   pressed. RESUME, LOCK IT IN, INSTALL, RUN TIER N and SUBMIT are the five
+   buttons that wore it, and the primary was the only variant that did —
+   --secondary and --ghost have no hover box-shadow to leave behind, and
+   .icon-btn restates its own. A finger never saw it, because touch fires
+   :active with no :hover in front of it, which is why it survived the pass
+   that added the hover.
+
+   BOX-SHADOW ONLY, and stated at the same weight as the rule it answers rather
+   than raised above it: the translate is already `.btn:active`'s and the glow
+   is the same property as the shadow, so zeroing it takes both. The REVERSED
+   fill stays for the length of the press — the idiom is one box dropping into
+   one shadow, and snapping the gradient back at the same time would be a
+   second thing happening for no second reason. */
+.btn--primary:active { box-shadow: none; }
 .btn--ghost { background: transparent; color: var(--text-dim); border-color: var(--line); box-shadow: none; }
 .btn--ghost:active { transform: none; }
 .btn--ghost:hover { color: var(--text); border-color: var(--accent); }
@@ -226,6 +245,48 @@ body.crt-off #app::after { display: none; }
 }
 .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 .icon-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+
+/* THE PRESS DOESN'T TRAVEL UNDER REDUCED MOTION — IT JUST FLATTENS.
+   Both primitives ease `transform` (`.btn` names it; `.icon-btn` gets it out of
+   a blunt `all`), so every press in the app was a 120ms slide for a reader who
+   had asked for no sliding: the reduced-motion audit this stylesheet is
+   otherwise thorough about covered `animation` and never `transition`.
+
+   THE CUE SURVIVES, which is the only reason the transform can go. The press is
+   two things at once — the box moves 2px AND drops its hard shadow — and the
+   second one is the louder: every `.btn` rests on `--shadow-hard` (3px) and
+   every `.icon-btn` on `--shadow-hard-sm`, and a 3px offset shadow vanishing
+   under a thumb is unmissable with the box itself perfectly still. So the
+   theatre goes and the teaching stays, the same bargain the other guards in
+   this file make. (`.btn--ghost` keeps its nothing: no shadow, and
+   `transform: none` on its :active already.)
+
+   AND IT IS THE FILE'S EXISTING CALL, not a new one. `.contract-card:active`
+   has dropped its transform under this query since it was written, and the
+   draft's guard holds `.mod-card--picked` flat. With this, the rule is the
+   whole app's: under reduced motion no box moves on press, anywhere — see D8
+   near the end of this file, which extends the same pair to the six surfaces
+   that had no press at all.
+
+   COLOUR KEEPS ITS FADE, deliberately. The primary's hover crossfades its two
+   stops (D5 above chose a reversed fill precisely because the property was
+   already in the transition list) and a hue moving over 220ms triggers nothing
+   this preference is about; a box moving does. So `background` stays on the
+   list and the geometry comes off it.
+
+   `.icon-btn`'s list is ENUMERATED rather than cut to `none`, because
+   `transition: all` on its base rule is a defect of its own — it will animate
+   whatever property the next edit adds — and a blanket `none` here would hide
+   that rather than fix it. The three `all`s in this file (.icon-btn, .toggle,
+   .toggle::after) want one pass together. */
+@media (prefers-reduced-motion: reduce) {
+  .btn { transition: background var(--dur) var(--ease); }
+  .icon-btn {
+    transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+      background var(--dur-fast) var(--ease);
+  }
+  .btn:active, .icon-btn:active { transform: none; }
+}
 
 /* ---------- D4: ONE focus token ----------
    What .setting:focus-visible already used — 2px accent outline, 2px offset —
@@ -1386,6 +1447,37 @@ body.crt-off #app::after { display: none; }
    card's cap is a fraction of it), and an unnamed query from inside a card
    would measure that row — 296px, and the whole block would go dark exactly
    where it was written for. */
+/* THE PREVIEW COMES BACK EARLY, at a rail a phone actually has.
+   The rule above switches the strip off "because on a phone there is no
+   middle: the name, the reward and the button take the 150px the card has".
+   That arithmetic was right when the card was 150px, and the cap above it is
+   now 190. At 190 there IS a middle — measured on a 956x440 phone (the 6.9"
+   store row and uifit's iPhone 16 Pro Max), where name + reward + button +
+   padding come to ~112px and the card spent the other ~78 on nothing. Every
+   Contract card was a name over a hole, which is the exact failure the roomy
+   block below cites as its own reason for existing; the compact path had
+   simply grown into it without anyone re-reading the number.
+
+   Keyed at 360px of RAIL, not 470: the split has to fall between the phones
+   that have the room (440px-tall viewports and up) and the short store rows
+   that genuinely do not (the 4" and 3.5" slots at 320px), and the rail is the
+   tower's height, so it tracks the viewport. Sized one notch under the roomy
+   block's miniatures, which override these below 470px+ by source order. */
+@container rail (min-height: 360px) {
+  .tierhub__preview {
+    display: flex; flex-wrap: wrap; align-content: center; justify-content: center;
+    gap: 5px 4px;
+    flex: 1 1 auto; min-height: 0;
+    padding: 4px 3px;
+    opacity: 0.85;
+    overflow: hidden;
+  }
+  .tierhub__preview .piece-mini { height: 16px; width: calc(16px * var(--mini-cols) / 2); }
+  .tierhub__preview .ico { width: 26px; height: 26px; color: var(--text-muted); }
+  .tierhub__preview .mat-icon { width: 24px; height: 24px; }
+  .tierhub__contract.is-shut .tierhub__preview { opacity: 0.5; }
+}
+
 @container rail (min-height: 470px) {
   .tierhub__actions { gap: 14px; }
   .tierhub__unlock-btn { min-height: 60px; }
@@ -10107,6 +10199,44 @@ button.panel { color: var(--text); }
 .currency--salvage { color: var(--success); }
 .currency--scrap { color: var(--warn); }
 
+/* …EXCEPT ON A LIT FILL, WHERE THE POCKET IS ALREADY SAID BY THE GLYPH.
+   The rule above is the right rule and this is its one boundary. `.btn--primary`
+   is `linear-gradient(100deg, var(--accent), #38d6ff)` — a full-brightness cyan
+   plate — and the yard's Undock button puts a price inside it
+   (screens.ts's refitScreen: `Install N · <scrap> 325 — undock →`, one
+   `.btn btn--primary btn--block`). Measured on the real stops:
+
+     #ffb020 on #00f0ff (gradient start)   1.30:1
+     #ffb020 on #38d6ff (gradient end)     1.07:1
+     --accent-ink #04040a on the start    14.52:1   <- the rest of the label
+     --accent-ink #04040a on the end      11.91:1
+
+   AA wants 4.5:1. The amber figure was the single worst pair in the app and the
+   only one under 2.8:1, and `currentColor` on the drawn glyph (icons.ts) took
+   the scrap mark down with it — so the one token on that button a player could
+   not read was the number saying what an irreversible purchase costs. The
+   button's own hover reverses the two stops, which changes nothing here: the
+   pair of colours is the same either way round, so both ratios hold in both
+   directions.
+
+   NOTHING IS LOST BY IT, and that is why this boundary is drawable at all. The
+   currency's colour is the THIRD axis by which the two pockets are told apart —
+   silhouette first (icons.ts gives salvage and scrap different shapes),
+   then the paint mode, then the hue — and the first two are still carrying
+   inside a button. The neighbouring Workshop and stage-a-tier buttons have
+   always priced themselves with a bare `icon("salvage"|"scrap", 11)` and no
+   `.currency` wrapper, i.e. in the button's ink, so this brings the one wrapped
+   price in line with the shelf it sits on rather than inventing a treatment.
+
+   `inherit`, NOT `var(--accent-ink)`: what is wanted is "whatever ink this
+   button is wearing", which is a thing the button already states once. The
+   glyph then follows for free, since it paints in `currentColor`. And it is
+   written against `.currency` rather than `.currency--scrap` so the salvage
+   pocket cannot arrive on a primary later and reintroduce the same finding in
+   green — `--success` #00ff9c measures 1.06:1 and 1.29:1 against the same two
+   stops, which is the identical bug in the other pocket's colour. */
+.btn--primary .currency { color: inherit; }
+
 /* THE COLLECTION BEAT (screens.ts's `earn` flag). A payout is the one moment
    the player is being PAID rather than shown a balance, and it had no cue at
    all: the number was simply already there when the card mounted.
@@ -13625,9 +13755,161 @@ button.panel { color: var(--text); }
 }
 
 /* ============================================================================
+   D8: THE PRESS, ON EVERYTHING THAT IS PRESSED
+   ============================================================================
+   The idiom is stated at the top of this file, on `.btn`: a control sits on a
+   hard offset shadow and presses INTO it on :active — translate(2px, 2px),
+   shadow to zero, "the classic 8-bit-arcade button feel". Three rules paid it
+   (`.btn`, `.icon-btn`, `.contract-card`) and the rest of the app's own tap
+   targets did not, which is the wrong way round for a game played with a thumb:
+   on touch there is no :hover, so :active is the ONLY feedback that ever fires,
+   and the hover tint is the one that MISFIRES — a finger latches it and it
+   stays lit on the last thing touched until something else is. Seven surfaces
+   had a latching tint, or nothing at all, for the press that does the work: six
+   take the press below, and the tower's ladder takes it in colour for the
+   geometric reason its own rule at the end of this section states.
+
+   ONE RULE, NOT SIX, and the declarations are `.btn:active`'s to the pixel: a
+   second press distance would be a second vocabulary, and the point of a
+   vocabulary is that a player learns it once. What the `:is()` list decides is
+   only WHICH surfaces speak it. Two tests, both of which a surface has to pass:
+
+     1. IT IS THE ELEMENT THE TAP ACTS ON. `.tierhub__card`, `.shop-card`,
+        `.refit-card`, `.lb__row`, `.ladder__row` and `.salvage-row` are
+        bordered surfaces that CONTAIN a control; the control is already a
+        `.btn`, and pressing a card that only holds a button would move the
+        button's own press out from under it. (The rail's ability buttons are
+        the same story in reverse: `.bond-btn`/`.demo-btn`/`.thaw-btn`/
+        `.rotate-btn` all carry `.icon-btn`, so they have pressed in since the
+        primitive did — worth writing down, because a grep for their own
+        `:active` finds nothing and reads like a gap.)
+
+     2. IT HAS A FILLED BOX TO PUSH. This is the rule `.btn--ghost:active
+        { transform: none }` has always expressed without saying so: a
+        transparent outline has no surface to press and translating it just
+        makes the outline jump. So `.workshop__tab` (a text tab on a
+        border-bottom), `.tower__head` (a transparent mast around a 5px lamp,
+        which answers with its own beacon streak), `.lic-pip--pick` (a
+        transparent 44px target over a 6px progress bar) and `.setting` (an
+        unfilled row whose switch thumb is the answer, and which moves it under
+        the finger already) stay out. `.chip--cta:hover` stays out because the
+        class has no emitter left in `src/` at all.
+
+   :disabled IS IN THE SELECTOR rather than left to source order, because three
+   of the six have disabled faces (the ability chips, the rack's buy plate, the
+   sandbox chips) and a dead control that presses in is a control claiming to
+   have fired.
+
+   `button` IS LOAD-BEARING, not decoration on a class list. :active fires on
+   ANY element a pointer is held down over, and two of these class names are
+   also worn by things that are not controls: `.rack-slot--open` is a <span>
+   placeholder for an empty bay (screens.ts's rackHTML, `aria-hidden`), and
+   `.mod.k-bane`/`.mod.k-tradeoff` above are the shape a display-only plant chip
+   used to take. A hole in a rack that presses when you poke it is a hole
+   claiming to be a button.
+
+   INSIDE A SCROLLER THIS IS ALREADY SHIPPED BEHAVIOUR, which is worth stating
+   because a translated box still counts toward its ancestors' scrollable
+   overflow (see the `.currency--earn` ring's note, where 2px of it was a
+   measured regression). `.guide__row` sits in `#guide-list`, `.sbx-chip` in
+   `.sbx-col`, `.rack-slot` in `.rack__rows` — and `#refit-grid`, the fourth
+   allowlisted pane, has held seven 44px `.btn--primary` BUY buttons pressing
+   +2,+2 since the primitive was written. The difference from the ring is that
+   nothing here runs on its own: the 2px exists only while a finger is down, at
+   the bottom-right of a range the finger is not scrolling, and sim/uifit
+   measures resting states.
+
+   LAST IN THE FILE BUT ONE, for the reason the F9 block below gives about
+   itself. The hover rules these have to beat are (0,2,0) and a mouse holds
+   :hover and :active TOGETHER — `.mod-card--bane:hover` grows a 4px coloured
+   shadow and `.mod-card--picked` rests on one — so a press written at
+   comparable weight earlier in the file loses its `box-shadow: none` exactly
+   the way `.btn--primary` lost it to its own hover (see D5's :active fix). From
+   here it wins, and only from here. */
+button:is(.mod-card, .mod, .rack-slot, .guide__row, .sbx-chip, .lb-tab):not(:disabled):active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+/* ON THE TWO DIRECTIONS, before the guard: they are not two vocabularies in
+   disagreement, which is worth stating because the pair looks like one.
+   `.mod-card--picked` RESTS at translate(-2px, -2px) with a 4px coloured shadow
+   — the lift is that component's SELECTED state, and its own comment says so
+   ("hover's 2px lift is not it") — and `.mod-card:hover` previewing half of it
+   is the same half-statement `.tower__floor:hover` makes of `.is-selected`. So
+   -2,-2 is where a CHOSEN card lives and +2,+2 is where any card goes while a
+   finger is on it. A picked card pressed travels between the two, which is the
+   deepest press in the app and belongs to the one tap that undoes a choice.
+
+   UNDER REDUCED MOTION NOTHING TRAVELS, and that is this file's call rather
+   than this rule's: `.contract-card:active` has dropped its transform under
+   this query since it was written, and the draft's own guard (up at the
+   preview-stat block) holds `.mod-card--picked` flat for the same reason. A
+   press that moved only for the reader who asked for no movement would be the
+   odd one out twice over.
+
+   WHAT STAYS IS THE FLATTENED SHADOW — the press's real end state, written by
+   `:active` itself rather than by a keyframe, and on the three members that
+   carry a hard shadow (the draft card 2px, the ability chip 2px, the rack plate
+   2px, and 4px on a picked card) losing it is the loudest thing on the box.
+   `.mod-card`'s transition list is trimmed to the colour it still fades, since
+   `transform` is in that list and in nobody else's here — `.mod`, `.rack-slot`
+   and `.guide__row` transition nothing at all, `.sbx-chip` and `.lb-tab`
+   transition colour only, so their press was already instantaneous.
+
+   AND THE THREE FLAT ONES BORROW THEIR OWN "ON" COLOUR, because they have no
+   shadow to give up and would otherwise be left with no press at all — the
+   guide row, the sandbox chip and the leaderboard tab each already mean accent
+   when they are the chosen one, so a pressed border says it in the language
+   the control has. Not extended to the other three: a bane card's border going
+   cyan under a thumb would cost that card the colour it is identified by. */
+@media (prefers-reduced-motion: reduce) {
+  .mod-card { transition: border-color var(--dur) var(--ease); }
+  button:is(.mod-card, .mod, .rack-slot, .guide__row, .sbx-chip, .lb-tab):not(:disabled):active {
+    transform: none;
+  }
+  button:is(.guide__row, .sbx-chip, .lb-tab):not(:disabled):active {
+    border-color: var(--accent);
+  }
+}
+
+/* THE TOWER PRESSES IN COLOUR, and it is the one surface in this section that
+   does. D6 above gave the ladder a hover — half of `.is-selected`, cyan border
+   and the tint at 0.06 against 0.12 — and left the press with nothing, on the
+   screen this release made the game's home and on plates that sim/uifit records
+   at 21-43px.
+
+   NOT A TRANSLATE, and the reason is the shaft rather than a preference. Eleven
+   `flex: 1 1 0` plates divide one fixed column with `--tower-gap: 2px` between
+   them, and `.tower__rail` and `.tower__car` are drawn OVER them. A transform
+   reflows nothing, so D6's "it moves nothing" argument does not by itself bar
+   one — but 2px down-right on a 21px plate is a tenth of its height, it puts
+   the plate's edge into the whole of its neighbour's gap, and it slides the
+   plate out from under the guide line that is meant to run through it. Eleven
+   of those in a column reads as a building coming apart, not as a button.
+
+   SO THE PRESS IS THE TINT, ONE STOP PAST ARRIVAL: 0.18 against the selected
+   floor's 0.12 and the hover's 0.06. Deepest-is-most-engaged is already this
+   component's scale, the press is momentary, and one stop BEYOND selected is
+   what keeps it from reading as "the car is here" when the car has not moved
+   yet. Colour also means the reduced-motion guards above have nothing to
+   answer, and means a latched hover at 0.06 and a live press at 0.18 are still
+   two different things under the same thumb.
+
+   SAME SELECTOR AS THE HOVER, exclusions and all, so the pair reads as one
+   control's two states and this file gains no new selector shape: a locked
+   floor must not offer a rung it will refuse, a denied one is mid-refusal, and
+   a floor the car is already parked on has no move to preview. */
+.tower__floor:not(.is-locked):not(.is-selected):not(.is-denied):active {
+  border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.18);
+  color: var(--accent);
+}
+
+/* ============================================================================
    REDUCED MOTION: THE LAST WORD (F9)
    ============================================================================
-   Twenty-nine reduced-motion blocks sit next to the rules they answer, which
+   Thirty-two reduced-motion blocks sit next to the rules they answer, which
    is the right place for a guard that has an END STATE to write — the pattern
    this stylesheet uses everywhere is "the theatre goes, the teaching stays",
    and what stays is a decision about that specific instrument (the loss dial

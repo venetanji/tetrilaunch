@@ -311,10 +311,11 @@ npm run android:apk       # build + verify + sync + assembleDebug -> installable
 `app/android/` is gitignored and regenerated from `capacitor.config.ts` by
 `cap add`; CI (`.github/workflows/android.yml`) runs the cheap gates — typecheck
 plus web build, the systems smoke test and `verify:store` — on every push to
-`main` or `staging` and on every pull request touching `app/`, and goes all the
-way through `cap add` to a debug APK only on `main`, a published release, or a
-manual dispatch, which is what keeps that regeneration honest. **`app/ios/` is
-committed** — see [docs/ios.md](docs/ios.md).
+`staging` and on every pull request touching `app/`, and goes all the way
+through `cap add` to a debug APK only on a manual dispatch, which is what keeps
+that regeneration honest. A `v*` tag goes straight to the signed-bundle job,
+which does the same regeneration on the way to the `.aab` it publishes.
+**`app/ios/` is committed** — see [docs/ios.md](docs/ios.md).
 
 Orientation is locked to landscape at runtime via
 `@capacitor/screen-orientation` (and declared landscape-only in the iOS

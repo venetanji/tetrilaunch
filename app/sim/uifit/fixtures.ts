@@ -2211,8 +2211,8 @@ export const SCREENS: Record<string, () => string> = {
   guard: () => S.rotateGuardHTML().replace('class="rotate-guard"', 'class="rotate-guard show"'),
 
   "end-won": () => endModal(true),
-  // THE COMPLETED RUN'S OTHER TWO ROWS. The card's primary is the loop's next
-  // step (screens.ts endModal's `stepRoute`), so a bay-10 win draws three
+  // THE COMPLETED RUN'S OTHER THREE ROWS. The card's primary is the loop's next
+  // step (screens.ts endModal's `stepRoute`), so a bay-10 win draws four
   // different action rows and only one of them is the row "end-won" measures.
   //
   //  - contracts: the same two buttons as "end-won", with the Tower ghost
@@ -2225,8 +2225,26 @@ export const SCREENS: Record<string, () => string> = {
   //    ghost. (The salvage row's own Workshop button stands down on this card,
   //    which is the one thing here that makes something narrower rather than
   //    wider.)
+  //  - unlock: THE COMPLETED TIER'S OWN CARD, and the only one of the four
+  //    that draws the tier-done payout banner (see the helper: a completion
+  //    and a non-claim primary cannot coexist on a real save). Three controls
+  //    in the row — the claim, the demoted re-fly with its plate, and the
+  //    Tower ghost — over the two longest paragraphs this modal has: the
+  //    completion sentence plus the claim clause, and the "what unlocking it
+  //    changes" line.
+  //
+  //    TIER 8, MEASURED. The claim names the rung it OPENS, so completing 8
+  //    opens 9 — whose axis is "Magnetic Contract", the longest of the nine
+  //    (hazards.ts), against a 990 budget. That line runs 84 characters where
+  //    the top rung's runs 46 (Mark 10 adds no axis at all and only a fourth
+  //    digit of budget), and a paragraph is what costs a line of modal height.
+  //    What the two-digit rung would have bought instead is ONE character,
+  //    twice, in labels whose plate is fixed-width by construction (the
+  //    component's own note: "1" and "10" measure the same) — so the axis
+  //    clause is the worst case and this is the rung that carries it.
   "end-won-contracts": () => endModal(true, false, "contracts"),
   "end-won-workshop": () => endModal(true, false, "workshop"),
+  "end-won-unlock": () => endModal(true, false, "unlock", MARK_COUNT - 2),
   "end-lost": () => endModal(false),
   // Tier S's end. The progress row is replaced wholesale (no tier, no salvage,
   // no Workshop invitation) and the action row carries the bench button in
@@ -2416,7 +2434,27 @@ export const SCREENS: Record<string, () => string> = {
     }),
 };
 
-function endModal(won: boolean, sandbox = false, step?: NextStepId): string {
+/**
+ * `completed` IS THE TIER THIS RUN FINISHED, and it carries the progress
+ * snapshot and the step with it rather than being set beside them.
+ *
+ * TWO FACTS MAKE IT ONE ARGUMENT. Since the deferred claim, `progress.tier` is
+ * the SAME number — the recorders leave the Mark alone, so markUnlocked (which
+ * is what that field is) reads as the rung just completed rather than as the
+ * one above it. And a completion always makes the step "unlock": meta.ts's
+ * nextStep asks tierUnlockReady before everything below it, and tierUnlockReady
+ * is true on exactly the states that hand this card a `tierCompleted`. So a
+ * completion with the run or the shelf on the primary is a card no save can
+ * produce, which is what three of these fixtures were measuring — a tier-done
+ * banner over an action row that cannot appear under one.
+ *
+ * Hence `undefined` is "this win completed nothing", which is the ordinary
+ * bay-10 win: the shorter "Salvage banked" banner, no claim, and whichever
+ * primary the step asks for.
+ */
+function endModal(
+  won: boolean, sandbox = false, step?: NextStepId, completed?: number,
+): string {
   return S.endModal({
     // THE EXITS AT THEIR WIDEST. A lost ladder run is the only shape that draws
     // all three — Retry Run, Retry Bay with its broken-seal glyph, and the
@@ -2462,9 +2500,11 @@ function endModal(won: boolean, sandbox = false, step?: NextStepId): string {
     bayNum: won ? 10 : 7,
     bayName: "Cryo Vault",
     runComplete: won,
-    tierCompleted: won ? 3 : null,
+    tierCompleted: won && completed !== undefined ? completed : null,
     tierSalvage: won ? 220 : 40,
-    progress: PROGRESS,
+    progress: completed === undefined
+      ? PROGRESS
+      : { ...PROGRESS, tier: completed, runDone: true, contracts: PROGRESS.needed },
     salvageTotal: 1_700,
     scrapEarned: 640,
     // Non-zero on purpose: the demolition segment only renders above zero, so a

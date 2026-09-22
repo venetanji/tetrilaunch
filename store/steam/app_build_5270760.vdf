@@ -13,7 +13,10 @@
 // accident — so the real upload is a deliberate act:
 //   * CI flips it to "0" for the real upload (a sed over a copy — see
 //     .github/workflows/desktop.yml's steam-upload job), never in the committed
-//     file.
+//     file. That job asserts the flip landed before it logs in: a sed that
+//     stops matching copies this file through unchanged, and steamcmd answers a
+//     dry run with a zero exit, so an unasserted flip is a green job that
+//     uploaded nothing. The same step writes the Desc below.
 //   * A dry run needs no login and no App ID access:
 //       steamcmd +run_app_build <abs path to this file> +quit
 //
@@ -25,7 +28,7 @@
 "AppBuild"
 {
 	"AppID"       "5270760"
-	"Desc"        "Tetrilaunch depot build"   // CI overwrites with the tag/run
+	"Desc"        "Tetrilaunch depot build"   // CI writes ref @ sha (run N) here
 	"Preview"     "1"                          // DRY RUN. CI sets "0" to upload.
 	"SetLive"     "playtest"                   // beta branch; default is manual
 
