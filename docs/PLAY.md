@@ -53,8 +53,8 @@ Redemption Links or add account sign-in before advertising cross-device recovery
    available without it.
 3. Create an **internal testing** release and upload a signed AAB for
    `com.tetrilaunch.app`. The easiest safe first upload is a manual dispatch of
-   **Android debug APK**, which builds a signed AAB artifact but does not
-   publish it; download `tetrilaunch-release-bundle` from that run and upload
+   **Android build & release**, which builds a signed AAB artifact but does not
+   publish it unless its publish box is ticked; download `tetrilaunch-release-bundle` from that run and upload
    `app-release.aab` in Play Console.
 4. Finish the minimum blocking dashboard tasks Play reports for that internal
    release, add tester email accounts (or a Google Group), publish the release,
@@ -149,10 +149,10 @@ Use two distinct tests; passing one does not prove the other:
    works after reinstall, a refund/revocation removes it, and RevenueCat shows
    the event for the anonymous customer.
 
-For the first automated internal upload after the manual bootstrap, publish a
-`v*` GitHub release or dispatch the Android workflow on a `v*` tag with
-**Publish the bundle…** enabled. A normal workflow dispatch only builds the AAB
-artifact. The automation intentionally targets `internal`; promotion to closed,
+For the first automated internal upload after the manual bootstrap, push a `v*`
+tag — that is the workflow's own trigger and the only automated path to the
+track — or dispatch **Android build & release** on a `v*` tag with **Publish the
+bundle…** enabled. A normal workflow dispatch only builds the AAB artifact. The automation intentionally targets `internal`; promotion to closed,
 open or production testing remains a deliberate Play Console action.
 
 ### Launch checklist
@@ -245,6 +245,7 @@ What actually leaves the device, exhaustively:
 |---|---|---|
 | Display name, score, level, lines, timestamp | our Worker → D1 | `worker/index.ts`, `lib/api.ts` |
 | Purchase / entitlement traffic | Google Play + RevenueCat | `lib/purchases.ts` |
+| App user ID — `provider:sub`, when signed in | RevenueCat | `lib/auth.ts`, `lib/purchases.ts` |
 
 And what does not: settings, chosen name, best score and all meta-progression
 live in `localStorage` (`lib/store.ts`) and are never transmitted. The playtest
@@ -262,14 +263,27 @@ fonts were self-hosted there is no third-party request during play either.
 | Data type | Collected | Shared | Purpose | Optional? |
 |---|---|---|---|---|
 | Personal info → **Name** | Yes | No | App functionality | **Yes** |
+| Personal info → **User IDs** | Yes | No | App functionality + Analytics | **Yes** |
 | App activity → **Other actions** | Yes | No | App functionality | **Yes** |
-| Financial info → **Purchase history** | Yes | No | App functionality | No |
+| Financial info → **Purchase history** | Yes | No | App functionality + Analytics | No |
 
 - **Name** covers the leaderboard display name. Play defines Name as including a
   *nickname*, so a player-chosen handle belongs here even though the app never
   asks for a real one. It is sanitised to `[A-Z0-9 _-]` and 12 characters by
   `sanitizeName()`, and the privacy policy explicitly tells players not to use
   their real name.
+- **User IDs** covers the RevenueCat app user ID. `appUserIdFor()` builds it as
+  `provider:sub` — Google's or Apple's subject for the signed-in player — and
+  `identifyPurchasesUser()` hands it to `Purchases.logIn()` on every signed-in
+  launch, which is what makes a purchase survive a reinstall and reach a second
+  device. That is a durable, non-resettable user identifier transmitted to a
+  third party, so it is declared as one. It was missed when sign-in landed, and
+  an undeclared collected type is an enforcement matter rather than a
+  correction — the same reason this section derives its answers from the code.
+  **Optional**, because a player who never signs in never sends it: RevenueCat
+  stays on its own anonymous ID, which is not this and is not declarable as a
+  user ID. Purposes follow purchase history's, below, since it is the same
+  third party doing the same thing with it.
 - **Other actions** covers score, level and lines — gameplay stats, submitted
   with the name.
 - Both are **optional**: they are transmitted only when the player chooses to
@@ -287,7 +301,37 @@ fonts were self-hosted there is no third-party request during play either.
 - Nothing goes under **Device or other IDs**. Confirmed by the same RevenueCat
   page: that category applies only when integrations forward advertising
   identifiers (`gpsAdId`, `androidId`), and the app has no integrations. The
-  anonymous app-user ID is not an advertising identifier.
+  app user ID above is not one of those — it is not resettable and not an
+  advertising identifier, which is exactly why it belongs under **User IDs**
+  and not here. The two are different questions and the answer to this one is
+  still no.
+
+### Account creation: the one answer still open
+
+`PSL_ACM_NONE` ("My app does not allow users to create an account") is `true` in
+`store/play/data-safety.csv`, and the app now ships Google and Apple OAuth with
+a `DELETE /api/account` endpoint behind it. Both readings are defensible and
+this is the owner's call, not a cleanup:
+
+- **Keep `PSL_ACM_NONE`.** It is literally true of the architecture: `lib/auth.ts`
+  opens with "There is no server session and no account database anywhere", no
+  credential is ever created, and signing out leaves nothing behind. Nothing to
+  create means nothing to delete, and `PSL_ACCOUNT_DELETION_URL` stays empty
+  because there is no account to link a deletion form to.
+- **Flip to `PSL_ACM_OAUTH`.** It is what a reviewer sees: two OAuth buttons, a
+  screen that says "Player Account" and "Sign In", an endpoint with `account` in
+  its path, and a privacy page of our own with a section headed *Optional player
+  accounts* that tells players they can "sign out or delete the account from
+  Settings → Player Account". Answering the question the way the app's own
+  vocabulary answers it costs one row: `PSL_ACCOUNT_DELETION_URL` becomes
+  REQUIRED and is blank today. It is satisfiable without new work —
+  `https://tetrilaunch.com/privacy` already documents the in-app deletion path,
+  the same URL `PSL_DATA_DELETION_URL` uses — but the two rows have to move
+  together, or the form is rejected for a missing required field.
+
+Whichever way it goes, the two rows move together. Nothing about it changes the
+data types above: those are declared from what the app transmits, and the app
+transmits the same bytes under either answer.
 
 ### Security section
 
@@ -351,7 +395,36 @@ want to, with whatever name you like — that is the only thing that ever leaves
 your phone, and only when you choose to send it.
 ```
 
-Both descriptions are length-checked by `npm run store:copy` against Play's
+**What's new** (500 max):
+
+```
+Flight School is an offer now, not a gate: press Play and fly, or take the
+lessons first.
+
+The menu is two screens — a front door that starts the game, and a tier hub
+that holds your run, today's Contracts and the Workshop one button apart. A
+finished tier waits for you to press Unlock.
+
+The wind is a small tab under the bay banner instead of a gauge across the
+field. Three screens get a second song. On a phone browser, the first press of
+Play goes fullscreen.
+```
+
+THE RELEASE NOTES ARE NOT THIS TEXT, and that is the point of keeping it here.
+`docs/releases/<version>.md` carries a paste-ready draft for the GitHub release
+body, which is a page someone reads on purpose — 1.0.6's ran to just over 5,000
+characters, ten times what this field holds. Play's Console truncates an
+over-length paste at the paste, mid-sentence, without refusing it, so pasting
+the draft in here ships a listing that stops inside its first subsection and
+reads like a bug. The field needs its own text, written to its own size, and
+the release page's draft is where the material for it comes from.
+
+Rewrite this block every release, with the same three-or-four-beat shape: what
+changed for the player, in the order they will meet it. Apple's "What's New"
+field takes 4,000, so a note that fits here fits there too — one text, both
+stores, checked against the tighter cap.
+
+All four fields are length-checked by `npm run store:copy` against Play's
 limits, because the Console truncates rather than warns.
 
 ### Content rating

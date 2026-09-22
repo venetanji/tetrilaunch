@@ -281,30 +281,70 @@ GitHub Release. A `workflow_dispatch` is the dry run — same build, artifacts
 attached to the run, never a release, however the dispatch was pinned. Only the
 release job holds any write permission.
 
-A release starts one of two ways and both have to end in the same state —
-desktop artifacts published *and* the signed Android bundle built:
+**THE THREE PLATFORMS ARE INDEPENDENT ON A TAG.** Pushing `v1.2.3` starts
+desktop.yml, ios.yml and android.yml separately, each on its own `push: tags`
+trigger, and none of them can cancel another. That is a change: android.yml had
+no tag trigger of its own, and this workflow's release job ran
+`gh workflow run android.yml --ref <tag> -f publish=true` to start it. The
+dispatch worked, and it made the Play upload a downstream consequence of
+packaging three desktop installers — the step sat inside a job that is
+`needs: package` with no `always()`, so a single failed leg skipped it — no
+release, no installers, **and no Android build at all**, while ios.yml shipped
+the same tag to TestFlight and nothing anywhere reported that Play had been
+left out. Eleven of this workflow's eighteen runs have failed (the last three
+on macOS signing and notarization; run 18 needed three attempts), so the leg
+that takes the Play upload down with it is the leg that fails most. The tag is the one thing all three platforms genuinely share, so
+the tag is what each of them now listens to. See android.yml's header for why
+it could not simply keep the `release: published` trigger as well: there, two
+events for one release is two `versionCode`s, and Play never gives one back.
 
-- **A human publishes a release** from the GitHub UI. `release: published`
-  reaches both workflows: android.yml builds the signed `.aab`, and desktop.yml
-  uploads its artifacts into the release that already exists.
-- **Someone pushes a `v*` tag.** desktop.yml creates the release itself, then
-  **explicitly dispatches android.yml at the tag**. That dispatch is not
-  belt-and-braces: GitHub suppresses workflow runs for events raised by
-  `GITHUB_TOKEN`, so the `release: published` from our own `gh release create`
-  reaches nobody, and android.yml's `push` trigger is branch-filtered to
-  main/staging with no tags — so without the dispatch, the tag-first path would
-  ship desktop builds and silently never produce the Android bundle.
-  `workflow_dispatch` is the documented exception to that suppression, which is
-  why it is the mechanism. android.yml needed no change: it already declares
-  `workflow_dispatch`, and its `bundle` job already runs under it.
+A release still starts one of two ways, and this workflow handles both:
 
-The dispatch fires **only** when this workflow created the release. If a human
-published it, android.yml has already run on the real event, and dispatching
-again would build the bundle twice — burning a second `versionCode`, which Play
-never gives back.
+- **Someone pushes a `v*` tag.** This workflow creates the release and uploads
+  the installers into it.
+- **A human publishes a release** from the GitHub UI, which creates the tag on
+  the way. Both `push` and `release: published` are listed as triggers, so one
+  release may run this workflow twice; the publish step is create-or-upload, so
+  the second run attaches the same assets to the release the first one made.
+
+  A UI publish reaches android.yml and ios.yml too, through the tag it creates
+  rather than through `release: published`. The run history is unambiguous about
+  this: runs 11 and 12 of this workflow are one v1.0.4 release, a `push` and a
+  `release` one second apart, and v1.0.5 — a plain `git push` of the tag — is
+  run 16 with no `release` twin. Both paths raise the tag `push`, which is why
+  one tag trigger per workflow is enough, and why android.yml must not also
+  carry `release: published`: that would make a UI publish two Android runs and
+  two `versionCode`s for one release.
 
 The `.aab` lands as a workflow artifact for a human to upload to Play, exactly
 as it did before; it is not attached to the public release.
+
+### When a leg fails on a tag
+
+**Re-run the failed job on the tag's own run.** Actions → the red run → *Re-run
+failed jobs*. A re-run keeps the original event, so `event_name` is still `push`
+and the release job's gate still passes.
+
+**A fresh `workflow_dispatch` cannot rescue a tag**, however carefully it is
+pinned: the release job is `if: github.event_name != 'workflow_dispatch' && …`,
+which is deliberate ("a dispatch never publishes, however it was started") and
+means a dispatch will package everything and publish nothing. If the run itself
+is gone — deleted, or past its retention — re-tag rather than dispatch: delete
+the tag and the release, fix the cause, and push the tag again.
+
+Android and iOS need nothing from you here. They ran off the same tag and are
+unaffected by whatever the desktop matrix did, which is the entire point of the
+paragraph above. Their own recovery is the same shape — re-run the failed job on
+the tag run — with one wrinkle: android.yml's publish gate accepts a dispatch
+whose `publish` box is ticked, so a lost Android run *can* be re-driven by hand
+from the Actions tab at the tag ref. That spends a second `versionCode`, which
+is why it is a box and not a default.
+
+**Before tagging, rehearse the macOS leg.** It is the leg with the failure
+record, the six secrets and the 45-minute clock, and a `workflow_dispatch` of
+this workflow builds and signs identically while creating nothing. Confirm the
+six `desktop-build` secrets are populated the same way — nothing else in the
+repo will tell you they are missing until a tag does.
 
 ## Known gotchas
 

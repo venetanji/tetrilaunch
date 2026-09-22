@@ -207,10 +207,23 @@ in the main App Store account. Purchases are free and renewals are accelerated
    SKU e.g. `tetrilaunch-ios`.
 3. Create the in-app purchases, matching the product IDs configured in RevenueCat.
 4. Bump versions before each upload, in the target's *General* tab:
-   - *Version* (`MARKETING_VERSION`) — user-visible `1.0.0`.
-   - *Build* (`CURRENT_PROJECT_VERSION`) — must strictly increase on **every** upload.
+   - *Version* (`MARKETING_VERSION`) — user-visible, and it must be the version
+     in `app/package.json`. **The committed project still says `1.0`**: CI
+     overrides both numbers on the `xcodebuild` command line
+     (`.github/workflows/ios.yml`), so the pbxproj values are never what ships
+     from a tag and have gone stale unnoticed. Archiving from Xcode uses them as
+     they are, which means a hand-built upload announces itself as **1.0 (1)** —
+     and App Store Connect refuses build number 1, because build 1 was uploaded
+     long ago and build numbers only go up.
+   - *Build* (`CURRENT_PROJECT_VERSION`) — must strictly increase on **every**
+     upload. CI uses the workflow's run number; by hand, use something above
+     the last build in App Store Connect's TestFlight list.
 5. **Archive & upload:** destination **Any iOS Device (arm64)** → *Product → Archive* →
    Organizer → **Distribute App → App Store Connect → Upload**.
+
+   Prefer the tag. §6b's workflow sets both numbers from the repo, asserts the
+   tag matches `app/package.json` before it archives, and checks the privacy
+   manifest is in the bundle — three things the Organizer path does not do.
 6. TestFlight processes the build; internal testers get it immediately.
 
 ### Listing requirements
@@ -226,13 +239,28 @@ in the main App Store account. Purchases are free and renewals are accelerated
 
 ### App Privacy answers
 
-Two things leave the device: a leaderboard submission (the player's chosen display name
-plus score/level/lines) and purchase traffic to Apple/RevenueCat.
+Three things leave the device: a leaderboard submission (the player's chosen display name
+plus score/level/lines), purchase traffic to Apple/RevenueCat, and — for a signed-in
+player only — the RevenueCat app user ID.
 
 - **User Content → Other User Content** — App Functionality, not linked to identity, not
-  used for tracking.
-- **Purchases** — App Functionality. RevenueCat's anonymous app-user ID is not an
-  advertising identifier and the app does no tracking, so nothing goes under Tracking.
+  used for tracking. The leaderboard submission.
+- **Purchases → Purchase History** — App Functionality and Analytics (RevenueCat's
+  dashboards are theirs), linked to identity, not used for tracking.
+- **Identifiers → User ID** — App Functionality and Analytics, linked to identity, not
+  used for tracking. `appUserIdFor()` in `src/lib/auth.ts` builds `provider:sub` from the
+  Google or Apple subject and `identifyPurchasesUser()` hands it to `Purchases.logIn()`,
+  which is what carries a purchase across a reinstall and onto a second device. It is a
+  durable user identifier and has to be declared as one — this line was missing while the
+  app already sent it. It is **not** an advertising identifier, the app asks for no
+  tracking authorization and has no attribution SDK, so nothing goes under Tracking; and
+  a player who never signs in sends none of it.
+
+These three answers are also the three entries in the privacy manifest below, and Play's
+form says the same things in Google's vocabulary
+([docs/PLAY.md](PLAY.md#data-safety), `store/play/data-safety.csv`). One behaviour, three
+declarations: change one and change all three, because a reviewer comparing any two of
+them should find the same app.
 
 Fonts are **no longer** a disclosure: they used to be pulled from
 `fonts.googleapis.com` at runtime, which sent the device IP to Google and degraded
@@ -242,6 +270,50 @@ offline. They're now bundled in `app/public/fonts/` (regenerate with
 The privacy policy and support pages the listing requires are served by the Worker
 from `app/public/`: `/privacy.html` and `/support.html`. Both list
 `gio@shicheng.com.hk` as the contact.
+
+### Privacy manifest (`PrivacyInfo.xcprivacy`)
+
+`app/ios/App/App/PrivacyInfo.xcprivacy` is the App target's privacy manifest, listed in
+`project.pbxproj`'s Resources build phase so the archive carries it. **A `.xcprivacy` on
+disk that nothing copies changes nothing** — Apple reads the one inside the bundle — so
+`ios.yml` asserts it is in `Tetrilaunch.app` after the archive and fails the run if it is
+not. Re-check that reference after anything that rewrites the project: a `cap add ios`
+regeneration drops it along with the target rename §3 warns about.
+
+**What it declares, and why those things:**
+
+- **Required-reason API: `NSPrivacyAccessedAPICategoryUserDefaults`, reason `CA92.1`.**
+  `@capgo/capacitor-social-login` writes the Apple sign-in payload and its OAuth token
+  store into `UserDefaults.standard` (`AppleProvider.swift`, `OAuth2Provider.swift`). It
+  is a local SPM path dependency of `CapApp-SPM`, so its code links into *our* binary and
+  it ships no manifest of its own — if this file does not declare it, nobody does.
+  `CA92.1` is the right one of the four reasons: the keys are the app's own, read back by
+  the app, never shared with an app group or another process.
+- **The three collected data types** from the App Privacy answers above.
+- **`NSPrivacyTracking` false, with an empty domain list.** No advertising identifier, no
+  attribution SDK, and since the fonts were self-hosted, no third-party request during
+  play at all.
+
+**What it deliberately does not declare**, established by reading the plugins' Swift
+sources rather than by assuming: no file-timestamp reads (`C617.1` — there is no
+filesystem plugin), no `systemUptime` (`35F9.1`), no `volumeAvailableCapacity` (`E174.1`),
+no `activeInputModes` (`3EC4.1`). The web layer's own state lives in `localStorage`, which
+is WebKit's store and not a required-reason API. Capacitor's two manifests declare empty
+arrays; RevenueCat's SPM package ships its own.
+
+**ITMS-91053 is the mail this prevents.** Apple's upload validator answers a missing
+required-reason declaration with *"Missing API declaration"* email after the TestFlight
+upload — hours later, from an address nobody is watching, on a build that otherwise
+processed fine. It has been advisory and then enforced before; treat it as a rejection
+that arrives late. If it ever does arrive, the mail names the API category, and the fix is
+a new entry in this file with the reason code Apple's
+[required-reason API list](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api)
+gives for that category — not a guessed one, and not a copy of a generic manifest off the
+internet. Declaring a reason the app cannot justify is its own violation.
+
+**When to revisit:** any new Capacitor plugin. `grep -rn "UserDefaults\|systemUptime\|contentModificationDate\|volumeAvailableCapacity\|activeInputModes" app/node_modules/<plugin>/ios`
+answers most of it in one line, and a plugin that ships its own `.xcprivacy` covers itself
+only if it builds as its own framework — a path-dependency SPM plugin does not.
 
 ## 5. Icons and launch screen
 
@@ -273,9 +345,25 @@ Re-run `ios:sync` whenever you add or update a Capacitor plugin — that's what 
 
 ## 6b. TestFlight from CI
 
-`.github/workflows/ios.yml` builds, signs and uploads to TestFlight on a `v*`
-tag or a manual dispatch — its header documents every secret and how to
-generate each. The one-time owner setup, in order:
+`.github/workflows/ios.yml` builds and signs on a `v*` tag or a manual
+dispatch, and uploads to TestFlight on the tag — its header documents every
+secret and how to generate each.
+
+**A dispatch is a rehearsal and does not upload.** It archives, signs and
+exports, and attaches the signed ipa to the run; nothing reaches TestFlight
+unless the tag pushed it, or unless a human ticks **Upload the build to
+TestFlight** on a dispatch pinned to a tag. That box spends a build number, so
+it is a box. (It was not always so: for the workflow's first twenty-odd runs the
+upload step had no condition, and run 21 — a dispatch on `main` — put a build in
+front of every tester.)
+
+**The tag is checked against `app/package.json` before anything is built**, by
+the same `check:version` script desktop.yml uses. A tag naming a version this
+tree does not carry fails in seconds instead of uploading the tree's version
+under the tag's name. Bump both `package.json` files, commit, then tag — in that
+order.
+
+The one-time owner setup, in order:
 
 1. **Apple Distribution certificate.** Xcode → Settings → Accounts → Manage
    Certificates → “+” → *Apple Distribution* (or Certificates in the developer
