@@ -10389,7 +10389,7 @@ button.panel { color: var(--text); }
    ROWS region — the panel's height minus the pinned header, its own padding and
    its border, measured at 31px compact and 65px roomy.
 
-   At roomy/regular the column is 372px, which is 274px of plate track (see the
+   At roomy/regular the column is 372px, which is 256px of plate track (see the
    width note below), so five 44px plates and four 6px gaps per row. The worst
    reachable state is SIX plate-rows: ten slots bought against one system owned
    draws 1 plate + 9 open + the "every slot bought" tag over three rows, nine
@@ -10487,14 +10487,13 @@ button.panel { color: var(--text); }
    figures together outrun 252px) the budget drops to a second line, and without
    this it lands orphaned under the `systems` label instead of under itself. */
 .rack__hdr .workshop__budget { margin-left: auto; }
-/* One band per state. The label is a fixed 58px track so the plate columns line
-   up down the panel — a row whose plates started at a different x per label
-   length would make four bands read as four unrelated strips — and it is nudged
-   down 18px to sit on the optical centre of the first 44px plate beside it. */
+/* One band per state. The label and gap leave a deliberate 8px of clearance
+   between OPTIONS and the first plate; the common 76px track keeps all rows
+   aligned while letting the longest label fit without painting over a button. */
 .rack__group { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; flex: none; }
 .rack__group + .rack__group { border-top: 1px dashed var(--line); }
 .rack__group-label {
-  flex: none; width: 58px; padding-top: 18px;
+  flex: none; width: 68px; padding-top: 18px;
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text-faint-ink);
 }
@@ -10724,9 +10723,9 @@ button.panel { color: var(--text); }
    line, and the detail's foot pins its buttons to that line (margin-top: auto).
 
    THE COLUMN WIDTH IS ARITHMETIC, not a breakpoint. 372px of rack panel holds
-   five 44px plates and their gaps once the 58px label track, its 8px gap, the
-   28px of frame padding, the 8px of scrollport padding and the 4px of border
-   are taken out (58+8+28+8+4 = 106; 372-106 = 266; 5x44+4x6 = 244 fits,
+   five 44px plates and their gaps once the 76px label track, the 28px of
+   frame padding, the 8px of scrollport padding and the 4px of border are taken
+   out (76+28+8+4 = 116; 372-116 = 256; 5x44+4x6 = 244 fits,
    6x44+5x6 = 294 does not — the same answer the shorter sums gave, unlike the
    compact one below, where every omitted term cost a plate). The detail wants
    at least 390px — below
@@ -10846,9 +10845,9 @@ button.panel { color: var(--text); }
      the whole reason the column is re-sized rather than the panel re-flowed.
      The figure is 448 and every term of it is load-bearing:
 
-       456 - 4 border (var(--bw) each side) - 16 frame padding (8 + 8)
+       456 - 4 border (var(--bw) each side) - 8 frame padding (4 + 4)
            - 8 scrollport padding (the focus ring's, see .rack__rows)
-           - 42 label track - 6 label gap = 380px of plate track,
+           - 56 label track (48 + 8 gap) = 380px of plate track,
        and 8 plates is 8x44 + 7x4 = 380 exactly.
 
      It shipped at 444 for one review, which is the same sum with the panel's
@@ -10862,7 +10861,7 @@ button.panel { color: var(--text); }
      875 - 456 - 8 = 411px, comfortably over the 390 the roomy column wants. */
   .workshop__body { --detail-min: 330px; gap: var(--sp-2); }
   .workshop__body { grid-template-columns: min(456px, calc(100% - var(--detail-min) - var(--sp-2))) minmax(0, 1fr); }
-  .workshop__rack { padding: 6px 8px; }
+  .workshop__rack { padding: 6px 4px; }
   /* ONE LINE, and the count is what gives way. Pinning the header outside the
      scroller costs the rows region whatever the header takes, and at 342px of
      column — the 13 mini, the narrowest place this panel still draws four group
@@ -10878,8 +10877,8 @@ button.panel { color: var(--text); }
   .rack__count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workshop__budget { flex: none; }
   .rack__count { font-size: 10px; }
-  .rack__group { padding: 3px 0; gap: 6px; }
-  .rack__group-label { width: 42px; font-size: 6px; padding-top: 19px; }
+  .rack__group { padding: 3px 0; gap: 8px; }
+  .rack__group-label { width: 48px; font-size: 6px; padding-top: 19px; }
   .rack__plates { gap: 4px; }
   .workshop__detail { padding: 8px 10px; gap: 5px; }
   .workshop__detail .shop-card__name { font-size: 11px; gap: 5px; }

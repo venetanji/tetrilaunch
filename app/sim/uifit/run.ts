@@ -1124,6 +1124,22 @@ function measure(cfg: {
     });
   }
 
+  // Check the painted text against the first plate, not only the fixed label
+  // box: overflow can otherwise remain invisible to the generic box checks.
+  document.querySelectorAll<HTMLElement>(".rack__group-label").forEach((label) => {
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const ink = range.getBoundingClientRect();
+    const firstPlate = label.parentElement?.querySelector<HTMLElement>(".rack__plates > *");
+    if (!firstPlate || ink.width <= 0) return;
+    const clearance = firstPlate.getBoundingClientRect().left - ink.right;
+    if (clearance < 4) {
+      out.rack.push(
+        `group label "${label.textContent?.trim()}" has ${Math.round(clearance)}px ink clearance to first plate (4px minimum)`,
+      );
+    }
+  });
+
   // --- badge: a framed glyph must not be crowded by its own frame ----------
   // `rack` above holds the row: seven slots, all visible. This holds the SLOT:
   // that the box is wide enough for the glyph it exists to carry.
