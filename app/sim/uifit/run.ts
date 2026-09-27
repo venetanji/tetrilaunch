@@ -1124,13 +1124,18 @@ function measure(cfg: {
     });
   }
 
-  // Rack labels are fixed-track flex items. Their boxes can fit while the
-  // pixel-font ink itself overflows into the first plate (notably OPTIONS on
-  // compact phones), which the generic box-overlap assertions cannot see.
+  // Check the painted text against the first plate, not only the fixed label
+  // box: overflow can otherwise remain invisible to the generic box checks.
   document.querySelectorAll<HTMLElement>(".rack__group-label").forEach((label) => {
-    if (label.scrollWidth > label.clientWidth + 1) {
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const ink = range.getBoundingClientRect();
+    const firstPlate = label.parentElement?.querySelector<HTMLElement>(".rack__plates > *");
+    if (!firstPlate || ink.width <= 0) return;
+    const clearance = firstPlate.getBoundingClientRect().left - ink.right;
+    if (clearance < 4) {
       out.rack.push(
-        `group label "${label.textContent?.trim()}" paints ${label.scrollWidth - label.clientWidth}px past its track`,
+        `group label "${label.textContent?.trim()}" has ${Math.round(clearance)}px ink clearance to first plate (4px minimum)`,
       );
     }
   });
