@@ -10487,14 +10487,14 @@ button.panel { color: var(--text); }
    figures together outrun 252px) the budget drops to a second line, and without
    this it lands orphaned under the `systems` label instead of under itself. */
 .rack__hdr .workshop__budget { margin-left: auto; }
-/* One band per state. The label is a fixed 58px track so the plate columns line
-   up down the panel — a row whose plates started at a different x per label
-   length would make four bands read as four unrelated strips — and it is nudged
-   down 18px to sit on the optical centre of the first 44px plate beside it. */
-.rack__group { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; flex: none; }
+/* One band per state. The label and gap share a 66px track so the longest
+   label (OPTIONS) fits without reducing the plate columns or painting over a
+   button. Every row starts its plates at the same x; the label sits on the
+   optical centre of the first 44px plate beside it. */
+.rack__group { display: flex; align-items: flex-start; gap: 0; padding: 5px 0; flex: none; }
 .rack__group + .rack__group { border-top: 1px dashed var(--line); }
 .rack__group-label {
-  flex: none; width: 58px; padding-top: 18px;
+  flex: none; width: 66px; padding-top: 18px;
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text-faint-ink);
 }
@@ -10724,9 +10724,9 @@ button.panel { color: var(--text); }
    line, and the detail's foot pins its buttons to that line (margin-top: auto).
 
    THE COLUMN WIDTH IS ARITHMETIC, not a breakpoint. 372px of rack panel holds
-   five 44px plates and their gaps once the 58px label track, its 8px gap, the
+   five 44px plates and their gaps once the 66px label track (gap 0), the
    28px of frame padding, the 8px of scrollport padding and the 4px of border
-   are taken out (58+8+28+8+4 = 106; 372-106 = 266; 5x44+4x6 = 244 fits,
+   are taken out (66+0+28+8+4 = 106; 372-106 = 266; 5x44+4x6 = 244 fits,
    6x44+5x6 = 294 does not — the same answer the shorter sums gave, unlike the
    compact one below, where every omitted term cost a plate). The detail wants
    at least 390px — below
@@ -10848,7 +10848,7 @@ button.panel { color: var(--text); }
 
        456 - 4 border (var(--bw) each side) - 16 frame padding (8 + 8)
            - 8 scrollport padding (the focus ring's, see .rack__rows)
-           - 42 label track - 6 label gap = 380px of plate track,
+           - 48 label track - 0 label gap = 380px of plate track,
        and 8 plates is 8x44 + 7x4 = 380 exactly.
 
      It shipped at 444 for one review, which is the same sum with the panel's
@@ -10878,8 +10878,10 @@ button.panel { color: var(--text); }
   .rack__count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .workshop__budget { flex: none; }
   .rack__count { font-size: 10px; }
-  .rack__group { padding: 3px 0; gap: 6px; }
-  .rack__group-label { width: 42px; font-size: 6px; padding-top: 19px; }
+  /* Keep the plate track unchanged while giving the longest label (OPTIONS)
+     enough room not to paint over the first option plate. */
+  .rack__group { padding: 3px 0; gap: 0; }
+  .rack__group-label { width: 48px; font-size: 6px; padding-top: 19px; }
   .rack__plates { gap: 4px; }
   .workshop__detail { padding: 8px 10px; gap: 5px; }
   .workshop__detail .shop-card__name { font-size: 11px; gap: 5px; }

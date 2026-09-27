@@ -1124,6 +1124,17 @@ function measure(cfg: {
     });
   }
 
+  // Rack labels are fixed-track flex items. Their boxes can fit while the
+  // pixel-font ink itself overflows into the first plate (notably OPTIONS on
+  // compact phones), which the generic box-overlap assertions cannot see.
+  document.querySelectorAll<HTMLElement>(".rack__group-label").forEach((label) => {
+    if (label.scrollWidth > label.clientWidth + 1) {
+      out.rack.push(
+        `group label "${label.textContent?.trim()}" paints ${label.scrollWidth - label.clientWidth}px past its track`,
+      );
+    }
+  });
+
   // --- badge: a framed glyph must not be crowded by its own frame ----------
   // `rack` above holds the row: seven slots, all visible. This holds the SLOT:
   // that the box is wide enough for the glyph it exists to carry.
