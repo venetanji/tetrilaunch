@@ -175,9 +175,9 @@ const ALLOWED_SCROLLERS = [
   // CI failure. Exactly the stance `.coach__body` takes above, for exactly the
   // same reason: copy is written to the pane.
   "#guide-list",
-  // THE TIER TOWER'S RUN OF FLOORS (ui/screens.ts's tierTowerHTML), at compact
-  // density only — the box is `overflow: visible` at every other one, so this
-  // entry can only ever match on a phone-shaped viewport.
+  // THE TIER TOWER'S RUN OF FLOORS (ui/screens.ts's tierTowerHTML), when its
+  // available height is below the 510px needed for eleven 44px floors.
+  // Taller runs divide their height and never need to scroll.
   //
   // Added on arithmetic, like every entry above it. The shaft is ~313px on a
   // 360px-tall landscape phone and it has to carry ELEVEN named floors plus

@@ -17328,7 +17328,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
      * ------------------------------------------------------------------ */
     const towerVars = towerCss.slice(towerCss.indexOf(".tower {"));
     check("the floor's height is a token the rungs and the car both read",
-      /--tower-floor-h:\s*calc\(\(100% - var\(--tower-slack\)\) \/ var\(--tower-floors\)\)/
+      /--tower-floor-h:\s*max\(44px, calc\(\(100% - var\(--tower-slack\)\) \/ var\(--tower-floors\)\)\)/
         .test(towerVars));
     // THE RUN IS THE SAME THREE NUMBERS MULTIPLIED BACK OUT, never a second
     // copy of the building's length: the quotient above and this product have
@@ -17337,9 +17337,8 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     check("...and the whole run is that token multiplied back out",
       /--tower-run-h:\s*calc\(var\(--tower-slack\) \+ var\(--tower-floors\) \* var\(--tower-floor-h\)\)/
         .test(towerVars));
-    check("a compact phone divides the shaft between all eleven rungs, not a 44px scroller",
-      !/\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px/.test(towerCss)
-        && !/\[data-density="compact"\] \.tower__floor \{ flex: none;/.test(towerCss));
+    check("rungs cannot shrink below the tap floor",
+      /\.tower__floor \{[^}]*flex: 1 0 44px; min-height: 44px;/.test(towerCss));
     // …AND THE EARNED PLINTH WITH THEM, which is the other half of the 662
     // baselined findings. The ENTRANCE is excluded by selector rather than by
     // omission: while the licence is owed the plate is clamp(44px, 13%, 72px),
@@ -17348,11 +17347,8 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     check("...and the ground floor's plinth takes it too",
       /\[data-density="compact"\] \.tower:not\(\.tower--lobby\) \{ --tower-lobby-h: 44px; \}/
         .test(towerCss));
-    // NO SCROLLER ANY MORE. All eleven rungs divide the shaft and fit, so the
-    // run of floors keeps the base box: no overflow. (The shaft itself still
-    // never takes an overflow, which would clip the beacon drawn above it.)
-    check("the run of floors no longer scrolls at compact density",
-      !/\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto/.test(towerCss)
+    check("only the run scrolls, leaving the roof outside the clip",
+      /\.tower__floors \{[^}]*overflow-y:\s*auto/.test(towerCss)
         && !/\.tower__shaft \{[^}]*overflow/.test(towerCss));
     // THE PADDING AND THE GAP MOVED rather than being restated: with the
     // shaft's own padding gone, the run fills the shaft's padding box exactly,
@@ -17363,13 +17359,8 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
         .test(towerCss)
         && !/\.tower__shaft \{[^}]*padding: var\(--tower-pad\)/.test(towerCss),
       towerCss.slice(towerCss.indexOf(".tower__floors {"), towerCss.indexOf(".tower__floors {") + 320));
-    // NO EDGE FADE, because nothing is cut: the whole building is on screen.
-    check("...and drops the scroller's edge fade with it",
-      !/mask-image: linear-gradient\(180deg, transparent 0, #000 12px,/.test(towerCss));
-    // THE RAIL KEEPS THE BASE RULE. With the column divided the run IS the box,
-    // so top/bottom 6px spans the whole building — no compact override needed.
-    check("the car's guide rail keeps the base top/bottom rule at compact density",
-      !/\[data-density="compact"\] \.tower__rail \{/.test(towerCss));
+    check("the guide rail spans the full run beyond the scrollport",
+      /\.tower__rail \{ bottom: auto; height: calc\(var\(--tower-run-h\) - 12px\);/.test(towerCss));
     // THE CEREMONY IS UNTOUCHED BY ALL OF IT. The ride writes `top` on the car
     // and paint on the plates; the car is absolutely positioned INSIDE the
     // scroller, so it rides the shaft's own floor-plus-gap step (46px here
@@ -17392,11 +17383,11 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   {
     const tower = S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false });
     check("the shaft carries a run of floors for the floors to scroll in",
-      tower.includes('<div class="tower__floors">'));
+      tower.includes('<div class="tower__floors" data-scroll>'));
     // THE RAIL AND THE CAR RIDE WITH THE FLOORS. Both are drawings of where
     // the car is on the ladder; a car that stayed put while its floor scrolled
     // away would be pointing at nothing.
-    const run = tower.slice(tower.indexOf('<div class="tower__floors">'));
+    const run = tower.slice(tower.indexOf('<div class="tower__floors" data-scroll>'));
     check("...with the rail and the car inside it",
       run.includes("tower__rail") && run.includes("tower__car")
         && run.indexOf("tower__rail") < run.indexOf('<button class="tower__floor'));
@@ -17404,12 +17395,12 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     // box of its own: it hangs 19px above the shaft, and an overflow around it
     // would clip the beacon off the building.
     check("...and the headhouse above it, outside anything that scrolls",
-      tower.indexOf("tower__head") < tower.indexOf('<div class="tower__floors">'));
+      tower.indexOf("tower__head") < tower.indexOf('<div class="tower__floors" data-scroll>'));
     // ARIA UNCHANGED. The run is a plain box: the group is the tower, the
     // controls are the floors, and a generic div between them adds nothing to
     // the accessibility tree.
     check("...and the run itself says nothing to a screen reader",
-      /<div class="tower__floors">/.test(tower)
+      /<div class="tower__floors" data-scroll>/.test(tower)
         && !/<div class="tower__floors"[^>]*(role|aria-)/.test(tower));
     const mainTs = fs.readFileSync(
       path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
@@ -32933,24 +32924,19 @@ section("The tower answers a cursor, and its plinth is a desktop target (D6)");
   check("...without shrinking the entrance the lobby state grows",
     plinth.includes("var(--tower-lobby-h)"), plinth);
 
-  // THE PHONE DIVIDES THE SHAFT NOW, it does not scroll it. The Flight School
-  // lobby left the shaft (screens.ts), giving the rungs the room to all fit, and
-  // the owner's call is that a ladder read at a glance beats one dragged past a
-  // fold. Pin the new shape: no 44px floor token, no overflow scroller, no
-  // fixed-height stacking. (The dead `:not(.tower--lobby)` plinth token is left
-  // in place — nothing renders a plinth on the licensed tower now — and is not
-  // asserted here.)
-  const compact: Array<[string, RegExp]> = [
-    ["no 44px floor token — the rungs divide the shaft",
-      /\[data-density="compact"\] \.tower \{[^}]*--tower-floor-h:\s*44px;/],
-    ["the run of floors is no longer an overflow scroller",
-      /\[data-density="compact"\] \.tower__floors \{[^}]*overflow-y:\s*auto;/],
-    ["the rungs keep the base flex rather than a fixed height",
-      /\[data-density="compact"\] \.tower__floor \{ flex: none;/],
-  ];
-  for (const [name, re] of compact) check(`compact now fits: ${name}`, !re.test(css));
+  // The same minimum serves compact and short desktop windows; there is
+  // no second density-specific floor value for the car to disagree with.
+  check("the tower has one 44px minimum for its car and its controls",
+    /--tower-floor-h: max\(44px,/.test(css)
+      && /\.tower__floor \{[^}]*min-height: 44px;/.test(css));
+  check("the unlocked roof reserves clearance for a 44px target",
+    /--tower-roof-h: 44px;/.test(css)
+      && /\.tower--roof \.tower__shaft \{ margin-top: 22px; \}/.test(css));
+  check("the roof clearance hook follows the actual unlock",
+    S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false, sandbox: true }).includes("tower--roof")
+      && !S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false }).includes("tower--roof"));
   const tokens = css.match(/(^|\n)\.tower \{[^}]*\}/)?.[0] ?? "";
-  check("compact is untouched: the shaft's shared tokens are where they were",
+  check("the shaft keeps its shared padding, gap and floor count",
     /--tower-pad:\s*3px;/.test(tokens) && /--tower-gap:\s*2px;/.test(tokens)
       && /--tower-lobby-h:\s*22px;/.test(tokens) && /--tower-floors:\s*11;/.test(tokens),
     tokens.replace(/\s+/g, " ").slice(0, 220));
