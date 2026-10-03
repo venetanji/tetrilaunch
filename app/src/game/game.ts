@@ -575,6 +575,10 @@ export class Game {
   cubes: Cube[] = [];
   constraints: Matter.Constraint[] = [];
   trajectory: Matter.Vector[] = [];
+  private trajectoryInputs: {
+    x: number; y: number; vx: number; vy: number;
+    gravity: number; frictionAir: number; steps: number; wind: number; cutoff: number;
+  } | null = null;
   /**
    * True when the arc above ends somewhere the bay can never use — down the
    * intake chute, or short of the compactor's furthest reach. Drives the
@@ -1895,15 +1899,30 @@ export class Game {
    */
   updateTrajectory(): void {
     const p = this.previewModel();
+    const tip = this.cannon.tip;
+    const velocity = this.cannon.velocity;
+    const cutoff = this.strandCutoffX;
+    const previous = this.trajectoryInputs;
+    // Input and physics can both request a preview in one frame. Reuse only
+    // exact numeric inputs: wind is frozen by previewModel, and the cutoff
+    // belongs to the cached warning even though it does not affect flight.
+    if (previous && previous.x === tip.x && previous.y === tip.y &&
+        previous.vx === velocity.x && previous.vy === velocity.y &&
+        previous.gravity === this.gAccel && previous.frictionAir === p.frictionAir &&
+        previous.steps === p.steps && previous.wind === p.wind && previous.cutoff === cutoff) return;
     this.trajectory = predictTrajectory(
-      this.cannon.tip,
-      this.cannon.velocity,
+      tip,
+      velocity,
       this.gAccel,
       p.frictionAir,
       p.steps,
       p.windAt,
     );
-    this.trajectoryStrands = pathStrands(this.trajectory, this.strandCutoffX);
+    this.trajectoryStrands = pathStrands(this.trajectory, cutoff);
+    this.trajectoryInputs = {
+      x: tip.x, y: tip.y, vx: velocity.x, vy: velocity.y,
+      gravity: this.gAccel, frictionAir: p.frictionAir, steps: p.steps, wind: p.wind, cutoff,
+    };
   }
 
   /**
@@ -1939,10 +1958,11 @@ export class Game {
   private previewModel(): {
     frictionAir: number;
     steps: number;
+    wind: number;
     windAt: (step: number) => number;
   } {
     const wind = this.windNow;
-    return { frictionAir: PREVIEW_FRICTION_AIR, steps: PREVIEW_STEPS, windAt: () => wind };
+    return { frictionAir: PREVIEW_FRICTION_AIR, steps: PREVIEW_STEPS, wind, windAt: () => wind };
   }
 
   /**

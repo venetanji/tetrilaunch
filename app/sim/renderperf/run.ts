@@ -8,6 +8,7 @@
  *   npx tsx sim/renderperf/run.ts --dpr 3 --css 844x390     # a phone's numbers
  *   npx tsx sim/renderperf/run.ts --dprs 1,1.5,2,3          # what resolution costs
  *   npx tsx sim/renderperf/run.ts --engine webkit           # WebKit, where installed
+ *   npx tsx sim/renderperf/run.ts --bombs 3 --dpr 1.5 --css 844x390
  *   npx tsx sim/renderperf/run.ts --lesson 0               # a Flight School bay
  *   npx tsx sim/renderperf/run.ts --lesson 0,1,2,3 --counts 0,100
  *   npx tsx sim/renderperf/run.ts --breakdown               # cost per scene layer
@@ -127,6 +128,9 @@ const PROBE = argv.includes("--probe");
  * different measurement.
  */
 const BOOM = argv.includes("--boom");
+/** Add active charges and a loaded muzzle charge without changing old scenes. */
+const BOMBS = Number(opt("bombs") ?? 0);
+if (!Number.isInteger(BOMBS) || BOMBS < 0) throw new Error("--bombs must be a non-negative integer");
 /**
  * Tell the page it is running under prefers-reduced-motion.
  *
@@ -195,7 +199,7 @@ if (!launcher) {
 // the harness is broken.
 let browser: playwright.Browser;
 try {
-  browser = await launcher.launch();
+  browser = await launcher.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH });
 } catch (err) {
   console.error(
     `✗ could not launch ${ENGINE}: ${(err as Error).message.split("\n")[0]}\n` +
@@ -279,7 +283,7 @@ if (DPRS.length) {
         (o) => window.__renderperf.run(o),
         {
           count, variant: PROBE_VARIANT, frames: perRound,
-          cssW: CSS_W, cssH: CSS_H, dpr, busy: true, boom: BOOM,
+          cssW: CSS_W, cssH: CSS_H, dpr, bombs: BOMBS, busy: true, boom: BOOM,
         },
       );
       const prev = best.get(dpr);
@@ -327,14 +331,14 @@ if (SNAPSHOT) {
   // padding or culling bug can be invisible at one pile size and obvious at
   // another.
   console.log("# Tetrilaunch render pixel digest\n");
-  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR}\n`);
+  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} bombs=${BOMBS}\n`);
   console.log("| Variant | N | Digest | Cargo px |");
   console.log("|---|---|---|---|");
   for (const variant of VARIANTS) {
     for (const count of COUNTS) {
       const s = await page.evaluate(
         (o) => window.__renderperf.snapshot(o),
-        { count, variant, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, png: SHOTS },
+        { count, variant, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, png: SHOTS },
       );
       console.log(`| ${variant} | ${count} | \`${s.digest}\` | ${s.cargoPx} |`);
       if (s.png) {
@@ -367,13 +371,13 @@ if (BLIT_AB) {
    * disagreeing about it is itself a result worth printing.
    */
   console.log("# Tetrilaunch background-blit A/B (interleaved per frame)\n");
-  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} variant=${PROBE_VARIANT} busy=yes\n`);
+  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} bombs=${BOMBS} frames=${FRAMES} variant=${PROBE_VARIANT} busy=yes\n`);
   console.log("| N | blit drawn p50 | blit skipped p50 | saving | drawn avg | skipped avg | saving |");
   console.log("|---|---|---|---|---|---|---|");
   for (const count of COUNTS) {
     const r = await page.evaluate(
       (o) => window.__renderperf.blitAb(o),
-      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
+      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true },
     );
     console.log(
       `| ${count} | ${r.drawnP50Ms.toFixed(3)} | ${r.skippedP50Ms.toFixed(3)} | ` +
@@ -402,7 +406,7 @@ if (PROBE) {
    * to quote when talking about a real bay.
    */
   console.log("# Tetrilaunch draw-call census\n");
-  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} variant=${PROBE_VARIANT} busy=yes\n`);
+  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} bombs=${BOMBS} frames=${FRAMES} variant=${PROBE_VARIANT} busy=yes\n`);
   const canvasPx = Math.round(CSS_W * DPR) * Math.round(CSS_H * DPR);
 
   console.log("| N asked | cubes drawn | calls/frame | drawImage | src switches | distinct srcs | " +
@@ -411,7 +415,7 @@ if (PROBE) {
   for (const count of COUNTS) {
     const c = await page.evaluate(
       (o) => window.__renderperf.probe(o),
-      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, ...LESSON_SCENE },
+      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, boom: BOOM, ...LESSON_SCENE },
     );
     // THE CUBE LAYER, ISOLATED BY DELTA — the same ladder --breakdown walks.
     //
@@ -426,20 +430,20 @@ if (PROBE) {
     const bare = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       {
-        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, ...LESSON_SCENE,
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, boom: BOOM, ...LESSON_SCENE,
         layers: { cubes: false, seams: false, trajectory: true, effects: true },
       },
     );
     const cubesOnly = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       {
-        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, ...LESSON_SCENE,
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, boom: BOOM, ...LESSON_SCENE,
         layers: { cubes: true, seams: false, trajectory: true, effects: true },
       },
     );
     const s = await page.evaluate(
       (o) => window.__renderperf.snapshot(o),
-      { count, variant: PROBE_VARIANT, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, ...LESSON_SCENE },
+      { count, variant: PROBE_VARIANT, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, ...LESSON_SCENE },
     );
     const f = c.frames;
     const per = (n: number): string => (n / f).toFixed(1);
@@ -505,7 +509,7 @@ if (PROBE) {
   await mkdir(RESULTS_DIR, { recursive: true });
   await writeFile(
     JSON_OUT ? resolve(process.cwd(), JSON_OUT) : resolve(RESULTS_DIR, `renderprobe-${Date.now()}.json`),
-    JSON.stringify({ cssW: CSS_W, cssH: CSS_H, dpr: DPR, frames: FRAMES, probeRows }, null, 2),
+    JSON.stringify({ cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, frames: FRAMES, probeRows }, null, 2),
   );
   process.exit(0);
 }
@@ -520,7 +524,7 @@ if (LESSONS_ARG.length > 0) {
         (o) => window.__renderperf.run(o),
         {
           count, variant: PROBE_VARIANT, frames: FRAMES,
-          cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM, lesson,
+          cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, boom: BOOM, lesson,
         },
       );
       lessonRows.push({ lesson, count, variant: PROBE_VARIANT, busy: true, ...r });
@@ -559,7 +563,7 @@ if (LESSONS_ARG.length > 0) {
       (o) => window.__renderperf.run(o),
       {
         count, variant: PROBE_VARIANT, frames: FRAMES,
-        cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true, boom: BOOM,
+        cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy: true, boom: BOOM,
         layers: rung.layers as unknown as { cubes: boolean; seams: boolean; trajectory: boolean; effects: boolean },
       },
     );
@@ -583,7 +587,7 @@ if (LESSONS_ARG.length > 0) {
       for (const count of COUNTS) {
         const r = await page.evaluate(
           (o) => window.__renderperf.run(o),
-          { count, variant, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy, boom: BOOM && busy },
+          { count, variant, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, busy, boom: BOOM && busy },
         );
         rows.push({ variant, busy, count, ...r });
       }
@@ -628,6 +632,6 @@ const outPath = JSON_OUT
   : resolve(RESULTS_DIR, `renderperf-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
 await writeFile(
   outPath,
-  JSON.stringify({ cssW: CSS_W, cssH: CSS_H, dpr: DPR, frames: FRAMES, rows, layerRows }, null, 2),
+  JSON.stringify({ cssW: CSS_W, cssH: CSS_H, dpr: DPR, bombs: BOMBS, frames: FRAMES, rows, layerRows }, null, 2),
 );
 console.log(`\nWrote ${(BREAKDOWN ? layerRows : rows).length} rows to ${outPath}`);
