@@ -93,20 +93,20 @@ jobs:
         run: npm run test
 
       - name: UI fit across the device matrix
+        id: chromium-fit
         run: npm run test:uifit
 
       - name: Cached browser navigation
         run: npm run test:navigation
 
-      # Screenshots for anything the assertions cannot express — reviewed by
-      # eye on a layout PR, ignored otherwise. Only on failure: 250-odd PNGs is
-      # not something to upload on every green run.
+      # Only a failed layout matrix needs its screenshot rerun. A navigation
+      # failure has no layout artifact to diagnose and must not wait for it.
       - name: Screenshots
-        if: failure()
+        if: failure() && steps.chromium-fit.conclusion == 'failure'
         run: npm run test:uifit:shots || true
 
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: failure() && steps.chromium-fit.conclusion == 'failure'
         with:
           name: uifit-screenshots
           path: app/sim/results/uifit/

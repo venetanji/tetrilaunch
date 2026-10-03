@@ -7,6 +7,9 @@ const server = await preview({ preview: { host: '127.0.0.1', port: 0 } });
 const origin = server.resolvedUrls.local[0];
 const browser = await chromium.launch({
   executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
+  // Exercise the full browser's navigation lifecycle, matching local Chromium.
+  // Playwright otherwise selects its separate headless shell in CI.
+  channel: process.env.PLAYWRIGHT_EXECUTABLE_PATH ? undefined : 'chromium',
   ignoreDefaultArgs: ['--disable-back-forward-cache'],
 });
 try {
