@@ -27,6 +27,7 @@ on:
     paths:
       - "app/src/**"
       - "app/sim/uifit/**"
+      - "app/scripts/test-navigation.mjs"
       # The harness's numbers are font metrics and engine versions as much as
       # they are stylesheets: swapping a font file or bumping the pinned
       # Playwright build shifts measurements with no src/ change at all.
@@ -38,6 +39,7 @@ on:
     paths:
       - "app/src/**"
       - "app/sim/uifit/**"
+      - "app/scripts/test-navigation.mjs"
       - "app/public/fonts/**"
       - "app/package.json"
       - "app/package-lock.json"
@@ -92,6 +94,9 @@ jobs:
 
       - name: UI fit across the device matrix
         run: npm run test:uifit
+
+      - name: Cached browser navigation
+        run: npm run test:navigation
 
       # Screenshots for anything the assertions cannot express — reviewed by
       # eye on a layout PR, ignored otherwise. Only on failure: 250-odd PNGs is
