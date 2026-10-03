@@ -17350,6 +17350,12 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     check("only the run scrolls, leaving the roof outside the clip",
       /\.tower__floors \{[^}]*overflow-y:\s*auto/.test(towerCss)
         && !/\.tower__shaft \{[^}]*overflow/.test(towerCss));
+    // The tower's 82px narrowest plates already spend their width on a car
+    // lane, number, seal and windows. A classic 10px scrollbar cannot take
+    // another slice from them, even though the surrounding shop can afford it.
+    check("the tower scroller never spends plate width on a native scrollbar",
+      /\.tower__floors \{[^}]*scrollbar-width: none;/.test(towerCss)
+        && /\.tower__floors::-webkit-scrollbar \{ width: 0; height: 0; \}/.test(towerCss));
     // THE PADDING AND THE GAP MOVED rather than being restated: with the
     // shaft's own padding gone, the run fills the shaft's padding box exactly,
     // which is the box every number in this section was measured against — and

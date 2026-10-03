@@ -2990,7 +2990,16 @@ body.crt-off #app::after { display: none; }
    The frame, roof and entrance remain outside the scrolling region.
    ========================================================================== */
 [data-density="compact"] .tower:not(.tower--lobby) { --tower-lobby-h: 44px; }
-.tower__floors { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+/* The surrounding shelves can afford the fine-pointer theme's 10px native
+   gutter; this 82px plate cannot. With real scrollbars enabled it became 72px
+   and the Skydeck label overlapped its seal. Keep the run scrollable without
+   spending its car/number/window lane on a scrollbar. Both engine families
+   need their own rule; wheel, touch and focus reveal are unchanged. */
+.tower__floors {
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.tower__floors::-webkit-scrollbar { width: 0; height: 0; }
 .tower__rail { bottom: auto; height: calc(var(--tower-run-h) - 12px); }
 /* The old 22px roof target already occupied the space above the shaft.
    Charge only its extra 22px to the shaft, keeping the target's top edge on
