@@ -1151,7 +1151,7 @@ export function tierTowerHTML(state: TowerState): string {
   // and the entrance has to be the entrance whether or not the player has
   // wandered up to read a locked Mark's terms.
   const entrance = state.licensed === false;
-  return `<div class="tower${off ? " tower--off" : ""}${entrance ? " tower--lobby" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
+  return `<div class="tower${sandboxOpen(state) ? " tower--roof" : ""}${off ? " tower--off" : ""}${entrance ? " tower--lobby" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}${ride}">
       ${towerHeadHTML(state)}
       <!-- THE RUN OF FLOORS, inside the shaft's housing and separate from it,
@@ -1163,7 +1163,7 @@ export function tierTowerHTML(state: TowerState): string {
            in here with the floors — both are drawings of where the car is on
            the ladder, and a car that stayed put while its floor scrolled away
            would be pointing at nothing. -->
-      <div class="tower__floors">
+      <div class="tower__floors" data-scroll>
         <div class="tower__rail" aria-hidden="true"></div>
         <div class="tower__car" aria-hidden="true"><span></span></div>
         ${floors.join("")}

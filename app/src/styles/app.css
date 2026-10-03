@@ -2130,7 +2130,7 @@ body.crt-off #app::after { display: none; }
   --tower-pad: 3px;
   --tower-gap: 2px;
   --tower-slack: calc(2 * var(--tower-pad) + (var(--tower-floors) - 1) * var(--tower-gap));
-  --tower-floor-h: calc((100% - var(--tower-slack)) / var(--tower-floors));
+  --tower-floor-h: max(44px, calc((100% - var(--tower-slack)) / var(--tower-floors)));
   /* THE RUN — how much height eleven rungs actually occupy, padding and gaps
      included. The same three numbers --tower-floor-h divides, multiplied back
      out, so the two can never disagree about the building's length.
@@ -2142,21 +2142,9 @@ body.crt-off #app::after { display: none; }
      against the whole building — the car's guide rail — has to ask for the
      run rather than for the box. */
   --tower-run-h: calc(var(--tower-slack) + var(--tower-floors) * var(--tower-floor-h));
-  /* HOW TALL THE ROOF'S TAP TARGET IS (.tower__head--floor). Invisible in both
-     directions — the lamp and its masts are drawn at the bottom of the box and
-     everything above them is transparent padding.
-
-     22px is the compact figure, and it is the band the ladder's own floors
-     occupy on the phones that get it (21-26px) — the roof is not singled out as
-     the small control, it is the same size as the floor under it. 44px — the
-     tap floor — from 620px of viewport height (the media rule below), which is
-     where the row above the shaft has the slack to draw a taller target into
-     without it hanging off the top of the glass.
-
-     A 360px-tall phone gives the shaft 313px, where eleven floors cannot each
-     be 44px by arithmetic, and they come out at 26px; see the entries this
-     leaves in sim/uifit/baseline.json. */
-  --tower-roof-h: 22px;
+  /* An unlocked roof is a real floor. Reserve the additional 22px inside
+     the tower below so its 44px target cannot overlap the Skydeck rung. */
+  --tower-roof-h: 44px;
   /* THE GROUND FLOOR'S HEIGHT. 22px is the plinth as it has always been;
      .tower--lobby raises it to the entrance while the licence is owed. */
   --tower-lobby-h: 22px;
@@ -2430,7 +2418,7 @@ body.crt-off #app::after { display: none; }
 }
 .tower__floor {
   display: flex; align-items: center; gap: 4px;
-  flex: 1 1 0; min-height: 0;
+  flex: 1 0 44px; min-height: 44px;
   padding: 0 5px 0 3px;
   border: 1px solid var(--line);
   border-radius: 1px;
@@ -2470,8 +2458,8 @@ body.crt-off #app::after { display: none; }
    from meta.ts's sealedMarks).
 
    POSITIONED, AND THE REASON IS WIDTH, NOT HEIGHT. Height is safe either way:
-   the floors are `flex: 1 1 0; min-height: 0` above, so the shaft divides its
-   height between eleven of them and no content can grow one. Width is not. On
+   the floors have a 44px minimum and share the remaining shaft height;
+   when that minimum cannot fit, the run scrolls. Width is not. On
    the narrowest device in the fleet the plate is 82px — sim/uifit's baseline
    records `.tower__floor 82x26` on the 640x360 budget phone — which is 72px of
    content once its 1px border and `0 5px 0 3px` padding are off, and that 72px
@@ -2988,59 +2976,37 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ============================================================================
-   THE BUILDING ON A PHONE — all eleven rungs, no scroll.
+   THE BUILDING AT ITS TAP FLOOR.
 
-   A 360px-tall phone gives the shaft ~313px; eleven floors, two 3px paddings
-   and ten 2px gaps divide that to about 26px a floor. So compact density does
-   what every taller density already does — the rungs DIVIDE the column, share
-   its height, and all eleven sit on screen at once with nothing below a fold.
-   sim/uifit records them the way it always did while they divided: `.tower__floor
-   82x22` through `108x30`, a band of `tap` findings under the 44px floor, which
-   is the accepted cost of a building read at a glance.
+   Eleven 44px floors + ten 2px gaps + two 3px paddings need 510px.
+   The 640x360 hub gives the run under 300px. Two columns would break the
+   elevator's floor order; paging would hide the neighbouring tiers. Keep the
+   existing, narrowly allowlisted run scroller instead. main.ts parks it on
+   the selected floor on every mount and ride, and keyboard/pad focus reveals
+   each rung. Taller towers continue dividing their available height.
 
-   IT USED TO SCROLL HERE. Each rung took the full 44px tap floor (11 x 44 +
-   gaps = 510px of building behind a ~291px window) and the run became an
-   allowlisted scroller that main.ts parked on the selected floor. Two things
-   changed the call. The Flight School lobby left the shaft — onboarding moved
-   to the front door — giving its ~22-44px of plinth back to the rungs; and the
-   owner's read is that a ten-floor ladder you take in at a glance beats one you
-   drag past a fold. Under 44px on the shortest phones is the price, and it is
-   the price this ladder paid before the scroller and pays again now.
-
-   WHAT DOES NOT CHANGE:
-
-     - EVERY OTHER DENSITY. Regular and roomy already divide the column; nothing
-       above this block moves, so no desktop or tablet baseline row shifts.
-     - THE CEREMONY. The ride writes `top` on the car and paint on the plates,
-       both off --tower-floor-h and --tower-run-h — and with the column divided
-       the run IS the box (100%), the same resting geometry every other density
-       measures. The car rides the shared floor-plus-gap step with no scroll
-       offset to carry it, and the selected floor is already on screen.
-
-   THE HEADHOUSE stays in the 19px band ABOVE the shaft (the Tier S beacon), so
-   it takes no height from the eleven rungs below it.
+   max() in --tower-floor-h gives the car the same 44px minimum as the real
+   buttons. The rail must span the CONTENT, not stop at the scrollport edge.
+   The frame, roof and entrance remain outside the scrolling region.
    ========================================================================== */
-/* NO 44px OVERRIDE ANY MORE. Compact keeps the divided --tower-floor-h every
-   other density uses, so all eleven rungs share the shaft and the run is the
-   box — see the block header above for why fitting beat scrolling once the
-   lobby left the shaft. */
-/* …AND THE PLINTH WITH THEM. The earned ground floor is furniture — it took
-   22px on the argument that it should share the rungs' trade (see
-   .tower__base--floor) — and with the rungs off that trade there is nothing
-   left to share: it is a real control, on the ladder's own column, and the
-   22px it gives back to the shaft is 22px of a run that scrolls anyway.
-   The ENTRANCE is excluded because it is already over the floor: while the
-   licence is owed the plate is clamp(44px, 13%, 72px), which is 44 at worst
-   and 47.5px on a 412px-tall phone — writing 44 here would make the door
-   SMALLER on half the fleet. */
 [data-density="compact"] .tower:not(.tower--lobby) { --tower-lobby-h: 44px; }
-/* The run of floors no longer scrolls at compact density — all eleven divide
-   the shaft and fit on screen — so it keeps the base .tower__floors box: no
-   overflow, no edge fade, no scroll containment, and .tower__floor keeps the
-   base `flex: 1 1 0` that shares the column between the eleven rungs. */
-/* The guide rail keeps the base rule (top/bottom 6px): the shaft no longer
-   scrolls at compact density, so the run IS the box and top/bottom spans the
-   whole building exactly as it does on every other density. */
+/* The surrounding shelves can afford the fine-pointer theme's 10px native
+   gutter; this 82px plate cannot. With real scrollbars enabled it became 72px
+   and the Skydeck label overlapped its seal. Keep the run scrollable without
+   spending its car/number/window lane on a scrollbar. Both engine families
+   need their own rule; wheel, touch and focus reveal are unchanged. */
+.tower__floors {
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.tower__floors::-webkit-scrollbar { width: 0; height: 0; }
+.tower__rail { bottom: auto; height: calc(var(--tower-run-h) - 12px); }
+/* The old 22px roof target already occupied the space above the shaft.
+   Charge only its extra 22px to the shaft, keeping the target's top edge on
+   screen and its bottom edge clear of the first rung. */
+@media (max-height: 619px) {
+  .tower--roof .tower__shaft { margin-top: 22px; }
+}
 
 /* ============================================================================
    THE UNLOCK RIDE (screens.ts's TowerState.celebrate) — a new tier, celebrated.
@@ -8975,6 +8941,21 @@ body.crt-off #app::after { display: none; }
    has no skip — see screens.ts's draft note.) The 2px padding keeps the
    cards' hover translate from clipping at the scroll edge. */
 .modal--draft .draft__body { min-height: 96px; }
+/* Short desktop windows have the full-size cards but insufficient body
+   height: at 800x600, 326px of content had 251px. Spend outer air first;
+   reducing five 16px gaps to 8px and 32px padding to 12px buys 80px without
+   hiding copy or shrinking targets. Also covers 1269x663's 16px overflow. */
+@media (min-height: 521px) and (max-height: 700px) {
+  .modal--draft { padding: 12px; gap: 8px; }
+}
+/* At 800px wide the refit projection had only two tile columns: 440px of
+   tiles inside 328px. A balanced split and reduced outer padding give the
+   existing 96px tile minimum room for three columns, while the shelf keeps
+   its own scroll. */
+@media (min-height: 521px) and (max-width: 900px) {
+  .modal--refit { padding: 16px; }
+  .modal--refit .refit__body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
 @media (max-height: 520px) {
   .modal--draft { gap: 6px; }
   .modal--draft .mod-card { padding: 7px 10px; gap: 3px; }
@@ -9549,22 +9530,6 @@ button.panel { color: var(--text); }
      `align-items: center` can actually centre it — 24.4px above, 24.4px below.
      The inline value is untouched; width was never the constraint here. */
   .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
-  /* ...AND THAT 6px IS WHY THE GROUND FLOOR PAYS FROM THE SHAFT HERE. The
-     entrance (.tower--lobby, up in the tower block) adds its height to the
-     TOWER'S BOX everywhere else, spending the menu's own block padding at both
-     ends — 32-60px on every viewport taller than this query. On a landscape
-     phone that padding is the 6px above, pinned there because the action rail
-     barely fits as it is, and the headhouse already draws 19px above the shaft:
-     a tower 22px taller than its row would push the beacon clean off the top of
-     the screen.
-
-     So on the phone tier the ground floor takes its height out of the shaft,
-     which is the trade the eleven rungs can actually afford here — they are
-     22-30px on these rows, nowhere near the 44px floor and already baselined
-     short, and they shed about two pixels each to put the one control a new
-     pilot can press onto the tap floor. Measured: 640x360 rungs 24.4px ->
-     22.4px, 812x375 rungs 25.0px -> 23.0px, and the plate 22px -> 44px on
-     both. */
   /* The gap only. The phone tier's --brand-cap pin lives inside the @supports
      block beside .menu__brand, not here, and it has to: this query is far
      downstream of that block, so a --brand-cap set here would win over the
