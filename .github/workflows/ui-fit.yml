@@ -26,6 +26,11 @@ on:
     branches: [staging]
     paths:
       - "app/src/**"
+      - "app/worker/**"
+      - "tests/api-safety.mts"
+      - "app/sim/api-routing.ts"
+      - "package.json"
+      - "package-lock.json"
       - "app/sim/uifit/**"
       # The harness's numbers are font metrics and engine versions as much as
       # they are stylesheets: swapping a font file or bumping the pinned
@@ -37,6 +42,11 @@ on:
   pull_request:
     paths:
       - "app/src/**"
+      - "app/worker/**"
+      - "tests/api-safety.mts"
+      - "app/sim/api-routing.ts"
+      - "package.json"
+      - "package-lock.json"
       - "app/sim/uifit/**"
       - "app/public/fonts/**"
       - "app/package.json"
@@ -89,6 +99,11 @@ jobs:
       # browser at all and fails in seconds.
       - name: Layout solver checks
         run: npm run test
+
+      # The Worker owns jose/D1 tooling at the repository root; native/app-only
+      # builds do not need to install it just to run the client tests.
+      - name: Worker payload validation
+        run: npm --prefix .. ci && npm --prefix .. run test:api
 
       - name: UI fit across the device matrix
         run: npm run test:uifit
