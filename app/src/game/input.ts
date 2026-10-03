@@ -396,6 +396,8 @@ export class InputController {
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
+    // Cached navigation can omit blur and the matching key/pointer releases.
+    window.addEventListener("pagehide", this.onBlur);
     this.raf = requestAnimationFrame(this.tickKeys);
   }
 
@@ -410,6 +412,7 @@ export class InputController {
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
+    window.removeEventListener("pagehide", this.onBlur);
     cancelAnimationFrame(this.raf);
   }
 

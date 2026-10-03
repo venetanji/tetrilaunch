@@ -10,7 +10,7 @@
     "build": "npm run typecheck && vite build",
     "build:native": "npm run typecheck && vite build --mode native",
     "preview": "vite preview --port 4173",
-    "test": "tsx sim/systems.ts",
+    "test": "tsx sim/systems.ts && npm run test:api",
     "cap:sync": "npm run build:native && cap sync",
     "cap:add:android": "cap add android && npm run patch:android",
     "cap:add:ios": "cap add ios",
@@ -68,7 +68,9 @@
     "promo:beats": "tsx sim/promo/run.ts --all",
     "promo:shots": "tsx sim/promo/run.ts --shots --store=all",
     "promo:verify": "tsx sim/promo/verify.ts",
-    "promo:assemble": "tsx sim/promo/assemble.ts"
+    "promo:assemble": "tsx sim/promo/assemble.ts",
+    "test:api": "tsx sim/api-routing.ts",
+    "test:navigation": "npm run build && node scripts/test-navigation.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",
