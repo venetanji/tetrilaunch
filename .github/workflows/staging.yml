@@ -107,7 +107,16 @@ jobs:
           VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
           VITE_APPLE_WEB_CLIENT_ID: ${{ secrets.VITE_APPLE_WEB_CLIENT_ID }}
           VITE_REVENUECAT_WEB_KEY: ${{ secrets.VITE_REVENUECAT_WEB_KEY }}
-        run: npx wrangler deploy --env staging
+        run: |
+          set -o pipefail
+          npx wrangler deploy --env staging | tee "$RUNNER_TEMP/staging-deploy.log"
+          node -e '
+            const fs = require("node:fs");
+            const log = fs.readFileSync(process.env.RUNNER_TEMP + "/staging-deploy.log", "utf8");
+            const url = log.match(/https:\/\/tetrilaunch-staging\.[a-z0-9-]+\.workers\.dev/);
+            if (!url) throw new Error("Wrangler did not report a staging deployment URL");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "deployment-url=" + url[0] + "\n");
+          '
 
       # A new named Worker must exist before Wrangler can attach secrets. The
       # bulk upload creates a new Worker version immediately after the initial
@@ -142,3 +151,8 @@ jobs:
               Object.fromEntries(Object.entries(secrets).filter(([, v]) => v)),
             ));
           ' | npx wrangler secret bulk --env staging
+
+      - name: Verify served staging build and API
+        env:
+          STAGING_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: node scripts/verify-staging.mjs "$STAGING_URL" "$GITHUB_SHA"

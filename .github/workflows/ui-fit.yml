@@ -90,6 +90,11 @@ jobs:
       - name: Layout solver checks
         run: npm run test
 
+      # The Worker owns jose/D1 tooling at the repository root; native/app-only
+      # builds do not need to install it just to run the client tests.
+      - name: Worker payload validation
+        run: npm --prefix .. ci && npm --prefix .. run test:api
+
       - name: UI fit across the device matrix
         run: npm run test:uifit
 

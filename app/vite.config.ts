@@ -94,6 +94,9 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: true,
     port: 5173,
+    // An absent local Worker is an explicit offline error, never a fallback to
+    // the live board. This proxy also applies to `vite preview`.
+    proxy: { "/api": "http://127.0.0.1:8787" },
   },
   plugins: [
     stripWebOnly(mode),

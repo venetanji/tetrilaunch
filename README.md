@@ -189,6 +189,22 @@ npm run dev          # http://localhost:5173  (vite dev)
 npm run build        # typecheck + production build → app/dist
 ```
 
+### Safe API destinations for local and preview builds
+
+Web builds use same-origin `/api/*`, including Cloudflare staging Workers. Vite dev
+and preview proxy those requests to the **local** Worker at `127.0.0.1:8787`;
+run `npm run db:migrate:local`, then start `npm run dev:worker` in a second
+terminal. Both commands use the local staging database binding.
+A stopped Worker or a Pages preview without an API shows an unavailable board;
+it never falls back to production.
+
+To deliberately connect a preview or installed test build to a staging Worker,
+set `VITE_API_BASE=https://<staging-worker>.workers.dev` before building. Use an
+HTTP(S) origin with no path, credentials, query or fragment. Leave it unset for
+Cloudflare Worker web deployments so the frontend and API share the deployment.
+Installed Capacitor and Electron releases retain their production API default.
+Never set the production origin for local play-testing.
+
 ### Cloudflare Worker + D1 (leaderboard)
 
 From the repo root:

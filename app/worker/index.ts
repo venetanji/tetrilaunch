@@ -177,6 +177,17 @@ async function verifyIdentity(
   }
 }
 
+/** JSON syntax alone does not establish a score object. In particular null,
+ * arrays and objects in scalar fields can throw during coercion, before D1.
+ * Optional fields remain optional for older installed clients. */
+function isScorePayload(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const body = value as Record<string, unknown>;
+  if (body.name !== undefined && typeof body.name !== "string") return false;
+  return ["score", "mark", "day", "level", "lines"].every((key) =>
+    body[key] === undefined || typeof body[key] === "number" || typeof body[key] === "string");
+}
+
 function sanitizeName(raw: unknown): string {
   const s = String(raw ?? "")
     .toUpperCase()
@@ -309,7 +320,11 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   if (url.pathname === "/api/scores" && request.method === "POST") {
     let body: Record<string, unknown>;
     try {
-      body = (await request.json()) as Record<string, unknown>;
+      const parsed: unknown = await request.json();
+      if (!isScorePayload(parsed)) {
+        return json({ error: "invalid_payload" }, 400);
+      }
+      body = parsed;
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
@@ -370,7 +385,11 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
   if (url.pathname === "/api/daily" && request.method === "POST") {
     let body: Record<string, unknown>;
     try {
-      body = (await request.json()) as Record<string, unknown>;
+      const parsed: unknown = await request.json();
+      if (!isScorePayload(parsed)) {
+        return json({ error: "invalid_payload" }, 400);
+      }
+      body = parsed;
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
