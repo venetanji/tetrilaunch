@@ -68,6 +68,8 @@ export interface RenderPerfOptions {
    * quietly making it more expensive would invalidate all of them.
    */
   boom?: boolean;
+  /** Active demolition charges, plus the loaded charge at the muzzle. */
+  bombs?: number;
   /**
    * Which scene layers this frame carries. Omitted = all of them, which is the
    * ordinary sweep. The breakdown mode fills it in one layer at a time and
@@ -317,6 +319,16 @@ function forcePlaying(g: Game): void {
   }
 }
 
+/** Render-only bomb fixture: these poses stay fixed so no charge detonates
+ * during warmup. Includes rotated fuse highlights and the loaded preview. */
+function bombScene(count = 0): Matter.Body[] {
+  return Array.from({ length: count }, (_, i) => {
+    const body = Matter.Bodies.circle(760 + (i % 3) * 90, 320 - Math.floor(i / 3) * 70, CELL * 0.45);
+    Matter.Body.setAngle(body, i * Math.PI / 4);
+    return body;
+  });
+}
+
 function percentile(sorted: number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
 }
@@ -360,6 +372,7 @@ function prepare(opts: RenderPerfOptions): {
     g.updateTrajectory();
   }
 
+  const bombs = bombScene(opts.bombs);
   const layers = opts.layers ?? ALL_LAYERS;
   const noCubes: Cube[] = [];
   const noConstraints: Matter.Constraint[] = [];
@@ -376,7 +389,7 @@ function prepare(opts: RenderPerfOptions): {
       effects: layers.effects
         ? (opts.boom ? boomEffects(t) : (opts.busy ? busyEffects(t) : g.effects))
         : noEffects,
-      level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
+      level: g.level, nextIsBomb: !!opts.bombs || g.nextIsBomb, bombs: opts.bombs ? bombs : g.bombs,
       windNow: g.windNow, windAverage: g.windAverage,
       reload: g.cannon.reloadRatio(t), settling: g.settling,
       strandWarning: g.trajectoryStrands,
@@ -570,13 +583,14 @@ export function snapshotScene(opts: RenderPerfOptions & { png?: boolean }): Snap
   g.aiming = true;
   g.updateTrajectory();
 
+  const bombs = bombScene(opts.bombs);
   const t = t0 + 1000;
   const paint = (cubes: Cube[], constraints: Matter.Constraint[]): Uint8ClampedArray => {
     render(ctx, opts.cssW, opts.cssH, opts.dpr, {
       cubes, constraints, compactor: g.compactor, cannon: g.cannon,
       trajectory: g.trajectory, now: t, aiming: true,
       effects: busyEffects(t),
-      level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
+      level: g.level, nextIsBomb: !!opts.bombs || g.nextIsBomb, bombs: opts.bombs ? bombs : g.bombs,
       windNow: g.windNow, windAverage: g.windAverage,
       reload: g.cannon.reloadRatio(t), settling: g.settling,
       strandWarning: g.trajectoryStrands,

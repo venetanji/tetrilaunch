@@ -8191,7 +8191,7 @@ class App {
    * every bay, for a number that changes when congestion re-prices a launch.
    */
   private syncHud(g: Game): void {
-    // The diagnostics sampler rides the HUD's own frame, throttled to ~1Hz
+    // Opt-in diagnostics ride the HUD's own frame, throttled to ~1Hz
     // inside itself. It has to run HERE, mid-run, because the knock-to-open
     // panel lives on the Settings screen, where the game DOM is already gone:
     // build 12's [layout] read `plant absent` while the run's clip was the
@@ -10489,9 +10489,12 @@ class App {
    *  re-measure of DOM that no longer exists. */
   private hudSample: string | null = null;
   private hudSampleAt = 0;
+  private hudGeometryEnabled = false;
 
   /**
-   * Once a second while a run draws, record where the plant panel REALLY is.
+   * While the diagnostics ruler is enabled, sample the live panel once a
+   * second. Ordinary play avoids the descendant geometry scan entirely: the
+   * 101-node phone HUD otherwise cost 107 rect reads and ~1ms per sample.
    *
    * Build 12 proved the resting numbers are innocent: on the Settings screen
    * every viewport height agreed (812x375, all four CSS units, insets
@@ -10509,6 +10512,7 @@ class App {
    * throws mid-run would be a worse bug than the one it is hunting.
    */
   private sampleHudGeometry(): void {
+    if (!this.hudGeometryEnabled) return;
     const now = performance.now();
     if (now - this.hudSampleAt < 1000) return;
     this.hudSampleAt = now;
@@ -10733,6 +10737,7 @@ class App {
     // is not an instruction the one test device's owner can follow. Same
     // knock, both snapshots, one photograph.
     const rulerOn = this.toggleGeoRuler();
+    this.hudGeometryEnabled = rulerOn;
     // The build id rides along so a photograph of this panel names the build
     // it came from — same guarded read as screens.ts's .build-tag, same
     // reasons for both fallbacks.
@@ -10741,7 +10746,7 @@ class App {
     box.textContent = `[build] ${build}\n\n[audio] diagnostics\n\n${audioDiagnostics()}`
       + `\n\n[layout]\n${this.layoutDiagnostics()}`
       + `\n\n[hud, last in-run sample]\n${this.hudSample
-        ?? "none yet — play a bay first, then knock again"}`
+        ?? "none yet — enable the ruler, play a bay, then knock again"}`
       + `\n\n[ruler] ${rulerOn
         ? "ON — close this panel, play, and photograph the game with the grid up"
         : "off (knock again to draw it)"}`
