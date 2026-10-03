@@ -1396,7 +1396,21 @@ class App {
     // the cases that do.
     window.addEventListener("native-resign-active", () => suspendAudio("native"));
     window.addEventListener("native-did-become-active", () => resumeAudio("native"));
-    window.addEventListener("pagehide", () => this.destroy());
+    window.addEventListener("pagehide", (event) => {
+      suspendAudio();
+      this.clearHold();
+      this.autoPointerId = null;
+      this.game?.setAutoHeld(false);
+      // A cached document resumes this same App, including its rAF callbacks.
+      // Destroying its input/world leaves a ticking but unplayable bay on Back.
+      if (!event.persisted) this.destroy();
+    });
+    window.addEventListener("pageshow", (event) => {
+      if (!event.persisted) return;
+      if (!document.hidden) resumeAudio();
+      this.onResize();
+      this.armWatchdog(WATCHDOG_RESUME_MS);
+    });
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
     // Before the first render: the pause card and the Controls screen read

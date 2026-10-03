@@ -69,6 +69,7 @@
     "promo:shots": "tsx sim/promo/run.ts --shots --store=all",
     "promo:verify": "tsx sim/promo/verify.ts",
     "promo:assemble": "tsx sim/promo/assemble.ts",
+    "test:navigation": "npm run build && node scripts/test-navigation.mjs",
     "test:api": "tsx sim/api-routing.ts"
   },
   "dependencies": {
