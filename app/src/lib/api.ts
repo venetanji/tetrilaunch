@@ -1,18 +1,10 @@
-// Leaderboard client. Talks to the D1-backed Worker API.
-// Same-origin when served by the Worker (tetrilaunch.com or the workers.dev
-// fallback); absolute to the deployed Worker when running locally (vite dev),
-// on a Cloudflare Pages preview (*.pages.dev branch deploys), or inside the
-// Capacitor native shell. The Worker's /api responses are CORS-open
-// (Access-Control-Allow-Origin: *), so the cross-origin cases need no proxy
-// and share the production leaderboard.
-
-const REMOTE = "https://tetrilaunch.com";
+// Web requests stay on the host serving the game. A preview must never silently
+// post a test score to production; Vite proxies /api to the local Worker.
+import { Capacitor } from "@capacitor/core";
+import { resolveApiBase } from "./api-origin";
 
 export function apiBase(): string {
-  const h = location.hostname;
-  const servedByWorker =
-    h === "tetrilaunch.com" || h === "www.tetrilaunch.com" || h.endsWith(".workers.dev");
-  return servedByWorker ? "" : REMOTE;
+  return resolveApiBase(location.protocol, Capacitor.isNativePlatform(), import.meta.env?.VITE_API_BASE);
 }
 
 /**

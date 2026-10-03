@@ -10,7 +10,8 @@
     "deploy:staging": "npm run build && wrangler deploy --env staging",
     "db:migrate": "wrangler d1 migrations apply tetrilaunch-leaderboard --remote --env=\"\"",
     "db:migrate:staging": "wrangler d1 migrations apply tetrilaunch-leaderboard-preview --remote --env staging",
-    "db:migrate:local": "wrangler d1 migrations apply tetrilaunch-leaderboard --local --env=\"\""
+    "db:migrate:local": "wrangler d1 migrations apply tetrilaunch-leaderboard-preview --local --env staging",
+    "test:api": "app/node_modules/.bin/tsx tests/api-safety.mts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260710.1",
