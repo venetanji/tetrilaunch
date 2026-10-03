@@ -22553,6 +22553,19 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
       next === 1, `${next} shots`);
   }
 
+  // Navigation need not deliver blur or pointerup before freezing the page.
+  {
+    send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+    check("pagehide cancels a held aim without firing",
+      fired(() => send(onWindow, "pagehide", { persisted: true })) === 0);
+    check("a release after cached navigation cannot fire the old gesture",
+      fired(() => send(onWindow, "pointerup", ptr(0, "mouse", 400))) === 0);
+    check("a fresh gesture after cached navigation fires exactly once", fired(() => {
+      send(onCanvas, "pointerdown", { ...ptr(0, "mouse", 500), pointerId: 2 });
+      send(onWindow, "pointerup", { ...ptr(0, "mouse", 500), pointerId: 2 });
+    }) === 1);
+  }
+
   // THE CLICK THAT CLOSED THE MODAL DOES NOT ALSO FIRE A SHOT (found in
   // review). Every modal button acts on its click and the bay under it is live
   // canvas the instant that click re-renders the overlay, so the second press

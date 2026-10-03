@@ -68,7 +68,8 @@
     "promo:beats": "tsx sim/promo/run.ts --all",
     "promo:shots": "tsx sim/promo/run.ts --shots --store=all",
     "promo:verify": "tsx sim/promo/verify.ts",
-    "promo:assemble": "tsx sim/promo/assemble.ts"
+    "promo:assemble": "tsx sim/promo/assemble.ts",
+    "test:navigation": "npm run build && node scripts/test-navigation.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",
