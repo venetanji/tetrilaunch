@@ -395,7 +395,7 @@ your phone, and only when you choose to send it.
 **What's new** (500 max):
 
 ```
-Returning with browser Back keeps your bay playable. Workshop labels and tower controls fit better on small screens and short desktop windows. Preview scores stay separate from the live leaderboard, and score submissions handle invalid data more reliably.
+Less background diagnostic work and reused aiming previews. The bay headline stays at the top in tall windows and fullscreen. Returning with browser Back keeps your bay playable. Workshop labels and tower controls fit better on small screens and short desktop windows. Preview scores stay separate from the live leaderboard, and score submissions handle invalid data more reliably.
 ```
 
 THE RELEASE NOTES ARE NOT THIS TEXT, and that is the point of keeping it here.
