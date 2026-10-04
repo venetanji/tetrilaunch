@@ -231,6 +231,10 @@ if (!app.requestSingleInstanceLock()) {
     // pauses once; Escape in a window pauses and resumes; none of the three
     // reaches the page as a keydown while fullscreen.
     win.webContents.on("before-input-event", (event, input) => {
+      // Keep Alt (including its keyup) out of the menu without consuming game input.
+      if (process.platform !== "darwin") {
+        win.webContents.setIgnoreMenuShortcuts(input.alt || input.key === "Alt");
+      }
       if (input.type !== "keyDown" || input.isAutoRepeat) return;
       const toggle =
         input.key === "F11" ||
