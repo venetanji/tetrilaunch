@@ -33,6 +33,8 @@ on:
       - "package-lock.json"
       - "app/sim/uifit/**"
       - "app/scripts/test-navigation.mjs"
+      - "app/scripts/test-hud-diagnostics.mjs"
+      - "app/sim/trajectory-cache.ts"
       # The harness's numbers are font metrics and engine versions as much as
       # they are stylesheets: swapping a font file or bumping the pinned
       # Playwright build shifts measurements with no src/ change at all.
@@ -50,6 +52,8 @@ on:
       - "package-lock.json"
       - "app/sim/uifit/**"
       - "app/scripts/test-navigation.mjs"
+      - "app/scripts/test-hud-diagnostics.mjs"
+      - "app/sim/trajectory-cache.ts"
       - "app/public/fonts/**"
       - "app/package.json"
       - "app/package-lock.json"
@@ -110,6 +114,9 @@ jobs:
       - name: UI fit across the device matrix
         id: chromium-fit
         run: npm run test:uifit
+
+      - name: Opt-in HUD diagnostics
+        run: npm run test:hud-diagnostics
 
       - name: Cached browser navigation
         run: npm run test:navigation

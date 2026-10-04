@@ -11856,7 +11856,7 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Bay-progress banner ----------
-   Top-center of the FIELD (not the viewport), always in view during play:
+   Top of the visible bay sky, horizontally centered on the field:
    the current bay as a headline number plus one pip per bay of the run —
    cleared pips cyan, the live one amber. Pointer-events none with higher
    specificity than `.hud > *`, because it sits exactly where high lob drags
@@ -11864,7 +11864,10 @@ button.panel { color: var(--text); }
 .hud > .bay-banner { pointer-events: none; }
 .bay-banner {
   position: absolute;
-  top: calc(var(--field-y) + 6px);
+  /* The letterbox above the bottom-anchored field is visible bay sky. Keep
+     its headline at that sky's safe top edge, rather than following the
+     nominal 16:9 field downward on fullscreen laptops and tablets. */
+  top: calc(var(--inset-t) + 6px);
   left: calc(var(--field-x) + var(--field-w) / 2);
   transform: translateX(-50%);
   z-index: 5;

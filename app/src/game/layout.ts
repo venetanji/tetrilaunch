@@ -511,10 +511,11 @@ export function uiScaleFor(
  * sky follows the field down without being told.
  *
  * What follows it down is everything anchored to the published --field-* rect:
- * `.belt`, `.bay-banner` and `.settle-note` ride the field's TOP edge, and
+ * `.belt` and `.settle-note` ride the field's TOP edge, and
  * `.plant` rides its BOTTOM edge onto the box's floor. The rail does NOT move —
  * it is anchored to the viewport, not the field — which is the whole reason its
- * band is reserved here rather than left to the stylesheet. sim/systems.ts walks
+ * band is reserved here rather than left to the stylesheet. The bay headline
+ * stays at the visible sky's safe top edge instead. sim/systems.ts walks
  * the plant panel's clearance over every device and every rail budget; on the
  * tightest row (640x360 Android, "snug") it comes out at 9.3px, and that is the
  * number a future layout change has to keep positive.

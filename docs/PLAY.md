@@ -395,16 +395,7 @@ your phone, and only when you choose to send it.
 **What's new** (500 max):
 
 ```
-Flight School is an offer now, not a gate: press Play and fly, or take the
-lessons first.
-
-The menu is two screens — a front door that starts the game, and a tier hub
-that holds your run, today's Contracts and the Workshop one button apart. A
-finished tier waits for you to press Unlock.
-
-The wind is a small tab under the bay banner instead of a gauge across the
-field. Three screens get a second song. On a phone browser, the first press of
-Play goes fullscreen.
+Less background diagnostic work and reused aiming previews. The bay headline stays at the top in tall windows and fullscreen. Returning with browser Back keeps your bay playable. Workshop labels and tower controls fit better on small screens and short desktop windows. Preview scores stay separate from the live leaderboard, and score submissions handle invalid data more reliably.
 ```
 
 THE RELEASE NOTES ARE NOT THIS TEXT, and that is the point of keeping it here.

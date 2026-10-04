@@ -1,6 +1,6 @@
 {
   "name": "tetrilaunch",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "description": "Tetrilaunch — a neon-arcade physics cannon puzzle. Capacitor port (web / Android / iOS).",
   "type": "module",
@@ -10,7 +10,7 @@
     "build": "npm run typecheck && vite build",
     "build:native": "npm run typecheck && vite build --mode native",
     "preview": "vite preview --port 4173",
-    "test": "tsx sim/systems.ts && npm run test:api",
+    "test": "tsx sim/systems.ts && npm run test:api && tsx sim/trajectory-cache.ts",
     "cap:sync": "npm run build:native && cap sync",
     "cap:add:android": "cap add android && npm run patch:android",
     "cap:add:ios": "cap add ios",
@@ -70,7 +70,8 @@
     "promo:verify": "tsx sim/promo/verify.ts",
     "promo:assemble": "tsx sim/promo/assemble.ts",
     "test:api": "tsx sim/api-routing.ts",
-    "test:navigation": "npm run build && node scripts/test-navigation.mjs"
+    "test:navigation": "npm run build && node scripts/test-navigation.mjs",
+    "test:hud-diagnostics": "node scripts/test-hud-diagnostics.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",
