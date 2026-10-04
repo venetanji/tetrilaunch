@@ -25,3 +25,27 @@ Delegate bounded, non-overlapping work to a specialist when that agent is availa
 5. Check review feedback on every push. Verify findings against the code, fix confirmed problems in follow-up commits, and only resolve a thread after its fix is pushed. Leave the PR for human review; merging to `main` is a separate release decision.
 
 Keep unrelated working trees and PRs untouched. For a docs-only change, still apply the same pre-push validation gate unless the human explicitly approves a narrower one. See `.claude/agents/pr-steward.md` for the full review and integration ritual.
+
+## Releases
+
+Release delivery runs through GitHub Actions. Read the current workflows in `.github/workflows/` and the native/desktop runbooks before release work; old documentation may describe retired upload steps.
+
+1. Finish the selected PRs on staging. Update the release-record PR with the complete scope and evidence, review it, and merge it to staging last (the 1.0.6 example is PR #224).
+2. Validate the final staging tree and current-head checks. App/desktop manifests and both lockfile roots must agree with the intended `vX.Y.Z` tag. Use `app/desktop/scripts/check-version.mjs` with `RELEASE_TAG` set for the manifests/tag; separately compare both the top-level version and `packages[""].version` in `app/package-lock.json` and `app/desktop/package-lock.json`.
+3. Fast-forward main to that exact staging commit with `git merge --ff-only origin/staging`, then push main. Do not create a different release SHA through a PR merge into main, force-push, or bypass branch protection.
+4. When the owner requests the official release, create the version tag on that verified main commit and push the tag once. This is the release trigger; do not replace it with local store uploads or ask again for authorization already given in the session.
+5. Monitor the independent Actions runs and report their URLs, failures and any pending environment reviews. The owner handles GitHub deployment approvals; never approve or bypass those reviews on their behalf.
+
+| Workflow | Version-tag result | Environment |
+| --- | --- | --- |
+| `desktop.yml` | Windows installer, signed/notarized macOS packages and Linux AppImage; creates the public GitHub Release with generated notes. | `desktop-build` |
+| `android.yml` | Signed Android bundle uploaded to Google Play's **internal** track. | `android-build` |
+| `ios.yml` | Signed iOS archive uploaded to App Store Connect/**TestFlight**. | `ios-build` |
+
+Each workflow listens to `v*` tags directly; Android and iOS do not depend on desktop packaging succeeding. Check live environment protection rules rather than assuming every platform pauses for review. Do not print secret values.
+
+Play internal and TestFlight are the channels used for phone testing. Record unfinished device checks honestly, but do not invent a pre-tag physical-phone certification or local signing/upload requirement that prevents these builds from reaching testers. Promotion beyond internal testing and App Store submission remain owner actions.
+
+A normal branch `workflow_dispatch` is a rehearsal. Android/iOS dispatches publish only on a version-tag ref with `publish=true`; desktop dispatch never creates the release. For a failed release, prefer re-running the failed jobs on the original tag run. Do not delete/re-push tags or start duplicate uploads merely to retry: Android/iOS build numbers are consumed.
+
+Production Worker deployment is a separate `production.yml` dispatch on main, with its own environment review; it is not triggered by the version tag. Steam upload is also separate: `desktop.yml` with `steam_upload=true` uploads to `playtest`, while default-branch promotion stays manual. Do not dispatch either as an assumed prerequisite of the native tag release. Verify any claimed web deployment from the served build/API, not just the workflow history.
