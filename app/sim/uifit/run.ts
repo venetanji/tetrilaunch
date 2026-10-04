@@ -368,6 +368,7 @@ const ASSERTIONS = [
   { id: "draghint", desc: "the drag hint's gesture plays clear of the plant panel" },
   { id: "reveal", desc: "the tutorial's first step reveals only what it teaches" },
   { id: "plant", desc: "the HUD plant panel stays inside its design box, clear of the belt" },
+  { id: "baybanner", desc: "the bay headline stays at the top of the visible sky" },
   { id: "crest", desc: "the crest ring registers with the panel's own edges" },
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop body is two panels of one height, detail fixed" },
@@ -406,7 +407,7 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], safearea: [], tap: [], textclip: [],
     clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
-    plant: [], crest: [], rail: [], twocol: [], oneline: [], rack: [], badge: [],
+    plant: [], baybanner: [], crest: [], rail: [], twocol: [], oneline: [], rack: [], badge: [],
     inkline: [], padfocus: [], warn: [],
   };
   const label = (el: Element): string => {
@@ -824,6 +825,15 @@ function measure(cfg: {
 
   const rootStyle = getComputedStyle(document.documentElement);
   const cssPx = (name: string): number => parseFloat(rootStyle.getPropertyValue(name));
+
+  const bayBanner = document.querySelector(".bay-banner");
+  if (bayBanner) {
+    const expectedTop = insets.top + 6;
+    const actualTop = bayBanner.getBoundingClientRect().top;
+    if (Math.abs(actualTop - expectedTop) > 1) {
+      out.baybanner.push(`${actualTop.toFixed(1)}px top, expected ${expectedTop}px at the visible sky`);
+    }
+  }
 
   // --- plant: the HUD panel between its floor and its ceiling ---------------
   // TWO DIFFERENT NUMBERS, and they stopped being the same one with the R4
