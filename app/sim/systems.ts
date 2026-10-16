@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkAndroidPaywallPatch } from "./android-patch";
 import { checkAudioContinuity } from "./audio";
 import Matter from "matter-js";
 import {
@@ -34243,6 +34244,11 @@ section("The Full Game preview says what the entitlement opens, and shows it (sc
     fly(MENU_BAY, 1, 5400) === 0,
   );
 }
+
+// ---------------------------------------------------------------------------
+section("Android paywall orientation survives project regeneration");
+// ---------------------------------------------------------------------------
+checkAndroidPaywallPatch(check);
 
 // ---------------------------------------------------------------------------
 section("The desktop monetization boundary (docs/STEAM.md)");
