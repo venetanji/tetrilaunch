@@ -52,6 +52,9 @@ sources that *are* committed under `app/native/android/`:
   two `<application>` attributes pointing at them — Auto Backup exclusions for
   the WebView's service-worker store (see
   [Progress survives reinstall](#progress-survives-reinstall-on-android-already))
+- RevenueCat's `PaywallActivity` manifest entry with `screenOrientation="behind"`
+  so its separate activity follows the game's landscape lock; the SDK's other
+  activity attributes are retained by the manifest merger.
 
 The patch is idempotent and runs automatically as the last step of
 `cap:add:android` and every `android:*` script, plus as its own CI step. If a

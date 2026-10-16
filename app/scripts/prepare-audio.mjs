@@ -141,20 +141,17 @@ const STINGERS = [
  * `menu` is the lounge bed that plays outside a bay. The `bay-N` roles are the
  * Deep Run's arc, one song per bay; WHICH bay each one plays over is
  * game/run.ts's BAY_TRACKS, and this map only decides what it sounds like.
- * `contract-rare` is the 1-in-20 special a Contract can draw instead of the bay
- * bed it borrows — see contracts.ts's contractBed.
+ * `contract-1` through `contract-3` keep the original opening recordings at
+ * every Contract tier, independently of the Deep Run's soundtrack.
  */
 const MUSIC = {
-  "lounge-menu-pause.mp3": "menu",
-  "Whale Circuit.mp3": "contract-rare",
-  // The remaster replaces "chilled beginning.mp3" as bay-1's master. Measured
-  // before the swap: above 500Hz the two are IDENTICAL (-22.5 LUFS phone-band
-  // both), the remaster just carries 0.6 LU less sub and peaks past full scale
-  // (+0.3dBTP) — so bay-1's MASTER_EQ entry stays; the shelf and limiter are
-  // still what make this bed audible on a phone, not the new render.
-  "chill beginning (Remastered).mp3": "bay-1",
-  "2 chill.mp3": "bay-2",
-  "Threes.mp3": "bay-3",
+  "Pixel Dreams.wav": "menu",
+  "Fire inside.mp3": "bay-1",
+  "Ecstasy of the senses.mp3": "bay-2",
+  "Oasis in Paradise.mp3": "bay-3",
+  "chill beginning (Remastered).mp3": "contract-1",
+  "2 chill.mp3": "contract-2",
+  "Threes.mp3": "contract-3",
   "Level Four on the floor.mp3": "bay-4",
   "level 5.mp3": "bay-5",
   "raggae circuit.mp3": "bay-6",
@@ -162,15 +159,6 @@ const MUSIC = {
   "Neon Circuit.mp3": "bay-8",
   "Neon Static.mp3": "bay-9",
   "Neon Pixel Pulse.mp3": "bay-10",
-  // THE 1.0.6 ALTERNATES. A second song under a role the game already asks
-  // for: lib/audio.ts's MUSIC_TAKES lists them and playMusic flips between the
-  // role's file and its `-alt` when the role starts. The role stays the job's
-  // name; the suffix is a file nothing but that table knows about, and
-  // sim/systems.ts pins that every take listed there ships and nothing else
-  // does.
-  "Fire inside.mp3": "menu-alt",
-  "Ecstasy of the senses.mp3": "bay-1-alt",
-  "Oasis in Paradise.mp3": "bay-2-alt",
 };
 
 /** Two hits closer than this are one sound, not two — a double-tick reload
@@ -258,9 +246,10 @@ const PHONE_SPREAD_DB = 3.0;
  * whole set: most of these masters are fine and tilting them all to rescue one
  * would trade a real problem for eleven invented ones.
  *
- * `bay-1` is the first bed anybody hears and it was the least audible thing in
- * the game. Not quiet — it hit -15.4 LUFS like everything else — but dark, and
- * a phone cannot play dark. Straight gain could not fix it either: at -2.7 dBTP
+ * `contract-1` carries the original bay-1 recording, which was the least
+ * audible thing in the game. Not quiet — it hit -15.4 LUFS like everything
+ * else — but dark, and a phone cannot play dark. Straight gain could not fix
+ * it either: at -2.7 dBTP
  * it had 1.2 dB of headroom against a 5 dB deficit.
  *
  * So the shelf takes out what the phone was never going to reproduce, and
@@ -283,14 +272,13 @@ const PHONE_SPREAD_DB = 3.0;
  * much to squash a track nobody was watching. `linear` is then a real claim
  * again, and the run FAILS on anything that still reports dynamic.
  *
- * The audible cost is stated plainly: bay-1's LRA goes 3.7 -> 2.7 and it is a
- * lighter, thinner record on headphones than the master is. That is the trade
- * for it being audible at all on the device the game ships to, and it is why
- * this is two entries rather than a curve over the whole set.
+ * The audible cost is stated plainly: this recording's LRA goes 3.7 -> 2.7;
+ * it is a lighter, thinner record on headphones than the master is. That is
+ * the trade for it being audible on the device the game ships to, and it is
+ * why this treatment follows the recording rather than the whole set.
  */
 const MASTER_EQ = {
-  "bay-1": "lowshelf=f=220:g=-9,alimiter=limit=0.55:level=disabled",
-  "menu": "lowshelf=f=220:g=-5,alimiter=limit=0.55:level=disabled",
+  "contract-1": "lowshelf=f=220:g=-9,alimiter=limit=0.55:level=disabled",
   // NOT A PEAK PROBLEM — a RANGE one, which is why a limiter here did nothing.
   // Measured, this take's input LRA is 11.70 against the pipeline's LONG_LRA
   // target of 11, and loudnorm reverts to "dynamic" whenever the input range
@@ -1000,7 +988,7 @@ async function main() {
   // which from the outside is indistinguishable from "I added the song and
   // nothing happened". The fx/stinger folders are already checked this way.
   for (const f of tracks) {
-    if (f.endsWith(".mp3") && !MUSIC[f]) unmapped.push(`tracks/${f}`);
+    if (/\.(mp3|wav)$/i.test(f) && !MUSIC[f]) unmapped.push(`tracks/${f}`);
   }
   for (const [file, name] of Object.entries(MUSIC)) {
     if (!tracks.has(file)) {

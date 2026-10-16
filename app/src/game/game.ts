@@ -806,10 +806,7 @@ export class Game {
   effects: FxEvent[] = [];
 
   readonly level: LevelConfig;
-  /** The seed this bay was dealt from (the run's, a Contract's, a drill's).
-   *  Exposed so main.ts can key per-bay choices that must survive a pause and
-   *  a Restart Bay — which of a role's two songs plays (audio.ts's
-   *  MUSIC_TAKES) — on the same number the bay itself was built from. */
+  /** The seed this bay was dealt from (the run's, a Contract's, a drill's). */
   readonly seed: number;
   private gAccel: number;
   private events: GameEvents;
