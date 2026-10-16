@@ -395,7 +395,7 @@ your phone, and only when you choose to send it.
 **What's new** (500 max):
 
 ```
-The Android purchase screen stays in landscape when opening and returning to the game. Pixel Dreams is the lobby theme. Fire inside, Ecstasy of the senses and Oasis in Paradise score bays 1-3. Contracts use the original first three bay songs at every tier. Pausing and resuming keeps the current music playing without restarting.
+The Android purchase screen stays in landscape when opening and returning to the game. Pixel Dreams is the lobby theme. Fire inside, Ecstasy of the senses and Oasis in Paradise score bays 1-3. Contracts use the original first three bay songs at every tier. Pausing and resuming keeps the current music playing without restarting. The congestion loop is quieter.
 ```
 
 THE RELEASE NOTES ARE NOT THIS TEXT, and that is the point of keeping it here.
