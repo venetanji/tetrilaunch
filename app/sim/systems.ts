@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkAudioContinuity } from "./audio";
 import Matter from "matter-js";
 import {
   Game, nextTimedStreak, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS,
@@ -15871,6 +15872,9 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
 // it cannot be pulled into a Node harness at all, and prepare-audio.mjs is a
 // script that runs ffmpeg on import.
 // ---------------------------------------------------------------------------
+section("Music continuity through pause and resume");
+await checkAudioContinuity(check);
+
 section("Effect and stinger names (lib/audio.ts vs scripts/prepare-audio.mjs)");
 {
   const readSrc = (...p: string[]): string => fs.readFileSync(

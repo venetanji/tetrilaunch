@@ -1,0 +1,198 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
+
+type Check = (name: string, passed: boolean, detail?: string) => void;
+
+/** Drive the actual playback module and App.syncMusic with a controllable
+ * media clock. DOM bootstrapping and audio decoding are outside this seam. */
+export async function checkAudioContinuity(check: Check): Promise<void> {
+  const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const audioSource = fs.readFileSync(path.join(appDir, "src/lib/audio.ts"), "utf8");
+  const mainSource = fs.readFileSync(path.join(appDir, "src/main.ts"), "utf8");
+  const main = ts.createSourceFile("main.ts", mainSource, ts.ScriptTarget.Latest, true);
+  let syncSource = "";
+  const findSync = (node: ts.Node): void => {
+    if (ts.isMethodDeclaration(node) && node.name.getText(main) === "syncMusic") {
+      syncSource = node.getText(main);
+    }
+    ts.forEachChild(node, findSync);
+  };
+  findSync(main);
+  if (!syncSource) throw new Error("App.syncMusic was not found");
+  const compile = (source: string): string => ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  const elements: Media[] = [];
+  let now = 0;
+  let random = 0.99;
+  let failConstruction = false;
+  let refusePlayback = false;
+  let nextTimer = 0;
+  const timers = new Map<number, () => void>();
+  class Media {
+    currentTime = 0;
+    volume = 1;
+    paused = true;
+    loop = false;
+    preload = "";
+    private listeners = new Map<string, () => void>();
+    constructor(public src: string) {
+      if (failConstruction) throw new Error("Unavailable audio");
+      elements.push(this);
+    }
+    play(): Promise<void> {
+      if (refusePlayback) return Promise.reject(new Error("Playback refused"));
+      this.paused = false;
+      return Promise.resolve();
+    }
+    pause(): void { this.paused = true; }
+    removeAttribute(name: string): void { if (name === "src") this.src = ""; }
+    getAttribute(name: string): string | null { return name === "src" ? this.src : null; }
+    load(): void { this.currentTime = 0; }
+    addEventListener(name: string, listener: () => void): void { this.listeners.set(name, listener); }
+    end(): void { this.paused = true; this.listeners.get("ended")?.(); }
+  }
+  const math = Object.create(Math) as Math;
+  math.random = () => random;
+  const exports: Record<string, (...args: unknown[]) => unknown> = {};
+  const context = {
+    exports, Audio: Media, Math: math, console, performance: { now: () => now },
+    Date: class extends Date { static now(): number { return now; } },
+    setInterval: (callback: () => void) => { timers.set(++nextTimer, callback); return nextTimer; },
+    clearInterval: (id: number) => timers.delete(id),
+  };
+  runInNewContext(compile(audioSource.replace("import.meta.env.BASE_URL", '"/"')), context);
+  const appExports = {} as { AudioApp: {
+    new(): { syncMusic(state: string): void; game?: { seed: number; status?: string }; contractMusic?: string };
+  } };
+  runInNewContext(compile(`class AudioApp { ${syncSource} }\nexports.AudioApp = AudioApp;`), {
+    ...context, exports: appExports, ...exports, bayMusic: () => "bay-1", refitAfterBay: () => false,
+  });
+  const AudioApp = appExports.AudioApp;
+  const app = new AudioApp();
+  app.game = { seed: 1234 };
+  const tick = async (ms = 1000): Promise<void> => {
+    await Promise.resolve();
+    now += ms;
+    for (const element of elements) if (!element.paused) element.currentTime += ms / 1000;
+    for (const timer of [...timers.values()]) timer();
+  };
+  const audible = (): Media | undefined => [...elements].reverse().find((el) => !el.paused && el.volume > 0);
+
+  exports.setAudioEnabled({ sound: true, music: false });
+  app.syncMusic("home");
+  await tick();
+  check("an initially disabled soundtrack creates no media", elements.length === 0);
+  exports.setAudioEnabled({ sound: true, music: true });
+  app.syncMusic("home");
+  await tick();
+  check("the first enabled menu plays Pixel Dreams even after starting muted", audible()?.src === "/audio/music/menu.mp3",
+    audible()?.src);
+  const firstMenu = audible();
+  app.syncMusic("settings");
+  await tick();
+  check("walking between menus keeps the same theme element", audible() === firstMenu);
+
+  app.syncMusic("playing");
+  await tick();
+  const bed = audible();
+  if (!bed) throw new Error("No bay bed started");
+  bed.currentTime = 37.25;
+  const count = elements.length;
+  for (let i = 0; i < 3; i++) {
+    app.syncMusic("paused");
+    await tick();
+    check(`pause ${i + 1} keeps the same bed playing`, audible() === bed && !bed.paused);
+    app.syncMusic("playing");
+    await tick();
+    check(`resume ${i + 1} keeps its playback position`, audible() === bed && bed.currentTime === 39.25 + i * 2,
+      `position ${bed.currentTime}`);
+  }
+  check("repeated pause/resume allocates no replacement music", elements.length === count);
+
+  app.contractMusic = "bay-3";
+  app.syncMusic("playing");
+  await tick();
+  const contractBed = audible();
+  app.syncMusic("paused");
+  await tick();
+  app.syncMusic("playing");
+  await tick();
+  check("Contract pause/resume preserves its borrowed bed", audible() === contractBed
+    && contractBed?.src === "/audio/music/bay-3.mp3" && contractBed.currentTime === 3);
+
+  exports.playStinger("brokeSettle", true);
+  await tick();
+  const broke = audible();
+  if (!broke) throw new Error("No broke stinger started");
+  broke.currentTime = 2.25;
+  app.syncMusic("paused");
+  await tick();
+  check("broke stinger holds its position and keeps the bed muted", broke.paused
+    && broke.currentTime === 2.25 && contractBed?.volume === 0);
+  app.syncMusic("playing");
+  await tick();
+  check("broke stinger resumes over the same muted bed", audible() === broke
+    && broke.currentTime === 3.25 && contractBed?.volume === 0);
+  broke.end();
+  await tick();
+  check("broke stinger ending restores the same bed", audible() === contractBed);
+
+  exports.playStinger("timeFinal");
+  await tick();
+  const final = audible();
+  if (!final) throw new Error("No overtime stinger started");
+  final.currentTime = 4.5;
+  app.syncMusic("paused");
+  await tick();
+  check("overtime stinger pauses at its position", final.paused && final.currentTime === 4.5);
+  app.syncMusic("playing");
+  await tick();
+  check("overtime stinger resumes the same element", audible() === final && final.currentTime === 5.5);
+
+  app.syncMusic("bayclear");
+  await tick();
+  const clear = audible();
+  check("bay-clear stinger still replaces music", clear?.src === "/audio/stingers/bayClear.mp3"
+    && !elements.some((el) => !el.paused && el.src.includes("/music/")));
+  clear?.end();
+  await tick();
+  check("bay-clear stinger still ends into silence", audible() === undefined);
+
+  const laterMenus: string[] = [];
+  for (random of [0, 0.4, 0.99]) {
+    app.syncMusic("playing");
+    await tick();
+    app.syncMusic("home");
+    await tick();
+    laterMenus.push(audible()?.src ?? "");
+  }
+  check("returning to menus can play all three existing playlist choices",
+    new Set(laterMenus).size === 3 && laterMenus.includes("/audio/music/menu.mp3"), laterMenus.join(", "));
+
+  exports.playMusic(null);
+  await tick();
+  refusePlayback = true;
+  exports.playMusic("menu");
+  exports.playStinger("gameOver");
+  await tick();
+  check("refused playback remains silent without throwing", audible() === undefined);
+  failConstruction = true;
+  exports.playMusic("menu");
+  exports.playStinger("gameOver2");
+  await tick();
+  check("unavailable audio remains silent without throwing", audible() === undefined);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  let failures = 0;
+  await checkAudioContinuity((name, passed, detail) => {
+    console.log(`${passed ? "ok" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    if (!passed) failures++;
+  });
+  process.exitCode = failures ? 1 : 0;
+}

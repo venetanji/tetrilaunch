@@ -1796,9 +1796,13 @@ class App {
         playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0), this.game?.seed);
         return;
 
-      // Pausing drops to the lounge bed: the driving track under a paused game
-      // reads as pressure while nothing is happening.
-      //
+      case "paused":
+        // Keep the bay's bed and position: replacing it with the menu theme
+        // restarted the same song from zero every time play resumed.
+        // Mid-bay stingers still freeze with the game clock.
+        suspendMidBayStinger();
+        return;
+
       // A tutorial failure gets the SAME treatment, and pointedly not "lost"'s
       // game-over sting: the run has not ended, the bay is about to be handed
       // straight back, and a funeral cue would tell the player the opposite of
@@ -1808,7 +1812,6 @@ class App {
       // short, deliberately — the run is not what the player is listening to
       // any more, they are reading a price, and a funeral playing under a
       // decision is the game arguing for one of the answers.
-      case "paused":
       case "coach-fail":
       // …AND THE EXAM'S FAILURE takes the tutorial failure's treatment for the
       // tutorial failure's reason, stated three lines down: nothing ended, the

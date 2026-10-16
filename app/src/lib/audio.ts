@@ -361,31 +361,29 @@ export type MusicName = "menu" | ContractBed | BayTrack;
  * ROLES WITH MORE THAN ONE SONG.
  *
  * A role is a JOB — where a bed plays — and until 1.0.6 every job had exactly
- * one file, named for it. Three jobs now have two: the lounge, and bays 1 and
+ * one file, named for it. Three jobs now have alternates: the menu, and bays 1 and
  * 2, which are the beds a player hears most (every run opens on them, the
- * tutorial and every Contract in the low tiers borrow them, and every pause
- * drops to the lounge). A second song under the same job is the cheapest
- * variety the soundtrack can buy, and it is variety in exactly the place the
+ * tutorial and every Contract in the low tiers borrow them). Another song
+ * under the same job adds variety in exactly the place the
  * repetition lives.
  *
- * This table is the ONLY place the second file is known. run.ts's ladder and
+ * This table is the ONLY place the alternate files are known. run.ts's ladder and
  * contracts.ts's windows keep naming roles, main.ts keeps asking for roles,
  * and playMusic picks a take when the role STARTS — so the rest of the game
  * cannot tell which song it got, which is the point: nothing is allowed to
- * depend on the flip. The first entry is the role's own file, the one that
- * played alone before this table existed; sim/systems.ts pins that, pins that
+ * depend on the flip. The first entry is the role's own file;
+ * sim/systems.ts pins that, pins that
  * every take ships, and pins that every shipped take is listed here.
  *
  * HOW THE FLIP IS MADE is playMusic's `salt`. A bay bed is picked from the
  * run's seed (main.ts passes the Game's seed), so a bay keeps its take across
  * pause and resume, a backgrounded app, a music toggle and a Restart Bay — the
  * same bay, the same song — and a new run is a new coin. The lounge has no
- * seed and is a fresh flip every time it starts: each pause, each return from
- * a run. Deliberately not sticky per session, because the lounge's whole
- * point is that it comes back different.
+ * seed. Its first visit always plays the main theme; later returns from a
+ * run pick among all three menu songs. A pause keeps the current bay bed.
  */
 export const MUSIC_TAKES: Partial<Record<MusicName, readonly string[]>> = {
-  "menu": ["menu", "menu-alt"],
+  "menu": ["menu", "menu-alt", "menu-lounge"],
   "bay-1": ["bay-1", "bay-1-alt"],
   "bay-2": ["bay-2", "bay-2-alt"],
 };
@@ -393,7 +391,12 @@ export const MUSIC_TAKES: Partial<Record<MusicName, readonly string[]>> = {
 /** Which of a role's takes plays this time. Salted picks are a hash of the
  *  salt and the role, so one seed lands bays 1 and 2 on independent coins
  *  rather than the same side of one; unsalted picks are a plain flip. */
+let menuStarted = false;
 function takeOf(role: MusicName, salt: number | undefined): string {
+  if (role === "menu" && !menuStarted) {
+    menuStarted = true;
+    return role;
+  }
   const takes = MUSIC_TAKES[role];
   if (!takes || takes.length < 2) return role;
   if (salt === undefined) return takes[Math.floor(Math.random() * takes.length)];
@@ -721,7 +724,7 @@ let music: HTMLAudioElement | null = null;
 let musicName: MusicName | null = null;
 /** The file `music` was built from — one of musicName's MUSIC_TAKES, or the
  *  role itself. Kept for the diagnostics line, which otherwise could not say
- *  which of the lounge's two songs is playing. */
+ *  which of the menu's songs is playing. */
 let musicTake: string | null = null;
 /** The salt the current bed was picked with, so a replay this module fires
  *  itself (setAudioEnabled) lands on the same take rather than re-flipping. */
@@ -1744,10 +1747,11 @@ export function playMusic(track: MusicName | null, salt?: number): void {
   }
   musicName = track;
   musicSalt = salt;
-  musicTake = track && takeOf(track, salt);
+  musicTake = null;
   fadeOutAndStop(music);
   music = null;
   if (!track || !musicOn) return;
+  musicTake = takeOf(track, salt);
   try {
     const el = new Audio(`${BASE}audio/music/${musicTake}${LONG_EXT}`);
     el.loop = true;

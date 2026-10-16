@@ -74,8 +74,9 @@ in difficulty instead of restarting the arc at bay 1 every day.
 
 | role     | song                | plays over            |
 | -------- | ------------------- | --------------------- |
-| `menu`   | lounge-menu-pause   | menus, pause, tutorial fail |
-| `menu-alt` | Fire inside       | the other half of `menu`'s coin (see below) |
+| `menu`   | Pixel Dreams       | main theme; always the first menu song at launch |
+| `menu-alt` | Fire inside       | alternate menu song on later returns |
+| `menu-lounge` | lounge-menu-pause | alternate menu song on later returns |
 | `bay-1`  | chill beginning (Remastered) | bay 1, and a tier-1 board's first Contract |
 | `bay-1-alt` | Ecstasy of the senses | the other half of `bay-1`'s coin |
 | `bay-2`  | 2 chill             | bay 2, and a Contract in tiers 1-2's window |
@@ -90,15 +91,20 @@ in difficulty instead of restarting the arc at bay 1 every day.
 | `bay-10` | Neon Pixel Pulse    | bay 10, the closer, and a Contract in tiers 8-10's window |
 | `contract-rare` | Whale Circuit | 5% of Contract attempts, beating both rules |
 
-### Roles with two songs
+### Roles with multiple songs
 
-`menu`, `bay-1` and `bay-2` each carry an alternate since 1.0.6. The role is
+`bay-1` and `bay-2` each carry an alternate since 1.0.6. The menu now carries
+three songs: Pixel Dreams is the main theme, with both earlier songs retained.
+The role is
 still the only name the game asks for; `lib/audio.ts`'s `MUSIC_TAKES` lists the
 files a role may play, and `playMusic` picks one when the role STARTS. A bay's
-pick is keyed on the run's seed, so pausing, backgrounding, toggling music or
-restarting the bay keeps the song and a new run flips the coin again; the
-lounge has no seed and flips every time it comes back. Nothing else in the game
-can tell which take it got.
+pick is keyed on the run's seed, so backgrounding, toggling music or restarting
+the bay keeps the song and a new run flips the coin again. An ordinary pause
+leaves the current bay song playing at its existing position; resume continues
+the same element. The two mid-bay stingers still pause with the game clock.
+The menu has no seed: its first start always plays Pixel Dreams, and later
+returns pick among all three songs. Walking between menu screens keeps the
+same song running.
 
 ## Adding a track
 

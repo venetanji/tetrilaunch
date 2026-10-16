@@ -145,7 +145,8 @@ const STINGERS = [
  * bed it borrows — see contracts.ts's contractBed.
  */
 const MUSIC = {
-  "lounge-menu-pause.mp3": "menu",
+  "Pixel Dreams.wav": "menu",
+  "lounge-menu-pause.mp3": "menu-lounge",
   "Whale Circuit.mp3": "contract-rare",
   // The remaster replaces "chilled beginning.mp3" as bay-1's master. Measured
   // before the swap: above 500Hz the two are IDENTICAL (-22.5 LUFS phone-band
@@ -290,7 +291,7 @@ const PHONE_SPREAD_DB = 3.0;
  */
 const MASTER_EQ = {
   "bay-1": "lowshelf=f=220:g=-9,alimiter=limit=0.55:level=disabled",
-  "menu": "lowshelf=f=220:g=-5,alimiter=limit=0.55:level=disabled",
+  "menu-lounge": "lowshelf=f=220:g=-5,alimiter=limit=0.55:level=disabled",
   // NOT A PEAK PROBLEM — a RANGE one, which is why a limiter here did nothing.
   // Measured, this take's input LRA is 11.70 against the pipeline's LONG_LRA
   // target of 11, and loudnorm reverts to "dynamic" whenever the input range
