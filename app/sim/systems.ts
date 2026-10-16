@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkAndroidPaywallPatch } from "./android-patch";
 import Matter from "matter-js";
 import {
   Game, nextTimedStreak, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS,
@@ -34393,6 +34394,11 @@ section("The Full Game preview says what the entitlement opens, and shows it (sc
     fly(MENU_BAY, 1, 5400) === 0,
   );
 }
+
+// ---------------------------------------------------------------------------
+section("Android paywall orientation survives project regeneration");
+// ---------------------------------------------------------------------------
+checkAndroidPaywallPatch(check);
 
 // ---------------------------------------------------------------------------
 section("The desktop monetization boundary (docs/STEAM.md)");

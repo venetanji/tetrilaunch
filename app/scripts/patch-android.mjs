@@ -26,6 +26,8 @@
  *      plus the two <application> attributes pointing at them — Auto Backup
  *      exclusions so a reinstall's restore can't resurrect a stale service
  *      worker, while localStorage (the save) keeps being backed up.
+ *   6. PaywallActivity in AndroidManifest.xml — inherit the game's orientation
+ *      when RevenueCat opens its separate native activity.
  *
  * Idempotent: safe to run on every sync, and a no-op once applied. Exits 0 with
  * a notice if app/android/ doesn't exist yet, so `npm run build` on a checkout
@@ -270,6 +272,41 @@ if (missingAttrs.length) {
   changed++;
 }
 
-if (manifestDirty) fs.writeFileSync(manifestPath, manifest);
+/* 6. RevenueCat's activity does not inherit MainActivity's runtime landscape
+ * lock. `behind` follows the activity below it, including its current rotation.
+ * Declare only the orientation: the manifest merger retains the SDK's other
+ * attributes (including exported=false) without tools:replace. */
+const paywallName = "com.revenuecat.purchases.ui.revenuecatui.activity.PaywallActivity";
+const paywallTag = (manifest.match(/<activity\b[^>]*>/g) ?? []).find((tag) =>
+  tag.match(/\bandroid:name\s*=\s*(["'])(.*?)\1/)?.[2] === paywallName);
+const paywallOrientation = 'android:screenOrientation="behind"';
+
+if (paywallTag) {
+  const orientationAttr = /\bandroid:screenOrientation\s*=\s*(["'])[^"']*\1/;
+  const patchedTag = orientationAttr.test(paywallTag)
+    ? paywallTag.replace(orientationAttr, paywallOrientation)
+    : paywallTag.replace(/(\s*\/?>)$/, ` ${paywallOrientation}$1`);
+  if (patchedTag !== paywallTag) {
+    manifest = manifest.replace(paywallTag, patchedTag);
+    manifestDirty = true;
+  }
+} else {
+  const appClose = manifest.match(/([ \t]*)<\/application>/);
+  if (!appClose) {
+    console.error("patch-android: could not find </application> in AndroidManifest.xml");
+    process.exit(1);
+  }
+  const indent = appClose[1];
+  manifest = manifest.replace(appClose[0],
+    `${indent}    <activity\n${indent}        android:name="${paywallName}"\n` +
+      `${indent}        ${paywallOrientation} />\n${appClose[0]}`);
+  manifestDirty = true;
+}
+
+if (manifestDirty) {
+  fs.writeFileSync(manifestPath, manifest);
+  console.log("patch-android: updated AndroidManifest.xml (backup rules + landscape paywall)");
+  changed++;
+}
 
 console.log(changed ? "patch-android: done" : "patch-android: already applied");
