@@ -85,6 +85,10 @@ Music off/on rebuilds the same requested recording. Walking between menu
 screens keeps Pixel Dreams running. Terminal stingers still stop the bed and
 end into silence.
 
+The three prerecorded congestion loops share a -6 dB trim in playback. The
+music lowpass, loop pitch and rise/fall timing are unchanged; a missing loop
+leaves the lowpass alone, without synthesized noise.
+
 The earlier lounge recording and Whale Circuit are retained as local masters,
 but are not in the active soundtrack. The preparation script reports present
 unmapped masters rather than guessing a role or shipping unused downloads.

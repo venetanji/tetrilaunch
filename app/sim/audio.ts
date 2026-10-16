@@ -290,6 +290,83 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
     unmapped.join(", "));
   check("the census leaves mapped masters and non-audio files alone",
     !["tracks/Pixel Dreams.wav", "tracks/Mapped.mp3", "tracks/README.md"].some((name) => unmapped.includes(name)));
+
+  // Record the Web Audio boundary while the real unlock, loader, rotation and
+  // congestion envelope run. No playback-module internals are exposed.
+  class Parameter {
+    value = 0;
+    target = { value: 0, time: 0, tau: 0 };
+    setTargetAtTime(value: number, time: number, tau: number): void {
+      this.target = { value, time, tau };
+    }
+  }
+  class GraphNode {
+    outputs: GraphNode[] = [];
+    connect(node: GraphNode): void { this.outputs.push(node); }
+    disconnect(): void { this.outputs = []; }
+  }
+  class Gain extends GraphNode { gain = new Parameter(); }
+  class Source extends GraphNode {
+    buffer?: { name: string; duration: number };
+    loop = false;
+    loopStart = 0;
+    loopEnd = 0;
+    playbackRate = new Parameter();
+    start(): void { /* the fixture observes scheduling, not PCM playback */ }
+    stop(): void { /* retired sources are observed through disconnection */ }
+  }
+  class Graph {
+    currentTime = 0;
+    state = "running";
+    sampleRate = 44100;
+    destination = new GraphNode();
+    gains: Gain[] = [];
+    sources: Source[] = [];
+    filter = Object.assign(new GraphNode(), { type: "", frequency: new Parameter() });
+    createGain(): Gain { const gain = new Gain(); this.gains.push(gain); return gain; }
+    createBufferSource(): Source { const source = new Source(); this.sources.push(source); return source; }
+    createBuffer(): { name: string; duration: number } { return { name: "unlock", duration: 1 / this.sampleRate }; }
+    createBiquadFilter(): typeof this.filter { return this.filter; }
+    addEventListener(): void { /* this context is already running */ }
+    resume(): Promise<void> { return Promise.resolve(); }
+    decodeAudioData(bytes: ArrayBuffer): Promise<{ name: string; duration: number }> {
+      return Promise.resolve({ name: new TextDecoder().decode(bytes), duration: 20 });
+    }
+  }
+  const graph = new Graph();
+  const cueAudio: typeof exports = {};
+  runInNewContext(compile(audioSource.replace("import.meta.env.BASE_URL", '"/"')), {
+    ...context, exports: cueAudio, window: { AudioContext: function() { return graph; } },
+    fetch: async (url: string) => ({ status: 200, arrayBuffer: async () => new TextEncoder().encode(url).buffer }),
+  });
+  cueAudio.unlockAudio();
+  for (let i = 0; i < 200; i++) await Promise.resolve();
+  const loopNames: string[] = [];
+  let sharedGain: GraphNode | undefined;
+  for (let episode = 0; episode < 3; episode++) {
+    graph.currentTime += 2;
+    cueAudio.setCongestion(0.25);
+    const source = [...graph.sources].reverse().find((node) => node.loop);
+    if (!source) throw new Error("No congestion loop started after decoding");
+    loopNames.push(source.buffer?.name ?? "");
+    const gain = source.outputs[0] as Gain;
+    sharedGain ??= gain;
+    check(`congestion take ${episode + 1} uses the shared quieter layer`, gain === sharedGain
+      && Math.abs(gain.gain.target.value - 0.12529680840681806) < 1e-12);
+    check(`congestion take ${episode + 1} keeps its rise, pitch and music filter`,
+      gain.gain.target.tau === 0.08 && source.playbackRate.target.value === 1.03
+      && Math.abs(graph.filter.frequency.target.value - 9211.558703193814) < 1e-8);
+    cueAudio.setCongestion(1);
+    check(`congestion take ${episode + 1} peaks exactly 6 dB lower`,
+      Math.abs(gain.gain.target.value - 0.5011872336272722) < 1e-12);
+    cueAudio.setCongestion(0);
+    check(`congestion take ${episode + 1} still fades to silence at the same rate`,
+      gain.gain.target.value === 0 && gain.gain.target.tau === 0.35
+      && source.playbackRate.target.value === 1 && graph.filter.frequency.target.value === 20000);
+  }
+  check("the quieter layer covers all three prerecorded congestion takes", new Set(loopNames).size === 3
+    && ["congestionLoop", "congestionLoop2", "congestionLoop3"].every((name) => loopNames.includes(`/audio/fx/${name}.mp3`)));
+  check("the congestion trim leaves the effects bus gain unchanged", graph.gains[0].gain.value === 0.45);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

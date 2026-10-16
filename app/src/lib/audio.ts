@@ -603,34 +603,11 @@ const FADE_MS = 450;
  *  and where it lands at full congestion. */
 const MUSIC_OPEN_HZ = 20000;
 const MUSIC_MUFFLED_HZ = 900;
-/** PEAK LEVEL OF THE CONGESTION TEXTURE, before the effects bus applies its
- *  own gain. There used to be a second constant beside this one — STATIC_GAIN
- *  0.21, the level of the synthesized noise — because the two sources arrived
- *  at wildly different levels: raw ±1.0 noise lost most of its energy in the
- *  bandpass, where a take is peak-normalised to -3dBFS and reaches the gain
- *  untouched. With the synth gone there is one source and one number, and
- *  setCongestion no longer has to carry a `staticPeak` variable to remember
- *  which of the two won.
- *
- *  Tuned BY EAR to 1.0, and the number is hot for a reason the peak math
- *  hides: the pipeline levels these takes by PEAK like every one-shot, but a
- *  sparse clank texture carries its body ~17dB under its peaks (measured:
- *  -21dB RMS against a -3.8dBFS peak), where a loudness-normalised bed keeps
- *  its body AT its level. 0.12 and then 0.5 both read as nothing under music
- *  for exactly that reason. At 1.0 the loop's sustained level still sits
- *  several dB under the bed's; what makes it land is that congestion is also
- *  closing the lowpass over the music, clearing out the very midrange the
- *  clanks live in.
- *
- *  Headroom: a clank peak reaches 0.71 x 1.0 x 0.45 = 0.32 at the
- *  destination, against a bed at 0.46 — a hard coincidence brushes the same
- *  ~0.78 the bus-gain note above already accepts, and only at full
- *  congestion, where the filter has already pulled the bed well off that
- *  figure. If this
- *  number keeps fighting the mix, the durable fix is in prepare-audio.mjs:
- *  level the loop takes by LOUDNESS like the beds (its own doctrine for
- *  continuous audio) and bring this back to a sane fraction. */
-const STATIC_SAMPLE_GAIN = 1.0;
+/** Pull the prerecorded texture back 6 dB after feedback that it intrudes on
+ *  the music. Full-congestion peaks reach about 0.71 * 0.501 * 0.45 = 0.16
+ *  before the master; the shared effects bus and cue envelope stay unchanged. */
+const STATIC_SAMPLE_TRIM_DB = -6;
+const STATIC_SAMPLE_GAIN = Math.pow(10, STATIC_SAMPLE_TRIM_DB / 20);
 /** Static rises fast and falls slow. That is the right dramatic shape, and it
  *  is also free hysteresis: a cube count sitting on a threshold crosses the
  *  tier several times a second, and a symmetric ramp would stutter audibly. */
