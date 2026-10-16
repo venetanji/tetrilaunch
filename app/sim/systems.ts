@@ -16687,7 +16687,7 @@ section("Bay restart vs the mid-bay stingers");
   // overturn that decision from outside the piece that made it.
   // The signature carries an optional salt since 1.0.6 (the take pick for a
   // role with two songs); the branch this pin reads is the same one.
-  const repeat = /export function playMusic\(track: MusicName \| null(?:, salt\?: number)?\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
+  const repeat = /export function playMusic\(track: MusicName \| null(?:, salt\?: number)?\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}(?:if \([^\n]+\) )?return;/
     .exec(audioCode)?.[1] ?? "";
   check("playMusic's repeat-track branch is still where this pin looks for it",
     repeat.length > 0);

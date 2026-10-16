@@ -12,6 +12,7 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const audioSource = fs.readFileSync(path.join(appDir, "src/lib/audio.ts"), "utf8");
   const mainSource = fs.readFileSync(path.join(appDir, "src/main.ts"), "utf8");
+  const pipelineSource = fs.readFileSync(path.join(appDir, "scripts/prepare-audio.mjs"), "utf8");
   const main = ts.createSourceFile("main.ts", mainSource, ts.ScriptTarget.Latest, true);
   let syncSource = "";
   const findSync = (node: ts.Node): void => {
@@ -96,6 +97,12 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   app.syncMusic("settings");
   await tick();
   check("walking between menus keeps the same theme element", audible() === firstMenu);
+  exports.setAudioEnabled({ sound: true, music: false });
+  await tick();
+  exports.setAudioEnabled({ sound: true, music: true });
+  await tick();
+  check("toggling music in the initial menus keeps Pixel Dreams", audible()?.src === "/audio/music/menu.mp3",
+    audible()?.src);
 
   app.syncMusic("playing");
   await tick();
@@ -176,6 +183,22 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
 
   exports.playMusic(null);
   await tick();
+  // The real splash asks for music before the first pointer applies the
+  // persisted setting. Reproduce that ordering in a fresh playback module.
+  const bootAudio: typeof exports = {};
+  runInNewContext(compile(audioSource.replace("import.meta.env.BASE_URL", '"/"')), { ...context, exports: bootAudio });
+  random = 0.99;
+  bootAudio.playMusic("menu");
+  await tick();
+  bootAudio.setAudioEnabled({ sound: true, music: false });
+  await tick();
+  bootAudio.setAudioEnabled({ sound: true, music: true });
+  await tick();
+  check("splash-before-settings boot keeps Pixel Dreams when music is enabled", audible()?.src === "/audio/music/menu.mp3",
+    audible()?.src);
+  bootAudio.playMusic(null);
+  await tick();
+
   refusePlayback = true;
   exports.playMusic("menu");
   exports.playStinger("gameOver");
@@ -186,6 +209,25 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   exports.playStinger("gameOver2");
   await tick();
   check("unavailable audio remains silent without throwing", audible() === undefined);
+
+  const pipeline = ts.createSourceFile("prepare-audio.mjs", pipelineSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let census = "";
+  const findCensus = (node: ts.Node): void => {
+    if (ts.isForOfStatement(node) && node.expression.getText(pipeline) === "tracks") census = node.getText(pipeline);
+    ts.forEachChild(node, findCensus);
+  };
+  findCensus(pipeline);
+  if (!census) throw new Error("The track-master census was not found");
+  const unmapped: string[] = [];
+  runInNewContext(census, {
+    tracks: new Set(["Pixel Dreams.wav", "Mapped.mp3", "Future.wav", "Future.WAV", "Future.mp3", "README.md"]),
+    MUSIC: { "Pixel Dreams.wav": "menu", "Mapped.mp3": "bay-1" }, unmapped,
+  });
+  check("the preparation census reports unmapped WAV and MP3 masters",
+    ["tracks/Future.wav", "tracks/Future.WAV", "tracks/Future.mp3"].every((name) => unmapped.includes(name)),
+    unmapped.join(", "));
+  check("the census leaves mapped masters and non-audio files alone",
+    !["tracks/Pixel Dreams.wav", "tracks/Mapped.mp3", "tracks/README.md"].some((name) => unmapped.includes(name)));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

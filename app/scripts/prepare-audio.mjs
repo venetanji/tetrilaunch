@@ -1001,7 +1001,7 @@ async function main() {
   // which from the outside is indistinguishable from "I added the song and
   // nothing happened". The fx/stinger folders are already checked this way.
   for (const f of tracks) {
-    if (f.endsWith(".mp3") && !MUSIC[f]) unmapped.push(`tracks/${f}`);
+    if (/\.(mp3|wav)$/i.test(f) && !MUSIC[f]) unmapped.push(`tracks/${f}`);
   }
   for (const [file, name] of Object.entries(MUSIC)) {
     if (!tracks.has(file)) {

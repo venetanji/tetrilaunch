@@ -763,18 +763,10 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
     stinger = null;
     stingerName = null;
   } else if (!wasMusicOn && musicName) {
-    // Turned back ON — and only then. playMusic() cannot resume an element, it
-    // builds a new one from zero, so running this on a bed that was already
-    // playing RESTARTS it. This function is called on load and again from the
-    // first pointerdown (main.ts's syncAudioSettings), both of which restate
-    // music: true over a menu bed that started at first render, so without the
-    // wasMusicOn guard the bed audibly restarted twice every launch — once a
-    // few seconds in as settings loaded, once on the first touch. Measured on
-    // the device: menu.mp3 played at 60ms and again from zero at 3640ms, two
-    // elements overlapping for 450ms before the first was faded out.
-    const want = musicName;
-    musicName = null;
-    playMusic(want, musicSalt);
+    // Rebuild only on an OFF -> ON edge, keeping the current role and take.
+    // The splash precedes the first pointer applying persisted settings;
+    // resetting the role here could replace its main theme with an alternate.
+    playMusic(musicName, musicSalt);
   }
 }
 
@@ -1743,15 +1735,17 @@ export function playMusic(track: MusicName | null, salt?: number): void {
       if (!lifecycle[lifecycle.length - 1]?.endsWith(entry)) logLifecycle(entry);
       void music.play().catch(() => { /* refused again; nothing further to try */ });
     }
-    return;
+    // A toggle removes the element, but the current visit keeps its song.
+    if (music || !track || !musicOn) return;
+  } else {
+    musicName = track;
+    musicSalt = salt;
+    musicTake = null;
   }
-  musicName = track;
-  musicSalt = salt;
-  musicTake = null;
   fadeOutAndStop(music);
   music = null;
   if (!track || !musicOn) return;
-  musicTake = takeOf(track, salt);
+  musicTake ??= takeOf(track, salt);
   try {
     const el = new Audio(`${BASE}audio/music/${musicTake}${LONG_EXT}`);
     el.loop = true;
