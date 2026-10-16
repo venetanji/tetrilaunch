@@ -33,8 +33,8 @@ You are the design/balance expert for tetrilaunch. The design shorthand is **"Ca
 
 ## Contracts & dailies
 
-- `DAILY_COUNT` = 3 per board; one is a pattern Contract (exact zero-waste inventory). `CONTRACT_RARE_CHANCE` = 0.05 for the special bed; `CONTRACT_BED_TOP_BASE` = RUN_LEVELS − DAILY_COUNT + 1 = 8, so tiers 8–10 all deal beds 8/9/10 (clamp the BASE, not per slot — per-slot clamping deals the closer twice).
-- Contracts have no clock, no launch cost, and no theme of their own — beds are borrowed from the run (music role table in audio/README.md; pentomino boards borrow bay 5's 5/4 track).
+- `DAILY_COUNT` = 3 per board; one is a pattern Contract (exact zero-waste inventory). Contract slots 1-3 always play dedicated roles `contract-1/2/3`: the original chill beginning (Remastered), 2 chill and Threes recordings. This applies at every tier, including the Skydeck, independently of Deep Run assignments.
+- Contracts have no clock or launch cost. Their soundtrack is fixed by slot; rare draws, tier windows and pentomino music overrides have been removed by the owner's soundtrack reassignment.
 - Feasibility is guaranteed in closed form (the launch budget) plus tiling proof for patterns — a generated Contract that can't be won is a shipped bug, and `npm run sim:patterns` checks it.
 
 ## Measuring — how a balance claim earns its way into a commit

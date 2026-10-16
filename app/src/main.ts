@@ -961,12 +961,8 @@ class App {
    *  under prefers-reduced-motion — the same call the crest's jiggle and
    *  spark animations make in app.css. */
   private motionMQ = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
-  /** The bed THIS Contract attempt drew (contracts.ts's contractBed), held for
-   *  the life of the attempt instead of re-derived. syncMusic runs on every
-   *  state change, so deriving it there would re-roll the 5% special each time
-   *  the pause modal opened — and a bed that changes when you pause is worse
-   *  than never getting the special at all. Non-null exactly while `contract`
-   *  is, which is what lets syncMusic read the two as one. */
+  /** The current Contract slot's own song; non-null exactly while a Contract
+   *  is active, so syncMusic selects it instead of a Deep Run bay. */
   private contractMusic: ContractBed | null = null;
   /** Forward route prepared when a Contract resolves, from that tier's board. */
   private nextContract: Contract | null = null;
@@ -1709,10 +1705,8 @@ class App {
    *
    * The Deep Run gets a LADDER rather than one bed (run.ts's bayMusic): it is a
    * ten-bay arc, and the score should travel with it instead of looping a
-   * single track across the whole thing. A Contract borrows one of those beds
-   * per attempt, picked at startContract (contracts.ts's contractBed) and read
-   * from `contractMusic` here — never re-derived, because this method runs on
-   * every screen change and the pick has a random element.
+   * single track across the whole thing. Each Contract slot has its own song at
+   * every tier, selected at startContract and read from `contractMusic` here.
    */
   private syncMusic(s: AppState): void {
     // The wind belongs to a bay being PLAYED. syncHud is what drives it and
@@ -1789,11 +1783,7 @@ class App {
         // is exactly as it left it.
         if (resumeMidBayStinger()) return;
         stopStinger();
-        // Salted with the bay's own seed so a role with two songs (audio.ts's
-        // MUSIC_TAKES) keeps the one it opened on across pause, resume and a
-        // Restart Bay, and re-flips only when the seed does — a new run, a new
-        // Contract, a new drill.
-        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0), this.game?.seed);
+        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0));
         return;
 
       case "paused":
@@ -6311,8 +6301,6 @@ class App {
     // for a flag whose failure mode is a real Contract being flown with a
     // sandbox belt on it.
     this.sandboxContract = fromSandbox;
-    // Rolled here, once, because this is the start of an ATTEMPT — a retry is
-    // a fresh roll (see contractBed), a pause is not.
     this.contractMusic = contractBed(c);
     this.nextContract = null;
     this.contractBoardComplete = false;

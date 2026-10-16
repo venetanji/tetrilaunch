@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import { createHash } from "node:crypto";
 import ts from "typescript";
+import { contractBed, dailyContracts } from "../src/game/contracts";
 
 type Check = (name: string, passed: boolean, detail?: string) => void;
 
@@ -13,6 +15,53 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   const audioSource = fs.readFileSync(path.join(appDir, "src/lib/audio.ts"), "utf8");
   const mainSource = fs.readFileSync(path.join(appDir, "src/main.ts"), "utf8");
   const pipelineSource = fs.readFileSync(path.join(appDir, "scripts/prepare-audio.mjs"), "utf8");
+  const pipeline = ts.createSourceFile("prepare-audio.mjs", pipelineSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let musicMapSource = "";
+  const findMusicMap = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(pipeline) === "MUSIC") {
+      musicMapSource = node.initializer?.getText(pipeline) ?? "";
+    }
+    ts.forEachChild(node, findMusicMap);
+  };
+  findMusicMap(pipeline);
+  if (!musicMapSource) throw new Error("The preparation music map was not found");
+  const musicMap = runInNewContext(`(${musicMapSource})`) as Record<string, string>;
+  // Hashes identify the already processed recordings: role changes must not
+  // re-encode the mix or accidentally swap a primary for its former alternate.
+  const recordings = {
+    menu: ["Pixel Dreams.wav", "3aaf14f68a3c25ee4829842da9bc83924ecf6b11ffa0792274ac72eccb6ad3f2"],
+    "bay-1": ["Fire inside.mp3", "31a8604be11c2dba8f63d16f7b8e067bdb8cd15463ef9eabc3e2cfc91fe1d37c"],
+    "bay-2": ["Ecstasy of the senses.mp3", "2954b1cee8cd23193c596b5eba979c842c6987dd1c818ade69b4f8263106a7f6"],
+    "bay-3": ["Oasis in Paradise.mp3", "9264a5d29f061ad99a25c00e8be673aeaa2b8bfca991a2a05a8156e5c874b8e8"],
+    "contract-1": ["chill beginning (Remastered).mp3", "0d35a36ea7e30b3c23ba31f94594344310b46c5beae14d114f04e9eaef83d276"],
+    "contract-2": ["2 chill.mp3", "bfbb33e44007e419187b159befc754116a334f4734bf013d888c733ac1a4501c"],
+    "contract-3": ["Threes.mp3", "4ae200fd2b92dd1014c7a074a8f7a9856b6e4d414354cfd06a39162880d157f5"],
+  };
+  for (const [role, [master, hash]] of Object.entries(recordings)) {
+    check(`${role} prepares the selected master`, musicMap[master] === role, musicMap[master]);
+    const asset = path.join(appDir, "public/audio/music", `${role}.mp3`);
+    check(`${role} preserves the selected recording bytes`, fs.existsSync(asset)
+      && createHash("sha256").update(fs.readFileSync(asset)).digest("hex") === hash);
+  }
+  const contract = dailyContracts(1, 20260822)[0];
+  const originalRandom = Math.random;
+  try {
+    for (let tier = 1; tier <= 11; tier++) {
+      const picks: string[] = [];
+      for (const roll of [0, 0.99]) {
+        Math.random = () => roll;
+        for (const pieceSize of ["std", "bulk", "tiny"] as const) {
+          for (let slot = 0; slot < 3; slot++) {
+            picks.push(contractBed({ ...contract, tier, slot, pieceSize }));
+          }
+        }
+      }
+      check(`Contract tier ${tier} keeps the original three songs without exceptions`,
+        picks.every((bed, i) => bed === `contract-${i % 3 + 1}`), picks.join(" "));
+    }
+  } finally {
+    Math.random = originalRandom;
+  }
   const main = ts.createSourceFile("main.ts", mainSource, ts.ScriptTarget.Latest, true);
   let syncSource = "";
   const findSync = (node: ts.Node): void => {
@@ -121,16 +170,22 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   }
   check("repeated pause/resume allocates no replacement music", elements.length === count);
 
-  app.contractMusic = "bay-3";
+  app.contractMusic = "contract-3";
   app.syncMusic("playing");
   await tick();
-  const contractBed = audible();
+  let contractMedia = audible();
   app.syncMusic("paused");
   await tick();
   app.syncMusic("playing");
   await tick();
-  check("Contract pause/resume preserves its borrowed bed", audible() === contractBed
-    && contractBed?.src === "/audio/music/bay-3.mp3" && contractBed.currentTime === 3);
+  check("Contract pause/resume preserves its assigned recording", audible() === contractMedia
+    && contractMedia?.src === "/audio/music/contract-3.mp3" && contractMedia.currentTime === 3);
+  exports.setAudioEnabled({ sound: true, music: false });
+  await tick();
+  exports.setAudioEnabled({ sound: true, music: true });
+  await tick();
+  check("a Contract music toggle keeps its assigned recording", audible()?.src === "/audio/music/contract-3.mp3");
+  contractMedia = audible();
 
   exports.playStinger("brokeSettle", true);
   await tick();
@@ -140,14 +195,14 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   app.syncMusic("paused");
   await tick();
   check("broke stinger holds its position and keeps the bed muted", broke.paused
-    && broke.currentTime === 2.25 && contractBed?.volume === 0);
+    && broke.currentTime === 2.25 && contractMedia?.volume === 0);
   app.syncMusic("playing");
   await tick();
   check("broke stinger resumes over the same muted bed", audible() === broke
-    && broke.currentTime === 3.25 && contractBed?.volume === 0);
+    && broke.currentTime === 3.25 && contractMedia?.volume === 0);
   broke.end();
   await tick();
-  check("broke stinger ending restores the same bed", audible() === contractBed);
+  check("broke stinger ending restores the same bed", audible() === contractMedia);
 
   exports.playStinger("timeFinal");
   await tick();
@@ -178,8 +233,16 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
     await tick();
     laterMenus.push(audible()?.src ?? "");
   }
-  check("returning to menus can play all three existing playlist choices",
-    new Set(laterMenus).size === 3 && laterMenus.includes("/audio/music/menu.mp3"), laterMenus.join(", "));
+  check("every later lobby return plays Pixel Dreams regardless of random draws",
+    laterMenus.every((source) => source === "/audio/music/menu.mp3"), laterMenus.join(", "));
+  for (const role of ["bay-1", "bay-2", "bay-3", "contract-1", "contract-2", "contract-3"]) {
+    for (const salt of [1, 1234, 99999]) {
+      exports.playMusic(null);
+      exports.playMusic(role, salt);
+      await tick();
+      check(`${role} has one recording for seed ${salt}`, audible()?.src === `/audio/music/${role}.mp3`, audible()?.src);
+    }
+  }
 
   exports.playMusic(null);
   await tick();
@@ -210,7 +273,6 @@ export async function checkAudioContinuity(check: Check): Promise<void> {
   await tick();
   check("unavailable audio remains silent without throwing", audible() === undefined);
 
-  const pipeline = ts.createSourceFile("prepare-audio.mjs", pipelineSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   let census = "";
   const findCensus = (node: ts.Node): void => {
     if (ts.isForOfStatement(node) && node.expression.getText(pipeline) === "tracks") census = node.getText(pipeline);

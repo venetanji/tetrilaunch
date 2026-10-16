@@ -234,7 +234,7 @@ export function audioDiagnostics(): string {
       `fx       asked ${fxTally.asked}  sent ${fxTally.sent}`
         + `  gated ${fxTally.gated}  no-buffer ${fxTally.missing}  threw ${fxTally.threw}`,
       `gain     fxBus ${gain}  (sound=${soundOn} music=${musicOn})`,
-      `music    ${musicName ?? "none"}${musicTake && musicTake !== musicName ? ` (${musicTake})` : ""}`
+      `music    ${musicName ?? "none"}`
         + `${stingerName ? ` +stinger ${stingerName}` : ""}`,
       `suspend  ${lifecycle.length ? "" : "never ran"}`,
       ...lifecycle.map((e) => `  ${e}`),
@@ -346,70 +346,10 @@ export type FxName =
   | "systemMount"
   | "windLoop";
 
-/**
- * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
- * is one of the run's beds on loan today (contracts.ts's CONTRACT_BED).
- *
- * WHICH bed covers which bay is run design, not playback, so it lives in
- * game/run.ts (bayMusic) and this module only knows how to play what it is
- * handed. The names are roles; scripts/prepare-audio.mjs decides which
- * generated master becomes each one.
- */
+/** One recording per role: the lobby theme, Deep Run bays, and Contract slots.
+ *  scripts/prepare-audio.mjs assigns masters to these shipped filenames. */
 export type MusicName = "menu" | ContractBed | BayTrack;
 
-/**
- * ROLES WITH MORE THAN ONE SONG.
- *
- * A role is a JOB — where a bed plays — and until 1.0.6 every job had exactly
- * one file, named for it. Three jobs now have alternates: the menu, and bays 1 and
- * 2, which are the beds a player hears most (every run opens on them, the
- * tutorial and every Contract in the low tiers borrow them). Another song
- * under the same job adds variety in exactly the place the
- * repetition lives.
- *
- * This table is the ONLY place the alternate files are known. run.ts's ladder and
- * contracts.ts's windows keep naming roles, main.ts keeps asking for roles,
- * and playMusic picks a take when the role STARTS — so the rest of the game
- * cannot tell which song it got, which is the point: nothing is allowed to
- * depend on the flip. The first entry is the role's own file;
- * sim/systems.ts pins that, pins that
- * every take ships, and pins that every shipped take is listed here.
- *
- * HOW THE FLIP IS MADE is playMusic's `salt`. A bay bed is picked from the
- * run's seed (main.ts passes the Game's seed), so a bay keeps its take across
- * pause and resume, a backgrounded app, a music toggle and a Restart Bay — the
- * same bay, the same song — and a new run is a new coin. The lounge has no
- * seed. Its first visit always plays the main theme; later returns from a
- * run pick among all three menu songs. A pause keeps the current bay bed.
- */
-export const MUSIC_TAKES: Partial<Record<MusicName, readonly string[]>> = {
-  "menu": ["menu", "menu-alt", "menu-lounge"],
-  "bay-1": ["bay-1", "bay-1-alt"],
-  "bay-2": ["bay-2", "bay-2-alt"],
-};
-
-/** Which of a role's takes plays this time. Salted picks are a hash of the
- *  salt and the role, so one seed lands bays 1 and 2 on independent coins
- *  rather than the same side of one; unsalted picks are a plain flip. */
-let menuStarted = false;
-function takeOf(role: MusicName, salt: number | undefined): string {
-  if (role === "menu" && !menuStarted) {
-    menuStarted = true;
-    return role;
-  }
-  const takes = MUSIC_TAKES[role];
-  if (!takes || takes.length < 2) return role;
-  if (salt === undefined) return takes[Math.floor(Math.random() * takes.length)];
-  // FNV-1a over the salt's digits and the role, kept inside a uint32. Not a
-  // shared helper because the one in main.ts is private to the drill seed and
-  // this module cannot import from there.
-  let h = 0x811c9dc5;
-  for (const ch of `${salt >>> 0}:${role}`) {
-    h ^= ch.charCodeAt(0);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return takes[h % takes.length];
-}
 /** `contractClear` is the daily Contract's own celebration. It exists because
  *  the alternative was worse than silence: a cleared Contract used to play
  *  `gameOver`, i.e. the run's funeral over a banked milestone. Deliberately
@@ -722,13 +662,6 @@ let pulseData: Uint8Array<ArrayBuffer> | null = null;
 
 let music: HTMLAudioElement | null = null;
 let musicName: MusicName | null = null;
-/** The file `music` was built from — one of musicName's MUSIC_TAKES, or the
- *  role itself. Kept for the diagnostics line, which otherwise could not say
- *  which of the menu's songs is playing. */
-let musicTake: string | null = null;
-/** The salt the current bed was picked with, so a replay this module fires
- *  itself (setAudioEnabled) lands on the same take rather than re-flipping. */
-let musicSalt: number | undefined;
 let stinger: HTMLAudioElement | null = null;
 let stingerName: StingerName | null = null;
 /** Whether the stinger now playing MUTED the bed rather than stopping it (see
@@ -763,10 +696,8 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
     stinger = null;
     stingerName = null;
   } else if (!wasMusicOn && musicName) {
-    // Rebuild only on an OFF -> ON edge, keeping the current role and take.
-    // The splash precedes the first pointer applying persisted settings;
-    // resetting the role here could replace its main theme with an alternate.
-    playMusic(musicName, musicSalt);
+    // Rebuild only on an OFF -> ON edge, keeping the current role.
+    playMusic(musicName);
   }
 }
 
@@ -1700,7 +1631,7 @@ function fadeIn(el: HTMLAudioElement, to: number): void {
  * fire this on every render without restarting the bed each time — which is
  * what makes it safe to drive from renderOverlay.
  */
-export function playMusic(track: MusicName | null, salt?: number): void {
+export function playMusic(track: MusicName | null): void {
   if (track === musicName) {
     // …UNLESS THE BED ASKED FOR IS THE ONE THAT IS NOT PLAYING. The no-op
     // above is about not restarting a bed; it was also, silently, a refusal
@@ -1739,15 +1670,12 @@ export function playMusic(track: MusicName | null, salt?: number): void {
     if (music || !track || !musicOn) return;
   } else {
     musicName = track;
-    musicSalt = salt;
-    musicTake = null;
   }
   fadeOutAndStop(music);
   music = null;
   if (!track || !musicOn) return;
-  musicTake ??= takeOf(track, salt);
   try {
-    const el = new Audio(`${BASE}audio/music/${musicTake}${LONG_EXT}`);
+    const el = new Audio(`${BASE}audio/music/${track}${LONG_EXT}`);
     el.loop = true;
     el.preload = "auto";
     music = el;

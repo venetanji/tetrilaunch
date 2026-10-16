@@ -55,83 +55,52 @@ looking like a successful run that shipped nothing.
 
 ## The music roles
 
-`menu` is the lounge bed, outside a bay. `bay-N` is the bed for that bay of a
-Deep Run. `contract-rare` belongs to no bay — it is the 1-in-20 special a
-Contract can draw (`contractBed` in `app/src/game/contracts.ts`).
+Each role has one recording. `menu` is Pixel Dreams, the lobby's main theme.
+`bay-N` is the bed for that bay of a Deep Run. `contract-1` through
+`contract-3` retain the original opening recordings for Contract slots 1-3.
+Every Contract tier uses that slot order, including pentomino and Skydeck
+boards; tier, cargo size and retries never substitute a different song.
 
-Contracts have no theme of their own, by design: each borrows a bay's bed. In
-precedence order — the special on a 5% roll, else bay 5's bed if the belt
-carries **pentominoes** (that track is in 5/4 and a pentomino is five cubes),
-else the bed for its slot in the board's TIER WINDOW. The roll is per ATTEMPT,
-so a retry can surprise you twice.
+| role | song | plays over |
+| ---- | ---- | ---------- |
+| `menu` | Pixel Dreams | lobby and other menu screens |
+| `bay-1` | Fire inside | Deep Run bay 1 |
+| `bay-2` | Ecstasy of the senses | Deep Run bay 2 |
+| `bay-3` | Oasis in Paradise | Deep Run bay 3 |
+| `bay-4` | Level Four on the floor | Deep Run bay 4 |
+| `bay-5` | level 5 | Deep Run bay 5, written in 5/4 |
+| `bay-6` | raggae circuit | Deep Run bay 6 |
+| `bay-7` | Chipdisco | Deep Run bay 7 |
+| `bay-8` | Neon Circuit | Deep Run bay 8 |
+| `bay-9` | Neon Static | Deep Run bay 9 |
+| `bay-10` | Neon Pixel Pulse | Deep Run bay 10 |
+| `contract-1` | chill beginning (Remastered), also called Chill Start | Contract slot 1 at every tier |
+| `contract-2` | 2 chill | Contract slot 2 at every tier |
+| `contract-3` | Threes | Contract slot 3 at every tier |
 
-The window is three consecutive bays anchored at the board's tier
-(`contractSlotBed`): a tier-2 board plays bays 2, 3 and 4, a tier-7 board plays
-7, 8 and 9. The anchor clamps at bay 8 — the last one whose three still fit
-inside the ladder — so tiers 8, 9 and 10 all keep bays 8, 9 and 10. The board
-tier is the player's unlocked Mark, so the daily deepens in sound as it deepens
-in difficulty instead of restarting the arc at bay 1 every day.
-
-| role     | song                | plays over            |
-| -------- | ------------------- | --------------------- |
-| `menu`   | Pixel Dreams       | main theme; always the first menu song at launch |
-| `menu-alt` | Fire inside       | alternate menu song on later returns |
-| `menu-lounge` | lounge-menu-pause | alternate menu song on later returns |
-| `bay-1`  | chill beginning (Remastered) | bay 1, and a tier-1 board's first Contract |
-| `bay-1-alt` | Ecstasy of the senses | the other half of `bay-1`'s coin |
-| `bay-2`  | 2 chill             | bay 2, and a Contract in tiers 1-2's window |
-| `bay-2-alt` | Oasis in Paradise | the other half of `bay-2`'s coin |
-| `bay-3`  | Threes              | bay 3, and a Contract in tiers 1-3's window |
-| `bay-4`  | Level Four on the floor | bay 4, and a Contract in tiers 2-4's window |
-| `bay-5`  | level 5             | bay 5 — it is in 5/4, which is why it is pinned to the NUMBER — any pentomino Contract, and tiers 3-5's window |
-| `bay-6`  | raggae circuit      | bay 6, and a Contract in tiers 4-6's window |
-| `bay-7`  | Chipdisco           | bay 7, and a Contract in tiers 5-7's window |
-| `bay-8`  | Neon Circuit        | bay 8, and a Contract in tiers 6-10's window |
-| `bay-9`  | Neon Static         | bay 9, and a Contract in tiers 7-10's window |
-| `bay-10` | Neon Pixel Pulse    | bay 10, the closer, and a Contract in tiers 8-10's window |
-| `contract-rare` | Whale Circuit | 5% of Contract attempts, beating both rules |
-
-### Roles with multiple songs
-
-`bay-1` and `bay-2` each carry an alternate since 1.0.6. The menu now carries
-three songs: Pixel Dreams is the main theme, with both earlier songs retained.
-The role is
-still the only name the game asks for; `lib/audio.ts`'s `MUSIC_TAKES` lists the
-files a role may play, and `playMusic` picks one when the role STARTS. A bay's
-pick is keyed on the run's seed, so backgrounding, toggling music or restarting
-the bay keeps the song and a new run flips the coin again. An ordinary pause
-leaves the current bay song playing at its existing position; resume continues
+`lib/audio.ts` plays the requested role directly. An ordinary pause leaves the
+current bay or Contract song playing at its existing position; resume continues
 the same element. The two mid-bay stingers still pause with the game clock.
-The menu has no seed: its first start always plays Pixel Dreams, and later
-returns pick among all three songs. Walking between menu screens keeps the
-same song running.
+Music off/on rebuilds the same requested recording. Walking between menu
+screens keeps Pixel Dreams running. Terminal stingers still stop the bed and
+end into silence.
+
+The earlier lounge recording and Whale Circuit are retained as local masters,
+but are not in the active soundtrack. The preparation script reports present
+unmapped masters rather than guessing a role or shipping unused downloads.
 
 ## Adding a track
 
-Two steps, because a bed has both a sound and a job:
+The master-to-role assignment lives in `app/scripts/prepare-audio.mjs`'s
+`MUSIC` map. To re-score a role, change its master filename there; playback
+still asks for the same role. Move any recording-specific `MASTER_EQ` entry
+with the recording: the shelf and limiter now on `contract-1` belong to chill
+beginning, not to whichever song plays in Deep Run bay 1.
 
-1. **`app/scripts/prepare-audio.mjs`** — add `"Your Song.mp3": "bay-N"` to
-   `MUSIC`. The role is the shipped filename and the only name the code knows,
-   so this is also where you re-score an existing bay: change the key, not the
-   ladder.
-2. **`app/src/game/run.ts`** — point that bay's row in `BAY_TRACKS` at the new
-   role. Every bay has its own song today, so this only moves if you are adding
-   a bay; a role outside `bay-1`…`bay-10` also needs adding to the `BayTrack`
-   union above the table.
-
-Adding a SECOND song to a role that exists is step 1 with a `-alt` suffix on
-the role (`"Your Song.mp3": "bay-N-alt"`) plus a row in `MUSIC_TAKES`; the
-harness fails on a take that is listed but not shipped and on one that ships
-unlisted, the same two directions as below.
-
-Then `npm run audio:prepare` and `npm run sim:systems`. The harness asserts the
-beds the game can ask for and the shipped `app/public/audio/music/` are the SAME
-SET in both directions, so doing only step 1 (a file nothing claims — dead
-megabytes in the PWA precache) and doing only step 2 (a role with no file, which
-is a bay that plays in SILENCE, because `playMusic` swallows the 404 by design)
-each fail there rather than in play. It also checks that no bay borrows a
-*later* bay's bed, and pins the Contract rules including the order they override
-each other in.
+A new role also needs its type and context selector in `game/run.ts` or
+`game/contracts.ts`. The simulation checks that every requested role has a
+shipped file, every shipped file has a caller, and the seven reassigned
+recordings retain their selected master and processed bytes.
 
 `audio:prepare` **deletes `app/public/audio/` before rebuilding it**, so running
 it without the masters would unship the whole soundtrack. It exits non-zero if
