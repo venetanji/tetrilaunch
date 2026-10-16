@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkAndroidPaywallPatch } from "./android-patch";
+import { checkAudioContinuity } from "./audio";
 import Matter from "matter-js";
 import {
   Game, nextTimedStreak, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS,
@@ -167,8 +168,7 @@ import {
 import {
   type Contract, dailyContracts, dailySeed, dealPatternQueue, generateContract, levelForContract, contractBed,
   availableContracts, canStartContract, claimedContractsOnDay, FREE_DAILY_CONTRACTS,
-  contractSlotBed, CONTRACT_BED_TOP_BASE,
-  variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
+  variantsFor, variantSpec, DAILY_COUNT, CUBES_PER_LINE,
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
@@ -4798,12 +4798,7 @@ section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
     for (const c of board) {
       cards += 1;
       if (c.pieceSize === "bulk") bulk += 1;
-      // THE BED, by the EXISTING rule and not a floor check. contractBed's
-      // pentomino clause was written before anything in the game could satisfy
-      // it — bay 5's track is in 5/4 and a pentomino is five cubes — and the
-      // roof is what finally does. The rare roll is suppressed (it outranks
-      // everything by design, and this is a question about the rule below it).
-      if (contractBed(c, () => 1) !== "bay-5") offBed += 1;
+      if (contractBed(c) !== `contract-${c.slot + 1}`) offBed += 1;
       if (c.kind !== "pattern") continue;
       patternCards += 1;
       if (c.variant === "wide") wideSlots += 1;
@@ -4823,7 +4818,7 @@ section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
   check("every Skydeck Contract ships pentominoes", bulk === cards, `${bulk}/${cards}`);
   check("its pattern slot is always Wide Gauge — dealt, never rolled",
     patternCards === boards && wideSlots === patternCards, `${wideSlots}/${patternCards}`);
-  check("every Skydeck Contract plays bay 5's 5/4 bed", offBed === 0, `${offBed} off-bed`);
+  check("every Skydeck Contract keeps its slot's song", offBed === 0, `${offBed} off-bed`);
   check("every Wide Gauge inventory tiles its 10-wide region", untileable === 0);
   check("every Wide Gauge deal is provably finishable", undealable === 0);
   // A daily board that deals the same puzzle forever is not a daily board. Ten
@@ -15618,113 +15613,18 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   check("the arc never runs backwards",
     beds.every((b, i) => i === 0 || bayOf(b) >= bayOf(beds[i - 1])), trace);
 
-  // ---- Contract beds ------------------------------------------------------
-  // Contracts have no theme of their own: each borrows a bay's bed, with two
-  // overrides on top. All three layers are checked, and so is the order they
-  // beat each other in, because the ORDER is the part that reads as arbitrary
-  // and is not.
+  // Contracts own the original opening three recordings at every tier.
+  // The behavioral fixture below covers every tier, cargo size and rare-roll
+  // boundary; these picks also feed the shipped-role census.
   const day = dailyContracts(1, 20260822);
-  const never = () => 1;   // a roll that can never be the special
-  const always = () => 0;  // a roll that always is
-  const withSize = (c: typeof day[0], size: PieceSize, r: () => number) =>
-    contractBed({ ...c, pieceSize: size }, r);
-
   check("the day deals one Contract per slot", day.length === DAILY_COUNT, String(day.length));
   check("slots are 0,1,2 in order", day.every((c, i) => c.slot === i),
     day.map((c) => c.slot).join(","));
-
-  const std = day.map((c) => withSize(c, "std", never));
-  check("a tier-1 board borrows bays 1-3", std.join(" ") === "bay-1 bay-2 bay-3", std.join(" "));
-  // Distinct is the point of indexing by slot rather than rolling: the three
-  // cards on the board must never sound like each other. This also catches
-  // DAILY_COUNT growing past the slot table, where slot 3 would wrap to bay 1.
-  check("no two of the day's Contracts share a bed",
-    new Set(std).size === std.length, std.join(" "));
-
-  // ---- The tier window ----------------------------------------------------
-  // A board's three cards walk three consecutive bays anchored at the tier they
-  // were generated for (contracts.ts's contractSlotBed). Pinned through the
-  // mapping itself rather than through generated boards: a board per tier costs
-  // seconds of tiling work to assert something that is arithmetic, and the
-  // arithmetic is the part that can go wrong.
-  const windowOf = (tier: number) =>
-    Array.from({ length: DAILY_COUNT }, (_, slot) => contractSlotBed(tier, slot));
-  const windowTrace = (tier: number) => windowOf(tier).join(" ");
-  const TIERS = Array.from({ length: RUN_LEVELS }, (_, i) => i + 1);
-
-  check("a tier-2 board walks bays 2-4", windowTrace(2) === "bay-2 bay-3 bay-4", windowTrace(2));
-  check("a tier-3 board walks bays 3-5", windowTrace(3) === "bay-3 bay-4 bay-5", windowTrace(3));
-  // The clamp, from both sides. Below it the window is anchored at the tier's
-  // own bay; at and above it every board keeps the last three, which is the
-  // whole reason the BASE clamps rather than each slot.
-  check("below the clamp a board opens on its own tier's bed",
-    TIERS.filter((t) => t <= CONTRACT_BED_TOP_BASE)
-      .every((t) => windowOf(t)[0] === `bay-${t}`),
-    TIERS.map((t) => `${t}:${windowOf(t)[0]}`).join(" "));
-  check("tiers 8, 9 and 10 all keep the last three",
-    [8, 9, 10].every((t) => windowTrace(t) === "bay-8 bay-9 bay-10"),
-    [8, 9, 10].map(windowTrace).join(" | "));
-  // A tier past the ladder is not a real board today, but sandbox.ts hands
-  // arbitrary tiers around and a window that walked off the end would clamp
-  // every slot onto the closer.
-  check("a tier past the ladder keeps them too",
-    windowTrace(RUN_LEVELS + 5) === windowTrace(RUN_LEVELS), windowTrace(RUN_LEVELS + 5));
-  check("no window runs past the last bay",
-    TIERS.every((t) => windowOf(t).every((b) => bayOf(b) <= RUN_LEVELS)));
-  check("no board ever deals one bed twice",
-    TIERS.every((t) => new Set(windowOf(t)).size === DAILY_COUNT),
-    TIERS.map(windowTrace).join(" | "));
-  // The clamp is DERIVED, not typed in: it is the last anchor whose window ends
-  // exactly on the last bay. Widening the board without moving it fails here.
-  check("the clamp leaves room for exactly one window",
-    CONTRACT_BED_TOP_BASE + DAILY_COUNT - 1 === RUN_LEVELS, String(CONTRACT_BED_TOP_BASE));
-
-  // The joke: a five-cube shipment gets the bed written in 5/4, from any slot.
-  const bulk = day.map((c) => withSize(c, "bulk", never));
-  check("a pentomino Contract gets the 5/4 bed", bulk.every((b) => b === "bay-5"), bulk.join(" "));
-  check("a domino Contract does not",
-    day.every((c) => withSize(c, "tiny", never) !== "bay-5"));
-
-  // The special outranks both. If it did not, it could never be heard on a
-  // pentomino Contract at all — a rare thing that yields to a rule is not rare.
-  check("the special beats the slot bed", withSize(day[0], "std", always) === "contract-rare");
-  check("the special beats the 5/4 rule", withSize(day[0], "bulk", always) === "contract-rare");
-  // …and it beats the window at every depth, not just at the tier the board
-  // above happens to be. Both overrides sit ON TOP of the window rather than
-  // beside it, so a deep board is the case that would expose them being folded
-  // into the per-tier lookup: a tier-9 pentomino Contract must still find the
-  // 5/4 bed, which is nowhere near its own window.
-  {
-    const deep = { ...day[0], tier: 9 };
-    check("a deep board's window still yields to the special",
-      contractBed(deep, always) === "contract-rare");
-    check("a deep pentomino Contract still gets the 5/4 bed",
-      withSize(deep, "bulk", never) === "bay-5", withSize(deep, "bulk", never));
-    check("…and otherwise plays its own window",
-      withSize(deep, "std", never) === windowOf(9)[deep.slot % DAILY_COUNT],
-      withSize(deep, "std", never));
-  }
-  // Both sides of the boundary: `<`, not `<=`.
-  check("a roll just under the chance is special",
-    contractBed(day[0], () => CONTRACT_RARE_CHANCE - 1e-9) === "contract-rare");
-  check("a roll exactly at the chance is not",
-    contractBed(day[0], () => CONTRACT_RARE_CHANCE) !== "contract-rare");
-  check("the special is rare by construction",
-    CONTRACT_RARE_CHANCE > 0 && CONTRACT_RARE_CHANCE <= 0.1, String(CONTRACT_RARE_CHANCE));
-
-  // The rate MEASURED through the real function, off a seeded stream so this is
-  // a check and not a coin flip in CI. Catches the wiring being right and the
-  // frequency being wrong — a flipped comparison, or a constant read but not
-  // used, both of which pass every assertion above.
-  {
-    const rng = mulberry32(20260822);
-    const N = 20000;
-    let specials = 0;
-    for (let i = 0; i < N; i++) if (contractBed(day[0], rng) === "contract-rare") specials += 1;
-    const rate = specials / N;
-    check("the special lands at about its stated rate",
-      Math.abs(rate - CONTRACT_RARE_CHANCE) < 0.005, `${(rate * 100).toFixed(2)}%`);
-  }
+  const std = day.map((c) => contractBed({ ...c, pieceSize: "std" }));
+  const bulk = day.map((c) => contractBed({ ...c, pieceSize: "bulk" }));
+  check("a board plays the original three Contract songs in slot order",
+    std.join(" ") === "contract-1 contract-2 contract-3", std.join(" "));
+  check("pentomino cargo keeps the same three songs", bulk.join(" ") === std.join(" "), bulk.join(" "));
 
   // The check that catches drift between this ladder and prepare-audio.mjs's
   // MUSIC map — the failure neither typecheck nor the browser will report. A
@@ -15784,58 +15684,7 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     globExts.has((declaredExt ?? ".mp3").slice(1)),
     `glob offers {${[...globExts].join(",")}}`,
   );
-  const roles = new Set([
-    ...SCREEN_BEDS, ...beds, ...std, ...bulk,
-    // Every bed any tier's window can reach, asked for on the Contract board's
-    // own account rather than left to overlap the run ladder — the two tables
-    // are free to stop agreeing.
-    ...TIERS.flatMap(windowOf),
-    "contract-rare",
-  ]);
-
-  // A ROLE WITH MORE THAN ONE SONG. audio.ts's MUSIC_TAKES lists, per role,
-  // the shipped files playMusic may pick between when that role starts — the
-  // 1.0.6 alternates for the lounge and bays 1-2. Read from source for the
-  // reason SCREEN_BEDS is a literal: the module cannot load in Node. Comments
-  // are stripped first so an essay about a take never reads as one.
-  const takesSrc = /const MUSIC_TAKES[^=]*=\s*\{([^}]*)\}/.exec(
-    audioSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""),
-  )?.[1] ?? "";
-  const takes = new Map<string, string[]>();
-  for (const m of takesSrc.matchAll(/"([^"]+)":\s*\[([^\]]*)\]/g)) {
-    takes.set(m[1], [...m[2].matchAll(/"([^"]+)"/g)].map((t) => t[1]));
-  }
-  // Proven to have been found, for the reason the effect census states: an
-  // empty map here would pass every check below and quietly ship three beds
-  // nothing plays.
-  check("audio.ts declares MUSIC_TAKES and this pin can still read it",
-    takes.size > 0, [...takes.keys()].join(", "));
-  // The alternates this release decided: the lounge and the first two bays
-  // each carry a second song. Pinned by ROLE so a re-score that drops one is
-  // a deliberate edit here, not a silent loss of half the lobby.
-  for (const role of ["menu", "bay-1", "bay-2"]) {
-    check(`${role} has a second take`, (takes.get(role)?.length ?? 0) >= 2,
-      (takes.get(role) ?? []).join(", ") || "(none)");
-  }
-  // Every take belongs to a role the game can ask for — a key that is not a
-  // bed is a list nothing will ever pick from — and each role's own name is
-  // one of its takes, because the role IS the default file (audio/README.md's
-  // "the role is the shipped filename") and a role whose takes exclude it
-  // would ship a file under a name nothing plays.
-  const strayRoles = [...takes.keys()].filter((r) => !roles.has(r));
-  check("every MUSIC_TAKES key is a bed the game asks for", strayRoles.length === 0,
-    strayRoles.join(", "));
-  const selfless = [...takes].filter(([role, files]) => !files.includes(role)).map(([r]) => r);
-  check("a role's own name is among its takes", selfless.length === 0, selfless.join(", "));
-  // No file serves two roles and no role lists a file twice: a coin flip over
-  // [x, x] is not a coin flip, and a file two roles share would make the
-  // orphan check below unable to say which of them stopped asking for it.
-  const allTakes = [...takes.values()].flat();
-  const dupTakes = allTakes.filter((f, i) => allTakes.indexOf(f) !== i);
-  check("no take file is listed twice, within or across roles", dupTakes.length === 0,
-    dupTakes.join(", "));
-
-  const wanted = new Set([...roles, ...allTakes]);
+  const wanted = new Set([...SCREEN_BEDS, ...beds, ...std, ...bulk]);
   const absent = [...wanted].filter((n) => !shipped.has(n));
   const orphaned = [...shipped].filter((n) => !wanted.has(n));
   check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));
@@ -15872,6 +15721,9 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
 // it cannot be pulled into a Node harness at all, and prepare-audio.mjs is a
 // script that runs ffmpeg on import.
 // ---------------------------------------------------------------------------
+section("Music continuity through pause and resume");
+await checkAudioContinuity(check);
+
 section("Effect and stinger names (lib/audio.ts vs scripts/prepare-audio.mjs)");
 {
   const readSrc = (...p: string[]): string => fs.readFileSync(
@@ -16682,9 +16534,7 @@ section("Bay restart vs the mid-bay stingers");
   // stay a PLAY and nothing else: a bed that is playing at gain 0 is one a
   // keepBed stinger deliberately muted, and touching its level here would
   // overturn that decision from outside the piece that made it.
-  // The signature carries an optional salt since 1.0.6 (the take pick for a
-  // role with two songs); the branch this pin reads is the same one.
-  const repeat = /export function playMusic\(track: MusicName \| null(?:, salt\?: number)?\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}return;/
+  const repeat = /export function playMusic\(track: MusicName \| null(?:, salt\?: number)?\): void \{\s*\n\s*if \(track === musicName\) \{([\s\S]*?)\n {4}(?:if \([^\n]+\) )?return;/
     .exec(audioCode)?.[1] ?? "";
   check("playMusic's repeat-track branch is still where this pin looks for it",
     repeat.length > 0);

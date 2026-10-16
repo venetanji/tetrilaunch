@@ -37,7 +37,6 @@ import {
 } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
-import { bayMusic, RUN_LEVELS, type BayTrack } from "./run";
 import { MARK_COUNT } from "./upgrades";
 import {
   MATERIAL_SPEC, PIECE_TYPES, type BeltMaterial, type PieceSize, type PieceType,
@@ -113,110 +112,20 @@ export function isSkydeckBoard(tier: number): boolean {
  */
 export const PENTOMINO_LINE_CELLS = 10;
 
-/**
- * What a Contract can play under: one of the Deep Run's beds, borrowed, or the
- * rare special that belongs to no bay. Contracts have no theme of their own by
- * design — see contractBed.
- */
-export type ContractBed = "contract-rare" | BayTrack;
+/** The original opening three recordings now belong to Contracts, independently
+ *  of the Deep Run's bay roles. Every board keeps one song per card. */
+export type ContractBed = "contract-1" | "contract-2" | "contract-3";
 
-/** How often a Contract draws the special instead of its usual bed. Low on
- *  purpose: at one in twenty it stays something that HAPPENS to you. Raise it
- *  much and it stops being a surprise and becomes a fourth Contract theme that
- *  shows up two thirds less often than the others, which is just inconsistent. */
-export const CONTRACT_RARE_CHANCE = 0.05;
-
-/**
- * How many Contracts a day's board deals.
- *
- * Lives up here, ahead of the bed window, because the window is exactly this
- * wide: the size of the board and the stretch of the soundtrack it walks are
- * the same number, and a fourth card would have to move CONTRACT_BED_TOP_BASE
- * with it. See PATTERN_SLOT for what the count means to the board itself.
- */
+/** How many Contracts a day's board deals. See PATTERN_SLOT for what the
+ *  count means to the board itself. */
 export const DAILY_COUNT = 3;
 
-/**
- * The deepest bay a board's bed window may START at — the last anchor whose
- * DAILY_COUNT-wide window still lands inside the beds that exist. At ten bays
- * and a three-card board that is bay 8, which is why tiers 8, 9 and 10 all deal
- * bays 8, 9 and 10: past there the window cannot walk without running off the
- * end of the ladder.
- *
- * Clamping the BASE rather than each slot is the load-bearing half. Clamping
- * per slot would deal the closer twice on a tier-9 board and three times on a
- * tier-10 one, which throws away the reason the beds are indexed at all — three
- * cards that never sound like each other.
- */
-export const CONTRACT_BED_TOP_BASE = RUN_LEVELS - DAILY_COUNT + 1;
+const CONTRACT_BEDS: readonly ContractBed[] = ["contract-1", "contract-2", "contract-3"];
 
-/**
- * Which bay's bed Contract `slot` borrows on a tier-`tier` board.
- *
- * The board's three cards walk a window of consecutive bays anchored at the
- * tier they were generated for: window base = min(tier, CONTRACT_BED_TOP_BASE),
- * and the slot index walks up from there. Tier 2 deals bays 2, 3 and 4; tier 3
- * deals 3, 4 and 5.
- *
- * The tier is the anchor because a Contract tier IS the Mark it is generated
- * against (see contractMaterialsFor) — it is the one number on the card that
- * already means depth. A fixed slot table sent every board back to bays 1-3, so
- * a tier-7 Contract carrying Mark 7's materials played the bed a new player
- * hears in their first minute; walking the window makes the board sound like the
- * depth it is asking to be played at.
- *
- * Indexed rather than rolled, exactly as the fixed table was: the day's three
- * Contracts always sound different FROM EACH OTHER, a Contract you retry sounds
- * the same as it did, and the one next to it never sounds like it.
- *
- * The last step goes through run.ts's bayMusic rather than naming a role
- * directly, because the window is over BAYS and not over songs — a bay on loan
- * from an earlier bay's bed while its own is written has to reach Contracts too,
- * or the two halves of the game disagree about what bay 4 sounds like.
- */
-export function contractSlotBed(tier: number, slot: number): BayTrack {
-  // Clamped at both ends: bayMusic would clamp a base below 1 for us, but into a
-  // window whose first two slots are the SAME bed, which is the one thing the
-  // indexing exists to prevent.
-  const base = Math.min(Math.max(1, Math.floor(tier)), CONTRACT_BED_TOP_BASE);
-  // bayMusic indexes bays from 0; `base` is a bay number.
-  return bayMusic(base - 1 + (slot % DAILY_COUNT));
-}
-
-/**
- * The bed a Contract plays under, in precedence order:
- *
- *  1. **The special**, on a CONTRACT_RARE_CHANCE roll. It beats everything
- *     below — a rare thing that yields to a rule is not rare, it is
- *     conditional, and would never be heard on a pentomino Contract at all.
- *  2. **Bay 5's bed when the belt carries pentominoes.** That track is written
- *     in 5/4 and a pentomino is five cubes. It outranks the slot bed because it
- *     is about what you are LAUNCHING rather than which card you tapped, and
- *     the whole point is that it lines up.
- *
- *     This rule was written before anything could satisfy it — the pentomino
- *     was removed from the pool in the same pass that added it. The SKYDECK
- *     BOARD is what finally does (see SKYDECK_CONTRACT_TIER and patternSize),
- *     and it reaches this bed by the rule as written rather than by a floor
- *     check: nothing below knows the roof exists, it only knows what is on the
- *     belt. The cost is that the roof's three cards all sound like each other,
- *     where the slot window exists to keep a board's three apart — and that is
- *     the right trade on exactly this floor, because there the belt IS the
- *     board's identity, which is the claim rule 2 already makes.
- *  3. **The slot's bed in the tier's window** — see contractSlotBed.
- *
- * `rng` defaults to Math.random — UNSEEDED, deliberately, the same call this
- * file already makes for a pattern Contract's queue order. The roll belongs to
- * the ATTEMPT, not to the Contract: main.ts rolls once in startContract and
- * holds the result, so retrying can surprise you twice, and so the state
- * machine's music sync — which runs on every screen change — cannot re-roll the
- * special every time the pause modal opens.
- */
-export function contractBed(c: Contract, rng: () => number = Math.random): ContractBed {
-  if (rng() < CONTRACT_RARE_CHANCE) return "contract-rare";
-  // "bulk" is the five-cube shipment; see pieces.ts's SIZE_SPEC.
-  if (c.pieceSize === "bulk") return "bay-5";
-  return contractSlotBed(c.tier, c.slot);
+/** Slot order is the soundtrack at every tier, including the Skydeck.
+ *  Cargo size and retries do not substitute another song. */
+export function contractBed(c: Contract): ContractBed {
+  return CONTRACT_BEDS[c.slot % DAILY_COUNT];
 }
 
 /**
@@ -1321,8 +1230,7 @@ export const SETPIECE_MIN_TIER = 2;
  * to "one fewer lines Contract every single day". A player who wants the
  * ordinary budgeted bay still finds two of them every other day; a player who
  * wants the timing exam finds it every other day; and the board is never more
- * than three kinds wide, which is the count the bed window is sized to
- * (CONTRACT_BED_TOP_BASE).
+ * than three kinds wide (DAILY_COUNT).
  *
  * The day's seed is YYYYMMDD, so its parity flips with the date and the
  * alternation is a genuine every-other-day one rather than a hash that happens
@@ -1336,9 +1244,9 @@ export const SETPIECE_SLOT = 1;
  *
  * NOT ON THE ROOF, and it is the same ruling the pentomino got from the other
  * direction. The Skydeck board's identity IS its cargo — every card there ships
- * five-cube shipments and plays bay 5's 5/4 bed because of it (patternSize,
- * contractBed) — and a set piece is a flat-I Contract by construction, so one
- * dealt on that floor would be the one card up there that is neither. It is
+ * five-cube shipments (patternSize) — and a set piece is a flat-I Contract by
+ * construction, so one dealt on that floor would be the one card up there
+ * without that cargo. It is
  * also the floor that deals rather than rolls (generatePatternContract's note):
  * a board whose whole premise is that nobody tunes it to their taste does not
  * then alternate by the day.

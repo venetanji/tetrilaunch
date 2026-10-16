@@ -234,7 +234,7 @@ export function audioDiagnostics(): string {
       `fx       asked ${fxTally.asked}  sent ${fxTally.sent}`
         + `  gated ${fxTally.gated}  no-buffer ${fxTally.missing}  threw ${fxTally.threw}`,
       `gain     fxBus ${gain}  (sound=${soundOn} music=${musicOn})`,
-      `music    ${musicName ?? "none"}${musicTake && musicTake !== musicName ? ` (${musicTake})` : ""}`
+      `music    ${musicName ?? "none"}`
         + `${stingerName ? ` +stinger ${stingerName}` : ""}`,
       `suspend  ${lifecycle.length ? "" : "never ran"}`,
       ...lifecycle.map((e) => `  ${e}`),
@@ -346,67 +346,10 @@ export type FxName =
   | "systemMount"
   | "windLoop";
 
-/**
- * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
- * is one of the run's beds on loan today (contracts.ts's CONTRACT_BED).
- *
- * WHICH bed covers which bay is run design, not playback, so it lives in
- * game/run.ts (bayMusic) and this module only knows how to play what it is
- * handed. The names are roles; scripts/prepare-audio.mjs decides which
- * generated master becomes each one.
- */
+/** One recording per role: the lobby theme, Deep Run bays, and Contract slots.
+ *  scripts/prepare-audio.mjs assigns masters to these shipped filenames. */
 export type MusicName = "menu" | ContractBed | BayTrack;
 
-/**
- * ROLES WITH MORE THAN ONE SONG.
- *
- * A role is a JOB — where a bed plays — and until 1.0.6 every job had exactly
- * one file, named for it. Three jobs now have two: the lounge, and bays 1 and
- * 2, which are the beds a player hears most (every run opens on them, the
- * tutorial and every Contract in the low tiers borrow them, and every pause
- * drops to the lounge). A second song under the same job is the cheapest
- * variety the soundtrack can buy, and it is variety in exactly the place the
- * repetition lives.
- *
- * This table is the ONLY place the second file is known. run.ts's ladder and
- * contracts.ts's windows keep naming roles, main.ts keeps asking for roles,
- * and playMusic picks a take when the role STARTS — so the rest of the game
- * cannot tell which song it got, which is the point: nothing is allowed to
- * depend on the flip. The first entry is the role's own file, the one that
- * played alone before this table existed; sim/systems.ts pins that, pins that
- * every take ships, and pins that every shipped take is listed here.
- *
- * HOW THE FLIP IS MADE is playMusic's `salt`. A bay bed is picked from the
- * run's seed (main.ts passes the Game's seed), so a bay keeps its take across
- * pause and resume, a backgrounded app, a music toggle and a Restart Bay — the
- * same bay, the same song — and a new run is a new coin. The lounge has no
- * seed and is a fresh flip every time it starts: each pause, each return from
- * a run. Deliberately not sticky per session, because the lounge's whole
- * point is that it comes back different.
- */
-export const MUSIC_TAKES: Partial<Record<MusicName, readonly string[]>> = {
-  "menu": ["menu", "menu-alt"],
-  "bay-1": ["bay-1", "bay-1-alt"],
-  "bay-2": ["bay-2", "bay-2-alt"],
-};
-
-/** Which of a role's takes plays this time. Salted picks are a hash of the
- *  salt and the role, so one seed lands bays 1 and 2 on independent coins
- *  rather than the same side of one; unsalted picks are a plain flip. */
-function takeOf(role: MusicName, salt: number | undefined): string {
-  const takes = MUSIC_TAKES[role];
-  if (!takes || takes.length < 2) return role;
-  if (salt === undefined) return takes[Math.floor(Math.random() * takes.length)];
-  // FNV-1a over the salt's digits and the role, kept inside a uint32. Not a
-  // shared helper because the one in main.ts is private to the drill seed and
-  // this module cannot import from there.
-  let h = 0x811c9dc5;
-  for (const ch of `${salt >>> 0}:${role}`) {
-    h ^= ch.charCodeAt(0);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return takes[h % takes.length];
-}
 /** `contractClear` is the daily Contract's own celebration. It exists because
  *  the alternative was worse than silence: a cleared Contract used to play
  *  `gameOver`, i.e. the run's funeral over a banked milestone. Deliberately
@@ -660,34 +603,11 @@ const FADE_MS = 450;
  *  and where it lands at full congestion. */
 const MUSIC_OPEN_HZ = 20000;
 const MUSIC_MUFFLED_HZ = 900;
-/** PEAK LEVEL OF THE CONGESTION TEXTURE, before the effects bus applies its
- *  own gain. There used to be a second constant beside this one — STATIC_GAIN
- *  0.21, the level of the synthesized noise — because the two sources arrived
- *  at wildly different levels: raw ±1.0 noise lost most of its energy in the
- *  bandpass, where a take is peak-normalised to -3dBFS and reaches the gain
- *  untouched. With the synth gone there is one source and one number, and
- *  setCongestion no longer has to carry a `staticPeak` variable to remember
- *  which of the two won.
- *
- *  Tuned BY EAR to 1.0, and the number is hot for a reason the peak math
- *  hides: the pipeline levels these takes by PEAK like every one-shot, but a
- *  sparse clank texture carries its body ~17dB under its peaks (measured:
- *  -21dB RMS against a -3.8dBFS peak), where a loudness-normalised bed keeps
- *  its body AT its level. 0.12 and then 0.5 both read as nothing under music
- *  for exactly that reason. At 1.0 the loop's sustained level still sits
- *  several dB under the bed's; what makes it land is that congestion is also
- *  closing the lowpass over the music, clearing out the very midrange the
- *  clanks live in.
- *
- *  Headroom: a clank peak reaches 0.71 x 1.0 x 0.45 = 0.32 at the
- *  destination, against a bed at 0.46 — a hard coincidence brushes the same
- *  ~0.78 the bus-gain note above already accepts, and only at full
- *  congestion, where the filter has already pulled the bed well off that
- *  figure. If this
- *  number keeps fighting the mix, the durable fix is in prepare-audio.mjs:
- *  level the loop takes by LOUDNESS like the beds (its own doctrine for
- *  continuous audio) and bring this back to a sane fraction. */
-const STATIC_SAMPLE_GAIN = 1.0;
+/** Pull the prerecorded texture back 6 dB after feedback that it intrudes on
+ *  the music. Full-congestion peaks reach about 0.71 * 0.501 * 0.45 = 0.16
+ *  before the master; the shared effects bus and cue envelope stay unchanged. */
+const STATIC_SAMPLE_TRIM_DB = -6;
+const STATIC_SAMPLE_GAIN = Math.pow(10, STATIC_SAMPLE_TRIM_DB / 20);
 /** Static rises fast and falls slow. That is the right dramatic shape, and it
  *  is also free hysteresis: a cube count sitting on a threshold crosses the
  *  tier several times a second, and a symmetric ramp would stutter audibly. */
@@ -719,13 +639,6 @@ let pulseData: Uint8Array<ArrayBuffer> | null = null;
 
 let music: HTMLAudioElement | null = null;
 let musicName: MusicName | null = null;
-/** The file `music` was built from — one of musicName's MUSIC_TAKES, or the
- *  role itself. Kept for the diagnostics line, which otherwise could not say
- *  which of the lounge's two songs is playing. */
-let musicTake: string | null = null;
-/** The salt the current bed was picked with, so a replay this module fires
- *  itself (setAudioEnabled) lands on the same take rather than re-flipping. */
-let musicSalt: number | undefined;
 let stinger: HTMLAudioElement | null = null;
 let stingerName: StingerName | null = null;
 /** Whether the stinger now playing MUTED the bed rather than stopping it (see
@@ -760,18 +673,8 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
     stinger = null;
     stingerName = null;
   } else if (!wasMusicOn && musicName) {
-    // Turned back ON — and only then. playMusic() cannot resume an element, it
-    // builds a new one from zero, so running this on a bed that was already
-    // playing RESTARTS it. This function is called on load and again from the
-    // first pointerdown (main.ts's syncAudioSettings), both of which restate
-    // music: true over a menu bed that started at first render, so without the
-    // wasMusicOn guard the bed audibly restarted twice every launch — once a
-    // few seconds in as settings loaded, once on the first touch. Measured on
-    // the device: menu.mp3 played at 60ms and again from zero at 3640ms, two
-    // elements overlapping for 450ms before the first was faded out.
-    const want = musicName;
-    musicName = null;
-    playMusic(want, musicSalt);
+    // Rebuild only on an OFF -> ON edge, keeping the current role.
+    playMusic(musicName);
   }
 }
 
@@ -1705,7 +1608,7 @@ function fadeIn(el: HTMLAudioElement, to: number): void {
  * fire this on every render without restarting the bed each time — which is
  * what makes it safe to drive from renderOverlay.
  */
-export function playMusic(track: MusicName | null, salt?: number): void {
+export function playMusic(track: MusicName | null): void {
   if (track === musicName) {
     // …UNLESS THE BED ASKED FOR IS THE ONE THAT IS NOT PLAYING. The no-op
     // above is about not restarting a bed; it was also, silently, a refusal
@@ -1740,16 +1643,16 @@ export function playMusic(track: MusicName | null, salt?: number): void {
       if (!lifecycle[lifecycle.length - 1]?.endsWith(entry)) logLifecycle(entry);
       void music.play().catch(() => { /* refused again; nothing further to try */ });
     }
-    return;
+    // A toggle removes the element, but the current visit keeps its song.
+    if (music || !track || !musicOn) return;
+  } else {
+    musicName = track;
   }
-  musicName = track;
-  musicSalt = salt;
-  musicTake = track && takeOf(track, salt);
   fadeOutAndStop(music);
   music = null;
   if (!track || !musicOn) return;
   try {
-    const el = new Audio(`${BASE}audio/music/${musicTake}${LONG_EXT}`);
+    const el = new Audio(`${BASE}audio/music/${track}${LONG_EXT}`);
     el.loop = true;
     el.preload = "auto";
     music = el;
