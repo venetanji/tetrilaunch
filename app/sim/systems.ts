@@ -17,6 +17,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkAndroidPaywallPatch } from "./android-patch";
 import { checkAudioContinuity } from "./audio";
+import { checkAchievements } from "./achievements";
+import { checkSteamTransport } from "./steam-transport";
 import Matter from "matter-js";
 import {
   Game, nextTimedStreak, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS,
@@ -34468,6 +34470,9 @@ section("The desktop monetization boundary (docs/STEAM.md)");
     new Date(PROMO_EPOCH).toISOString() === "2026-03-14T12:00:00.000Z",
     new Date(PROMO_EPOCH).toISOString());
 }
+
+checkAchievements(check);
+await checkSteamTransport(check);
 
 console.log(
   failures === 0

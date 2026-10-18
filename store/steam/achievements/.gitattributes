@@ -1,0 +1,2 @@
+# Steamworks templates use CRLF; preserve those bytes on every checkout.
+*.csv -text whitespace=cr-at-eol

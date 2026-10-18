@@ -635,6 +635,8 @@ export function buyInstall(meta: MetaState, id: UpgradeId): MetaState | null {
 }
 
 export interface MetaState {
+  /** Monotonic local proofs, reconciled one-way to Steam when it is available. */
+  achievements?: string[];
   salvage: number;
   /** Purchased unlock ids. */
   unlocks: string[];
@@ -824,6 +826,7 @@ export interface MetaState {
 
 export function newMeta(): MetaState {
   return {
+    achievements: [],
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     licence: 0, systemDrillsSeen: [], seenContractBoard: false,
     seenDraft: false, seenRefit: false,

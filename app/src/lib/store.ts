@@ -6,6 +6,8 @@ import {
 } from "../game/meta";
 import { stockTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
 import { LICENCE_LESSON_COUNT } from "../game/school";
+import { achievementIds, reconcileAchievements } from "../game/achievements";
+import { syncSteamAchievements } from "./steam";
 
 export interface Settings {
   sound: boolean;
@@ -280,6 +282,7 @@ export function loadMeta(): MetaState {
   try {
     const raw = JSON.parse(localStorage.getItem(META_KEY) || "{}");
     const meta = { ...newMeta(), ...raw } as MetaState;
+    meta.achievements = achievementIds(meta.achievements);
     if (!Array.isArray(meta.unlocks)) meta.unlocks = [];
     meta.unlocks = meta.unlocks.filter((u): u is string => typeof u === "string");
     // Same defensive read as unlocks: this list decides whether a Contract pays
@@ -535,10 +538,13 @@ export function loadMeta(): MetaState {
   }
 }
 
-export function saveMeta(m: MetaState): void {
+export function saveMeta(m: MetaState): MetaState {
+  const reconciled = reconcileAchievements(m);
   try {
-    localStorage.setItem(META_KEY, JSON.stringify(m));
+    localStorage.setItem(META_KEY, JSON.stringify(reconciled));
   } catch {
     /* ignore */
   }
+  void syncSteamAchievements(reconciled.achievements ?? []);
+  return reconciled;
 }

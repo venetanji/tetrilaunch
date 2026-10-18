@@ -1,6 +1,7 @@
 # Desktop shell (Electron)
 
-Runs the built game in a real desktop window, on the road to a Steam build.
+Runs the built game in a real desktop window, including the Steam achievement
+bridge. Steam publication and live persistence testing are separate steps.
 
 ```
 npm --prefix desktop ci # from app/, once — this package's deps are its own,
@@ -88,9 +89,13 @@ inside the asar; `main.js` branches on `app.isPackaged` and resolves one or the
 other. Nothing is staged or copied into this directory, so `app/dist/` stays
 the single build output the PWA and Capacitor also read.
 
-Everything is inside the asar, audio included — verified with `npx asar list`
-after a Linux build: 54 files, byte-identical to `app/dist/`, plus `main.js`
-and `package.json` at the root and nothing else.
+The web bundle and audio stay inside the ASAR. The main-process Steam bridge,
+sandboxed preload and achievement catalog are also archived. Native Steamworks
+modules and their shared libraries live in `app.asar.unpacked`; each platform
+also places its Steam redistributable beside the launch executable. The
+afterPack verification hook checks the assembled artifact, including exact
+catalog equality, and refuses any `steam_appid.txt`. Historical measurements
+below describe the shell before Steamworks was added.
 
 ### Signing
 
@@ -362,17 +367,46 @@ repo will tell you they are missing until a tag does.
   `--remote-debugging-port` will not bind the port and CDP silently attaches to
   the older window.
 
-## What this is not
+## Steam achievements
 
-No auto-update and no Steamworks. Achievements, Steam Cloud and an update
-channel are their own piece of work; `publish` is explicitly `null` in
-`electron-builder.yml` so nothing generates half an update manifest in the
-meantime.
+`steamworks.js` 0.4.0 is a pinned runtime dependency, used only in the main
+process. The sandboxed preload exposes one method:
 
-The Steam half of that is planned in **[docs/STEAM.md](../../docs/STEAM.md)** —
-including the one thing this package's targets do not yet produce, which is the
-*unpacked* application directory a depot actually wants rather than the three
-installers above.
+```ts
+window.steam.unlockAchievement(apiName: string): Promise<boolean>
+```
+
+The handler validates the top-level `app://tetrilaunch` sender and catalog ID.
+It returns true when Steam already records the achievement or accepts an
+activation and StoreStats request. This is local SDK acceptance; the binding
+has no server persistence acknowledgement callback. Failures return false and
+are retried from local earned progress. The renderer retains context isolation
+and has no Node access or generic IPC.
+
+`desktop:dist:steam` uses `electron-builder.steam.yml` to mark its manifest
+`steamBuild: true`; only that packaged channel can call RestartAppIfNecessary.
+The desktop Actions workflow selects the same config only for a dispatch with
+`steam_upload: true`, preserving all platform installer and signing options.
+The regular installer scripts never request Steam relaunch. Missing Steam
+leaves normal gameplay available. App ID `5270760` is supplied explicitly, so
+no local app ID file is needed. The overlay is not enabled or performance
+validated. Steam Cloud and auto-update remain unimplemented; `publish: null`
+continues to suppress update manifests.
+
+The Windows native addon imports `VCRUNTIME140.dll`; Electron's Windows x64
+distribution does not supply it. Enable and publish Microsoft's Visual C++
+2015-2022 x64 Common Redistributable in Steamworks **Installation >
+Redistributables** before Windows playtesting. Direct-download installations
+also need Microsoft's runtime for Steam achievement support. Loading without
+that runtime returns an unavailable bridge and keeps normal gameplay available.
+See the evidence and clean-Windows verification requirement in
+[docs/STEAM.md](../../docs/STEAM.md).
+
+Run `npm --prefix desktop test` from `app/` for IPC, retry, SDK acknowledgement
+and real ASAR fixture checks. The packaging hook verifies the produced archive
+and unpacked libraries on every desktop build. See
+[docs/STEAM.md](../../docs/STEAM.md) for remaining live checks and
+[the achievement assets](../../store/steam/achievements/) for CSVs and icons.
 
 ## Measured (2026-08-26, on the reference Windows box)
 

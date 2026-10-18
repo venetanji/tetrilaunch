@@ -1,5 +1,10 @@
 import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
+import {
+  recordBayAchievements, recordClearAchievements, recordRunAchievements, reconcileAchievements,
+} from "./game/achievements";
+import { syncSteamAchievements } from "./lib/steam";
+import { isSchoolContract } from "./game/contracts";
 import { chainRungsFor, makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, levelForGraduation, finalRunScore, refitAfterBay, finalDraftFor,
@@ -1325,6 +1330,13 @@ class App {
     // "after the save has been read", and stating it here cannot be undone by
     // someone tidying the field declarations.
     this.settings = loadSettings();
+    this.meta = reconcileAchievements(this.meta, this.settings.devMode);
+    this.meta = saveMeta(this.meta);
+    const syncAchievements = (): void => {
+      void syncSteamAchievements(reconcileAchievements(this.meta).achievements ?? []);
+    };
+    window.addEventListener("online", syncAchievements);
+    window.setInterval(syncAchievements, 30_000);
 
     this.input = new InputController(
       this.canvas, () => this.game, this.onMisfire,
@@ -1870,6 +1882,9 @@ class App {
   }
 
   private setCongestion(tier: number, tiers: number): void {
+    if (tier > 0 && this.run && !this.run.sandbox && !this.run.congestionSeen) {
+      this.run = { ...this.run, congestionSeen: true };
+    }
     this.congestion = tiers > 0 ? Math.min(1, Math.max(0, tier / tiers)) : 0;
     if (this.state === "playing") setCongestion(this.congestion);
   }
@@ -2872,7 +2887,7 @@ class App {
       // ceremony into two.
       if (pendingUnlockMark(this.meta) !== null) {
         this.meta = markUnlockCelebrated(this.meta);
-        saveMeta(this.meta);
+        this.meta = saveMeta(this.meta);
       }
       return;
     }
@@ -2900,7 +2915,7 @@ class App {
     // visit to a menu that has nothing left to announce.
     this.meta = markUnlockCelebrated(this.meta);
     if (roof) this.meta = skydeckCelebrated(this.meta);
-    saveMeta(this.meta);
+    this.meta = saveMeta(this.meta);
     this.celebrating = true;
     // The clock every later render measures its offset against, set before
     // towerState is asked anything — that call already reads it.
@@ -3111,6 +3126,7 @@ class App {
       // meaning; Settings is where it goes back off, with a label on it.
       this.settings.devMode = true;
       saveSettings(this.settings);
+      this.saveAchievements(reconcileAchievements(this.meta, true));
       // The tower gains a floor, so this one IS a re-render.
       this.renderOverlay();
       void successHaptic();
@@ -5446,6 +5462,7 @@ class App {
       },
       onLineClear: (n, g) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
+        this.onAchievementClear(n);
         void successHaptic(); playLineClear(n); this.excellenceCue(g);
         this.flashGoal(); this.coachOnLineClear();
       },
@@ -6296,10 +6313,8 @@ class App {
     this.lessonCard = null;
     this.graduation = false;
     this.contract = c;
-    // Defaults to false, so every existing caller (the daily board, retry,
-    // next-contract) clears it by saying nothing — which is the right default
-    // for a flag whose failure mode is a real Contract being flown with a
-    // sandbox belt on it.
+    // New daily Contracts default to real play; retries explicitly preserve
+    // their source so a Tier S practice puzzle cannot become a paid clear.
     this.sandboxContract = fromSandbox;
     this.contractMusic = contractBed(c);
     this.nextContract = null;
@@ -6319,6 +6334,7 @@ class App {
       },
       onLineClear: (n, g) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0, g);
+        this.onAchievementClear(n);
         void successHaptic(); playLineClear(n); this.excellenceCue(g); this.flashGoal();
       },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
@@ -6365,6 +6381,20 @@ class App {
     this.armDragHint();
   }
 
+  private saveAchievements(next: MetaState): void {
+    const reconciled = reconcileAchievements(next);
+    if (reconciled === this.meta) return;
+    this.meta = reconciled;
+    this.meta = saveMeta(this.meta);
+  }
+
+  private onAchievementClear(lines: number): void {
+    if (!this.game) return;
+    const eligible = (this.run !== null && !this.run.sandbox)
+      || (this.contract !== null && !this.sandboxContract && !isSchoolContract(this.contract.id));
+    this.saveAchievements(recordClearAchievements(this.meta, lines, this.game.cubes.length, eligible));
+  }
+
   private onGameStatus(s: GameStatus): void {
     const g = this.game;
     if (!g) return;
@@ -6396,7 +6426,7 @@ class App {
         this.lessonIssuedLicence = !licenceDone(this.meta) && licenceDone(next);
         if (next !== this.meta) {
           this.meta = next;
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
         }
       } else {
         void impactHaptic();
@@ -6414,7 +6444,7 @@ class App {
         this.lessonFinishedCourse = !wasFinished && next.licence >= LESSON_COUNT;
         if (next !== this.meta) {
           this.meta = next;
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
         }
         // THE LICENCE RETIRES THE OLD COACH. Nothing else sets seenTutorial for
         // a player who never met it, so a school graduate's first Deep Run bay
@@ -6480,7 +6510,7 @@ class App {
         const result = recordContractClear(this.meta, this.contract);
         if (result.firstClear) {
           this.meta = result.meta;
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
         }
         const board = availableContracts(
           this.contract.tier, this.meta.claimedContracts, this.fullGame(), dailySeed(),
@@ -6499,6 +6529,7 @@ class App {
       return;
     }
     if (!this.run) return;
+    this.saveAchievements(recordBayAchievements(this.meta, this.run, s === "won", g.fullChain));
     if (s === "won" || s === "lost") {
       telemetry.endBay({
         result: s,
@@ -6738,6 +6769,7 @@ class App {
   private finishRun(won: boolean): void {
     const g = this.game;
     if (!g || !this.run) return;
+    this.saveAchievements(recordRunAchievements(this.meta, this.run, won));
     const score = this.finalScore(g, won);
     // TIER S: the run is real, the score is real, and NONE of the bookkeeping
     // happens. No recordRunEnd, so no salvage, no run count, no bestBay, no
@@ -6809,7 +6841,7 @@ class App {
     this.lastTier = result;
     this.meta = result.meta;
     telemetry.endRun(won, result.salvage);
-    saveMeta(this.meta);
+    this.meta = saveMeta(this.meta);
     saveBest(score);
     void this.refreshBoard();
     this.setState(won ? "won" : "lost");
@@ -7004,7 +7036,7 @@ class App {
       salvage: this.meta.salvage - def.cost,
       unlocks: [...this.meta.unlocks, id],
     };
-    saveMeta(this.meta);
+    this.meta = saveMeta(this.meta);
     void successHaptic();
     playFx("transactionConfirm");
     // The shelf the player just bought from is the shelf they are still
@@ -7060,7 +7092,7 @@ class App {
     const next = buyInstall(this.meta, track);
     if (!next) return;
     this.meta = next;
-    saveMeta(this.meta);
+    this.meta = saveMeta(this.meta);
     void successHaptic();
     playFx("transactionConfirm");
     // THE SYSTEM EXPLAINS ITSELF, once, at the moment it becomes the player's.
@@ -7084,7 +7116,7 @@ class App {
       // Recorded on the OFFER rather than on the acceptance: declining is an
       // answer, and asking again would not respect it.
       this.meta = recordSystemDrillOffer(this.meta, track);
-      saveMeta(this.meta);
+      this.meta = saveMeta(this.meta);
       this.drillOffer = track;
       this.setState("sys-drill-offer");
       return;
@@ -7145,7 +7177,7 @@ class App {
     const next = buySlot(this.meta);
     if (!next) return;
     this.meta = next;
-    saveMeta(this.meta);
+    this.meta = saveMeta(this.meta);
     void successHaptic();
     playFx("transactionConfirm");
     this.renderKeepingScroll();
@@ -7168,7 +7200,7 @@ class App {
     const next = toggleMount(this.meta, id as UpgradeId);
     if (!next) return;
     this.meta = next;
-    saveMeta(this.meta);
+    this.meta = saveMeta(this.meta);
     void tapHaptic();
     // Read off the SAVED state rather than tracked across the toggle: which way
     // the system just went is what the rack now says, and asking the new state
@@ -7546,7 +7578,7 @@ class App {
     // Restarting a Contract re-generates the same bay from its seed, which is
     // the whole point of the mode — retry the identical puzzle, not a reroll.
     if (this.contract) {
-      this.startContract(this.contract);
+      this.startContract(this.contract, this.sandboxContract);
       this.last = performance.now();
       this.acc = 0;
       return;
@@ -7643,7 +7675,7 @@ class App {
     this.sealBreakExplain = explain;
     if (explain) {
       this.meta = sealBreakShown(this.meta);
-      saveMeta(this.meta);
+      this.meta = saveMeta(this.meta);
     }
     // Where "Keep the seal" hands them back. From play (the held ⏸) that is
     // the pause modal rather than the live bay: the gesture had already taken
@@ -7720,7 +7752,7 @@ class App {
     const arrived = arriveAtHub(this.meta);
     if (arrived !== this.meta) {
       this.meta = arrived;
-      saveMeta(this.meta);
+      this.meta = saveMeta(this.meta);
     }
     this.setState("tiers");
   }
@@ -9248,7 +9280,7 @@ class App {
       || el.closest(".tierhub__card")?.querySelector(".alert-mino") != null;
     if (badged) {
       this.meta = ackNextStep(this.meta);
-      saveMeta(this.meta);
+      this.meta = saveMeta(this.meta);
     }
     switch (action) {
       // The primary button flies the parked floor — and on the roof, "flying
@@ -9436,21 +9468,21 @@ class App {
       case "draft-intro-done":
         if (!this.meta.seenDraft) {
           this.meta = { ...this.meta, seenDraft: true };
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
         }
         this.renderOverlay();
         break;
       case "refit-intro-done":
         if (!this.meta.seenRefit) {
           this.meta = { ...this.meta, seenRefit: true };
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
         }
         this.renderOverlay();
         break;
       case "contracts-intro-done":
         if (!this.meta.seenContractBoard) {
           this.meta = { ...this.meta, seenContractBoard: true };
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
         }
         // Re-render rather than removing the scrim by hand: the board behind it
         // is already correct, and re-rendering is what drops the modal AND
@@ -9673,7 +9705,7 @@ class App {
       case "claim-tier":
         if (tierUnlockReady(this.meta)) {
           this.meta = claimTierUnlock(this.meta).meta;
-          saveMeta(this.meta);
+          this.meta = saveMeta(this.meta);
           // Through toHub rather than setState, so the Mark just advanced meets
           // the same onboarding guarantee every other arrival does; the
           // ceremony arms the same way either way (re-entering "tiers").
@@ -9713,7 +9745,7 @@ class App {
       case "offer-skip":
         this.finishTutorial();
         this.meta = completeOnboarding(this.meta);
-        saveMeta(this.meta);
+        this.meta = saveMeta(this.meta);
         this.toHub();
         break;
       // …AND "START" ASKS THE LADDER WHICH BAY THAT IS, rather than naming one.
@@ -9993,7 +10025,7 @@ class App {
         const cheated = SANDBOX ? applyCheat(action, this.meta, this.sandbox.tier) : null;
         if (!cheated) return;
         this.meta = cheated;
-        saveMeta(this.meta);
+        this.meta = saveMeta(this.meta);
         break;
       }
     }

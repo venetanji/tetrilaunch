@@ -1,0 +1,159 @@
+[
+  {
+    "apiName": "TIER_1_UNLOCKED",
+    "name": "First Floor",
+    "description": "Unlock Tier 1.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 1
+  },
+  {
+    "apiName": "TIER_2_UNLOCKED",
+    "name": "Moving Up: Tier 2",
+    "description": "Unlock Tier 2.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 2
+  },
+  {
+    "apiName": "TIER_3_UNLOCKED",
+    "name": "Moving Up: Tier 3",
+    "description": "Unlock Tier 3.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 3
+  },
+  {
+    "apiName": "TIER_4_UNLOCKED",
+    "name": "Moving Up: Tier 4",
+    "description": "Unlock Tier 4.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 4
+  },
+  {
+    "apiName": "TIER_5_UNLOCKED",
+    "name": "Moving Up: Tier 5",
+    "description": "Unlock Tier 5.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 5
+  },
+  {
+    "apiName": "TIER_6_UNLOCKED",
+    "name": "Moving Up: Tier 6",
+    "description": "Unlock Tier 6.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 6
+  },
+  {
+    "apiName": "TIER_7_UNLOCKED",
+    "name": "Moving Up: Tier 7",
+    "description": "Unlock Tier 7.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 7
+  },
+  {
+    "apiName": "TIER_8_UNLOCKED",
+    "name": "Moving Up: Tier 8",
+    "description": "Unlock Tier 8.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 8
+  },
+  {
+    "apiName": "TIER_9_UNLOCKED",
+    "name": "Moving Up: Tier 9",
+    "description": "Unlock Tier 9.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 9
+  },
+  {
+    "apiName": "TIER_10_UNLOCKED",
+    "name": "Moving Up: Tier 10",
+    "description": "Unlock Tier 10.",
+    "hidden": false,
+    "icon": "tier-unlocked",
+    "tier": 10
+  },
+  {
+    "apiName": "CLEAN_RUN",
+    "name": "Clear Passage",
+    "description": "Complete all 10 bays of a Deep Run or Skydeck run without congestion.",
+    "hidden": false,
+    "icon": "clean-run"
+  },
+  {
+    "apiName": "ALL_CLEAR",
+    "name": "Clean Slate",
+    "description": "Empty the board with a line clear.",
+    "hidden": false,
+    "icon": "all-clear"
+  },
+  {
+    "apiName": "TRIPLE_CLEAR",
+    "name": "Triple Sweep",
+    "description": "Clear 3 or more lines at once.",
+    "hidden": false,
+    "icon": "triple"
+  },
+  {
+    "apiName": "QUAD_CLEAR",
+    "name": "Quad Sweep",
+    "description": "Clear 4 or more lines at once.",
+    "hidden": false,
+    "icon": "quad"
+  },
+  {
+    "apiName": "FIRST_CONTRACT",
+    "name": "First Delivery",
+    "description": "Complete a daily Contract.",
+    "hidden": false,
+    "icon": "contract"
+  },
+  {
+    "apiName": "SYSTEMS_HALF",
+    "name": "Half the Workshop",
+    "description": "Own at least 5 of the 10 Workshop systems, including stowed systems.",
+    "hidden": false,
+    "icon": "systems-half"
+  },
+  {
+    "apiName": "SYSTEMS_ALL",
+    "name": "Fully Equipped",
+    "description": "Own all 10 Workshop systems, including stowed systems.",
+    "hidden": false,
+    "icon": "systems-all"
+  },
+  {
+    "apiName": "SKYDECK_OPEN",
+    "name": "Above and Beyond",
+    "description": "Finish the tier ladder and hold all 10 seals to unlock the Skydeck.",
+    "hidden": false,
+    "icon": "skydeck"
+  },
+  {
+    "apiName": "SKYDECK_WIN",
+    "name": "Top Deck",
+    "description": "Complete a Skydeck run.",
+    "hidden": false,
+    "icon": "skydeck-win"
+  },
+  {
+    "apiName": "SECRET_TIER_S",
+    "name": "Signal Found",
+    "description": "Find the hidden Tier S.",
+    "hidden": true,
+    "icon": "secret"
+  },
+  {
+    "apiName": "FULL_CHAIN",
+    "name": "Unbroken",
+    "description": "Win a run bay with every clear in one chain, no lost cargo and no congestion.",
+    "hidden": false,
+    "icon": "full-chain"
+  }
+]

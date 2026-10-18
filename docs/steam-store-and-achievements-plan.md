@@ -110,48 +110,36 @@ not the A button) — being fixed separately. Before applying:
 
 ---
 
-## Part 3 — Achievements (Phase 3 — designed now, built after Phase 2)
+## Part 3 — Achievements (provisional implementation)
 
-The schema is **defined manually in the partner web UI** (no API). Implementation
-needs Phase 2's `window.steam` IPC bridge; this is the design so it's ready to
-wire and so the art can start.
+The proposed 21-achievement catalogue, exact-template Steamworks CSVs, achieved
+and grayscale PNGs, and upload instructions now live in
+`store/steam/achievements/`. The catalogue is shared with the game and the
+main-process allowlist. This replaces the older milestone suggestions here;
+retired licences are not achievement requirements.
 
-### The mapping (from `app/src/game/meta.ts` + `upgrades.ts`)
+- Ten tier-unlock achievements, including the initially available Tier 1.
+- Four global feats: finish a ten-bay run without congestion, empty the board
+  with a line clear, and clear at least three/four lines in one event.
+- First real daily Contract, five/all ten owned Workshop systems (including
+  stowed systems and the stock Reactor), a full-chain run bay, opening/winning
+  the Skydeck, and the hidden Tier S beacon discovery.
 
-Progression already lives in `MetaState` as discrete, named, monotonic
-milestones — near-verbatim achievement rows.
+Real daily Contracts, ordinary Deep Runs (including lower-tier replays) and
+Skydeck runs qualify for clear feats. Training and developer practice do not.
+Congestion history survives bay changes and retries. The congestion-free feat
+requires a full Deep Run or Skydeck win; retrying alone does not disqualify it.
 
-- **Marks** (`MARK_COUNT = 10`): milestone marks rather than all ten to avoid a
-  grind wall — e.g. **Mark 1, 3, 5, 7, 10** ("beat the last one" is the
-  completion capstone). Final count is a design call; lean fewer, meaningful.
-- **Installs** (9: reactor, launcher, magazine, bay, hydraulics, bonds,
-  demolition, thaw, cushion): "First system installed" + "All systems installed."
-- **Licences / UNLOCKS** (10: demo, bulk, survey, scrap-cache, micro, sturdy,
-  overclock, short-lines, bond-breaker, auto): "Every licence earned."
-- **Skydeck** (`skydeckOpen`): "Open the Skydeck" — the endgame gate.
-- **Skill/one-run**: a low-shot bay clear (`bestBay`), a Contract streak, a
-  no-retry run (`tracksLadder`). Pick 2–3 that reward mastery, not grind.
-- **Volume**: "Play N runs" (`runs`) — one gentle long-tail row.
+Progress reconciles one way from the local save to Steam, and earned proofs are
+never retracted. Existing saves backfill tiers, system ownership, real Contract
+wins, Skydeck access and previously discovered Tier S. Historic skill feats are
+not inferred because older saves did not record the evidence.
 
-Target a first set of ~15–20 (Steam's sweet spot), not one-per-milestone.
-
-### Two hard constraints (from STEAM.md Phase 3 — get these right up front)
-
-1. **Backfill is one-way.** Steam achievements are server-side; the save is
-   local. On first launch, reconcile the existing `MetaState` **up** to Steam,
-   once — local state implies the achievement, never the reverse. A player who
-   unlocked half the tree offline must not silently start from zero.
-2. **Nothing that can be un-earned.** `refundRetiredUnlocks()` removes retired
-   unlocks from a save; **no achievement may be keyed to anything a refund can
-   take away.** Key them to Marks beaten, the Skydeck, run counts, and one-run
-   skill feats — not to *currently owning* a specific refundable unlock.
-
-### Art
-
-One icon per achievement, earned + unearned. A real content task that stalls
-releases if left late — start it in parallel with the store images.
-`app/resources/` + `scripts/store-graphics.mjs` are the starting point; honour the
-same deutan-safe, shape-carrying palette as the store art.
+The sandboxed preload and native binding are implemented; see `docs/STEAM.md`
+Phase 2 for packaging and remaining platform checks. Upload and publish the
+provisional definitions, then validate actual unlock writes and Steam
+persistence before advertising the feature. The overlay and Cloud remain
+separate work.
 
 ---
 

@@ -208,7 +208,16 @@ jobs:
 
       - name: Package Windows or Linux
         if: matrix.script != 'dist:mac'
-        run: npm run ${{ matrix.script }}
+        shell: bash
+        env:
+          DESKTOP_PACKAGE_SCRIPT: ${{ matrix.script }}
+          STEAM_DEPOT_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.steam_upload }}
+        run: |
+          if [ "$STEAM_DEPOT_BUILD" = "true" ]; then
+            npm run "$DESKTOP_PACKAGE_SCRIPT" -- --config electron-builder.steam.yml
+          else
+            npm run "$DESKTOP_PACKAGE_SCRIPT"
+          fi
         working-directory: app/desktop
 
       # electron-builder imports the base64 PKCS#12 from CSC_LINK into a
@@ -235,6 +244,7 @@ jobs:
         if: matrix.script == 'dist:mac'
         working-directory: app/desktop
         env:
+          STEAM_DEPOT_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.steam_upload }}
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
@@ -269,11 +279,16 @@ jobs:
           export APPLE_API_ISSUER="$ASC_API_ISSUER_ID"
           printf '%s' "$ASC_API_KEY_P8" | base64 -d > "$APPLE_API_KEY"
 
-          npm run dist:mac -- \
-            --config.mac.identity="$MACOS_SIGNING_IDENTITY" \
-            --config.mac.hardenedRuntime=true \
-            --config.mac.notarize=true \
+          package_args=(
+            --config.mac.identity="$MACOS_SIGNING_IDENTITY"
+            --config.mac.hardenedRuntime=true
+            --config.mac.notarize=true
             --config.dmg.sign=true
+          )
+          if [ "$STEAM_DEPOT_BUILD" = "true" ]; then
+            package_args+=(--config electron-builder.steam.yml)
+          fi
+          npm run dist:mac -- "${package_args[@]}"
 
       # NOTARIZATION FAILING IS NOT LOUD. app-builder-lib's notarizeIfProvided
       # logs "skipped macOS notarization" as a WARNING and returns normally when
