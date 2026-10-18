@@ -10,12 +10,12 @@ function verifySteamPackage({ appOutDir, platform, arch, productFilename, expect
     ? path.join(appOutDir, `${productFilename}.app`, "Contents", "Resources")
     : path.join(appOutDir, "resources");
   const archive = path.join(resources, "app.asar");
-  const entries = asar.listPackage(archive);
+  const entries = asar.listPackage(archive).map((entry) => entry.replaceAll("\\", "/"));
   for (const required of ["main.js", "preload.js", "steam-achievements.js", "steam-achievements/catalog.json",
     "node_modules/steamworks.js/index.js"]) {
     assert(entries.includes(`/${required}`), `Steam package missing ${required}`);
   }
-  const catalog = JSON.parse(asar.extractFile(archive, "steam-achievements/catalog.json").toString());
+  const catalog = JSON.parse(asar.extractFile(archive, path.join("steam-achievements", "catalog.json")).toString());
   assert.deepEqual(catalog, expectedCatalog, "Packaged achievement catalog differs from source catalog");
   const metadata = JSON.parse(asar.extractFile(archive, "package.json").toString());
   assert.equal(metadata.dependencies?.["steamworks.js"], "0.4.0", "Steamworks runtime dependency is not pinned");
@@ -29,7 +29,7 @@ function verifySteamPackage({ appOutDir, platform, arch, productFilename, expect
   }[`${platform}-${arch}`];
   assert(natives, `No Steamworks native build for ${platform}/${arch}`);
   for (const native of natives) {
-    const relative = `node_modules/steamworks.js/dist/${native}`;
+    const relative = path.join("node_modules", "steamworks.js", "dist", native);
     assert.equal(asar.statFile(archive, relative).unpacked, true, `${relative} must be unpacked`);
     assert(fs.statSync(path.join(`${archive}.unpacked`, relative)).size > 0, `Missing unpacked ${relative}`);
   }
