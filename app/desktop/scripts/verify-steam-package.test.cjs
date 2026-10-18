@@ -6,6 +6,7 @@ const path = require("node:path");
 const asar = require("@electron/asar");
 const { spawnSync } = require("node:child_process");
 const vm = require("node:vm");
+const { createRequire } = require("node:module");
 const yaml = require("js-yaml");
 const { verifySteamPackage } = require("./verify-steam-package.cjs");
 
@@ -45,6 +46,7 @@ async function packaged(t, change = {}) {
     "node_modules/steamworks.js/dist/linux64/libsteam_api.so": "redistributable",
     ...change.files,
   };
+  if (change.omit) delete files[change.omit];
   for (const [relative, content] of Object.entries(files)) {
     const target = path.join(source, relative);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -55,10 +57,11 @@ async function packaged(t, change = {}) {
     unpack: "**/steamworks.js/dist/**/*",
   });
   await fs.writeFile(path.join(output, "libsteam_api.so"), "redistributable");
-  return { output, resources, catalog, verify: () => verifySteamPackage({
+  const options = {
     appOutDir: output, platform: "linux", arch: "x64", productFilename: "Tetrilaunch",
     expectedCatalog: catalog, steamBuild: true,
-  }) };
+  };
+  return { output, resources, catalog, options, verify: () => verifySteamPackage(options) };
 }
 
 test("packaged bridge verifies actual archived payload and unpacked native dependencies", async (t) => {
@@ -83,6 +86,72 @@ test("packaged bridge rejects steam_appid.txt inside the archive or beside the e
   const loose = await packaged(t);
   await fs.writeFile(path.join(loose.output, "steam_appid.txt"), "5270760");
   assert.throws(loose.verify, /steam_appid\.txt/);
+});
+
+async function useWindowsAsar(t) {
+  const filename = require.resolve("@electron/asar/lib/filesystem");
+  const moduleRequire = createRequire(filename);
+  const moduleExports = {};
+  vm.runInNewContext(await fs.readFile(filename, "utf8"), {
+    exports: moduleExports, Buffer,
+    require: (name) => name === "path" ? path.win32 : moduleRequire(name),
+  }, { filename });
+  const filesystemFor = (archive) => {
+    const filesystem = Object.create(moduleExports.Filesystem.prototype);
+    filesystem.header = asar.getRawHeader(archive).header;
+    return filesystem;
+  };
+  t.mock.method(asar, "listPackage", (archive) => filesystemFor(archive).listFiles());
+  t.mock.method(asar, "statFile", (archive, member) => filesystemFor(archive).getFile(member));
+  const extractFile = asar.extractFile;
+  t.mock.method(asar, "extractFile", (archive, member) => {
+    filesystemFor(archive).getFile(member);
+    return extractFile(archive, member.replaceAll("\\", "/"));
+  });
+
+  // Use Windows member paths while mapping absolute temp paths to this host.
+  const windowsPath = {
+    ...path.win32,
+    join(...parts) {
+      const joined = path.win32.join(...parts);
+      return path.posix.isAbsolute(parts[0]) ? joined.replaceAll("\\", "/") : joined;
+    },
+  };
+  const verifierFilename = require.resolve("./verify-steam-package.cjs");
+  const verifierModule = { exports: {} };
+  const verifierRequire = createRequire(verifierFilename);
+  vm.runInNewContext(await fs.readFile(verifierFilename, "utf8"), {
+    module: verifierModule, console, JSON, __dirname,
+    require: (name) => name === "node:path" ? windowsPath : verifierRequire(name),
+  }, { filename: verifierFilename });
+  return verifierModule.exports.verifySteamPackage;
+}
+
+test("packaged bridge accepts Windows ASAR listings and nested native member lookups", async (t) => {
+  const built = await packaged(t);
+  const verifyWindows = await useWindowsAsar(t);
+  assert.deepEqual({ ...verifyWindows(built.options) }, { achievements: 1, platform: "linux", arch: "x64", steamBuild: true });
+});
+
+test("Windows ASAR listings still reject missing required files", async (t) => {
+  const verifyWindows = await useWindowsAsar(t);
+  for (const missing of ["main.js", "preload.js", "steam-achievements/catalog.json"]) {
+    const built = await packaged(t, { omit: missing });
+    assert.throws(() => verifyWindows(built.options), (error) => error.message === `Steam package missing ${missing}`);
+  }
+});
+
+test("Windows ASAR listings still reject a nested steam_appid.txt", async (t) => {
+  const built = await packaged(t, { files: { "nested/steam_appid.txt": "5270760" } });
+  const verifyWindows = await useWindowsAsar(t);
+  assert.throws(() => verifyWindows(built.options), /steam_appid\.txt must not ship in archive/);
+});
+
+test("Windows ASAR member lookups still reject missing unpacked native libraries", async (t) => {
+  const built = await packaged(t);
+  const verifyWindows = await useWindowsAsar(t);
+  await fs.unlink(path.join(built.resources, "app.asar.unpacked/node_modules/steamworks.js/dist/linux64/libsteam_api.so"));
+  assert.throws(() => verifyWindows(built.options), /libsteam_api\.so/);
 });
 
 test("workflow only marks explicit Steam uploads and preserves all macOS signing arguments", async (t) => {
