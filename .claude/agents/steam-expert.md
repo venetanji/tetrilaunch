@@ -18,9 +18,13 @@ makes them read quickly.
 ## Where things are
 
 - `docs/STEAM.md` — the plan. Phases, decisions, open questions.
-- `app/desktop/main.js` — the shell. 180 lines, `contextIsolation: true`,
-  `nodeIntegration: false`, **no preload at all**, single-instance lock,
-  `app://` protocol handler with a containment check.
+- `app/desktop/main.js` — the shell. `contextIsolation: true`,
+  `nodeIntegration: false`, sandboxed achievement-only preload, single-instance
+  lock, `app://` protocol handler with a containment check.
+- `app/desktop/steam-achievements.js` — native SDK and strict IPC validation;
+  `app/src/game/achievements.ts` records local proofs and backfill.
+- `store/steam/achievements/` — provisional 21-ID catalogue, exact-template
+  CSV imports, achieved/grayscale PNG pairs and upload instructions.
 - `app/desktop/electron-builder.yml` — targets. Every setting carries the
   reason it exists; read the comment before changing the value.
 - `store/steam/README.md` — the depot scripts' home. Content roots and launch
@@ -34,17 +38,21 @@ makes them read quickly.
 
 ## Phase state (keep this current — update docs/STEAM.md, then this line)
 
-**Blocked on Steamworks tax verification**, so there is no App ID, no depot IDs
-and no upload. That blocks less than it sounds like: Phases 1–4 are local work.
+**App ID 5270760 is available.** Steam achievement recording, the narrow IPC
+bridge and import assets are implemented provisionally. Live unlock writes
+still require the definitions to be uploaded/published and tested in Steam.
 
 - **Phase 1 (packaging) — done.** A `dir` target per platform block plus
   `npm run desktop:dist:steam`. The installers are untouched and stay: Steam is
   an additional channel.
 - **Monetization (subtractive half) — done.** See below.
-- **Phase 2 (binding) — next, and it gates the rest**, because the binding
-  choice decides how much of `electron-builder.yml` changes.
-- **Phases 3–4 (achievements, Cloud)** depend on Phase 2's IPC boundary.
-- **Phases 5–6 (depots, store page)** wait on the App ID and on art.
+- **Phase 2 (binding) — implemented with pinned steamworks.js 0.4.0.** A
+  read-only Linux client probe initialized and read the real App ID. Native
+  writes, Windows/macOS clients and overlay still need direct validation.
+- **Phase 3 (achievements) — provisional implementation and 21-ID import pack.**
+  Skill proofs persist locally; old saves backfill only supported facts.
+- **Phase 4 (Cloud) — deferred.** No Cloud IPC methods are exposed.
+- **Phases 5–6 (depots, store page)** follow the current status in docs/STEAM.md.
 
 ## The five things that are actually easy to get wrong
 

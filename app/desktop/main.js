@@ -3,8 +3,8 @@
 // This began as a spike that only had to answer "does the game run correctly in
 // a real desktop window" — rendering, audio, input, leaderboard. It did, so it
 // is now the shipping shell: electron-builder.yml turns it into an NSIS
-// installer, a dmg/zip and an AppImage. Still no auto-update and no Steamworks;
-// those are their own piece of work.
+// installer, a dmg and an AppImage. Steam achievements stay in the main process
+// behind a sandboxed preload; there is no auto-update or Steam Cloud yet.
 //
 // It loads the `--mode native` bundle, not the web one. That mode exists because
 // a service worker inside a shell that already ships every asset locally caches
@@ -14,9 +14,17 @@
 // updating, and a worker that outlives a depot update would silently run old
 // code with nothing to evict it.
 
-const { app, BrowserWindow, protocol, net, shell } = require("electron");
+const { app, BrowserWindow, protocol, net, shell, ipcMain } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { createSteamAchievements, UNLOCK_CHANNEL } = require("./steam-achievements.js");
+
+const steam = createSteamAchievements({
+  catalog: require(app.isPackaged
+    ? "./steam-achievements/catalog.json"
+    : "../../store/steam/achievements/catalog.json"),
+  reportError: (error) => console.warn("[steam] Achievements unavailable:", error.message),
+});
 
 /**
  * The built web bundle.
@@ -127,9 +135,10 @@ function createWindow() {
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
-      // No preload and nothing exposed: the game is a plain web app and asks
-      // for no privileged APIs. Keeping it that way means the shell adds no
-      // attack surface over the browser it already runs in.
+      // Keep the renderer's only privileged API to an allowlisted achievement
+      // request; the native SDK and sender validation remain in the main process.
+      preload: path.join(__dirname, "preload.js"),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       // The game drives its own loop and should keep running while the window
@@ -199,8 +208,15 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
 
-  app.whenReady().then(() => {
+  // Only a Steam depot build may ask Steam to relaunch it. Direct-download
+  // installers must keep starting normally when Steam is absent or installed.
+  const restartingThroughSteam = app.isPackaged && require("./package.json").steamBuild === true &&
+    steam.restartIfNecessary();
+  if (restartingThroughSteam) app.quit();
+  else app.whenReady().then(() => {
     registerAppProtocol();
+    ipcMain.handle(UNLOCK_CHANNEL, (event, apiName) => steam.unlockAchievement(event, apiName));
+    steam.initialize();
     const win = createWindow();
 
     // THE KEYS THE SHELL OWNS. F11 toggles fullscreen — the convention on

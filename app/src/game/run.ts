@@ -27,6 +27,8 @@ export const REFIT_EVERY = 3;
  * levelForRun), never stored, so it can't drift out of sync with ratchets/tiers.
  */
 export interface RunState {
+  /** Latched across every bay and retry so clearing the pile cannot erase history. */
+  congestionSeen: boolean;
   seed: number;
   /** 0..RUN_LEVELS-1; the level currently playing (or about to start). */
   levelIndex: number;
@@ -580,6 +582,7 @@ export function newRun(
     ratchets: {},
     linesTotal: 0,
     restarts: 0,
+    congestionSeen: false,
     // Nothing has ended yet, so nothing has been filed.
     filed: false,
     scrap: startingScrap,
@@ -901,6 +904,7 @@ export function advanceRun(
     // `sandbox` below is — this function names every field, so anything it
     // omits is zeroed rather than carried.
     restarts: run.restarts,
+    congestionSeen: run.congestionSeen,
     // Carried for the same reason, and it is the field a resumed run depends
     // on: a run that lost bay 7, retried it and cleared it has already been
     // filed once, and every bay it clears after that rebuilds it through here.

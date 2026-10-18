@@ -8,16 +8,20 @@
   "desktopName": "tetrilaunch.desktop",
   "scripts": {
     "start": "electron .",
+    "test": "node --test steam-achievements.test.cjs scripts/verify-steam-package.test.cjs",
     "check:version": "node scripts/check-version.mjs",
     "icons": "node scripts/make-icons.mjs",
     "dist": "npm run check:version && electron-builder --publish never",
     "dist:win": "npm run check:version && electron-builder --win --publish never",
     "dist:mac": "npm run check:version && electron-builder --mac --publish never",
     "dist:linux": "npm run check:version && electron-builder --linux --publish never",
-    "dist:steam": "npm run check:version && electron-builder --dir --publish never"
+    "dist:steam": "npm run check:version && electron-builder --dir --publish never --config electron-builder.steam.yml"
   },
   "devDependencies": {
     "electron": "^44.0.0",
     "electron-builder": "^26.16.1"
+  },
+  "dependencies": {
+    "steamworks.js": "0.4.0"
   }
 }

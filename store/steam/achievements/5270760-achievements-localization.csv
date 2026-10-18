@@ -1,0 +1,43 @@
+﻿api_name (required; must match an api_name from the definitions CSV),field (name or description),english
+TIER_1_UNLOCKED,name,First Floor
+TIER_1_UNLOCKED,description,Unlock Tier 1.
+TIER_2_UNLOCKED,name,Moving Up: Tier 2
+TIER_2_UNLOCKED,description,Unlock Tier 2.
+TIER_3_UNLOCKED,name,Moving Up: Tier 3
+TIER_3_UNLOCKED,description,Unlock Tier 3.
+TIER_4_UNLOCKED,name,Moving Up: Tier 4
+TIER_4_UNLOCKED,description,Unlock Tier 4.
+TIER_5_UNLOCKED,name,Moving Up: Tier 5
+TIER_5_UNLOCKED,description,Unlock Tier 5.
+TIER_6_UNLOCKED,name,Moving Up: Tier 6
+TIER_6_UNLOCKED,description,Unlock Tier 6.
+TIER_7_UNLOCKED,name,Moving Up: Tier 7
+TIER_7_UNLOCKED,description,Unlock Tier 7.
+TIER_8_UNLOCKED,name,Moving Up: Tier 8
+TIER_8_UNLOCKED,description,Unlock Tier 8.
+TIER_9_UNLOCKED,name,Moving Up: Tier 9
+TIER_9_UNLOCKED,description,Unlock Tier 9.
+TIER_10_UNLOCKED,name,Moving Up: Tier 10
+TIER_10_UNLOCKED,description,Unlock Tier 10.
+CLEAN_RUN,name,Clear Passage
+CLEAN_RUN,description,Complete all 10 bays of a Deep Run or Skydeck run without congestion.
+ALL_CLEAR,name,Clean Slate
+ALL_CLEAR,description,Empty the board with a line clear.
+TRIPLE_CLEAR,name,Triple Sweep
+TRIPLE_CLEAR,description,Clear 3 or more lines at once.
+QUAD_CLEAR,name,Quad Sweep
+QUAD_CLEAR,description,Clear 4 or more lines at once.
+FIRST_CONTRACT,name,First Delivery
+FIRST_CONTRACT,description,Complete a daily Contract.
+SYSTEMS_HALF,name,Half the Workshop
+SYSTEMS_HALF,description,"Own at least 5 of the 10 Workshop systems, including stowed systems."
+SYSTEMS_ALL,name,Fully Equipped
+SYSTEMS_ALL,description,"Own all 10 Workshop systems, including stowed systems."
+SKYDECK_OPEN,name,Above and Beyond
+SKYDECK_OPEN,description,Finish the tier ladder and hold all 10 seals to unlock the Skydeck.
+SKYDECK_WIN,name,Top Deck
+SKYDECK_WIN,description,Complete a Skydeck run.
+SECRET_TIER_S,name,Signal Found
+SECRET_TIER_S,description,Find the hidden Tier S.
+FULL_CHAIN,name,Unbroken
+FULL_CHAIN,description,"Win a run bay with every clear in one chain, no lost cargo and no congestion."

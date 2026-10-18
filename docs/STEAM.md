@@ -1,9 +1,9 @@
 # Steam
 
-The plan for shipping the Electron desktop build on Steam. Nothing here is
-implemented yet; `app/desktop/README.md` describes what exists today and ends
-with "No auto-update and no Steamworks" — this document is how that sentence
-gets retired.
+The plan for shipping the Electron desktop build on Steam. The desktop shell,
+Steam packaging path and provisional achievement integration are implemented.
+Live achievement persistence, the overlay, Steam Cloud and store publication
+still have separate validation or implementation work.
 
 Read `app/desktop/README.md` first. It explains the `app://` scheme, the
 `--mode native` bundle and the two-location `app/dist/` mapping, all of which
@@ -160,131 +160,115 @@ identically and their paths are pinned; CI is where they are first exercised.
 
 ## Phase 2 — linking Steamworks
 
-This is where the packaging assumptions in `electron-builder.yml` stop being
-true. Three of its comments say, in effect, "there are no native modules here":
+**Implemented provisionally with `steamworks.js` 0.4.0.** The package is pinned
+as a production dependency of `app/desktop/`, with N-API binaries for Windows
+x64, Linux x64 and macOS x64/arm64. `npmRebuild: false` remains valid because
+these binaries do not depend on Electron's Node ABI. The alternative
+`steamworks-ffi-node` has not been spiked; no comparative runtime claim is made.
+The older bundled SDK and maintenance history remain risks to check during
+platform testing.
 
-| Setting | Today's reason | What Steamworks does to it |
-| --- | --- | --- |
-| `asar: true` | Everything is JS and assets | A `.node` or a `.dll`/`.so`/`.dylib` **cannot be loaded from inside an asar**. Needs `asarUnpack`. |
-| `npmRebuild: false` | "No native modules anywhere in this package" | True only if the binding is FFI or N-API prebuilt. A node-gyp binding puts a toolchain back on every CI runner. |
-| `files:` (no `node_modules`) | "This package has no runtime dependencies" | The binding becomes the first real `dependency`, not a `devDependency`. |
+Source evidence for the pinned package is npm's `gitHead`
+`fa6c6af2a40dc3923f88d41c2912aa041dfffc6f`:
 
-### Choosing the binding — a spike, not a guess
+- `index.js` calls native initialization and pumps callbacks at 30 Hz.
+- `src/lib.rs` requests current stats during initialization. Stats readiness is
+  asynchronous, so an immediate achievement attempt may fail and must retry.
+- `src/api/achievement.rs` implements `activate(id)` as SetAchievement followed
+  by StoreStats, returning true only when both calls succeed. `isActivated(id)`
+  reads Steam's local achieved flag.
+- The binding does not expose UserStatsStored/UserAchievementStored callbacks.
+  An acknowledged request therefore means local SDK acceptance, not observed
+  server persistence. No separate callback pump or duplicate StoreStats call is
+  needed after successful activation.
 
-Three candidates, and their npm metadata as of 2026-09-01 is the deciding
-evidence:
+### Process and launch boundary
 
-| Package | Version | Last published | Mechanism |
-| --- | --- | --- | --- |
-| `steamworks.js` (ceifa) | 0.4.0 | **2024-08-06** | napi-rs native module, prebuilt |
-| `@ai-zen/steamworks.js` | 0.3.6 | 2024-04-05 | fork of the above |
-| `steamworks-ffi-node` | 0.11.2 | **2026-08-30** | Koffi FFI against an SDK you supply |
+`app/desktop/steam-achievements.js` owns all native calls. `preload.js` requires
+only Electron's sandbox-permitted module and exposes exactly
+`window.steam.unlockAchievement(apiName): Promise<boolean>`. The renderer keeps
+`contextIsolation: true`, `nodeIntegration: false` and `sandbox: true`; it never
+receives generic IPC, native objects, cloud access or achievement reset methods.
 
-`steamworks.js` is the one every tutorial names, and it is **two years stale**.
-N-API means Electron 44 is not an ABI problem — that is what napi-rs buys — but
-it does mean a bundled Steamworks SDK from 2024 and two years of unfixed
-issues.
+The IPC handler accepts only a top-level `app://tetrilaunch` frame and an exact
+API name from the committed achievement catalog. It reads the achieved flag
+before activation to avoid duplicate writes. If activation sets the local flag
+but StoreStats fails, the bridge tracks the pending store and retries it before
+acknowledging that ID. Native load/init failures return false, with another
+initialization attempt permitted after 30 seconds. Stats-not-ready results also
+return false so the renderer can retry the saved earned IDs.
 
-`steamworks-ffi-node` was published two days ago and `dlopen`s the
-redistributable at runtime, which has a specific attraction here: the
-redistributable it would load is
-`tools/steamworks/sdk/redistributable_bin/steam_api64.dll` — **SDK 1.65, the
-version we actually downloaded**, ours to upgrade on our own schedule. It also
-keeps `npmRebuild: false` honest, since there is nothing to rebuild. Against
-it: a young single-maintainer package, and a wrong FFI signature is a segfault
-rather than a type error.
+`desktop:dist:steam` selects `electron-builder.steam.yml`, which injects boolean
+`steamBuild: true` into the packaged manifest. Only that explicit packaged
+channel calls RestartAppIfNecessary before creating a window. Direct-download
+installers start normally without Steam and never request a Steam relaunch.
+The desktop Actions workflow also selects this config for all three platforms
+when a `workflow_dispatch` has `steam_upload: true`, retaining the macOS signing
+and notarization overrides. Tags, releases and regular dispatches keep the base
+installer configuration.
+Initialization passes App ID `5270760` explicitly; local development does not
+need `steam_appid.txt`, and it must never ship in a depot.
 
-Spike both against the smallest possible target — `SteamAPI_Init()`, the
-player's persona name, one achievement **written**, and the overlay drawing
-over the game — on Windows first. Decide on evidence. Record the decision and
-the losing option's failure mode here, in the shape the rest of this repo's
-docs use.
+### What the package verifies
 
-**The write is not optional, and it is the point.** A spike that only reads
-(init, persona name) exercises the easy half of an FFI surface: return values
-that are pointers to strings the library owns. Writes take our data across the
-boundary — a `const char*` achievement id, a struct, a callback registration —
-and a wrong FFI signature there is a **segfault**, not a type error. That is
-the specific risk `steamworks-ffi-node`'s youth carries, and reads will not
-find it. Unlock a test achievement, `StoreStats()`, and confirm it in the
-Steamworks web UI; a binding that survives one write survives the shape of
-everything Phase 3 asks of it.
+The binding's native distributions are outside `app.asar` via `asarUnpack`,
+including each native library beside its `.node` file. Linux's native binary
+has `$ORIGIN` RUNPATH, verified with `readelf -d`. Each platform additionally
+copies the Steam redistributable beside the launch executable as the package's
+README requests. Installer targets remain available.
 
-**And the overlay has a wrinkle beyond process placement.** The overlay hooks
-the GPU process, and Electron games commonly need
+Windows has an additional OS prerequisite: the addon's PE import table includes
+`VCRUNTIME140.dll`. Electron 44.0.0's
+[Windows x64 distribution manifest](https://github.com/electron/electron/blob/v44.0.0/script/zip_manifests/dist_zip.win.x64.manifest)
+does not include that DLL. Before Windows playtesting, enable the Microsoft
+Visual C++ 2015-2022 x64 Common Redistributable (the v14 runtime) in Steamworks
+App Admin, **Installation > Redistributables**, and publish the configuration.
+[Valve's Common Redistributables guide](https://partner.steamgames.com/doc/features/common_redist)
+describes Steam-managed installation and clean-OS testing. This is a Steamworks
+configuration requirement; no VC runtime DLL is copied from this development
+machine. Verify the Steam install on a clean Windows machine or VM, including
+native initialization and one achievement write. Direct-download installations
+also need that Microsoft runtime for Steam achievement support; a missing
+runtime makes the bridge unavailable without preventing gameplay.
 
-```js
-app.commandLine.appendSwitch("in-process-gpu");
-```
+The afterPack hook in `app/desktop/scripts/verify-steam-package.cjs` opens the
+actual ASAR and checks the preload, bridge, catalog equality, pinned production
+dependency, native binary, shared libraries and Steam launch metadata. It rejects
+`steam_appid.txt` inside the archive or anywhere in the unpacked output. Run
+`npm --prefix desktop test` from `app/` for bridge and ASAR fixture tests.
 
-for it to draw at all — steamworks.js's own docs mention it. That flag is not
-free on a game whose whole rendering story is one canvas: it moves GPU work
-into the browser process, and the thing this shell has that most Electron apps
-do not is a **measured** 120 fps flat frame pacing (median 8.30 ms, p95
-8.40 ms, `app/desktop/README.md`). Measure with the switch on before accepting
-it — same box, same method, and `sim/renderperf` for the drawing half — and
-compare against those numbers rather than against a feeling.
+### Validation still owed
 
-If the overlay costs that flatness, **"no overlay" is a legitimate outcome**.
-The overlay buys chat, invites and the browser; this game has no chat surface,
-no invites and no multiplayer. Achievements and Cloud do not need it — they are
-API calls, not overlay features — and a Steam game with achievements, Cloud
-saves and no overlay is unremarkable. A game that stutters is not.
+On 2026-10-18, a read-only Linux probe loaded the native module, initialized the
+running Steam client and read App ID `5270760` back from the SDK. A real
+achievement write, persistence after restarting Steam,
+offline-to-online reconciliation and Windows/macOS loading remain live checks.
+Import and publish the provisional Steamworks definitions before testing writes.
 
-### Where the SDK calls run
-
-**In the main process, behind a preload and `contextBridge` — not in the
-renderer.**
-
-`steamworks.js`'s README tells you to set `nodeIntegration: true` and
-`contextIsolation: false`. `app/desktop/main.js` currently sets exactly the
-opposite, with a comment explaining why:
-
-> No preload and nothing exposed: the game is a plain web app and asks for no
-> privileged APIs. Keeping it that way means the shell adds no attack surface
-> over the browser it already runs in.
-
-Following the README would tear that down and hand full Node privileges to a
-renderer that loads a live leaderboard over the network. It is also
-unnecessary: achievements and cloud saves are a handful of coarse, async calls,
-which is precisely the shape IPC is good at. The renderer gets a narrow, typed
-`window.steam` surface — `unlockAchievement(id)`, `readCloud()`,
-`writeCloud(json)` — and nothing else.
-
-The overlay is the exception worth checking during the spike: it hooks the
-graphics device, and whether that works from the main process without renderer
-node integration is the first thing to verify, because the answer shapes the
-whole boundary.
-
-Also needed here: a `steam_appid.txt` beside the binary for local development
-(so `SteamAPI_Init` succeeds without launching through Steam), which must
-**not** ship in the depot, and `SteamAPI_RestartAppIfNecessary` at startup so
-launching the executable directly re-launches it through Steam.
+The overlay is deliberately not enabled: no `in-process-gpu` switch or forced
+frame invalidation was added. If overlay support is requested, measure it on the
+reference machine against the recorded 120 fps baseline (median 8.30 ms, p95
+8.40 ms in `app/desktop/README.md`) before accepting its frame-pacing cost.
 
 ## Phase 3 — achievements
 
-The mapping is favourable. Progression already lives in one place — `meta.ts`'s
-`MetaState` — with discrete, named, monotonic milestones: `MARK_COUNT` mark
-levels, the `UNLOCKS` tree, `INSTALLS` and their uprates, the Skydeck, and
-per-board bests. These are achievement rows almost verbatim.
+The provisional 21-achievement catalog, Steam import CSVs and 256 px PNGs are in
+`store/steam/achievements/`: ten tier-unlock achievements, four general play
+feats and seven progression milestones. The catalog is the API-name authority for asset
+generation, renderer achievement logic and the packaged main-process allowlist.
+See that directory's README for criteria, import order and art generation.
 
-Two things to decide before defining the set, both easier to get right now than
-to fix after the first player earns one:
+Achievement progress travels one way: recorded local milestones imply Steam
+achievements. Steam never grants gameplay unlocks or changes the local save.
+The local earned ledger survives offline play; Steam delivery retries on launch
+and while the app runs. Acknowledgements are session-only so later launches read
+Steam state again. Achievements never clear an earned Steam flag, and temporary
+dev-mode state is not a source of normal gameplay achievements.
 
-- **Backfill.** Steam achievements are server-side and the save is local. A
-  player who arrives on Steam having already unlocked half the tree offline —
-  or who reinstalls — must have their existing `MetaState` reconciled *up* to
-  Steam on first launch, once, rather than silently starting from zero. A
-  one-way sync (local state implies achievement, never the reverse) is the safe
-  direction.
-- **Nothing that can be un-earned.** Steam has `ClearAchievement`, but using it
-  is player-hostile. `refundRetiredUnlocks()` already removes retired unlocks
-  from a save; no achievement may be keyed to anything a refund can take away.
-
-Achievement art (an icon per achievement, earned and unearned) is a real
-content task, not a code one, and it is the kind of thing that stalls a
-release. `app/resources/` and `scripts/store-graphics.mjs` are the starting
-point.
+Existing saves backfill only milestones supported by retained evidence. A past
+congestion-free run or simultaneous triple/quad sweep cannot be reconstructed
+from a high score; those must be earned after tracking is introduced. Future
+retirement/refunds must preserve any already-earned ledger entry.
 
 ## Phase 4 — Steam Cloud
 
