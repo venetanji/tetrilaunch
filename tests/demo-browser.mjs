@@ -69,8 +69,8 @@ async function pointerAndKeyboardControls() {
     await page.waitForFunction(() => document.querySelector('#stats').textContent.includes('Rotation 270°'));
   } finally { await context.close(); }
 }
-async function secondaryTouchRotation() {
-  const context = await browser.newContext({viewport:{width:1000,height:1400},hasTouch:true,isMobile:true});
+async function secondaryTouchRotation(viewport = {width:1000,height:1400}) {
+  const context = await browser.newContext({viewport,hasTouch:true,isMobile:true});
   try {
     const page = await context.newPage();
     await page.goto(origin);
@@ -82,10 +82,10 @@ async function secondaryTouchRotation() {
     const canvas = await page.locator('canvas').boundingBox();
     const rotate = await page.locator('#rotate-right').boundingBox();
     const cdp = await context.newCDPSession(page);
-    let first = {id:1,x:canvas.x+canvas.width*.4,y:canvas.y+canvas.height*.45};
+    let first = {id:1,x:canvas.x+canvas.width*.65,y:canvas.y+canvas.height*.35};
     const second = {id:2,x:rotate.x+rotate.width/2,y:rotate.y+rotate.height/2};
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[first]});
-    first = {...first,x:first.x-130,y:first.y+80};
+    first = {...first,x:first.x-Math.min(130,canvas.width*.35),y:first.y+80};
     await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[first]});
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[first,second]});
     await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[second]});
@@ -97,10 +97,85 @@ async function secondaryTouchRotation() {
     assert.deepEqual(await page.evaluate(() => window.demoTouchReleases), ['rotate-right','CANVAS']);
   } finally { await context.close(); }
 }
+async function compactLayouts() {
+  const failures = [];
+  for (const [name, width, height, insets] of [
+    ['landscape', 844, 390, {top:0,right:0,bottom:0,left:0}],
+    ['compact-phone', 320, 568, {top:0,right:0,bottom:0,left:0}],
+    ['notched-landscape', 844, 390, {top:0,right:44,bottom:21,left:44}],
+    ['notched-phone', 375, 812, {top:44,right:0,bottom:34,left:0}],
+  ]) {
+    const context = await browser.newContext({viewport:{width,height},hasTouch:true});
+    try {
+      const page = await context.newPage();
+      await page.goto(origin);
+      // Like UI-fit, substitute the env-derived tokens: Chromium has no notch.
+      await page.addStyleTag({content:`:root {
+        --safe-top:${insets.top}px; --safe-right:${insets.right}px;
+        --safe-bottom:${insets.bottom}px; --safe-left:${insets.left}px;
+      }`});
+      await page.locator('#continue').click();
+      const layout = await page.evaluate(() => {
+        const rect = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+        const padding = getComputedStyle(document.body);
+        return {
+          field:rect('.field'), controls:rect('.controls'), toolbar:rect('.toolbar'),
+          buttons:[...document.querySelectorAll('.controls button')].map(button => button.getBoundingClientRect().toJSON()),
+          padding:{top:parseFloat(padding.paddingTop),right:parseFloat(padding.paddingRight),bottom:parseFloat(padding.paddingBottom),left:parseFloat(padding.paddingLeft)},
+          scrollWidth:document.documentElement.scrollWidth,
+        };
+      });
+      assert.ok(layout.padding.top >= insets.top && layout.padding.right >= insets.right
+        && layout.padding.bottom >= insets.bottom && layout.padding.left >= insets.left,
+      `${name}: content respects safe areas: ${JSON.stringify(layout.padding)}`);
+      assert.ok(layout.toolbar.top >= insets.top - 1 && layout.controls.bottom <= height - insets.bottom + 1,
+        `${name}: field and controls fit together: ${JSON.stringify(layout)}`);
+      assert.ok(layout.field.height >= 140, `${name}: field keeps useful aiming space`);
+      assert.ok(layout.buttons.every(button => button.width >= 44 && button.height >= 44
+        && button.left >= insets.left && button.right <= width - insets.right), `${name}: all aiming controls remain usable`);
+      assert.ok(layout.scrollWidth <= width + 1, `${name}: no horizontal overflow`);
+      await page.locator('#pause').click();
+      await page.locator('#pause').click();
+      const resumed = await page.locator('#play-area').boundingBox();
+      assert.ok(resumed.y >= insets.top - 1 && resumed.y + resumed.height <= height - insets.bottom + 1,
+        `${name}: Resume presents the whole play area without manual scrolling`);
+      assert.equal(await page.locator('#pause').evaluate(button => document.activeElement === button), true,
+        `${name}: Resume retains native button focus`);
+      await mkdir('/tmp/tetrilaunch-demo-shots', {recursive:true});
+      await page.screenshot({path:`/tmp/tetrilaunch-demo-shots/fit-${name}.png`});
+      console.log(`Demo fit ${name}: field ${Math.round(layout.field.height)}px, controls bottom ${Math.round(layout.controls.bottom)}px / ${height - insets.bottom}px usable`);
+    } catch (error) { failures.push(error); }
+    finally { await context.close(); }
+  }
+  if (failures.length) throw new AggregateError(failures, 'Demo compact layout regressions');
+}
+async function accessibleReadouts() {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(origin);
+    assert.equal(await page.locator('#stats').evaluate(stats => !!stats.closest('[role="status"],[role="alert"],[aria-live="polite"],[aria-live="assertive"]')),
+      false, 'Per-frame telemetry must not be a live announcement');
+    const result = page.getByRole('dialog');
+    assert.equal(await result.getAttribute('aria-labelledby'), 'result-title', 'Result changes have an accessible title');
+    assert.equal(await result.getAttribute('aria-describedby'), 'result-body', 'Result changes announce their meaningful explanation');
+    assert.equal(await page.locator('#continue').evaluate(button => document.activeElement === button), true,
+      'Result dialogs move focus inside for announcement');
+    const safeSources = await page.evaluate(() => [...document.styleSheets].flatMap(sheet => [...sheet.cssRules])
+      .filter(rule => rule.selectorText === ':root').map(rule => rule.style.cssText).join(' '));
+    for (const side of ['top','right','bottom','left']) {
+      assert.match(safeSources, new RegExp(`--safe-${side}:\\s*env\\(safe-area-inset-${side}`),
+        `Safe ${side} token reads the real browser inset`);
+    }
+  } finally { await context.close(); }
+}
 try {
   const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || ['/usr/bin/chromium','/opt/pw-browsers/chromium/chrome-linux/chrome'].find(existsSync);
   browser = await chromium.launch({ ...(executablePath ? {executablePath} : {}), headless:true, chromiumSandbox:true });
-  const controls = await Promise.allSettled([pointerAndKeyboardControls(), secondaryTouchRotation()]);
+  const controls = await Promise.allSettled([
+    pointerAndKeyboardControls(), secondaryTouchRotation(), compactLayouts(), accessibleReadouts(),
+    secondaryTouchRotation({width:844,height:390}), secondaryTouchRotation({width:320,height:568}),
+  ]);
   const failures = controls.filter(result => result.status === 'rejected').map(result => result.reason);
   if (failures.length) throw new AggregateError(failures, 'Demo pointer/keyboard regressions');
   const context = await browser.newContext();

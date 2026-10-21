@@ -50,6 +50,9 @@ function showResult(title: string, body: string, action: string): void {
   result.hidden = false;
   next.focus();
 }
+function revealPlayArea(): void {
+  element('play-area').scrollIntoView({ block: 'nearest' });
+}
 function play(): void {
   ready = true;
   result.hidden = true;
@@ -60,7 +63,8 @@ function play(): void {
   accumulator = 0;
   lastFrame = performance.now();
   describe();
-  canvas.focus();
+  canvas.focus({ preventScroll: true });
+  revealPlayArea();
 }
 next.addEventListener('click', () => {
   if (!ready) { play(); return; }
@@ -82,6 +86,7 @@ function togglePause(): void {
   pause.textContent = session.game.paused ? 'Resume' : 'Pause';
   accumulator = 0;
   lastFrame = performance.now();
+  if (!session.game.paused) revealPlayArea();
 }
 pause.addEventListener('click', togglePause);
 element('retry').addEventListener('click', () => {

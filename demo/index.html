@@ -4,9 +4,11 @@
 <header><a href="https://tetrilaunch.com/">TETRILAUNCH</a><span class="badge">PLAYABLE DEMO</span><a href="https://tetrilaunch.com/#stores">Full game availability ↗</a></header>
 <main>
 <section class="intro"><div><p class="eyebrow" id="progress"></p><h1 id="title"></h1></div><p id="brief"></p></section>
-<div class="toolbar"><span id="stats" role="status"></span><button id="pause" type="button">Pause</button><button id="retry" type="button">Retry lesson</button><button id="restart" type="button">Restart demo</button></div>
-<section class="field" aria-label="Tetrilaunch play field"><canvas tabindex="0" aria-label="Game canvas. Click to aim and fire. Use W A S D to aim, Space to fire, Q and E to rotate."></canvas><div id="result" hidden role="dialog" aria-modal="true" aria-labelledby="result-title"><h2 id="result-title"></h2><p id="result-body"></p><button id="continue" type="button">Continue</button><a href="https://tetrilaunch.com/#stores">Full game availability ↗</a></div></section>
+<div class="play-area" id="play-area">
+<div class="toolbar"><span id="stats"></span><button id="pause" type="button">Pause</button><button id="retry" type="button">Retry lesson</button><button id="restart" type="button">Restart demo</button></div>
+<section class="field" aria-label="Tetrilaunch play field"><canvas tabindex="0" aria-label="Game canvas. Click to aim and fire. Use W A S D to aim, Space to fire, Q and E to rotate."></canvas><div id="result" hidden role="dialog" aria-modal="true" aria-labelledby="result-title" aria-describedby="result-body"><h2 id="result-title"></h2><p id="result-body"></p><button id="continue" type="button">Continue</button><a href="https://tetrilaunch.com/#stores">Full game availability ↗</a></div></section>
 <div class="controls"><button id="rotate-left" type="button" aria-label="Rotate left">↶ Rotate · Q</button><button id="fire" type="button">Launch · Space</button><button id="rotate-right" type="button" aria-label="Rotate right">Rotate · E ↷</button></div>
+</div>
 <section class="lesson"><h2>Flight notes</h2><div id="notes"></div></section>
 <p class="help">Mouse: click a target to launch; wheel adjusts the arc. Touch: pull back from the cannon and release. Keyboard: W/S aim, A/D power, Q/E rotate, Space launch, P pause.</p>
 <footer>Flight School + one Tier-1 bay. No account, purchases or saved progress. The full game continues in the apps; store listings may still be pending.</footer>
