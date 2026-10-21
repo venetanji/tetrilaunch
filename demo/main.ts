@@ -20,7 +20,8 @@ let raf = 0;
 // Keyboard shortcuts belong to the play field, not a focused link/button.
 canvas.addEventListener('pointerdown', () => canvas.focus(), { capture: true });
 const input = new InputController(canvas, () => ready && result.hidden && !session.game.paused
-  && (document.activeElement === canvas || document.activeElement === document.body) ? session.game : null);
+  ? session.game : null, undefined, undefined,
+  () => document.activeElement === canvas || document.activeElement === document.body);
 
 function describe(): void {
   const lesson = session.lesson;
@@ -92,11 +93,21 @@ element('fire').addEventListener('click', () => {
   if (ready && result.hidden) session.game.shoot(performance.now());
 });
 for (const [id, right] of [['rotate-left', false], ['rotate-right', true]] as const) {
-  element(id).addEventListener('click', () => {
+  const button = element(id);
+  const rotate = (): void => {
     const game = session.game;
     if (!ready || !result.hidden || game.paused || game.status !== 'playing') return;
     if (right) game.cannon.rotateRight(); else game.cannon.rotateLeft();
     game.updateTrajectory();
+  };
+  // Secondary touches have pointer events but no compatibility click.
+  button.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    rotate();
+  });
+  button.addEventListener('click', event => {
+    if (event.detail === 0) rotate();
   });
 }
 window.addEventListener('keydown', event => {

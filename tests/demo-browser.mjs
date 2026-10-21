@@ -19,9 +19,90 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
+async function pointerAndKeyboardControls() {
+  const context = await browser.newContext({viewport:{width:1000,height:900}});
+  try {
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.locator('#continue').click();
+    await page.waitForTimeout(550);
+    const right = page.locator('#rotate-right');
+    await right.click();
+    await page.waitForFunction(() => document.querySelector('#stats').textContent.includes('Rotation 90°'));
+    assert.match(await page.locator('#stats').textContent(), /Shots 0/, 'Mouse rotation must act once without launching');
+    await right.focus();
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => document.querySelector('#stats').textContent.includes('Rotation 180°'));
+    await page.keyboard.press('e');
+    await page.waitForTimeout(50);
+    assert.match(await page.locator('#stats').textContent(), /Shots 0 · Rotation 180°/, 'Focused controls retain native keyboard activation and suppress gameplay shortcuts');
+    await page.evaluate(() => {
+      window.demoWheelEvents = [];
+      document.querySelector('canvas').addEventListener('wheel', event => window.demoWheelEvents.push(event.defaultPrevented));
+    });
+    async function wheelControlsArc(label) {
+      const box = await page.locator('canvas').boundingBox();
+      await page.mouse.move(box.x + box.width * .7, box.y + box.height * .55);
+      const before = await page.evaluate(() => ({count:window.demoWheelEvents.length, scroll:scrollY}));
+      await page.mouse.wheel(0,100);
+      await page.waitForFunction(count => window.demoWheelEvents.length > count, before.count);
+      assert.equal(await page.evaluate(() => window.demoWheelEvents.at(-1)), true, `${label}: canvas wheel must adjust the arc`);
+      await page.waitForTimeout(50);
+      assert.equal(await page.evaluate(() => scrollY), before.scroll, `${label}: canvas wheel must not scroll the page`);
+    }
+    await wheelControlsArc('After focused rotation');
+    await page.locator('#pause').click();
+    await page.locator('#pause').click();
+    assert.equal(await page.locator('#pause').evaluate(button => document.activeElement === button), true);
+    await wheelControlsArc('After resume');
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => document.querySelector('#pause').textContent === 'Resume');
+    assert.match(await page.locator('#stats').textContent(), /Shots 0/, 'Space on Pause must activate the focused button without firing');
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => document.querySelector('#pause').textContent === 'Pause');
+    await page.locator('header a').first().focus();
+    await page.keyboard.press('e');
+    await page.waitForTimeout(50);
+    assert.match(await page.locator('#stats').textContent(), /Shots 0 · Rotation 180°/, 'Focused links suppress gameplay shortcuts');
+    await page.locator('canvas').focus();
+    await page.keyboard.press('e');
+    await page.waitForFunction(() => document.querySelector('#stats').textContent.includes('Rotation 270°'));
+  } finally { await context.close(); }
+}
+async function secondaryTouchRotation() {
+  const context = await browser.newContext({viewport:{width:1000,height:1400},hasTouch:true,isMobile:true});
+  try {
+    const page = await context.newPage();
+    await page.goto(origin);
+    await page.locator('#continue').tap();
+    await page.evaluate(() => {
+      window.demoTouchReleases = [];
+      window.addEventListener('pointerup', event => window.demoTouchReleases.push(event.target.id || event.target.tagName));
+    });
+    const canvas = await page.locator('canvas').boundingBox();
+    const rotate = await page.locator('#rotate-right').boundingBox();
+    const cdp = await context.newCDPSession(page);
+    let first = {id:1,x:canvas.x+canvas.width*.4,y:canvas.y+canvas.height*.45};
+    const second = {id:2,x:rotate.x+rotate.width/2,y:rotate.y+rotate.height/2};
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[first]});
+    first = {...first,x:first.x-130,y:first.y+80};
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[first]});
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[first,second]});
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[second]});
+    await page.waitForTimeout(100);
+    assert.deepEqual(await page.evaluate(() => window.demoTouchReleases), ['rotate-right'], 'Releasing the rotate finger must leave the slingshot finger down');
+    assert.match(await page.locator('#stats').textContent(), /Shots 0 · Rotation 90°/, 'Second finger must rotate the held slingshot without firing');
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[first]});
+    await page.waitForFunction(() => document.querySelector('#stats').textContent.includes('Shots 1'));
+    assert.deepEqual(await page.evaluate(() => window.demoTouchReleases), ['rotate-right','CANVAS']);
+  } finally { await context.close(); }
+}
 try {
   const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH || ['/usr/bin/chromium','/opt/pw-browsers/chromium/chrome-linux/chrome'].find(existsSync);
   browser = await chromium.launch({ ...(executablePath ? {executablePath} : {}), headless:true, chromiumSandbox:true });
+  const controls = await Promise.allSettled([pointerAndKeyboardControls(), secondaryTouchRotation()]);
+  const failures = controls.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (failures.length) throw new AggregateError(failures, 'Demo pointer/keyboard regressions');
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors = [], outside = [];
@@ -77,5 +158,5 @@ try {
   assert.equal(await page.locator('a[href="https://tetrilaunch.com/#stores"]').count(),2);
   assert.deepEqual(outside,[]);
   assert.deepEqual(errors,[]);
-  console.log('Demo browser: actual keyboard/pointer launches, pause, retry, restart, query isolation, responsive rendering and no external requests passed.');
+  console.log('Demo browser: mouse/wheel controls, secondary-touch rotation, keyboard focus, launches, pause, retry, restart, query isolation, responsive rendering and no external requests passed.');
 } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
