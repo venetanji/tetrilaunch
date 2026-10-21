@@ -12,7 +12,9 @@ onward link to a browser demo. No Steam admin edit or resubmission is performed.
 - Root `npm run build` creates `marketing/dist` from an explicit asset allowlist.
   Both production and staging Wrangler asset bindings use this directory.
 - `app/` still builds the complete game for local development and native stores.
-  Its `dist`, entry point, gameplay, entitlements and native packaging are unchanged.
+  On Cloudflare Pages only (`CF_PAGES=1`), its existing `npm run build` integration
+  emits the marketing allowlist into `app/dist`, matching the configured Pages
+  output directory. Explicit `build:game` and native packaging build the game.
 - No full-game module, soundtrack, PWA manifest or desktop download is published
   by the marketing build. Missing game routes/assets return 404, not a SPA shell.
 - `/api/*` remains on the existing Worker and D1 binding. Installed applications

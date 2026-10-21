@@ -1,11 +1,17 @@
 # Apex marketing artifact
 
 Build from the repository root with `node scripts/build-marketing.mjs`. The
-output is **marketing/dist**, never app/dist. It is a separate, dependency-free
+Worker output is **marketing/dist**. It is a separate, dependency-free
 static site adapted from the existing branded landing page and real gameplay
 screenshots. The explicit file allowlist is the distribution boundary: no game
 bundle, audio, manifest, checkout, native installer, or hidden full-game route
 is copied. Native/desktop game builds remain unchanged.
+
+The existing Cloudflare Pages integration builds from `app/` and publishes
+`app/dist`. Pages sets `CF_PAGES=1`, so `npm run build` there emits the same
+marketing allowlist into that output directory. Local app builds still build
+the full game; `npm run build:game` selects it explicitly. Native packaging
+continues to use `build:native`.
 
 The homepage and /about describe the game, show screenshots, and present store
 availability. The separate browser demo reuses School plus the first bay of Tier 1 in its own

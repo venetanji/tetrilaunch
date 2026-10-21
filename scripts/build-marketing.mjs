@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const output = resolve(root, 'marketing/dist');
+const output = resolve(root, process.argv.includes('--pages') ? 'app/dist' : 'marketing/dist');
 const marketingFiles = ['index.html', '404.html', 'support.html', 'sw.js', 'retire-pwa.js', '_headers'];
 const publicFiles = [
   'favicon.svg', 'icons/apple-touch-icon.png',
