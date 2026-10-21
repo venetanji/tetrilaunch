@@ -9,6 +9,15 @@ Read `app/desktop/README.md` first. It explains the `app://` scheme, the
 `--mode native` bundle and the two-location `app/dist/` mapping, all of which
 this builds on and none of which is repeated here.
 
+## Public website
+
+The owner reported submission feedback requiring the apex not serve the full
+game. This branch prepares a separate marketing-only artifact and retires the
+legacy web PWA; native game packaging is unchanged. See
+[WEB-DISTRIBUTION.md](WEB-DISTRIBUTION.md) for the boundary and publication gates.
+The exact reviewer wording and public store links still need confirmation.
+No deployment or store approval is implied.
+
 ## Status
 
 **Unblocked.** The Steamworks account cleared tax verification and the app was

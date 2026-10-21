@@ -11,9 +11,9 @@
     "command": "npm run build"
   },
   "assets": {
-    "directory": "app/dist",
+    "directory": "marketing/dist",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
+    "not_found_handling": "none",
     "run_worker_first": ["/api/*"]
   },
   "d1_databases": [
@@ -95,9 +95,9 @@
       "routes": [],
       "workers_dev": true,
       "assets": {
-        "directory": "app/dist",
+        "directory": "marketing/dist",
         "binding": "ASSETS",
-        "not_found_handling": "single-page-application",
+        "not_found_handling": "none",
         "run_worker_first": ["/api/*"]
       },
       "d1_databases": [

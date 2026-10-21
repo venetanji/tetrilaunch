@@ -1,9 +1,9 @@
 {
   "name": "tetrilaunch-workspace",
   "private": true,
-  "description": "Tetrilaunch — Cloudflare Worker (static app + D1 leaderboard) wrapping the Vite/Capacitor game in app/.",
+  "description": "Tetrilaunch \u2014 marketing-only public site and D1 API; native game in app/.",
   "scripts": {
-    "build": "npm --prefix app install && npm --prefix app run build",
+    "build": "node scripts/build-marketing.mjs",
     "dev:web": "npm --prefix app run dev",
     "dev:worker": "wrangler dev --env staging",
     "deploy": "npm run build && wrangler deploy --env=\"\"",
@@ -11,7 +11,10 @@
     "db:migrate": "wrangler d1 migrations apply tetrilaunch-leaderboard --remote --env=\"\"",
     "db:migrate:staging": "wrangler d1 migrations apply tetrilaunch-leaderboard-preview --remote --env staging",
     "db:migrate:local": "wrangler d1 migrations apply tetrilaunch-leaderboard-preview --local --env staging",
-    "test:api": "app/node_modules/.bin/tsx tests/api-safety.mts"
+    "test:api": "app/node_modules/.bin/tsx tests/api-safety.mts",
+    "build:game": "npm --prefix app run build",
+    "test:marketing": "node marketing/build.test.mjs && node tests/marketing-distribution.mjs && node tests/marketing-retirement.mjs",
+    "test:marketing:browser": "node tests/marketing-browser.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260710.1",
