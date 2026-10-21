@@ -22510,7 +22510,8 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   let shots = 0;
   const realShoot = g.shoot.bind(g);
   g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
-  new InputController(canvas, () => g, undefined, () => false);
+  let keyboardEnabled = true;
+  new InputController(canvas, () => g, undefined, () => false, () => keyboardEnabled);
   // The timestamp matters only to the HELD keys, whose nudges charge elapsed
   // TIME rather than frames (input.ts's tickKeys over cannon.ts's
   // NUDGE_FRAME_MS): a pump that always says 0 charges a dt of zero, which is
@@ -22772,6 +22773,50 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     keyDown(keyFor("aimDown"));
     frame(48);
     check("...while a bare aim-down key still trims the barrel", !same(held));
+  }
+
+  {
+    const keyDown = (key: string, repeat = false) =>
+      send(onWindow, "keydown", { key, repeat, preventDefault: () => {} });
+    send(onWindow, "keyup", { key: keyFor("aimDown") });
+    const held = aim();
+    keyDown(keyFor("aimUp"));
+    keyDown(keyFor("auto"));
+    frame(64);
+    check("enabled keyboard input trims aim and holds the autoloader", !same(held) && g.autoHeld);
+    keyboardEnabled = false;
+    const focused = aim();
+    frame(80);
+    check("UI keyboard focus stops held aim and releases the autoloader", same(focused) && !g.autoHeld);
+    const rotation = g.cannon.pieceRotation;
+    const beforeShots = shots;
+    keyDown(keyFor("rotr"));
+    keyDown(keyFor("fire"));
+    keyDown(keyFor("aimDown"));
+    keyDown(keyFor("auto"));
+    check("UI keyboard focus suppresses discrete gameplay actions",
+      g.cannon.pieceRotation === rotation && shots === beforeShots && !g.autoHeld);
+    g.aimAt(world(560, 300));
+    const hovered = aim();
+    g.cannon.angle = 0;
+    move(560, 300);
+    frame(96);
+    check("UI keyboard focus still applies queued mouse hover targets", same(hovered));
+    keyboardEnabled = true;
+    frame(112);
+    check("returning focus does not restore suppressed held keys", same(hovered) && !g.autoHeld);
+    keyDown(keyFor("aimUp"), true);
+    frame(120);
+    check("an OS repeat cannot re-arm a key suppressed by UI focus", same(hovered));
+    keyDown(keyFor("aimUp"));
+    frame(128);
+    check("a fresh gameplay key works after returning focus", !same(hovered));
+    keyboardEnabled = false;
+    send(onWindow, "keyup", { key: keyFor("aimUp") });
+    keyboardEnabled = true;
+    const released = aim();
+    frame(144);
+    check("keyup clears held input even while keyboard focus is suppressed", same(released));
   }
 
   delete glob.window;

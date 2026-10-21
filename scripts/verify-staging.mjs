@@ -12,13 +12,19 @@ const get = async (path, init = {}) => {
 };
 async function verify() {
   const htmlResponse = await get(`/?verify=${commit}`);
-  assert.equal(htmlResponse.status, 200, 'staging serves the app');
+  assert.equal(htmlResponse.status, 200, 'staging serves the marketing site');
   const html = await htmlResponse.text();
-  const entry = html.match(/<script\b[^>]*\btype="module"[^>]*\bsrc="([^"]+)"/);
-  assert(entry, 'HTML contains the built module entry');
-  const bundle = await get(entry[1]);
-  assert.equal(bundle.status, 200, 'entry bundle is reachable');
-  assert((await bundle.text()).includes(commit.slice(0, 7)), 'served game contains the deployed commit build ID');
+  const build = html.match(/<meta\s+name="tetrilaunch-build"\s+content="([^"]+)"/);
+  assert(build, 'HTML identifies the marketing-only build');
+  assert.equal(build[1], commit, 'served marketing site is the deployed commit');
+  assert(!/<script[^>]+type="module"/.test(html), 'marketing does not bootstrap the game');
+  const worker = await get('/sw.js');
+  assert.equal(worker.status, 200, 'legacy PWA retirement worker is reachable');
+  assert((await worker.text()).includes('unregister'), 'legacy worker retires itself');
+  for (const path of ['/manifest.webmanifest', '/assets/nonexistent-game.js', '/play']) {
+    const missing = await get(path);
+    assert.equal(missing.status, 404, `${path} does not fall through to a playable SPA`);
+  }
   const scores = await get('/api/scores?mark=1&limit=1');
   assert.equal(scores.status, 200, 'staging D1 leaderboard is readable');
   assert(Array.isArray((await scores.json()).scores), 'leaderboard returns JSON scores');

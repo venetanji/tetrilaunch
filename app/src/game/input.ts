@@ -359,17 +359,21 @@ export class InputController {
   /** settings.wheelRotates, read live so the Controls toggle applies without
    *  a restart — same contract as gamepad.ts's hooks. */
   private wheelRotates: () => boolean;
+  /** Optional keyboard focus gate; pointer aims and wheel input stay live. */
+  private keyboardEnabled?: () => boolean;
 
   constructor(
     canvas: HTMLCanvasElement,
     game: () => Game | null,
     onMisfire?: (clientX: number, clientY: number) => void,
     wheelRotates: () => boolean = () => false,
+    keyboardEnabled?: () => boolean,
   ) {
     this.canvas = canvas;
     this.game = game;
     this.onMisfire = onMisfire;
     this.wheelRotates = wheelRotates;
+    this.keyboardEnabled = keyboardEnabled;
 
     canvas.addEventListener("pointerdown", this.onDown);
     canvas.addEventListener("pointermove", this.onMove);
@@ -1009,6 +1013,10 @@ export class InputController {
   };
 
   private onKey = (e: KeyboardEvent): void => {
+    if (this.keyboardEnabled?.() === false) {
+      this.releaseKeyboard();
+      return;
+    }
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
     // A CHORD IS THE SHELL'S (bindings.ts's isShortcutChord). Before the
@@ -1017,6 +1025,8 @@ export class InputController {
     // recorded S would hold aim-down for the rest of the bay.
     if (isShortcutChord(e)) return;
     const k = e.key.toLowerCase();
+    // A repeat after UI focus returns is not a fresh gameplay press.
+    if (this.keyboardEnabled && e.repeat && !this.keys.has(k)) return;
     this.keys.add(k);
     // Aim/power (tickKeys below) WANT the held state, so the key is recorded
     // above before this guard. The discrete actions must not repeat: OS key
@@ -1058,6 +1068,11 @@ export class InputController {
     if (k === keyFor("auto")) this.game()?.setAutoHeld(false);
   };
 
+  private releaseKeyboard(): void {
+    this.keys.clear();
+    this.game()?.setAutoHeld(false);
+  }
+
   /** A window that loses focus never delivers keyup, so an alt-tab mid-burst
    *  would leave the trigger held down until the player pressed F again.
    *
@@ -1081,8 +1096,7 @@ export class InputController {
    *  between the two does not matter. This covers the blurs that come with no
    *  pointercancel at all — alt-tab with the button still physically down. */
   private onBlur = (): void => {
-    this.keys.clear();
-    this.game()?.setAutoHeld(false);
+    this.releaseKeyboard();
     this.cancelAim();
   };
 
@@ -1118,6 +1132,7 @@ export class InputController {
     this.lastKeyTick = ts;
     const f = Math.min(NUDGE_MAX_STEP_MS, Math.max(0, elapsed)) / NUDGE_FRAME_MS;
     const g = this.game();
+    if (this.keyboardEnabled?.() === false) this.releaseKeyboard();
     if (!g || g.status !== "playing" || g.paused) {
       // A QUEUED TARGET DOES NOT WAIT OUT A PAUSE. This branch used to be an
       // empty early-out, which was harmless while only a held button could

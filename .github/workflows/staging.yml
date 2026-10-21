@@ -48,22 +48,17 @@ jobs:
       # that reads like a network problem. The token needs Workers Scripts:Edit
       # (deploy the worker) and D1:Edit (bind the database).
       #
-      # Two tiers, and the split is the sign-in rollout: Google web sign-in and
-      # RevenueCat are the floor — without them the account screen and the web
-      # store are dead — so their absence is an error. The iOS and Apple client
-      # ids are still being provisioned, and the client hides each sign-in
-      # option whose id it was not built with, so an unset one is a warning:
-      # the deploy is still correct, just narrower than it will be.
+      # Marketing has no browser billing/login bundle. Preserve the server
+      # identity configuration used by installed apps' account API.
       - name: Require deployment configuration
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VITE_REVENUECAT_WEB_KEY: ${{ secrets.VITE_REVENUECAT_WEB_KEY }}
           VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
           VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
           VITE_APPLE_WEB_CLIENT_ID: ${{ secrets.VITE_APPLE_WEB_CLIENT_ID }}
           REVENUECAT_SECRET_KEY: ${{ secrets.REVENUECAT_SECRET_KEY }}
         run: |
-          for name in CLOUDFLARE_API_TOKEN VITE_REVENUECAT_WEB_KEY VITE_GOOGLE_WEB_CLIENT_ID REVENUECAT_SECRET_KEY; do
+          for name in CLOUDFLARE_API_TOKEN VITE_GOOGLE_WEB_CLIENT_ID REVENUECAT_SECRET_KEY; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is not set — add it under Settings → Secrets → Actions."
               exit 1
@@ -71,7 +66,7 @@ jobs:
           done
           for name in VITE_GOOGLE_IOS_CLIENT_ID VITE_APPLE_WEB_CLIENT_ID; do
             if [ -z "${!name}" ]; then
-              echo "::warning::$name is not set — that sign-in option stays hidden until it is."
+              echo "::warning::$name is not set — that native account provider stays unavailable until configured."
             fi
           done
 
@@ -88,12 +83,8 @@ jobs:
       # inherited by a named environment, so dropping this flag would deploy a
       # worker pointed at the production leaderboard.
       #
-      # The VITE_ vars are read by the client build (Vite inlines them), which
-      # runs inside this deploy via wrangler's build command. They are the
-      # PUBLIC halves of the identity/store setup — OAuth client ids and the
-      # RevenueCat web billing key — kept as GitHub secrets only because that
-      # is where per-environment configuration lives, not because they are
-      # confidential.
+      # Only the marketing artifact is built. Identity values below remain
+      # server-side compatibility configuration for installed clients.
       #
       # Migrations are deliberately NOT run here. Applying schema changes on
       # every push means a bad migration ships without anyone deciding to ship
@@ -103,10 +94,6 @@ jobs:
         id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          VITE_GOOGLE_WEB_CLIENT_ID: ${{ secrets.VITE_GOOGLE_WEB_CLIENT_ID }}
-          VITE_GOOGLE_IOS_CLIENT_ID: ${{ secrets.VITE_GOOGLE_IOS_CLIENT_ID }}
-          VITE_APPLE_WEB_CLIENT_ID: ${{ secrets.VITE_APPLE_WEB_CLIENT_ID }}
-          VITE_REVENUECAT_WEB_KEY: ${{ secrets.VITE_REVENUECAT_WEB_KEY }}
         run: |
           set -o pipefail
           npx wrangler deploy --env staging | tee "$RUNNER_TEMP/staging-deploy.log"
@@ -122,10 +109,8 @@ jobs:
       # bulk upload creates a new Worker version immediately after the initial
       # deploy and keeps the RevenueCat secret key out of logs and config files.
       #
-      # The client ids the Worker verifies token audiences against are the SAME
-      # values the client build above inlined — one source (the VITE_ secrets),
-      # two consumers, so the worker can never accept a token the client could
-      # not have obtained.
+      # Keep the existing client-id secret names for native account requests;
+      # the marketing build does not consume them.
       #
       # Built with node rather than printf: JSON-escaping becomes node's
       # problem, and an UNSET id must be ABSENT from the payload rather than

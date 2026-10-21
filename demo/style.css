@@ -1,0 +1,26 @@
+:root{color-scheme:dark;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#070710;color:#ededff}*{box-sizing:border-box}body{margin:0}header{display:flex;align-items:center;gap:20px;padding:20px 4%;border-bottom:1px solid #32324b;flex-wrap:wrap}a{color:#72e6ea;text-underline-offset:4px}header>a:first-child{font-weight:900;letter-spacing:.14em;text-decoration:none;font-size:1.2rem}header>a:last-child{margin-left:auto;font-size:.8rem}.badge,.eyebrow{font-size:.75rem;letter-spacing:.12em;color:#f2c75e}.badge{border:1px solid #8d7040;padding:6px 9px}main{max-width:1400px;margin:auto;padding:24px 4%}.intro{display:flex;align-items:center;gap:30px;justify-content:space-between}.intro>p{max-width:560px;color:#b7b7d2;line-height:1.6}h1{font-size:clamp(1.4rem,3vw,2.4rem);margin:8px 0 20px}button{font:inherit;cursor:pointer;background:#202035;border:1px solid #626282;color:#fff;padding:10px 14px;border-radius:4px;min-height:44px}button:hover{background:#31314f}button:focus-visible,a:focus-visible,canvas:focus-visible{outline:3px solid #72e6ea;outline-offset:3px}button:disabled{opacity:.45;cursor:default}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 0}.toolbar #stats{margin-right:auto;font-size:.85rem;color:#d4d4eb}.field{position:relative;border:1px solid #40405c;background:#04040b;overflow:hidden}canvas{display:block;width:100%;height:clamp(290px,52vw,620px);touch-action:none}#result{position:absolute;inset:0;background:#080815ed;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:24px;gap:12px}#result[hidden]{display:none}#result p{max-width:560px;line-height:1.6}#result h2{color:#f2c75e;margin:0}.controls{display:flex;justify-content:center;gap:12px;padding:14px 0}.controls #fire{background:#153e43;border-color:#72e6ea}.lesson{border-top:1px solid #32324b;padding-top:10px}.lesson h2{font-size:.8rem;letter-spacing:.15em;text-transform:uppercase;color:#f2c75e}#notes{display:flex;gap:24px}#notes p{flex:1;line-height:1.7;font-size:.85rem;color:#b7b7d2}#notes strong{color:#fff}.help,footer{font-size:.75rem;line-height:1.7;color:#9494b4}footer{border-top:1px solid #32324b;padding-top:14px;margin-top:20px}@media(max-width:650px){main{padding:14px 12px}header{padding:14px 12px;gap:12px}header>a:last-child{margin-left:0}.intro{display:block}.intro>p{font-size:.85rem}.toolbar #stats{width:100%}.toolbar button{flex:1;font-size:.75rem;padding:8px}#notes{display:block}.controls{gap:6px}.controls button{font-size:.75rem;padding:8px}canvas{height:330px}}
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --viewport-height: 100vh;
+}
+@supports (height: 100svh) {
+  :root { --viewport-height: 100svh; }
+}
+body { padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }
+/* Reserve the toolbar and 44px shot controls before giving the field space. */
+.play-area {
+  display: flex;
+  flex-direction: column;
+  height: min(780px, calc(var(--viewport-height) - var(--safe-top) - var(--safe-bottom)));
+  scroll-margin-block: var(--safe-top) var(--safe-bottom);
+}
+.toolbar, .controls { flex: none; }
+.field { flex: 1; min-height: 0; }
+.field canvas { height: 100%; }
+/* Long lesson/result copy stays reachable even in the short landscape field. */
+.play-area #result { overflow-y: auto; justify-content: flex-start; }
+#result > :first-child { margin-top: auto; }
+#result > :last-child { margin-bottom: auto; }

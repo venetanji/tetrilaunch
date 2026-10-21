@@ -5,10 +5,17 @@ with an Angry-Birds-style drag, and feed full rows into the sweeping compactor b
 clears them away.
 
 > **This repo is a port** of the original Python/pygame prototype (`design/prototype/main.py`, kept for
-> reference) to a **Capacitor.js** app targeting **Web (PWA) · Android · iOS**, deployed on
+> reference) to a **Capacitor.js** app targeting **Android · iOS · desktop**, with a separate public marketing site, deployed on
 > **Cloudflare Workers** with a **D1-backed leaderboard**.
 
-**Play:** https://tetrilaunch.com/ (workers.dev fallback: https://tetrilaunch.venetanji.workers.dev/)
+**Website:** https://tetrilaunch.com/
+
+This branch separates the public marketing artifact from the full native game.
+`npm run build` at the repository root builds only `marketing/dist`; game development
+and native packaging remain under `app/`. The separate demo build reuses School plus only the first bay of Tier 1.
+`npm run build:demo` emits `demo/dist`; it is not part of the apex deployment.
+See [the web distribution boundary](docs/WEB-DISTRIBUTION.md) for migration, validation
+and the store-link publication checklist. This is not a claim that the live site has changed.
 
 ## 🎮 How it plays
 
@@ -176,7 +183,7 @@ design/prototype/         original pygame prototype (reference)
 ```
 
 **Tech:** matter.js (physics), HTML5 Canvas (gameplay render), HTML/CSS overlays (UI),
-vite-plugin-pwa (installable fullscreen web), Capacitor 8 (`@capacitor/screen-orientation`,
+vite-plugin-pwa (legacy/local game build only; not public website), Capacitor 8 (`@capacitor/screen-orientation`,
 `@capacitor/haptics`), RevenueCat (`@revenuecat/purchases-capacitor` + paywalls, native
 only), Cloudflare Workers + D1 (leaderboard).
 
@@ -211,14 +218,14 @@ From the repo root:
 
 ```bash
 npm install                       # wrangler + workers-types
-npm run build                     # builds app/dist
+npm run build                     # builds marketing/dist only
 npm run dev:worker                # worker + assets + local D1 at :8787 (staging env)
 npm run db:migrate                # apply migrations to the LIVE D1
 npm run db:migrate:staging        # ...or to the staging one
 npm run deploy                    # build + wrangler deploy --env="" (production)
 ```
 
-The Worker serves the built app and exposes:
+The Worker serves the marketing-only website and retains the installed-game API:
 
 - `GET  /api/scores?mark=7&limit=10` → that **Tier's** top scores
 - `GET  /api/scores?limit=10` → combined board, every Tier (the pre-tier shape, kept
@@ -241,19 +248,16 @@ D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
 
 ### Deploy strategy
 
-**The Worker is the site.** `wrangler.jsonc` binds `tetrilaunch.com` and
-`www.tetrilaunch.com` to it as custom domains and serves `app/dist` through the `ASSETS`
-binding, with `run_worker_first: ["/api/*"]`. So the app and the Worker do **not** deploy
-independently any more: a game commit changes `app/dist`, and `app/dist` is shipped by
-`wrangler deploy`. Nothing reaches the live site until that command runs.
+**The Worker serves the marketing site and native-client API.** `wrangler.jsonc`
+binds `tetrilaunch.com` and `www.tetrilaunch.com` to it, with `marketing/dist`
+through `ASSETS` and `run_worker_first: ["/api/*"]`. The full game in `app/dist`
+is not part of this deployment. Missing assets return 404 rather than a game SPA.
+Production remains an explicit deployment decision; a draft PR changes nothing live.
 
-(This section used to describe the opposite — Cloudflare Pages building every branch and
-serving production, with the Worker deployed "rarely", only when `app/worker/` changed.
-That was true before the apex moved onto the Worker and false afterwards, and following it
-would deploy a release to a Pages URL nobody visits while `tetrilaunch.com` kept serving
-the previous build. Pages branch previews may still exist and are still useful for looking
-at layout, but they have no Worker behind them: `/api/scores` on a `*.pages.dev` host
-answers the SPA fallback, i.e. `text/html`, not JSON.)
+Older Pages previews may still exist independently of this Worker configuration.
+Review their build/output settings and access before publication; changing this
+repository cannot remove previously published full-game copies. Any future public
+preview should build the root marketing target, not `app/`'s game target.
 
 Three environments, and the difference between them is the DATABASE, not the URL:
 

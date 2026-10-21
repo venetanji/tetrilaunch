@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tetrilaunch-demo",
+  "compatibility_date": "2025-05-01",
+  // Standalone static artifact: no API Worker, D1, auth or billing bindings.
+  // A later, explicitly authorized rollout may bind demo.tetrilaunch.com.
+  // Do not inherit apex routes or create a public address during this PR.
+  "routes": [],
+  "workers_dev": false,
+  "preview_urls": false,
+  "build": { "command": "npm run build:demo" },
+  "assets": { "directory": "demo/dist", "not_found_handling": "none" }
+}
