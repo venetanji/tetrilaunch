@@ -68,7 +68,10 @@ try {
       await image.scrollIntoViewIfNeeded();
       await image.evaluate(image => image.decode());
     }
-    await page.evaluate(() => scrollTo(0, 0));
+    await page.evaluate(() => {
+      document.querySelectorAll('*').forEach(el => { if (el.scrollWidth > el.clientWidth) el.scrollLeft = 0; });
+      scrollTo(0, 0);
+    });
     const brokenImages = await page.locator('img').evaluateAll(images => images.filter(image => !image.complete || !image.naturalWidth).map(image => image.src));
     assert.deepEqual(brokenImages, [], `${name}: images load`);
     await page.screenshot({ path: resolve(shotDir, `${name}.png`), fullPage: true });

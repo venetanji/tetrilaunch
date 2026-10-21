@@ -5,6 +5,11 @@ on:
     branches: [staging]
     paths:
       - 'marketing/**'
+      - 'demo/**'
+      - 'app/vite.demo.config.ts'
+      - 'app/src/game/**'
+      - 'tests/demo*'
+      - 'wrangler.demo.jsonc'
       - 'scripts/build-marketing.mjs'
       - 'tests/marketing*.mjs'
       - 'app/public/about/**'
@@ -24,7 +29,7 @@ concurrency:
 
 jobs:
   marketing:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -40,6 +45,8 @@ jobs:
           node marketing/build.test.mjs
           node tests/marketing-distribution.mjs
           node tests/marketing-retirement.mjs
+      - name: Build and test bounded demo
+        run: npm run build:demo && npm run test:demo
       - name: Browser routes, layout and legacy service-worker migration
         env:
           MARKETING_SCREENSHOT_DIR: ${{ runner.temp }}/marketing-screenshots
@@ -47,10 +54,13 @@ jobs:
           export CHROMIUM_PATH="$(command -v google-chrome || command -v chromium)"
           test -n "$CHROMIUM_PATH"
           node tests/marketing-browser.mjs
+          PLAYWRIGHT_EXECUTABLE_PATH="$CHROMIUM_PATH" node tests/demo-browser.mjs
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: marketing-screenshots
-          path: ${{ runner.temp }}/marketing-screenshots
+          path: |
+            ${{ runner.temp }}/marketing-screenshots
+            /tmp/tetrilaunch-demo-shots
           if-no-files-found: ignore
           retention-days: 7

@@ -1,9 +1,11 @@
 # Public website and game distribution
 
 The public apex is a marketing site, not the full browser game. This separation
-responds to the owner's report of Steam submission feedback. The exact reviewer
-message has not yet been supplied; this implementation is not a claim of Steam
-approval or a general statement of Valve policy.
+responds to the Steam store-page feedback supplied by the owner on 2026-10-21:
+the Visit The Website link led to a site where visitors could play directly,
+and the reviewer asked to remove or replace that external link. This is not
+a stated objection to the existing mobile free tiers, nor approval of an
+onward link to a browser demo. No Steam admin edit or resubmission is performed.
 
 ## Build boundary
 
@@ -17,7 +19,8 @@ approval or a general statement of Valve policy.
   use this origin for scores and account operations; replacing the homepage must
   not remove their API or change production/staging database isolation.
 - The existing branded screenshots describe the full product, not an available
-  browser demo. A playable demo is deliberately not included in this PR.
+  browser demo. A separate School plus first-bay demo is included in this draft. It must
+  never enter the marketing output or be linked as play from the Steam-facing apex.
 
 ## Returning web players
 
@@ -43,7 +46,7 @@ Existing tester destinations are beta access, not public store availability.
 
 Before publishing, the owner should:
 
-1. Compare this change with the exact Steam review message, including whether a
+1. Compare this change with the supplied Steam review message, including whether a
    limited demo and any beta access are acceptable.
 2. Confirm the public game-specific store URLs and availability labels. Decide
    how existing web purchasers obtain access or support after the web game is
@@ -57,7 +60,8 @@ Before publishing, the owner should:
 5. After deployment, verify the served marketing build ID and retained API;
    check a returning installed PWA online, not just a fresh browser tab.
 
-An eventual demo should have its own entry and bounded session/content, without
+The requested demo has its own entry: existing School tutorials followed by only
+the first bay of Tier 1, not all ten bays in that tier. It must remain without
 importing `app/src/main.ts`, progression, store entitlements, payments, sign-in,
 achievements or leaderboard writes. A hidden full-game flag is not a demo build.
 
@@ -94,3 +98,12 @@ The marketing checks are read-only and use local fixtures, not production APIs.
   No UI-fit baseline counts, screenshots or real PWA migration success are
   claimed locally. The owner approved publishing the draft and using read-only GitHub CI for
   these blocked gates on 2026-10-21. Browser results remain pending until CI runs.
+
+The first marketing CI run passed actual Chromium execution, including the old
+service-worker upgrade and four responsive screenshots:
+https://github.com/venetanji/tetrilaunch/actions/runs/39542112771 .
+The original UI-fit jobs failed before tests because `ubuntu-latest` moved to
+Ubuntu 26.04, unsupported by pinned Playwright 1.56.1. The follow-up pins Ubuntu
+24.04 and host-specific caches without changing the browser pin or baselines.
+Demo session, goal HUD and real first-lesson physics tests pass locally; browser
+input/visual tests for the demo are now included in CI and remain a separate gate.

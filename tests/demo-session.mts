@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+assert.ok(existsSync('demo/session.ts'), 'A separate capped demo session must exist');
+const { DemoSession, DEMO_LESSONS } = await import('../demo/session');
+const { Game } = await import('../app/src/game/game');
+const session = new DemoSession();
+assert.ok(session.game instanceof Game, 'Reuse the real physics engine');
+assert.equal(DEMO_LESSONS, 9);
+assert.equal(session.index, 0);
+assert.equal(session.advance(), false, 'Cannot skip an unfinished lesson');
+assert.equal(session.game.shoot(0), true);
+const before = session.game.cubes.at(-1)!.body.position.y;
+for (let i = 1; i <= 10; i++) session.step(i * 1000 / 60);
+assert.notEqual(session.game.cubes.at(-1)!.body.position.y, before, 'Real physics moves the shot');
+session.pause(true);
+const time = session.game.elapsedMs;
+session.step(200);
+assert.equal(session.game.elapsedMs, time);
+assert.equal(session.game.shoot(200), false);
+session.pause(false);
+const originalLevel = session.game.level;
+session.retry();
+assert.equal(session.index, 0);
+assert.deepEqual(session.game.level, originalLevel);
+assert.equal(session.game.shotsFired, 0);
+for (let index = 0; index <= DEMO_LESSONS; index++) {
+  assert.equal(session.index, index);
+  if (index === DEMO_LESSONS) {
+    assert.equal(session.game.level.id, 1);
+    assert.equal(session.game.level.mark, 1);
+    assert.equal(session.game.level.timeLimitSec, 180);
+  }
+  session.game.status = 'lost';
+  assert.equal(session.advance(), false, 'Losing cannot advance');
+  session.game.status = 'won';
+  assert.equal(session.advance(), true);
+}
+assert.equal(session.complete, true);
+assert.equal(session.index, DEMO_LESSONS, 'Never constructs the second Tier-1 bay');
+assert.equal(session.advance(), false);
+assert.equal(session.game.shoot(10000), false);
+session.restart();
+assert.equal(session.complete, false);
+assert.equal(session.index, 0);
+assert.equal(session.game.status, 'playing');
+session.destroy();
+console.log('Demo session: real physics, pause, losses, School + one bay cap and restart passed.');

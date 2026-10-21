@@ -12,7 +12,8 @@ clears them away.
 
 This branch separates the public marketing artifact from the full native game.
 `npm run build` at the repository root builds only `marketing/dist`; game development
-and native packaging remain under `app/`. No playable web demo ships in this change.
+and native packaging remain under `app/`. The separate demo build reuses School plus only the first bay of Tier 1.
+`npm run build:demo` emits `demo/dist`; it is not part of the apex deployment.
 See [the web distribution boundary](docs/WEB-DISTRIBUTION.md) for migration, validation
 and the store-link publication checklist. This is not a claim that the live site has changed.
 

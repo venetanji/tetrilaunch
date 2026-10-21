@@ -14,7 +14,10 @@
     "test:api": "app/node_modules/.bin/tsx tests/api-safety.mts",
     "build:game": "npm --prefix app run build",
     "test:marketing": "node marketing/build.test.mjs && node tests/marketing-distribution.mjs && node tests/marketing-retirement.mjs",
-    "test:marketing:browser": "node tests/marketing-browser.mjs"
+    "test:marketing:browser": "node tests/marketing-browser.mjs",
+    "build:demo": "node app/node_modules/typescript/bin/tsc -p demo/tsconfig.json && node app/node_modules/vite/bin/vite.js build --config app/vite.demo.config.ts",
+    "test:demo": "node --import ./app/node_modules/tsx/dist/loader.mjs tests/demo-session.mts && node --import ./app/node_modules/tsx/dist/loader.mjs tests/demo-hud.mts && node --import ./app/node_modules/tsx/dist/loader.mjs tests/demo-playability.mts && node tests/demo-distribution.mjs",
+    "test:demo:browser": "node tests/demo-browser.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260710.1",

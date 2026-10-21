@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+assert.ok(existsSync('demo/hud.ts'), 'Demo must expose the authored goal and live combo');
+const { goalReadout } = await import('../demo/hud');
+const { Game } = await import('../app/src/game/game');
+const { lessonAt, levelForLesson } = await import('../app/src/game/school');
+const lesson = lessonAt(6)!;
+const game = new Game(levelForLesson(lesson));
+assert.equal(goalReadout(game, lesson), 'Best combo 0 / 3 · Live combo ×0');
+game.bestCombo = 2;
+game.combo = 1;
+assert.equal(goalReadout(game, lesson), 'Best combo 2 / 3 · Live combo ×1');
+game.destroy();
+console.log('Demo HUD shows authored objective and live combo independently.');

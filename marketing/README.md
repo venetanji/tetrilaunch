@@ -8,8 +8,9 @@ bundle, audio, manifest, checkout, native installer, or hidden full-game route
 is copied. Native/desktop game builds remain unchanged.
 
 The homepage and /about describe the game, show screenshots, and present store
-availability. A browser demo is deliberately deferred: a future demo needs its
-own bounded content and build artifact, not a client-side flag on the full game.
+availability. The separate browser demo reuses School plus the first bay of Tier 1 in its own
+bounded artifact. It is not copied here or linked as play from this Steam-facing
+landing page; an onward playable link has not been approved by the reviewer.
 
 ## Store readiness
 
