@@ -7,7 +7,9 @@ function enforceDemoBoundary(): Plugin {
   return {
     name: 'demo-module-boundary',
     generateBundle() {
-      const forbidden = /\/src\/(main\.ts|lib\/|ui\/|game\/(run|meta|contracts|achievements|sandbox|attract)\.ts$)/;
+      // The graduation factory reuses run.ts's pure level pipeline. Session
+      // progression stays capped; app shell and persistence remain excluded.
+      const forbidden = /\/src\/(main\.ts|lib\/|ui\/|game\/(meta|contracts|achievements|sandbox|attract)\.ts$)/;
       for (const id of this.getModuleIds()) {
         if (forbidden.test(id) || /@capacitor|@revenuecat|@capgo/.test(id)) {
           this.error(`Full-game module is not allowed in the demo: ${id}`);

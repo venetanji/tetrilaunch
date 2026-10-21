@@ -1,6 +1,7 @@
 import { Game } from '../app/src/game/game';
-import { makeBaseLevel } from '../app/src/game/level';
+import { levelForGraduation } from '../app/src/game/run';
 import { LESSON_COUNT, lessonAt, lessonSeed, levelForLesson } from '../app/src/game/school';
+import { stockTiers } from '../app/src/game/upgrades';
 
 // This is an in-memory sampler, not a RunState. No URL, save, account or
 // caller-supplied bay can extend its boundary into the campaign.
@@ -15,13 +16,18 @@ export class DemoSession {
   get lesson() { return this.#index < DEMO_LESSONS ? lessonAt(this.#index) : null; }
   private createGame(): Game {
     const lesson = this.lesson;
-    return new Game(lesson ? levelForLesson(lesson) : makeBaseLevel(0, 1), {},
+    const loadout = stockTiers();
+    return new Game(lesson ? levelForLesson(lesson, loadout) : levelForGraduation(loadout), {},
       lesson ? lessonSeed(this.#index) : 0x54455452);
   }
   step(now: number): void {
     if (!this.#complete && !this.#game.paused) this.#game.update(now);
   }
-  pause(paused: boolean): void { this.#game.paused = paused || this.#complete; }
+  pause(paused: boolean): void {
+    // Resume resets the frame accumulator, so alpha zero must hold the paused transform.
+    if (this.#game.paused && !paused && !this.#complete) this.#game.collapseStepWindow();
+    this.#game.paused = paused || this.#complete;
+  }
   advance(): boolean {
     if (this.#complete || this.#game.status !== 'won') return false;
     if (this.#index === DEMO_LESSONS) {

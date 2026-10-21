@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { test } from 'node:test';
 assert.ok(existsSync('demo/session.ts'), 'A separate capped demo session must exist');
 const { DemoSession, DEMO_LESSONS } = await import('../demo/session');
 const { Game } = await import('../app/src/game/game');
@@ -45,3 +46,46 @@ assert.equal(session.index, 0);
 assert.equal(session.game.status, 'playing');
 session.destroy();
 console.log('Demo session: real physics, pause, losses, School + one bay cap and restart passed.');
+
+test('Demo lessons fly the stock rig on the same authored configs as the full game', async () => {
+  const { stockTiers } = await import('../app/src/game/upgrades');
+  const { levelForLesson } = await import('../app/src/game/school');
+  const demo = new DemoSession();
+  try {
+    for (let index = 0; index < DEMO_LESSONS; index++) {
+      assert.deepEqual(demo.game.level, levelForLesson(demo.lesson!, stockTiers()), `Lesson ${index + 1} must use the stock rig`);
+      demo.game.status = 'won';
+      demo.advance();
+    }
+  } finally { demo.destroy(); }
+});
+
+test('The capped final bay uses the canonical graduation config with the stock rig', async () => {
+  const { stockTiers } = await import('../app/src/game/upgrades');
+  const { levelForGraduation } = await import('../app/src/game/run');
+  const demo = new DemoSession();
+  try {
+    for (let index = 0; index < DEMO_LESSONS; index++) {
+      demo.game.status = 'won';
+      demo.advance();
+    }
+    assert.deepEqual(demo.game.level, levelForGraduation(stockTiers()));
+  } finally { demo.destroy(); }
+});
+
+test('Resume draws moving cargo and the compactor at the paused transform even at alpha zero', async () => {
+  const { lerpX, lerpY, lerpAngle } = await import('../app/src/game/engine');
+  const demo = new DemoSession();
+  try {
+    assert.equal(demo.game.shoot(0), true);
+    demo.step(1000 / 60);
+    const bodies = [demo.game.cubes.at(-1)!.body, demo.game.compactor.body];
+    const transform = (body: typeof bodies[number], alpha: number) =>
+      [lerpX(body, alpha), lerpY(body, alpha), lerpAngle(body, alpha)];
+    for (const body of bodies) assert.notDeepEqual(transform(body, 0), transform(body, 1), 'The regression requires a moving body');
+    demo.pause(true);
+    const paused = bodies.map(body => transform(body, 1));
+    demo.pause(false);
+    assert.deepEqual(bodies.map(body => transform(body, 0)), paused, 'The first resumed frame must not rewind one physics step');
+  } finally { demo.destroy(); }
+});
