@@ -69,7 +69,9 @@ concurrency:
 
 jobs:
   fit:
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 is pinned to the recorded layout baselines;
+    # ubuntu-latest advanced to unsupported 26.04. Pin the supported host too.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: app
@@ -96,7 +98,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
+          key: playwright-chromium-ubuntu24-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
@@ -164,7 +166,9 @@ jobs:
   # only tier in this repo that can catch an iOS-only regression before it
   # reaches a device, which is the whole reason the tier exists.
   fit-webkit:
-    runs-on: ubuntu-latest
+    # Playwright 1.56.1 is pinned to the recorded layout baselines;
+    # ubuntu-latest advanced to unsupported 26.04. Pin the supported host too.
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: app
@@ -183,7 +187,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-webkit-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
+          key: playwright-webkit-ubuntu24-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
 
       - name: Install WebKit
         run: npx playwright install --with-deps webkit
