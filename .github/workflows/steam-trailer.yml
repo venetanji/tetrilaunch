@@ -1,0 +1,84 @@
+name: Steam trailer capture
+
+# Capture-only branch job. No environments, secrets, release or deployment steps.
+on:
+  push:
+    branches: [capture/steam-trailer-20261027]
+    paths:
+      - '.github/workflows/steam-trailer.yml'
+      - 'app/sim/promo/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steam-trailer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            app/desktop/package-lock.json
+      - name: Install locked app dependencies
+        run: npm ci
+      - name: Install pinned browser and capture packages
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb ffmpeg
+      - name: Prepare validation evidence
+        run: mkdir -p sim/results/steam-trailer-validation
+      - name: Capture adapter syntax and driver-only import
+        run: |
+          node --check sim/promo/actions/desktop-shell.cjs
+          PROMO_DRIVER_ONLY=1 node --import tsx -e "import('./sim/promo/run.ts').then(m => { if (typeof m.openDriver !== 'function') throw new Error('capture driver export missing'); })"
+      - name: Typecheck
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee sim/results/steam-trailer-validation/typecheck.log
+      - name: Unit and simulation tests
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee sim/results/steam-trailer-validation/tests.log
+      - name: UI-fit gate
+        run: |
+          set -o pipefail
+          npm run test:uifit 2>&1 | tee sim/results/steam-trailer-validation/uifit.log
+      - name: Build gate
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee sim/results/steam-trailer-validation/build.log
+      - name: Install locked desktop runtime
+        run: npm --prefix desktop ci
+      - name: Capture normal-speed 60 fps pacing pilot
+        env:
+          CI: 'true'
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" node --import tsx sim/promo/actions/capture.ts --fps=60 --seconds=4 --scene=congestion --out=sim/results/steam-trailer
+      - name: Preserve video and timing evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-trailer-pilot-60fps
+          path: |
+            app/sim/results/steam-trailer/*.mp4
+            app/sim/results/steam-trailer/*.json
+            app/sim/results/steam-trailer/*.jpg
+            app/sim/results/steam-trailer/samples/*.png
+            app/sim/results/steam-trailer-validation/
+            app/sim/results/uifit/
+          if-no-files-found: warn
+          retention-days: 7

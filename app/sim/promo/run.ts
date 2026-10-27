@@ -52,6 +52,7 @@ import type {} from "./harness";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = resolve(HERE, "..", "..");
 
+const DRIVER_ONLY = process.env.PROMO_DRIVER_ONLY === "1";
 const argv = process.argv.slice(2);
 const flag = (name: string): boolean => argv.includes(`--${name}`);
 const opts = (name: string): string[] =>
@@ -102,7 +103,7 @@ const trace = (msg: string): void => { if (VERBOSE) console.log(`    … ${msg}`
 /** Per-frame detail; only under --verbose=frames. */
 const trace2 = (msg: string): void => { if (opt("verbose") === "frames") console.log(`      ‥ ${msg}`); };
 
-if (!SHOTS && BEAT_IDS.length === 0) {
+if (!DRIVER_ONLY && !SHOTS && BEAT_IDS.length === 0) {
   console.error("nothing to do: pass --beat=<id> (one of " + BEAT_ORDER.join(", ") + "), --all, or --shots");
   process.exit(1);
 }
@@ -140,7 +141,7 @@ function findFfmpeg(): string | null {
   return null;
 }
 
-const FFMPEG = findFfmpeg();
+const FFMPEG = DRIVER_ONLY ? null : findFfmpeg();
 
 function run(cmd: string, args: string[], stdin?: () => AsyncIterable<Buffer>): Promise<number> {
   return new Promise((res) => {
@@ -389,7 +390,7 @@ const MOCK_BOARD = {
   })),
 };
 
-async function openDriver(
+export async function openDriver(
   browser: Browser, base: string,
   view: { w: number; h: number; dpr: number; touch?: boolean },
   meta: Partial<MetaState> = {},
@@ -1330,6 +1331,7 @@ async function runShots(browser: Browser, base: string): Promise<void> {
  * Main
  * ------------------------------------------------------------------------- */
 
+if (!DRIVER_ONLY) {
 await mkdir(OUT, { recursive: true });
 await access(resolve(APP, "node_modules")).catch(() => {
   console.error("✗ app/node_modules is missing — npm install first");
@@ -1398,4 +1400,6 @@ try {
 } finally {
   await browser.close();
   await server.close();
+}
+
 }
