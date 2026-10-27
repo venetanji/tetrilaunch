@@ -49,3 +49,31 @@ The workflow allows up to 90 minutes on one standard runner and uploads all part
 ### Mid-bay framing correction
 
 Measured retry diagnostics showed the original nominal 22-cube still-photo cue never occurred within 30 seconds (maximum 20 cubes; many real-ready frames). The recovered delivered screenshot manifest actually recorded 12 cubes. The video therefore deliberately uses a real 20-cube working pile after 16 seconds with real cannon readiness, then verifies at least 0.5 seconds of visible aiming and an actual launch. This is a documented filming criterion, not a game change or a claim that the old 22-cube predicate passed. Per-scene metadata records both predicates and the actual stage snapshot.
+
+### CSS clock and native presentation
+
+The native Electron capture uses explicit video clocks for both the JavaScript
+game loop and Web Animations (CSS animations and transitions). Native Chromium
+compositor scheduling remains real-time: the native adapter does not enable CDP
+virtual time. A private original-rAF paint barrier never advances the game or CSS
+clock. Production styles, animation durations and physics are unchanged.
+
+Before the full render, a short native pilot demonstrates the old uncontrolled
+CSS drift, then verifies held CSS/game clocks through host delays and screenshots,
+900 ms belt cycles (108 frames at 120 fps), 2850 ms roller cycles (342 frames),
+negative delays, newly created transitions and replacement animations. The pilot
+also requires distinct rendered frames, normal physics speed and readable cadence.
+The full eight-scene step runs only if this pilot passes.
+
+Native capture can occasionally return the preceding surface. When encoded PNG
+bytes repeat despite an advanced video clock, the driver retries the same held
+state through its paint barrier within the existing bounded attempt count. It
+does not tick time, interpolate, or manufacture a frame. Unchanged-clock test
+shots and legitimate static scenes remain valid; exhausted repeats are preserved
+and reported. Per-frame evidence records retry and exhaustion counts. Inspect the
+pixels as well as the clocks before treating an output as final.
+
+The workflow preserves pilot evidence under `steam-trailer/pilot/` and corrected
+full scene clips under `steam-trailer/sections/`, including partial outputs if
+a later scene fails. Final soundtrack/endcard assembly remains a separate media
+step.

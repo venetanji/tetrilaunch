@@ -480,6 +480,7 @@ export async function openDriver(
   }
   await page.evaluate(() => window.__promo.fonts());
   const cdp = await ctx.newCDPSession(page);
+  const nativeCompositor = !!capture.nativeCompositor;
   // Chromium's virtual time is still what the STYLESHEET runs on — the
   // tower's ride, a modal's pop, the HUD's warn tint fading in — so it is
   // paused here and advanced by one frame's worth alongside every frame that
@@ -488,15 +489,17 @@ export async function openDriver(
   // Native capture owns JS and CSS clocks explicitly. Leave Chromium's
   // compositor scheduler on real time; paused CDP time can prevent presentation
   // entirely once all CSS effects are manually paused.
-  if (!capture.nativeCompositor) await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
+  if (!nativeCompositor) await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
   const timing: Record<string, number> = {};
   const advance = async (ms: number): Promise<void> => {
-    if (capture.nativeCompositor) return;
+    if (nativeCompositor) return;
     const done = new Promise<void>((r) => cdp.once("Emulation.virtualTimeBudgetExpired", () => r()));
     await cdp.send("Emulation.setVirtualTimePolicy", { policy: "advance", budget: ms });
     await done;
   };
   let cursor = 0;
+  let previousNativePng: Buffer | null = null;
+  let previousNativeClock: number | null = null;
   const driver: Driver = {
     ctx, page, cdp, timing,
     frame: async (css = true) => {
@@ -510,12 +513,7 @@ export async function openDriver(
       // Hands/HUD replacement can create CSS effects after the last game tick.
       // Freeze and seek those too before the native compositor sees the frame.
       await page.evaluate(() => window.__captureCssClock?.sync(0));
-      if (capture.nativeCompositor) {
-        await Promise.race([
-          page.evaluate(() => window.__capturePaint()),
-          sleep(5_000).then(() => { throw new Error('Native compositor rAF barrier timed out'); }),
-        ]);
-      }
+      const nativeClock = nativeCompositor ? await page.evaluate(() => window.__clock.now()) : null;
       trace2("shot");
       // A capture that has not returned in 20s is a STALLED COMPOSITOR, not a
       // slow one — measured on the `climb` beat's paused-bay-plus-modal DOM
@@ -529,6 +527,12 @@ export async function openDriver(
       // waking the compositor up at all; several small nudges recover cases a
       // single one does not.
       for (let attempt = 0; ; attempt++) {
+        if (nativeCompositor) {
+          await Promise.race([
+            page.evaluate(() => window.__capturePaint()),
+            sleep(5_000).then(() => { throw new Error('Native compositor rAF barrier timed out'); }),
+          ]);
+        }
         // THE CLIP IS WHAT MAKES THE PNG DEVICE PIXELS. A bare captureScreenshot
         // answers in CSS pixels on the bundled headless Chromium — a
         // 2868x1320 store shot came back 1434x660, which App Store Connect
@@ -543,9 +547,24 @@ export async function openDriver(
         });
         const r = await Promise.race([capture, sleep(waitMs).then(() => null)]);
         if (r !== null) {
+          const png = Buffer.from(r.data, "base64");
+          // Native capture can return the preceding surface even after rAF.
+          // Retry the SAME held video state, never tick physics/CSS to hide it.
+          // Unchanged-clock regression shots and genuinely static scenes remain
+          // valid; after the bounded retries return the evidence, not a fake frame.
+          if (nativeCompositor && nativeClock !== previousNativeClock && previousNativePng?.equals(png) && attempt < attempts - 1) {
+            timing.nativeStaleRetries = (timing.nativeStaleRetries ?? 0) + 1;
+            console.log(`  · same-state native presentation retry at video clock ${nativeClock}ms`);
+            continue;
+          }
+          if (nativeCompositor && nativeClock !== previousNativeClock && previousNativePng?.equals(png)) {
+            timing.nativeRepeatBoundExhausted = (timing.nativeRepeatBoundExhausted ?? 0) + 1;
+            console.log(`  · native repeat bound exhausted at video clock ${nativeClock}ms; preserving static/repeated frame for validation`);
+          }
+          if (nativeCompositor) { previousNativePng = png; previousNativeClock = nativeClock; }
           if (attempt > 0) console.log(`  · capture completed on retry ${attempt}`);
           trace2("shot done");
-          return Buffer.from(r.data, "base64");
+          return png;
         }
         const state = await Promise.race([
           page.evaluate(() => ({

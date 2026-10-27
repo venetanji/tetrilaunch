@@ -166,7 +166,7 @@ try {
         if (hash === previousHash) duplicateAdjacent++;
         previousHash = hash;
         const cssAnimations = await driver.page.evaluate(() => window.__captureCssClock!.snapshot());
-        frames.push({ cssAnimations, frame, videoMs: frame * 1000 / fps, clockDeltaMs: end.elapsedMs - start.elapsedMs, steps: end.steps - start.steps, timeLeftMs: end.timeLeftMs, interpolationAlpha: alpha, sha256: hash });
+        frames.push({ cssAnimations, frame, videoMs: frame * 1000 / fps, clockDeltaMs: end.elapsedMs - start.elapsedMs, steps: end.steps - start.steps, timeLeftMs: end.timeLeftMs, interpolationAlpha: alpha, sha256: hash, nativeStaleRetries: driver.timing.nativeStaleRetries ?? 0, nativeRepeatBoundExhausted: driver.timing.nativeRepeatBoundExhausted ?? 0 });
         if (frame < 4 || frame % fps === 0 || frame === frameCount - 1) await writeFile(resolve(out, 'samples', `${String(frame).padStart(6, '0')}.png`), png);
         if (!encoder.stdin.write(png)) await once(encoder.stdin, 'drain');
         if (frame % fps === 0) console.log(`frame ${frame}/${frameCount}; physics ${end.steps - start.steps}; shoots ${shoots.length}`);
@@ -184,7 +184,7 @@ try {
       warmupSeconds: warmup, shotGapSeconds: shotGap, botCadence: 'Existing pilot attached until each shot, then detached until the gap; reattachment reconstructs the seeded pilot, so this is new capture choreography, not original pilot continuity.',
       physicsHz: 60, stepDelta, expectedStepDelta: seconds * 60, elapsedDeltaMs, timerDeltaMs,
       shootTimesMs: shoots, shotGapsMs: gaps, uniquePngs: hashes.size, duplicateAdjacent,
-      samples: 'samples/', events, frameEvidence: frames,
+      samples: 'samples/', events, frameEvidence: frames, nativePresentationRetries: driver.timing.nativeStaleRetries ?? 0,
       validation: { normalSpeed: stepDelta === seconds * 60 && Math.abs(elapsedDeltaMs - seconds * 1000) < 0.1 && timerDeltaMs !== null && Math.abs(timerDeltaMs - seconds * 1000) < 0.1, paced: shoots.length >= 2 && gaps.every(gap => gap >= shotGap * 1000 - 0.01), distinctFrames: duplicateAdjacent === 0 },
       limitations: 'Silent four-second pilot, not a final trailer. No optical-flow interpolation or duplicated-frame conversion is used. Full eight-scene event choreography and soundtrack assembly remain separate.',
     };
