@@ -1,4 +1,6 @@
 /** Native, normal-speed pilot. Only the capture harness and its public controls are used. */
+import { installCaptureCssClock } from './css-clock';
+import { verifyCaptureCssClock } from './css-clock-regression';
 import { createServer } from 'vite';
 import { _electron, type Browser, type ElectronApplication, type CDPSession } from 'playwright';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
@@ -113,8 +115,12 @@ try {
     if (viewport.width !== 1920 || viewport.height !== 1080 || viewport.dpr !== 1 || viewport.coarsePointer) throw new Error(`Wrong desktop layout: ${JSON.stringify(viewport)}`);
     await driver.page.evaluate(([config, bot]) => window.__promo.launchBay(config, bot), [show.config, show.bot] as const);
     await driver.page.evaluate(() => window.__promo.dismissCoach());
+    if (arg('css-regression', 'false') === 'true') {
+      await verifyCaptureCssClock(driver, out);
+      await driver.page.evaluate(([config, bot]) => window.__promo.launchBay(config, bot), [show.config, show.bot] as const);
+    } else await driver.page.evaluate(installCaptureCssClock);
     await driver.tick(Math.round(warmup * fps));
-    await driver.page.evaluate(() => { window.__promo.attachBot(null); window.__promo.dismissCoach(); window.__promo.quiesce(); });
+    await driver.page.evaluate(() => { window.__promo.attachBot(null); window.__promo.dismissCoach(); window.__captureCssClock!.sync(0); });
     const start = (await driver.snapshot()).status;
     if (start.status !== 'playing') throw new Error(`Scene finished during warmup: ${JSON.stringify(start)}`);
     const mp4 = resolve(out, `pilot-${sceneId}-${fps}fps.mp4`);
@@ -159,7 +165,8 @@ try {
         hashes.add(hash);
         if (hash === previousHash) duplicateAdjacent++;
         previousHash = hash;
-        frames.push({ frame, videoMs: frame * 1000 / fps, clockDeltaMs: end.elapsedMs - start.elapsedMs, steps: end.steps - start.steps, timeLeftMs: end.timeLeftMs, interpolationAlpha: alpha, sha256: hash });
+        const cssAnimations = await driver.page.evaluate(() => window.__captureCssClock!.snapshot());
+        frames.push({ cssAnimations, frame, videoMs: frame * 1000 / fps, clockDeltaMs: end.elapsedMs - start.elapsedMs, steps: end.steps - start.steps, timeLeftMs: end.timeLeftMs, interpolationAlpha: alpha, sha256: hash });
         if (frame < 4 || frame % fps === 0 || frame === frameCount - 1) await writeFile(resolve(out, 'samples', `${String(frame).padStart(6, '0')}.png`), png);
         if (!encoder.stdin.write(png)) await once(encoder.stdin, 'drain');
         if (frame % fps === 0) console.log(`frame ${frame}/${frameCount}; physics ${end.steps - start.steps}; shoots ${shoots.length}`);

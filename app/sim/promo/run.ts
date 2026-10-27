@@ -353,6 +353,7 @@ function clockShim(cfg: { epoch: number; rngSeed: number }): void {
       for (const [, cb] of due) {
         try { cb(now); } catch (e) { console.error(e); }
       }
+      (w.__captureCssClock as { sync(delta: number): void } | undefined)?.sync(dt);
     }
     return now;
   };
@@ -497,6 +498,9 @@ export async function openDriver(
     },
     tick: (frames) => time(timing, "skip", () => page.evaluate(([n, dt]) => window.__tick(n, dt), [frames, CLOCK_DT] as const)),
     shot: (attempts = 5, waitMs = 20_000) => time(timing, "png", async () => {
+      // Hands/HUD replacement can create CSS effects after the last game tick.
+      // Freeze and seek those too before the native compositor sees the frame.
+      await page.evaluate(() => window.__captureCssClock?.sync(0));
       trace2("shot");
       // A capture that has not returned in 20s is a STALLED COMPOSITOR, not a
       // slow one — measured on the `climb` beat's paused-bay-plus-modal DOM
@@ -1403,3 +1407,4 @@ try {
 }
 
 }
+

@@ -1,4 +1,5 @@
 /** Eight-scene progression capture. Game source and physics remain unchanged. */
+import { installCaptureCssClock } from './css-clock';
 import { createServer } from 'vite';
 import { _electron, type Browser, type ElectronApplication, type CDPSession } from 'playwright';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
@@ -82,8 +83,9 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
   try {
     const viewport = await driver.page.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, origin: location.origin, coarsePointer: matchMedia('(pointer: coarse)').matches }));
     if (viewport.width !== 1920 || viewport.height !== 1080 || viewport.dpr !== 1 || viewport.coarsePointer || viewport.origin !== 'app://tetrilaunch') throw new Error(`Wrong desktop viewport: ${JSON.stringify(viewport)}`);
+    await driver.page.evaluate(installCaptureCssClock);
     await driver.page.evaluate(([config, bot]) => window.__promo.launchBay(config, bot), [show.config, lineClear ? null : show.bot] as const);
-    await driver.page.evaluate(() => { window.__promo.dismissCoach(); window.__promo.quiesce(); });
+    await driver.page.evaluate(() => { window.__promo.dismissCoach(); window.__captureCssClock!.sync(0); });
     let status = (await driver.snapshot()).status;
     let attached = !lineClear;
     let stageFrame: number | null = lineClear ? 0 : null;
@@ -137,7 +139,7 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
       const nowMs = index * 1000 / fps;
       const filming = planned !== undefined && index >= planned.startFrame && index < planned.startFrame + planned.frames;
       if (planned && index === planned.startFrame) {
-        await driver.page.evaluate(() => window.__promo.quiesce());
+        await driver.page.evaluate(() => window.__captureCssClock!.sync(0));
         startStatus = status;
         encoder = encodePngs(video);
       }
@@ -250,7 +252,8 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
         const thisFrameEvents = events.filter(event => event.frame === frame);
         const bombShot = thisFrameEvents.some(event => event.kind === 'scripted' && event.action === 'bomb');
         const expectedClockTaxMs = bombShot ? 0 : thisFrameEvents.filter(event => event.kind === 'shoot').length * declaredClockTaxMs;
-        frameEvidence.push({ frame: captured, bayFrame: frame, elapsedMs: status.elapsedMs, steps: status.steps, timeLeftMs: status.timeLeftMs, interpolationAlpha: alpha, aim, aimVisible, sha256: hash, timerAdjustmentMs, expectedClockTaxMs, timerAdjustmentExplained: timerAdjustmentMs !== null && Math.abs(timerAdjustmentMs - expectedClockTaxMs) < 0.1 });
+        const cssAnimations = await driver.page.evaluate(() => window.__captureCssClock!.snapshot());
+        frameEvidence.push({ cssAnimations, frame: captured, bayFrame: frame, elapsedMs: status.elapsedMs, steps: status.steps, timeLeftMs: status.timeLeftMs, interpolationAlpha: alpha, aim, aimVisible, sha256: hash, timerAdjustmentMs, expectedClockTaxMs, timerAdjustmentExplained: timerAdjustmentMs !== null && Math.abs(timerAdjustmentMs - expectedClockTaxMs) < 0.1 });
         if (captured % fps === 0) {
           const hud = await driver.page.evaluate(() => ['plant--congest-warn', 'plant--congest-danger'].filter(c => window.__promo.present(`.${c}`)));
           dangerSeen ||= hud.includes('plant--congest-danger');
