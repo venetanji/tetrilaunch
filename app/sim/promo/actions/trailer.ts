@@ -76,7 +76,7 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
   const captureCue = (st: PromoStatus, ev: PromoEvent[]): boolean => midBay
     ? st.elapsedMs > 16_000 && st.cubes >= 20 && st.ready
     : !!show.until?.(st, ev);
-  const driver = await openDriver(browser, 'app://tetrilaunch/', { w: 1920, h: 1080, dpr: 1, touch: false }, { ...STORE_META, ...SETUPS.ladder });
+  const driver = await openDriver(browser, 'app://tetrilaunch/', { w: 1920, h: 1080, dpr: 1, touch: false }, { ...STORE_META, ...SETUPS.ladder }, { nativeCompositor: true });
   let encoder: ReturnType<typeof encodePngs> | null = null;
   const stem = `${String(ORDER.indexOf(scene.id) + 1).padStart(2, '0')}-${scene.id}`;
   const video = resolve(out, 'sections', `${stem}-${fps}fps.mp4`);
@@ -341,21 +341,7 @@ try {
           if (method === 'Page.captureScreenshot' && params?.format === 'png') {
             return electron.evaluate(async ({ BrowserWindow }: any) => {
               const win = BrowserWindow.getAllWindows()[0];
-              const shot = await new Promise<any>((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                  win.webContents.endFrameSubscription();
-                  reject(new Error('Native repaint produced no presentation within 5 seconds'));
-                }, 5_000);
-                let presentations = 0;
-                win.webContents.beginFrameSubscription(false, (image: any) => {
-                  // Drain an already queued surface, then request a new presentation.
-                  if (++presentations === 1) { win.webContents.invalidate(); return; }
-                  clearTimeout(timeout);
-                  win.webContents.endFrameSubscription();
-                  resolve(image);
-                });
-                win.webContents.invalidate();
-              });
+              const shot = await win.webContents.capturePage();
               const size = shot.getSize();
               if (size.width !== 1920 || size.height !== 1080) throw new Error(`Unexpected capture size ${size.width}x${size.height}`);
               return { data: shot.toPNG().toString('base64') };
@@ -433,3 +419,4 @@ try {
   await server.close();
   for (const profile of profiles) await rm(profile, { recursive: true, force: true });
 }
+

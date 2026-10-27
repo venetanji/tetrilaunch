@@ -20,9 +20,11 @@ export async function verifyCaptureCssClock(driver: Driver, out: string): Promis
   await driver.page.evaluate(installCaptureCssClock);
   await driver.shot();
   const fixedBefore = await read();
+  const gameBefore = await driver.page.evaluate(() => { const s = window.__promo.snapshot(0).status; return { clock: window.__clock.now(), steps: s.steps, elapsedMs: s.elapsedMs, timeLeftMs: s.timeLeftMs }; });
   await new Promise(resolve => setTimeout(resolve, 350));
   await driver.shot();
   const fixedAfter = await read();
+  const gameAfter = await driver.page.evaluate(() => { const s = window.__promo.snapshot(0).status; return { clock: window.__clock.now(), steps: s.steps, elapsedMs: s.elapsedMs, timeLeftMs: s.timeLeftMs }; });
   const stable = fixedAfter.length > 0 && fixedAfter.every((a, i) => Math.abs(a.time - fixedBefore[i].time) < 0.01 && a.transform === fixedBefore[i].transform && a.background === fixedBefore[i].background);
   const base = await read();
   await driver.tick(108);
@@ -60,11 +62,11 @@ export async function verifyCaptureCssClock(driver: Driver, out: string): Promis
   await driver.shot();
   await driver.tick(30);
   const replacement = await driver.page.evaluate(() => new DOMMatrix(getComputedStyle(document.querySelector('#clock-fixture')!).transform).m41);
-  const validation = { baselineDriftObserved: oldDrift, heldClockStable: stable, authoredCycles: ticks,
+  const validation = { baselineDriftObserved: oldDrift, heldClockStable: stable, gameClockHeldThroughPaintAndDelay: JSON.stringify(gameBefore) === JSON.stringify(gameAfter), authoredCycles: ticks,
     negativeDelay: Math.abs(fixture.x - 75) < 0.1, newTransition: Math.abs(fixture.opacity - 0.4) < 0.01,
     replacementStartsAtCreation: Math.abs(replacement - 50) < 0.1,
     betweenTickAndShotStable: JSON.stringify(newlyCreatedBefore) === JSON.stringify(newlyCreatedAfter) };
-  await writeFile(resolve(out, 'css-clock-regression.json'), JSON.stringify({ oldBefore, oldAfter, fixedBefore, fixedAfter, base, at108, at342, newlyCreatedBefore, newlyCreatedAfter, fixture, replacement, validation }, null, 2));
+  await writeFile(resolve(out, 'css-clock-regression.json'), JSON.stringify({ compositor: 'real-time native rAF; explicit JS/CSS video clocks; no CDP virtual time', oldBefore, oldAfter, fixedBefore, fixedAfter, gameBefore, gameAfter, base, at108, at342, newlyCreatedBefore, newlyCreatedAfter, fixture, replacement, validation }, null, 2));
   await driver.page.evaluate(() => { document.querySelector('#clock-fixture')?.remove(); document.querySelector('#clock-transition')?.remove(); document.querySelector('#clock-fixture-style')?.remove(); });
   console.log('CSS clock RED/GREEN evidence', JSON.stringify(validation));
   if (!Object.values(validation).every(Boolean)) throw new Error('CSS capture clock regression failed; inspect evidence before full recapture');

@@ -293,6 +293,9 @@ function clockShim(cfg: { epoch: number; rngSeed: number }): void {
   let seq = 0;
   const timers = new Map<number, Timer>();
   let rafQ: Array<[number, FrameRequestCallback]> = [];
+  // Capture-only paint barrier: never expose the native clock to the game loop.
+  const nativeRaf = window.requestAnimationFrame.bind(window);
+  w.__capturePaint = () => new Promise<void>(resolve => nativeRaf(() => nativeRaf(() => resolve())));
   performance.now = () => now;
   // Date, pinned to the virtual clock (see 2 above). A Proxy rather than a
   // subclass so every other member — parse, UTC, prototype, Symbol.species —
@@ -370,6 +373,7 @@ declare global {
   interface Window {
     __tick: (frames: number, dt: number) => number;
     __clock: { now(): number; reset(): void };
+    __capturePaint: () => Promise<void>;
   }
 }
 
@@ -395,6 +399,7 @@ export async function openDriver(
   browser: Browser, base: string,
   view: { w: number; h: number; dpr: number; touch?: boolean },
   meta: Partial<MetaState> = {},
+  capture: { nativeCompositor?: boolean } = {},
 ): Promise<Driver> {
   // `touch` is what app.css's `@media (pointer: coarse)` rules key off (see
   // sim/uifit/run.ts on the two flags): the store shots want the phone's rail,
@@ -480,9 +485,13 @@ export async function openDriver(
   // paused here and advanced by one frame's worth alongside every frame that
   // is actually filmed. Un-filmed frames leave it paused: nothing on screen is
   // being kept, and each advance costs a CDP round trip.
-  await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
+  // Native capture owns JS and CSS clocks explicitly. Leave Chromium's
+  // compositor scheduler on real time; paused CDP time can prevent presentation
+  // entirely once all CSS effects are manually paused.
+  if (!capture.nativeCompositor) await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
   const timing: Record<string, number> = {};
   const advance = async (ms: number): Promise<void> => {
+    if (capture.nativeCompositor) return;
     const done = new Promise<void>((r) => cdp.once("Emulation.virtualTimeBudgetExpired", () => r()));
     await cdp.send("Emulation.setVirtualTimePolicy", { policy: "advance", budget: ms });
     await done;
@@ -501,6 +510,12 @@ export async function openDriver(
       // Hands/HUD replacement can create CSS effects after the last game tick.
       // Freeze and seek those too before the native compositor sees the frame.
       await page.evaluate(() => window.__captureCssClock?.sync(0));
+      if (capture.nativeCompositor) {
+        await Promise.race([
+          page.evaluate(() => window.__capturePaint()),
+          sleep(5_000).then(() => { throw new Error('Native compositor rAF barrier timed out'); }),
+        ]);
+      }
       trace2("shot");
       // A capture that has not returned in 20s is a STALLED COMPOSITOR, not a
       // slow one — measured on the `climb` beat's paused-bay-plus-modal DOM

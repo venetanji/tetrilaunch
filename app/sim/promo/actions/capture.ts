@@ -79,21 +79,7 @@ try {
           if (method === 'Page.captureScreenshot' && params?.format === 'png') {
             return electron.evaluate(async ({ BrowserWindow }: any) => {
               const win = BrowserWindow.getAllWindows()[0];
-              const shot = await new Promise<any>((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                  win.webContents.endFrameSubscription();
-                  reject(new Error('Native repaint produced no presentation within 5 seconds'));
-                }, 5_000);
-                let presentations = 0;
-                win.webContents.beginFrameSubscription(false, (image: any) => {
-                  // Drain an already queued surface, then request a new presentation.
-                  if (++presentations === 1) { win.webContents.invalidate(); return; }
-                  clearTimeout(timeout);
-                  win.webContents.endFrameSubscription();
-                  resolve(image);
-                });
-                win.webContents.invalidate();
-              });
+              const shot = await win.webContents.capturePage();
               const size = shot.getSize();
               if (size.width !== 1920 || size.height !== 1080) throw new Error(`Unexpected capture size ${size.width}x${size.height}`);
               return { data: shot.toPNG().toString('base64') };
@@ -123,7 +109,7 @@ try {
     },
     async close() { for (const electron of sessions) await electron.close(); sessions.clear(); },
   } as unknown as Browser;
-  const driver = await openDriver(browser, nativeBase, { w: 1920, h: 1080, dpr: 1, touch: false }, { ...STORE_META, ...SETUPS.ladder });
+  const driver = await openDriver(browser, nativeBase, { w: 1920, h: 1080, dpr: 1, touch: false }, { ...STORE_META, ...SETUPS.ladder }, { nativeCompositor: true });
   try {
     const viewport = await driver.page.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, origin: location.origin, coarsePointer: matchMedia('(pointer: coarse)').matches }));
     if (viewport.width !== 1920 || viewport.height !== 1080 || viewport.dpr !== 1 || viewport.coarsePointer) throw new Error(`Wrong desktop layout: ${JSON.stringify(viewport)}`);
@@ -212,3 +198,4 @@ try {
   await server.close();
   for (const profile of profiles) await rm(profile, { recursive: true, force: true });
 }
+
