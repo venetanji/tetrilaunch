@@ -74,19 +74,19 @@ jobs:
         run: |
           set -o pipefail
           ELECTRON_RUN_AS_NODE=1 desktop/node_modules/electron/dist/electron -p 'JSON.stringify(process.versions)' 2>&1 | tee sim/results/steam-trailer-validation/runtime.log
-      - name: Capture normal-speed 60 fps pacing pilot
+      - name: Capture normal-speed 120 fps interpolation pilot
         env:
           CI: 'true'
           DEBUG: 'pw:browser*'
           ELECTRON_ENABLE_LOGGING: '1'
         run: |
           set -o pipefail
-          xvfb-run -a -s "-screen 0 1920x1080x24" node --import tsx sim/promo/actions/capture.ts --fps=60 --seconds=4 --scene=congestion --out=sim/results/steam-trailer 2>&1 | tee sim/results/steam-trailer-validation/capture.log
+          xvfb-run -a -s "-screen 0 1920x1080x24" node --import tsx sim/promo/actions/capture.ts --fps=120 --seconds=4 --scene=congestion --out=sim/results/steam-trailer 2>&1 | tee sim/results/steam-trailer-validation/capture.log
       - name: Preserve video and timing evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: steam-trailer-pilot-60fps
+          name: steam-trailer-pilot-120fps
           path: |
             app/sim/results/steam-trailer/*.mp4
             app/sim/results/steam-trailer/*.json
