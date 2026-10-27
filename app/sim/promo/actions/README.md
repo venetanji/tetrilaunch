@@ -33,3 +33,15 @@ The screenshot-era capture provenance used a visible Electron window. This workf
 The native capture job pins standard `ubuntu-22.04`. On the Ubuntu 24.04 runner, Electron 44's native launch aborted in `setuid_sandbox_host.cc` because the unpacked npm sandbox helper was not configured for SUID execution (diagnostic run 40482058465). The Node-mode identity probe succeeded. We select the supported 22.04 host rather than disabling Electron's sandbox or changing host security settings; no `--no-sandbox`, SUID permission edits, or sysctl changes are made. This does not change the shipped game.
 
 Compatibility references: [locked Playwright 1.56.1 requirements](https://github.com/microsoft/playwright/blob/v1.56.1/docs/src/intro-js.md), [standard GitHub runner list](https://github.com/actions/runner-images), [Electron 44 platform policy](https://github.com/electron/electron/blob/v44.0.0/README.md), and [Ubuntu support lifecycle](https://ubuntu.com/about/release-cycle).
+
+## Full progression capture
+
+After the validated 60/120 fps pilots, run from `app/`:
+
+```sh
+xvfb-run -a -s "-screen 0 1920x1080x24" node --import tsx sim/promo/actions/trailer.ts --fps=120 --shot-gap=0.95 --out=sim/results/steam-trailer
+```
+
+The eight original progression recipes are probed then replayed in fresh native windows. Each filmed section is at least six seconds, with fixed 60 Hz physics and scene-specific visible-event gates. Independent scene failures retain completed sections and continue; `capture-status.json` names failures. Retry one scene with `--scene=blast` (or another original scene ID). A combined gameplay master is produced only when all eight pass. The 60 fps derivative drops alternate 120 fps frames without changing duration.
+
+The workflow allows up to 90 minutes on one standard runner and uploads all partial evidence even on failure. It does not assemble or submit a store trailer automatically. Final media assembly appends the original two-second logo ending and mixes `public/audio/music/menu.mp3` starting at 13.8 seconds; preserve the final assembly command and provenance with the delivered media. The original endcard is 30 fps-origin material, not native 120 fps gameplay.
