@@ -63,6 +63,13 @@ jobs:
           npm run build 2>&1 | tee sim/results/steam-trailer-validation/build.log
       - name: Install locked desktop runtime
         run: npm --prefix desktop ci
+      - name: Ensure Electron binary exists
+        run: |
+          if [ ! -f desktop/node_modules/electron/path.txt ]; then
+            (cd desktop/node_modules/electron && node install.js)
+          fi
+          test -f desktop/node_modules/electron/path.txt
+          test -x desktop/node_modules/electron/dist/electron
       - name: Capture normal-speed 60 fps pacing pilot
         env:
           CI: 'true'
