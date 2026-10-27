@@ -79,7 +79,21 @@ try {
           if (method === 'Page.captureScreenshot' && params?.format === 'png') {
             return electron.evaluate(async ({ BrowserWindow }: any) => {
               const win = BrowserWindow.getAllWindows()[0];
-              const shot = await win.webContents.capturePage();
+              const shot = await new Promise<any>((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                  win.webContents.endFrameSubscription();
+                  reject(new Error('Native repaint produced no presentation within 5 seconds'));
+                }, 5_000);
+                let presentations = 0;
+                win.webContents.beginFrameSubscription(false, (image: any) => {
+                  // Drain an already queued surface, then request a new presentation.
+                  if (++presentations === 1) { win.webContents.invalidate(); return; }
+                  clearTimeout(timeout);
+                  win.webContents.endFrameSubscription();
+                  resolve(image);
+                });
+                win.webContents.invalidate();
+              });
               const size = shot.getSize();
               if (size.width !== 1920 || size.height !== 1080) throw new Error(`Unexpected capture size ${size.width}x${size.height}`);
               return { data: shot.toPNG().toString('base64') };
