@@ -68,6 +68,7 @@ function probeVideo(path: string): { frames: number; duration: number; fps: numb
 async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Promise<Plan> {
   const show = scene.show;
   const lineClear = scene.id === 'line-clear';
+  const midBay = scene.id === 'mid-bay-launch';
   const driver = await openDriver(browser, 'app://tetrilaunch/', { w: 1920, h: 1080, dpr: 1, touch: false }, { ...STORE_META, ...SETUPS.ladder });
   let encoder: ReturnType<typeof encodePngs> | null = null;
   const stem = `${String(ORDER.indexOf(scene.id) + 1).padStart(2, '0')}-${scene.id}`;
@@ -92,6 +93,23 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
     let captured = 0;
     let startStatus: PromoStatus | null = null;
     let dangerSeen = false;
+    // Diagnostics and a controller-only yield for the aim-arc scene. The
+    // original until predicate still decides whether staging succeeds.
+    const stagingSamples: Array<Record<string, unknown>> = [];
+    let stagingYieldCount = 0;
+    let maxCubesAfter16s = 0;
+    let readyFramesAfter16s = 0;
+    let pileFramesAfter16s = 0;
+    const saveStaging = async (reached: boolean, frame: number): Promise<void> => {
+      if (!midBay) return;
+      await writeFile(resolve(out, `${stem}-${planned ? 'replay' : 'preflight'}-staging.json`), JSON.stringify({
+        scene: scene.id, sourceCommit: process.env.GITHUB_SHA ?? null, fps, reached, frame,
+        originalCue: 'elapsedMs > 16000 && cubes >= 22 && ready',
+        status, stagingYieldCount, maxCubesAfter16s, readyFramesAfter16s,
+        pileFramesAfter16s, samples: stagingSamples,
+        note: 'Only the promo pilot is yielded while the original time/pile clauses hold. Cooldown, bodies, score, physics and the actual original cue are unchanged.',
+      }, null, 2));
+    };
     const maxFrames = Math.ceil((show.warmSec + 12) * fps);
     const detach = async (): Promise<void> => { if (attached) { await driver.page.evaluate(() => window.__promo.attachBot(null)); attached = false; } };
     const absorb = (fresh: PromoEvent[], frame: number): void => {
@@ -111,6 +129,25 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
         await driver.page.evaluate(() => window.__promo.quiesce());
         startStatus = status;
         encoder = encodePngs(video);
+      }
+      if (stageFrame === null && midBay) {
+        // Snapshot follows pilot.act(), so an attached aim bot may consume
+        // every ready instant before the camera can observe an aim arc.
+        // Test only the other original clauses to decide when to yield it;
+        // never use this hypothetical status to pass the actual stage gate.
+        const pileAndTimeReady = !!show.until?.({ ...status, ready: true }, events);
+        if (pileAndTimeReady && attached) {
+          stagingYieldCount++;
+          stagingSamples.push({ frame: index, action: 'yield-for-natural-reload', ...status });
+          console.log(`${scene.id}: yield pilot at ${status.elapsedMs}ms, ${status.cubes} cubes, ready=${status.ready}; waiting for original cue`);
+          await detach();
+        } else if (!pileAndTimeReady && !attached) {
+          // A clear may remove the pile during reload. Resume the same
+          // recipe, rather than accepting fewer cubes or manufacturing cargo.
+          await driver.page.evaluate(bot => window.__promo.attachBot(bot), show.bot);
+          attached = true;
+          stagingSamples.push({ frame: index, action: 'resume-pile-staging', ...status });
+        }
       }
       if (stageFrame !== null) {
         const sinceStage = (index - stageFrame) / fps;
@@ -135,16 +172,31 @@ async function flyScene(browser: Browser, scene: BayScene, planned?: Plan): Prom
       status = snap.status;
       absorb(snap.events, frame);
       if (stageFrame !== null && snap.events.some(event => event.kind === 'shoot')) await detach();
-      if (status.status !== 'playing') throw new Error(`${scene.id}: ${status.status} at ${status.elapsedMs}ms before clip completion`);
+      if (status.status !== 'playing') {
+        if (stageFrame === null) await saveStaging(false, frame);
+        throw new Error(`${scene.id}: ${status.status} at ${status.elapsedMs}ms before clip completion`);
+      }
       if (lineClear && keyFrame === null && frame >= Math.ceil(show.warmSec * fps)) throw new Error(`${scene.id}: no paced line-clear stamp within ${show.warmSec}s`);
       if (stageFrame === null) {
+        if (midBay) {
+          if (status.elapsedMs > 16_000) {
+            maxCubesAfter16s = Math.max(maxCubesAfter16s, status.cubes);
+            readyFramesAfter16s += Number(status.ready);
+            pileFramesAfter16s += Number(status.cubes >= 22);
+          }
+          if (frame % fps === 0) stagingSamples.push({ frame, action: 'sample', pilotAttached: attached, ...status });
+        }
         const stageReady = show.fire ? (!show.fireWhen || show.fireWhen(status, events)) : !!show.until?.(status, events);
         if (stageReady) {
+          await saveStaging(true, frame);
           stageFrame = frame;
           await detach();
           if (show.aiming) await driver.page.evaluate(() => window.__promo.setAiming(true));
           if (!show.fire) keyFrame = frame;
-        } else if (frame >= Math.ceil(show.warmSec * fps)) throw new Error(`${scene.id}: original staging cue not reached within ${show.warmSec}s`);
+        } else if (frame >= Math.ceil(show.warmSec * fps)) {
+          await saveStaging(false, frame);
+          throw new Error(`${scene.id}: original staging cue not reached within ${show.warmSec}s; last status ${JSON.stringify(status)}; staging summary ${JSON.stringify({ stagingYieldCount, maxCubesAfter16s, readyFramesAfter16s, pileFramesAfter16s })}`);
+        }
       }
       if (show.fire && stageFrame !== null && handFrame === null && frame >= stageFrame + Math.ceil(0.75 * fps)
           && frame * 1000 / fps - lastShotMs >= shotGap * 1000 && (!show.fireWhen || show.fireWhen(status, events))) {

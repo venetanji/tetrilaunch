@@ -19,7 +19,7 @@ concurrency:
 jobs:
   pilot:
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: app
@@ -74,19 +74,19 @@ jobs:
         run: |
           set -o pipefail
           ELECTRON_RUN_AS_NODE=1 desktop/node_modules/electron/dist/electron -p 'JSON.stringify(process.versions)' 2>&1 | tee sim/results/steam-trailer-validation/runtime.log
-      - name: Capture full normal-speed 120 fps gameplay
+      - name: Capture missing mid-bay aim scene at 120 fps
         env:
           CI: 'true'
           DEBUG: 'pw:browser*'
           ELECTRON_ENABLE_LOGGING: '1'
         run: |
           set -o pipefail
-          xvfb-run -a -s "-screen 0 1920x1080x24" node --import tsx sim/promo/actions/trailer.ts --fps=120 --out=sim/results/steam-trailer 2>&1 | tee sim/results/steam-trailer-validation/capture.log
+          xvfb-run -a -s "-screen 0 1920x1080x24" node --import tsx sim/promo/actions/trailer.ts --fps=120 --scene=mid-bay-launch --out=sim/results/steam-trailer 2>&1 | tee sim/results/steam-trailer-validation/capture.log
       - name: Preserve video and timing evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: steam-trailer-normal-speed-gameplay-120fps
+          name: steam-trailer-mid-bay-retry-120fps
           path: |
             app/sim/results/steam-trailer/
             app/sim/results/steam-trailer-validation/
