@@ -132,6 +132,7 @@ test("sandbox-compatible preload exposes one async boolean API and handles rejec
   let invokeResult = true;
   const calls = [];
   vm.runInNewContext(fs.readFileSync(require.resolve("./preload.js"), "utf8"), {
+    process: { argv: [] },
     require(name) {
       assert.equal(name, "electron");
       return {
@@ -147,4 +148,22 @@ test("sandbox-compatible preload exposes one async boolean API and handles rejec
   assert.equal(await exposed.unlockAchievement("FIRST_CONTRACT"), false);
   invokeResult = new Error("IPC shutdown");
   assert.equal(await exposed.unlockAchievement("FIRST_CONTRACT"), false);
+});
+test('current user identity preserves 64-bit precision and fails closed when unavailable', () => {
+  const {bridge,client}=fixture();
+  client.localplayer={getSteamId:()=>({steamId64:76561198027391269n})};
+  assert.equal(bridge.getAccountId(),'76561198027391269');
+  client.localplayer.getSteamId=()=>{throw new Error('Steam stopped');};
+  assert.equal(bridge.getAccountId(),null);
+});
+test('Steam depot preload exposes only fixed save channels and preserves IPC failures',async()=>{
+ const exposed={},calls=[];
+ vm.runInNewContext(fs.readFileSync(require.resolve('./preload.js'),'utf8'),{
+  process:{argv:['--tetrilaunch-steam-save']},
+  require:()=>({contextBridge:{exposeInMainWorld:(name,api)=>{exposed[name]=api;}},ipcRenderer:{invoke:async(...args)=>{calls.push(args);throw new Error('save failed');}}}),
+ });
+ assert.deepEqual(Object.keys(exposed.desktopSave),['open','write']);
+ await assert.rejects(exposed.desktopSave.open({}),/save failed/);
+ await assert.rejects(exposed.desktopSave.write({}),/save failed/);
+ assert.equal(calls[0][0],'steam:save-open'); assert.equal(calls[1][0],'steam:save-write');
 });

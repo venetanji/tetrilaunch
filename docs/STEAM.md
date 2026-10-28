@@ -281,33 +281,17 @@ congestion-free run or simultaneous triple/quad sweep cannot be reconstructed
 from a high score; those must be earned after tracking is introduced. Future
 retirement/refunds must preserve any already-earned ledger entry.
 
-## Phase 4 — Steam Cloud
+## Phase 4 — Steam Auto-Cloud
 
-The save is **five discrete `localStorage` keys**, not an opaque blob:
+Steam depot builds now expose a narrow save IPC for account-scoped portable JSON.
+They import before constructing the game and export allowlisted progress on changes;
+Chromium's LevelDB and machine settings are not synchronized. This supersedes the
+previous Remote Storage API proposal at the owner's request. No Cloud API is needed.
 
-```
-tetrilaunch.settings   tetrilaunch.name   tetrilaunch.best*
-tetrilaunch.meta       tetrilaunch.bays
-```
-
-That is the good case, and it makes the choice between Steam's two mechanisms
-clear:
-
-- **Auto-Cloud** syncs file paths that Steam watches. Pointing it at
-  `localStorage` means pointing it at the LevelDB directory inside Electron's
-  `userData` — a multi-file store with a write-ahead log that Chromium owns and
-  may be mid-write when Steam reads it. That is a corruption vector, not a save
-  system.
-- **The Cloud API** (`ISteamRemoteStorage`) reads and writes named files we
-  control. Serialize those five keys to one JSON document, write it through the
-  API on meaningful state changes, read it on launch.
-
-Take the API. It also gives a place to resolve the conflict Auto-Cloud can only
-report: a player who played offline on two machines has two divergent
-`MetaState`s, and merging them (take the max of every monotonic counter, union
-the unlock sets) is strictly better than asking them to pick a file.
-
-This phase depends on Phase 2's IPC boundary and on nothing else.
+See [Steam Auto-Cloud setup and verification](./STEAM-AUTO-CLOUD.md) for exact paths,
+root overrides, quotas, migration/recovery behavior and the outstanding live test matrix.
+Steamworks configuration publication and a distributed build are still required;
+source implementation is not evidence of live Cloud synchronization.
 
 ## Phase 5 — depots and upload
 
@@ -410,9 +394,9 @@ done** (this branch). What remains before a build lands on the Deck is not code:
 the depots created and added to the package in the partner site, and the build
 account logged in once so its `config.vdf` becomes a secret. Then a dispatch with
 `steam_upload` ticked pushes to the `playtest` branch. Phase 6 (store page,
-review, the two-week window) is gated on art and Valve, not on us. Phases 2–4
-(Steamworks binding, achievements, Cloud) are deferred: the game is fully
-unlocked on desktop, so none of them block a playable first upload.
+review, the two-week window) is gated on art and Valve, not on us. The Steamworks binding and achievements are implemented provisionally, and
+Phase 4 now uses the dedicated Auto-Cloud JSON described above. Live validation
+and Steamworks Cloud configuration remain separate from a playable upload.
 
 The one thing worth doing before anything else is the Phase 2 spike, because
 the binding choice decides how much of `electron-builder.yml` changes, and that

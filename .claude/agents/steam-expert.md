@@ -51,7 +51,8 @@ still require the definitions to be uploaded/published and tested in Steam.
   writes, Windows/macOS clients and overlay still need direct validation.
 - **Phase 3 (achievements) — provisional implementation and 21-ID import pack.**
   Skill proofs persist locally; old saves backfill only supported facts.
-- **Phase 4 (Cloud) — deferred.** No Cloud IPC methods are exposed.
+- **Phase 4 (Cloud) — Auto-Cloud JSON implemented.** See docs/STEAM-AUTO-CLOUD.md;
+  Steamworks setup and live multi-machine verification remain outstanding.
 - **Phases 5–6 (depots, store page)** follow the current status in docs/STEAM.md.
 
 ## The five things that are actually easy to get wrong
@@ -152,13 +153,13 @@ offline player reconciles *up* on first launch) and **nothing that can be
 un-earned** (`refundRetiredUnlocks()` can take an unlock away; no achievement
 may key to anything a refund removes).
 
-**Cloud: use the API, not Auto-Cloud.** The save is five discrete
-`localStorage` keys, not a blob. Auto-Cloud would have to watch Chromium's
-LevelDB directory — a multi-file store with a write-ahead log that Chromium
-owns and may be mid-write — which is a corruption vector. `ISteamRemoteStorage`
-reads and writes one named JSON document we control, and gives a place to merge
-two divergent offline `MetaState`s (max every monotonic counter, union the
-unlock sets) instead of asking a player to pick a file.
+**Cloud: Auto-Cloud of a dedicated account JSON, never Chromium LevelDB.**
+The owner selected this approach in October 2026. Main owns Steam identity,
+validation, journaled migration and atomic file writes. Renderer bootstrap imports
+before App construction; an account memory adapter keeps shared localStorage from
+leaking across users. Machine preferences remain local. See docs/STEAM-AUTO-CLOUD.md
+for exact paths, root overrides, recovery rules and required live checks. Do not add
+Remote Storage API calls or automatic economy merges to this implementation.
 
 ## House rules (this repo, non-negotiable)
 
