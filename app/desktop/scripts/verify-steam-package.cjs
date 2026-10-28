@@ -11,7 +11,7 @@ function verifySteamPackage({ appOutDir, platform, arch, productFilename, expect
     : path.join(appOutDir, "resources");
   const archive = path.join(resources, "app.asar");
   const entries = asar.listPackage(archive).map((entry) => entry.replaceAll("\\", "/"));
-  for (const required of ["main.js", "preload.js", "steam-achievements.js", "steam-achievements/catalog.json",
+  for (const required of ["main.js", "preload.js", "steam-achievements.js", "steam-save.js", "steam-achievements/catalog.json",
     "node_modules/steamworks.js/index.js"]) {
     assert(entries.includes(`/${required}`), `Steam package missing ${required}`);
   }

@@ -1,3 +1,4 @@
+import { initializeDesktopSave } from "./lib/desktop-save";
 import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
 import {
@@ -1329,6 +1330,11 @@ class App {
     // A statement rather than a field reorder: the order that matters is
     // "after the save has been read", and stating it here cannot be undone by
     // someone tidying the field declarations.
+    window.addEventListener('desktop-save-quiesce', () => {
+      if (this.state === 'playing') this.pause();
+      root.inert = true;
+    });
+    window.addEventListener('desktop-save-resume', () => { root.inert = false; });
     this.settings = loadSettings();
     this.meta = reconcileAchievements(this.meta, this.settings.devMode);
     this.meta = saveMeta(this.meta);
@@ -11126,4 +11132,6 @@ class App {
   }
 }
 
-new App(document.getElementById("app")!);
+void initializeDesktopSave().then(() => new App(document.getElementById("app")!)).catch(error => {
+  console.error("Desktop progress initialization failed", error);
+});

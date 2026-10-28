@@ -39,6 +39,7 @@ async function packaged(t, change = {}) {
     "main.js": "require('./steam-achievements.js')",
     "preload.js": "sandboxed preload",
     "steam-achievements.js": "main-process bridge",
+    "steam-save.js": "account save storage",
     "steam-achievements/catalog.json": JSON.stringify(change.catalog ?? catalog),
     "package.json": JSON.stringify({ dependencies: { "steamworks.js": "0.4.0" }, steamBuild: true }),
     "node_modules/steamworks.js/index.js": "native loader",
@@ -202,4 +203,8 @@ test("workflow only marks explicit Steam uploads and preserves all macOS signing
       });
     }
   }
+});
+test('packaged payload rejects omitted Auto-Cloud save implementation',async t=>{
+ const built=await packaged(t,{omit:'steam-save.js'});
+ assert.throws(built.verify,/steam-save/);
 });

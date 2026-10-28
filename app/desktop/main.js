@@ -4,7 +4,8 @@
 // a real desktop window" — rendering, audio, input, leaderboard. It did, so it
 // is now the shipping shell: electron-builder.yml turns it into an NSIS
 // installer, a dmg and an AppImage. Steam achievements stay in the main process
-// behind a sandboxed preload; there is no auto-update or Steam Cloud yet.
+// behind a sandboxed preload. Auto-Cloud watches account JSON in Steam builds;
+// there is no auto-update.
 //
 // It loads the `--mode native` bundle, not the web one. That mode exists because
 // a service worker inside a shell that already ships every asset locally caches
@@ -14,10 +15,16 @@
 // updating, and a worker that outlives a depot update would silently run old
 // code with nothing to evict it.
 
-const { app, BrowserWindow, protocol, net, shell, ipcMain } = require("electron");
+const { app, BrowserWindow, protocol, net, shell, ipcMain, dialog } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { createSteamAchievements, UNLOCK_CHANNEL } = require("./steam-achievements.js");
+const { createSteamAchievements, UNLOCK_CHANNEL, isTrustedSender } = require("./steam-achievements.js");
+
+const { createSaveStore, saveRoot } = require("./steam-save.js");
+const steamBuild = app.isPackaged && require("./package.json").steamBuild === true;
+let saves;
+let quitting = false;
+let quitReady = false;
 
 const steam = createSteamAchievements({
   catalog: require(app.isPackaged
@@ -57,8 +64,9 @@ const DIST = app.isPackaged
  *   failure mode is a game with a soundtrack and no effects — which reads as a
  *   mixing bug, not a protocol one.
  *
- *   THE SAVE. Settings, player name and all meta-progression live in
- *   localStorage (app/src/lib/store.ts). file:// documents get an opaque
+ *   THE SAVE. Direct downloads keep progression in localStorage; Steam builds
+ *   migrate that legacy data into account JSON and retain device settings here.
+ *   file:// documents get an opaque
  *   origin, so the store is unreliable across launches and can vanish outright.
  *   Losing a player's ladder progress on a shell detail is not a bug worth
  *   discovering after release.
@@ -135,9 +143,10 @@ function createWindow() {
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
-      // Keep the renderer's only privileged API to an allowlisted achievement
-      // request; the native SDK and sender validation remain in the main process.
+      // Only allowlisted achievements and account-save IPC cross this boundary;
+      // the native SDK, filesystem paths and sender checks remain in main.
       preload: path.join(__dirname, "preload.js"),
+      additionalArguments: steamBuild ? ["--tetrilaunch-steam-save"] : [],
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -158,6 +167,20 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  // Flush renderer IPC first, then native writes, before destroying its frame.
+  // This covers macOS window-close as well as the application Quit action.
+  let closeReady = false;
+  let closing = false;
+  win.on("close", (event) => {
+    if (!saves || closeReady || quitReady) return;
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
+    void flushWindow(win).then(() => { closeReady = true; win.close(); }).catch(async error => {
+      closing = false;
+      if (await confirmUnsavedExit(error)) { closeReady = true; win.close(); }
+    });
+  });
   win.loadURL("app://tetrilaunch/index.html");
   return win;
 }
@@ -193,6 +216,31 @@ function setFullscreen(win, on) {
   win.webContents.executeJavaScript(js, true).catch(() => win.setFullScreen(on));
 }
 
+async function confirmUnsavedExit(error) {
+  const result = await dialog.showMessageBox({ type: "warning", title: "Progress not saved",
+    message: "The latest progress could not be saved.", detail: `${error.message}\nThe existing save is retained. Closing now can lose changes from this session.`,
+    buttons: ["Keep game open", "Close without saving"], defaultId: 0, cancelId: 0 });
+  return result.response === 1;
+}
+async function flushWindow(win) {
+  if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+    await win.webContents.executeJavaScript("window.flushDesktopSave ? window.flushDesktopSave(true) : Promise.resolve()");
+  }
+  await saves?.drain();
+}
+app.on("before-quit", (event) => {
+  if (!saves || quitReady) return;
+  event.preventDefault();
+  if (quitting) return;
+  quitting = true;
+  void Promise.all(BrowserWindow.getAllWindows().map(flushWindow)).then(async () => {
+    await saves.drain(); quitReady = true; app.quit();
+  }).catch(async error => {
+    quitting = false;
+    if (await confirmUnsavedExit(error)) { quitReady = true; app.quit(); }
+  });
+});
+
 // A second launch must hand focus to the window that already exists rather
 // than opening a rival one. Two instances share userData, and userData is
 // where localStorage — the save — lives, so the second writer silently wins.
@@ -215,8 +263,27 @@ if (!app.requestSingleInstanceLock()) {
   if (restartingThroughSteam) app.quit();
   else app.whenReady().then(() => {
     registerAppProtocol();
-    ipcMain.handle(UNLOCK_CHANNEL, (event, apiName) => steam.unlockAchievement(event, apiName));
+    ipcMain.handle(UNLOCK_CHANNEL, (event, apiName) => {
+      // A Steam account switch must not award the old account's cached ledger
+      // to the newly logged-in user while the save error asks for a restart.
+      if (steamBuild && !saves?.isCurrentAccount()) return false;
+      return steam.unlockAchievement(event, apiName);
+    });
     steam.initialize();
+    if (steamBuild) {
+      saves = createSaveStore({
+        root: saveRoot(process.platform, { appData: app.getPath("appData"), home: app.getPath("home") }),
+        getAccountId: () => steam.getAccountId(),
+      });
+      ipcMain.handle("steam:save-open", (event, legacy) => {
+        if (!isTrustedSender(event)) throw new Error("Untrusted save request");
+        return saves.open(legacy);
+      });
+      ipcMain.handle("steam:save-write", (event, values) => {
+        if (!isTrustedSender(event)) throw new Error("Untrusted save request");
+        return saves.write(values);
+      });
+    }
     const win = createWindow();
 
     // THE KEYS THE SHELL OWNS. F11 toggles fullscreen — the convention on
