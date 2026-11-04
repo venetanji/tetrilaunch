@@ -117,6 +117,7 @@ export const DEVICES: Device[] = [
   // exactly that much, on the most common window in the world, and invisible
   // on the ultrawide row where the gutters are symmetric.
   { name: "Web · 1280x720 laptop", platform: "web", w: 1280, h: 720, dpr: 1, insets: NONE, pointer: "fine" },
+  { name: "Web · 1280x800 handheld", platform: "web", w: 1280, h: 800, dpr: 1, insets: NONE, pointer: "fine" },
   // A DESKTOP WINDOW, which is not the same thing as a desktop viewport.
   //
   // Every web row above is a viewport whose height is a round number, because
