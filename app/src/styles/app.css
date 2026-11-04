@@ -1518,6 +1518,17 @@ body.crt-off #app::after { display: none; }
   .tierhub__contract.is-shut .tierhub__preview { opacity: 0.5; }
 }
 
+/* Menu magnification can bring this rail below the roomy 470px query even
+   though the physical screen is larger. Keep its preview art at the roomy
+   size in this range so magnification does not make those images smaller. */
+@media (min-width: 1100px) and (max-width: 1400px) and (min-height: 680px) and (max-height: 850px) and (min-aspect-ratio: 3/2) {
+  @container rail (min-height: 360px) and (max-height: 470px) {
+    .menu--hub .tierhub__preview .piece-mini { height: 20px; width: calc(20px * var(--mini-cols) / 2); }
+    .menu--hub .tierhub__preview .ico { width: 32px; height: 32px; }
+    .menu--hub .tierhub__preview .mat-icon { width: 30px; height: 30px; }
+  }
+}
+
 /* ---------- THE ALERT MINO (screens.ts's alertMinoHTML) ----------
    The one directive, as a single amber cell in the corner of the control that
    performs it. The carrying control also takes the warm border (`.btn--next`),
