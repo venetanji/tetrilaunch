@@ -6,6 +6,13 @@ const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 await server.listen();
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH });
 try {
+  const startup = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await startup.addInitScript(() => { window.desktopSave = { open: async () => { throw new Error('Steam unavailable'); }, write: async () => {} }; });
+  await startup.goto(server.resolvedUrls.local[0], { waitUntil: 'networkidle' });
+  const startupRetry = startup.locator('#desktop-save-error button');
+  await startupRetry.waitFor();
+  assert.equal(await startupRetry.textContent(), 'Retry save', 'startup failure must not advertise a controller handler that has not started');
+  await startup.close();
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   await page.addInitScript(() => {
     window.failSave = false;
@@ -30,6 +37,7 @@ try {
     progressStorage.setItem('tetrilaunch.best', '123');
   });
   await page.locator('#desktop-save-error').waitFor();
+  assert.equal(await page.locator('#desktop-save-error button').textContent(), 'Retry save (controller confirm)', 'running app advertises the available controller retry');
   assert.equal(await page.evaluate(() => window.__tl.state), 'paused');
   assert.equal(await page.evaluate(() => window.__tl.input.keys.size), 0, 'quiescing clears held gameplay keys');
   await page.keyboard.press('p');

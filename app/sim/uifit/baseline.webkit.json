@@ -569,6 +569,63 @@
     ".hud--contract .pl-notch value sits -0.63px above its label",
     ".pl-tier value sits -0.63px above its label"
   ],
+  "Web \u00b7 1280x800 handheld|hud-contract-lines|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|hud-contract-setpiece|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|hud-contract|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-queue value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-card-aim-pad|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-card-aim|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-card-kbd|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-card-well|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-end-licence|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-end-won|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-hilite-rotate|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-hud-0|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-hud-1|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-hud-2|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
+  "Web \u00b7 1280x800 handheld|lesson-hud-3|inkline": [
+    ".hud--contract .pl-notch value sits -0.63px above its label",
+    ".pl-tier value sits -0.63px above its label"
+  ],
   "Web \u00b7 1512x945 MacBook|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.74px above its label",
     ".pl-tier value sits -0.75px above its label"

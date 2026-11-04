@@ -102,7 +102,8 @@ function showSaveError(error: Error): void {
   const text = document.createElement('p');
   text.textContent = `Progress could not be saved or loaded. Your existing save has not been reset. ${error.message}`;
   const retry = document.createElement('button');
-  retry.textContent = 'Retry save (controller confirm)';
+  // The gamepad poller only exists after the account opens and App starts.
+  retry.textContent = accountStorage ? 'Retry save (controller confirm)' : 'Retry save';
   retry.onclick = () => {
     if (!accountStorage) { location.reload(); return; }
     retry.disabled = true;
