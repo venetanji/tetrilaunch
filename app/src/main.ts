@@ -633,6 +633,8 @@ class App {
   private ctx: CanvasRenderingContext2D;
   private overlay: HTMLElement;
   private guard: HTMLElement;
+  /** Global keyboard and pad listeners outlive DOM inertness during save failures. */
+  private saveQuiesced = false;
 
   private state: AppState = "splash";
   private auth: AuthState = authState();
@@ -1331,10 +1333,18 @@ class App {
     // "after the save has been read", and stating it here cannot be undone by
     // someone tidying the field declarations.
     window.addEventListener('desktop-save-quiesce', () => {
+      this.saveQuiesced = true;
+      this.input?.suspend();
       if (this.state === 'playing') this.pause();
       root.inert = true;
     });
-    window.addEventListener('desktop-save-resume', () => { root.inert = false; });
+    window.addEventListener('desktop-save-resume', () => {
+      // A failed close flush also emits resume; it must not dismiss a save
+      // error that its own failed write just opened. Retry removes it first.
+      if (document.getElementById('desktop-save-error')) return;
+      this.saveQuiesced = false;
+      root.inert = false;
+    });
     this.settings = loadSettings();
     this.meta = reconcileAchievements(this.meta, this.settings.devMode);
     this.meta = saveMeta(this.meta);
@@ -1349,6 +1359,8 @@ class App {
       // Read live, like the gamepad hooks: the Controls toggle re-jobs the
       // wheel without a restart.
       () => this.settings.wheelRotates,
+      // This listener is global too; an old game can outlive a menu screen.
+      () => !this.saveQuiesced,
     );
 
     this.overlay.addEventListener("click", this.onClick);
@@ -1508,6 +1520,13 @@ class App {
         else if (this.state === "paused") this.resume();
       },
       onCapture: (button) => {
+        if (this.saveQuiesced) {
+          // The notice is outside the inert app, so the normal pad navigation
+          // cannot reach it. A fresh confirm edge retries; every other edge is
+          // consumed while polling continues, so held buttons cannot replay.
+          if (button === PAD_CONFIRM) document.querySelector<HTMLButtonElement>("#desktop-save-error button")?.click();
+          return true;
+        }
         if (this.state !== "controls" || this.controlsTab !== "gamepad" || !this.rebinding) {
           return false;
         }
@@ -7431,7 +7450,7 @@ class App {
     this.setState("paused");
   }
   private resume(): void {
-    if (this.state !== "paused" || !this.game) return;
+    if (this.saveQuiesced || this.state !== "paused" || !this.game) return;
     this.game.paused = false;
     this.last = performance.now();
     this.acc = 0;
@@ -8902,7 +8921,10 @@ class App {
   }
 
   // ---------------- events ----------------
+  // The error notice is outside the inert app; let its Retry button receive
+  // native keyboard input while keeping global gameplay/menu shortcuts idle.
   private onGlobalKey = (e: KeyboardEvent): void => {
+    if (this.saveQuiesced) return;
     // A live keyboard rebind capture eats the next keypress whole (Escape
     // cancels rather than binding — a pause key you can't type would strand
     // the player).
@@ -9077,6 +9099,7 @@ class App {
    *  every screen — including the draft's focus-restoring re-render, which is
    *  what lets pad selection survive a card toggle. */
   private onPadUiButton(button: number): boolean {
+    if (this.saveQuiesced) return true;
     // A PAD PRESS EDGE IS A RELEASE, for the arm machine's purposes. The pad
     // emits no release event of its own (the Gamepad API is a state snapshot),
     // so an armed Quit would sit waiting for a keyup or a pointerup that a pad
@@ -9200,6 +9223,7 @@ class App {
   }
 
   private onClick = (e: MouseEvent): void => {
+    if (this.saveQuiesced) return;
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-game],[data-toggle]");
     if (!el) return;
     // THE DEAD BAY ANSWERS NOTHING, for the pointer as it already does for the

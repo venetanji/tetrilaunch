@@ -102,9 +102,10 @@ function showSaveError(error: Error): void {
   const text = document.createElement('p');
   text.textContent = `Progress could not be saved or loaded. Your existing save has not been reset. ${error.message}`;
   const retry = document.createElement('button');
-  retry.textContent = 'Retry save';
+  retry.textContent = 'Retry save (controller confirm)';
   retry.onclick = () => {
     if (!accountStorage) { location.reload(); return; }
+    retry.disabled = true;
     void accountStorage.flush().then(() => {
       notice?.remove(); window.dispatchEvent(new Event('desktop-save-resume'));
     }).catch(showSaveError);

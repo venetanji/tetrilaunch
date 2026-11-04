@@ -1923,4 +1923,5 @@ console.log("no new violations.");
 // and screenshot runs retain their existing scope and engine selection.
 if (ENGINE === "chromium" && !ONLY_DEVICE && !ONLY_SCREEN && !SHOTS && !UPDATE) {
   execFileSync(process.execPath, [resolve(HERE, "handheld-menu.mjs")], { stdio: "inherit" });
+  execFileSync(process.execPath, [resolve(HERE, "../../scripts/test-save-quiesce.mjs")], { stdio: "inherit" });
 }
