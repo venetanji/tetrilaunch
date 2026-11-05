@@ -2,7 +2,7 @@ name: Marketing distribution checks
 
 on:
   pull_request:
-    branches: [staging]
+    branches: [staging, main]
     paths:
       - 'marketing/**'
       - 'demo/**'

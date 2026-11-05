@@ -20,13 +20,13 @@ landing page; an onward playable link has not been approved by the reviewer.
 
 ## Store readiness
 
-On 2026-10-21, the official Steam URL for the documented App ID 5270760 redirected
-to the generic Steam homepage, not a public Tetrilaunch product listing. The
-Steam card therefore says coming soon and is non-interactive. iOS and Android
-public store listings are also pending; no product IDs or release date are
-invented. Replace the matching pending card with a real link only after the
-specific public product page is verified. Do not link a generic store homepage
-or GitHub Releases (which would bypass the paid desktop store).
+The public App Store listing is now available at
+https://apps.apple.com/hk/app/tetrilaunch/id6807063851 (app ID 6807063851).
+Steam's public product page is https://store.steampowered.com/app/5270760/Tetrilaunch/;
+it is linked as a wishlist for the upcoming desktop release, not a purchase.
+No release date is promised. Android remains a non-interactive pending card
+until its specific public listing is verified. Do not substitute a generic
+store homepage or GitHub Releases (which would bypass the paid desktop store).
 
 Existing TestFlight and Android closed-testing entry points remain under a
 collapsed, explicitly labeled testing section. They are not public store links.

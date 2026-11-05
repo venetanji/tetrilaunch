@@ -43,3 +43,15 @@ test('Pages builds from app emit the marketing artifact instead of the full game
   assert.match(html, /Store pages/);
   assert.doesNotMatch(html, /<script[^>]+type="module"|rel="manifest"/);
 });
+test('public pages link verified stores while keeping Android pending', () => {
+  for (const page of ['index.html', 'about.html']) {
+    const html = readFileSync(`${root}marketing/dist/${page}`, 'utf8');
+    assert.match(html, /<a\b[^>]*href="https:\/\/store\.steampowered\.com\/app\/5270760\/Tetrilaunch\/"[^>]*>[\s\S]*?Wishlist on Steam[\s\S]*?<\/a>/,
+      `${page}: Steam wishlist points at the verified product`);
+    assert.match(html, /<a\b[^>]*href="https:\/\/apps\.apple\.com\/hk\/app\/tetrilaunch\/id6807063851"[^>]*>[\s\S]*?App Store[\s\S]*?<\/a>/,
+      `${page}: App Store points at the verified app`);
+    assert.match(html, /<div\b[^>]*aria-disabled="true"[^>]*>[\s\S]*?Android[\s\S]*?Public store listing pending[\s\S]*?<\/div>/,
+      `${page}: Android remains an honest pending card`);
+    assert.doesNotMatch(html, /href="https:\/\/play\.google\.com/, `${page}: no unverified Android listing`);
+  }
+});

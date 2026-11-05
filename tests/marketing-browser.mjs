@@ -82,11 +82,26 @@ try {
   }
   assert.ok(hrefs.some(href => /privacy/.test(href)), 'Privacy link');
   assert.ok(hrefs.some(href => /support/.test(href)), 'Support link');
-  assert.ok(!hrefs.some(href => /store\.steampowered\.com|apps\.apple\.com|play\.google\.com/.test(href)), 'Unverified stores must not be live links');
-  assert.equal(await page.locator('#stores [aria-disabled="true"]').count(), 2, 'Steam and mobile pending cards are explicitly disabled');
+  const stores = [
+    ['Wishlist on Steam', 'https://store.steampowered.com/app/5270760/Tetrilaunch/'],
+    ['Download on the App Store', 'https://apps.apple.com/hk/app/tetrilaunch/id6807063851'],
+  ];
+  for (const [name, href] of stores) {
+    const link = page.getByRole('link', { name, exact: false });
+    assert.equal(await link.count(), 1, `${name}: one accessible store link`);
+    assert.equal(await link.getAttribute('href'), href, `${name}: verified product destination`);
+    assert.equal(await link.getAttribute('aria-disabled'), null, `${name}: enabled link`);
+    assert.equal(await link.getAttribute('target'), '_blank', `${name}: opens separately`);
+    assert.ok((await link.getAttribute('rel')).split(/\s+/).includes('noopener'), `${name}: isolates the opened page`);
+    await link.focus();
+    assert.ok(await link.evaluate(el => el === document.activeElement), `${name}: keyboard focusable`);
+  }
+  assert.ok(!hrefs.some(href => /play\.google\.com/.test(href)), 'Unverified Android store must not be a live link');
+  assert.equal(await page.locator('#stores [aria-disabled="true"]').count(), 1, 'Only Android remains explicitly disabled');
+  assert.match(await page.locator('#stores [aria-disabled="true"]').textContent(), /Android/);
   assert.equal(await page.locator('#stores [aria-disabled="true"] a[href], #stores a[aria-disabled="true"][href]').count(), 0, 'Disabled store cards cannot navigate');
   await page.keyboard.press('Tab');
-  assert.ok(await page.evaluate(() => document.activeElement instanceof HTMLAnchorElement || document.activeElement instanceof HTMLButtonElement), 'Keyboard can reach an interactive control');
+  assert.ok(await page.evaluate(() => document.activeElement.matches('a[href], button, summary')), 'Keyboard can reach an interactive control');
   for (const route of ['/about', '/privacy', '/terms', '/support']) {
     const response = await page.goto(origin + route, { waitUntil: 'networkidle' });
     assert.equal(response.status(), 200, `Route ${route} exists`);
