@@ -390,7 +390,9 @@ The desktop Actions workflow selects the same config only for a dispatch with
 The regular installer scripts never request Steam relaunch. Missing Steam
 leaves normal gameplay available. App ID `5270760` is supplied explicitly, so
 no local app ID file is needed. The overlay is not enabled or performance
-validated. Steam Cloud and auto-update remain unimplemented; `publish: null`
+validated. Steam Auto-Cloud uses account JSON in explicit Steam builds (see
+`../../docs/STEAM-AUTO-CLOUD.md`); live sync validation and configuration are still owed.
+Auto-update remains unimplemented; `publish: null`
 continues to suppress update manifests.
 
 The Windows native addon imports `VCRUNTIME140.dll`; Electron's Windows x64

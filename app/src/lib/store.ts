@@ -1,4 +1,5 @@
-// Small persisted settings + player-name + meta-progression store (localStorage).
+// Persisted settings + player-name + meta-progression; Steam swaps in account storage.
+import { progressStorage } from "./desktop-save";
 import { BOARD_SANDBOX, type BoardId } from "./api";
 import {
   newMeta, ownedTracks, refundRetiredUnlocks, SCHOOL_FLIGHTS, SLOT_BASE, SLOT_CAP,
@@ -184,7 +185,7 @@ const RETIRED_SETTINGS = ["stickPull"];
 
 export function loadSettings(): Settings {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Record<string, unknown>;
+    const saved = JSON.parse(progressStorage.getItem(SETTINGS_KEY) || "{}") as Record<string, unknown>;
     for (const k of RETIRED_SETTINGS) delete saved[k];
     // The device answer goes in BETWEEN the declared defaults and the save, so
     // it can only ever fill a key the player has not answered themselves. See
@@ -197,18 +198,18 @@ export function loadSettings(): Settings {
 
 export function saveSettings(s: Settings): void {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    progressStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   } catch {
     /* ignore */
   }
 }
 
 export function loadName(): string {
-  return localStorage.getItem(NAME_KEY) || "";
+  return progressStorage.getItem(NAME_KEY) || "";
 }
 export function saveName(name: string): void {
   try {
-    localStorage.setItem(NAME_KEY, name);
+    progressStorage.setItem(NAME_KEY, name);
   } catch {
     /* ignore */
   }
@@ -237,13 +238,13 @@ function bestKey(board: BoardId): string {
 }
 
 export function loadBest(board: BoardId = 1): number {
-  const n = Number(localStorage.getItem(bestKey(board)) || 0);
+  const n = Number(progressStorage.getItem(bestKey(board)) || 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 export function saveBest(score: number, board: BoardId = 1): void {
   if (score > loadBest(board)) {
     try {
-      localStorage.setItem(bestKey(board), String(score));
+      progressStorage.setItem(bestKey(board), String(score));
     } catch {
       /* ignore */
     }
@@ -257,13 +258,13 @@ export function saveBest(score: number, board: BoardId = 1): void {
 const BAYS_KEY = "tetrilaunch.bays";
 
 export function loadBaysPlayed(): number {
-  const n = Number(localStorage.getItem(BAYS_KEY) || 0);
+  const n = Number(progressStorage.getItem(BAYS_KEY) || 0);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 export function bumpBaysPlayed(): number {
   const n = loadBaysPlayed() + 1;
   try {
-    localStorage.setItem(BAYS_KEY, String(n));
+    progressStorage.setItem(BAYS_KEY, String(n));
   } catch {
     /* ignore */
   }
@@ -280,7 +281,7 @@ export function bumpBaysPlayed(): number {
  */
 export function loadMeta(): MetaState {
   try {
-    const raw = JSON.parse(localStorage.getItem(META_KEY) || "{}");
+    const raw = JSON.parse(progressStorage.getItem(META_KEY) || "{}");
     const meta = { ...newMeta(), ...raw } as MetaState;
     meta.achievements = achievementIds(meta.achievements);
     if (!Array.isArray(meta.unlocks)) meta.unlocks = [];
@@ -541,7 +542,7 @@ export function loadMeta(): MetaState {
 export function saveMeta(m: MetaState): MetaState {
   const reconciled = reconcileAchievements(m);
   try {
-    localStorage.setItem(META_KEY, JSON.stringify(reconciled));
+    progressStorage.setItem(META_KEY, JSON.stringify(reconciled));
   } catch {
     /* ignore */
   }

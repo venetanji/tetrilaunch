@@ -1095,10 +1095,13 @@ export class InputController {
    *  when it takes the pointer away) and cancelAim is idempotent, so ordering
    *  between the two does not matter. This covers the blurs that come with no
    *  pointercancel at all — alt-tab with the button still physically down. */
-  private onBlur = (): void => {
+  /** Drop held gestures when a save failure covers the game, just as on blur. */
+  suspend(): void {
     this.releaseKeyboard();
     this.cancelAim();
-  };
+  }
+
+  private onBlur = (): void => { this.suspend(); };
 
   // Continuous keyboard aim/power (web fallback), plus the once-a-frame flush
   // of a held mouse's target (see pendingTarget). The arrows stay as fixed

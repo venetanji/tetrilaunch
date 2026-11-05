@@ -22,6 +22,7 @@
  * actually produce in a real engine. Neither replaces the other.
  */
 import { createServer } from "vite";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1916,3 +1917,11 @@ if (regressions.length || fixed.length || grown.length) {
   process.exit(1);
 }
 console.log("no new violations.");
+
+// This browser regression belongs to the Chromium fit gate, not npm test:
+// Android and iOS jobs run the latter without installing a browser. Filtered
+// and screenshot runs retain their existing scope and engine selection.
+if (ENGINE === "chromium" && !ONLY_DEVICE && !ONLY_SCREEN && !SHOTS && !UPDATE) {
+  execFileSync(process.execPath, [resolve(HERE, "handheld-menu.mjs")], { stdio: "inherit" });
+  execFileSync(process.execPath, [resolve(HERE, "../../scripts/test-save-quiesce.mjs")], { stdio: "inherit" });
+}

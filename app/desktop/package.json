@@ -8,7 +8,7 @@
   "desktopName": "tetrilaunch.desktop",
   "scripts": {
     "start": "electron .",
-    "test": "node --test steam-achievements.test.cjs scripts/verify-steam-package.test.cjs",
+    "test": "node --test steam-achievements.test.cjs steam-save.test.cjs steam-save-lifecycle.test.cjs scripts/verify-steam-package.test.cjs",
     "check:version": "node scripts/check-version.mjs",
     "icons": "node scripts/make-icons.mjs",
     "dist": "npm run check:version && electron-builder --publish never",

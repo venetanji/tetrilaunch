@@ -45,6 +45,7 @@ files:
   - main.js
   - preload.js
   - steam-achievements.js
+  - steam-save.js
   - package.json
   # ASAR file sets walk directories; a single-file `from` is silently omitted.
   - from: ../../store/steam/achievements

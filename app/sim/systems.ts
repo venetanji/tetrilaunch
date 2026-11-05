@@ -34524,4 +34524,8 @@ console.log(
     ? "\nAll systems checks passed."
     : `\n${failures} check(s) FAILED.`,
 );
+
+// Desktop persistence pins execute against the real adapter, without Electron.
+await import("./desktop-save");
+
 process.exit(failures === 0 ? 0 : 1);

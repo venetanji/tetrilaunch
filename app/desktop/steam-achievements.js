@@ -44,6 +44,13 @@ function createSteamAchievements({
 
   return {
     initialize,
+    getAccountId() {
+      if (!initialize()) return null;
+      try {
+        const id = client.localplayer.getSteamId().steamId64;
+        return typeof id === "bigint" ? id.toString() : null;
+      } catch { return null; }
+    },
     restartIfNecessary() {
       try {
         return binding().restartAppIfNecessary(STEAM_APP_ID) === true;
@@ -78,4 +85,4 @@ function createSteamAchievements({
   };
 }
 
-module.exports = { createSteamAchievements, STEAM_APP_ID, UNLOCK_CHANNEL };
+module.exports = { createSteamAchievements, STEAM_APP_ID, UNLOCK_CHANNEL, isTrustedSender };
