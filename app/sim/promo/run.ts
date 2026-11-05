@@ -52,6 +52,7 @@ import type {} from "./harness";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = resolve(HERE, "..", "..");
 
+const DRIVER_ONLY = process.env.PROMO_DRIVER_ONLY === "1";
 const argv = process.argv.slice(2);
 const flag = (name: string): boolean => argv.includes(`--${name}`);
 const opts = (name: string): string[] =>
@@ -102,7 +103,7 @@ const trace = (msg: string): void => { if (VERBOSE) console.log(`    … ${msg}`
 /** Per-frame detail; only under --verbose=frames. */
 const trace2 = (msg: string): void => { if (opt("verbose") === "frames") console.log(`      ‥ ${msg}`); };
 
-if (!SHOTS && BEAT_IDS.length === 0) {
+if (!DRIVER_ONLY && !SHOTS && BEAT_IDS.length === 0) {
   console.error("nothing to do: pass --beat=<id> (one of " + BEAT_ORDER.join(", ") + "), --all, or --shots");
   process.exit(1);
 }
@@ -140,7 +141,7 @@ function findFfmpeg(): string | null {
   return null;
 }
 
-const FFMPEG = findFfmpeg();
+const FFMPEG = DRIVER_ONLY ? null : findFfmpeg();
 
 function run(cmd: string, args: string[], stdin?: () => AsyncIterable<Buffer>): Promise<number> {
   return new Promise((res) => {
@@ -292,6 +293,9 @@ function clockShim(cfg: { epoch: number; rngSeed: number }): void {
   let seq = 0;
   const timers = new Map<number, Timer>();
   let rafQ: Array<[number, FrameRequestCallback]> = [];
+  // Capture-only paint barrier: never expose the native clock to the game loop.
+  const nativeRaf = window.requestAnimationFrame.bind(window);
+  w.__capturePaint = () => new Promise<void>(resolve => nativeRaf(() => nativeRaf(() => resolve())));
   performance.now = () => now;
   // Date, pinned to the virtual clock (see 2 above). A Proxy rather than a
   // subclass so every other member — parse, UTC, prototype, Symbol.species —
@@ -352,6 +356,7 @@ function clockShim(cfg: { epoch: number; rngSeed: number }): void {
       for (const [, cb] of due) {
         try { cb(now); } catch (e) { console.error(e); }
       }
+      (w.__captureCssClock as { sync(delta: number): void } | undefined)?.sync(dt);
     }
     return now;
   };
@@ -368,6 +373,7 @@ declare global {
   interface Window {
     __tick: (frames: number, dt: number) => number;
     __clock: { now(): number; reset(): void };
+    __capturePaint: () => Promise<void>;
   }
 }
 
@@ -389,10 +395,11 @@ const MOCK_BOARD = {
   })),
 };
 
-async function openDriver(
+export async function openDriver(
   browser: Browser, base: string,
   view: { w: number; h: number; dpr: number; touch?: boolean },
   meta: Partial<MetaState> = {},
+  capture: { nativeCompositor?: boolean } = {},
 ): Promise<Driver> {
   // `touch` is what app.css's `@media (pointer: coarse)` rules key off (see
   // sim/uifit/run.ts on the two flags): the store shots want the phone's rail,
@@ -473,19 +480,26 @@ async function openDriver(
   }
   await page.evaluate(() => window.__promo.fonts());
   const cdp = await ctx.newCDPSession(page);
+  const nativeCompositor = !!capture.nativeCompositor;
   // Chromium's virtual time is still what the STYLESHEET runs on — the
   // tower's ride, a modal's pop, the HUD's warn tint fading in — so it is
   // paused here and advanced by one frame's worth alongside every frame that
   // is actually filmed. Un-filmed frames leave it paused: nothing on screen is
   // being kept, and each advance costs a CDP round trip.
-  await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
+  // Native capture owns JS and CSS clocks explicitly. Leave Chromium's
+  // compositor scheduler on real time; paused CDP time can prevent presentation
+  // entirely once all CSS effects are manually paused.
+  if (!nativeCompositor) await cdp.send("Emulation.setVirtualTimePolicy", { policy: "pause" });
   const timing: Record<string, number> = {};
   const advance = async (ms: number): Promise<void> => {
+    if (nativeCompositor) return;
     const done = new Promise<void>((r) => cdp.once("Emulation.virtualTimeBudgetExpired", () => r()));
     await cdp.send("Emulation.setVirtualTimePolicy", { policy: "advance", budget: ms });
     await done;
   };
   let cursor = 0;
+  let previousNativePng: Buffer | null = null;
+  let previousNativeClock: number | null = null;
   const driver: Driver = {
     ctx, page, cdp, timing,
     frame: async (css = true) => {
@@ -496,6 +510,10 @@ async function openDriver(
     },
     tick: (frames) => time(timing, "skip", () => page.evaluate(([n, dt]) => window.__tick(n, dt), [frames, CLOCK_DT] as const)),
     shot: (attempts = 5, waitMs = 20_000) => time(timing, "png", async () => {
+      // Hands/HUD replacement can create CSS effects after the last game tick.
+      // Freeze and seek those too before the native compositor sees the frame.
+      await page.evaluate(() => window.__captureCssClock?.sync(0));
+      const nativeClock = nativeCompositor ? await page.evaluate(() => window.__clock.now()) : null;
       trace2("shot");
       // A capture that has not returned in 20s is a STALLED COMPOSITOR, not a
       // slow one — measured on the `climb` beat's paused-bay-plus-modal DOM
@@ -509,6 +527,12 @@ async function openDriver(
       // waking the compositor up at all; several small nudges recover cases a
       // single one does not.
       for (let attempt = 0; ; attempt++) {
+        if (nativeCompositor) {
+          await Promise.race([
+            page.evaluate(() => window.__capturePaint()),
+            sleep(5_000).then(() => { throw new Error('Native compositor rAF barrier timed out'); }),
+          ]);
+        }
         // THE CLIP IS WHAT MAKES THE PNG DEVICE PIXELS. A bare captureScreenshot
         // answers in CSS pixels on the bundled headless Chromium — a
         // 2868x1320 store shot came back 1434x660, which App Store Connect
@@ -523,9 +547,24 @@ async function openDriver(
         });
         const r = await Promise.race([capture, sleep(waitMs).then(() => null)]);
         if (r !== null) {
+          const png = Buffer.from(r.data, "base64");
+          // Native capture can return the preceding surface even after rAF.
+          // Retry the SAME held video state, never tick physics/CSS to hide it.
+          // Unchanged-clock regression shots and genuinely static scenes remain
+          // valid; after the bounded retries return the evidence, not a fake frame.
+          if (nativeCompositor && nativeClock !== previousNativeClock && previousNativePng?.equals(png) && attempt < attempts - 1) {
+            timing.nativeStaleRetries = (timing.nativeStaleRetries ?? 0) + 1;
+            console.log(`  · same-state native presentation retry at video clock ${nativeClock}ms`);
+            continue;
+          }
+          if (nativeCompositor && nativeClock !== previousNativeClock && previousNativePng?.equals(png)) {
+            timing.nativeRepeatBoundExhausted = (timing.nativeRepeatBoundExhausted ?? 0) + 1;
+            console.log(`  · native repeat bound exhausted at video clock ${nativeClock}ms; preserving static/repeated frame for validation`);
+          }
+          if (nativeCompositor) { previousNativePng = png; previousNativeClock = nativeClock; }
           if (attempt > 0) console.log(`  · capture completed on retry ${attempt}`);
           trace2("shot done");
-          return Buffer.from(r.data, "base64");
+          return png;
         }
         const state = await Promise.race([
           page.evaluate(() => ({
@@ -1330,6 +1369,7 @@ async function runShots(browser: Browser, base: string): Promise<void> {
  * Main
  * ------------------------------------------------------------------------- */
 
+if (!DRIVER_ONLY) {
 await mkdir(OUT, { recursive: true });
 await access(resolve(APP, "node_modules")).catch(() => {
   console.error("✗ app/node_modules is missing — npm install first");
@@ -1399,3 +1439,6 @@ try {
   await browser.close();
   await server.close();
 }
+
+}
+
